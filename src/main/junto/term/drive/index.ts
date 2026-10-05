@@ -14,6 +14,7 @@ export {
 
 export {
   ManagedTerminalDrive,
+  isMailHold,
   DEFAULT_QUEUE_TIMEOUT_MS,
   GROK_MIN_POST_SPAWN_MS,
   MAIL_DRAFT_RECHECK_MS,

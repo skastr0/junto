@@ -18,10 +18,13 @@
  * pause law, so a paused canvas or seat keeps its mail queued until play
  * (`onResumed`). A sender may opt one message out of the wake.
  *
- * Mail also yields to the operator: while they are composing in the seat's
- * input, typing there would submit their draft along with the mail. That
- * mail waits, in order, and is written once the draft is gone
- * (`onSeatLive`). There is no time limit: a draft is never typed over.
+ * Mail is typed only into an available input box. While the operator is
+ * composing there, a dialog is up, or the box cannot be read, typing would
+ * submit their draft, answer the dialog, or land nowhere known. That mail
+ * waits, in order, and is written once the box is available (`onSeatLive`,
+ * plus a retry every minute). There is no time limit, so the wait is told
+ * on the seat: once for a draft, every minute for a dialog or an unreadable
+ * box, which only the operator can clear.
  *
  * Delivery is at-most-once per process: one flight per message, shared by
  * every caller that asks, and a delivered message is remembered until its
@@ -41,11 +44,18 @@ import {
   sanitizeDeliveryLine,
   type MailLineOptions,
 } from "@shared/message-delivery";
+import type { ComposerHold } from "@shared/composer-availability";
 import {
   wireTrafficOfMail,
   wireTrafficPreview,
   type WireTrafficEvent,
 } from "@shared/wire-traffic";
+
+/**
+ * How often held mail is tried again and, for a dialog or an unreadable box,
+ * told again on the seat.
+ */
+export const MAIL_HELD_RETRY_MS = 60_000;
 
 /** Whether a message reached its seat now, or waits for the seat to come up. */
 export type MailDeliveryState = "delivered" | "waiting";
@@ -69,14 +79,14 @@ export type MessageDeliveryTransport = {
     nodeId: string,
   ) => Promise<boolean>;
   /**
-   * Type the text into the seat's input and submit it. "held" when the
-   * operator is drafting there and nothing was typed; "lost" when the seat
-   * had no live process to write into.
+   * Type the text into the seat's input and submit it. A hold reason when
+   * the input box was not available and nothing was typed; "lost" when the
+   * seat had no live process to write into.
    */
   readonly writeMail: (
     bindingId: string,
     text: string,
-  ) => Promise<"written" | "held" | "lost">;
+  ) => Promise<"written" | "lost" | ComposerHold>;
 };
 
 /** Perf tag for each authority read: a boot scan, or one message's delivery. */
@@ -153,8 +163,10 @@ export class MessageDeliveryService {
   private readonly waking = new Set<string>();
   /** Mail whose failed write was already told; cleared once it lands. */
   private readonly failedTold = new Set<string>();
-  /** Mail held for an operator draft that was already told; cleared once it lands. */
-  private readonly heldTold = new Set<string>();
+  /** Held mail already told, with why and when; cleared once it lands. */
+  private readonly heldTold = new Map<string, { reason: ComposerHold; at: number }>();
+  /** One retry timer per held message; see MAIL_HELD_RETRY_MS. */
+  private readonly heldRetries = new Map<string, ReturnType<typeof setTimeout>>();
   /** Told once per message typed into a seat (wire pulse, preambles). */
   private readonly deliveredListeners = new Set<(event: WireTrafficEvent) => void>();
 
@@ -194,6 +206,8 @@ export class MessageDeliveryService {
     this.waking.clear();
     this.failedTold.clear();
     this.heldTold.clear();
+    for (const timer of this.heldRetries.values()) clearTimeout(timer);
+    this.heldRetries.clear();
   }
 
   private active(generation: number): boolean {
@@ -301,17 +315,12 @@ export class MessageDeliveryService {
       transport.writeMail(target.bindingId, payload),
     );
     if (!this.active(generation)) return "waiting";
-    // The operator is drafting in the seat's input. Nothing was typed and
-    // nothing failed: the transport says when the draft is gone. Say so
-    // once, so the wait is never a silent one.
-    if (written === "held") {
-      if (!this.heldTold.has(key)) {
-        this.heldTold.add(key);
-        this.emitDelivered({
-          ...wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: Date.now() }),
-          held: true,
-        });
-      }
+    // The seat's input box was not available. Nothing was typed and nothing
+    // failed: the transport says when it is available again, and a retry
+    // every minute does not depend on that signal.
+    if (written !== "written" && written !== "lost") {
+      this.tellHeld(canvas, nodeId, message, key, written);
+      this.retryHeld(canvas, nodeId, messageId, key, generation);
       return "waiting";
     }
     if (written !== "written") {
@@ -329,6 +338,9 @@ export class MessageDeliveryService {
     }
     this.failedTold.delete(key);
     this.heldTold.delete(key);
+    const retry = this.heldRetries.get(key);
+    if (retry !== undefined) clearTimeout(retry);
+    this.heldRetries.delete(key);
     this.delivered.add(key);
     this.waiting.delete(key);
     this.noWake.delete(messageId);
@@ -344,6 +356,51 @@ export class MessageDeliveryService {
       return false;
     });
     return "delivered";
+  }
+
+  /**
+   * Say on the seat that this mail is waiting and why. A draft is told once:
+   * the operator is looking at it. A dialog or an unreadable box is told
+   * again every minute, because that wait ends only when someone notices.
+   */
+  private tellHeld(
+    canvas: string,
+    nodeId: string,
+    message: Message,
+    key: string,
+    reason: ComposerHold,
+  ): void {
+    const now = Date.now();
+    const told = this.heldTold.get(key);
+    if (
+      told !== undefined &&
+      told.reason === reason &&
+      (reason === "draft" || now - told.at < MAIL_HELD_RETRY_MS)
+    ) {
+      return;
+    }
+    this.heldTold.set(key, { reason, at: now });
+    this.emitDelivered({
+      ...wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: now }),
+      held: reason,
+    });
+  }
+
+  /** Try a held message again in a minute, whatever else happens. */
+  private retryHeld(
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+    key: string,
+    generation: number,
+  ): void {
+    if (this.heldRetries.has(key)) return;
+    const timer = setTimeout(() => {
+      this.heldRetries.delete(key);
+      if (this.active(generation)) void this.deliver(canvas, nodeId, messageId);
+    }, MAIL_HELD_RETRY_MS);
+    timer.unref?.();
+    this.heldRetries.set(key, timer);
   }
 
   /**

@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src/shared/crew";
 import {
+  MAIL_HELD_RETRY_MS,
   MessageDeliveryService,
   type MessageDeliveryStore,
 } from "../src/main/junto/work/message-delivery";
@@ -51,8 +52,8 @@ const rig = (
   options: {
     live?: boolean;
     writeOk?: () => boolean;
-    /** The operator is drafting in the seat's input. */
-    held?: () => boolean;
+    /** Why the seat's input box is not available, if it is not. */
+    held?: () => "draft" | "dialog" | "unreadable" | undefined;
     /** Wake result; the default leaves the seat down (paused canvas). */
     wake?: () => boolean;
     /** The supervisor's answer to "did this seat run junto onboard". */
@@ -97,7 +98,8 @@ const rig = (
         if (writing > 1) overlapped = true;
         await new Promise((resolve) => setTimeout(resolve, 2));
         writing -= 1;
-        if (options.held?.()) return "held";
+        const hold = options.held?.();
+        if (hold !== undefined) return hold;
         if (options.writeOk && !options.writeOk()) return "lost";
         writes.push(text);
         return "written";
@@ -384,8 +386,8 @@ describe("mail delivery", () => {
 
   it("holds mail while the operator drafts, tells no failure, and types it in order after", async () => {
     let drafting = true;
-    const seat = rig({ held: () => drafting });
-    const events: Array<{ failed?: true; held?: true; messageId: string }> = [];
+    const seat = rig({ held: () => (drafting ? "draft" : undefined) });
+    const events: Array<{ failed?: true; held?: string; messageId: string }> = [];
     seat.service.subscribeDelivered((event) => events.push(event));
     seat.append(mail("01A", "first"));
     seat.append(mail("01B", "second"));
@@ -396,8 +398,8 @@ describe("mail delivery", () => {
     expect(seat.writes).toHaveLength(0);
     // Told held once per message, never as a failure.
     expect(events.map((event) => [event.messageId, event.held, event.failed])).toEqual([
-      ["01A", true, undefined],
-      ["01B", true, undefined],
+      ["01A", "draft", undefined],
+      ["01B", "draft", undefined],
     ]);
     events.length = 0;
     expect(seat.messages[0]?.metadata?.deliveredAt).toBeUndefined();
@@ -409,6 +411,39 @@ describe("mail delivery", () => {
     expect(seat.writes[0]).toContain("junto msg read 01A");
     expect(seat.writes[1]).toContain("junto msg read 01B");
     expect(events.map((event) => event.messageId)).toEqual(["01A", "01B"]);
+  });
+
+  it("tells a dialog hold again every minute, retries by itself, and types the mail once the box is free", async () => {
+    vi.useFakeTimers();
+    let hold: "dialog" | "unreadable" | undefined = "dialog";
+    const seat = rig({ held: () => hold });
+    const events: Array<{ held?: string; messageId: string }> = [];
+    seat.service.subscribeDelivered((event) => events.push(event));
+    seat.append(mail("01A", "first"));
+
+    const first = seat.service.deliver(canvas, nodeId, "01A");
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await first).toBe("waiting");
+    expect(events.map((event) => event.held)).toEqual(["dialog"]);
+
+    // Nothing announces the box: the minute retry finds it still held and says so again.
+    await vi.advanceTimersByTimeAsync(MAIL_HELD_RETRY_MS + 50);
+    expect(events.map((event) => event.held)).toEqual(["dialog", "dialog"]);
+    // A changed reason is told at once on the next attempt.
+    hold = "unreadable";
+    const again = seat.service.deliver(canvas, nodeId, "01A");
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await again).toBe("waiting");
+    expect(events.map((event) => event.held)).toEqual(["dialog", "dialog", "unreadable"]);
+    expect(seat.writes).toHaveLength(0);
+
+    // The box frees up and no release signal arrives: the retry still delivers.
+    hold = undefined;
+    await vi.advanceTimersByTimeAsync(MAIL_HELD_RETRY_MS + 50);
+    expect(seat.writes).toHaveLength(1);
+    expect(events.at(-1)?.held).toBeUndefined();
+    expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
+    vi.useRealTimers();
   });
 
   it("writes nothing after suspend", async () => {

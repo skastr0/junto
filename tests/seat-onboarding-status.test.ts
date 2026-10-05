@@ -55,16 +55,16 @@ describe("onboarding copy", () => {
   });
 
   it("every refusal reads as a sentence with no middle dot", () => {
-    for (const reason of ["dialog", "draft", "unavailable"] as const) {
+    for (const reason of ["dialog", "draft", "unreadable", "unavailable"] as const) {
       const message = onboardNudgeRefusal(reason);
       expect(message).toMatch(/^[A-Z].*\.$/);
       expect(message).not.toContain("\u00b7");
     }
   });
 
-  it("tells a dialog, a draft and an unready terminal apart, and never blames a running turn", () => {
-    const messages = (["dialog", "draft", "unavailable"] as const).map(onboardNudgeRefusal);
-    expect(new Set(messages).size).toBe(3);
+  it("tells a dialog, a draft, an unreadable box and an unready terminal apart, and never blames a running turn", () => {
+    const messages = (["dialog", "draft", "unreadable", "unavailable"] as const).map(onboardNudgeRefusal);
+    expect(new Set(messages).size).toBe(4);
     // A nudge is typed mid-turn, so "the agent is busy" is never the reason.
     for (const message of messages) expect(message).not.toMatch(/turn|busy/i);
   });

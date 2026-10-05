@@ -70,6 +70,7 @@ import {
 import { buildOnboardNudge } from "@shared/managed-terminal-injection";
 import {
   onboardNudgeRefusal,
+  type OnboardNudgeRefusal,
   type SeatOnboardNudgeResult,
 } from "@shared/seat-onboarding-status";
 import {
@@ -2085,11 +2086,12 @@ export const registerJuntoIpc = (): void => {
       const interjectOnboardNudge = async (
         bindingId: string,
         text: string,
-      ): Promise<"written" | "dialog" | "draft" | "unavailable"> => {
+      ): Promise<"written" | OnboardNudgeRefusal> => {
         if (productAutomationSuspended || !mailReadyNow(bindingId)) return "unavailable";
-        if (seatStateRuntime.getState(bindingId) === "attention") return "dialog";
+        // The drive's mail gate is the one check: it types only into an
+        // available input box and says why it did not.
         const outcome = await managedDrive.writeMail(bindingId, text);
-        return outcome === "written" ? "written" : outcome === "held" ? "draft" : "unavailable";
+        return outcome === "lost" ? "unavailable" : outcome;
       };
       // The operator's nudge: the same sentence, typed now.
       privilegedIpc.handle(

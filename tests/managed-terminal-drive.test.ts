@@ -386,19 +386,88 @@ describe("ManagedTerminalDrive", () => {
     expect(writes.map((w) => w.data)).not.toContain(INTERRUPT_BYTE);
   });
 
-  it("mail types into any screen the operator is not drafting on", async () => {
+  it("mail types mid-turn into an empty box, and into text the operator never typed", async () => {
     idle = false;
-    // A dialog or unreadable box (null), and a draft the operator never
-    // typed (our own stuck paste): neither holds mail.
-    for (const verdict of ["draft", null] as const) {
-      writes.length = 0;
-      drive = makeDrive({
-        composerVerdict: () => verdict,
-        operatorInput: new OperatorInterlock(() => clock),
-      });
-      await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
-      expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+    // An empty box is typeable whatever the seat is doing. A draft with no
+    // operator keystroke behind it (the drive's own stuck paste, a harness
+    // hint) is still a composer.
+    for (const verdict of ["empty", "draft"] as const) {
+      for (const state of ["working", "idle"]) {
+        writes.length = 0;
+        drive = makeDrive({
+          composerVerdict: () => verdict,
+          seatState: () => state,
+          operatorInput: new OperatorInterlock(() => clock),
+        });
+        await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
+        expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+      }
     }
+  });
+
+  it("mail is held on a dialog, and types nothing into it", async () => {
+    vi.useFakeTimers();
+    drive = makeDrive({ composerVerdict: () => null, seatState: () => "attention" });
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("dialog");
+    await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS * 10);
+    expect(writes).toEqual([]);
+  });
+
+  it("mail is held on a seat asking for attention, whatever its input box reads", async () => {
+    vi.useFakeTimers();
+    for (const verdict of ["empty", "draft", null] as const) {
+      drive?.resetForTest();
+      drive = makeDrive({ composerVerdict: () => verdict, seatState: () => "attention" });
+      await expect(drive.writeMail("b1", "mail")).resolves.toBe("dialog");
+      expect(writes).toEqual([]);
+    }
+  });
+
+  it("mail is held on an input box that cannot be read, idle or mid-turn", async () => {
+    vi.useFakeTimers();
+    for (const state of ["idle", "working", undefined]) {
+      drive?.resetForTest();
+      drive = makeDrive({ composerVerdict: () => null, seatState: () => state });
+      await expect(drive.writeMail("b1", "mail")).resolves.toBe("unreadable");
+      expect(writes).toEqual([]);
+    }
+  });
+
+  it("mail held on a dialog goes in by itself once the box reads empty", async () => {
+    vi.useFakeTimers();
+    let verdict: "empty" | null = null;
+    let state = "attention";
+    drive = makeDrive({ composerVerdict: () => verdict, seatState: () => state });
+    const writable: string[] = [];
+    drive.subscribeMailWritable((bindingId) => writable.push(bindingId));
+    await expect(drive.writeMail("b1", "first")).resolves.toBe("dialog");
+    // Mail behind it waits with it, for the same reason.
+    await expect(drive.writeMail("b1", "second")).resolves.toBe("dialog");
+    await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS * 4);
+    expect(writable).toEqual([]);
+    // The box reading empty is not enough while the seat still asks.
+    verdict = "empty";
+    await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS * 2);
+    expect(writable).toEqual([]);
+    state = "idle";
+    await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS);
+    expect(writable).toEqual(["b1"]);
+    await expect(drive.writeMail("b1", "first")).resolves.toBe("written");
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("first"), CR]);
+  });
+
+  it("a hold says why it holds now: a dialog that opens over a draft", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    let state = "idle";
+    drive = makeDrive({ composerVerdict: () => "draft", seatState: () => state, operatorInput });
+    operatorInput.noteInput("b1");
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("draft");
+    state = "attention";
+    await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS);
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("dialog");
+    expect(writes).toEqual([]);
   });
 
   it("mail holds while the operator's draft is in the composer, and types nothing", async () => {
@@ -407,7 +476,7 @@ describe("ManagedTerminalDrive", () => {
     drive = makeDrive({ composerVerdict: () => "draft", operatorInput });
     operatorInput.noteInput("b1");
     clock += OPERATOR_INPUT_LATCH_MS + 1;
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("draft");
     expect(writes).toEqual([]);
   });
 
@@ -416,7 +485,7 @@ describe("ManagedTerminalDrive", () => {
     const operatorInput = new OperatorInterlock(() => clock);
     drive = makeDrive({ composerVerdict: () => "empty", operatorInput });
     operatorInput.noteInput("b1");
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("draft");
     expect(writes).toEqual([]);
   });
 
@@ -429,7 +498,7 @@ describe("ManagedTerminalDrive", () => {
     drive.subscribeMailWritable((bindingId) => writable.push(bindingId));
     operatorInput.noteInput("b1");
     clock += OPERATOR_INPUT_LATCH_MS + 1;
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("draft");
     await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS * 3);
     expect(writable).toEqual([]);
     verdict = "empty";
@@ -446,9 +515,9 @@ describe("ManagedTerminalDrive", () => {
     drive = makeDrive({ composerVerdict: () => verdict, operatorInput });
     operatorInput.noteInput("b1");
     clock += OPERATOR_INPUT_LATCH_MS + 1;
-    await expect(drive.writeMail("b1", "first")).resolves.toBe("held");
+    await expect(drive.writeMail("b1", "first")).resolves.toBe("draft");
     verdict = "empty";
-    await expect(drive.writeMail("b1", "second")).resolves.toBe("held");
+    await expect(drive.writeMail("b1", "second")).resolves.toBe("draft");
     expect(writes).toEqual([]);
   });
 
@@ -490,7 +559,7 @@ describe("ManagedTerminalDrive", () => {
     // The operator takes the suggestion up.
     operatorInput.noteInput("b1");
     clock += OPERATOR_INPUT_LATCH_MS + 1;
-    await expect(drive.writeMail("b1", "more")).resolves.toBe("held");
+    await expect(drive.writeMail("b1", "more")).resolves.toBe("draft");
   });
 
   it("a draft that appeared under a fresh keystroke stays the operator's across repaints", async () => {
@@ -502,7 +571,7 @@ describe("ManagedTerminalDrive", () => {
     clock += OPERATOR_INPUT_LATCH_MS + 1;
     // A dialog closing over the draft repaints it; the record is kept.
     drive.onComposerDraft("b1");
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("draft");
     expect(writes).toEqual([]);
   });
 
@@ -512,7 +581,7 @@ describe("ManagedTerminalDrive", () => {
     drive = makeDrive({ composerVerdict: () => "draft", operatorInput });
     operatorInput.noteInput("b1");
     clock += OPERATOR_INPUT_LATCH_MS + 1;
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("draft");
     drive.invalidateBinding("b1");
     await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
   });

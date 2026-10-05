@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
-  CR,
+  INTERRUPT_BYTE,
   MAIL_DRAFT_RECHECK_MS,
   OPERATOR_INPUT_LATCH_MS,
   OperatorInterlock,
@@ -33,6 +33,7 @@ const setup = () => {
       operatorInput,
       composerVerdict: (bindingId) =>
         holder.loop?.runtime.composerVerdict(bindingId) ?? null,
+      seatState: (bindingId) => holder.loop?.runtime.getState(bindingId),
     },
   });
   holder.loop = loop;
@@ -61,7 +62,7 @@ afterEach(() => {
 });
 
 describe("mail and the operator's draft (Claude)", () => {
-  it("holds mail while a draft is on the composer, then types it once the operator submits", async () => {
+  it("holds mail while a draft is on the composer, then types it once the operator clears it", async () => {
     const { loop, flush, operatorTypes } = setup();
     await flush();
     expect(loop.runtime.composerVerdict(BINDING)).toBe("empty");
@@ -74,7 +75,7 @@ describe("mail and the operator's draft (Claude)", () => {
 
     const writable: string[] = [];
     loop.drive.subscribeMailWritable((bindingId) => writable.push(bindingId));
-    await expect(loop.drive.writeMail(BINDING, "mail from A")).resolves.toBe("held");
+    await expect(loop.drive.writeMail(BINDING, "mail from A")).resolves.toBe("draft");
     await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS * 20);
     await flush();
     // Nothing typed, and the draft was not submitted.
@@ -82,14 +83,14 @@ describe("mail and the operator's draft (Claude)", () => {
     expect(loop.tui.getPhase()).toBe("idle");
     expect(writable).toEqual([]);
 
-    operatorTypes(CR);
+    // The operator drops the draft (Ctrl+C clears Claude's composer).
+    operatorTypes(INTERRUPT_BYTE);
     await flush();
-    expect(loop.tui.getPhase()).toBe("working");
+    expect(loop.runtime.composerVerdict(BINDING)).toBe("empty");
     await vi.advanceTimersByTimeAsync(OPERATOR_INPUT_LATCH_MS + MAIL_DRAFT_RECHECK_MS);
     await flush();
     expect(writable).toEqual([BINDING]);
 
-    // The seat is mid-turn; mail types into it anyway, as before.
     const mail = loop.drive.writeMail(BINDING, "mail from A");
     await vi.advanceTimersByTimeAsync(200);
     await flush();

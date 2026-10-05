@@ -48,7 +48,7 @@ export function WirePulseFeed({ edges }: { readonly edges: ReadonlyArray<FlowEdg
     const onTraffic = (event: WireTrafficEvent): void => {
       if (event.canvasName !== state$.canvasName.peek()) return;
       // A failed or held write crossed nothing.
-      if (event.failed === true || event.held === true) return;
+      if (event.failed === true || event.held !== undefined) return;
       if (document.visibilityState === "hidden") return;
       const target = pickPulseEdge(edgesRef.current, event);
       if (target === undefined || event.fromNodeId === undefined) return;

@@ -80,6 +80,7 @@ export const createManagedTerminalDrive = (
       return promptHasPasteChip(snap);
     },
     composerVerdict: deps.composerVerdict,
+    seatState: deps.seatState,
     harnessFor: deps.harnessFor,
     ...(deps.bracketedPaste !== undefined ? { bracketedPaste: deps.bracketedPaste } : {}),
     ...(deps.assertClipboardSafe !== undefined

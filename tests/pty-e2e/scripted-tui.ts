@@ -566,7 +566,9 @@ private idleScreen(composer: readonly string[]): string[] {
       `\x1b]0;${title}\x07` +
       `\x1b]9;${osc9}\x07` +
       "\x1b[H" +
-      body.map((l, i) => l + (i < body.length - 1 ? "\r\n" : "")).join("")
+      // Erase each line's tail, as a real TUI repaint does: without it a
+      // shorter line leaves the previous paint's text behind it.
+      body.map((l, i) => `${l}\x1b[K${i < body.length - 1 ? "\r\n" : ""}`).join("")
     );
   }
 

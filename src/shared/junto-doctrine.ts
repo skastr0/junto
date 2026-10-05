@@ -250,12 +250,12 @@ Where the operator drew a task path, completing does not close the task: it hand
 
 A task that arrives back with an epoch bump was sent back to you: prior claims and check results are stale, so answer the rules again and re-run the checks.`;
 
-const MSG_REFERENCE = `Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mail is never refused and never needs a retry: it is typed into the recipient's input at once, whatever the recipient is doing, and a recipient whose seat is not up gets it when the seat starts. The one wait is the operator: mail never types over a message they are composing in that seat, and goes in once their draft is gone. Kinds are \`notice\`, \`prompt\`, and \`receipt\`; a typed notice says \`mail from <seat>\`, and adds a pointer to \`junto onboard\` when the recipient has not onboarded yet. Avoid acknowledgement loops.
+const MSG_REFERENCE = `Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mail is never refused and never needs a retry: it is typed into the recipient's input at once, whatever the recipient is doing, and a recipient whose seat is not up gets it when the seat starts. The one wait is the input box: mail is never typed over a message the operator is composing in that seat, into a dialog, or onto a screen Junto cannot read, and goes in once the box is free. Kinds are \`notice\`, \`prompt\`, and \`receipt\`; a typed notice says \`mail from <seat>\`, and adds a pointer to \`junto onboard\` when the recipient has not onboarded yet. Avoid acknowledgement loops.
 
 Seat wait and seat read require a local peer, and are unavailable for Remote seats.`;
 
 const MSG_SEND_REFERENCE =
-  "A send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet, or the operator is composing in it). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence.";
+  "A send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet, or its input box is not free: the operator is composing, or a dialog is up). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence.";
 
 const REVIEWS_REFERENCE = `The directed \`verdict.post\` grant lets you review these authors on a configured Command Center. It grants no peer message, prompt, wait or terminal-read permission by itself. Read \`junto msg list\` for review receipt mail, then inspect the cited work. Use the receipt's target board, task id, epoch and subjectHash exactly; \`tasks show\` is available only with a separate task-list grant.
 

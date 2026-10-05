@@ -7,11 +7,16 @@
  *
  * Fail-closed for gated writes (pulses, doctrine, board, overseer): an
  * unwritable seat or screen → bounded queue or immediate refusal by caller
- * policy. Mail is not gated on the seat: `writeMail` types into it whatever
- * it is doing and lets the harness queue or steer it. Mail yields to one
- * thing only, the operator's own draft in the composer.
+ * policy. Mail is not gated on the seat being idle: `writeMail` types
+ * mid-turn and lets the harness queue or steer it. It is gated on the input
+ * box: mail is typed only into a composer the probes can read and the
+ * operator is not using, and is held otherwise (composer-availability).
  */
 
+import {
+  composerAvailability,
+  type ComposerHold,
+} from "../../../../shared/composer-availability";
 import {
   OPERATOR_INPUT_LATCH_MS,
   OperatorInterlock,
@@ -169,13 +174,18 @@ export type WritePromptOptions = {
 
 /**
  * What became of one mail write. "written": the paste and its CR reached the
- * PTY. "held": the operator is drafting in the composer, so nothing was
- * typed; `subscribeMailWritable` says when to try again. "lost": the seat had
- * no live generation to write into.
+ * PTY. "lost": the seat had no live generation to write into. Anything else
+ * is a hold, with nothing typed: the operator is composing there ("draft"),
+ * the harness is asking something ("dialog"), or the input box cannot be
+ * read ("unreadable"). `subscribeMailWritable` says when to try again.
  */
-export type MailWriteOutcome = "written" | "held" | "lost";
+export type MailWriteOutcome = "written" | "lost" | ComposerHold;
 
-/** How often held mail looks again for the operator's draft to be gone. */
+/** True when a mail write was held rather than written or lost. */
+export const isMailHold = (outcome: MailWriteOutcome): outcome is ComposerHold =>
+  outcome !== "written" && outcome !== "lost";
+
+/** How often held mail looks again for the input box to be available. */
 export const MAIL_DRAFT_RECHECK_MS = 250;
 
 /** Grok TUI trap: paste before ~1.5s post-spawn is swallowed. */
@@ -238,6 +248,11 @@ export type ManagedTerminalDriveOptions = {
   readonly pasteChip?: PromptPendingLookup;
   /** Composer typing gate (see ComposerVerdictLookup). */
   readonly composerVerdict?: ComposerVerdictLookup;
+  /**
+   * The seat's state, read by the mail gate: `attention` is a dialog and
+   * always holds mail. Absent = only the composer reading decides.
+   */
+  readonly seatState?: (bindingId: string) => string | undefined;
   /** Binding → harness id. Absent lookup = no Hermes multiline refuse. */
   readonly harnessFor?: SeatHarnessLookup;
   /**
@@ -272,6 +287,7 @@ export class ManagedTerminalDrive {
   private readonly pendingText: PromptTextLookup | undefined;
   private readonly pasteChip: PromptPendingLookup | undefined;
   private readonly composerVerdict: ComposerVerdictLookup | undefined;
+  private readonly seatState: ((bindingId: string) => string | undefined) | undefined;
   private readonly harnessFor: SeatHarnessLookup | undefined;
   private readonly bracketedPaste: ((bindingId: string) => boolean) | undefined;
   private readonly interlock: OperatorInterlock;
@@ -323,8 +339,11 @@ export class ManagedTerminalDrive {
     string,
     { readonly operator: boolean; readonly inputVersion: number }
   >();
-  /** Bindings whose mail is held for the operator's draft, with the recheck timer. */
-  private readonly mailHeld = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Bindings whose mail is held, with why and the recheck timer. */
+  private readonly mailHeld = new Map<
+    string,
+    { reason: ComposerHold; timer: ReturnType<typeof setTimeout> }
+  >();
   private readonly mailWritableListeners = new Set<(bindingId: string) => void>();
   /** A paste landed without submission proof. Only a new binding generation clears it. */
   private readonly writtenUnresolved = new Set<string>();
@@ -373,6 +392,7 @@ export class ManagedTerminalDrive {
       this.tracer?.event(bindingId, "evidence", { probe: "composer", value: verdict });
       return verdict;
     };
+    this.seatState = options.seatState;
     this.harnessFor = options.harnessFor;
     this.bracketedPaste = options.bracketedPaste;
     this.interlock = options.operatorInput ?? seatOperatorInterlock;
@@ -670,9 +690,11 @@ export class ManagedTerminalDrive {
    * a multiline paste (the chip never collapses), so its newlines become
    * spaces.
    *
-   * The one thing mail yields to is the operator composing in this seat: a
-   * paste there would append to their draft and the CR would submit both.
-   * That mail is held, with nothing typed, until the draft is gone.
+   * Mail is typed only into an available input box. A paste and Enter on
+   * top of the operator's draft submits both; on a dialog it answers the
+   * dialog (Claude's folder-trust prompt defaults to "No, exit"); on a screen
+   * the probes cannot read it lands on nobody knows what. That mail is held,
+   * with nothing typed, until the box is available.
    */
   writeMail(bindingId: string, text: string): Promise<MailWriteOutcome> {
     if (this.tracer === undefined) return this.writeMailInternal(bindingId, text);
@@ -702,18 +724,36 @@ export class ManagedTerminalDrive {
     );
   }
 
-  /** Hold this binding's mail and look again until the draft is gone. */
-  private holdMail(bindingId: string): void {
+  /**
+   * Why mail may not be typed into this seat now, or undefined when it may.
+   * A seat asking for attention always holds. A draft holds only when it is
+   * the operator's; the drive's own stuck paste and text the harness painted
+   * are still a composer, and typeable. No composer lookup (a test seam)
+   * reads as an empty box.
+   */
+  private mailHold(bindingId: string): ComposerHold | undefined {
+    const availability = composerAvailability(
+      this.composerVerdict === undefined ? "empty" : this.composerVerdict(bindingId),
+      this.seatState?.(bindingId),
+    );
+    if (availability === "dialog") return "dialog";
+    if (this.operatorDrafting(bindingId)) return "draft";
+    return availability === "unreadable" ? "unreadable" : undefined;
+  }
+
+  /** Hold this binding's mail and look again until the box is available. */
+  private holdMail(bindingId: string, reason: ComposerHold): void {
     if (this.mailHeld.has(bindingId)) return;
-    const arm = (): void => {
+    const arm = (why: ComposerHold): void => {
       const timer = setTimeout(() => {
-        if (this.mailHeld.get(bindingId) !== timer) return;
-        if (this.operatorDrafting(bindingId)) {
-          arm();
+        if (this.mailHeld.get(bindingId)?.timer !== timer) return;
+        const still = this.mailHold(bindingId);
+        if (still !== undefined) {
+          arm(still);
           return;
         }
         this.mailHeld.delete(bindingId);
-        this.traceState(bindingId, "gate", { gate: "mail-operator-draft", held: false });
+        this.traceState(bindingId, "gate", { gate: "mail-composer", held: false });
         for (const listener of this.mailWritableListeners) {
           try {
             listener(bindingId);
@@ -723,9 +763,9 @@ export class ManagedTerminalDrive {
         }
       }, Math.max(MAIL_DRAFT_RECHECK_MS, this.interlock.quietInMs(bindingId)));
       timer.unref?.();
-      this.mailHeld.set(bindingId, timer);
+      this.mailHeld.set(bindingId, { reason: why, timer });
     };
-    arm();
+    arm(reason);
   }
 
   /**
@@ -743,7 +783,8 @@ export class ManagedTerminalDrive {
     const generation = this.lifecycleGeneration;
     if (!this.active(generation)) return "lost";
     // Mail behind held mail waits with it, so the seat reads in send order.
-    if (this.mailHeld.has(bindingId)) return "held";
+    const heldBehind = this.mailHeld.get(bindingId);
+    if (heldBehind !== undefined) return heldBehind.reason;
     const body = hermesRefusesMultilinePaste(this.harnessFor?.(bindingId), text)
       ? text.replace(/\s*\n\s*/g, " ")
       : text;
@@ -761,10 +802,11 @@ export class ManagedTerminalDrive {
         // Checked inside the hold and before the first await: operator bytes
         // that arrive from here on are parked until the CR, so no keystroke
         // can fall between this check and the paste.
-        if (this.operatorDrafting(bindingId)) {
-          this.traceState(bindingId, "gate", { gate: "mail-operator-draft", held: true });
-          this.holdMail(bindingId);
-          return "held";
+        const hold = this.mailHold(bindingId);
+        if (hold !== undefined) {
+          this.traceState(bindingId, "gate", { gate: "mail-composer", held: true, reason: hold });
+          this.holdMail(bindingId, hold);
+          return hold;
         }
         const [paste, cr] = buildMailWriteSequence(
           body,
@@ -1172,7 +1214,7 @@ export class ManagedTerminalDrive {
     this.compactNoopCounts.clear();
     this.readyAfter.clear();
     this.lastWrittenText.clear();
-    for (const timer of this.mailHeld.values()) clearTimeout(timer);
+    for (const held of this.mailHeld.values()) clearTimeout(held.timer);
     this.mailHeld.clear();
     this.inputVersionAtPaste.clear();
     this.draftOrigin.clear();
@@ -1204,8 +1246,8 @@ export class ManagedTerminalDrive {
     this.compactNoopCounts.delete(bindingId);
     this.readyAfter.delete(bindingId);
     this.lastWrittenText.delete(bindingId);
-    const heldTimer = this.mailHeld.get(bindingId);
-    if (heldTimer !== undefined) clearTimeout(heldTimer);
+    const held = this.mailHeld.get(bindingId);
+    if (held !== undefined) clearTimeout(held.timer);
     this.mailHeld.delete(bindingId);
     this.inputVersionAtPaste.delete(bindingId);
     this.draftOrigin.delete(bindingId);

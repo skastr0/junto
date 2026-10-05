@@ -140,11 +140,17 @@ describe("mail", () => {
     expect(unsent?.text).toBe("mail did not land, retrying");
   });
   it("tells mail held for the operator's draft, amber, whoever sent it", () => {
-    const [peer] = wirePreambles({ ...event, fromNodeId: "planner", kind: "notice", preview: "rebase", held: true }, title, NOW);
+    const [peer] = wirePreambles({ ...event, fromNodeId: "planner", kind: "notice", preview: "rebase", held: "draft" }, title, NOW);
     expect(peer).toMatchObject({
       nodeId: "builder", text: "mail from planner waits for your draft: rebase", action: "mail-held", tone: "amber",
     });
-    const [own] = wirePreambles({ ...event, kind: "prompt", held: true }, title, NOW);
+    const [own] = wirePreambles({ ...event, kind: "prompt", held: "draft" }, title, NOW);
     expect(own?.text).toBe("mail waits for your draft");
+    const [dialog] = wirePreambles({ ...event, fromNodeId: "planner", kind: "notice", held: "dialog" }, title, NOW);
+    expect(dialog?.text).toBe("mail from planner waits: this seat is showing a dialog");
+    const [unread] = wirePreambles({ ...event, kind: "notice", held: "unreadable" }, title, NOW);
+    expect(unread).toMatchObject({
+      text: "mail waits: Junto cannot read this seat's input box", action: "mail-held", tone: "amber",
+    });
   });
 });

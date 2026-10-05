@@ -26,7 +26,7 @@ export type SeatOnboardNudgeResult =
   | { readonly ok: false; readonly message: string };
 
 /** Why a nudge the operator asked for was not typed. Nothing reached the seat. */
-export type OnboardNudgeRefusal = "dialog" | "draft" | "unavailable";
+export type OnboardNudgeRefusal = "dialog" | "draft" | "unreadable" | "unavailable";
 
 export const onboardNudgeRefusal = (reason: OnboardNudgeRefusal): string => {
   switch (reason) {
@@ -34,6 +34,8 @@ export const onboardNudgeRefusal = (reason: OnboardNudgeRefusal): string => {
       return "This seat is showing a dialog. Answer it first, then send the nudge.";
     case "draft":
       return "There is a draft in this seat's composer. Send or clear it first.";
+    case "unreadable":
+      return "Junto cannot read this seat's input box right now. Check its terminal.";
     case "unavailable":
       return "This seat's terminal is not ready to be typed into yet.";
   }

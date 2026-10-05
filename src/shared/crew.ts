@@ -45,7 +45,8 @@ export type MailEvidenceRef = typeof MailEvidenceRef.Type;
  * The sender's choice of shape. notice = a short "mail from X" line typed
  * into the recipient's input; prompt = the full text typed in; receipt =
  * review feed. Every kind is typed at once, whatever the recipient is doing;
- * only an operator draft in the recipient's input makes it wait.
+ * it waits only while the recipient's input box is not free (an operator
+ * draft, a dialog, an unreadable screen).
  */
 export const MailKind = Schema.Literals(["notice", "prompt", "receipt"]);
 export type MailKind = typeof MailKind.Type;

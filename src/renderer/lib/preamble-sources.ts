@@ -201,9 +201,15 @@ export const seatStatePreamble = (input: {
  * One message across a wire, told on the receiving seat only when it is a
  * peer's: the operator's own prompts and answers, and Junto's notices, echo
  * what the operator already knows (an answer is told by its signal). A
- * message that failed to land, or that waits for the operator's draft, is
+ * message that failed to land, or that waits for the seat's input box, is
  * told whoever sent it.
  */
+const HELD_REASON = {
+  draft: "waits for your draft",
+  dialog: "waits: this seat is showing a dialog",
+  unreadable: "waits: Junto cannot read this seat's input box",
+} as const;
+
 export const wirePreambles = (
   event: WireTrafficEvent,
   titleOf: (nodeId: string) => string | undefined,
@@ -221,11 +227,11 @@ export const wirePreambles = (
       }),
     ];
   }
-  if (event.held === true) {
+  if (event.held !== undefined) {
     const from = event.fromNodeId === undefined ? "mail" : `mail from ${event.fromName ?? titleOf(event.fromNodeId) ?? "a peer"}`;
     return [
       note("mail", event.canvasName, event.toNodeId, now, TTL.held, {
-        text: `${from} waits for your draft${preview}`,
+        text: `${from} ${HELD_REASON[event.held]}${preview}`,
         provenance: "system",
         action: "mail-held",
         tone: "amber",
