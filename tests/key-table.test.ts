@@ -186,6 +186,25 @@ describe("the key table on macOS", () => {
     expect(resolveKey(key({ key: "z", metaKey: true }), at("terminal"))).toBeNull();
   });
 
+  it("zooms the canvas with Cmd and plus, minus or zero, only while the canvas has the keyboard", () => {
+    expect(resolveKey(key({ key: "=", code: "Equal", metaKey: true }), at("canvas"))).toEqual({ id: "canvas.zoomIn" });
+    expect(resolveKey(key({ key: "+", code: "Equal", metaKey: true, shiftKey: true }), at("canvas"))).toEqual({
+      id: "canvas.zoomIn",
+    });
+    expect(resolveKey(key({ key: "+", code: "NumpadAdd", metaKey: true }), at("canvas"))).toEqual({
+      id: "canvas.zoomIn",
+    });
+    expect(resolveKey(key({ key: "-", code: "Minus", metaKey: true }), at("canvas"))).toEqual({ id: "canvas.zoomOut" });
+    expect(resolveKey(key({ key: "0", code: "Digit0", metaKey: true }), at("canvas"))).toEqual({
+      id: "canvas.zoomReset",
+    });
+    for (const context of ["terminal", "field", "working", "operator"] as const) {
+      expect(resolveKey(key({ key: "=", code: "Equal", metaKey: true }), at(context))).toBeNull();
+      expect(resolveKey(key({ key: "-", code: "Minus", metaKey: true }), at(context))).toBeNull();
+      expect(resolveKey(key({ key: "0", code: "Digit0", metaKey: true }), at(context))).toBeNull();
+    }
+  });
+
   it("has no two shortcuts on one chord in one place", () => {
     expect(keyConflicts(true)).toEqual([]);
   });

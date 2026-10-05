@@ -1,6 +1,7 @@
 import type { CanvasNode } from "@shared/canvas";
 import { cycleActorMirror } from "./actor-mirrors";
 import { cycleAlertFocus } from "./alert-attention";
+import { resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "./canvas-zoom";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
 import { dock$ } from "./dock-state";
 import { cancelFocusSwitcher, focusMruNodeIds } from "./focus-switcher";
@@ -56,6 +57,9 @@ export const KEY_ACTIONS: KeyActions = {
   "alerts.next": () => cycleAlertFocus(),
   "canvas.undo": () => (browserPageInFront() ? false : undo()),
   "canvas.redo": () => (browserPageInFront() ? false : redo()),
+  "canvas.zoomIn": () => zoomCanvasIn(),
+  "canvas.zoomOut": () => zoomCanvasOut(),
+  "canvas.zoomReset": () => resetCanvasZoom(),
   // The key is taken only when a swap happened.
   "mirrors.next": () => cycleActorMirror(1),
   "mirrors.previous": () => cycleActorMirror(-1),

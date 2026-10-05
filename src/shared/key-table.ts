@@ -56,7 +56,10 @@ export type ShortcutId =
   | "mirrors.next"
   | "mirrors.previous"
   | "canvas.undo"
-  | "canvas.redo";
+  | "canvas.redo"
+  | "canvas.zoomIn"
+  | "canvas.zoomOut"
+  | "canvas.zoomReset";
 
 export type ShortcutDef = {
   readonly id: ShortcutId;
@@ -173,6 +176,31 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     other: ["Ctrl+Shift+Z"],
     where: ["canvas", "working"],
   },
+  // Zoom moves the canvas camera, never the size of the whole interface.
+  {
+    id: "canvas.zoomIn",
+    area: "Canvas",
+    does: "Zoom the canvas in",
+    mac: ["Cmd+Equal", "Cmd+Plus"],
+    other: [],
+    where: ["canvas"],
+  },
+  {
+    id: "canvas.zoomOut",
+    area: "Canvas",
+    does: "Zoom the canvas out",
+    mac: ["Cmd+Minus"],
+    other: [],
+    where: ["canvas"],
+  },
+  {
+    id: "canvas.zoomReset",
+    area: "Canvas",
+    does: "Show the canvas at 100 percent",
+    mac: ["Cmd+0"],
+    other: [],
+    where: ["canvas"],
+  },
 ];
 
 /**
@@ -213,10 +241,13 @@ const NAMED_KEYS: Readonly<Record<string, string>> = {
   "[": "BracketLeft",
   "]": "BracketRight",
   "`": "Backquote",
+  "=": "Equal",
+  "+": "Plus",
+  "-": "Minus",
 };
 
 // Characters some layouts only reach with Shift: Shift is not part of them.
-const SHIFT_BLIND = new Set(["Slash"]);
+const SHIFT_BLIND = new Set(["Slash", "Plus"]);
 
 const MODIFIER_KEYS = new Set(["Meta", "Control", "Alt", "Shift", "CapsLock", "Fn"]);
 
@@ -373,6 +404,9 @@ const KEY_LABEL: Readonly<Record<string, string>> = {
   Slash: "/",
   BracketLeft: "[",
   BracketRight: "]",
+  Equal: "=",
+  Plus: "+",
+  Minus: "-",
   Digit: "1 to 9",
   Enter: "↵",
   Escape: "Esc",
