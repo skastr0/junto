@@ -9,6 +9,10 @@
  *
  *   bun run tokens:convert <file or folder>...        rewrite in place
  *   bun run tokens:convert --dry <file or folder>...  report only
+ *   bun run tokens:convert --only .station-,.command-bar src/renderer/styles.css
+ *                                    only the css rules whose selector names
+ *                                    one of these: for a stylesheet with
+ *                                    several owners
  *
  * It rewrites css declarations and Tailwind arbitrary classes. It leaves
  * alone, and lists: inline style objects (fontSize: 12 may feed xterm or a
@@ -164,6 +168,25 @@ const convertSource = (source: string, isCss: boolean): Conversion => {
 /** Convert one file's text. `ext` picks the css or the component rules. */
 export const convert = (source: string, ext: string): Conversion => convertSource(source, ext === ".css");
 
+/**
+ * Convert only the css rules whose selector names one of `selectors`. A
+ * stylesheet shared by several owners converts one owner's rules at a time.
+ */
+export const convertRules = (source: string, selectors: readonly string[]): Conversion => {
+  let converted = 0;
+  let moved = 0;
+  const left: string[] = [];
+  const text = source.replace(/([^{}]+)\{([^{}]*)\}/g, (all, selector: string, body: string) => {
+    if (!selectors.some((name) => selector.includes(name))) return all;
+    const result = convertSource(body, true);
+    converted += result.converted;
+    moved += result.moved;
+    left.push(...result.left);
+    return `${selector}{${result.text}}`;
+  });
+  return { text, converted, moved, left };
+};
+
 const collect = (target: string, out: string[]): void => {
   if (statSync(target).isDirectory()) {
     for (const entry of readdirSync(target)) collect(path.join(target, entry), out);
@@ -175,9 +198,11 @@ const collect = (target: string, out: string[]): void => {
 const main = (): void => {
   const args = process.argv.slice(2);
   const dry = args.includes("--dry");
-  const targets = args.filter((arg) => !arg.startsWith("--"));
+  const onlyAt = args.indexOf("--only");
+  const only = onlyAt >= 0 ? (args[onlyAt + 1] ?? "").split(",").filter(Boolean) : [];
+  const targets = args.filter((arg, index) => !arg.startsWith("--") && index !== onlyAt + 1);
   if (targets.length === 0) {
-    console.error("usage: bun run tokens:convert [--dry] <file or folder>...");
+    console.error("usage: bun run tokens:convert [--dry] [--only <selector,selector>] <file or folder>...");
     process.exit(2);
   }
   const files: string[] = [];
@@ -187,7 +212,8 @@ const main = (): void => {
   let moved = 0;
   for (const file of files.sort()) {
     const source = readFileSync(file, "utf8");
-    const result = convert(source, path.extname(file));
+    if (only.length > 0 && !file.endsWith(".css")) continue;
+    const result = only.length > 0 ? convertRules(source, only) : convert(source, path.extname(file));
     if (result.converted === 0 && result.left.length === 0) continue;
     converted += result.converted;
     moved += result.moved;

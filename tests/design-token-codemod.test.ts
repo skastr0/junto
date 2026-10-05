@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { convert, leadingToken, radiusToken, textToken, trackingToken } from "../scripts/design-token-codemod";
+import { convert, convertRules, leadingToken, radiusToken, textToken, trackingToken } from "../scripts/design-token-codemod";
 import { scan } from "../scripts/lint-design-tokens";
 
 describe("design token codemod", () => {
@@ -57,6 +57,23 @@ describe("design token codemod", () => {
       '<p className="rounded-md rounded-t-xl text-body-lg tracking-label leading-body" style={{ fontSize: 12 }} />',
     );
     expect(result.left).toEqual(["fontSize: 12"]);
+  });
+
+  it("converts only the rules whose selector is named, in a shared stylesheet", () => {
+    const css = [
+      ".station-bar { font-size: 13px; }",
+      ".canvas-node { font-size: 13px; border-radius: 7px; }",
+      "@media (max-width: 600px) { .command-bar__row { border-radius: 7px; } .canvas-node { border-radius: 7px; } }",
+    ].join("\n");
+    const result = convertRules(css, [".station-", ".command-bar"]);
+    expect(result.text).toBe(
+      [
+        ".station-bar { font-size: var(--text-body-lg); }",
+        ".canvas-node { font-size: 13px; border-radius: 7px; }",
+        "@media (max-width: 600px) { .command-bar__row { border-radius: var(--radius-lg); } .canvas-node { border-radius: 7px; } }",
+      ].join("\n"),
+    );
+    expect(result.converted).toBe(2);
   });
 
   it("is stable: a converted file converts to itself", () => {
