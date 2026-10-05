@@ -92,7 +92,7 @@ test.skip("the agent modal header shows the seat's repository on one line and op
     await expect(detail).toHaveCount(0);
     await expect(page.locator(".native-terminal-surface")).toBeVisible();
     // Escape belongs to the terminal: the agent modal closes by its own button.
-    await page.getByRole("button", { name: "Close view" }).click();
+    await page.getByRole("button", { name: "Close view" }).first().click();
     await expect(page.locator(".native-terminal-surface")).toHaveCount(0);
 
     // A seat whose folder is not a repository: no git line, no placeholder.
