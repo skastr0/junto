@@ -58,6 +58,10 @@ export function Textarea({
    * A compact composer for a short remark beside dense content (a comment
    * under a diff line): two lines tall, grows with what is typed up to 160px,
    * then scrolls. No resize handle.
+   *
+   * Dense means compact height in both fields, not one type size: the dense
+   * Input is a one-line list field at 11px, this is prose to be read back at
+   * 12px, the size of the code it sits under.
    */
   readonly dense?: boolean;
 }) {
