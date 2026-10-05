@@ -174,7 +174,6 @@ export function RegionPathsModal({
     <FocusSurface
       measure="document"
       height="fit"
-      layer="detail"
       label="Region folder paths"
       onClose={onClose}
     >

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   focusMeasureCssVars,
@@ -7,9 +7,12 @@ import {
   type FocusMeasure,
 } from "../lib/focus-measure";
 import { scheduleFocusPrimaryControl } from "../lib/focus-ownership";
+import { useModalLayer } from "../lib/modal-stack";
 
 /**
- * Focused single-subject overlay shell.
+ * Focused single-subject overlay shell: the working modal. It sits at
+ * --layer-working and joins the modal stack, so Escape closes only the
+ * topmost surface and closing returns focus to where it was.
  *
  * Default: portal to document.body so inspector backdrop-filter / canvas
  * transforms cannot clip or reparent `position: fixed`. One instance per
@@ -30,7 +33,6 @@ import { scheduleFocusPrimaryControl } from "../lib/focus-ownership";
 export function FocusSurface({
   measure,
   height = "immersive",
-  layer = "work",
   contain = "viewport",
   onClose,
   closeOnEscape = true,
@@ -40,10 +42,15 @@ export function FocusSurface({
   terminalRailsPx,
   aside,
   claimFocusOnOpen = true,
+  onKeyDown,
   children,
 }: {
   readonly measure: FocusMeasure;
   readonly height?: FocusHeight;
+  /**
+   * Retired: every focus surface is a working modal now, at one layer. The
+   * prop is ignored and goes once its last caller drops it.
+   */
   readonly layer?: FocusLayer;
   /** `viewport` = body portal (default). `parent` = absolute fill of parent. */
   readonly contain?: "viewport" | "parent";
@@ -68,26 +75,28 @@ export function FocusSurface({
    * where the operator picks the subject first (the terminal grid).
    */
   readonly claimFocusOnOpen?: boolean;
+  /**
+   * The body's keys, heard wherever focus sits inside the surface, before
+   * Escape and the Tab trap. Call preventDefault to keep a key from them.
+   */
+  readonly onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
   readonly children: ReactNode;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  // Keep latest onClose without re-binding Escape every parent render.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    if (!closeOnEscape) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-      }
-    };
-    // focus-law: Escape-only close of the front focus surface.
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeOnEscape]);
+  const modal = useModalLayer({
+    layer: "working",
+    containerRef: rootRef,
+    // A parent-contained surface shares the screen with the pinned dock.
+    trap: contain === "viewport",
+    isolate: false,
+    onKeyDown,
+    onEscape: () => {
+      if (!closeOnEscape) return false;
+      onClose();
+      return true;
+    },
+  });
 
   // Resizable document surfaces: restore last size for this session.
   useEffect(() => {
@@ -124,9 +133,10 @@ export function FocusSurface({
       ref={rootRef}
       data-focus-surface="1"
       data-focus-owner="interactive"
+      data-layer="working"
+      onKeyDown={modal.onKeyDown}
       className={[
         "focus-surface",
-        `focus-surface--layer-${layer}`,
         `focus-surface--height-${height}`,
         contain === "parent" ? "focus-surface--contain-parent" : "",
         aside ? "focus-surface--has-aside" : "",
@@ -140,7 +150,7 @@ export function FocusSurface({
     >
       <button
         type="button"
-        className="focus-surface__backdrop"
+        data-layer-backdrop
         aria-label={`Close ${label}`}
         tabIndex={-1}
         onClick={() => {

@@ -63,6 +63,7 @@ body {
 .focus-surface {
   position: fixed;
   inset: 0;
+  z-index: var(--layer-working);
   display: flex;
   justify-content: center;
   box-sizing: border-box;
@@ -85,12 +86,7 @@ html[data-junto-platform="darwin"] .focus-surface {
 html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent {
   padding: 16px;
 }
-.focus-surface--layer-work { z-index: 10000; }
-.focus-surface--layer-detail { z-index: 60; }
 .focus-surface-popover { z-index: var(--layer-popover); }
-.focus-surface.focus-surface--contain-parent.focus-surface--layer-work {
-  z-index: 40;
-}
 .focus-surface--height-immersive {
   align-items: stretch;
 }
@@ -98,17 +94,6 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
 .focus-surface--height-resizable {
   align-items: center;
   padding: 24px;
-}
-.focus-surface__backdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  margin: 0;
-  padding: 0;
-  /* deep dim + soft blur — periphery fades so the subject holds attention */
-  background: var(--color-backdrop);
-  backdrop-filter: blur(2px);
-  cursor: default;
 }
 /* Panel + optional outside rail (edges) share one centered frame above the dim. */
 .focus-surface__frame {

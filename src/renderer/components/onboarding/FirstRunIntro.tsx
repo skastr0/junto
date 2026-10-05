@@ -711,7 +711,6 @@ export function FirstRunIntroSurface({
     <FocusSurface
       measure="workspace"
       height="immersive"
-      layer="work"
       label="Welcome to Junto"
       closeOnBackdrop={false}
       onClose={onDone}

@@ -39,7 +39,7 @@ function PremiumStoreHost() {
   const store = overlaySurfaces.store;
   if (!open || !store) return null;
   return (
-    <FocusSurface measure="document" layer="detail" label={store.title} onClose={closeStore}>
+    <FocusSurface measure="document" label={store.title} onClose={closeStore}>
       <OverlayHeader
         eyebrow="premium"
         title={store.title}

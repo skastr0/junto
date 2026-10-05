@@ -18,7 +18,6 @@ export function DetailModal({
     <FocusSurface
       measure="document"
       height="resizable"
-      layer="detail"
       label="Detail"
       onClose={onClose}
       closeOnEscape

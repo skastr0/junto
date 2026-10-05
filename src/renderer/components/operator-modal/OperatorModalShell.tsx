@@ -98,7 +98,6 @@ export function OperatorModalShell({
     >
       <button
         type="button"
-        className="operator-modal__backdrop"
         data-layer-backdrop
         aria-label={`Close ${label}`}
         tabIndex={-1}
@@ -106,7 +105,7 @@ export function OperatorModalShell({
       />
       <div
         ref={frameRef}
-        className={["operator-modal__frame", panelClassName].filter(Boolean).join(" ")}
+        className={["layer-frame", "operator-modal__frame", panelClassName].filter(Boolean).join(" ")}
         role="dialog"
         aria-modal="true"
         aria-label={label}

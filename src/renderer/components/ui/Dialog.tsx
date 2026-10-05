@@ -56,7 +56,6 @@ export function Dialog({
     <div className="junto-dialog" data-layer="working-dialog" data-popover-layer onKeyDown={layer.onKeyDown}>
       <button
         type="button"
-        className="junto-dialog__backdrop"
         data-layer-backdrop
         aria-label="Cancel"
         tabIndex={-1}
@@ -66,7 +65,7 @@ export function Dialog({
       />
       <div
         ref={cardRef}
-        className={["junto-dialog__card", className].filter(Boolean).join(" ")}
+        className={["layer-frame", "junto-dialog__card", className].filter(Boolean).join(" ")}
         role={alert ? "alertdialog" : "dialog"}
         aria-modal="true"
         aria-labelledby={titleId}
@@ -75,10 +74,10 @@ export function Dialog({
         style={{ width }}
       >
         {eyebrow ? <Eyebrow tone="amber">{eyebrow}</Eyebrow> : null}
-        <h2 id={titleId} className="junto-dialog__title text-title">
+        <h2 id={titleId} className="junto-dialog__title">
           {title}
         </h2>
-        {children ? <div className="junto-dialog__body text-body">{children}</div> : null}
+        {children ? <div className="junto-dialog__body">{children}</div> : null}
         {actions ? <div className="junto-dialog__actions">{actions}</div> : null}
       </div>
     </div>,

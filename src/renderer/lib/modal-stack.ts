@@ -24,8 +24,10 @@ const LAYER_RANK: Record<ModalLayer, number> = {
 export type ModalEntry = {
   readonly layer: ModalLayer;
   readonly container: () => HTMLElement | null;
-  /** Escape arrived for this modal. */
-  readonly onEscape: () => void;
+  /** Tab stays inside this modal. */
+  readonly trap: boolean;
+  /** Escape arrived for this modal. False: it is not this modal's to take. */
+  readonly onEscape: () => boolean;
 };
 
 type Stacked = ModalEntry & { readonly seq: number };
@@ -92,25 +94,44 @@ export const nextTabStop = <T extends TabStop>(
 const isPageRoot = (node: unknown): boolean =>
   node === null || node === document.body || node === document.documentElement;
 
+const takeEscape = (event: KeyboardEvent, top: ModalEntry): void => {
+  if (!top.onEscape()) return;
+  event.preventDefault();
+  event.stopPropagation();
+};
+
 /**
  * Focus fell out of every surface (the focused element was removed, or the
  * window was clicked back into). The next key still belongs to the topmost
  * modal: Escape closes it, anything else puts the keyboard back inside it.
  */
-const onStrayKey = (event: KeyboardEvent): void => {
+const onPageKey = (event: KeyboardEvent): void => {
   if (!isPageRoot(event.target) && event.target !== window) return;
   const top = topModal();
   const container = top?.container();
   if (!top || !container) return;
   if (event.key === "Escape") {
-    event.preventDefault();
-    event.stopPropagation();
-    top.onEscape();
+    takeEscape(event, top);
     return;
   }
+  if (!top.trap) return;
   if (event.key === "Meta" || event.key === "Control" || event.key === "Shift" || event.key === "Alt") return;
   if (event.key === "Tab") event.preventDefault();
   claimFocus(container, "gesture", { event, preventScroll: true });
+};
+
+/**
+ * Escape pressed while focus sits somewhere under the topmost modal (a
+ * canvas node, the pinned dock). Bubble phase: a field that uses Escape
+ * itself stops the event first, as it always could.
+ */
+const onOutsideEscape = (event: KeyboardEvent): void => {
+  if (event.key !== "Escape" || isPageRoot(event.target) || event.target === window) return;
+  const top = topModal();
+  const container = top?.container();
+  if (!top || !container) return;
+  if (event.target instanceof Node && container.contains(event.target)) return;
+  takeEscape(event, top);
 };
 
 let listening = false;
@@ -118,7 +139,9 @@ const ensureListening = (): void => {
   if (listening || typeof window === "undefined") return;
   listening = true;
   // focus-law: acts only while a modal is open and focus sits on the page itself, never in a field.
-  window.addEventListener("keydown", onStrayKey, { capture: true });
+  window.addEventListener("keydown", onPageKey, { capture: true });
+  // focus-law: Escape-only close of the topmost modal.
+  window.addEventListener("keydown", onOutsideEscape);
 };
 
 /** Join the stack; the returned function leaves it. */
@@ -140,11 +163,14 @@ export const resetModalStack = (): void => {
 /**
  * One modal shell's membership of the stack. Spread `onKeyDown` on the shell
  * root: it gives the body's own handlers first say, then applies Escape and
- * the Tab trap, and keeps every key from reaching the layers underneath.
+ * the Tab trap, and for an isolating modal keeps every key from reaching the
+ * layers underneath.
  */
 export const useModalLayer = ({
   layer,
   containerRef,
+  trap = true,
+  isolate = true,
   onEscape,
   returnFocusTo,
   keepFocusOnClose,
@@ -152,8 +178,21 @@ export const useModalLayer = ({
 }: {
   readonly layer: ModalLayer;
   readonly containerRef: RefObject<HTMLElement | null>;
-  /** Escape for this modal, when nothing inside it took the key first. */
-  readonly onEscape: () => void;
+  /**
+   * False for a surface that shares the screen with live chrome (a docked
+   * work surface beside the pinned dock): it joins the Escape order only.
+   */
+  readonly trap?: boolean;
+  /**
+   * No key pressed inside reaches the layers underneath. False for working
+   * modals, whose bodies still use app-wide shortcuts.
+   */
+  readonly isolate?: boolean;
+  /**
+   * Escape for this modal, when nothing inside it took the key first.
+   * Return false when the key is not this modal's (a terminal keeps Escape).
+   */
+  readonly onEscape: () => boolean | void;
   /**
    * Where focus goes on close. Default: whatever held it when the shell
    * first rendered. Pass null to leave focus alone.
@@ -178,8 +217,9 @@ export const useModalLayer = ({
   useEffect(() => {
     const leave = pushModal({
       layer,
+      trap,
       container: () => containerRef.current,
-      onEscape: () => onEscapeRef.current(),
+      onEscape: () => onEscapeRef.current() !== false,
     });
     const opener = openerRef.current;
     return () => {
@@ -189,7 +229,7 @@ export const useModalLayer = ({
       if (!opener || !isPageRoot(document.activeElement) || keepFocusRef.current?.() === true) return;
       claimFocus(opener as HTMLElement, "open", { preventScroll: true });
     };
-  }, [layer, containerRef]);
+  }, [layer, trap, containerRef]);
 
   return {
     onKeyDown: (event) => {
@@ -200,9 +240,11 @@ export const useModalLayer = ({
       if (inside) {
         onKeyDown?.(event);
         if (event.key === "Escape" && !event.defaultPrevented) {
-          event.preventDefault();
-          onEscapeRef.current();
-        } else if (event.key === "Tab" && !event.defaultPrevented && container) {
+          if (onEscapeRef.current() !== false) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        } else if (trap && event.key === "Tab" && !event.defaultPrevented && container) {
           const stops = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
           const target = nextTabStop(stops, document.activeElement, event.shiftKey);
           if (target) {
@@ -211,8 +253,7 @@ export const useModalLayer = ({
           }
         }
       }
-      // Nothing under a modal hears its keys.
-      event.stopPropagation();
+      if (isolate) event.stopPropagation();
     },
   };
 };

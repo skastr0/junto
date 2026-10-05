@@ -31,3 +31,28 @@
   /* Tooltips: above everything, never interactive. */
   --layer-tooltip: 20000;
 }
+
+/* The one dim behind every modal shell: the same recipe on every layer. */
+[data-layer-backdrop] {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--color-backdrop);
+  backdrop-filter: blur(2px);
+  cursor: default;
+}
+
+/* The one card chrome for dialogs and operator modals. */
+.layer-frame {
+  position: relative;
+  box-sizing: border-box;
+  border: 1px solid var(--color-stroke);
+  border-radius: 10px;
+  background: var(--color-raise);
+  box-shadow:
+    0 24px 80px var(--color-shadow-1),
+    0 0 0 1px var(--color-overlay-1);
+  outline: 0;
+}
