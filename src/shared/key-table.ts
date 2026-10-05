@@ -50,6 +50,7 @@ export type ShortcutId =
   | "feed.open"
   | "groups.assign"
   | "groups.recall"
+  | "groups.jump"
   | "alerts.next"
   | "mirrors.next"
   | "mirrors.previous"
@@ -113,6 +114,15 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     mac: ["Digit"],
     other: ["Digit"],
     where: ["canvas"],
+  },
+  {
+    id: "groups.jump",
+    area: "Command groups",
+    does: "Jump to command group 1 to 9; press again for its next agent",
+    mac: ["Cmd+Digit"],
+    // Off macOS there is no Cmd, and Ctrl plus a digit is the shell's.
+    other: [],
+    where: ["terminal", "field", "working"],
   },
   {
     id: "alerts.next",

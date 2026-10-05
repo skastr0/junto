@@ -1,25 +1,25 @@
 /**
  * Command groups, live: the hotbar's upkeep (leases from seat activity,
- * pruning, per-canvas memory), the digit keys, and every operator action on
- * a group (save, new, assign, recall, promote past nine). The pure contract
+ * pruning, per-canvas memory) and every operator action on a group (save,
+ * new, assign, recall, jump, promote past nine). The keys are in the key table. The pure contract
  * is command-groups.ts and hotbar-slots.ts; the top bar's CommandGroupBar and
  * the bottom bar's command cards drive it.
  */
 import { useEffect } from "react";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { groupMembers } from "@shared/graph";
 import { isHarnessId } from "@shared/managed-terminal-templates";
-import { activateNodeSurface } from "./activate-node-surface";
+import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
 import { agentSeat$, bindingIdForNode, seatEventForNode } from "./agent-seat-state";
 import { chatCoarse$ } from "./chat-state";
 import { focusCanvasNode, isHotbarLeaseActor } from "./command-bar";
 import {
   canvasCommandGroups,
-  commandGroupKey,
   currentSelectionIds,
   firstFreeSlotIndex,
+  jumpCommandGroup,
   promoteExtraGroup,
   pruneExtraGroups,
   recallCommandGroup,
@@ -27,10 +27,11 @@ import {
   saveSelectionToSlot,
   type CommandGroupRetap,
   type ExtraGroup,
+  type RecallContext,
   type RecallStep,
 } from "./command-groups";
 import { dock$ } from "./dock-state";
-import { isOperatorTyping } from "./focus-ownership";
+import { focusMruNodeIds } from "./focus-switcher";
 import {
   assignFixedSlot,
   clearHotbarNode,
@@ -41,15 +42,9 @@ import {
   slotIndexOf,
   touchActiveMru,
 } from "./hotbar-slots";
-import { isMac } from "./platform";
 import { digitLease, liveAttentionReasons, seatFactsForNode, type SeatFacts } from "./seat-projections";
 import { selectNodes, state$ } from "./state";
 import { terminal$ } from "./terminal-state";
-
-/** A focus surface or Settings owns the keyboard; digits must not drive the canvas behind it. */
-const keyboardOwnedAboveCanvas = (): boolean =>
-  state$.settingsOpen.peek() ||
-  dock$.registry.surfaces.peek().some((surface) => surface.zone === "focus");
 
 const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string }> }): string[] =>
   doc.nodes.map((n) => n.id);
@@ -303,46 +298,61 @@ const runRecallStep = (step: RecallStep): void => {
   }
 };
 
-/** ⌘1–9 saves the selection to a slot; a bare 1–9 recalls it. */
-export const useHotbarHotkeys = (): void => {
-  useEffect(() => {
-    let retap: CommandGroupRetap | null = null;
-    const onKey = (event: KeyboardEvent) => {
-      if (isOperatorTyping(event.target)) return;
-      const intent = commandGroupKey(event, isMac());
-      if (intent === null) return;
-      if (keyboardOwnedAboveCanvas()) return;
-      // ⌘1–9 (Ctrl elsewhere): save the live selection to this slot. One node
-      // fixes it; two or more save a control group. Saving never moves the camera.
-      if (intent.kind === "save") {
-        event.preventDefault();
-        const selection = currentSelectionIds(
-          state$.selectedNodeId.peek(),
-          state$.selectedNodeIds.peek(),
-        );
-        if (saveSelectionToCommandGroup(selection, intent.slotIndex)) retap = null;
-        return;
-      }
+const recallContext = (doc: CanvasDoc): RecallContext => ({
+  documentNodeIds: liveNodeIds(doc),
+  regionIds: new Set(doc.nodes.filter((n) => n.type === "group").map((n) => n.id)),
+  regionMembers: (regionId) => groupMembers(doc).get(regionId) ?? [],
+});
 
-      // 1–9: recall. Groups frame their members; re-tap cycles and opens.
-      const doc = state$.doc.peek();
-      const { step, memory } = recallCommandGroup(
-        state$.hotbarSlots.peek(),
-        intent.slotIndex,
-        {
-          documentNodeIds: liveNodeIds(doc),
-          regionIds: new Set(doc.nodes.filter((n) => n.type === "group").map((n) => n.id)),
-          regionMembers: (regionId) => groupMembers(doc).get(regionId) ?? [],
-        },
-        retap,
-        performance.now(),
-      );
-      if (step.kind === "none") return;
-      event.preventDefault();
-      retap = memory;
-      runRecallStep(step);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+let retap: CommandGroupRetap | null = null;
+
+/**
+ * Save the live selection to a slot. One node fixes it; two or more save a
+ * control group. Saving never moves the camera.
+ */
+export const assignSelectionToSlot = (slotIndex: number): void => {
+  const selection = currentSelectionIds(state$.selectedNodeId.peek(), state$.selectedNodeIds.peek());
+  if (saveSelectionToCommandGroup(selection, slotIndex)) retap = null;
+};
+
+/**
+ * Recall a slot on the canvas. Groups frame their members; a re-tap cycles
+ * and opens. False when the slot is empty.
+ */
+export const recallSlot = (slotIndex: number): boolean => {
+  const { step, memory } = recallCommandGroup(
+    state$.hotbarSlots.peek(),
+    slotIndex,
+    recallContext(state$.doc.peek()),
+    retap,
+    performance.now(),
+  );
+  if (step.kind === "none") return false;
+  retap = memory;
+  runRecallStep(step);
+  return true;
+};
+
+/**
+ * Jump to a slot from a terminal, a field or a working modal: open its first
+ * agent, or the next one when one of them is already in front. False when the
+ * slot holds nothing that opens.
+ */
+export const jumpToSlot = (slotIndex: number): boolean => {
+  const doc = state$.doc.peek();
+  const byId = new Map(doc.nodes.map((node) => [node.id, node]));
+  const registry = dock$.registry.peek();
+  const nodeId = jumpCommandGroup(
+    state$.hotbarSlots.peek(),
+    slotIndex,
+    recallContext(doc),
+    (id) => {
+      const node = byId.get(id);
+      return node !== undefined && nodeSurfaceKind(node) !== null;
+    },
+    focusMruNodeIds(registry.surfaces, registry.focusMru)[0] ?? null,
+  );
+  if (nodeId === null) return false;
+  focusAndActivate(nodeId);
+  return true;
 };

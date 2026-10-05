@@ -133,6 +133,25 @@ describe("the key table on macOS", () => {
     }
   });
 
+  it("jumps with Cmd and a digit from a terminal, a field or a working modal, and never saves there", () => {
+    for (const context of ["terminal", "field", "working"] as const) {
+      expect(resolveKey(key({ key: "2", code: "Digit2", metaKey: true }), at(context))).toEqual({
+        id: "groups.jump",
+        digit: 2,
+      });
+    }
+    expect(resolveKey(key({ key: "2", code: "Digit2", metaKey: true }), at("operator"))).toBeNull();
+  });
+
+  it("leaves a digit chord with Shift, Alt or Control alone", () => {
+    for (const context of KEY_CONTEXTS) {
+      expect(resolveKey(key({ key: "!", code: "Digit1", metaKey: true, shiftKey: true }), at(context))).toBeNull();
+      expect(resolveKey(key({ key: "¡", code: "Digit1", metaKey: true, altKey: true }), at(context))).toBeNull();
+      expect(resolveKey(key({ key: "1", code: "Digit1", metaKey: true, ctrlKey: true }), at(context))).toBeNull();
+      expect(resolveKey(key({ key: "!", code: "Digit1", shiftKey: true }), at(context))).toBeNull();
+    }
+  });
+
   it("cycles alerts with Space or the backtick, never with a modifier", () => {
     expect(resolveKey(key({ key: " ", code: "Space" }), at("canvas"))).toEqual({ id: "alerts.next" });
     expect(resolveKey(key({ key: "`", code: "Backquote" }), at("canvas"))).toEqual({ id: "alerts.next" });
@@ -178,6 +197,15 @@ describe("the key table off macOS", () => {
       if (def.other.length === 0) continue;
       expect(def.whereOther ?? def.where).not.toContain("terminal");
     }
+  });
+
+  it("saves a command group with Ctrl and a digit on the canvas, and ignores the Meta key", () => {
+    expect(resolveKey(key({ key: "1", code: "Digit1", ctrlKey: true }), at("canvas", false))).toEqual({
+      id: "groups.assign",
+      digit: 1,
+    });
+    expect(resolveKey(key({ key: "1", code: "Digit1", metaKey: true }), at("canvas", false))).toBeNull();
+    expect(resolveKey(key({ key: "1", code: "Digit1", ctrlKey: true }), at("terminal", false))).toBeNull();
   });
 
   it("has no two shortcuts on one chord in one place", () => {

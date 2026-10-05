@@ -1,4 +1,5 @@
 import { cycleActorMirror } from "./actor-mirrors";
+import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
 import type { KeyActions } from "./key-dispatcher";
 
 /**
@@ -7,6 +8,10 @@ import type { KeyActions } from "./key-dispatcher";
  * shortcut.
  */
 export const KEY_ACTIONS: KeyActions = {
+  "groups.assign": ({ digit }) => assignSelectionToSlot(digit! - 1),
+  // An empty slot takes nothing: the digit passes.
+  "groups.recall": ({ digit }) => recallSlot(digit! - 1),
+  "groups.jump": ({ digit }) => jumpToSlot(digit! - 1),
   // The key is taken only when a swap happened.
   "mirrors.next": () => cycleActorMirror(1),
   "mirrors.previous": () => cycleActorMirror(-1),

@@ -15,7 +15,6 @@ import {
   slotMemberIds,
 } from "../src/renderer/lib/hotbar-slots";
 import {
-  commandGroupKey,
   currentSelectionIds,
   firstFreeSlotIndex,
   groupLabel,
@@ -23,15 +22,14 @@ import {
   operatorHeldSlots,
   promoteExtraGroup,
   pruneExtraGroups,
+  jumpCommandGroup,
   recallCommandGroup,
   saveSelectionAsNewGroup,
   saveSelectionToSlot,
   selectionIsGroup,
   slotContentKey,
-  slotIndexForKey,
   summarizeSlots,
   swapHotbarSlots,
-  type CommandGroupKeyEvent,
   type CommandGroupRetap,
   type RecallContext,
 } from "../src/renderer/lib/command-groups";
@@ -46,17 +44,6 @@ const fixed = (nodeId: string): HotbarSlot => ({ kind: "fixed", nodeId });
 const leased = (nodeId: string): HotbarSlot => ({ kind: "leased", nodeId });
 const evicted = (nodeId: string): HotbarSlot => ({ kind: "evicted", nodeId });
 const group = (...nodeIds: string[]): HotbarSlot => ({ kind: "group", nodeIds });
-
-const key = (partial: Partial<CommandGroupKeyEvent>): CommandGroupKeyEvent => ({
-  key: "1",
-  code: "Digit1",
-  metaKey: false,
-  ctrlKey: false,
-  altKey: false,
-  shiftKey: false,
-  repeat: false,
-  ...partial,
-});
 
 const DOC = ["a", "b", "c", "d", "region", "r1", "r2"];
 const context: RecallContext = {
@@ -75,53 +62,6 @@ describe("group slot schema", () => {
   it("rejects a group with no members or a blank id", () => {
     expect(() => Schema.decodeUnknownSync(HotbarSlot)({ kind: "group", nodeIds: [] })).toThrow();
     expect(() => Schema.decodeUnknownSync(HotbarSlot)({ kind: "group", nodeIds: [""] })).toThrow();
-  });
-});
-
-describe("commandGroupKey", () => {
-  it("saves with ⌘ on mac and Ctrl elsewhere", () => {
-    expect(commandGroupKey(key({ metaKey: true }), true)).toEqual({ kind: "save", slotIndex: 0 });
-    expect(commandGroupKey(key({ ctrlKey: true }), false)).toEqual({ kind: "save", slotIndex: 0 });
-  });
-
-  it("ignores the other platform's modifier", () => {
-    expect(commandGroupKey(key({ ctrlKey: true }), true)).toBeNull();
-    expect(commandGroupKey(key({ metaKey: true }), false)).toBeNull();
-    expect(commandGroupKey(key({ metaKey: true, ctrlKey: true }), true)).toBeNull();
-  });
-
-  it("recalls on a bare digit", () => {
-    expect(commandGroupKey(key({ key: "7", code: "Digit7" }), true)).toEqual({
-      kind: "recall",
-      slotIndex: 6,
-    });
-  });
-
-  it("never acts on alt, shift, or auto-repeat", () => {
-    expect(commandGroupKey(key({ altKey: true }), true)).toBeNull();
-    expect(commandGroupKey(key({ shiftKey: true }), true)).toBeNull();
-    expect(commandGroupKey(key({ repeat: true }), true)).toBeNull();
-    expect(commandGroupKey(key({ repeat: true, metaKey: true }), true)).toBeNull();
-  });
-
-  it("reads the physical digit row, so non-US layouts reach the slots", () => {
-    // AZERTY: the unshifted Digit1 key types "&".
-    expect(slotIndexForKey({ key: "&", code: "Digit1" })).toBe(0);
-    expect(slotIndexForKey({ key: "9", code: "Numpad9" })).toBe(8);
-    // A letter on a digit-typing layout is still not a slot.
-    expect(slotIndexForKey({ key: "1", code: "KeyQ" })).toBeNull();
-  });
-
-  it("falls back to the character when there is no code", () => {
-    expect(slotIndexForKey({ key: "3", code: "" })).toBe(2);
-    expect(slotIndexForKey({ key: "3" })).toBe(2);
-    expect(slotIndexForKey({ key: "0" })).toBeNull();
-    expect(slotIndexForKey({ key: "a" })).toBeNull();
-  });
-
-  it("zero and non-digit keys are not ours", () => {
-    expect(commandGroupKey(key({ key: "0", code: "Digit0" }), true)).toBeNull();
-    expect(commandGroupKey(key({ key: "k", code: "KeyK", metaKey: true }), true)).toBeNull();
   });
 });
 
@@ -509,5 +449,45 @@ describe("groups beyond nine", () => {
     const empty = promoteExtraGroup(emptyHotbarSlots(), [["a", "b"]], 0, 8, docIds);
     expect(empty.slots[8]).toEqual(group("a", "b"));
     expect(empty.extras).toEqual([]);
+  });
+});
+
+describe("jumpCommandGroup", () => {
+  const all = (): boolean => true;
+
+  it("opens the first member, then the next while one of them is in front, and wraps", () => {
+    const slots = board([[1, group("c", "a", "b")]]);
+    expect(jumpCommandGroup(slots, 1, context, all, null)).toBe("a");
+    expect(jumpCommandGroup(slots, 1, context, all, "a")).toBe("b");
+    expect(jumpCommandGroup(slots, 1, context, all, "b")).toBe("c");
+    expect(jumpCommandGroup(slots, 1, context, all, "c")).toBe("a");
+  });
+
+  it("starts at the first member when something outside the group is in front", () => {
+    expect(jumpCommandGroup(board([[0, group("b", "c")]]), 0, context, all, "d")).toBe("b");
+  });
+
+  it("skips members that have nothing to open", () => {
+    const slots = board([[0, group("a", "b", "c")]]);
+    const opens = (id: string): boolean => id !== "b";
+    expect(jumpCommandGroup(slots, 0, context, opens, "a")).toBe("c");
+    expect(jumpCommandGroup(slots, 0, context, () => false, null)).toBeNull();
+  });
+
+  it("goes to a single node, and stays on it when it is already in front", () => {
+    const slots = board([[4, fixed("d")]]);
+    expect(jumpCommandGroup(slots, 4, context, all, null)).toBe("d");
+    expect(jumpCommandGroup(slots, 4, context, all, "d")).toBe("d");
+  });
+
+  it("steps through a region's members in document order", () => {
+    const slots = board([[2, fixed("region")]]);
+    expect(jumpCommandGroup(slots, 2, context, all, null)).toBe("r1");
+    expect(jumpCommandGroup(slots, 2, context, all, "r1")).toBe("r2");
+  });
+
+  it("does nothing for an empty slot or members that are gone", () => {
+    expect(jumpCommandGroup(board([]), 3, context, all, null)).toBeNull();
+    expect(jumpCommandGroup(board([[0, group("gone", "also-gone")]]), 0, context, all, null)).toBeNull();
   });
 });

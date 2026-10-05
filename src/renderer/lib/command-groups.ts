@@ -3,13 +3,12 @@
  * Pure contract; RtsBottomBar (keys, chips), the multi-select menu, and the
  * canvas switch in App wire it.
  *
- * Keys
- * - Save is the platform modifier plus a digit: ⌘ on macOS, Ctrl elsewhere.
- *   The other modifier, Alt, Shift, and auto-repeat never act.
- * - Recall is a bare digit. Auto-repeat never acts, so holding a digit does
- *   not count as a re-tap.
- * - The physical digit row decides (`event.code`), so layouts that need Shift
- *   for digits still reach slots 1 to 9. The numpad counts too.
+ * Keys (the chords live in the key table, shared/key-table)
+ * - On the canvas, the platform modifier plus a digit saves and a bare digit
+ *   recalls.
+ * - With focus in a terminal, a field or a working modal, the modifier plus a
+ *   digit jumps to the group and never saves, so a group cannot be
+ *   overwritten by accident.
  *
  * Save
  * - The live selection goes to the slot, replacing whatever it held (empty,
@@ -54,49 +53,6 @@ import {
   membersInDocumentOrder,
   regionDigitVerdict,
 } from "./region-retap";
-
-// --- keys --------------------------------------------------------------------
-
-export type CommandGroupKeyEvent = {
-  readonly key: string;
-  readonly code?: string;
-  readonly metaKey: boolean;
-  readonly ctrlKey: boolean;
-  readonly altKey: boolean;
-  readonly shiftKey: boolean;
-  readonly repeat?: boolean;
-};
-
-export type CommandGroupKey =
-  | { readonly kind: "save"; readonly slotIndex: number }
-  | { readonly kind: "recall"; readonly slotIndex: number };
-
-const DIGIT_CODE = /^(?:Digit|Numpad)([1-9])$/;
-
-/** Slot index (0 to 8) for the physical digit, or null. */
-export const slotIndexForKey = (event: Pick<CommandGroupKeyEvent, "key" | "code">): number | null => {
-  const fromCode = event.code ? DIGIT_CODE.exec(event.code) : null;
-  if (fromCode) return Number(fromCode[1]) - 1;
-  // No physical code (synthetic events): fall back to the character.
-  if (!event.code && event.key.length === 1 && event.key >= "1" && event.key <= "9") {
-    return Number(event.key) - 1;
-  }
-  return null;
-};
-
-/** What a keydown means for command groups, or null when it is not ours. */
-export const commandGroupKey = (
-  event: CommandGroupKeyEvent,
-  mac: boolean,
-): CommandGroupKey | null => {
-  if (event.repeat || event.altKey || event.shiftKey) return null;
-  const slotIndex = slotIndexForKey(event);
-  if (slotIndex === null) return null;
-  const primary = mac ? event.metaKey : event.ctrlKey;
-  const other = mac ? event.ctrlKey : event.metaKey;
-  if (other) return null;
-  return primary ? { kind: "save", slotIndex } : { kind: "recall", slotIndex };
-};
 
 // --- selection ---------------------------------------------------------------
 
@@ -252,6 +208,37 @@ export const recallCommandGroup = (
     step: within ? { kind: "open", nodeId } : { kind: "focus", nodeId },
     memory: { slotIndex, key, atMs: nowMs, memberCursor: -1 },
   };
+};
+
+// --- jump --------------------------------------------------------------------
+
+/**
+ * Where the jump chord goes for a slot: the node to open, or null when the
+ * slot holds nothing that opens.
+ *
+ * The first press opens the group's first member that has a surface. Pressed
+ * again while one of its members is in front, it opens the next, and wraps.
+ * No clock: the operator may read for as long as they like between presses.
+ */
+export const jumpCommandGroup = (
+  slots: ReadonlyArray<HotbarSlot>,
+  slotIndex: number,
+  context: RecallContext,
+  opens: (nodeId: string) => boolean,
+  frontNodeId: string | null,
+): string | null => {
+  const slot = slots[slotIndex];
+  if (!slot || slot.kind === "empty") return null;
+  const held =
+    slot.kind === "group"
+      ? slot.nodeIds
+      : context.regionIds.has(slot.nodeId)
+        ? context.regionMembers(slot.nodeId)
+        : [slot.nodeId];
+  const members = membersInDocumentOrder(held, context.documentNodeIds).filter(opens);
+  if (members.length === 0) return null;
+  const front = frontNodeId === null ? -1 : members.indexOf(frontNodeId);
+  return members[(front + 1) % members.length]!;
 };
 
 // --- presentation ------------------------------------------------------------

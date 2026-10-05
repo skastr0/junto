@@ -17,7 +17,6 @@ import {
   seatFactsOf,
   useCommandGroupUpkeep,
   useExtraGroups,
-  useHotbarHotkeys,
 } from "../../lib/command-group-runtime";
 import { isHotbarLeaseActor } from "../../lib/command-bar";
 import { currentSelectionIds, selectionIsGroup, swapHotbarSlots } from "../../lib/command-groups";
@@ -136,12 +135,10 @@ function useRowOverflow(count: number) {
 /**
  * The operator's command groups in the top bar: slots 1 to 9 with their
  * hotkeys, then any groups past nine, shown without one, then a button that
- * saves the selection as a new group. Owns the digit keys and the board's
- * upkeep.
+ * saves the selection as a new group. Owns the board's upkeep.
  */
 export function CommandGroupBar() {
   useCommandGroupUpkeep();
-  useHotbarHotkeys();
   const slots = use$(state$.hotbarSlots);
   const extras = useExtraGroups();
   const doc = use$(state$.doc);
