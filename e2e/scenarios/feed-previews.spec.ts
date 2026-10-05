@@ -9,6 +9,7 @@
  * Asserts:
  *   - a closed card reads no file; opening its details shows a thumbnail per file, in the order written
  *   - a path that is gone stays text with a quiet "file not found"; a .png that is not an image is never an <img>
+ *   - the text shows a previewed path as its file name, a link that opens the viewer there
  *   - a thumbnail opens the viewer above the feed, at that image, with the agent's caption
  *   - next and previous move through the files in order, by key and by button, and stop at the ends
  *   - j and k do nothing to the feed while the viewer is open
@@ -166,6 +167,13 @@ test("the needs-you feed previews the files a signal names", async () => {
     await expect(thumbs.nth(0)).toContainText("A");
     await expect(thumbs.nth(1)).toContainText("B");
     await expect(strip).toContainText("cleaned-up.png, file not found");
+    // The text names each previewed file by its name, the full path on hover; the one that is gone stays as written.
+    const detail = card.locator(".operator-feed__detail");
+    await expect(detail).toContainText("Before: before.png");
+    await expect(detail).toContainText("Rail expanded: rail-expanded.png");
+    await expect(detail).not.toContainText(at("before.png"));
+    await expect(detail.getByRole("link", { name: "after.png" })).toHaveAttribute("data-junto-tooltip", at("after.png"));
+    await expect(detail).toContainText(at("cleaned-up.png"));
     await page.screenshot({ path: join(SHOTS, "card-details-dark.png") });
 
     // A pair with no labels wears no tags; seven fold into four and "+3", which opens the fifth.
@@ -214,8 +222,13 @@ test("the needs-you feed previews the files a signal names", async () => {
     );
     expect(refused).toEqual({ ok: false, reason: "not-named" });
 
+    // A file name in the text opens the viewer at that file.
+    await detail.getByRole("link", { name: "notes.md" }).click();
+    await expect(page.getByTestId("preview-viewer-title")).toHaveText("notes.md");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("preview-viewer")).toHaveCount(0);
+
     // Open the second image.
-    await card.click({ position: { x: 300, y: 12 } });
     await expect(card).toHaveAttribute("aria-current", "true");
     await thumbs.nth(1).click();
     const viewer = page.getByTestId("preview-viewer");
