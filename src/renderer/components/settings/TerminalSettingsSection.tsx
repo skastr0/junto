@@ -12,7 +12,7 @@
  * value. Nothing partial is ever sent.
  */
 import { use$ } from "@legendapp/state/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import {
   TERMINAL_BOUNDS,
   terminalSettings,
@@ -28,20 +28,25 @@ import { Select } from "../ui";
 function Row({
   label,
   hint,
+  group = false,
   children,
 }: {
   readonly label: string;
   readonly hint: string;
+  /** The row holds a menu, not a form field: a named group, not a label. */
+  readonly group?: boolean;
   readonly children: ReactNode;
 }) {
+  const labelId = useId();
+  const Tag = group ? "div" : "label";
   return (
-    <label className="settings-field">
+    <Tag className="settings-field" {...(group ? { role: "group", "aria-labelledby": labelId } : {})}>
       <span className="settings-field__label">
-        <span>{label}</span>
+        <span id={labelId}>{label}</span>
         <span className="settings-field__hint">{hint}</span>
       </span>
       <span className="settings-field__control">{children}</span>
-    </label>
+    </Tag>
   );
 }
 
@@ -239,7 +244,7 @@ export function TerminalSettingsSection() {
         onCommit={(next) => patch({ fontFamily: next })}
       />
 
-      <Row label="Cursor style" hint="how the cursor is drawn">
+      <Row group label="Cursor style" hint="how the cursor is drawn">
         <Select
           dense
           value={terminal.cursorStyle}
@@ -344,7 +349,7 @@ export function TerminalSettingsSection() {
             />
           </Row>
 
-          <Row label="Bell" hint="what happens when a program rings the bell">
+          <Row group label="Bell" hint="what happens when a program rings the bell">
             <Select
               dense
               value={terminal.bell}

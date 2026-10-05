@@ -1,6 +1,6 @@
 import { use$ } from "@legendapp/state/react";
 import { CircleHelp, RotateCcw, Settings2, X } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import type { BrowserProfileInfo, JuntoBrowserApi } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
 import {
@@ -144,19 +144,28 @@ function FieldRow({
   label,
   hint,
   help,
+  group = false,
   children,
 }: {
   readonly label: string;
   readonly hint?: string;
   /** Longer explanation shown on the ? control (native title tooltip). */
   readonly help?: string;
+  /**
+   * The row holds a button, a menu or a plain value, not a form field. A
+   * label would rename a button after the row and pass it the row's clicks,
+   * so the row is a named group instead.
+   */
+  readonly group?: boolean;
   readonly children: ReactNode;
 }) {
+  const labelId = useId();
+  const Row = group ? "div" : "label";
   return (
-    <label className="settings-field">
+    <Row className="settings-field" {...(group ? { role: "group", "aria-labelledby": labelId } : {})}>
       <span className="settings-field__label">
         <span className="settings-field__label-row">
-          <span>{label}</span>
+          <span id={labelId}>{label}</span>
           {help ? (
             <span
               className="settings-field__help"
@@ -171,7 +180,7 @@ function FieldRow({
         {hint ? <span className="settings-field__hint">{hint}</span> : null}
       </span>
       <span className="settings-field__control">{children}</span>
-    </label>
+    </Row>
   );
 }
 
@@ -564,6 +573,7 @@ function AdvancedSection() {
     <div className="settings-section">
       <InstallationFacts />
       <FieldRow
+        group
         label="Introduction"
         hint="the short tour from first launch: what Junto is, how to start an agent, and why macOS may name Junto"
       >
@@ -619,11 +629,11 @@ function AdvancedSection() {
           <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Junto at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
         </FieldRow>
       ) : startupProvider === "systemd-supervision" ? (
-        <FieldRow label="Startup" hint="Remotes on Linux run as a systemd user service.">
+        <FieldRow group label="Startup" hint="Remotes on Linux run as a systemd user service.">
           <span className="settings-field__value" aria-label="Systemd user supervision">systemd user</span>
         </FieldRow>
       ) : (
-        <FieldRow label="Startup" hint="Not available on this platform.">
+        <FieldRow group label="Startup" hint="Not available on this platform.">
           <span className="settings-field__value">unavailable</span>
         </FieldRow>
       )}
@@ -670,15 +680,16 @@ function InstallationFacts() {
             : "App version and platform for this installation."}
         </span>
       </div>
-      <FieldRow label="App version" hint="currently running Junto">
+      <FieldRow group label="App version" hint="currently running Junto">
         <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
       </FieldRow>
       {DEV_TOOLS_ENABLED ? (
-        <FieldRow label="Build" hint="packaged vs development">
+        <FieldRow group label="Build" hint="packaged vs development">
           <span style={{ color: INK, fontSize: 13 }}>{buildLabel}</span>
         </FieldRow>
       ) : null}
       <FieldRow
+        group
         label="Platform"
         hint={DEV_TOOLS_ENABLED ? "OS, architecture, Electron runtime" : "OS and architecture"}
       >
@@ -686,7 +697,7 @@ function InstallationFacts() {
       </FieldRow>
       {DEV_TOOLS_ENABLED ? (
         <>
-          <FieldRow label="Update feed" hint="packaged release channel only">
+          <FieldRow group label="Update feed" hint="packaged release channel only">
             <span
               className="settings-mono-value"
               style={{ color: INK, fontSize: "var(--text-body-lg)" }}
@@ -695,12 +706,12 @@ function InstallationFacts() {
               {feedLabel}
             </span>
           </FieldRow>
-          <FieldRow label="Host id" hint="this machine across the fleet">
+          <FieldRow group label="Host id" hint="this machine across the fleet">
             <span style={{ color: INK, fontSize: 13 }}>
               {station.hostId.length > 0 ? station.hostId : "—"}
             </span>
           </FieldRow>
-          <FieldRow label="Data location" hint="where Junto stores its data">
+          <FieldRow group label="Data location" hint="where Junto stores its data">
             <span className="settings-mono-value" style={{ color: INK, fontSize: "var(--text-body-lg)" }}>
               ~/.junto/state/junto.db
             </span>
@@ -753,10 +764,10 @@ function UpdatesSection() {
 
   return (
     <div className="settings-section">
-      <FieldRow label="Installed version" hint="currently running Junto">
+      <FieldRow group label="Installed version" hint="currently running Junto">
         <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
       </FieldRow>
-      <FieldRow label="Application updates" hint={summary}>
+      <FieldRow group label="Application updates" hint={summary}>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="chrome"
@@ -948,6 +959,7 @@ function StateRecoveryControls() {
         </p>
       ) : (
         <FieldRow
+          group
           label="Backup"
           hint="schema, size, and creation time"
         >
@@ -1019,6 +1031,7 @@ function StationSection() {
   return (
     <div className="settings-section" data-testid="settings-machine-section">
       <FieldRow
+        group
         label="This machine's host id"
         hint="How this installation is identified across the fleet"
       >
