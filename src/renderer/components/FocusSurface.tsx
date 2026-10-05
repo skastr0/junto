@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   focusMeasureCssVars,
@@ -160,6 +160,23 @@ export function FocusSurface({
     return () => observer.disconnect();
   }, [height, measure]);
 
+  // A press on blank chrome (an empty header, the space under a list, an
+  // empty stretch of the rail) would park the keyboard on the panel or drop
+  // it on the page, and typing would stop reaching the subject. Give it back
+  // to the primary control. A press on a control keeps what it did, and a
+  // drag that selected text is left alone.
+  const returnKeyboardAfterBlankPress = (event: MouseEvent<HTMLElement>): void => {
+    event.stopPropagation();
+    const region = event.currentTarget;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const control = target.closest(INTERACTIVE_SELECTOR);
+    if (control !== null && control !== region && region.contains(control)) return;
+    if (window.getSelection()?.isCollapsed === false) return;
+    const primary = pickPrimaryFocusControl(panelRef.current);
+    if (primary) claimFocus(primary, "gesture", { event, preventScroll: true });
+  };
+
   const root = (
     <div
       ref={rootRef}
@@ -198,22 +215,7 @@ export function FocusSurface({
           data-measure={measure}
           data-height={height}
           tabIndex={-1}
-          onClick={(event) => {
-            event.stopPropagation();
-            // A press on blank chrome (an empty header, the space under a
-            // list) would park the keyboard on the panel, and typing would
-            // stop reaching the subject. Give it back to the primary control.
-            // A press on a control keeps what it did, and a drag that
-            // selected text is left alone.
-            const panel = panelRef.current;
-            const target = event.target;
-            if (!panel || !(target instanceof Element)) return;
-            const control = target.closest(INTERACTIVE_SELECTOR);
-            if (control !== null && control !== panel && panel.contains(control)) return;
-            if (window.getSelection()?.isCollapsed === false) return;
-            const primary = pickPrimaryFocusControl(panel);
-            if (primary) claimFocus(primary, "gesture", { event, preventScroll: true });
-          }}
+          onClick={returnKeyboardAfterBlankPress}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {children}
@@ -221,7 +223,7 @@ export function FocusSurface({
         {aside ? (
           <div
             className="focus-surface__aside"
-            onClick={(e) => e.stopPropagation()}
+            onClick={returnKeyboardAfterBlankPress}
             onMouseDown={(e) => e.stopPropagation()}
           >
             {aside}
