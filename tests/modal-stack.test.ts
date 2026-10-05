@@ -70,6 +70,14 @@ describe("who is topmost", () => {
     expect(editor.isTop()).toBe(true);
   });
 
+  it("is a dialog opened from an operator modal, over that modal", () => {
+    const feed = open("operator");
+    const viewer = open("operator-dialog");
+    expect([feed.isTop(), viewer.isTop()]).toEqual([false, true]);
+    viewer.leave();
+    expect(feed.isTop()).toBe(true);
+  });
+
   it("is the operator modal over both", () => {
     const editor = open("working");
     const dialog = open("working-dialog");

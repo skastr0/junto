@@ -98,7 +98,7 @@ export function Popover({
       role="dialog"
       aria-label={label}
       // A popover belongs to the layer of its anchor (styles/layers.css).
-      data-layer={anchor.closest("[data-layer='operator']") ? "operator-popover" : "popover"}
+      data-layer={anchor.closest("[data-layer^='operator']") ? "operator-popover" : "popover"}
       data-testid={testId}
       className={`junto-popover${className ? ` ${className}` : ""}`}
       style={{

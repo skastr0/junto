@@ -242,7 +242,7 @@ export function Dropdown({
         minWidth: box.minWidth,
         maxHeight: box.maxHeight,
         // A menu belongs to the layer of its trigger (styles/layers.css).
-        zIndex: triggerRef.current?.closest("[data-layer='operator']")
+        zIndex: triggerRef.current?.closest("[data-layer^='operator']")
           ? "var(--layer-operator-popover)"
           : "var(--layer-flyout)",
         ...(box.placement === "below"

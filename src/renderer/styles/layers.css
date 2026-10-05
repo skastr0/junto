@@ -26,7 +26,9 @@
   --layer-flyout: 13000;
   /* Operator modals: search, the needs-you feed, the agent switcher. */
   --layer-operator: 15000;
-  /* A popover or menu opened from inside an operator modal. */
+  /* A dialog opened from inside an operator modal (a confirm, a viewer). */
+  --layer-operator-dialog: 15500;
+  /* A popover or menu opened from inside an operator modal or its dialog. */
   --layer-operator-popover: 16000;
   /* Tooltips: above everything, never interactive. */
   --layer-tooltip: 20000;

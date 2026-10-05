@@ -10,6 +10,11 @@
   padding: 24px;
 }
 
+/* Opened from an operator modal: above it, by construction. */
+.junto-dialog[data-layer="operator-dialog"] {
+  z-index: var(--layer-operator-dialog);
+}
+
 .junto-dialog__card {
   display: flex;
   flex-direction: column;

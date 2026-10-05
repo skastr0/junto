@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { claimFocus, claimFocusOnMount, focusPrimaryControl } from "../../lib/focus-ownership";
-import { useModalLayer } from "../../lib/modal-stack";
+import { isModalLayerOpen, useModalLayer, type ModalLayer } from "../../lib/modal-stack";
 import { Button } from "./Button";
 import { Eyebrow } from "./Eyebrow";
 import "./dialog.css";
@@ -9,7 +9,9 @@ import "./dialog.css";
 /**
  * Dialog: the one working dialog. A small centred card for a short decision
  * or a short form, opened from the base or from a working modal and always
- * above both (--layer-working-dialog). It owns the backdrop, the focus trap,
+ * above both (--layer-working-dialog). Opened while an operator modal is up
+ * (a confirm from the feed, a viewer over it), it lands above that modal
+ * instead (--layer-operator-dialog). It owns the backdrop, the focus trap,
  * focus restore, and Escape that closes only the topmost layer.
  *
  * For a yes or no question use ConfirmDialog. For deep single-subject work
@@ -24,6 +26,7 @@ export function Dialog({
   width = 420,
   className,
   testId,
+  onKeyDown,
   children,
   actions,
 }: {
@@ -38,13 +41,22 @@ export function Dialog({
   readonly width?: number;
   readonly className?: string;
   readonly testId?: string;
+  /**
+   * The body's keys (arrows in a viewer), heard wherever focus sits inside
+   * the dialog, before Escape and the Tab trap.
+   */
+  readonly onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
   readonly children?: ReactNode;
   /** The footer row, right aligned: cancel first, the one action last. */
   readonly actions?: ReactNode;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  const layer = useModalLayer({ layer: "working-dialog", containerRef: cardRef, onEscape: onClose });
+  // A dialog belongs to the layer it was opened from, decided once at open.
+  const [layerName] = useState<ModalLayer>(() =>
+    isModalLayerOpen("operator") ? "operator-dialog" : "working-dialog",
+  );
+  const layer = useModalLayer({ layer: layerName, containerRef: cardRef, onEscape: onClose, onKeyDown });
 
   useEffect(() => {
     const card = cardRef.current;
@@ -56,7 +68,7 @@ export function Dialog({
   }, []);
 
   return createPortal(
-    <div className="junto-dialog" data-layer="working-dialog" data-popover-layer onKeyDown={layer.onKeyDown}>
+    <div className="junto-dialog" data-layer={layerName} data-popover-layer onKeyDown={layer.onKeyDown}>
       <button
         type="button"
         data-layer-backdrop

@@ -13,12 +13,14 @@ import { claimFocus, setFocusFence } from "./focus-ownership";
  * Order is by layer first (see styles/layers.css), then by open order.
  */
 
-export type ModalLayer = "working" | "working-dialog" | "operator";
+export type ModalLayer = "working" | "working-dialog" | "operator" | "operator-dialog";
 
 const LAYER_RANK: Record<ModalLayer, number> = {
   working: 1,
   "working-dialog": 2,
   operator: 3,
+  // A dialog opened from inside an operator modal: above it.
+  "operator-dialog": 4,
 };
 
 export type ModalEntry = {
