@@ -2177,4 +2177,207 @@ describe("LocalSessionHost", () => {
     });
     expect(host.runningCount()).toBe(0);
   });
+
+  describe("a process that never exits", () => {
+    const agentSeat = (bindingId: string) => ({
+      bindingId,
+      harness: "codex" as const,
+      agentKey: `local:${bindingId}`,
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
+      canvasName: "factory",
+      nodeId: `${bindingId}-node`,
+    });
+
+    /** A host whose first process ignores TERM and KILL; later ones behave. */
+    const stuckHost = () => {
+      vi.useFakeTimers();
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(61_000 + index),
+        exitOnSignal: index === 0 ? false : "SIGTERM",
+      }));
+      const host = hostWith(fake, { killGraceMs: 10, shutdownGraceMs: 10, lateExitGraceMs: 20 });
+      const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      vi.spyOn(console, "info").mockImplementation(() => undefined);
+      return { fake, host, errors };
+    };
+
+    it("reproduces the wedge it bounds: stopping, unattachable and unreplaceable until the bound", async () => {
+      const { fake, host } = stuckHost();
+      const input = agentSeat("stuck-seat");
+      const first = host.createAgentSeat(input);
+
+      expect(host.kill(input.bindingId)).toBe(true);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+      // Killed, no exit witness yet: this is the state that used to last
+      // until the app restarted.
+      await vi.advanceTimersByTimeAsync(19);
+      expect(host.get(input.bindingId)).toMatchObject({ epoch: first.epoch, status: "running", stopping: true });
+      expect(await host.attach({ bindingId: input.bindingId, mode: "control" })).toEqual({
+        ok: false,
+        message: "session interaction revoked during stop",
+      });
+      expect(host.createAgentSeat(input).epoch).toBe(first.epoch);
+      expect(fake.controllers).toHaveLength(1);
+      expect(host.unconfirmedStops()).toEqual([]);
+    });
+
+    it("declares the generation dead for the seat after KILL plus the late-exit window", async () => {
+      const { fake, host, errors } = stuckHost();
+      const input = agentSeat("stuck-seat");
+      const events: Array<{ type: string; epoch: string; status?: string }> = [];
+      host.on("event", (event) => events.push(event as never));
+      const first = host.createAgentSeat(input);
+
+      host.kill(input.bindingId);
+      await vi.advanceTimersByTimeAsync(10 + 20);
+
+      // The seat reads exited, says why in plain words, and announced it.
+      const stopped = host.get(input.bindingId);
+      expect(stopped).toMatchObject({ epoch: first.epoch, status: "exited" });
+      expect(stopped?.exitMessage).toBe(
+        "Junto told this session to stop and then killed it, but its process (pid 61000) never reported exiting. " +
+          "It may still be running. The seat is free to start a fresh session.",
+      );
+      // No classified failure: that would refuse the seat's next wake.
+      expect(stopped?.exitReason).toBeUndefined();
+      expect(events.filter((event) => event.epoch === first.epoch).map((event) => event.type)).toEqual(
+        expect.arrayContaining(["exit", "session"]),
+      );
+      expect(events.some((event) => event.type === "session" && event.status === "exited")).toBe(true);
+      expect(errors.mock.calls.flat().join(" ")).toContain("stop unconfirmed for stuck-seat");
+
+      // The process is not forgotten: tracked, reported, and still counted.
+      expect(host.unconfirmedStops()).toEqual([
+        expect.objectContaining({ bindingId: input.bindingId, epoch: first.epoch, pid: 61_000, cause: "explicit_kill" }),
+      ]);
+      expect(host.runningCount()).toBe(1);
+      expect(host.acquireMaintenanceLease()).toMatchObject({ acquired: false, reason: "active_sessions" });
+      // No further signals are sent on a timer: the bound gives up waiting,
+      // it does not start a signal loop.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    });
+
+    it("a fresh generation can start, and the stuck process never acts as the seat again", async () => {
+      const identities = makeSyntheticIdentityMap();
+      setProcessIdentityMapForTests(identities);
+      const { fake, host } = stuckHost();
+      const input = agentSeat("stuck-seat");
+      const first = host.createAgentSeat(input);
+      expect(identities.snapshot()).toHaveLength(1);
+
+      host.kill(input.bindingId);
+      // Identity is revoked the moment the stop is requested, not at the bound.
+      expect(identities.snapshot()).toEqual([]);
+      await vi.advanceTimersByTimeAsync(30);
+
+      const second = host.createAgentSeat(input);
+      expect(second.epoch).not.toBe(first.epoch);
+      expect(second).toMatchObject({ status: "running" });
+      expect(second.stopping).toBeUndefined();
+      expect(fake.controllers).toHaveLength(2);
+      expect(identities.snapshot().map((entry) => entry.pid)).toEqual([61_001]);
+      const attached = await host.attach({ bindingId: input.bindingId, mode: "control" });
+      expect(attached.ok).toBe(true);
+
+      // Output from the stuck process reaches nobody, and it cannot be typed into.
+      const output: string[] = [];
+      host.on("event", (event) => {
+        if (event.type === "output") output.push(`${event.epoch}:${event.data}`);
+      });
+      fake.controllers[0]?.emitData("ghost");
+      expect(output).toEqual([]);
+      if (attached.ok) expect(host.write(attached.lease, "hello")).toBe(true);
+      expect(fake.controllers[0]?.writes).toEqual([]);
+      expect(fake.controllers[1]?.writes).toEqual(["hello"]);
+
+      // Two processes are live: the fresh seat and the one still tracked.
+      expect(host.runningCount()).toBe(2);
+      expect(host.unconfirmedStops().map((stop) => stop.epoch)).toEqual([first.epoch]);
+    });
+
+    it("stops tracking the process when its exit is finally witnessed, without touching the fresh generation", async () => {
+      const { fake, host } = stuckHost();
+      const input = agentSeat("stuck-seat");
+      host.createAgentSeat(input);
+      host.kill(input.bindingId);
+      await vi.advanceTimersByTimeAsync(30);
+      const second = host.createAgentSeat(input);
+      const events: string[] = [];
+      host.on("event", (event) => events.push(`${event.type}@${event.epoch}`));
+
+      fake.controllers[0]?.exit(137);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(host.unconfirmedStops()).toEqual([]);
+      expect(host.runningCount()).toBe(1);
+      // The seat already heard about that exit; it is not announced twice.
+      expect(events).toEqual([]);
+      expect(host.get(input.bindingId)).toMatchObject({ epoch: second.epoch, status: "running" });
+    });
+
+    it("quit still reports the process as a straggler instead of calling the host clean", async () => {
+      const { host } = stuckHost();
+      const input = agentSeat("stuck-seat");
+      const first = host.createAgentSeat(input);
+      host.kill(input.bindingId);
+      await vi.advanceTimersByTimeAsync(30);
+
+      const shutdown = host.shutdownAll("quit");
+      await vi.advanceTimersByTimeAsync(10 + 10 + 20);
+      const result = await shutdown;
+      expect(result.clean).toBe(false);
+      expect(result.stragglers).toEqual([
+        expect.objectContaining({
+          bindingId: input.bindingId,
+          epoch: first.epoch,
+          pid: 61_000,
+          ownedPtyOutstanding: true,
+          kill: expect.objectContaining({ signal: "SIGKILL" }),
+        }),
+      ]);
+    });
+
+    it("a process that exits within the window is an ordinary stop", async () => {
+      vi.useFakeTimers();
+      const fake = makeFakeTerminalProcessAuthority(() => ({
+        pid: trackSyntheticPid(61_100),
+        exitOnSignal: "SIGKILL",
+      }));
+      const host = hostWith(fake, { killGraceMs: 10, shutdownGraceMs: 10, lateExitGraceMs: 20 });
+      const input = agentSeat("slow-seat");
+      host.createAgentSeat(input);
+      host.kill(input.bindingId);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(host.unconfirmedStops()).toEqual([]);
+      expect(host.runningCount()).toBe(0);
+      expect(host.get(input.bindingId)?.exitMessage).toBeUndefined();
+    });
+
+    it("a failed PTY write stops the generation instead of leaving it broken forever", async () => {
+      const { fake, host } = stuckHost();
+      const input = agentSeat("broken-pipe-seat");
+      const first = host.createAgentSeat(input);
+      const attached = await host.attach({ bindingId: input.bindingId, mode: "control" });
+      expect(attached.ok).toBe(true);
+      // The PTY is gone; the process never reports exiting.
+      (fake.controllers[0]!.lease as unknown as { io: { write: (data: string) => void } }).io.write = () => {
+        throw new Error("EPIPE");
+      };
+      if (attached.ok) expect(host.write(attached.lease, "x")).toBe(false);
+      expect(host.phaseOf(input.bindingId)).toMatchObject({ _tag: "Broken", reason: "pipe" });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+      await vi.advanceTimersByTimeAsync(10 + 20);
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(host.get(input.bindingId)).toMatchObject({ epoch: first.epoch, status: "exited" });
+      expect(host.unconfirmedStops()).toEqual([
+        expect.objectContaining({ epoch: first.epoch, cause: "pty_write_failed" }),
+      ]);
+      // And the seat can be started again.
+      expect(host.createAgentSeat(input).epoch).not.toBe(first.epoch);
+    });
+  });
 });

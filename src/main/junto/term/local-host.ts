@@ -308,6 +308,12 @@ type SessionRec = {
   journal: JournalEntry[];
   journalBytes: number;
   controlLeaseId: string | undefined;
+  /**
+   * The control lease belongs to a holder with no terminal emulator of its
+   * own (an overseer's scripted write). It answers no terminal queries, so
+   * the headless grid keeps answering while it holds the lease.
+   */
+  controlLeaseHeadless: boolean;
   killed: boolean;
   termReceipt: AppProcessSignalReceipt | undefined;
   killReceipt: AppProcessSignalReceipt | undefined;
@@ -315,6 +321,14 @@ type SessionRec = {
   sessionCaptureTail: string;
   /** Exact-record escalation; never follows a mutable binding lookup. */
   escalationTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * The process was told to stop, then killed, and never reported exiting.
+   * The seat is released (the record reads exited, so a fresh generation can
+   * start) while this record keeps its lease and stays in the live set: the
+   * process is still tracked, still counted, and still a shutdown straggler
+   * until its exit is actually witnessed.
+   */
+  unconfirmedStop: { readonly at: number; readonly cause: string } | undefined;
   /**
    * This generation used harness resume argv (`-r` / `--resume` / `resume`).
    * On proven resume failure we fail open to a fresh pin session once.
@@ -1066,11 +1080,13 @@ export class LocalSessionHost extends EventEmitter {
       journal: [],
       journalBytes: 0,
       controlLeaseId: undefined,
+      controlLeaseHeadless: false,
       killed: false,
       termReceipt: undefined,
       killReceipt: undefined,
       sessionCaptureTail: "",
       escalationTimer: undefined,
+      unconfirmedStop: undefined,
       resumeAttempt: agentMeta?.resumeAttempt === true,
       resumeFailureSeen: false,
       failOpenUsed: agentMeta?.failOpenUsed === true,
@@ -1201,6 +1217,14 @@ export class LocalSessionHost extends EventEmitter {
         epoch,
         cols,
         rows,
+        // A harness asks its terminal questions whether or not anyone is
+        // looking. With no surface attached this grid is the terminal.
+        queries: {
+          reply: (data) => this.writeQueryReply(rec, data),
+          hostAnswers: () =>
+            rec.controlLeaseId === undefined || rec.controlLeaseHeadless,
+          themeMode: currentThemeMode,
+        },
       });
       if (seat.kind === "agent") {
         seatStateRuntime.bindHarness(bindingId, seat.harness, epoch);
@@ -1330,6 +1354,11 @@ export class LocalSessionHost extends EventEmitter {
     readonly bindingId: string;
     readonly mode: "control" | "observe";
     readonly takeover?: boolean;
+    /**
+     * The holder has no terminal emulator and answers no terminal queries.
+     * Absent means a surface: it answers, and the headless grid stays quiet.
+     */
+    readonly headless?: boolean;
   }): Promise<
     | {
         readonly ok: true;
@@ -1404,6 +1433,7 @@ export class LocalSessionHost extends EventEmitter {
       // every path — give its retention back here or the refcount never drains.
       if (rec.controlLeaseId) this.releaseSurfaceLease(rec.controlLeaseId);
       rec.controlLeaseId = mintLease();
+      rec.controlLeaseHeadless = input.headless === true;
       // A surface is now painting this session: retain the full scrollback for
       // as long as the lease lives. `screen` above was already serialized from
       // the bounded window, so this only changes what accrues from here on.
@@ -1470,6 +1500,7 @@ export class LocalSessionHost extends EventEmitter {
     if (!rec) return;
     if (lease.mode === "control" && rec.controlLeaseId === lease.leaseId) {
       rec.controlLeaseId = undefined;
+      rec.controlLeaseHeadless = false;
     }
   }
 
@@ -1560,6 +1591,26 @@ export class LocalSessionHost extends EventEmitter {
     }
   }
 
+  /**
+   * A terminal query reply from the headless grid. Protocol bytes, not a
+   * keystroke: no operator-presence stamp, and it waits out a managed
+   * submission span like any other write so it never lands inside a paste.
+   */
+  private writeQueryReply(rec: SessionRec, data: string): void {
+    if (
+      rec.killed ||
+      !rec.lease ||
+      !this.liveRecords.has(rec) ||
+      !sessionPhaseAllowsWrite(rec.phase)
+    ) return;
+    if (
+      this.operatorInterlock.holdWrite(rec.bindingId, {
+        replay: () => this.writeQueryReply(rec, data),
+      })
+    ) return;
+    this.writeRecord(rec, data);
+  }
+
   private writeRecord(rec: SessionRec, data: string): boolean {
     const lease = rec.lease;
     if (!lease) return false;
@@ -1567,9 +1618,16 @@ export class LocalSessionHost extends EventEmitter {
       lease.io.write(data);
       return true;
     } catch {
-      // PTY write failure (broken pipe family) — leave generation registered
-      // until exact exit witness; refuse further writes via phase.
+      // PTY write failure (broken pipe family): this generation can never be
+      // typed into again. Refuse further writes via phase, and stop it: left
+      // alone it would sit Broken, occupying its seat, for as long as no exit
+      // witness arrives, which for a dead pipe can be forever.
       rec.phase = SessionPhase.Broken({ surface: "native", reason: "pipe" });
+      queueMicrotask(() => {
+        if (this.liveRecords.has(rec) && !rec.killed) {
+          this.requestStop(rec, "pty_write_failed");
+        }
+      });
       return false;
     }
   }
@@ -1783,6 +1841,7 @@ export class LocalSessionHost extends EventEmitter {
     const alreadyKilled = rec.killed;
     rec.killed = true;
     rec.controlLeaseId = undefined;
+    rec.controlLeaseHeadless = false;
     // Identity revocation is synchronous and exact. Neither daemon shutdown nor
     // terminal TERM may begin while a dying generation still wields the seat.
     this.revokeProcessIdentities(rec);
@@ -1794,12 +1853,105 @@ export class LocalSessionHost extends EventEmitter {
     if (rec.escalationTimer === undefined && this.liveRecords.has(rec)) {
       rec.escalationTimer = setTimeout(() => {
         rec.escalationTimer = undefined;
-        if (this.liveRecords.has(rec)) {
-          this.forceKill(rec, "SIGKILL");
-        }
+        if (!this.liveRecords.has(rec)) return;
+        this.forceKill(rec, "SIGKILL");
+        // The wait for the exit witness is bounded too. A process that
+        // survives KILL (or whose exit is never reported) must not hold its
+        // seat in "stopping" until the app restarts.
+        rec.escalationTimer = setTimeout(() => {
+          rec.escalationTimer = undefined;
+          this.declareStopUnconfirmed(rec, reason);
+        }, this.lateExitGraceMs);
+        rec.escalationTimer.unref?.();
       }, this.killGraceMs);
       rec.escalationTimer.unref?.();
     }
+  }
+
+  /**
+   * TERM, KILL and the late-exit window all passed with no exit witness. The
+   * generation is declared dead FOR THE SEAT: its record reads exited, the
+   * exit is announced, and a fresh generation may occupy the binding. It is
+   * not declared dead for the host: the record keeps its lease and its place
+   * in the live set, so the process is still signalled at quit, still counted
+   * against maintenance, and reported as a straggler. Its identities were
+   * revoked when the stop was requested, so it never acts as the seat again.
+   * If the exit is witnessed later, the record is released then.
+   */
+  private declareStopUnconfirmed(rec: SessionRec, cause: string): void {
+    if (!this.liveRecords.has(rec) || rec.unconfirmedStop !== undefined) return;
+    if (sessionStatusOf(rec) === "exited") return;
+    rec.unconfirmedStop = { at: Date.now(), cause };
+    for (const cleanup of rec.listenerCleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Listener disposal never weakens the exact central exit witness.
+      }
+    }
+    this.releaseSeatSurfaces(rec);
+    rec.phase = SessionPhase.Closed({ surface: "native", reason: "stop_unconfirmed" });
+    const process = rec.pid === undefined ? "its process" : `its process (pid ${rec.pid})`;
+    rec.exitMessage =
+      `Junto told this session to stop and then killed it, but ${process} never reported exiting. ` +
+      "It may still be running. The seat is free to start a fresh session.";
+    console.error(
+      `[term] stop unconfirmed for ${rec.bindingId}@${rec.epoch}` +
+        `${rec.pid === undefined ? "" : ` pid=${rec.pid}`} (${cause}): ` +
+        "no exit witness after TERM, KILL and the late-exit window; " +
+        "seat released, process still tracked",
+    );
+    if (this.sessions.get(rec.bindingId) !== rec) return;
+    const data = `\r\n[junto] ${rec.exitMessage}\r\n`;
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, { seq: rec.seq, type: "output", data });
+    this.safeEmitEvent({
+      type: "output",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      data,
+    });
+    rec.seq = rec.seq + 1n;
+    this.pushJournal(rec, { seq: rec.seq, type: "exit", code: undefined, signal: undefined });
+    this.safeEmitEvent({
+      type: "exit",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      code: undefined,
+      signal: undefined,
+    });
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: "exited",
+      pid: rec.pid,
+    });
+  }
+
+  /**
+   * Processes Junto stopped whose exit was never witnessed. Each has given
+   * up its seat and its identities; each is still tracked here until it is
+   * seen to exit.
+   */
+  unconfirmedStops(): ReadonlyArray<{
+    readonly bindingId: string;
+    readonly epoch: string;
+    readonly pid?: number;
+    readonly since: number;
+    readonly cause: string;
+  }> {
+    return [...this.liveRecords]
+      .filter((rec) => rec.unconfirmedStop !== undefined)
+      .map((rec) => ({
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        ...(rec.pid === undefined ? {} : { pid: rec.pid }),
+        since: rec.unconfirmedStop!.at,
+        cause: rec.unconfirmedStop!.cause,
+      }));
   }
 
   private observePrimeAgentReport(
@@ -2171,6 +2323,18 @@ export class LocalSessionHost extends EventEmitter {
     this.clearPrimeAgentReporterHook(rec, "terminal_exit");
     this.requestPrimeDaemonStop(rec, "terminal_exit");
     this.removeLiveRecord(rec);
+    if (rec.unconfirmedStop !== undefined) {
+      // The seat was released when the stop went unconfirmed and its exit was
+      // announced then. This is the process finally seen to go.
+      console.info(
+        `[term] late exit witnessed for ${rec.bindingId}@${rec.epoch}` +
+          `${rec.pid === undefined ? "" : ` pid=${rec.pid}`}: no longer tracked`,
+      );
+      rec.unconfirmedStop = undefined;
+      rec.lease = undefined;
+      rec.exitWitness = undefined;
+      return;
+    }
     const current = this.sessions.get(rec.bindingId);
     rec.phase = SessionPhase.Closed({
       surface: "native",
@@ -2375,7 +2539,8 @@ export class LocalSessionHost extends EventEmitter {
     );
   }
 
-  private removeLiveRecord(rec: SessionRec): void {
+  /** Give up everything this exact generation holds on the seat's behalf. */
+  private releaseSeatSurfaces(rec: SessionRec): void {
     // Drop headless grid and structured authority for this exact epoch.
     this.observerPlane.detach(rec.bindingId, rec.epoch);
     this.clearPrimeAgentReporterHook(rec, "generation_exited");
@@ -2389,6 +2554,12 @@ export class LocalSessionHost extends EventEmitter {
     if (this.sessions.get(rec.bindingId) === rec) {
       clearCapturedSessionId(rec.bindingId);
     }
+  }
+
+  private removeLiveRecord(rec: SessionRec): void {
+    // A stop that went unconfirmed released these already, and the binding
+    // may belong to a fresh generation by now.
+    if (rec.unconfirmedStop === undefined) this.releaseSeatSurfaces(rec);
     if (!this.liveRecords.delete(rec)) return;
     this.notifyQuiescentWaiters();
   }
