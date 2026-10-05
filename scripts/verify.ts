@@ -61,6 +61,7 @@ await allMustPass([
   { name: "lint:single-write-seam", cmd: ["bun", "scripts/lint-single-write-seam.ts"] },
   { name: "lint:focus-law", cmd: ["bun", "scripts/lint-focus-law.ts"] },
   { name: "lint:overlay", cmd: ["bun", "scripts/lint-overlay.ts"] },
+  { name: "lint:design-tokens", cmd: ["bun", "scripts/lint-design-tokens.ts"] },
 ]);
 
 const vitestWorkers = process.env.CI === "true" ? "2" : "4";
