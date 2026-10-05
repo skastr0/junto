@@ -32,9 +32,10 @@ import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor
 import { canvasAuthorityMaterialFixture } from "./helpers/canvas-authority-material";
 
 // Regression: managed seats bind their PTY process by agent key with no
-// bindingId (term/local-host.ts processPrincipal). The supervisor's proof
-// hook used to read only principal.bindingId, so proof never landed and the
-// re-orientation floor nagged every proven seat forever.
+// bindingId (term/local-host.ts processPrincipal). The onboarding proof has
+// to resolve the binding from the caller's node: reading only
+// principal.bindingId would leave every such seat not onboarded, and nudged,
+// however often it ran `junto onboard`.
 
 const PEER_PID = 73_003;
 const ANCHOR_PID = 73_002;

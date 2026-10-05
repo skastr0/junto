@@ -344,47 +344,44 @@ describe("GAP-POL-4: multi-line codex prompt must scan as one prompt region", ()
 });
 
 // ---------------------------------------------------------------------------
-// POL-2 — supervisor turn budget must not count false working→idle flips
+// POL-2 — the onboarding nudge must not count false working→idle flips
 // ---------------------------------------------------------------------------
 
 describe("GAP-POL-2: false working→idle flips are not turns", () => {
-  const runFlipEpisode = async (flips: number) => {
+  it("GAP-POL-2: flips on a seat nobody has spoken to never earn a nudge", async () => {
     const sup = new InjectionSupervisor();
-    const escalations: string[] = [];
-    sup.setEscalationHandler((_b, reason) => escalations.push(reason));
-    sup.setWriter(() => true);
+    const nudges: string[] = [];
+    sup.setWriter((_b, text) => {
+      nudges.push(text);
+      return true;
+    });
     const { loop, flush } = setup({
       onSnapshot: (snap) => sup.onSnapshot(snap),
     });
     wireSupervisor(loop, sup);
     await flush();
-    for (let i = 0; i < flips; i += 1) {
+    for (let i = 0; i < 6; i += 1) {
       loop.tui.emitFalseWorking(); // braille title + empty prompt (R1 receipt)
       await flush();
       loop.tui.emitIdleRestore(); // ✳ title + prompt box (K9)
       await flush();
     }
     loop.dispose();
-    return escalations;
-  };
-
-  it("GAP-POL-2: 3 false flips must NOT escalate (today: escalates 'unguided after 3 turns')", async () => {
-    const escalations = await runFlipEpisode(3);
-    // Today the supervisor counts each false working→idle flip as a completed
-    // turn (deriveTurnSignal: idle + recent output ⇒ ended) and escalates at
-    // the 3-turn budget with zero real turns and zero marker observations.
-    expect(escalations).toEqual([]);
+    // A harness repainting its title is not a turn, and a fresh seat stays at
+    // its own empty composer until someone speaks to it.
+    expect(nudges).toEqual([]);
   });
 
-  it("GAP-POL-2 sanity: REAL marker-observed turns still count toward the budget (today: escalate at 3)", async () => {
-    // Positive half of the law: a real turn — marker pasted into the box,
-    // submitted, working, idle — must count. Codex renders the paste (with the
-    // real marker) directly in the composer, so the marker is observed.
+  it("GAP-POL-2 sanity: REAL turns after a first message earn the two nudges, at turns 1 and 4", async () => {
+    // Positive half of the law: a real turn — text pasted into the box,
+    // submitted, working, idle — must count.
     const sup = new InjectionSupervisor();
-    const escalations: string[] = [];
-    sup.setEscalationHandler((_b, reason) => escalations.push(reason));
-    sup.setWriter(() => true);
-    const marker = buildBootstrapMarker(BINDING);
+    const nudgedAfter: number[] = [];
+    let completed = 0;
+    sup.setWriter(() => {
+      nudgedAfter.push(completed);
+      return true;
+    });
     const { loop, advance, flush } = setup({
       harness: "codex",
       tui: { workingFrames: 1 },
@@ -393,45 +390,37 @@ describe("GAP-POL-2: false working→idle flips are not turns", () => {
     wireSupervisor(loop, sup);
     await flush();
 
-    for (let i = 0; i < 3; i += 1) {
-      const p = loop.drive.writePrompt(
-        BINDING,
-        `${marker}\n\nrequest ${i}`,
-      );
-      await advance(40);
+    for (let i = 0; i < 6; i += 1) {
+      completed = i + 1;
+      const p = loop.drive.writePrompt(BINDING, `request ${i}`);
+      // The first write is the session's first real message, as mail is.
+      if (i === 0) sup.noteMailWritten(BINDING);
+      await advance(2_540);
       await flush();
-      // Marker observed live in the box while pending…
-      const during = loop.observer.snapshotNow();
-      expect(during.lines.some((l) => l.includes(marker))).toBe(true);
-      // …then the CR submits (codex), working frames run, idle restores.
-      await advance(2_500);
-      await flush();
-      await expect(p).resolves.toEqual({
-        status: "submitted", bindingGeneration: 0,
-        writesBefore: i, writesAfter: i + 1, pasteWrites: 1, wrotePhysicalBytes: true,
-      });
+      await expect(p).resolves.toMatchObject({ status: "submitted", pasteWrites: 1 });
       await advance(100);
       await flush();
     }
     loop.dispose();
-    // Real turns: the budget must be honored and the canvas escalation fires.
-    expect(escalations).toHaveLength(1);
-    expect(escalations[0]).toContain("3 turns");
+    expect(nudgedAfter).toEqual([1, 4]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// POL-5 — noteUserInput sticky across generations (documentation)
+// POL-5 — noteUserInput sticky across generations
 // ---------------------------------------------------------------------------
 
-describe("GAP-POL-5: sticky noteUserInput across generations (documentation)", () => {
-  it("GAP-POL-5: a gen-1 user input re-seeds gen-2 but does not delay canvas escalation (today's behavior)", async () => {
+describe("GAP-POL-5: sticky noteUserInput across generations", () => {
+  it("GAP-POL-5: an operator keystroke from an earlier generation is not a first message for this one", async () => {
     const sup = new InjectionSupervisor();
-    const escalations: string[] = [];
-    sup.setEscalationHandler((_b, reason) => escalations.push(reason));
-    sup.setWriter(() => true);
+    const nudges: string[] = [];
+    sup.setWriter((_b, text) => {
+      nudges.push(text);
+      return true;
+    });
     // Operator typed 5s ago in a previous generation (sticky by design).
     sup.noteUserInput(BINDING, Date.now() - 5_000);
+    expect(sup.lastUserInputAt(BINDING)).toBeDefined();
     const { loop, flush } = setup({
       onSnapshot: (snap) => sup.onSnapshot(snap),
     });
@@ -444,11 +433,7 @@ describe("GAP-POL-5: sticky noteUserInput across generations (documentation)", (
       await flush();
     }
     loop.dispose();
-    // Escalate is canvas-only — it passes the user-present gate, so the
-    // sticky input does not delay budget exhaustion (D28: impact is nil today
-    // because notify-orient is gone; the re-seed itself is documented).
-    expect(escalations).toHaveLength(1);
-    expect(escalations[0]).toContain("3 turns");
+    expect(nudges).toEqual([]);
   });
 });
 

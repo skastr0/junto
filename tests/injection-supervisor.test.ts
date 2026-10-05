@@ -40,7 +40,7 @@ const settled = async (): Promise<void> => {
  * One seat under supervision. `record` stands in for the per-session marker
  * on disk, keyed by the harness session id the binding is running.
  */
-const rig = (writer: NoticeWriter = vi.fn<NoticeWriter>().mockReturnValue(true)) => {
+const rig = (writer = vi.fn<NoticeWriter>().mockReturnValue(true)) => {
   const supervisor = new InjectionSupervisor();
   const onboardedSessions = new Set<string>();
   const session = { id: "session-1" as string | undefined };

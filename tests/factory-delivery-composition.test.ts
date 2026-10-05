@@ -105,12 +105,12 @@ describe("wireFactorySupervisor", () => {
           setWriter: (fn) => {
             writer = fn;
           },
-          setEscalationHandler: () => {},
+          setComposerLookup: () => {},
           noteSeatState: () => {},
           onSnapshot: () => {},
         },
         write: () => Promise.resolve(outcome),
-        escalate: () => {},
+        composerVerdict: () => "empty",
         subscribeSnapshots: () => () => {},
       });
       await expect(Promise.resolve(writer?.("b1", "notice"))).resolves.toBe(
@@ -120,10 +120,10 @@ describe("wireFactorySupervisor", () => {
     },
   );
 
-  it("re-delivers supervisory notices through the writer", async () => {
+  it("sends the supervisor's nudge through the gated writer", async () => {
     const drive = fakeDrive();
     let writer: ((b: string, t: string) => Promise<boolean>) | undefined;
-    let escalation: ((b: string, r: string) => void) | undefined;
+    let composer: ((b: string) => "empty" | "draft" | null) | undefined;
     const snapshots: unknown[] = [];
     const closed: string[] = [];
     const dispose = wireFactorySupervisor({
@@ -131,8 +131,8 @@ describe("wireFactorySupervisor", () => {
         setWriter: (fn) => {
           writer = (b, t) => Promise.resolve(fn(b, t)).then((ok) => ok);
         },
-        setEscalationHandler: (fn) => {
-          escalation = fn;
+        setComposerLookup: (fn) => {
+          composer = fn;
         },
         noteSeatState: () => {},
         onSnapshot: (snap) => {
@@ -140,7 +140,7 @@ describe("wireFactorySupervisor", () => {
         },
       },
       write: makeFactoryWriteManagedPrompt(drive, () => true),
-      escalate: (b, r) => escalation?.(b, r),
+      composerVerdict: (b) => (b === "b1" ? "draft" : "empty"),
       subscribeSnapshots: (listener) => {
         listener({ text: "frame" } as never);
         return () => {
@@ -151,6 +151,9 @@ describe("wireFactorySupervisor", () => {
     await writer?.("b1", "supervisor nudge");
     expect(drive.writes).toHaveLength(1);
     expect(drive.writes[0]).toMatchObject({ text: "supervisor nudge" });
+    // The supervisor gates on the same composer reading the drive does.
+    expect(composer?.("b1")).toBe("draft");
+    expect(composer?.("b2")).toBe("empty");
     expect(snapshots).toEqual([{ text: "frame" }]);
     dispose();
     expect(closed).toEqual(["snapshots"]);
@@ -187,13 +190,13 @@ describe("composeFactoryDelivery", () => {
       },
       supervisor: {
         setWriter: () => {},
-        setEscalationHandler: () => {},
+        setComposerLookup: () => {},
         noteSeatState: (event) => {
           noted.push(event);
         },
         onSnapshot: () => {},
       },
-      escalate: () => {},
+      composerVerdict: () => "empty",
       pulse: { setDeliver: () => {} },
       board: { configure: () => {} },
     });
@@ -256,12 +259,12 @@ describe("real destination-drive composition", () => {
           captured = fn;
           supervisor.setWriter(fn);
         },
-        setEscalationHandler: (fn) => supervisor.setEscalationHandler(fn),
+        setComposerLookup: (fn) => supervisor.setComposerLookup(fn),
         noteSeatState: (event) => supervisor.noteSeatState(event),
         onSnapshot: (snap) => supervisor.onSnapshot(snap),
       },
       write: makeFactoryWriteManagedPrompt(d, () => true),
-      escalate: () => {},
+      composerVerdict: () => "empty",
       subscribeSnapshots: () => () => {},
     });
     expect(captured).toBeDefined();
