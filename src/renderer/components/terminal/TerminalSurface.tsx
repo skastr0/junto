@@ -1398,7 +1398,10 @@ export function TerminalSurface({
     const claim = (): boolean => {
       const host = hostRef.current;
       if (!host?.closest(".work-focus-shell")) return false;
-      if (!shouldClaimFocusOnSurfaceOpen(host)) return true;
+      // The whole surface is the scope: focus the operator put on its own
+      // chrome (a header button, a seat in the rail) is theirs to keep, and a
+      // session settling under it must not pull the keyboard back.
+      if (!shouldClaimFocusOnSurfaceOpen(rootRef.current ?? host)) return true;
       return claimFocus(term.textarea ?? host, "open", { via: term, owner: host });
     };
     if (claim()) return;

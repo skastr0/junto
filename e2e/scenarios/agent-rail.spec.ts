@@ -74,6 +74,11 @@ test("a seat in the rail is the canvas seat, and a press on it moves to that age
     const go = rail(page).locator('[data-peer-node-id="lead"]').getByTestId("actor-rail-go");
     await expect(go).toHaveAccessibleName(/^Go to lead, /);
     await go.focus();
+    // The keyboard stays where the operator put it while ada's session settles
+    // under it: the terminal does not take focus back from the rail.
+    await expect(front(page).locator(".native-terminal-surface__status")).not.toContainText("starting", { timeout: 20_000 });
+    await page.waitForTimeout(500);
+    await expect(go).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(front(page).locator("header").first()).toContainText("lead", { timeout: 20_000 });
     await expect.poll(() => typingInTerminal(page)).toBe(true);
