@@ -35,6 +35,7 @@ import {
   sourceKindSpec,
   statusReason,
   toSource,
+  tokenProblem,
   tokenSourceOptions,
   upsertSource,
   type EnvSource,
@@ -418,6 +419,7 @@ export function RegionEnvironmentScreen({
           {sources.map((source, index) => {
             const described = describeSource(source);
             const status = view.statusBySourceId[source.id];
+            const token = tokenProblem(source, sources, report, regionId);
             if (draft?.id === source.id) {
               return (
                 <li key={source.id} className="region-env__source region-env__source--editing">
@@ -470,7 +472,22 @@ export function RegionEnvironmentScreen({
                       {statusReason(status)}
                     </span>
                   ) : null}
+                  {token ? (
+                    <span className="region-env__error" role="alert" data-testid="region-env-token-problem">
+                      {token.message}
+                    </span>
+                  ) : null}
                 </div>
+                {token?.kind === "after" ? (
+                  <Button
+                    type="button"
+                    size="xs"
+                    data-testid="region-env-token-fix"
+                    onClick={() => move(index, token.moveTo)}
+                  >
+                    move below it
+                  </Button>
+                ) : null}
                 {source.required ? <Chip tone="amber">required</Chip> : null}
                 {status ? <Chip tone={STATUS_TONE[status.status]}>{STATUS_LABEL[status.status]}</Chip> : null}
                 <IconButton

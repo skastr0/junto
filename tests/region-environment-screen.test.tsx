@@ -264,6 +264,39 @@ describe("where a 1Password token comes from", () => {
   });
 });
 
+describe("a 1Password source above its token", () => {
+  const ref: EnvSource = { id: "r1", kind: "onepassword", name: "API_KEY", ref: "op://a/b/c", tokenFrom: "k1" };
+
+  it("marks the row in red, and one click moves it below its token source", async () => {
+    const { saved } = await mount({ sources: [ref, envFile, keychain] });
+    const row = all('[data-testid="region-env-source"]')[0]!;
+    expect(row.querySelector('[data-testid="region-env-token-problem"]')?.textContent).toBe(
+      "Its token comes from OP_SERVICE_ACCOUNT_TOKEN, which is listed below it. The token source must come first.",
+    );
+    expect(row.querySelector('[data-testid="region-env-token-problem"]')?.className).toContain("region-env__error");
+    await click(q('[data-testid="region-env-token-fix"]'));
+    expect(saved.at(-1)?.sources?.map((source) => source.id)).toEqual(["f1", "k1", "r1"]);
+    expect(q('[data-testid="region-env-token-problem"]')).toBeNull();
+    expect(q('[data-testid="region-env-token-fix"]')).toBeNull();
+  });
+
+  it("says so when the token source is gone, with nothing to move", async () => {
+    await mount({ sources: [ref] });
+    expect(q('[data-testid="region-env-token-problem"]')?.textContent).toBe(
+      "The source its token came from is gone. Edit it and pick another.",
+    );
+    expect(q('[data-testid="region-env-token-fix"]')).toBeNull();
+  });
+
+  it("is quiet when the token comes from an outer region", async () => {
+    const fake = makeFakeRegionEnvironmentPort({
+      report: [reported({ regionId: "outer", regionLabel: "Company", sourceId: "k1" })],
+    });
+    await mount({ sources: [ref] }, fake);
+    expect(q('[data-testid="region-env-token-problem"]')).toBeNull();
+  });
+});
+
 describe("picking instead of typing", () => {
   it("an env file is picked as a file, starting at home", async () => {
     const { saved } = await mount(undefined);

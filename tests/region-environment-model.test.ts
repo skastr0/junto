@@ -16,6 +16,7 @@ import {
   formatCommandLine,
   lookupHint,
   parseCommandLine,
+  tokenProblem,
   tokenSourceOptions,
   newSourceDraft,
   reorderSources,
@@ -317,6 +318,49 @@ describe("where a 1Password token may come from", () => {
     expect(tokenSourceOptions({ sources: [mine], regionId: "inner", report })).toEqual([
       { value: "tok", label: "MY_TOKEN, this region" },
     ]);
+  });
+});
+
+describe("a 1Password source and the order of its token", () => {
+  const token: EnvSource = { id: "tok", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "svc" };
+  const ref: EnvSource = { id: "ref", kind: "onepassword", name: "API_KEY", ref: "op://a/b/c", tokenFrom: "tok" };
+  const other: EnvSource = { id: "o", kind: "envFile", path: "/x" };
+
+  it("is fine when the token source comes first, here or in an outer region", () => {
+    expect(tokenProblem(ref, [token, other, ref], [], "inner")).toBeUndefined();
+    const outer = [reported({ regionId: "outer", regionLabel: "Company", sourceId: "tok" })];
+    expect(tokenProblem(ref, [ref], outer, "inner")).toBeUndefined();
+    // No token source asked for: op uses what the machine has.
+    expect(tokenProblem({ ...ref, tokenFrom: undefined } as EnvSource, [ref], [], "inner")).toBeUndefined();
+    expect(tokenProblem(token, [token], [], "inner")).toBeUndefined();
+  });
+
+  it("says the token source must come first when it is listed below, and where to move to", () => {
+    const sources = [ref, other, token];
+    const problem = tokenProblem(ref, sources, [], "inner");
+    expect(problem).toEqual({
+      kind: "after",
+      message:
+        "Its token comes from OP_SERVICE_ACCOUNT_TOKEN, which is listed below it. The token source must come first.",
+      moveTo: 2,
+    });
+    // The one-click fix puts the reference just under its token source.
+    const fixed = reorderSources(sources, 0, 2);
+    expect(fixed.map((source) => source.id)).toEqual(["o", "tok", "ref"]);
+    expect(tokenProblem(ref, fixed, [], "inner")).toBeUndefined();
+  });
+
+  it("an outer source with the same id makes a later one here harmless", () => {
+    const outer = [reported({ regionId: "outer", regionLabel: "Company", sourceId: "tok" })];
+    expect(tokenProblem(ref, [ref, token], outer, "inner")).toBeUndefined();
+  });
+
+  it("says the token source is gone, but not before main has answered", () => {
+    expect(tokenProblem(ref, [ref], undefined, "inner")).toBeUndefined();
+    expect(tokenProblem(ref, [ref], [], "inner")).toEqual({
+      kind: "gone",
+      message: "The source its token came from is gone. Edit it and pick another.",
+    });
   });
 });
 

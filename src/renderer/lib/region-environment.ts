@@ -433,6 +433,43 @@ export const tokenSourceOptions = (input: {
   return [...own, ...inherited].map(([value, label]) => ({ value, label }));
 };
 
+export type TokenProblem =
+  /** The token source is listed below the reference: `moveTo` puts the reference just under it. */
+  | { readonly kind: "after"; readonly message: string; readonly moveTo: number }
+  | { readonly kind: "gone"; readonly message: string };
+
+/**
+ * What is wrong with where a 1Password source takes its token from, if
+ * anything. The token resolves to the nearest source with that id ABOVE the
+ * reference, so one listed below it is never used. `report` is undefined
+ * until main has answered: an inherited token source cannot be called gone
+ * before then.
+ */
+export const tokenProblem = (
+  source: EnvSource,
+  sources: ReadonlyArray<EnvSource>,
+  report: ReadonlyArray<SourceReport> | undefined,
+  regionId: string,
+): TokenProblem | undefined => {
+  if (source.kind !== "onepassword" || !source.tokenFrom) return undefined;
+  const at = sources.findIndex((candidate) => candidate.id === source.id);
+  const own = sources.findIndex((candidate) => candidate.id === source.tokenFrom);
+  if (own !== -1 && own < at) return undefined;
+  const inherited = report?.some((entry) => entry.regionId !== regionId && entry.sourceId === source.tokenFrom);
+  if (inherited) return undefined;
+  if (own > at) {
+    const token = sources[own]!;
+    const name = "name" in token ? token.name : describeSource(token).title;
+    return {
+      kind: "after",
+      message: `Its token comes from ${name}, which is listed below it. The token source must come first.`,
+      moveTo: own,
+    };
+  }
+  if (report === undefined) return undefined;
+  return { kind: "gone", message: "The source its token came from is gone. Edit it and pick another." };
+};
+
 /** The secret a draft would send to the store on save, if it carries one. */
 export const draftSecretValue = (draft: SourceDraft): string | undefined => {
   if (draft.kind !== "secret") return undefined;
