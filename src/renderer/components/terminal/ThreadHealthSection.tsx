@@ -30,14 +30,14 @@ export function ThreadHealthSection({ node }: { readonly node: CanvasNode }) {
         aria-label={view.label}
       >
         <StatusDot tone={model.tone} />
-        <span className={`font-mono text-[12px] ${view.freshness === "stale" ? "text-dim" : "text-ink"}`}>
+        <span className={`font-mono text-body-lg ${view.freshness === "stale" ? "text-dim" : "text-ink"}`}>
           AI reads {model.headline}
         </span>
-        <span className="ml-auto font-mono text-[11px] tabular-nums text-faint">{model.confidence}</span>
+        <span className="ml-auto font-mono text-body tabular-nums text-faint">{model.confidence}</span>
       </div>
       {model.alsoRead.length > 0 ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          <span className="text-[10px] text-faint">also</span>
+          <span className="text-label text-faint">also</span>
           {model.alsoRead.map((entry) => (
             <Chip key={entry.label} tone={entry.tone}>
               {entry.label} {entry.confidence}
@@ -45,7 +45,7 @@ export function ThreadHealthSection({ node }: { readonly node: CanvasNode }) {
           ))}
         </div>
       ) : null}
-      <p className="mt-1.5 text-[10px] leading-snug text-faint">{model.provenance}</p>
+      <p className="mt-1.5 text-label leading-snug text-faint">{model.provenance}</p>
     </SidebarSection>
   );
 }

@@ -119,7 +119,7 @@ export function SeatCollaborationBlock({
             data-collaboration-thread={thread.status}
           >
             <div className="flex items-center gap-1.5">
-              <span className="truncate text-[11px] text-ink">
+              <span className="truncate text-body text-ink">
                 {thread.targetLabel}
               </span>
               <Chip tone={thread.status === "answered" ? "green" : "steel"}>
@@ -127,15 +127,15 @@ export function SeatCollaborationBlock({
               </Chip>
             </div>
             {thread.reply !== undefined && thread.reply.text !== "" ? (
-              <p className="text-[10px] leading-snug text-dim">
+              <p className="text-label leading-snug text-dim">
                 {truncate(thread.reply.text, 180)}
               </p>
             ) : (
               <>
-                <p className="text-[10px] leading-snug text-dim">
+                <p className="text-label leading-snug text-dim">
                   {truncate(thread.question, 140)}
                 </p>
-                <p className="text-[10px] text-faint">
+                <p className="text-label text-faint">
                   {collaborationThreadLine(thread)}
                 </p>
               </>
@@ -148,11 +148,11 @@ export function SeatCollaborationBlock({
             className="flex flex-col gap-1 border-t border-stroke pt-2"
             data-collaboration-peer={peer.basis}
           >
-            <p className="text-[11px] leading-snug text-ink">
+            <p className="text-body leading-snug text-ink">
               {peer.label} can help
             </p>
-            <p className="text-[10px] leading-snug text-dim">{peer.why}</p>
-            <p className="text-[10px] leading-snug text-faint">
+            <p className="text-label leading-snug text-dim">{peer.why}</p>
+            <p className="text-label leading-snug text-faint">
               &ldquo;{truncate(peer.question, 160)}&rdquo;
             </p>
             <Button
@@ -167,7 +167,7 @@ export function SeatCollaborationBlock({
           </div>
         ))}
         {error !== undefined ? (
-          <p className="text-[10px] leading-snug text-crimson">{error}</p>
+          <p className="text-label leading-snug text-crimson">{error}</p>
         ) : null}
       </div>
     </section>

@@ -131,10 +131,10 @@ export function TerminalCard({
     attentionReasons,
   });
   if (status === undefined)
-    return <div className="text-[11px] text-dim">unbound terminal</div>;
+    return <div className="text-body text-dim">unbound terminal</div>;
 
   if (native === undefined)
-    return <div className="text-[11px] text-dim">unbound terminal</div>;
+    return <div className="text-body text-dim">unbound terminal</div>;
   const { label, presentation, seatState, subtitle, activity, complete } = status;
   // One line: what it runs or why it stopped, and where when it is not here.
   const line = native.hostId === "local" ? subtitle : `${subtitle} on ${native.hostId}`;

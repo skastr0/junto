@@ -36,7 +36,7 @@ export function OnboardingSection({ node }: { readonly node: CanvasNode }) {
     <SidebarSection storageKey="seat-sidebar:onboarding" title="onboarding" testId="seat-onboarding-section">
       <div className="flex items-center gap-2" data-onboarding={status}>
         <StatusDot tone={onboarded ? "green" : "dim"} />
-        <span className="font-mono text-[12px] text-ink">{SEAT_ONBOARDING_LABEL[status]}</span>
+        <span className="font-mono text-body-lg text-ink">{SEAT_ONBOARDING_LABEL[status]}</span>
         <Button
           size="xs"
           className="ml-auto"
@@ -47,18 +47,18 @@ export function OnboardingSection({ node }: { readonly node: CanvasNode }) {
           {onboarded ? "Nudge again" : "Send nudge"}
         </Button>
       </div>
-      <p className="mt-1.5 text-[10px] leading-snug text-faint">
+      <p className="mt-1.5 text-label leading-snug text-faint">
         {onboarded
           ? "The agent ran junto onboard in this session. Nudge again if it has lost track of its seat."
           : "The agent has not run junto onboard in this session. The nudge is one sentence asking it to."}
       </p>
       {sent ? (
-        <p className="mt-1 text-[10px] leading-snug text-dim" role="status">
+        <p className="mt-1 text-label leading-snug text-dim" role="status">
           Nudge sent.
         </p>
       ) : null}
       {problem ? (
-        <p className="mt-1 text-[10px] leading-snug text-amber" role="alert">
+        <p className="mt-1 text-label leading-snug text-amber" role="alert">
           {problem}
         </p>
       ) : null}

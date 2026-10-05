@@ -29,12 +29,12 @@ export function TerminalInventory() {
             <Button size="xs" variant="subtle" onClick={() => setOpen(false)}>×</Button>
           </header>
           {detached.length === 0 ? (
-            <p className="mt-3 text-[11px] text-dim">No detached sessions.</p>
+            <p className="mt-3 text-body text-dim">No detached sessions.</p>
           ) : (
             <div className="mt-3 grid gap-1.5 border-t border-stroke pt-3">
               {detached.map((session) => (
                 <div key={session.bindingId} className="grid grid-cols-[1fr_auto] items-center gap-x-2">
-                  <span className="truncate text-[11px] text-ink">
+                  <span className="truncate text-body text-ink">
                     {session.label ?? session.title ?? session.bindingId.slice(0, 12)}
                   </span>
                   <Button
@@ -47,7 +47,7 @@ export function TerminalInventory() {
                   >
                     Stop
                   </Button>
-                  <small className="truncate text-[10px] text-faint">{session.cwd}</small>
+                  <small className="truncate text-label text-faint">{session.cwd}</small>
                 </div>
               ))}
             </div>

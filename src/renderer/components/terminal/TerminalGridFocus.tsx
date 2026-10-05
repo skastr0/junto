@@ -167,7 +167,7 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
                   >
                     Prev
                   </Button>
-                  <span className="font-mono text-[11px] text-dim">
+                  <span className="font-mono text-body text-dim">
                     page {Math.min(page, pageCount - 1) + 1} of {pageCount}
                   </span>
                   <Button
@@ -250,7 +250,7 @@ function TerminalGridCell({ nodeId }: { readonly nodeId: string }) {
   return (
     <div ref={setCell} className="terminal-grid__cell" data-node-id={nodeId}>
       {open ? null : (
-        <div className="terminal-grid__cell-empty text-[12px] text-dim">
+        <div className="terminal-grid__cell-empty text-body-lg text-dim">
           This seat has no live terminal view.
         </div>
       )}

@@ -1977,10 +1977,10 @@ export function TerminalSurface({
           ) : (
             <HarnessMark agent={gridHarness} size={18} />
           )}
-          <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-ink">
+          <span className="min-w-0 flex-1 truncate font-mono text-body-lg font-semibold text-ink">
             {label}
           </span>
-          <span className="native-terminal-surface__status inline-flex min-w-0 shrink items-center gap-1.5 truncate text-[11px] text-dim">
+          <span className="native-terminal-surface__status inline-flex min-w-0 shrink items-center gap-1.5 truncate text-body text-dim">
             {showLoadOverlay && loadPresentation ? (
               <SessionLoadSpinner
                 variant="inline"
@@ -2092,7 +2092,7 @@ export function TerminalSurface({
       )}
       {claimedTask && TASKS_ENABLED && !grid ? (
         <div
-          className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-[11px]"
+          className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-body"
           role="status"
         >
           <span className="shrink-0 uppercase tracking-[0.12em] text-cyan">
@@ -2163,7 +2163,7 @@ export function TerminalSurface({
                     that cannot start looks identical to one that was stopped on
                     purpose — and there is nothing to act on. */}
                 {!processStopping && deadReason ? (
-                  <p className="native-terminal-surface__dead-detail font-mono text-[11px] opacity-80">
+                  <p className="native-terminal-surface__dead-detail font-mono text-body opacity-80">
                     {deadReason}
                   </p>
                 ) : null}

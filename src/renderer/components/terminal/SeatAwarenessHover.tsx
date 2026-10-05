@@ -91,11 +91,11 @@ export function SeatAwarenessHover({
       <div className="flex flex-col gap-2 px-3.5 py-2.5">
         {view.judgmentFreshness ? (
           <div className="flex flex-col gap-1">
-            <p className="text-[12px] leading-snug text-ink">
+            <p className="text-body-lg leading-snug text-ink">
               {view.aiLabel ?? view.availabilityLine}
             </p>
             {view.clearNote ? (
-              <p className="text-[10px] text-faint">{view.clearNote}</p>
+              <p className="text-label text-faint">{view.clearNote}</p>
             ) : null}
             {view.concernTexts.length > 1 ? (
               <div className="flex flex-wrap gap-1">
@@ -107,18 +107,18 @@ export function SeatAwarenessHover({
               </div>
             ) : null}
             {view.freshness ? (
-              <p className="text-[10px] tabular-nums text-faint">{view.freshness}</p>
+              <p className="text-label tabular-nums text-faint">{view.freshness}</p>
             ) : null}
           </div>
         ) : (
-          <p className="text-[11px] leading-snug text-dim">{view.availabilityLine}</p>
+          <p className="text-body leading-snug text-dim">{view.availabilityLine}</p>
         )}
         {view.excerpt ? (
           <div className="border-t border-stroke pt-2">
             <Eyebrow tone="faint" size="xs">
               {view.excerptLabel ?? SEAT_AWARENESS_EXCERPT_LABEL}
             </Eyebrow>
-            <p className="mt-0.5 break-words font-mono text-[11px] leading-snug text-ink">
+            <p className="mt-0.5 break-words font-mono text-body leading-snug text-ink">
               {view.excerpt}
             </p>
           </div>
