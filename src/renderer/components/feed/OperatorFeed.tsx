@@ -10,9 +10,22 @@
  *
  * Keys while open: j / k move, 1..9 send that quick reply, Enter writes a
  * reply (or opens the seat), o opens the seat, Esc closes the reply first and
- * then the feed. ⌘I toggles it anywhere.
+ * then the feed.
+ *
+ * An operator modal: OperatorModalHost owns the chord (⌘I) and mounts this
+ * only while open, so selection, reply and expanded details reset on every
+ * open. The shell owns the frame, the header, focus and Escape.
  */
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type HTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { use$ } from "@legendapp/state/react";
 import {
   ArrowBigUpDash,
@@ -23,7 +36,6 @@ import {
   MessageSquareText,
   OctagonAlert,
   ScanEye,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
@@ -34,32 +46,31 @@ import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signal
 import { SIGNALS_SECTION } from "../../lib/agent-signals-view";
 import { isOperatorTyping } from "../../lib/focus-ownership";
 import {
-  closeOperatorFeed,
   feedItemsInOrder,
   feedStatusLine,
-  operatorFeed$,
   reconcileSelection,
   stepFeedSelection,
-  toggleOperatorFeed,
   useOperatorFeed,
   withLeavingItems,
 } from "../../lib/operator-feed";
-import { modKeyGlyph } from "../../lib/platform";
+import { closeOperatorModal } from "../../lib/operator-modal";
 import { quickReplyForKey, useQuickReplies } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
 import { accentColor } from "../../lib/theme";
 import { THREAD_HEALTH_STATUS_TONE } from "../../lib/thread-health";
 import { AgentPortrait } from "../AgentPortrait";
-import { FocusSurface } from "../FocusSurface";
 import { SeatRing } from "../SeatRing";
 import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
-import { Button, IconButton, Kbd, OverlayHeader, StatusDot } from "../ui";
+import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
+import { Button, Kbd, StatusDot } from "../ui";
 import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import "./operator-feed.css";
 
 const LEAVE_MS = 280;
+
+const closeOperatorFeed = (): void => closeOperatorModal("feed");
 
 /** How each need reads: a glyph on the portrait and a word in the meta line. */
 const KIND: Readonly<Record<FeedItemKind, { readonly label: string; readonly icon: LucideIcon }>> = {
@@ -259,13 +270,11 @@ function FeedRegionSection({
   );
 }
 
-function OperatorFeedSurface() {
+export function OperatorFeed() {
   const feed = useOperatorFeed();
   const quickReplies = useQuickReplies();
   const doc = use$(state$.doc);
   const nodesById = useMemo(() => new Map(doc.nodes.map((node) => [node.id, node] as const)), [doc]);
-  const nodesByIdRef = useRef(nodesById);
-  nodesByIdRef.current = nodesById;
   const [selected, setSelected] = useState<string | null>(null);
   // A press selects what is already under the pointer; scrolling it would
   // move the row out from under the click.
@@ -341,75 +350,58 @@ function OperatorFeedSurface() {
       });
     }
   };
-  const sendQuickRef = useRef(sendQuick);
-  sendQuickRef.current = sendQuick;
-  const stateRef = useRef({ selected, replyFor, quickReplies });
-  stateRef.current = { selected, replyFor, quickReplies };
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const { selected: current, replyFor: reply, quickReplies: replies } = stateRef.current;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (reply !== null) setReplyFor(null);
-        else closeOperatorFeed();
-        return;
-      }
-      if (isOperatorTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
-      const list = itemsRef.current;
-      if (event.key === "j" || event.key === "ArrowDown") {
-        event.preventDefault();
-        setReveal(true);
-        setSelected(stepFeedSelection(list, current, 1));
-        return;
-      }
-      if (event.key === "k" || event.key === "ArrowUp") {
-        event.preventDefault();
-        setReveal(true);
-        setSelected(stepFeedSelection(list, current, -1));
-        return;
-      }
-      const item = list.find((candidate) => candidate.itemId === current);
-      if (!item) return;
-      const quick = item.signalId ? quickReplyForKey(replies, event.key) : null;
-      if (quick !== null) {
-        event.preventDefault();
-        void sendQuickRef.current(item, quick);
-      } else if (event.key === "Enter" || event.key === "o") {
-        event.preventDefault();
-        if (event.key === "Enter" && item.signalId) setReplyFor(item.itemId);
-        else openSeat(item, nodesByIdRef.current.get(item.seat.nodeId));
-      }
-    };
-    // focus-law: asks isOperatorTyping; Escape alone acts while typing, to close the reply.
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, []);
+  // Heard wherever focus sits inside the modal; the shell takes Escape.
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
+    if (event.key === "Escape") return;
+    if (isOperatorTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "j" || event.key === "ArrowDown") {
+      event.preventDefault();
+      setReveal(true);
+      setSelected(stepFeedSelection(items, selected, 1));
+      return;
+    }
+    if (event.key === "k" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setReveal(true);
+      setSelected(stepFeedSelection(items, selected, -1));
+      return;
+    }
+    const item = items.find((candidate) => candidate.itemId === selected);
+    if (!item) return;
+    const quick = item.signalId ? quickReplyForKey(quickReplies, event.key) : null;
+    if (quick !== null) {
+      event.preventDefault();
+      void sendQuick(item, quick);
+    } else if (event.key === "Enter" || event.key === "o") {
+      event.preventDefault();
+      if (event.key === "Enter" && item.signalId) setReplyFor(item.itemId);
+      else openSeat(item, nodesById.get(item.seat.nodeId));
+    }
+  };
+  // Escape closes an open reply first; only then does the shell close the feed.
+  const onEscape = (): boolean => {
+    if (replyFor === null) return false;
+    setReplyFor(null);
+    return true;
+  };
   const status = feedStatusLine(feed);
   const hasSignals = items.some((item) => item.signalId);
 
   return (
-    <FocusSurface
-      measure="document"
-      height="immersive"
-      layer="detail"
+    <OperatorModalShell
+      id="feed"
       label="Needs you feed"
-      onClose={closeOperatorFeed}
-      closeOnEscape={false}
+      title={<span className="operator-feed__title">Needs you</span>}
+      status={<span className="operator-feed__status">{status}</span>}
+      headerProps={
+        { className: "operator-feed__head", "data-scrolled": scrolled ? "true" : undefined } as HTMLAttributes<HTMLElement>
+      }
+      width={760}
+      fill
       panelClassName="operator-feed__panel"
+      onEscape={onEscape}
+      onKeyDown={onKeyDown}
     >
-      <OverlayHeader
-        className="operator-feed__head"
-        data-scrolled={scrolled ? "true" : undefined}
-        title={<span className="operator-feed__title">Needs you</span>}
-        status={<span className="operator-feed__status">{status}</span>}
-        actions={
-          <IconButton aria-label="Close feed" title={`Close (Esc, ${modKeyGlyph()}I)`} onClick={closeOperatorFeed}>
-            <X size={15} strokeWidth={1.75} />
-          </IconButton>
-        }
-      />
       <div
         className="operator-feed__scroll"
         data-testid="operator-feed"
@@ -476,23 +468,6 @@ function OperatorFeedSurface() {
           <span><Kbd>esc</Kbd> close</span>
         </footer>
       ) : null}
-    </FocusSurface>
+    </OperatorModalShell>
   );
-}
-
-/** Always mounted: owns the ⌘I hotkey and renders the feed while open. */
-export function OperatorFeedHost() {
-  const open = use$(operatorFeed$.open);
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "i") return;
-      event.preventDefault();
-      toggleOperatorFeed();
-    };
-    // focus-law: a modifier chord that only opens or closes the feed; it types nothing.
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-  return open ? <OperatorFeedSurface /> : null;
 }

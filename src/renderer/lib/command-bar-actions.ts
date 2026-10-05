@@ -20,7 +20,7 @@ import { isCommandCenterAuthoring } from "./canvas-boot";
 import { factoryPause$, toggleFactoryPause } from "./factory-pause";
 import { clearSelection, state$ } from "./state";
 import { openSettings } from "./settings-state";
-import { openOperatorFeed } from "./operator-feed";
+import { openOperatorModal } from "./operator-modal";
 import { openIntro } from "./first-run-intro";
 import { hasStore, openStore, overlaySurfaces, PREMIUM_BUILD } from "../overlay/surfaces";
 
@@ -153,7 +153,7 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
     detail: "Every seat waiting on you, by region",
     icon: Inbox,
     hotkey: "⌘I",
-    run: openOperatorFeed,
+    run: () => openOperatorModal("feed"),
   });
 
   actions.push({

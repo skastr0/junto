@@ -12,12 +12,13 @@ import {
 } from "../../lib/operator-modal";
 import { isMac } from "../../lib/platform";
 import { CommandBar } from "../command-bar/CommandBar";
+import { OperatorFeed } from "../feed/OperatorFeed";
 
 // The operator modals. A modal joins the layer by adding its body here; its
-// chord is in operatorModalForKey. Until the feed body lands here its chord
-// is still its own host's.
-const MODALS: Partial<Record<OperatorModalId, ComponentType>> = {
+// chord is in operatorModalForKey.
+const MODALS: Record<OperatorModalId, ComponentType> = {
   search: CommandBar,
+  feed: OperatorFeed,
 };
 
 /**
@@ -36,7 +37,7 @@ export function OperatorModalHost() {
         typing: isOperatorTyping(target),
         terminal: target?.closest(TERMINAL_SELECTOR) != null,
       });
-      if (!id || !MODALS[id]) return;
+      if (!id) return;
       event.preventDefault();
       event.stopPropagation();
       // The switcher is an operator surface too: one at a time.

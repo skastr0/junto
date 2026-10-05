@@ -32,6 +32,7 @@ import { playCue } from "./sound";
 import { ALERT_CUE } from "./sound/director";
 import { selectNode, state$ } from "./state";
 import { isOperatorTyping } from "./focus-ownership";
+import { isOperatorModalOpen } from "./operator-modal";
 
 /**
  * Surfaces where Space must type, not cycle alerts.
@@ -349,6 +350,8 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   // RF nodes / RTS buttons (those match [role=button] and previously no-op'd).
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      // An operator modal is on top: its keys are its own, the canvas waits.
+      if (isOperatorModalOpen()) return;
       if (!shouldCycleAlertOnKey(event)) return;
       if (queue.items.length === 0) return;
       event.preventDefault();

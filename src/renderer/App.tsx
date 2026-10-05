@@ -52,7 +52,6 @@ import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { FirstRunIntro } from "./components/onboarding/FirstRunIntro";
 import { DigestPanel } from "./components/DigestPanel";
-import { OperatorFeedHost } from "./components/feed/OperatorFeed";
 import { DesktopNotificationsHost } from "./lib/desktop-notify";
 import { StoreHost } from "./overlay/surfaces";
 import { AgentEditorHost } from "./components/agent-editor/AgentEditor";
@@ -587,7 +586,6 @@ export function App() {
         </RendererErrorBoundary>
         <SettingsPanel />
         <DigestPanel />
-        <OperatorFeedHost />
         <DesktopNotificationsHost />
         <StoreHost />
         <AgentEditorHost />

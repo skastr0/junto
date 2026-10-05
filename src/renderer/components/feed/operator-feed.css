@@ -1,16 +1,9 @@
-/* Operator feed: one surface, one frame. The dialog panel is the only box;
-   the header, region sections and items sit directly on it. Items are rows,
+/* Operator feed: one surface, one frame. The operator shell's frame
+   (.operator-feed__panel) is the only box; the header, region sections and
+   items sit directly on it. Items are rows,
    not cards: a portrait carrying the need's glyph, the words, and quiet
    actions. Each region section wears the region's own colour
    (--feed-region, set inline from the canvas group). */
-
-.operator-feed__panel.focus-surface__panel--document {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-  background: var(--color-raise);
-}
 
 /* Header: same surface as the body; a hairline appears only once the list
    scrolls under it. */

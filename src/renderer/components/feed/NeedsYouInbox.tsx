@@ -9,7 +9,7 @@ import { use$ } from "@legendapp/state/react";
 import { ArrowUpRight, Boxes, Inbox } from "lucide-react";
 import { mailAgeLabel } from "../../lib/actor-ledger";
 import { NEEDS_YOU_LABEL, useNeedsYou, type NeedsYouEntry } from "../../lib/needs-you-inbox";
-import { openOperatorFeed, operatorFeed$ } from "../../lib/operator-feed";
+import { openOperatorModal, operatorModal$ } from "../../lib/operator-modal";
 import { modKeyGlyph } from "../../lib/platform";
 import { selectNode, state$ } from "../../lib/state";
 import { useHealthClock } from "../../lib/thread-health";
@@ -63,7 +63,7 @@ function InboxRow({ entry, nowMs, onPick }: { readonly entry: NeedsYouEntry; rea
 
 export function NeedsYouInbox() {
   const { entries } = useNeedsYou();
-  const feedOpen = use$(operatorFeed$.open);
+  const feedOpen = use$(operatorModal$.open) === "feed";
   const nowMs = useHealthClock();
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -114,7 +114,7 @@ export function NeedsYouInbox() {
             className="needs-you__full"
             onClick={() => {
               close();
-              openOperatorFeed();
+              openOperatorModal("feed");
             }}
           >
             Answer in the full feed

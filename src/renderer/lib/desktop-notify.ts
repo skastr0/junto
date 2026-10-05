@@ -13,7 +13,8 @@ import type { PreambleEvent } from "@shared/preamble";
 import { activateNodeSurface } from "./activate-node-surface";
 import { agentSeat$, bindingIdForNode, presentationForSeat, seatDoneAt } from "./agent-seat-state";
 import { getJuntoApi } from "./junto-api";
-import { openOperatorFeed, useOperatorFeed } from "./operator-feed";
+import { useOperatorFeed } from "./operator-feed";
+import { openOperatorModal } from "./operator-modal";
 import { nodeTitle } from "./presentation";
 import { playNotificationCue } from "./sound";
 import { state$ } from "./state";
@@ -210,7 +211,7 @@ export const openNotifyTarget = (target: NotifyTarget): void => {
     const node = state$.doc.peek().nodes.find((candidate) => candidate.id === target.nodeId);
     if (node && activateNodeSurface(node).opened) return;
   }
-  openOperatorFeed();
+  openOperatorModal("feed");
 };
 
 const failureOf = (event: unknown): { readonly bindingId: string; readonly failure?: Failure } | undefined => {

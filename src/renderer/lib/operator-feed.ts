@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc } from "@shared/canvas";
 import type { AgentSignal } from "@shared/agent-signals";
@@ -21,14 +20,9 @@ import { threadHealthView, useHealthClock } from "./thread-health";
 /**
  * The desktop's reading of the operator feed: joins the live planes (declared
  * signals, seat control state, thread health) onto the document and hands
- * them to the shared projection. Also owns whether the feed surface is open.
+ * them to the shared projection. Whether the feed is open is the operator
+ * modal slot's to say (lib/operator-modal).
  */
-
-export const operatorFeed$ = observable({ open: false });
-
-export const openOperatorFeed = (): void => operatorFeed$.open.set(true);
-export const closeOperatorFeed = (): void => operatorFeed$.open.set(false);
-export const toggleOperatorFeed = (): void => operatorFeed$.open.set(!operatorFeed$.open.peek());
 
 /** Build the feed for one canvas from the live stores, read once at `nowMs`. */
 export const operatorFeedFor = (
