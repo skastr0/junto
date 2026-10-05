@@ -31,7 +31,9 @@ export function Kbd({
  * KeyChord — a shortcut as key caps. Keys pressed together sit side by side
  * with no plus sign between them; steps pressed one after another are joined
  * by the word "then". The caller hands in display strings already chosen for
- * the platform (⌘ or Ctrl); this only draws them.
+ * the platform (⌘ or Ctrl); this only draws them, exactly as given: inside
+ * an uppercase, letter-spaced control (a small Button) the keys and the word
+ * between them keep their own case and spacing.
  *
  *   <KeyChord steps={[["⌘", "K"]]} />            ⌘ K
  *   <KeyChord steps={[["G"], ["A"]]} />          G then A
@@ -49,7 +51,11 @@ export function KeyChord({
 }) {
   const spoken = label ?? steps.map((keys) => keys.join(" ")).join(", then ");
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap" role="img" aria-label={spoken}>
+    <span
+      className="inline-flex items-center gap-1.5 tracking-normal whitespace-nowrap normal-case"
+      role="img"
+      aria-label={spoken}
+    >
       {steps.map((keys, stepIndex) => (
         <Fragment key={stepIndex}>
           {stepIndex > 0 ? <span className="text-label text-faint">then</span> : null}

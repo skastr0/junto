@@ -19,6 +19,12 @@ describe("ui KeyChord", () => {
     expect(out).toContain('aria-label="⌘ K"');
   });
 
+  it("keeps its own case and spacing inside an uppercase control", () => {
+    const out = html(<KeyChord steps={[["Tab"]]} />);
+    expect(out).toContain("normal-case");
+    expect(out).toContain("tracking-normal");
+  });
+
   it("joins steps pressed one after another with the word then", () => {
     const out = html(<KeyChord steps={[["G"], ["A"]]} />);
     expect(out).toContain(">then<");
