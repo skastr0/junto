@@ -44,7 +44,7 @@ import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { mailAgeLabel } from "../../lib/actor-ledger";
 import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signals-state";
 import { SIGNALS_SECTION } from "../../lib/agent-signals-view";
-import { isOperatorTyping } from "../../lib/focus-ownership";
+import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import {
   feedItemsInOrder,
   feedStatusLine,
@@ -328,11 +328,17 @@ export function OperatorFeed() {
 
   const items = useMemo(() => feedItemsInOrder(feed.sections), [feed.sections]);
   const itemsRef = useRef(items);
+  const scrollRef = useRef<HTMLDivElement>(null);
   // When the selected item leaves, for whatever reason, its neighbour takes over.
   useEffect(() => {
     const before = itemsRef.current;
     itemsRef.current = items;
-    if (before !== items) setSelected((current) => reconcileSelection(before, items, current));
+    if (before === items) return;
+    setSelected((current) => reconcileSelection(before, items, current));
+    // A card that leaves takes the focused button with it. Keep the keyboard
+    // in the feed, so the next key acts on the new selection.
+    const active = document.activeElement;
+    if (active === null || active === document.body) claimFocus(scrollRef.current, "open", { preventScroll: true });
   }, [items]);
 
   const sendQuick = async (item: FeedItem, text: string): Promise<void> => {
@@ -403,6 +409,8 @@ export function OperatorFeed() {
       onKeyDown={onKeyDown}
     >
       <div
+        ref={scrollRef}
+        tabIndex={-1}
         className="operator-feed__scroll"
         data-testid="operator-feed"
         onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}
