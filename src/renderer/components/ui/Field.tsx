@@ -51,13 +51,23 @@ export function Input({
 
 export function Textarea({
   className,
+  dense = false,
   ...rest
-}: ComponentPropsWithRef<"textarea">) {
+}: ComponentPropsWithRef<"textarea"> & {
+  /**
+   * A compact composer for a short remark beside dense content (a comment
+   * under a diff line): two lines tall, grows with what is typed up to 160px,
+   * then scrolls. No resize handle.
+   */
+  readonly dense?: boolean;
+}) {
   return (
     <textarea
+      rows={dense ? 2 : undefined}
       className={[
-        FIELD_CLASS,
-        "min-h-24 resize-y leading-relaxed",
+        dense
+          ? `${FIELD_CHROME} field-sizing-content max-h-40 min-h-[calc(2lh+10px)] resize-none py-1 text-body-lg leading-body`
+          : `${FIELD_CLASS} min-h-24 resize-y leading-relaxed`,
         className ?? "",
       ]
         .filter(Boolean)

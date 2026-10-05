@@ -6,6 +6,7 @@ export { StatusDot, type StatusTone } from "./StatusDot";
 export { Chip, type ChipTone } from "./Chip";
 export {
   Input,
+  Textarea,
   Select,
   FieldLabel,
   FIELD_SELECT_TRIGGER_CLASS,
