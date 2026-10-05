@@ -269,6 +269,32 @@ export const getContentObject = (
   };
 };
 
+/**
+ * Let go of every reference one owner holds. The objects stay until garbage
+ * collection finds nothing else referencing them and their grace has passed.
+ * Returns how many references were released.
+ */
+export const releaseContentRefsForOwner = (
+  writer: StateWriter,
+  owner: ContentOwner,
+): number => {
+  const held = writer.get<{ readonly count: number | bigint }>(
+    `
+      SELECT COUNT(*) AS count FROM content_refs
+      WHERE owner_canvas = ? AND owner_node = ? AND owner_kind = ? AND owner_record_id = ?
+    `,
+    [owner.canvasName, owner.nodeId, owner.kind, owner.recordId],
+  );
+  writer.run(
+    `
+      DELETE FROM content_refs
+      WHERE owner_canvas = ? AND owner_node = ? AND owner_kind = ? AND owner_record_id = ?
+    `,
+    [owner.canvasName, owner.nodeId, owner.kind, owner.recordId],
+  );
+  return Number(held?.count ?? 0);
+};
+
 export const listContentRefsForObject = (
   reader: StateReader,
   sha256: string,
