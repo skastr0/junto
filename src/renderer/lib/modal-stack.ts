@@ -114,10 +114,13 @@ const onPageKey = (event: KeyboardEvent): void => {
   const top = topModal();
   const container = top?.container();
   if (!top || !container) return;
-  if (event.key === "Escape") {
-    takeEscape(event, top);
+  if (event.key === "Escape" && top.onEscape()) {
+    event.preventDefault();
+    event.stopPropagation();
     return;
   }
+  // Anything else, and an Escape the shell itself does not take, goes back
+  // inside: the body may have its own rule for it.
   if (!top.trap) return;
   if (event.key === "Meta" || event.key === "Control" || event.key === "Shift" || event.key === "Alt") return;
   if (!claimFocus(container, "gesture", { event, preventScroll: true })) return;

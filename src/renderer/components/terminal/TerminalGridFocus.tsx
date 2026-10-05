@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { use$ } from "@legendapp/state/react";
 import { terminalSettings } from "@shared/settings";
 import { state$ } from "../../lib/state";
@@ -94,18 +101,12 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
   // Escape belongs to a focused terminal (agent TUIs use it). With no cell
   // holding the keyboard, it closes the grid. Inner layers (the shape menu)
   // capture and consume their own Escape first.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      const active = document.activeElement;
-      if (active instanceof Element && active.closest(".terminal-grid__cell")) return;
-      event.preventDefault();
-      closeTerminalGrid();
-    };
-    // focus-law: Escape closes the grid only when no cell holds the keyboard.
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  const onGridKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (event.target instanceof Element && event.target.closest(".terminal-grid__cell")) return;
+    event.preventDefault();
+    closeTerminalGrid();
+  };
 
   const offered = area ? pickableGridShapes(count, area, { fontSize, lineHeight }) : [];
   const shapeOptions: DropdownOption[] = [
@@ -140,6 +141,7 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
       closeOnEscape={false}
       closeOnBackdrop
       claimFocusOnOpen={false}
+      onKeyDown={onGridKeyDown}
       panelClassName="terminal-grid__panel"
     >
       <div className="terminal-grid" data-testid="terminal-grid-focus">
