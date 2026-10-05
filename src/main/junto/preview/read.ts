@@ -103,49 +103,47 @@ const locate = async (
   }
 };
 
-/**
- * Read one preview. `text` is the stored text that must name `written`
- * (undefined when the source does not exist).
- */
-export const readPreview = async (input: {
-  readonly text: string | undefined;
-  readonly path: string;
+type PreviewRender = {
   readonly variant: "thumb" | "full";
   readonly thumbnail?: PreviewThumbnailer;
   readonly thumbEdge: number;
-}): Promise<PreviewResult> => {
-  const located = await locate(input.text, input.path);
-  if ("ok" in located) return located;
-  const { path, byteLength } = located;
-  const name = previewName(input.path);
-  const file: PreviewResult = { ok: true, kind: "file", name, byteLength, extension: previewExtension(path) };
+};
 
+/**
+ * Preview one located file. `judgedAs` is the name whose extension says
+ * whether it is text; `tryImage` says whether its bytes are looked at as an
+ * image at all.
+ */
+const previewLocated = async (
+  file: { readonly path: string; readonly byteLength: number; readonly name: string },
+  judgedAs: string,
+  tryImage: boolean,
+  render: PreviewRender,
+): Promise<PreviewResult> => {
+  const { path, byteLength, name } = file;
+  const plain: PreviewResult = { ok: true, kind: "file", name, byteLength, extension: previewExtension(judgedAs) };
   try {
-    // Judged by the resolved file, so a link named a.txt cannot dress up
-    // another kind of file.
-    const kind = previewKindOf(path);
-    if (kind === "text") {
+    if (previewKindOf(judgedAs) === "text") {
       const head = await readHead(path, PREVIEW_MAX_TEXT_BYTES);
-      if (head.includes(0)) return file;
+      if (head.includes(0)) return plain;
       return {
         ok: true,
         kind: "text",
         name,
         byteLength,
-        format: TEXT_FORMATS[previewExtension(path)] ?? "text",
+        format: TEXT_FORMATS[previewExtension(judgedAs)] ?? "text",
         text: head.toString("utf8"),
         truncated: byteLength > head.length,
       };
     }
-    if (kind !== "image" && previewKindOf(input.path) !== "image") return file;
-    if (byteLength > PREVIEW_MAX_IMAGE_BYTES) return file;
+    if (!tryImage || byteLength > PREVIEW_MAX_IMAGE_BYTES) return plain;
 
     const signature = await readHead(path, 16);
     const raster = sniffRasterType(signature);
     if (raster !== undefined) {
       const bytes = await readHead(path, byteLength);
-      if (input.variant === "thumb") {
-        const thumb = input.thumbnail?.(bytes, input.thumbEdge);
+      if (render.variant === "thumb") {
+        const thumb = render.thumbnail?.(bytes, render.thumbEdge);
         if (thumb) {
           return { ok: true, kind: "image", name, byteLength, mediaType: thumb.mediaType, dataUrl: dataUrl(thumb.mediaType, thumb.bytes) };
         }
@@ -158,11 +156,48 @@ export const readPreview = async (input: {
         return { ok: true, kind: "image", name, byteLength, mediaType: "image/svg+xml", dataUrl: dataUrl("image/svg+xml", bytes) };
       }
     }
-    return file;
+    return plain;
   } catch {
     return MISSING;
   }
 };
+
+/**
+ * Read one preview of a path. `text` is the stored text that must name
+ * `written` (undefined when the source does not exist).
+ */
+export const readPreview = async (
+  input: { readonly text: string | undefined; readonly path: string } & PreviewRender,
+): Promise<PreviewResult> => {
+  const located = await locate(input.text, input.path);
+  if ("ok" in located) return located;
+  // Judged by the resolved file, so a link named a.txt cannot dress up
+  // another kind of file.
+  const tryImage = previewKindOf(located.path) === "image" || previewKindOf(input.path) === "image";
+  return previewLocated({ ...located, name: previewName(input.path) }, located.path, tryImage, input);
+};
+
+/**
+ * Read one preview of a file a signal carries as an attachment. The caller
+ * resolved it from the signal's own attachment list to its object in the
+ * content store: there is no path from the agent here at all. The same
+ * limits and the same judging by bytes apply as for a path.
+ */
+export const readAttachmentPreview = async (
+  input: {
+    /** The content store's own file for the attachment. */
+    readonly objectPath: string;
+    readonly byteLength: number;
+    /** The attachment's display name: what it is called and how text is told. */
+    readonly name: string;
+  } & PreviewRender,
+): Promise<PreviewResult> =>
+  previewLocated(
+    { path: input.objectPath, byteLength: input.byteLength, name: input.name },
+    `/${input.name}`,
+    true,
+    input,
+  );
 
 /** The real path to show in the file manager, under the same guard as a read. */
 export const locatePreviewForReveal = async (
