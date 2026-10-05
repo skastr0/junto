@@ -187,6 +187,8 @@ export type SourceDraft = {
   readonly fields: Readonly<Record<string, string>>;
   /** The stored secret this draft edits, when it edits one. */
   readonly secretId?: string;
+  /** "Only on this machine", carried through an edit untouched. */
+  readonly host?: string;
 };
 
 export const newSourceDraft = (id: string, kind: EnvSourceKind): SourceDraft => ({
@@ -214,7 +216,12 @@ const attributesFromText = (text: string): Record<string, string> => {
 };
 
 export const draftOfSource = (source: EnvSource): SourceDraft => {
-  const base = { id: source.id, kind: source.kind, required: source.required === true };
+  const base = {
+    id: source.id,
+    kind: source.kind,
+    required: source.required === true,
+    ...(source.host ? { host: source.host } : {}),
+  };
   switch (source.kind) {
     case "value":
       return { ...base, fields: { name: source.name, value: source.value } };
@@ -286,7 +293,11 @@ export const draftSecretValue = (draft: SourceDraft): string | undefined => {
  * input here and cannot reach the document.
  */
 export const toSource = (draft: SourceDraft, secretId?: string): EnvSource => {
-  const base = { id: draft.id, ...(draft.required ? { required: true as const } : {}) };
+  const base = {
+    id: draft.id,
+    ...(draft.required ? { required: true as const } : {}),
+    ...(draft.host ? { host: draft.host } : {}),
+  };
   const name = field(draft, "name");
   switch (draft.kind) {
     case "value":

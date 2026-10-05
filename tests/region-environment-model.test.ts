@@ -95,6 +95,9 @@ describe("drafts", () => {
       { id: "f", kind: "envFile", path: "~/work/.env" },
       { id: "g", kind: "secretsDir", path: "~/secrets", prefix: "ACME_" },
       { id: "h", kind: "command", name: "V", argv: ["vault", "print", "token"] },
+      // "Only on this machine" has no control on the screen yet; an edit
+      // must not drop it.
+      { id: "i", kind: "keychain", name: "T", service: "svc", host: "studio", required: true },
     ];
     for (const source of sources) expect(toSource(draftOfSource(source))).toEqual(source);
   });
