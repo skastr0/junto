@@ -1,7 +1,6 @@
 import { use$ } from "@legendapp/state/react";
 import { CircleHelp, RotateCcw, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import type { BrowserProfileInfo, JuntoBrowserApi } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
 import {
@@ -41,6 +40,7 @@ import {
 } from "../lib/update-state";
 import { HUE, INK, themeFor } from "../lib/theme";
 import { getJuntoApi } from "../lib/junto-api";
+import { FocusSurface } from "./FocusSurface";
 import { Button, Eyebrow, Select } from "./ui";
 import "./settings-panel.css";
 
@@ -1091,19 +1091,6 @@ export function SettingsPanel() {
   const error = use$(state$.settingsError);
   const [section, setSection] = useState<PanelSection>(DEFAULT_SETTINGS_SECTION);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSettings();
-      }
-    };
-    // focus-law: Escape-only close of open settings.
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open]);
-
   if (!open) return null;
 
   const stationRole = state$.settings.station.role.peek();
@@ -1119,82 +1106,79 @@ export function SettingsPanel() {
   const meta =
     sections.find((item) => item.key === activeSection) ?? sections[0]!;
 
-  return createPortal(
-    <div className="settings-surface" role="dialog" aria-modal="true" aria-label="Settings">
-      <button
-        type="button"
-        className="settings-surface__backdrop"
-        aria-label="Close settings"
-        tabIndex={-1}
-        onClick={closeSettings}
-      />
-      <div className="settings-panel" onMouseDown={(event) => event.stopPropagation()}>
-        <header className="settings-panel__header">
-          <div className="settings-panel__title">
-            <Settings2 size={16} style={{ color: HUE.amber }} />
-            <div>
-              <div className="settings-panel__eyebrow">Junto</div>
-              <strong style={{ color: INK }}>Settings</strong>
-            </div>
-          </div>
-          <div className="settings-panel__header-actions">
-            {activeSection !== "updates" && activeSection !== "experimental" && activeSection !== "companion" ? (
-              <button
-                type="button"
-                className="settings-panel__ghost"
-                title={`Reset ${meta.label} to defaults`}
-                aria-label={`Reset ${meta.label}`}
-                onClick={() => void resetSettings(activeSection)}
-              >
-                <RotateCcw size={14} />
-                <span>reset section</span>
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="settings-panel__close"
-              aria-label="Close settings"
-              onClick={closeSettings}
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </header>
-
-        <div className="settings-panel__body">
-          <nav className="settings-nav" aria-label="Settings sections">
-            {sections.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className={`settings-nav__item${activeSection === item.key ? " is-active" : ""}`}
-                aria-current={activeSection === item.key ? "page" : undefined}
-                onClick={() => setSection(item.key)}
-              >
-                <span className="settings-nav__label">{item.label}</span>
-                <span className="settings-nav__blurb">{item.blurb}</span>
-              </button>
-            ))}
-          </nav>
-          <div className="settings-content">
-            <div className="settings-content__head">
-              <h2>{meta.label}</h2>
-              {meta.blurb ? <p>{meta.blurb}</p> : null}
-            </div>
-            {loading ? (
-              <p className="settings-note">loading…</p>
-            ) : (
-              <SectionBody section={activeSection} />
-            )}
-            {error ? (
-              <p className="settings-error" role="alert">
-                {error}
-              </p>
-            ) : null}
+  return (
+    <FocusSurface
+      measure="document"
+      height="fit"
+      layer="work"
+      label="Settings"
+      panelClassName="settings-panel"
+      onClose={closeSettings}
+    >
+      <header className="settings-panel__header">
+        <div className="settings-panel__title">
+          <Settings2 size={16} style={{ color: HUE.amber }} />
+          <div>
+            <div className="settings-panel__eyebrow">Junto</div>
+            <strong style={{ color: INK }}>Settings</strong>
           </div>
         </div>
+        <div className="settings-panel__header-actions">
+          {activeSection !== "updates" && activeSection !== "experimental" && activeSection !== "companion" ? (
+            <button
+              type="button"
+              className="settings-panel__ghost"
+              title={`Reset ${meta.label} to defaults`}
+              aria-label={`Reset ${meta.label}`}
+              onClick={() => void resetSettings(activeSection)}
+            >
+              <RotateCcw size={14} />
+              <span>reset section</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="settings-panel__close"
+            aria-label="Close settings"
+            onClick={closeSettings}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </header>
+
+      <div className="settings-panel__body">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {sections.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`settings-nav__item${activeSection === item.key ? " is-active" : ""}`}
+              aria-current={activeSection === item.key ? "page" : undefined}
+              onClick={() => setSection(item.key)}
+            >
+              <span className="settings-nav__label">{item.label}</span>
+              <span className="settings-nav__blurb">{item.blurb}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="settings-content">
+          <div className="settings-content__head">
+            <h2>{meta.label}</h2>
+            {meta.blurb ? <p>{meta.blurb}</p> : null}
+          </div>
+          {loading ? (
+            <p className="settings-note">loading…</p>
+          ) : (
+            <SectionBody section={activeSection} />
+          )}
+          {error ? (
+            <p className="settings-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
       </div>
-    </div>,
-    document.body,
+    </FocusSurface>
   );
 }
