@@ -67,11 +67,11 @@ const nodes: ReadonlyArray<CanvasNode> = [
   region("r-twin-outer", "Ops", 3000, 0, 900, 600),
   region("r-twin-inner", "Ops", 3100, 100, 600, 400),
   seat("eve", 3200, 200),
-  // An unnamed region inside a named one is skipped.
+  // An unnamed region inside a named one still shows, under its placeholder.
   region("r-lab", "Lab", 0, 1400, 900, 600),
   region("r-lab-unnamed", undefined, 100, 1500, 600, 400),
   seat("fay", 200, 1600),
-  // Only an unnamed region: no crumb.
+  // Only an unnamed region: the crumb is the placeholder.
   region("r-unnamed", undefined, 1100, 1400, 600, 400),
   seat("gus", 1200, 1500),
   // In no region at all.
@@ -145,10 +145,12 @@ test("cmd+K rows read their region path, outer to inner", async ({ junto }) => {
   // A sibling region stays out of the path; shared labels both appear.
   await expect(crumbOf("dee")).toHaveText("Research");
   await expect(crumbOf("eve")).toHaveText("Ops / Ops");
-  // Unnamed regions are skipped; a root seat has no crumb element at all.
-  await expect(crumbOf("fay")).toHaveText("Lab");
-  await expect(rowsTitled("gus")).toHaveCount(1);
-  await expect(crumbOf("gus")).toHaveCount(0);
+  // No region is left out: one with no name reads "unnamed region", in the
+  // path and as its own row's title. Only a root seat has no crumb element.
+  await expect(crumbOf("fay")).toHaveText("Lab / unnamed region");
+  await expect(crumbOf("gus")).toHaveText("unnamed region");
+  await expect(rowsTitled("unnamed region")).toHaveCount(2);
+  await expect(crumbOf("unnamed region")).toHaveText(["Lab"]);
   await expect(rowsTitled("hal")).toHaveCount(1);
   await expect(crumbOf("hal")).toHaveCount(0);
 
