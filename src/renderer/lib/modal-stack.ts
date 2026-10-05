@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
-import { claimFocus, setFocusFence } from "./focus-ownership";
+import { claimFocus, isOperatorTyping, pickPrimaryFocusControl, setFocusFence } from "./focus-ownership";
 
 /**
  * The modal stack: one order for every open modal shell, so "topmost" has a
@@ -95,6 +95,32 @@ export const nextTabStop = <T extends TabStop>(
 
 const isPageRoot = (node: unknown): boolean =>
   node === null || node === document.body || node === document.documentElement;
+
+/**
+ * The subject of the working modal `from` sits in: the field the operator
+ * types into there (a terminal, a composer), or null when the modal has
+ * none. Chrome around a subject only borrows the keyboard: when what it
+ * opened closes, the keyboard goes back to the subject, not to the button.
+ */
+export const subjectOf = (from: Element | null): HTMLElement | null => {
+  const surface = from?.closest?.("[data-focus-surface]") ?? null;
+  if (!surface) return null;
+  const primary = pickPrimaryFocusControl(surface);
+  return primary !== null && isOperatorTyping(primary) ? primary : null;
+};
+
+/**
+ * Something opened from `opener` has closed. Unless the operator has put
+ * focus somewhere on purpose since, return the keyboard: to the subject of
+ * the opener's modal when it has one, else to the opener itself.
+ */
+export const returnKeyboardFrom = (opener: Element | null): void => {
+  if (!opener) return;
+  const active = document.activeElement;
+  if (!isPageRoot(active) && active !== opener && !opener.contains(active)) return;
+  const target = subjectOf(opener) ?? (opener as HTMLElement);
+  if (target.isConnected) claimFocus(target, "open", { preventScroll: true });
+};
 
 const takeEscape = (event: KeyboardEvent, top: ModalEntry): void => {
   if (!top.onEscape()) return;
@@ -278,8 +304,8 @@ export const useModalLayer = ({
       leave();
       // The shell is gone by now. Give focus back only if nothing else took
       // it: an action that opened a surface keeps the keyboard it claimed.
-      if (!opener || !isPageRoot(document.activeElement) || keepFocusRef.current?.() === true) return;
-      claimFocus(opener as HTMLElement, "open", { preventScroll: true });
+      if (!opener || keepFocusRef.current?.() === true) return;
+      returnKeyboardFrom(opener);
     };
   }, [layer, trap, containerRef]);
 
