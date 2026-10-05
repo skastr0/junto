@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { askConfirm } from "../../lib/confirm";
 import { use$ } from "@legendapp/state/react";
 import {
   Archive,
@@ -909,17 +910,20 @@ export function ArtifactLibrary({
       sinkNodeId: node.id,
       resolveTask: resolveTaskRef,
     });
-    const message = warning
-      ? `Delete artifact “${label}”? This cannot be undone.\n\n${warning}`
-      : `Delete artifact “${label}”? This cannot be undone.`;
-    if (!window.confirm(message)) {
-      return;
-    }
-    // Selection/expanded cleanup happens through the invalidation effects
-    // once the deletion lands in the doc — never eagerly.
-    void runArtifactMutation(artifact.artifactId, () =>
-      api.workArtifactDelete(name, node.id, artifact.artifactId),
-    );
+    void askConfirm({
+      source: "artifact-delete",
+      title: `Delete artifact “${label}”?`,
+      body: ["This cannot be undone.", ...(warning ? [warning] : [])],
+      confirmLabel: "Delete artifact",
+      tone: "danger",
+    }).then((confirmed) => {
+      if (!confirmed) return;
+      // Selection/expanded cleanup happens through the invalidation effects
+      // once the deletion lands in the doc — never eagerly.
+      void runArtifactMutation(artifact.artifactId, () =>
+        api.workArtifactDelete(name, node.id, artifact.artifactId),
+      );
+    });
   };
 
   /** Provenance jump: close the library and open the publishing task. */

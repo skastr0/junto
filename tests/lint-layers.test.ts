@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rawLayerValues } from "../scripts/lint-layers";
+import { nativeDialogLines, rawLayerValues } from "../scripts/lint-layers";
 
 describe("layer gate", () => {
   it("flags a layer-sized number in css, an inline style and a tailwind class", () => {
@@ -17,5 +17,21 @@ describe("layer gate", () => {
     expect(rawLayerValues('zIndex: "var(--layer-flyout)"')).toEqual([]);
     expect(rawLayerValues(".a { z-index: 40; } .b { z-index: 1; }")).toEqual([]);
     expect(rawLayerValues('<div className="z-[80] z-20" />')).toEqual([]);
+  });
+});
+
+describe("native dialog gate", () => {
+  it("flags window.confirm, alert and prompt, called or only named", () => {
+    expect(nativeDialogLines("if (!window.confirm(message)) return;")).toEqual([1]);
+    expect(nativeDialogLines("const ok =\n  confirm('sure?');")).toEqual([2]);
+    expect(nativeDialogLines("alert(text);\nconst name = prompt('name');")).toEqual([1, 2]);
+    expect(nativeDialogLines('typeof window.confirm !== "function"')).toEqual([1]);
+  });
+
+  it("leaves the app's own confirm alone", () => {
+    expect(nativeDialogLines("void askConfirm({ title });")).toEqual([]);
+    expect(nativeDialogLines("const confirmDelete = () => onConfirm();")).toEqual([]);
+    expect(nativeDialogLines("dialog.confirm(); toast.alert(message);")).toEqual([]);
+    expect(nativeDialogLines("// was window.confirm(message)")).toEqual([]);
   });
 });

@@ -42,6 +42,7 @@ import { startAgentSignalSync } from "./lib/agent-signals-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
+import { ConfirmHost } from "./components/ConfirmHost";
 import { OperatorModalHost } from "./components/operator-modal/OperatorModalHost";
 import { closeOperatorModal } from "./lib/operator-modal";
 import { FocusSwitcherHud } from "./components/FocusSwitcherHud";
@@ -597,6 +598,7 @@ export function App() {
         </div>
         <WorkSurfaceDock />
       </div>
+      <ConfirmHost />
       <OperatorModalHost />
       <TooltipLayer />
     </div>
