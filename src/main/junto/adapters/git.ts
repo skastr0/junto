@@ -278,7 +278,11 @@ export const readGitSummary = async (cwdInput: string, now: () => number = Date.
     return { ok: false, reason: "no-folder" };
   }
   const where = await git(cwd, ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "--absolute-git-dir"], GIT_SUMMARY_STEP_MS);
-  if (!where.ok) return { ok: false, reason: gitMissing(where.error) ? "no-git" : "not-a-repository" };
+  if (!where.ok) {
+    if (gitMissing(where.error)) return { ok: false, reason: "no-git" };
+    // git answers "not a repository" at once; a call that ran out of time said nothing of the kind.
+    return { ok: false, reason: /timed out/iu.test(where.error ?? "") ? "failed" : "not-a-repository" };
+  }
   const [inside, root, gitDir] = where.stdout.split("\n").map((line) => line.trim());
   if (inside !== "true" || !root || !gitDir) return { ok: false, reason: "not-a-repository" };
 
