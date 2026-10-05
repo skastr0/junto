@@ -5,7 +5,7 @@
  * Appearance, the real product path, so themeMode$ and the canvas paint
  * follow — a bare html[data-theme] override leaves canvas-2D layers dark).
  * Frames land in test-results/design-audit-bright/.
- *   bun run test:e2e:fast e2e/scenarios/design-audit-bright.spec.ts
+ *   bun run test:e2e:audit:bright
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -108,7 +108,8 @@ test("capture key surfaces in bright mode", async () => {
       timeout: 30_000,
     });
     const fit = page.getByRole("button", { name: /fit all/i });
-    if (await fit.isVisible().catch(() => false)) await fit.click();
+    await expect(fit, "design audit: the Fit all nodes control is missing").toBeVisible({ timeout: 10_000 });
+    await fit.click();
     await page.waitForTimeout(800);
     await shot(page, "01-canvas-full");
 
