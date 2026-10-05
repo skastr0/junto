@@ -23,13 +23,21 @@ const timeoutOption = Flag.integer("timeout").pipe(
 
 const sentenceArg = Argument.string("input").pipe(
   Argument.withDescription(
-    'One sentence, or a JSON object {"text","detail"} inline, @file, or - for stdin',
+    'One sentence, or a JSON object {"text","detail","attach"} inline, @file, or - for stdin',
   ),
 );
 
 const detailOption = Flag.string("detail").pipe(
   Flag.optional,
   Flag.withDescription("Longer markdown for the operator: inline, @file, or - for stdin"),
+);
+
+// One definition for all three kinds. Repeat the flag for each file.
+const attachOption = Flag.string("attach").pipe(
+  Flag.atLeast(0),
+  Flag.withDescription(
+    'A file to show the operator, an image or text: /path or "Caption=/path". Repeat for each file',
+  ),
 );
 
 const call = (op: WorkOpName, args: unknown, timeout?: number) =>
@@ -41,12 +49,12 @@ const call = (op: WorkOpName, args: unknown, timeout?: number) =>
 const raiseCommand = (kind: AgentSignalKind, description: string) =>
   Command.make(
     kind,
-    { input: sentenceArg, detail: detailOption, timeout: timeoutOption },
-    ({ input, detail, timeout }) =>
+    { input: sentenceArg, detail: detailOption, attach: attachOption, timeout: timeoutOption },
+    ({ input, detail, attach, timeout }) =>
       executeJsonCommand(
         kind,
         Effect.gen(function* () {
-          const args = yield* loadSignalRaiseArgs(kind, input, toUndefined(detail));
+          const args = yield* loadSignalRaiseArgs(kind, input, toUndefined(detail), attach);
           return yield* call("signal.raise", args, toUndefined(timeout));
         }),
       ),
