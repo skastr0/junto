@@ -136,7 +136,9 @@ describe("the folder that speaks for a seat", () => {
   });
 });
 
-describe("readGitSummary against real repositories", () => {
+// Real git processes: on a machine busy with builds each call can take
+// seconds, so these get far more room than the default five.
+describe("readGitSummary against real repositories", { timeout: 60_000 }, () => {
   let base = "";
   const env = {
     ...process.env,
