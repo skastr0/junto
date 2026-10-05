@@ -7,6 +7,7 @@ import { Chip, type ChipTone } from "../ui/Chip";
 import { Textarea } from "../ui/Field";
 import { ContentMedia } from "./ContentMedia";
 import "./task-thread.css";
+import { keyAria, keyIs } from "../../lib/key-match";
 
 export type TaskThreadKind =
   | "brief"
@@ -266,10 +267,10 @@ export function TaskThread({
           disabled={pending}
           rows={3}
           placeholder="Leave context for the current owner…"
-          aria-keyshortcuts="Meta+Enter Control+Enter"
+          aria-keyshortcuts={keyAria("message.send")}
           onChange={(event) => setComment(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+            if (!keyIs(event, "message.send")) return;
             event.preventDefault();
             void submit();
           }}

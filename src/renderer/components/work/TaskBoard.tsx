@@ -131,6 +131,7 @@ import {
 } from "./task-create-admission";
 import "./task-board.css";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { keyAria, keyIs } from "../../lib/key-match";
 
 /** Prefer Artifacts nodes edge-linked to the Tasks node; else first on canvas. */
 const resolveArtifactsNodeId = (
@@ -2020,8 +2021,7 @@ function TaskDetailPanel({
                 value={response}
                 onChange={(event) => setResponse(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-                  if (!(event.metaKey || event.ctrlKey)) return;
+                  if (!keyIs(event, "message.send")) return;
                   event.preventDefault();
                   if (pending || !response.trim()) return;
                   void onRespond(task, response.trim(), "working").then((ok) => {
@@ -2030,7 +2030,7 @@ function TaskDetailPanel({
                 }}
                 placeholder="Give the worker the context, decision, or answer needed to continue…"
                 rows={5}
-                aria-keyshortcuts="Meta+Enter Control+Enter"
+                aria-keyshortcuts={keyAria("message.send")}
               />
             </label>
 

@@ -49,6 +49,7 @@ import { ArtifactMarkdown } from "./ArtifactMarkdown";
 import { ContentMedia } from "./ContentMedia";
 import { PinRulingControl } from "../rules";
 import "./work-ledger.css";
+import { keyAria, keyIs } from "../../lib/key-match";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
 
@@ -390,15 +391,14 @@ function RequestDetail({
               value={response}
               onChange={(event) => setResponse(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key !== "Enter") return;
-                if (!(event.metaKey || event.ctrlKey)) return;
+                if (!keyIs(event, "message.send")) return;
                 event.preventDefault();
                 sendResponse();
               }}
               placeholder="Provide the decision, information, or authorization the agent needs…"
               rows={7}
               aria-label="Your response"
-              aria-keyshortcuts="Meta+Enter Control+Enter"
+              aria-keyshortcuts={keyAria("message.send")}
             />
             <p className="work-ledger-detail__shortcut-hint">
               <kbd>{modKeyGlyph()}</kbd>

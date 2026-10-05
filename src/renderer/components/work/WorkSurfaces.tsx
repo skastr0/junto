@@ -36,6 +36,7 @@ import { TaskBoard } from "./TaskBoard";
 import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
 import "./work-ledger.css";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { keyIs } from "../../lib/key-match";
 
 /** Same 28px amber tile as terminal / cron / page. */
 function AmberDecal({ children }: { readonly children: ReactNode }) {
@@ -931,7 +932,7 @@ export function BoardDetail({
                       // IME compositions must never post (Enter confirms the
                       // composition, not the message).
                       if (event.nativeEvent.isComposing) return;
-                      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                      if (keyIs(event, "message.send")) {
                         event.preventDefault();
                         void submitPost();
                       }

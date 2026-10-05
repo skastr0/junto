@@ -86,6 +86,7 @@ import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 
 import { NodeShell } from "./NodeShell";
+import { keyIs } from "../../lib/key-match";
 
 function CronScheduleToolbarAction({ onOpen }: { readonly onOpen: () => void }) {
   return (
@@ -707,7 +708,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            if (keyIs(e, "message.send")) {
               e.preventDefault();
               commit();
             }

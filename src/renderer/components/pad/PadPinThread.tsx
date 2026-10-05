@@ -17,6 +17,7 @@ import {
   upsertPinPatch,
 } from "./pad-editor-model";
 import "../work/work-ledger.css";
+import { keyIs } from "../../lib/key-match";
 
 const actorLabel = (
   nodeId: string,
@@ -197,7 +198,7 @@ export function PadPinThread({
                   }
                 }
               }
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              if (keyIs(event, "message.send")) {
                 event.preventDefault();
                 void submit();
               }

@@ -6,6 +6,7 @@ import { useQuickReplies } from "../../lib/quick-replies";
 import { Button } from "../ui";
 import { Textarea } from "../ui/Field";
 import { QuickReplies } from "./QuickReplies";
+import { keyAria, keyIs } from "../../lib/key-match";
 
 // Stable callback ref: the reply field takes focus when the form mounts.
 const claimReplyFocus = (wrapper: HTMLDivElement | null): void => {
@@ -74,14 +75,14 @@ export function SignalReply({
         value={reply}
         onChange={(event) => setReply(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+          if (!keyIs(event, "message.send")) return;
           event.preventDefault();
           send();
         }}
         placeholder="Or write a reply…"
         rows={3}
         aria-label="Your reply"
-        aria-keyshortcuts="Meta+Enter Control+Enter"
+        aria-keyshortcuts={keyAria("message.send")}
       />
       {error ? <p className="seat-signal-popover__error" role="alert">{error}</p> : null}
       <div className="seat-signal-popover__actions">

@@ -29,6 +29,7 @@ import {
   type GeomRect,
 } from "@shared/pad-geom";
 import { themeRuntime, type ThemeMode } from "@shared/theme";
+import { keyIs } from "../../lib/key-match";
 
 export const PAD_SHAPE_TOOLS = ["box", "ellipse", "triangle", "label"] as const;
 export type PadShapeTool = (typeof PAD_SHAPE_TOOLS)[number];
@@ -147,9 +148,7 @@ export const editorKeyAction = (
     return event.key === "Escape" ? { type: "cancel" } : undefined;
   }
   if (event.altKey) return undefined;
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
-    return { type: "undo" };
-  }
+  if (keyIs(event, "inPad.undo")) return { type: "undo" };
   if (event.metaKey || event.ctrlKey) return undefined;
   const tool = toolFromKey(event.key);
   if (tool) return { type: "tool", tool };

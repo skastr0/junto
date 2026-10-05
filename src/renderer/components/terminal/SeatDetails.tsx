@@ -51,6 +51,7 @@ import { SeatSignalsSection } from "./SeatSignalsSection";
 import { OnboardingSection } from "./OnboardingSection";
 import { ThreadHealthSection } from "./ThreadHealthSection";
 import { Textarea } from "../ui/Field";
+import { keyAria, keyIs } from "../../lib/key-match";
 
 // Module-level so the popover's placement effect sees one stable array.
 const DETAILS_SIDES = ["below", "left"] as const;
@@ -191,15 +192,14 @@ function RequestRowItem({
                 value={response}
                 onChange={(event) => setResponse(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-                  if (!(event.metaKey || event.ctrlKey)) return;
+                  if (!keyIs(event, "message.send")) return;
                   event.preventDefault();
                   if (canSend) onResolve(response.trim(), "completed");
                 }}
                 placeholder="Decision, information, or authorization…"
                 rows={3}
                 aria-label="Your response"
-                aria-keyshortcuts="Meta+Enter Control+Enter"
+                aria-keyshortcuts={keyAria("message.send")}
               />
               <div className="actor-ledger__actions">
                 <Button

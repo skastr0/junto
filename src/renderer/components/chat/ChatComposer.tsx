@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp } from "lucide-react";
+import { keyIs } from "../../lib/key-match";
 
 export interface ChatContextBlock {
   readonly label: string;
@@ -86,7 +87,7 @@ export function ChatComposer({
         disabled={disabled || sending}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          if (keyIs(event, "message.send")) {
             event.preventDefault();
             void send();
           }

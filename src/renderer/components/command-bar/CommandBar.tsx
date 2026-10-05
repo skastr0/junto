@@ -27,6 +27,7 @@ import { SeatRingView, seatUrgencyNow, useSeatGlance, type SeatGlance } from "..
 import { Kbd } from "../ui";
 import { claimFocus } from "../../lib/focus-ownership";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
+import { keyIs } from "../../lib/key-match";
 
 /**
  * cmd+K command bar — quick node navigation plus a quick-actions mode.
@@ -285,7 +286,7 @@ export function CommandBar() {
       if (!row) return;
       event.preventDefault();
       event.stopPropagation();
-      commit(row, event.metaKey || event.ctrlKey);
+      commit(row, keyIs(event, "inSearch.open"));
       return;
     }
   };

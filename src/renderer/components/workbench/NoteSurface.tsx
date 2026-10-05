@@ -23,6 +23,7 @@ import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import { Button, IconButton, Kbd, OverlayHeader } from "../ui";
 import { isMac } from "../../lib/platform";
 import { claimFocus } from "../../lib/focus-ownership";
+import { keyIs } from "../../lib/key-match";
 
 /** Save the latest Note draft without changing focus or closing its surface. */
 export const saveNoteSurfaceDraft = (surfaceId: string): void => {
@@ -72,7 +73,7 @@ export function NoteSurface({
       if (event.key === "Escape") {
         event.preventDefault();
         discardAndCloseNoteSurface(surface.id);
-      } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      } else if (keyIs(event, "message.send")) {
         event.preventDefault();
         saveAndCloseNoteSurface(surface.id);
       }
