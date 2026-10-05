@@ -153,6 +153,54 @@ export const previewMarkdownText = (markdown: string): string =>
     },
   );
 
+/** The link a claimed path becomes in a card's text: its place in `previewRefsIn`. */
+export const PREVIEW_LINK_PREFIX = "#preview-";
+
+/** The ref index a preview link points at, or undefined for any other href. */
+export const previewLinkIndex = (href: string | null | undefined): number | undefined => {
+  if (!href?.startsWith(PREVIEW_LINK_PREFIX)) return undefined;
+  const index = Number(href.slice(PREVIEW_LINK_PREFIX.length));
+  return Number.isInteger(index) && index >= 0 ? index : undefined;
+};
+
+const escapeLinkText = (text: string): string => text.replace(/[\\\[\]*_\x60]/gu, "\\$&");
+
+/**
+ * Markdown as a card shows it once its previews are known: every path in
+ * `claimed` reads as its file name, a link to that preview (the full path is
+ * the link's title), with the agent's words around it untouched. Everything
+ * else is `previewMarkdownText`: a path nobody claimed stays as written.
+ */
+export const previewLinkedMarkdown = (markdown: string, claimed: ReadonlySet<string>): string => {
+  if (claimed.size === 0) return previewMarkdownText(markdown);
+  const index = new Map(previewRefsIn(markdown).map((ref, at) => [ref.path, at] as const));
+  const linked = markdown
+    .split("\n")
+    .map((line) =>
+      line.replace(PATH_TOKEN, (whole: string, bang?: string, label?: string, target?: string, spanned?: string, bare?: string) => {
+        let path = (target ?? spanned ?? bare ?? "").trim();
+        let tail = "";
+        if (bare !== undefined) {
+          const trimmed = path.replace(/[.,;:!?]+$/u, "");
+          tail = path.slice(trimmed.length);
+          path = trimmed;
+        }
+        const at = index.get(path);
+        if (at === undefined || !claimed.has(path)) return whole;
+        const name = previewName(path);
+        const words = label?.trim();
+        const title = path.includes('"') ? "" : ` "${path}"`;
+        const link = (text: string): string => `[${escapeLinkText(text)}](${PREVIEW_LINK_PREFIX}${at}${title})`;
+        // An image's alt is the agent's caption beside the file; a link's label is its own text.
+        if (bang) return words && words !== name ? `${words}: ${link(name)}` : link(name);
+        if (target !== undefined) return link(words || name);
+        return `${link(name)}${tail}`;
+      }),
+    )
+    .join("\n");
+  return previewMarkdownText(linked);
+};
+
 // --- the read contract -------------------------------------------------------
 
 /** Whole-file cap for an image, in bytes. */

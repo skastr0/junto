@@ -73,7 +73,7 @@ import { SeatRing } from "../SeatRing";
 import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
-import { PreviewStrip } from "../preview/PreviewStrip";
+import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Kbd, StatusDot } from "../ui";
 import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import "./operator-feed.css";
@@ -207,14 +207,19 @@ export function FeedCard({
               {expanded ? "Hide details" : "Details"}
             </button>
           ) : null}
-          {item.detail && expanded ? (
-            <div className="operator-feed__detail">
-              <ArtifactMarkdown source={previewMarkdownText(item.detail)} />
-            </div>
-          ) : null}
           {/* Mounted with the open details, so a closed card reads no file. */}
-          {item.detail && expanded && item.signalId ? (
-            <PreviewStrip markdown={item.detail} source={{ kind: "signal", signalId: item.signalId }} />
+          {item.detail && expanded ? (
+            item.signalId ? (
+              <PreviewedMarkdown
+                markdown={item.detail}
+                source={{ kind: "signal", signalId: item.signalId }}
+                textClassName="operator-feed__detail"
+              />
+            ) : (
+              <div className="operator-feed__detail">
+                <ArtifactMarkdown source={previewMarkdownText(item.detail)} />
+              </div>
+            )
           ) : null}
           {replying && item.signalId ? (
             <SignalReply

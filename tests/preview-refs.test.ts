@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { previewBeforeAfter, previewComparePair, previewMarkdownText, previewRefsIn } from "@shared/preview";
+import {
+  previewBeforeAfter,
+  previewComparePair,
+  previewLinkedMarkdown,
+  previewLinkIndex,
+  previewMarkdownText,
+  previewRefsIn,
+} from "@shared/preview";
 
 const RAIL = "/private/tmp/claude-501/-Users-me-Projects-junto/abc/scratchpad/rail";
 
@@ -125,5 +132,48 @@ describe("previewMarkdownText", () => {
   it("leaves everything else as written", () => {
     const text = "Plain [link](https://x.dev) and `code` and ![content](junto-content://abc)";
     expect(previewMarkdownText(text)).toBe(text);
+  });
+});
+
+describe("previewLinkedMarkdown", () => {
+  const text = [
+    "- Before: /tmp/shots/before.png",
+    "- After: `/tmp/shots/after.png`.",
+    "- ![Rail](/tmp/shots/rail.png) and [the notes](/tmp/shots/notes.md)",
+    "- Gone: /tmp/shots/gone.png, sorry.",
+  ].join("\n");
+
+  it("shows a claimed path as its file name, linked to its preview, the full path as the title", () => {
+    const claimed = new Set(["/tmp/shots/before.png", "/tmp/shots/after.png", "/tmp/shots/rail.png", "/tmp/shots/notes.md"]);
+    expect(previewLinkedMarkdown(text, claimed).split("\n")).toEqual([
+      '- Before: [before.png](#preview-0 "/tmp/shots/before.png")',
+      '- After: [after.png](#preview-1 "/tmp/shots/after.png").',
+      '- Rail: [rail.png](#preview-2 "/tmp/shots/rail.png") and [the notes](#preview-3 "/tmp/shots/notes.md")',
+      "- Gone: /tmp/shots/gone.png, sorry.",
+    ]);
+  });
+
+  it("leaves a path nobody claimed as the agent wrote it", () => {
+    expect(previewLinkedMarkdown(text, new Set())).toBe(previewMarkdownText(text));
+    expect(previewLinkedMarkdown("see /tmp/a.png", new Set(["/tmp/other.png"]))).toBe("see /tmp/a.png");
+  });
+
+  it("links every mention of a claimed path to the same preview", () => {
+    expect(previewLinkedMarkdown("/tmp/a.png then /tmp/b.png then /tmp/a.png", new Set(["/tmp/a.png"]))).toBe(
+      '[a.png](#preview-0 "/tmp/a.png") then /tmp/b.png then [a.png](#preview-0 "/tmp/a.png")',
+    );
+  });
+
+  it("keeps a file name from turning into markdown", () => {
+    expect(previewLinkedMarkdown("/tmp/rail_v2_final.png", new Set(["/tmp/rail_v2_final.png"]))).toBe(
+      '[rail\\_v2\\_final.png](#preview-0 "/tmp/rail_v2_final.png")',
+    );
+  });
+
+  it("reads the index back off a link and nothing else", () => {
+    expect(previewLinkIndex("#preview-3")).toBe(3);
+    expect(previewLinkIndex("#preview-x")).toBeUndefined();
+    expect(previewLinkIndex("#section")).toBeUndefined();
+    expect(previewLinkIndex(undefined)).toBeUndefined();
   });
 });
