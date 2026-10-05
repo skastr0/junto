@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { commandBarRegionPaths, filterCommandBarNodes } from "../src/renderer/lib/command-bar";
+import { filterCommandBarNodes } from "../src/renderer/lib/command-bar";
+import { regionPath, regionPaths } from "../src/renderer/lib/region-path";
 import type { CanvasNode } from "../src/shared/canvas";
 
 const text = (
@@ -152,7 +153,7 @@ describe("command bar region paths", () => {
     at("shallow", "lead", 900, 900),
     at("root", "loner", 5000, 5000),
   ];
-  const paths = commandBarRegionPaths({ nodes, edges: [] });
+  const paths = regionPaths({ nodes, edges: [] });
 
   it("reads outermost to innermost and names an unnamed region by its placeholder", () => {
     expect(paths.get("deep")).toBe("Junto / PTY / unnamed region / mail");
@@ -160,8 +161,14 @@ describe("command bar region paths", () => {
     expect(paths.get("inner")).toBe("Junto / PTY / unnamed region");
   });
 
+  it("one node's path is the same string the map holds", () => {
+    const doc = { nodes, edges: [] };
+    expect(regionPath(doc, "deep")).toBe(paths.get("deep"));
+    expect(regionPath(doc, "root")).toBeUndefined();
+  });
+
   it("a node inside only an unnamed region still shows it", () => {
-    const lone = commandBarRegionPaths({
+    const lone = regionPaths({
       nodes: [box("blank", undefined, 0, 0, 100), at("n", "note", 10, 10)],
       edges: [],
     });
@@ -171,7 +178,7 @@ describe("command bar region paths", () => {
   it("a labelled region never reads as the placeholder", () => {
     const labels = ["PTY", "  padded  ", "0", "x", "Unnamed", "région été"];
     const regions = labels.map((label, i) => box(`g${String(i)}`, label, i, i, 1000 - i * 2));
-    const labelled = commandBarRegionPaths({ nodes: [...regions, at("n", "note", 400, 400)], edges: [] });
+    const labelled = regionPaths({ nodes: [...regions, at("n", "note", 400, 400)], edges: [] });
     expect(labelled.get("n")).toBe(labels.map((label) => label.trim()).join(" / "));
   });
 

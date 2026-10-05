@@ -1,0 +1,13 @@
+/* RegionCrumb: right-to-left clipping drops the outer regions first, so the
+   innermost survives; the bdi inside keeps the path's own punctuation in place. */
+.region-crumb {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}

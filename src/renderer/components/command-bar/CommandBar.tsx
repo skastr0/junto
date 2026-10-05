@@ -11,17 +11,18 @@ import {
   type CommandBarAction,
 } from "../../lib/command-bar-actions";
 import {
-  commandBarRegionPaths,
   filterCommandBarNodes,
   focusCanvasNode,
 } from "../../lib/command-bar";
 import { closeOperatorModal } from "../../lib/operator-modal";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
+import { regionPaths } from "../../lib/region-path";
 import { regionTallyParts } from "../../lib/region-glance";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
 import { accentColor, HUE } from "../../lib/theme";
 import { NodeKindMark } from "../NodeKindMark";
+import { RegionCrumb } from "../RegionCrumb";
 import { SeatRingView, seatUrgencyNow, useSeatGlance, type SeatGlance } from "../SeatRing";
 import { Kbd } from "../ui";
 import { claimFocus } from "../../lib/focus-ownership";
@@ -145,9 +146,7 @@ function RowHead({
         {nodeTitle(node)}
       </span>
       {path ? (
-        <span className="command-bar__row-path" data-testid="command-bar-row-crumb" title={path}>
-          <bdi>{path}</bdi>
-        </span>
+        <RegionCrumb path={path} className="command-bar__row-path" testId="command-bar-row-crumb" />
       ) : null}
     </span>
   );
@@ -219,7 +218,7 @@ export function CommandBar() {
     [doc.nodes],
   );
   // Region paths are derived once per doc revision, never per keystroke.
-  const regionPathById = useMemo(() => commandBarRegionPaths(doc), [doc]);
+  const regionPathById = useMemo(() => regionPaths(doc), [doc]);
   const nodeMatches = useMemo(
     () => filterCommandBarNodes(doc.nodes, query, recentIds, urgencyById, regionPathById),
     [doc.nodes, query, recentIds, urgencyById, regionPathById],

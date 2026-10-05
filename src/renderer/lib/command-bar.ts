@@ -1,6 +1,5 @@
 import { batch } from "@legendapp/state";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { regionDisplayName, regionStack } from "@shared/graph";
+import type { CanvasNode } from "@shared/canvas";
 import { roleOf } from "@shared/physics";
 import { touchActiveMru } from "./hotbar-slots";
 import { specOf } from "./node-spec";
@@ -42,21 +41,6 @@ export interface CommandBarMatch {
   readonly score: number;
   readonly index: number;
 }
-
-/**
- * Each node's region path, outermost to innermost ("Junto / PTY / mail"),
- * read from the one membership predicate (regionStack). Every containing
- * region appears, an unnamed one by its placeholder; a node inside no region
- * has no entry. Built once per doc revision, never per keystroke.
- */
-export const commandBarRegionPaths = (doc: CanvasDoc): ReadonlyMap<string, string> => {
-  const paths = new Map<string, string>();
-  for (const node of doc.nodes) {
-    const stack = regionStack(doc, node.id);
-    if (stack.length > 0) paths.set(node.id, stack.map(regionDisplayName).join(" / "));
-  }
-  return paths;
-};
 
 /** Resting: the urgency an agent without a reading ranks at. */
 const URGENCY_UNKNOWN = 4;
