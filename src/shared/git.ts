@@ -115,6 +115,63 @@ export const GitSummaryResult = Schema.Union([
 ]);
 export type GitSummaryResult = typeof GitSummaryResult.Type;
 
+/**
+ * What a review reads. "working": everything in the folder that is not yet
+ * committed, new files included. "base": everything the branch has committed
+ * since it left the base branch, as one combined diff.
+ */
+export const GitReviewView = Schema.Literals(["working", "base"]);
+export type GitReviewView = typeof GitReviewView.Type;
+
+export const GitReviewResult = Schema.Union([
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    view: GitReviewView,
+    patch: Schema.String,
+    /** Set when the patch was cut to the render budget, as in GitShowResult. */
+    files: Schema.optionalKey(Schema.Number),
+    shownFiles: Schema.optionalKey(Schema.Number),
+    branch: Schema.String,
+    /** Short sha of HEAD when the diff was read; absent before the first commit. */
+    head: Schema.optionalKey(Schema.String),
+    /** The ref compared against, for the "base" view. Absent when the repository has no base, or the branch is it. */
+    base: Schema.optionalKey(Schema.String),
+    /** New untracked files left out because there were too many to read. */
+    untrackedLeftOut: Schema.optionalKey(Schema.Number),
+  }),
+  Schema.Struct({ ok: Schema.Literal(false), error: Schema.String }),
+]);
+export type GitReviewResult = typeof GitReviewResult.Type;
+
+/**
+ * What a review is of, said honestly. Git cannot tell which session wrote an
+ * uncommitted line, so the working view names the folder, never a session.
+ */
+export const gitReviewTitle = (view: GitReviewView, base?: string): string =>
+  view === "working" ? "Uncommitted changes in this folder" : base ? `Committed on this branch since ${base}` : "No base branch to compare with";
+
+/** The state a review was read from, as one line a reader of the mail can act on. */
+export const gitReviewedState = (review: {
+  readonly view: GitReviewView;
+  readonly branch: string;
+  readonly head?: string | undefined;
+  readonly base?: string | undefined;
+}): string => {
+  const at = review.head ? ` at ${review.head}` : "";
+  return review.view === "working"
+    ? `uncommitted changes in the folder, on ${review.branch}${at}`
+    : `commits on ${review.branch}${at} since ${review.base ?? "the base branch"}`;
+};
+
+/** The path a file section of a patch is about: the new side, or the old side for a deleted file. */
+export const patchFilePath = (section: string): string => {
+  const next = section.match(/^\+\+\+ (?:b\/)?(.+)$/mu)?.[1]?.trim();
+  if (next && next !== "/dev/null") return next;
+  const previous = section.match(/^--- (?:a\/)?(.+)$/mu)?.[1]?.trim();
+  if (previous && previous !== "/dev/null") return previous;
+  return section.match(/^diff --git a\/(.+?) b\//mu)?.[1] ?? "file";
+};
+
 /** `git status --porcelain=v2`: any entry line, a new untracked file included, means work is uncommitted. */
 export const porcelainHasChanges = (stdout: string): boolean =>
   stdout.split("\n").some((line) => line.length > 0 && !line.startsWith("# "));
