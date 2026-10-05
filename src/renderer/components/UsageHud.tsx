@@ -268,7 +268,6 @@ function UsageDetail({
     <FocusSurface
       measure="document"
       height="fit"
-      layer="detail"
       label="Providers"
       panelClassName="usage-hud-detail-panel"
       onClose={onClose}

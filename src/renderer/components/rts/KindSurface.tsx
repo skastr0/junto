@@ -110,7 +110,6 @@ function NodeFormFocus({
     <FocusSurface
       measure="form"
       height="fit"
-      layer="detail"
       label={`${nodeTypeLabel(node)} fields`}
       onClose={onClose}
       closeOnEscape
@@ -215,7 +214,6 @@ function RegionFieldFocus({
     <FocusSurface
       measure={panel.measure}
       height="fit"
-      layer="detail"
       label={panel.title}
       onClose={onClose}
       closeOnEscape
