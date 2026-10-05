@@ -175,3 +175,54 @@ describe("harness settings: default extra arguments", () => {
     expect(harnessPrefsFor(cleared, "claude").extraArgs).toBeUndefined();
   });
 });
+
+describe("profiles and squads carry the start parameters", () => {
+  it("captures a seat's parameters into a profile and seats them again", async () => {
+    const { profileBodyFromSeat, seatFromProfile } = await import("../src/renderer/lib/agent-profiles");
+    const node = seat("claude", {
+      model: "opus",
+      permissionMode: "bypassPermissions",
+      extraArgs: ["--add-dir", "/tmp/x", "--verbose"],
+    });
+    const body = profileBodyFromSeat(node);
+    expect(body).toMatchObject({
+      harness: "claude",
+      model: "opus",
+      permissionMode: "bypassPermissions",
+      extraArgs: ["--add-dir", "/tmp/x", "--verbose"],
+    });
+    const placed = seatFromProfile(body!, { x: 0, y: 0, host: "local", cwd: "/work" });
+    if (!placed.ok) throw new Error(placed.message);
+    const launch = placed.node.ether?.terminal?.launch;
+    expect(launch?.extraArgs).toEqual(["--add-dir", "/tmp/x", "--verbose"]);
+    expect(launch?.argv).toEqual(
+      expect.arrayContaining(["--model", "opus", "--permission-mode", "bypassPermissions", "--add-dir", "/tmp/x", "--verbose"]),
+    );
+  });
+
+  it("decodes stored extra arguments leniently and keeps them on squad members", async () => {
+    const { decodeProfileBody } = await import("../src/shared/agent-profiles");
+    const { decodeSquadBody } = await import("../src/shared/squads");
+    const { Result } = await import("effect");
+    expect(
+      decodeProfileBody({ name: "a", harness: "claude", extraArgs: ["--verbose", 7, "  ", " --x "] })?.extraArgs,
+    ).toEqual(["--verbose", "--x"]);
+    expect(decodeProfileBody({ name: "a", harness: "claude", extraArgs: "nope" })?.extraArgs).toBeUndefined();
+
+    const squad = decodeSquadBody({
+      seats: [
+        {
+          key: "s1",
+          dx: 0,
+          dy: 0,
+          width: 240,
+          height: 96,
+          profile: { name: "a", harness: "codex", extraArgs: ["-c", "k=v"] },
+        },
+      ],
+      edges: [],
+    });
+    if (Result.isFailure(squad)) throw new Error(squad.failure);
+    expect(squad.success.seats[0]?.profile.extraArgs).toEqual(["-c", "k=v"]);
+  });
+});

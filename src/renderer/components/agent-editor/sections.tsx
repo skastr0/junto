@@ -66,12 +66,12 @@ export const AGENT_EDITOR_SECTIONS: ReadonlyArray<AgentEditorSection> = [
   { id: "soul", label: "soul", Panel: SoulSection },
   { id: "instructions", label: "instructions", Panel: InstructionsSection },
   { id: "launch", label: "launch", Panel: LaunchSection, applies: (seat) => seat.harness !== undefined },
-  // What the harness is started with; a profile draft has no process.
+  // What the harness is started with: a seat's own, or a profile's.
   {
     id: START_PARAMS_SECTION_ID,
     label: "start params",
     Panel: ParamsSection,
-    applies: (seat) => seat.harness !== undefined && !seat.draft,
+    applies: (seat) => seat.harness !== undefined,
   },
   // Offboard from the seat; a profile draft has no session to end.
   { id: "sessions", label: "sessions", Panel: SessionsSection, applies: (seat) => seat.harness !== undefined && !seat.draft },

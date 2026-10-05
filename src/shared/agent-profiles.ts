@@ -1,3 +1,4 @@
+import { EXTRA_ARG_MAX_LENGTH, EXTRA_ARGS_MAX } from "./launch-extra-args";
 import { normalizePortraitOverride, type PortraitOverride } from "./portrait-overrides";
 import {
   SEAT_INSTRUCTIONS_MAX,
@@ -36,6 +37,8 @@ export type AgentProfileBody = {
   /** Named agent mode (Amp). */
   readonly mode?: string;
   readonly permissionMode?: string;
+  /** Extra harness arguments beyond the dials, one argv token each. */
+  readonly extraArgs?: readonly string[];
   /** Hermes profile the harness runs as. */
   readonly harnessProfile?: string;
   /** Fully resolved character, so a fresh node draws the same face. */
@@ -80,6 +83,21 @@ const dial = (value: unknown, max = DIAL_MAX): string | undefined => {
   return text.length > 0 && text.length <= max ? text : undefined;
 };
 
+/**
+ * Extra arguments as stored: string tokens within the launch bounds. Which
+ * flags a harness may carry is decided when the profile is seated, against
+ * that build's template, so a stored list is never a reason to fail decode.
+ */
+const extraArgsOf = (value: unknown): readonly string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const args = value
+    .filter((arg): arg is string => typeof arg === "string")
+    .map((arg) => arg.trim())
+    .filter((arg) => arg.length > 0 && arg.length <= EXTRA_ARG_MAX_LENGTH)
+    .slice(0, EXTRA_ARGS_MAX);
+  return args.length > 0 ? args : undefined;
+};
+
 const boundedText = (value: unknown, max: number): string | undefined => {
   const text = cleanGuidanceText(value);
   return text !== undefined && text.length <= max ? text : undefined;
@@ -100,6 +118,7 @@ export function decodeProfileBody(value: unknown): AgentProfileBody | null {
   const effort = dial(input.effort);
   const mode = dial(input.mode);
   const permissionMode = dial(input.permissionMode);
+  const extraArgs = extraArgsOf(input.extraArgs);
   const harnessProfile = dial(input.harnessProfile);
   const portrait = normalizePortraitOverride(input.portrait);
   const soul = boundedText(input.soul, SEAT_SOUL_MAX);
@@ -111,6 +130,7 @@ export function decodeProfileBody(value: unknown): AgentProfileBody | null {
     ...(effort !== undefined ? { effort } : {}),
     ...(mode !== undefined ? { mode } : {}),
     ...(permissionMode !== undefined ? { permissionMode } : {}),
+    ...(extraArgs !== undefined ? { extraArgs } : {}),
     ...(harnessProfile !== undefined ? { harnessProfile } : {}),
     ...(portrait !== null ? { portrait } : {}),
     ...(soul !== undefined ? { soul } : {}),

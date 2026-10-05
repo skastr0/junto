@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { SlidersHorizontal } from "lucide-react";
 import type { TextNode } from "@shared/canvas";
@@ -23,7 +23,7 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { performSeatRelaunch } from "../../lib/seat-relaunch";
 import { terminal$ } from "../../lib/terminal-state";
 import { Button, IconButton, Input, Select } from "../ui";
-import type { AgentEditorSectionProps } from "../agent-editor/sections";
+import type { AgentEditorDraft, AgentEditorSectionProps } from "../agent-editor/sections";
 import "./customize.css";
 
 // Start params: exactly what this seat's harness is started with. The dials
@@ -81,21 +81,31 @@ const useHarnessFlags = (
 export function ParamsSection({ seat }: AgentEditorSectionProps) {
   const node = seat.node;
   const view = useMemo(() => seatLaunchParamsOf(node), [node]);
+  if (seat.draft) return <DraftParams draft={seat.draft} />;
   if (!view || node.type !== "text") {
     return <p className="agent-editor__hint">This seat has no harness to start.</p>;
   }
   return <SeatParams node={node as TextNode} harness={view.harness} stored={view.params} />;
 }
 
-function SeatParams({
-  node,
-  harness,
-  stored,
-}: {
-  readonly node: TextNode;
+type ParamsFormProps = {
   readonly harness: HarnessId;
   readonly stored: SeatLaunchParams;
-}) {
+  /** Working folder shown in nothing, but part of the resolved launch. */
+  readonly cwd?: string;
+  readonly lead: string;
+  /** Called with every edit, already sanitized. */
+  readonly onDraft?: (params: SeatLaunchParams) => void;
+  /** Rendered under the form with the current sanitized parameters. */
+  readonly footer?: (current: {
+    readonly params: SeatLaunchParams;
+    readonly changed: boolean;
+    readonly settle: () => void;
+  }) => ReactNode;
+};
+
+/** The fields, the harness's own options, and the resolved command. */
+function ParamsForm({ harness, stored, cwd, lead, onDraft, footer }: ParamsFormProps) {
   const template = templateFor(harness);
   const spec = template.argvSpec;
   const [model, setModel] = useState(stored.model ?? "");
@@ -104,46 +114,43 @@ function SeatParams({
   const [permissionMode, setPermissionMode] = useState(stored.permissionMode ?? "");
   const [extraText, setExtraText] = useState(formatExtraArgs(stored.extraArgs));
   const [filter, setFilter] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-
-  const binding = resolveTerminalBinding(node);
-  const bindingId = binding?.kind === "native" ? binding.bindingId : "";
-  const running = use$(() => {
-    const status = bindingId ? terminal$.sessionByBindingId[bindingId].get()?.status : undefined;
-    return status === "running" || status === "starting";
-  });
 
   const { flags, loading } = useHarnessFlags(harness);
   const reserved = useMemo(() => reservedLaunchFlags(harness), [harness]);
 
-  const draft: SeatLaunchParams = useMemo(
+  const extra = useMemo(
+    () => sanitizeExtraArgs(harness, parseExtraArgsText(extraText)),
+    [harness, extraText],
+  );
+  const current: SeatLaunchParams = useMemo(
     () => ({
       ...(model.trim() ? { model: model.trim() } : {}),
       ...(effort ? { effort } : {}),
       ...(mode ? { mode } : {}),
       ...(permissionMode ? { permissionMode } : {}),
-      extraArgs: parseExtraArgsText(extraText),
+      extraArgs: extra.args,
     }),
-    [model, effort, mode, permissionMode, extraText],
+    [model, effort, mode, permissionMode, extra.args],
   );
-  const extra = useMemo(() => sanitizeExtraArgs(harness, draft.extraArgs), [harness, draft.extraArgs]);
   const preview = useMemo(
-    () =>
-      planSeatLaunch({
-        harness,
-        params: draft,
-        base: { cwd: node.ether?.terminal?.launch?.cwd },
-      }).launch.argv ?? [],
-    [harness, draft, node],
+    () => planSeatLaunch({ harness, params: current, base: { cwd } }).launch.argv ?? [],
+    [harness, current, cwd],
   );
-  const changed = seatLaunchParamsDiffer(
-    { ...stored, extraArgs: stored.extraArgs ?? [] },
-    { ...draft, extraArgs: extra.args },
-  );
+  const changed = seatLaunchParamsDiffer({ ...stored, extraArgs: stored.extraArgs ?? [] }, current);
+
+  const edited = useRef(false);
+  const touch = <T,>(set: (value: T) => void) => (value: T): void => {
+    edited.current = true;
+    set(value);
+  };
+  useEffect(() => {
+    if (edited.current) onDraft?.(current);
+    // Only an operator edit is a draft change; `current` is the edit's result,
+    // and `onDraft` is a fresh closure on every render.
+  }, [current]);
 
   const addFlag = useCallback((flag: HarnessHelpFlag) => {
+    edited.current = true;
     setExtraText((text) => {
       const present = parseExtraArgsText(text).some(
         (token) => token === flag.flag || token.startsWith(`${flag.flag}=`),
@@ -154,24 +161,6 @@ function SeatParams({
       return base.length > 0 ? `${base} ${addition}` : addition;
     });
   }, []);
-
-  const save = useCallback(async () => {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    const result = await performSeatRelaunch(node, { ...draft, extraArgs: extra.args });
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.message);
-      return;
-    }
-    setExtraText(formatExtraArgs(extra.args));
-    setNotice(
-      result.restarted
-        ? "Restarted on the new parameters. The session continues."
-        : "Saved. The next start uses these parameters.",
-    );
-  }, [node, draft, extra.args]);
 
   const needle = filter.trim().toLowerCase();
   const shown = flags.filter(
@@ -187,10 +176,7 @@ function SeatParams({
 
   return (
     <div className="customize-launch" data-testid="seat-start-params">
-      <p className="agent-editor__hint">
-        What {template.displayName} is started with on this seat. Saving restarts a running agent on the new
-        parameters and resumes the same session.
-      </p>
+      <p className="agent-editor__hint">{lead}</p>
 
       {spec.modelFlag || spec.modelEnvKey ? (
         <label className="agent-editor__field">
@@ -200,7 +186,7 @@ function SeatParams({
             placeholder="harness default"
             aria-label="Model"
             spellCheck={false}
-            onChange={(event) => setModel(event.target.value)}
+            onChange={(event) => touch(setModel)(event.target.value)}
           />
         </label>
       ) : null}
@@ -208,14 +194,14 @@ function SeatParams({
       {efforts.length > 0 ? (
         <label className="agent-editor__field">
           <span className="agent-editor__field-label">effort</span>
-          <Select dense value={effort} aria-label="Effort" options={optionsWith(efforts, effort)} onChange={setEffort} />
+          <Select dense value={effort} aria-label="Effort" options={optionsWith(efforts, effort)} onChange={touch(setEffort)} />
         </label>
       ) : null}
 
       {modes.length > 0 ? (
         <label className="agent-editor__field">
           <span className="agent-editor__field-label">mode</span>
-          <Select dense value={mode} aria-label="Mode" options={optionsWith(modes, mode)} onChange={setMode} />
+          <Select dense value={mode} aria-label="Mode" options={optionsWith(modes, mode)} onChange={touch(setMode)} />
         </label>
       ) : null}
 
@@ -227,7 +213,7 @@ function SeatParams({
             value={permissionMode}
             aria-label="Permission mode"
             options={optionsWith(permissionModes, permissionMode)}
-            onChange={setPermissionMode}
+            onChange={touch(setPermissionMode)}
           />
         </label>
       ) : null}
@@ -241,7 +227,7 @@ function SeatParams({
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
-          onChange={(event) => setExtraText(event.target.value)}
+          onChange={(event) => touch(setExtraText)(event.target.value)}
         />
       </label>
       {extra.rejected.length > 0 ? (
@@ -280,7 +266,7 @@ function SeatParams({
                       type="button"
                       className="customize-params__flag-add"
                       disabled={Boolean(why)}
-                      title={why ? `Not available here: ${why}` : `Add ${flag.flag}`}
+                      title={why ? `Has its own field above: ${why}` : `Add ${flag.flag}`}
                       onClick={() => addFlag(flag)}
                     >
                       <code>
@@ -307,15 +293,92 @@ function SeatParams({
         </p>
       </div>
 
-      <div className="customize-params__actions">
-        <Button size="sm" variant="primary" disabled={busy || !changed} onClick={() => void save()}>
-          {running ? "Save and restart" : "Save"}
-        </Button>
-        {busy ? <span className="agent-editor__hint" role="status">{running ? "Restarting…" : "Saving…"}</span> : null}
-        {notice ? <span className="agent-editor__hint" role="status">{notice}</span> : null}
-      </div>
-      {error ? <p className="customize-guidance__error" role="alert">{error}</p> : null}
+      {footer?.({
+        params: current,
+        changed,
+        settle: () => setExtraText(formatExtraArgs(extra.args)),
+      })}
     </div>
+  );
+}
+
+function SeatParams({
+  node,
+  harness,
+  stored,
+}: {
+  readonly node: TextNode;
+  readonly harness: HarnessId;
+  readonly stored: SeatLaunchParams;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const binding = resolveTerminalBinding(node);
+  const bindingId = binding?.kind === "native" ? binding.bindingId : "";
+  const running = use$(() => {
+    const status = bindingId ? terminal$.sessionByBindingId[bindingId].get()?.status : undefined;
+    return status === "running" || status === "starting";
+  });
+
+  const save = async (params: SeatLaunchParams, settle: () => void): Promise<void> => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    const result = await performSeatRelaunch(node, params);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    settle();
+    setNotice(
+      result.restarted
+        ? "Restarted on the new parameters. The session continues."
+        : "Saved. The next start uses these parameters.",
+    );
+  };
+
+  return (
+    <ParamsForm
+      harness={harness}
+      stored={stored}
+      cwd={node.ether?.terminal?.launch?.cwd}
+      lead={`What ${templateFor(harness).displayName} is started with on this seat. Saving restarts a running agent on the new parameters and resumes the same session.`}
+      footer={({ params, changed, settle }) => (
+        <>
+          <div className="customize-params__actions">
+            <Button size="sm" variant="primary" disabled={busy || !changed} onClick={() => void save(params, settle)}>
+              {running ? "Save and restart" : "Save"}
+            </Button>
+            {busy ? <span className="agent-editor__hint" role="status">{running ? "Restarting…" : "Saving…"}</span> : null}
+            {notice ? <span className="agent-editor__hint" role="status">{notice}</span> : null}
+          </div>
+          {error ? <p className="customize-guidance__error" role="alert">{error}</p> : null}
+        </>
+      )}
+    />
+  );
+}
+
+/** A profile being created: every edit lands on the draft at once. */
+function DraftParams({ draft }: { readonly draft: AgentEditorDraft }) {
+  const { harness, profile, ...launch } = draft.launch;
+  return (
+    <ParamsForm
+      key={harness}
+      harness={harness}
+      stored={launch}
+      lead={`What ${templateFor(harness).displayName} is started with on every seat made from this profile.`}
+      onDraft={(params) =>
+        draft.configure({
+          harness,
+          ...(profile ? { profile } : {}),
+          ...params,
+          extraArgs: params.extraArgs ?? [],
+        })
+      }
+    />
   );
 }
 

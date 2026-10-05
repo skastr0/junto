@@ -23,6 +23,8 @@ export type ProfileDraftLaunch = {
   readonly effort?: string;
   readonly mode?: string;
   readonly permissionMode?: string;
+  /** Extra harness arguments beyond the dials. */
+  readonly extraArgs?: readonly string[];
 };
 
 export type ProfileDraft = {
@@ -87,6 +89,7 @@ export const profileDraftBody = (draft: ProfileDraft): AgentProfileBody | null =
     ...(launch.effort ? { effort: launch.effort } : {}),
     ...(launch.mode ? { mode: launch.mode } : {}),
     ...(launch.permissionMode ? { permissionMode: launch.permissionMode } : {}),
+    ...(launch.extraArgs ? { extraArgs: launch.extraArgs } : {}),
     ...(launch.profile ? { harnessProfile: launch.profile } : {}),
     portrait: resolvedPortrait(draft.id, draft.portrait),
     ...(draft.guidance.soul ? { soul: draft.guidance.soul } : {}),

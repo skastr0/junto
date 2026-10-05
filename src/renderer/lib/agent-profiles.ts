@@ -75,6 +75,7 @@ export const profileBodyFromSeat = (
     ...(choices.effort ? { effort: choices.effort } : {}),
     ...(choices.mode ? { mode: choices.mode } : {}),
     ...(choices.permissionMode ? { permissionMode: choices.permissionMode } : {}),
+    ...(choices.extraArgs ? { extraArgs: choices.extraArgs } : {}),
     ...(choices.profile ? { harnessProfile: choices.profile } : {}),
     portrait: resolvedPortrait(node.id, sources.portraitOf?.(node.id)),
     ...(guidance?.soul ? { soul: guidance.soul } : {}),
@@ -123,6 +124,7 @@ export const seatFromProfile = (body: AgentProfileBody, where: ProfileSeatWhere)
     ...(body.effort ? { effort: body.effort } : {}),
     ...(body.mode ? { mode: body.mode } : {}),
     ...(body.permissionMode ? { permissionMode: body.permissionMode } : {}),
+    ...(body.extraArgs ? { extraArgs: body.extraArgs } : {}),
     ...(where.cwd ? { cwd: where.cwd } : {}),
     label: body.name,
   });

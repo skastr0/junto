@@ -145,6 +145,7 @@ const legacyMemberProfile = (seat: RawRecord): unknown => {
     ...(choices.effort ? { effort: choices.effort } : {}),
     ...(choices.mode ? { mode: choices.mode } : {}),
     ...(choices.permissionMode ? { permissionMode: choices.permissionMode } : {}),
+    ...(choices.extraArgs ? { extraArgs: choices.extraArgs } : {}),
     ...(choices.profile ? { harnessProfile: choices.profile } : {}),
     ...(seat.portrait !== undefined ? { portrait: seat.portrait } : {}),
   };
