@@ -2017,9 +2017,11 @@ export function TerminalSurface({
           ) : undefined
         }
         title={
+          // What gives way when the header is short: the region crumb first,
+          // then the status loses its tail, the name last. Only the crumb shrinks.
           <span className="flex min-w-0 items-center gap-2">
             {crumb ? <RegionCrumb path={crumb} className="shrink" testId="terminal-header-crumb" /> : null}
-            <span className="min-w-0 truncate" data-testid="terminal-header-name">
+            <span className="shrink-0" data-testid="terminal-header-name">
               {label}
             </span>
             {agentSeat && isOverseerSeat(node) ? <OverseerMark size="session" /> : null}
@@ -2033,7 +2035,7 @@ export function TerminalSurface({
                 the running state stays for screen readers and the details menu. */}
             <span
               className={[
-                "native-terminal-surface__status inline-flex min-w-0 shrink items-center gap-1.5 text-body font-normal text-dim",
+                "native-terminal-surface__status inline-flex shrink-0 items-center gap-1.5 text-body font-normal text-dim",
                 attached ? "sr-only" : "",
               ]
                 .filter(Boolean)
@@ -2054,7 +2056,7 @@ export function TerminalSurface({
                     size="inline"
                     label={status}
                   />
-                  <span className="truncate">{status}</span>
+                  <span>{status}</span>
                 </>
               )}
               {geomLabel && attached ? ` - ${geomLabel}` : ""}

@@ -44,8 +44,9 @@ export function OverlayHeader({
       {...rest}
     >
       {leading ? <div className="flex shrink-0 items-center">{leading}</div> : null}
-      {/* With a middle area the identity takes only the room it needs. */}
-      <div className={middle ? "min-w-0 shrink" : "min-w-0 flex-1"}>
+      {/* With a middle area the identity keeps the room it needs, up to
+          three quarters of the header: the middle gives way first. */}
+      <div className={middle ? "max-w-[75%] min-w-0 shrink-0" : "min-w-0 flex-1"}>
         {eyebrow ? <Eyebrow tone="steel">{eyebrow}</Eyebrow> : null}
         <div className="truncate font-mono text-title font-semibold text-ink">{title}</div>
         {status ? <div className="mt-0.5 truncate text-body text-dim">{status}</div> : null}

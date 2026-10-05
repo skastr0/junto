@@ -3087,9 +3087,10 @@ button.actor-ledger__item-row:focus-visible {
   background: color-mix(in srgb, var(--color-raise) 88%, black);
   box-shadow: 0 8px 22px var(--color-shadow-2);
 }
+/* In the header the status is said whole: other things give way first. */
 .session-load--inline {
   gap: 6px;
-  max-width: min(100%, 24ch);
+  max-width: 100%;
 }
 .session-load__spinner {
   display: inline-block;
