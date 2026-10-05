@@ -993,24 +993,24 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--color-stroke);
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   background: color-mix(in oklab, var(--color-inset) 94%, transparent);
   box-shadow: 0 18px 45px var(--color-shadow-1);
   backdrop-filter: blur(18px);
 }
 .inspector-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex: 0 0 auto; border-bottom: 1px solid var(--color-overlay-4); padding: 14px 14px 12px; }
-.inspector-eyebrow { color: var(--color-cyan); font-size: 8px; letter-spacing: .16em; text-transform: uppercase; }
-.inspector-title { overflow: hidden; margin-top: 7px; color: var(--color-ink); font-family: var(--font-display); font-size: 21px; letter-spacing: .1em; line-height: 1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-.inspector-close { display: grid; height: 26px; width: 26px; flex: 0 0 auto; place-items: center; border-radius: 5px; color: var(--color-faint); }
+.inspector-eyebrow { color: var(--color-cyan); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
+.inspector-title { overflow: hidden; margin-top: 7px; color: var(--color-ink); font-family: var(--font-display); font-size: var(--text-hero); letter-spacing: var(--tracking-label); line-height: 1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.inspector-close { display: grid; height: 26px; width: 26px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-md); color: var(--color-faint); }
 .inspector-close:hover { background: var(--color-overlay-3); color: var(--color-ink); }
 .inspector-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 13px 14px 14px; }
-.inspector-detail { color: var(--color-dim); font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; }
+.inspector-detail { color: var(--color-dim); font-size: var(--text-label); line-height: var(--leading-open); overflow-wrap: anywhere; }
 .inspector-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 14px; }
-.inspector-grid span { display: grid; gap: 4px; border-top: 1px solid var(--color-overlay-4); padding-top: 6px; color: var(--color-faint); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
-.inspector-grid strong { color: var(--color-ink); font-size: 9px; font-weight: 500; letter-spacing: 0; text-transform: none; }
-.inspector-editor { display: grid; gap: 5px; margin-top: 15px; color: var(--color-dim); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
+.inspector-grid span { display: grid; gap: 4px; border-top: 1px solid var(--color-overlay-4); padding-top: 6px; color: var(--color-faint); font-size: var(--text-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+.inspector-grid strong { color: var(--color-ink); font-size: var(--text-caption); font-weight: 500; letter-spacing: 0; text-transform: none; }
+.inspector-editor { display: grid; gap: 5px; margin-top: 15px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .inspector-editor input:not([type="checkbox"]):not([type="radio"]),
-.inspector-editor textarea { width: 100%; min-height: 32px; border: 1px solid var(--color-stroke); border-radius: 4px; background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; line-height: 1.45; outline: none; }
+.inspector-editor textarea { width: 100%; min-height: 32px; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); line-height: var(--leading-body); outline: none; }
 .inspector-editor textarea { min-height: 76px; resize: vertical; }
 /* Boolean row — never stretch a native checkbox into a field shell. */
 .inspector-check {
@@ -1022,9 +1022,9 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   min-height: 22px;
   cursor: pointer;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-soft);
   text-transform: none;
 }
 .inspector-check input[type="checkbox"] {
@@ -1037,9 +1037,9 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 }
 .inspector-check__label {
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 500;
-  line-height: 1.3;
+  line-height: var(--leading-dense);
 }
 
 /* First-class CLI command chip — agents and operators share this vocabulary. */
@@ -1090,57 +1090,57 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .inspector-editor input::placeholder, .inspector-editor textarea::placeholder { color: var(--color-faint); }
 .inspector-editor input:focus, .inspector-editor textarea:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
 .inspector-section { margin-top: 16px; }
-.inspector-section__label { display: flex; align-items: center; gap: 6px; color: var(--color-amber); font-size: 8px; letter-spacing: .16em; text-transform: uppercase; }
+.inspector-section__label { display: flex; align-items: center; gap: 6px; color: var(--color-amber); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .inspector-color-dot { display: inline-block; width: 7px; height: 7px; border: 1px solid var(--color-stroke-hi); border-radius: 50%; }
 .inspector-colors { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.inspector-color-toggle { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid; border-radius: 5px; transition: transform .18s ease, background .18s ease, border-color .18s ease; }
+.inspector-color-toggle { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid; border-radius: var(--radius-md); transition: transform .18s ease, background .18s ease, border-color .18s ease; }
 .inspector-color-toggle:hover { transform: translateY(-1px); border-color: color-mix(in oklab, var(--color-ink) 60%, transparent) !important; }
 .inspector-color-toggle span { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
 .inspector-color-toggle--default { border-color: var(--color-stroke); background: var(--color-overlay-1); }
 .inspector-color-toggle--default span { border: 1px dashed var(--color-dim); background: transparent; box-shadow: none; }
 .inspector-background { display: grid; gap: 7px; margin-top: 8px; }
-.inspector-background input, .inspector-background select { width: 100%; border: 1px solid var(--color-stroke); border-radius: 4px; background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; outline: none; }
+.inspector-background input, .inspector-background select { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
 .inspector-background input::placeholder { color: var(--color-faint); }
 .inspector-background input:focus, .inspector-background select:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.inspector-background label { display: grid; grid-template-columns: 42px 1fr; align-items: center; gap: 7px; color: var(--color-dim); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
+.inspector-background label { display: grid; grid-template-columns: 42px 1fr; align-items: center; gap: 7px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .inspector-file-fields { display: grid; gap: 7px; margin-top: 8px; }
-.inspector-file-fields label { display: grid; gap: 5px; color: var(--color-dim); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
-.inspector-file-fields input { width: 100%; border: 1px solid var(--color-stroke); border-radius: 4px; background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; outline: none; }
+.inspector-file-fields label { display: grid; gap: 5px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
+.inspector-file-fields input { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
 .inspector-file-fields input::placeholder { color: var(--color-faint); }
 .inspector-file-fields input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
 .inspector-bindings { display: grid; gap: 5px; margin-top: 8px; }
-.inspector-binding { display: flex; min-width: 0; align-items: baseline; gap: 8px; color: var(--color-dim); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 9px; }
+.inspector-binding { display: flex; min-width: 0; align-items: baseline; gap: 8px; color: var(--color-dim); font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-caption); }
 .inspector-binding > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inspector-binding__source { flex: 0 0 auto; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+.inspector-binding__source { flex: 0 0 auto; font-size: var(--text-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; }
 .inspector-flags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-.inspector-flag-toggle { border: 1px solid; border-radius: 4px; cursor: pointer; padding: 4px 6px; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; transition: background .18s ease, border-color .18s ease, color .18s ease; }
+.inspector-flag-toggle { border: 1px solid; border-radius: var(--radius-sm); cursor: pointer; padding: 4px 6px; font-size: var(--text-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; transition: background .18s ease, border-color .18s ease, color .18s ease; }
 .inspector-flag-toggle:hover { border-color: color-mix(in oklab, var(--color-ink) 38%, transparent) !important; color: var(--color-ink) !important; }
 .inspector-actions { display: grid; gap: 6px; margin-top: 18px; }
-.inspector-actions button { display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--color-overlay-4); border-radius: 5px; background: var(--color-overlay-1); color: var(--color-steel); padding: 8px; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
+.inspector-actions button { display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--color-overlay-4); border-radius: var(--radius-md); background: var(--color-overlay-1); color: var(--color-steel); padding: 8px; font-size: var(--text-caption); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
 .inspector-actions button:hover { border-color: color-mix(in oklab, var(--color-second) 40%, transparent); background: color-mix(in oklab, var(--color-second) 6%, transparent); color: var(--color-ink); }
 .inspector-actions .inspector-action--danger { color: var(--color-crimson); }
 .inspector-actions .inspector-action--danger:hover { border-color: color-mix(in oklab, var(--color-accent) 50%, transparent); background: color-mix(in oklab, var(--color-accent) 8%, transparent); }
 .inspector-connect { display: grid; gap: 8px; margin-top: 10px; border-top: 1px solid var(--color-overlay-4); padding-top: 10px; }
-.inspector-connect label { display: grid; gap: 5px; color: var(--color-dim); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
+.inspector-connect label { display: grid; gap: 5px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .inspector-connect label span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.inspector-connect label em { color: var(--color-faint); font-style: normal; letter-spacing: .04em; }
-.inspector-connect input { width: 100%; border: 1px solid var(--color-stroke); border-radius: 4px; background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; outline: none; }
+.inspector-connect label em { color: var(--color-faint); font-style: normal; letter-spacing: var(--tracking-soft); }
+.inspector-connect input { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
 .inspector-connect input::placeholder { color: var(--color-faint); }
 .inspector-connect input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.inspector-connect__empty { border: 1px dashed var(--color-overlay-4); border-radius: 4px; color: var(--color-faint); padding: 8px; font-size: 9px; line-height: 1.45; }
-.inspector-connect select { width: 100%; border: 1px solid var(--color-stroke); border-radius: 4px; background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; outline: none; }
+.inspector-connect__empty { border: 1px dashed var(--color-overlay-4); border-radius: var(--radius-sm); color: var(--color-faint); padding: 8px; font-size: var(--text-caption); line-height: var(--leading-body); }
+.inspector-connect select { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
 .inspector-connect select:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.inspector-connect button { border: 1px solid color-mix(in oklab, var(--color-main) 35%, transparent); border-radius: 4px; background: color-mix(in oklab, var(--color-main) 8%, transparent); color: var(--color-amber); padding: 7px 8px; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+.inspector-connect button { border: 1px solid color-mix(in oklab, var(--color-main) 35%, transparent); border-radius: var(--radius-sm); background: color-mix(in oklab, var(--color-main) 8%, transparent); color: var(--color-amber); padding: 7px 8px; font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .inspector-connect button:disabled { cursor: not-allowed; opacity: .35; }
-.inspector-edge { display: flex; align-items: center; gap: 8px; color: var(--color-ink); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; }
+.inspector-edge { display: flex; align-items: center; gap: 8px; color: var(--color-ink); font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); }
 .inspector-edge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inspector-edge-label { display: grid; gap: 5px; margin-top: 15px; color: var(--color-dim); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
-.inspector-edge-label input { width: 100%; border: 1px solid var(--color-stroke); border-radius: 4px; background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; outline: none; }
+.inspector-edge-label { display: grid; gap: 5px; margin-top: 15px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
+.inspector-edge-label input { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
 .inspector-edge-label input::placeholder { color: var(--color-faint); }
 .inspector-edge-label input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.inspector-edge-ends { display: grid; gap: 6px; margin-top: 14px; color: var(--color-dim); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
+.inspector-edge-ends { display: grid; gap: 6px; margin-top: 14px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .inspector-edge-ends > div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.inspector-edge-ends button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--color-overlay-4); border-radius: 4px; background: var(--color-overlay-1); color: var(--color-faint); padding: 7px 6px; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
+.inspector-edge-ends button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--color-overlay-4); border-radius: var(--radius-sm); background: var(--color-overlay-1); color: var(--color-faint); padding: 7px 6px; font-size: var(--text-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
 .inspector-edge-ends button:hover, .inspector-edge-ends button.is-active { border-color: color-mix(in oklab, var(--color-main) 48%, transparent); background: color-mix(in oklab, var(--color-main) 10%, transparent); color: var(--color-amber); }
 
 @media (max-width: 760px) {
