@@ -217,7 +217,11 @@ test("the needs-you feed previews the files a signal names", async () => {
 
     // Main serves nothing the signal does not name.
     const refused = await page.evaluate(
-      (path) => window.junto!.previewRead({ source: { kind: "signal", signalId: "sig-previews" }, path, variant: "full" }),
+      (path) => window.junto!.previewRead({
+          source: { kind: "signal", signalId: "sig-previews" },
+          target: { kind: "path", path },
+          variant: "full",
+        }),
       at("unnamed.png"),
     );
     expect(refused).toEqual({ ok: false, reason: "not-named" });

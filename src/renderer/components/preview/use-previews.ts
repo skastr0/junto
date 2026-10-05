@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { previewExtension, type PreviewRef, type PreviewResult, type PreviewSource } from "@shared/preview";
+import {
+  previewExtension,
+  previewTargetOf,
+  type PreviewRef,
+  type PreviewResult,
+  type PreviewSource,
+} from "@shared/preview";
 import type { ThumbnailState } from "../ui";
 import { getJuntoApi } from "../../lib/junto-api";
 
 /** Fetch one preview. The only way a preview component reaches main. */
-export type PreviewLoad = (path: string, variant: "thumb" | "full") => Promise<PreviewResult>;
+export type PreviewLoad = (ref: PreviewRef, variant: "thumb" | "full") => Promise<PreviewResult>;
 
 const UNAVAILABLE: PreviewResult = { ok: false, reason: "not-named" };
 
@@ -17,13 +23,13 @@ export const usePreviewLoad = (source: PreviewSource): PreviewLoad => {
   const signalId = source.signalId;
   return useMemo(() => {
     const cache = new Map<string, Promise<PreviewResult>>();
-    return (path, variant) => {
-      const key = `${variant}\n${path}`;
+    return (ref, variant) => {
+      const key = `${variant}\n${ref.path}`;
       const cached = cache.get(key);
       if (cached) return cached;
       const api = getJuntoApi();
       const pending: Promise<PreviewResult> = api?.previewRead
-        ? api.previewRead({ source: { kind: "signal", signalId }, path, variant }).catch(() => UNAVAILABLE)
+        ? api.previewRead({ source: { kind: "signal", signalId }, target: previewTargetOf(ref), variant }).catch(() => UNAVAILABLE)
         : Promise.resolve(UNAVAILABLE);
       cache.set(key, pending);
       return pending;
@@ -44,7 +50,7 @@ export const usePreviews = (
   useEffect(() => {
     let live = true;
     for (const ref of refs) {
-      void load(ref.path, variant).then((result) => {
+      void load(ref, variant).then((result) => {
         if (!live) return;
         setResults((current) => (current.get(ref.path) === result ? current : new Map(current).set(ref.path, result)));
       });

@@ -52,9 +52,15 @@ import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
+import type { AgentSignal } from "@shared/agent-signals";
 import { messageDelivery } from "./work/message-delivery";
 import { AgentSignalRepository } from "./signals/repository";
-import { locatePreviewForReveal, readPreview, type PreviewThumbnailer } from "./preview/read";
+import {
+  locatePreviewForReveal,
+  readAttachmentPreview,
+  readPreview,
+  type PreviewThumbnailer,
+} from "./preview/read";
 import {
   PREVIEW_THUMB_EDGE,
   type PreviewRequest,
@@ -756,14 +762,14 @@ export const registerJuntoIpc = (): void => {
   // Previews of the files an agent names in a signal's detail. The detail is
   // read here from the store, never taken from the renderer, and the read
   // serves only the paths that text names (preview/read.ts holds the rules).
-  const previewSourceText = (source: unknown): Promise<string | undefined> => {
+  const previewSourceSignal = (source: unknown): Promise<AgentSignal | undefined> => {
     const candidate = source as Partial<PreviewSource> | null;
     if (candidate?.kind !== "signal" || typeof candidate.signalId !== "string") {
       return Promise.resolve(undefined);
     }
     return AppRuntime.runPromise(
       Effect.flatMap(AgentSignalRepository, (signals) => signals.get(candidate.signalId as string)).pipe(
-        Effect.map((signal) => signal.detail),
+        Effect.map((signal): AgentSignal | undefined => signal),
         Effect.orElseSucceed(() => undefined),
       ),
     ).catch(() => undefined);
@@ -777,20 +783,37 @@ export const registerJuntoIpc = (): void => {
     return scaled.isEmpty() ? undefined : { bytes: scaled.toPNG(), mediaType: "image/png" };
   };
   privilegedIpc.handle(IPC_CHANNELS.previewRead, async (_event, request: PreviewRequest): Promise<PreviewResult> => {
-    if (typeof request?.path !== "string") return { ok: false, reason: "not-named" };
-    return readPreview({
-      text: await previewSourceText(request.source),
-      path: request.path,
-      variant: request.variant === "thumb" ? "thumb" : "full",
+    const target = request?.target;
+    const render = {
+      variant: request?.variant === "thumb" ? ("thumb" as const) : ("full" as const),
       thumbnail: previewThumbnail,
       thumbEdge: PREVIEW_THUMB_EDGE,
-    });
+    };
+    const signal = await previewSourceSignal(request?.source);
+    // An attachment is served by the signal's own list: its place there, then
+    // the content store's file for that reference. No path from anyone.
+    if (target?.kind === "attachment") {
+      const attachment = Number.isInteger(target.index) ? signal?.attachments?.[target.index] : undefined;
+      if (!attachment) return { ok: false, reason: "not-named" };
+      const opened = await AppRuntime.runPromise(
+        Effect.flatMap(ContentService, (content) => content.openForRead(attachment.ref)),
+      ).catch(() => undefined);
+      if (opened?.state !== "verified") return { ok: false, reason: "missing" };
+      return readAttachmentPreview({
+        objectPath: opened.path,
+        byteLength: opened.byteLength,
+        name: attachment.ref.displayName ?? "file",
+        ...render,
+      });
+    }
+    if (target?.kind !== "path" || typeof target.path !== "string") return { ok: false, reason: "not-named" };
+    return readPreview({ text: signal?.detail, path: target.path, ...render });
   });
   privilegedIpc.handle(
     IPC_CHANNELS.previewReveal,
     async (_event, source: PreviewSource, path: string): Promise<PreviewRevealResult> => {
       if (typeof path !== "string") return { ok: false };
-      const real = await locatePreviewForReveal(await previewSourceText(source), path);
+      const real = await locatePreviewForReveal((await previewSourceSignal(source))?.detail, path);
       if (real === undefined) return { ok: false };
       shell.showItemInFolder(real);
       return { ok: true };

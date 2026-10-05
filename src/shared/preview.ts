@@ -23,6 +23,11 @@ export type PreviewRef = {
   /** The agent's own words beside the path ("Before"). Never made up. */
   readonly caption?: string;
   /**
+   * Set when this is one of the source's attachments, by its place in the
+   * list. `path` is then only a key (`attachment:<index>`), never a location.
+   */
+  readonly attachment?: number;
+  /**
    * Read out of running prose (a bare path with spaces), so it may be no
    * path at all: when nothing is there, say nothing about it.
    */
@@ -214,6 +219,28 @@ export const previewLinkedMarkdown = (markdown: string, claimed: ReadonlySet<str
   return previewMarkdownText(linked);
 };
 
+/** A signal's attachments as preview refs, in the order the agent gave them. */
+export const previewRefsOfAttachments = (
+  attachments: ReadonlyArray<{
+    readonly ref: { readonly displayName?: string; readonly mediaType: string };
+    readonly caption?: string;
+  }>,
+): ReadonlyArray<PreviewRef> =>
+  attachments.map((attachment, index) => {
+    const name = attachment.ref.displayName ?? "file";
+    return {
+      path: `attachment:${index}`,
+      name,
+      kind: attachment.ref.mediaType.startsWith("image/") ? "image" : "text",
+      attachment: index,
+      ...(attachment.caption ? { caption: attachment.caption } : {}),
+    };
+  });
+
+/** What main is asked for to preview a ref. */
+export const previewTargetOf = (ref: PreviewRef): PreviewTarget =>
+  ref.attachment === undefined ? { kind: "path", path: ref.path } : { kind: "attachment", index: ref.attachment };
+
 // --- the read contract -------------------------------------------------------
 
 /** Whole-file cap for an image, in bytes. */
@@ -228,10 +255,18 @@ export const PREVIEW_THUMB_EDGE = 480;
 /** Where the text that names the path lives. Main reads it from its own store. */
 export type PreviewSource = { readonly kind: "signal"; readonly signalId: string };
 
+/**
+ * What to preview: a path exactly as `previewRefsIn` returned it for the
+ * source's text, or one of the source's own attachments by its place in the
+ * list. An attachment needs no path: its bytes are in the app's store.
+ */
+export type PreviewTarget =
+  | { readonly kind: "path"; readonly path: string }
+  | { readonly kind: "attachment"; readonly index: number };
+
 export type PreviewRequest = {
   readonly source: PreviewSource;
-  /** A path exactly as `previewRefsIn` returned it for that source's text. */
-  readonly path: string;
+  readonly target: PreviewTarget;
   /** `thumb`: an image scaled down in main. `full`: the image as it is. */
   readonly variant: "thumb" | "full";
 };
