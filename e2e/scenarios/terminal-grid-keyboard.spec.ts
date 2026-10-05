@@ -12,8 +12,6 @@ import { crewDoc, crewOccupySeat, crewPlayFactory, crewSeat, crewSeatNode, insta
 import { expect, launchJunto, test } from "../harness/launch";
 
 test("[fake-tui] the grid's Escape rule, and a press between cells keeps the keyboard with the agent in use", async () => {
-  // Known open defect, product-modals: after a press between cells the keys go to the first agent. Remove this mark with the fix.
-  test.fail();
   test.setTimeout(240_000);
   const CANVAS = "grid-keys";
   const ids = ["one", "two", "three"];
