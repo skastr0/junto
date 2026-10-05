@@ -2,23 +2,19 @@
  * Design-audit capture — NOT a correctness spec. Drives every reachable UI
  * surface with seeded fixtures + the fake hermes binary and
  * screenshots each one to test-results/design-audit/ for visual review.
- *   JUNTO_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help surfaces
+ *   JUNTO_FEATURE_PROFILE=all-on electron-vite build   # the help and live surfaces
  *   bun run test:e2e:fast e2e/scenarios/design-audit.spec.ts
  * A plain ship-profile build hides those surfaces and fails this spec.
  * The isolated live scenario needs only JUNTO_LIVE_OVERSEER=1.
  * The screenshots are the artifact; assertions only prove a surface appeared.
- * A surface that should appear and does not fails the run by name. A surface
- * that is not expected to appear is skipped here, with its reason:
- *   - usage HUD rail and popover (frames 18, 19): Provider limits HUD is
- *     behind a flag that is off; revisit when the feature ships.
- *   - fleet manager overlay (frames 26 on): fleet, remote machines and remote
- *     sessions are behind a feature flag and are not tested now.
+ * A surface that should appear and does not fails the run by name. Only
+ * finished surfaces are captured: the Provider limits HUD and the fleet
+ * manager are unfinished features behind flags and have no frames here.
  */
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import type { UsageState } from "../../src/shared/usage";
 import type { LiveSnapshot } from "../../src/shared/overseer-live";
 import { IPC_CHANNELS } from "../../src/shared/ipc";
 import {
@@ -290,44 +286,6 @@ const edges: CanvasEdge[] = [
   verbEdge("e1", "agent1", "agent2", "messages", nodes),
 ];
 
-// Usage rail paint: seeded through the durable `usage_state` seam so the
-// usage frames 18/19 paint against native sources.
-const auditUsage: UsageState = {
-  snapshots: [
-    {
-      source: "codex",
-      fetchedAt: new Date().toISOString(),
-      ok: true,
-      dataConfidence: "stale-cache",
-      quotas: [
-        {
-          provider: "codex",
-          source: "oauth",
-          status: "ok",
-          updatedAt: new Date().toISOString(),
-          windows: [{ label: "primary", usedPercent: 42, windowMinutes: 300 }],
-        },
-      ],
-    },
-    {
-      source: "claude",
-      fetchedAt: new Date().toISOString(),
-      ok: true,
-      dataConfidence: "stale-cache",
-      quotas: [
-        {
-          provider: "claude",
-          source: "oauth",
-          status: "ok",
-          updatedAt: new Date().toISOString(),
-          windows: [{ label: "primary", usedPercent: 18, windowMinutes: 300 }],
-        },
-      ],
-    },
-  ],
-  lastLiveAt: new Date().toISOString(),
-};
-
 test("capture every surface for design review", async () => {
   // This audit drives ~30 surfaces plus seeded live planes; it runs long
   // enough to need a budget above the default 90s worker timeout.
@@ -337,7 +295,6 @@ test("capture every surface for design review", async () => {
 
   const junto = await launchJunto({
     seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
-    seedUsage: auditUsage,
     // The add-item palette lists only installed harnesses; the sandbox PATH
     // carries none, so plant the one whose card and model cascade are captured.
     seedHarnessInstalls: ["claude"],
@@ -528,28 +485,6 @@ test("capture every surface for design review", async () => {
   }
 });
 
-test("capture the usage HUD rail and popover", async () => {
-  test.skip(true, "Provider limits HUD is behind a flag that is off; revisit when the feature ships");
-  const junto = await launchJunto({
-    seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
-    seedUsage: auditUsage,
-  });
-  try {
-    const { page } = junto;
-    await mkdir(SHOTS, { recursive: true });
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await pinDark(page);
-    // Seeded usage paints stale, and the button's name then carries the age.
-    const hud = page.getByRole("button", { name: /^Provider limits/ });
-    await present(hud, "the usage HUD (Provider limits)");
-    await shot(page, "18-usage-hud-rail");
-    await hud.click();
-    await shot(page, "19-usage-hud-popover");
-  } finally {
-    await junto.close();
-  }
-});
-
 test("capture the empty field state", async () => {
   const junto = await launchJunto({
     seedCanvases: { empty: canvasDoc([]) },
@@ -561,109 +496,6 @@ test("capture the empty field state", async () => {
     await pinDark(page);
     await page.waitForTimeout(800);
     await shot(page, "24-empty-field");
-  } finally {
-    await junto.close();
-  }
-});
-
-// Fleet manager — seed an enrolled fleet (local + four remotes, two with
-// custom appearance) into the sandbox's SQLite database. The fake ssh binary
-// answers reachability probes, so edges settle into reachable state.
-test("capture the fleet manager overlay", async () => {
-  test.skip(true, "Fleet, remote machines and remote sessions are behind a feature flag and are not tested now");
-  const junto = await launchJunto({
-    seedCanvases: { fleet: canvasDoc([]) },
-    seedHosts: [
-      {
-        id: "local",
-        label: "local",
-        kind: "local",
-        capabilities: ["hermes", "browser"],
-      },
-      {
-        id: "mac-mini",
-        label: "mac-mini",
-        kind: "remote",
-        sshEndpoint: "remote-a",
-        capabilities: ["hermes", "terminal"],
-        hermesId: "remote-a",
-      },
-      {
-        id: "forge-pi",
-        label: "forge-pi",
-        kind: "remote",
-        sshEndpoint: "forge-pi",
-        capabilities: ["terminal"],
-        appearance: { color: "#39C6D6", glyph: "remote-anchor" },
-      },
-      {
-        id: "relay-1",
-        label: "relay-1",
-        kind: "remote",
-        sshEndpoint: "relay-1",
-        capabilities: ["hermes", "browser"],
-        appearance: { color: "#7F6DD6", glyph: "relay-obelisk" },
-      },
-      {
-        id: "archive",
-        label: "archive",
-        kind: "remote",
-        sshEndpoint: "archive",
-        capabilities: ["terminal", "browser"],
-        appearance: { glyph: "artifact-vault" },
-      },
-    ],
-  });
-  try {
-    const { page } = junto;
-    await mkdir(SHOTS, { recursive: true });
-    await expect(page.locator(".react-flow").first()).toBeVisible({
-      timeout: 30_000,
-    });
-    await pinDark(page);
-    await page.getByRole("button", { name: "Open fleet manager" }).click();
-    const panel = page.locator(".fleet-panel");
-    await expect(panel).toBeVisible({ timeout: 15_000 });
-    // Stations render from the seeded registry with a Command Core at center.
-    await expect(page.locator(".fleet-station")).toHaveCount(4, {
-      timeout: 15_000,
-    });
-    await expect(page.locator(".fleet-machine__icon")).toHaveCount(6, {
-      timeout: 15_000,
-    });
-    // Probes fire on open; in the sandbox they may still be in flight at
-    // capture time — the frame asserts the fleet, not the probe outcome.
-    await page.waitForTimeout(1500);
-    await shot(page, "26-fleet-overlay");
-    await page.locator(".fleet-station").first().click();
-    await expect(page.locator(".fleet-station--selected")).toHaveCount(1);
-    await expect(page.getByText("Automatic icon")).toBeVisible();
-    const resolvedModel = page.locator(".fleet-detail__model-heading strong");
-    await expect(resolvedModel).toHaveText("Mac mini");
-    const macStudioChoice = page.getByRole("button", {
-      name: "Use Mac Studio icon",
-    });
-    await macStudioChoice.click();
-    await expect(page.getByText("Custom icon")).toBeVisible();
-    await expect(resolvedModel).toHaveText("Mac Studio");
-    await page
-      .getByRole("button", { name: "Automatically choose machine icon" })
-      .click();
-    await expect(page.getByText("Automatic icon")).toBeVisible();
-    await expect(resolvedModel).toHaveText("Mac mini");
-    await shot(page, "26b-fleet-station-focus");
-    // When the sandbox sees an unclaimed peer, its detail panel shows what
-    // the device is (OS, addresses, online state) + the claim action.
-    const ghost = page.locator(".fleet-ghost").first();
-    if ((await ghost.count()) > 0) {
-      await ghost.click();
-      const detail = page.locator(".fleet-detail");
-      await expect(detail).toBeVisible({ timeout: 5_000 });
-      await expect(
-        detail.getByRole("button", { name: "Enroll this machine" }),
-      ).toBeVisible();
-      await shot(page, "27-fleet-ghost-detail");
-    }
   } finally {
     await junto.close();
   }
