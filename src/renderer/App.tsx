@@ -27,7 +27,7 @@ import {
 } from "./lib/canvas-editor-flush";
 import { makeCanvasExternalReloadCoordinator } from "./lib/canvas-external-reload";
 import { startKernelBridge } from "./lib/kernel-view";
-import { startSettingsBridge, closeSettings } from "./lib/settings-state";
+import { startSettingsBridge } from "./lib/settings-state";
 import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
@@ -493,11 +493,6 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (isOperatorTyping(event.target)) return;
-        if (state$.settingsOpen.peek()) {
-          event.preventDefault();
-          closeSettings();
-          return;
-        }
         if (state$.digestOpen.peek()) {
           event.preventDefault();
           state$.digestOpen.set(false);
