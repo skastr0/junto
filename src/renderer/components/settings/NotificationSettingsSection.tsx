@@ -62,11 +62,11 @@ function Row({
       <div className="flex min-w-0 flex-col gap-1">
         <label
           htmlFor={id}
-          className={`cursor-pointer text-[14px] ${inset ? "font-medium" : "font-semibold"} ${quiet ? "text-dim" : "text-ink"}`}
+          className={`cursor-pointer text-title ${inset ? "font-medium" : "font-semibold"} ${quiet ? "text-dim" : "text-ink"}`}
         >
           {title}
         </label>
-        <p className="m-0 max-w-[58ch] text-[12px] leading-[1.5] text-dim">{hint}</p>
+        <p className="m-0 max-w-[58ch] text-body-lg leading-[1.5] text-dim">{hint}</p>
       </div>
       <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} />
     </div>
@@ -111,7 +111,7 @@ export function NotificationSettingsSection() {
 
   return (
     <div className="settings-section" data-testid="settings-notifications-section">
-      <p className="m-0 max-w-[62ch] text-[12px] leading-[1.5] text-dim">
+      <p className="m-0 max-w-[62ch] text-body-lg leading-[1.5] text-dim">
         A notification says which agent needs you and why; click it to open that agent. Nothing is sent
         while you are looking at Junto.{AUDIO_ENABLED ? " Each one plays its sound, set in Sound." : ""}
       </p>
@@ -140,7 +140,7 @@ export function NotificationSettingsSection() {
 
       {mac ? (
         <div className="flex flex-col">
-          <h3 className="m-0 border-b border-stroke pb-2 text-[12px] font-semibold text-dim">Dock</h3>
+          <h3 className="m-0 border-b border-stroke pb-2 text-body-lg font-semibold text-dim">Dock</h3>
           <div className="flex flex-col">
             <Row
               id="notify-badge"
@@ -187,12 +187,12 @@ export function NotificationSettingsSection() {
         {test.phase === "sent" || test.phase === "failed" ? (
           <span
             role="status"
-            className={`text-[12px] leading-[1.5] ${test.phase === "failed" ? "text-ink" : "text-dim"}`}
+            className={`text-body-lg leading-[1.5] ${test.phase === "failed" ? "text-ink" : "text-dim"}`}
           >
             {test.message}
           </span>
         ) : test.phase === "sending" ? (
-          <span role="status" className="text-[12px] leading-[1.5] text-dim">
+          <span role="status" className="text-body-lg leading-[1.5] text-dim">
             Waiting for macOS…
           </span>
         ) : null}

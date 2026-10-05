@@ -25,8 +25,8 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   gap: 10px;
 }
 .settings-panel__eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--color-dim);
 }
@@ -45,7 +45,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   color: var(--color-steel);
   border-radius: 8px;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   cursor: pointer;
 }
 .settings-panel__ghost:hover,
@@ -94,7 +94,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   font-weight: 560;
 }
 .settings-nav__blurb {
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-dim);
 }
 .settings-content {
@@ -110,7 +110,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-content__head p {
   margin: 4px 0 14px;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   color: var(--color-dim);
 }
 .settings-section {
@@ -150,7 +150,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   color: var(--color-ink);
 }
 .settings-field__hint {
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-dim);
 }
 .settings-field__control input[type="text"],
@@ -170,7 +170,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-note {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-dim);
   line-height: 1.4;
 }
@@ -181,7 +181,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   border: 1px solid color-mix(in oklab, var(--color-accent) 35%, transparent);
   background: color-mix(in oklab, var(--color-accent) 10%, transparent);
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
 }
 .settings-success {
   margin: 12px 0 0;
@@ -190,7 +190,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   border: 1px solid color-mix(in oklab, var(--color-green) 35%, transparent);
   background: color-mix(in oklab, var(--color-green) 10%, transparent);
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
 }
 
 .settings-host-list {
@@ -213,7 +213,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   gap: 2px;
 }
 .settings-host-card__meta {
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-dim);
 }
 .settings-host-card__actions {
@@ -227,9 +227,9 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-host-card__test {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-steel);
-  line-height: 1.35;
+  line-height: var(--leading-dense);
   word-break: break-word;
 }
 .settings-host-services {
@@ -256,7 +256,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   padding: 0 5px;
   border-radius: 999px;
   background: var(--color-overlay-4);
-  font-size: 10px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--color-ink);
 }
@@ -289,12 +289,12 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-dim);
 }
 .settings-host-services__meta strong {
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
 }
 .settings-host-services__meta span {
@@ -307,25 +307,25 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   color: var(--color-steel) !important;
 }
 .settings-host-services__sub {
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--color-dim);
   margin-top: 4px;
 }
 .settings-host-services__error {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-accent-fg);
-  line-height: 1.35;
+  line-height: var(--leading-dense);
 }
 .settings-host-services__hint {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1.4;
 }
 .settings-host-services__hint code {
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 .settings-host-form {
   margin-top: 8px;
@@ -350,7 +350,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   flex-wrap: wrap;
   min-width: 0;
   gap: 8px 14px;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   color: var(--color-ink);
 }
 .settings-host-caps label {
@@ -360,7 +360,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-foot {
   margin: 16px 0 0;
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 .settings-mono-value {
   display: inline-block;
@@ -387,7 +387,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-install-facts__head span:last-child {
   color: var(--color-dim);
-  font-size: 11px;
+  font-size: var(--text-body);
   line-height: 1.4;
 }
 
@@ -410,7 +410,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-profile-list__head span:last-child {
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
   text-align: right;
 }
 .settings-profile-row {
@@ -424,7 +424,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-profile-row small {
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 .settings-profile-wipe,
 .settings-profile-cancel {
@@ -433,7 +433,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   background: transparent;
   color: var(--color-accent-fg);
   padding: 5px 9px;
-  font-size: 11px;
+  font-size: var(--text-body);
   cursor: pointer;
 }
 .settings-profile-wipe:disabled,
@@ -459,11 +459,11 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-wipe-confirm p {
   display: block;
   margin: 0 0 7px;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
 }
 .settings-wipe-confirm p {
   color: var(--color-ink-2);
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 .settings-wipe-confirm input {
   width: 100%;
@@ -481,7 +481,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   border-radius: 8px;
   background: color-mix(in oklab, var(--color-green) 8%, transparent);
   color: var(--color-green);
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 /* Appearance — theme choice buttons are the previews */
@@ -521,9 +521,9 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-main) 28%, transparent);
 }
 .settings-theme-mode__label {
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 560;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-soft);
   text-align: center;
 }
 .settings-theme-preview {
@@ -633,15 +633,15 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   gap: 8px;
   flex-shrink: 0;
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-label);
 }
 .settings-provider-access {
   margin: 0;
   color: var(--color-dim);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
 }
 .settings-tool-directories {
   width: 100%;
@@ -652,7 +652,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   background: var(--color-shadow-2);
   color: var(--color-ink);
   padding: 7px 10px;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-family: inherit;
   line-height: 1.4;
 }
@@ -685,7 +685,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   background: var(--color-shadow-2);
   color: var(--color-ink);
   padding: 7px 10px;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-family: var(--font-mono, monospace);
 }
 .settings-provider-input:focus {
@@ -736,7 +736,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   border-radius: 4px;
   background: transparent;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   text-align: left;
   cursor: pointer;
 }
@@ -749,5 +749,5 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 
 .settings-harness-flags span {
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
 }

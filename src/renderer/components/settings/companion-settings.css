@@ -4,21 +4,21 @@
 .companion-lead {
   margin: 0;
   max-width: 62ch;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   line-height: 1.5;
   color: var(--color-dim);
 }
 
 .companion-note {
   margin: 0;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   color: var(--color-dim);
 }
 
 .companion-error {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   color: var(--color-amber);
 }
 
@@ -59,8 +59,8 @@
 
 .companion-checks__hint {
   max-width: 60ch;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   color: var(--color-dim);
 }
 
@@ -76,7 +76,7 @@
 
 .companion-block__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-title);
   font-weight: 600;
   color: var(--color-ink);
 }
@@ -116,7 +116,7 @@
 }
 
 .companion-pairing__expired {
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   color: var(--color-dim);
 }
 
@@ -125,7 +125,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   color: var(--color-ink);
 }
 
@@ -168,7 +168,7 @@
 }
 
 .companion-phone__meta {
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-dim);
 }
 
@@ -176,7 +176,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-dim);
 }
 
@@ -188,8 +188,8 @@
 .companion-pairing__copied {
   margin: 0;
   max-width: 44ch;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   color: var(--color-dim);
 }
 

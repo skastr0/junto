@@ -98,10 +98,10 @@ function FamilyRow({
       data-on={prefs.enabled ? "true" : "false"}
     >
       <div className="flex min-w-0 flex-col gap-1">
-        <label htmlFor={id} className={`cursor-pointer text-[14px] font-semibold ${off ? "text-dim" : "text-ink"}`}>
+        <label htmlFor={id} className={`cursor-pointer text-title font-semibold ${off ? "text-dim" : "text-ink"}`}>
           {CATEGORY_LABEL[category].title}
         </label>
-        <p className="m-0 text-[12px] leading-[1.5] text-dim">{CATEGORY_LABEL[category].hint}</p>
+        <p className="m-0 text-body-lg leading-[1.5] text-dim">{CATEGORY_LABEL[category].hint}</p>
       </div>
       <div className="flex items-center gap-3 pt-[2px]">
         <div className="w-[132px]">
@@ -116,7 +116,7 @@ function FamilyRow({
             }}
           />
         </div>
-        <span className={`w-9 text-right text-[11px] tabular-nums ${off ? "text-faint" : "text-dim"}`}>
+        <span className={`w-9 text-right text-body tabular-nums ${off ? "text-faint" : "text-dim"}`}>
           {percent(prefs.volume)}
         </span>
         <Switch
@@ -154,7 +154,7 @@ export function SoundSettingsSection() {
 
   return (
     <div className="settings-section" data-testid="settings-sound-section">
-      <p className="m-0 max-w-[62ch] text-[12px] leading-[1.5] text-dim">
+      <p className="m-0 max-w-[62ch] text-body-lg leading-[1.5] text-dim">
         Junto plays a short sound when an agent changes state. The more a sound needs you, the louder it
         is; the rest stay in the background. When many agents move at once, you hear a few notes, not all
         of them.
@@ -162,10 +162,10 @@ export function SoundSettingsSection() {
       <div className="flex flex-col border-t border-stroke">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 border-b border-stroke py-4">
           <div className="flex min-w-0 flex-col gap-1">
-            <label htmlFor="sound-master" className="cursor-pointer text-[14px] font-semibold text-ink">
+            <label htmlFor="sound-master" className="cursor-pointer text-title font-semibold text-ink">
               All sounds
             </label>
-            <p className="m-0 text-[12px] leading-[1.5] text-dim">
+            <p className="m-0 text-body-lg leading-[1.5] text-dim">
               {on ? "Every family below, together." : "Junto is silent."}
             </p>
           </div>
@@ -180,7 +180,7 @@ export function SoundSettingsSection() {
                 }}
               />
             </div>
-            <span className={`w-9 text-right text-[11px] tabular-nums ${on ? "text-dim" : "text-faint"}`}>
+            <span className={`w-9 text-right text-body tabular-nums ${on ? "text-dim" : "text-faint"}`}>
               {percent(audio.masterVolume)}
             </span>
             <Switch
@@ -199,7 +199,7 @@ export function SoundSettingsSection() {
           <Play size={11} aria-hidden />
           Play every sound
         </Button>
-        <span className="text-[11px] text-dim">Calm to urgent, at your levels.</span>
+        <span className="text-body text-dim">Calm to urgent, at your levels.</span>
       </div>
     </div>
   );

@@ -689,7 +689,7 @@ function InstallationFacts() {
           <FieldRow label="Update feed" hint="packaged release channel only">
             <span
               className="settings-mono-value"
-              style={{ color: INK, fontSize: 12 }}
+              style={{ color: INK, fontSize: "var(--text-body-lg)" }}
               title={install?.feedUrl}
             >
               {feedLabel}
@@ -701,7 +701,7 @@ function InstallationFacts() {
             </span>
           </FieldRow>
           <FieldRow label="Data location" hint="where Junto stores its data">
-            <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
+            <span className="settings-mono-value" style={{ color: INK, fontSize: "var(--text-body-lg)" }}>
               ~/.junto/state/junto.db
             </span>
           </FieldRow>

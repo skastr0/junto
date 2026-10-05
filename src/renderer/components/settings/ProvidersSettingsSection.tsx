@@ -76,7 +76,7 @@ function LiveProviderCard() {
           <Eyebrow>OpenAI live conversation</Eyebrow>
           <span className="settings-field__hint">GPT-Live-1 voice with a separate backend reasoning model.</span>
         </span>
-        <span className="text-[10px] text-dim" role="status">
+        <span className="text-label text-dim" role="status">
           {configured ? "API key configured" : "API key needed"}
         </span>
       </div>
