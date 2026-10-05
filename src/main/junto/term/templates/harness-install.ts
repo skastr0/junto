@@ -7,7 +7,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import {
@@ -127,6 +127,61 @@ const shimRunsLive = (candidate: string, pathEnv: string): boolean => {
   }
   shimLivenessCache.set(candidate, { live, at: Date.now() });
   return live;
+};
+
+const HELP_PROBE_TIMEOUT_MS = 3_000;
+// One `--help` read per installed binary: keyed by path and mtime so an
+// upgraded harness is probed again and nothing else ever re-runs it.
+const helpTextCache = new Map<string, string>();
+
+const helpTextOf = (executable: string, pathEnv: string | undefined): string => {
+  let stamp = "unknown";
+  try {
+    stamp = String(statSync(executable).mtimeMs);
+  } catch {
+    // An unreadable binary still gets one probe per process.
+  }
+  const key = `${executable}\0${stamp}`;
+  const cached = helpTextCache.get(key);
+  if (cached !== undefined) return cached;
+  let text = "";
+  try {
+    const result = spawnSync(executable, ["--help"], {
+      env: { ...process.env, ...(pathEnv === undefined ? {} : { PATH: pathEnv }) },
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: HELP_PROBE_TIMEOUT_MS,
+    });
+    if (result.status === 0) text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  } catch {
+    text = "";
+  }
+  helpTextCache.set(key, text);
+  return text;
+};
+
+/**
+ * The template's `hostProbedFlags` this installed binary actually accepts,
+ * in template order. Fail-soft: a probe that errors or times out yields no
+ * flags, so the seat launches exactly as it did before the flag existed.
+ */
+export const supportedHostProbedFlags = (
+  executable: string,
+  flags: readonly string[],
+  pathEnv?: string,
+): readonly string[] => {
+  if (flags.length === 0) return [];
+  const help = helpTextOf(executable, pathEnv);
+  if (help === "") return [];
+  return flags.filter((flag) => {
+    const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[\\s,])${escaped}([\\s,=]|$)`, "m").test(help);
+  });
+};
+
+/** Test seam: forget every cached `--help` read. */
+export const resetHostProbedFlagCacheForTests = (): void => {
+  helpTextCache.clear();
 };
 
 /**

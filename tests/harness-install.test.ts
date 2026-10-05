@@ -1,10 +1,12 @@
-import { mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, chmodSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   harnessBinaryInstalled,
+  resetHostProbedFlagCacheForTests,
   resolveHarnessExecutable,
+  supportedHostProbedFlags,
 } from "../src/main/junto/term/templates/harness-install";
 import { resolveLaunch } from "../src/main/junto/term/local-host";
 import { Result } from "effect";
@@ -249,5 +251,109 @@ describe("harnessBinaryInstalled", () => {
         pathSep: ":",
       }),
     ).toBe(false);
+  });
+});
+
+/** A fake harness whose `--help` prints `help` and exits with `status`. */
+const fakeHarness = (name: string, help: string, status = 0): string => {
+  const bin = join(makeScratch(), name);
+  writeFileSync(
+    bin,
+    `#!/bin/sh\nif [ "$1" = "--help" ]; then\ncat <<'HELP'\n${help}\nHELP\nexit ${status}\nfi\nexit 0\n`,
+  );
+  chmodSync(bin, 0o755);
+  return bin;
+};
+
+const CODEX_HELP_WITH_FLAG = [
+  "Usage: codex [OPTIONS] [PROMPT]",
+  "      --remote <ADDR>",
+  "          Connect the TUI to a remote app server endpoint.",
+  "      --no-daemon",
+  "          Run without the shared background server, even if it is already running",
+].join("\n");
+
+const CODEX_HELP_WITHOUT_FLAG = [
+  "Usage: codex [OPTIONS] [PROMPT]",
+  "  agents   Browse all agent sessions on the shared local app-server daemon",
+  "      --no-daemonize-tests",
+].join("\n");
+
+describe("supportedHostProbedFlags", () => {
+  afterEach(() => resetHostProbedFlagCacheForTests());
+
+  it("returns a flag the installed binary's --help lists", () => {
+    const bin = fakeHarness("codex", CODEX_HELP_WITH_FLAG);
+    expect(supportedHostProbedFlags(bin, ["--no-daemon"])).toEqual(["--no-daemon"]);
+  });
+
+  it("returns nothing for a binary that predates the flag", () => {
+    // Mentions "daemon", and a longer flag sharing the prefix: neither counts.
+    const bin = fakeHarness("codex", CODEX_HELP_WITHOUT_FLAG);
+    expect(supportedHostProbedFlags(bin, ["--no-daemon"])).toEqual([]);
+  });
+
+  it("fails soft: a --help that errors yields no flags", () => {
+    const bin = fakeHarness("codex", CODEX_HELP_WITH_FLAG, 2);
+    expect(supportedHostProbedFlags(bin, ["--no-daemon"])).toEqual([]);
+    expect(supportedHostProbedFlags("/nonexistent/codex", ["--no-daemon"])).toEqual([]);
+  });
+
+  it("probes again after the binary is upgraded in place", () => {
+    const bin = fakeHarness("codex", CODEX_HELP_WITHOUT_FLAG);
+    expect(supportedHostProbedFlags(bin, ["--no-daemon"])).toEqual([]);
+    writeFileSync(
+      bin,
+      `#!/bin/sh\ncat <<'HELP'\n${CODEX_HELP_WITH_FLAG}\nHELP\n`,
+    );
+    chmodSync(bin, 0o755);
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(bin, later, later);
+    expect(supportedHostProbedFlags(bin, ["--no-daemon"])).toEqual(["--no-daemon"]);
+  });
+});
+
+describe("resolveLaunch host-probed flags", () => {
+  afterEach(() => resetHostProbedFlagCacheForTests());
+
+  const codexSeat = (argv: string[]) => ({
+    kind: "agent" as const,
+    harness: "codex" as const,
+    agentKey: "local:codex",
+    launch: { kind: "harness" as const, argv, cwd: "/tmp" },
+  });
+
+  it("keeps a Codex seat in the launched process when the install supports it", () => {
+    const bin = fakeHarness("codex", CODEX_HELP_WITH_FLAG);
+    const fresh = Result.getOrThrow(resolveLaunch(codexSeat([bin, "-m", "gpt-x"])));
+    expect(fresh.args).toEqual(["--no-daemon", "-m", "gpt-x"]);
+    // The flag is global: it goes before the resume subcommand.
+    const resumed = Result.getOrThrow(resolveLaunch(codexSeat([bin, "resume", "abc", "-m", "gpt-x"])));
+    expect(resumed.args).toEqual(["--no-daemon", "resume", "abc", "-m", "gpt-x"]);
+  });
+
+  it("never passes the flag to a Codex that would reject it", () => {
+    const bin = fakeHarness("codex", CODEX_HELP_WITHOUT_FLAG);
+    const launch = Result.getOrThrow(resolveLaunch(codexSeat([bin, "resume", "abc"])));
+    expect(launch.args).toEqual(["resume", "abc"]);
+  });
+
+  it("does not repeat a flag the launch already carries", () => {
+    const bin = fakeHarness("codex", CODEX_HELP_WITH_FLAG);
+    const launch = Result.getOrThrow(resolveLaunch(codexSeat([bin, "--no-daemon"])));
+    expect(launch.args).toEqual(["--no-daemon"]);
+  });
+
+  it("leaves harnesses without host-probed flags untouched", () => {
+    const bin = fakeHarness("claude", CODEX_HELP_WITH_FLAG);
+    const launch = Result.getOrThrow(
+      resolveLaunch({
+        kind: "agent",
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: { kind: "harness", argv: [bin, "--permission-mode", "default"], cwd: "/tmp" },
+      }),
+    );
+    expect(launch.args).toEqual(["--permission-mode", "default"]);
   });
 });

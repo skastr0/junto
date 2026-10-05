@@ -89,6 +89,13 @@ export type ArgvSpec = {
    */
   readonly prefix: readonly string[];
   /**
+   * Structural flags that only newer versions of the harness accept. The
+   * spawning host adds each one right after the binary, and only when the
+   * installed binary's `--help` lists it, so an older install still launches.
+   * Same law as `prefix`: structural only, never appearance or preference.
+   */
+  readonly hostProbedFlags?: readonly string[];
+  /**
    * How the optional initial prompt is attached:
    * - `positional` — last argv token (claude/codex/grok/pi/prime-agent/muse/devin)
    * - `flag-q` — `-q <prompt>` (hermes TUI auto-submit)
@@ -811,6 +818,15 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
   argvSpec: {
     binary: "codex",
     prefix: [],
+    // Codex 0.156+ runs the TUI as a client of a shared background app-server
+    // whose parent is launchd. Tool commands then descend from that daemon,
+    // not from the process Junto spawned, so the seat's process-bound identity
+    // never resolves and every `junto` call from the seat fails. `--no-daemon`
+    // keeps the session in the launched process. Probed (0.160.0): with the
+    // flag the launched pid is an ancestor of the tool shell; without it, or
+    // with `-c features.daemon_auto_start=false`, it is not. 0.155 and older
+    // reject the flag, hence host-probed rather than `prefix`.
+    hostProbedFlags: ["--no-daemon"],
     promptMode: "positional",
     modelFlag: "-m",
     // Effort is a config key, not a long flag: -c model_reasoning_effort="low"

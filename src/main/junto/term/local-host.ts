@@ -13,7 +13,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Result } from "effect";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import type { ManagedSpawnIntent } from "@shared/managed-terminal-launch";
-import type { HarnessId } from "@shared/managed-terminal-templates";
+import {
+  isHarnessId,
+  templateFor,
+  type HarnessId,
+} from "@shared/managed-terminal-templates";
 import {
   classifySpawnFailure,
   LaunchRefusedError,
@@ -95,7 +99,10 @@ import {
   shouldAvoidSharedHarnessResume,
 } from "./managed-spawn-plan";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
-import { resolveHarnessExecutable } from "./templates/harness-install";
+import {
+  resolveHarnessExecutable,
+  supportedHostProbedFlags,
+} from "./templates/harness-install";
 import { configuredToolDirectories } from "../adapters/exec";
 import { buildManagedSeatInject } from "./templates/seat-env";
 import {
@@ -749,9 +756,19 @@ export const resolveLaunch = (
         ),
       );
     }
+    const launchFile = resolvedFile ?? fileTarget;
+    // Version-dependent structural flags (Codex `--no-daemon`): added only
+    // when this installed binary lists them, and never twice.
+    const probedFlags = supportedHostProbedFlags(
+      launchFile,
+      (isHarnessId(seat.harness)
+        ? templateFor(seat.harness).argvSpec.hostProbedFlags
+        : undefined) ?? [],
+      env.PATH ?? process.env.PATH,
+    ).filter((flag) => !argv.includes(flag));
     return Result.succeed({
-      file: resolvedFile ?? fileTarget,
-      args: argv.slice(1),
+      file: launchFile,
+      args: [...probedFlags, ...argv.slice(1)],
       cwd,
       env,
     });
