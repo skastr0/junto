@@ -1049,7 +1049,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   font-size: 0.95em;
   font-weight: 600;
   color: var(--color-amber);
-  letter-spacing: 0.01em;
+  letter-spacing: var(--tracking-flat);
 }
 
 /* Region briefing focus body — large surface, one hint, no duplicated chrome. */
