@@ -479,8 +479,22 @@ export interface ExecutionSnapshot {
     Record<
       string,
       ReadonlyArray<
-        | { readonly kind: "edge"; readonly edgeId: string; readonly fromNodeId: string; readonly detail: string }
-        | { readonly kind: "work"; readonly requestId: string; readonly targetNodeId: string; readonly detail: string }
+        | {
+            readonly kind: "edge";
+            readonly edgeId: string;
+            readonly fromNodeId: string;
+            readonly detail: string;
+            /** Epoch ms the stop began; see BlockedReason in execution-graph. */
+            readonly since?: number;
+          }
+        | {
+            readonly kind: "work";
+            readonly requestId: string;
+            readonly targetNodeId: string;
+            readonly detail: string;
+            /** Epoch ms the request was raised. */
+            readonly since: number;
+          }
       >
     >
   >;

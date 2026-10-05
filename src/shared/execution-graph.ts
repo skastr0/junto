@@ -55,6 +55,8 @@ export type WorkBlockedSeat = {
   readonly requestId: string;
   readonly targetNodeId: string;
   readonly detail: string;
+  /** Epoch ms the request was raised. */
+  readonly since: number;
 };
 
 export type BlockedReason =
@@ -63,12 +65,20 @@ export type BlockedReason =
       readonly edgeId: string;
       readonly fromNodeId: string;
       readonly detail: string;
+      /**
+       * Epoch ms the stop began: when the earliest item holding this actor
+       * entered its waiting state (`Task.stateSince`). Absent only when the
+       * document's items are not the work projection (an authored fixture).
+       */
+      readonly since?: number;
     }
   | {
       readonly kind: "work";
       readonly requestId: string;
       readonly targetNodeId: string;
       readonly detail: string;
+      /** Epoch ms the request was raised. */
+      readonly since: number;
     };
 
 export type EdgeEval = {
@@ -76,6 +86,18 @@ export type EdgeEval = {
   readonly detail: string;
   /** True when this edge generates a block on toNode (phase === blocks). */
   readonly generates: boolean;
+  /** For a generating edge: epoch ms its earliest held item began waiting. */
+  readonly since?: number;
+};
+
+/** The earliest `stateSince` among items, as epoch ms. */
+export const earliestStateSince = (items: ReadonlyArray<Pick<Task, "stateSince">>): number | undefined => {
+  let earliest: number | undefined;
+  for (const item of items) {
+    const at = item.stateSince === undefined ? Number.NaN : Date.parse(item.stateSince);
+    if (!Number.isNaN(at) && (earliest === undefined || at < earliest)) earliest = at;
+  }
+  return earliest;
 };
 
 export type ExecutionGraph = {
@@ -166,10 +188,12 @@ const evalTasksStoppage = (
     .slice(0, 3)
     .map((item) => taskBrief(item))
     .join(", ");
+  const since = earliestStateSince(held);
   return {
     phase: "blocks",
     detail: `${held.length} ${noun} - ${sample}`,
     generates: true,
+    ...(since === undefined ? {} : { since }),
   };
 };
 
@@ -278,6 +302,7 @@ export const deriveExecutionGraph = (
       requestId: block.requestId,
       targetNodeId: block.targetNodeId,
       detail: block.detail,
+      since: block.since,
     });
   }
 
@@ -300,6 +325,7 @@ export const deriveExecutionGraph = (
         // so `fromNode` is not the cause.
         fromNodeId: workSinkOf(from, to)?.id ?? edge.fromNode,
         detail: evaluation.detail,
+        ...(evaluation.since === undefined ? {} : { since: evaluation.since }),
       },
       edge.id,
     );
