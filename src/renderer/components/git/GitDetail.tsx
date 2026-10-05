@@ -18,6 +18,7 @@ import { themeMode$ } from "../../lib/theme-mode";
 import { InspectorTabs } from "../chat/InspectorTabs";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton, OverlayHeader } from "../ui";
+import { ReviewDiff } from "./ReviewDiff";
 import "./git.css";
 
 const shortSha = (sha: string): string => sha.slice(0, 7);
@@ -342,15 +343,20 @@ export function GitRepositoryDetail({
               {fileDiffs.slice(0, mounted).map((file, index) => (
                 <FileDiffBoundary key={`${String(index)}:${file.slice(0, 200)}`} text={file}>
                   <div data-file-index={index} className="git-browser__file-diff">
-                  <PatchDiff
-                    patch={file}
-                    disableWorkerPool
-                    options={{
-                      theme: { dark: "pierre-dark", light: "pierre-light" },
-                      themeType,
-                      overflow: "scroll",
-                    }}
-                  />
+                    {reviewing ? (
+                      // A review's lines take comments; a single commit is read only.
+                      <ReviewDiff root={cwd} section={file} path={filePaths[index] ?? "file"} themeType={themeType} />
+                    ) : (
+                      <PatchDiff
+                        patch={file}
+                        disableWorkerPool
+                        options={{
+                          theme: { dark: "pierre-dark", light: "pierre-light" },
+                          themeType,
+                          overflow: "scroll",
+                        }}
+                      />
+                    )}
                   </div>
                 </FileDiffBoundary>
               ))}
