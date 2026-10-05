@@ -2,18 +2,10 @@
  * RTS command-card control: re-seat a managed agent onto another harness.
  * Reuses AgentHarnessPick (palette rules) + confirmation for process kill.
  *
- * The pick surface portals to document.body above the canvas — nested absolute
- * popovers under the RTS shell sit under React Flow and cannot be selected.
+ * The pick surface is a ui Popover above the key: it portals to the body, so
+ * it clears the canvas the RTS shell sits under.
  */
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import type { CanvasNode, TextNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -28,6 +20,7 @@ import {
   AgentHarnessPick,
   type AgentConfigurationChoices,
 } from "../node-palette/AgentHarnessPick";
+import { Popover } from "../ui";
 import { KindKey } from "./RtsControls";
 import { ReseatConfirmDialog } from "./ReseatConfirmDialog";
 
@@ -37,81 +30,16 @@ const currentHarnessOf = (node: CanvasNode): HarnessId | undefined => {
   return binding.harness as HarnessId;
 };
 
-/** Fixed position above the anchor key, clamped to the viewport. */
-export const reseatPopPositionStyle = (
-  anchor: DOMRect,
-  viewport: { readonly width: number; readonly height: number } = {
-    width: typeof window !== "undefined" ? window.innerWidth : 1280,
-    height: typeof window !== "undefined" ? window.innerHeight : 800,
-  },
-): CSSProperties => {
-  const width = Math.min(280, Math.max(200, viewport.width - 16));
-  let left = anchor.left;
-  if (left + width > viewport.width - 8) left = viewport.width - width - 8;
-  if (left < 8) left = 8;
-  // Prefer opening upward from the RTS key (above the bottom bar).
-  const gap = 8;
-  const bottom = Math.max(8, viewport.height - anchor.top + gap);
-  return {
-    position: "fixed",
-    left,
-    bottom,
-    width,
-    maxHeight: Math.min(360, Math.max(160, viewport.height - bottom - 16)),
-    zIndex: 10001,
-  };
-};
+// Module-level so the popover's placement effect sees one stable array.
+const POP_SIDES = ["above", "below"] as const;
 
 export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [pending, setPending] = useState<AgentConfigurationChoices | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [popStyle, setPopStyle] = useState<CSSProperties>({});
-  const rootRef = useRef<HTMLDivElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
   const current = currentHarnessOf(node);
-
-  useLayoutEffect(() => {
-    if (!open || !rootRef.current) return;
-    const place = () => {
-      if (!rootRef.current) return;
-      setPopStyle(reseatPopPositionStyle(rootRef.current.getBoundingClientRect()));
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !pending) {
-        event.preventDefault();
-        setOpen(false);
-      }
-    };
-    const onPointer = (event: PointerEvent) => {
-      if (pending) return;
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (rootRef.current?.contains(target)) return;
-      if (popRef.current?.contains(target)) return;
-      if (target instanceof Element && target.closest(".agent-cascade")) return;
-      setOpen(false);
-    };
-    // focus-law: Escape-only close of the reseat popover.
-    window.addEventListener("keydown", onKey);
-    document.addEventListener("pointerdown", onPointer, true);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.removeEventListener("pointerdown", onPointer, true);
-    };
-  }, [open, pending]);
+  const close = useCallback(() => setAnchor(null), []);
 
   const runReseat = useCallback(
     async (choices: AgentConfigurationChoices) => {
@@ -121,7 +49,6 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
       const result = await performManagedAgentReseat(node as TextNode, choices);
       setBusy(false);
       setPending(null);
-      setOpen(false);
       if (!result.ok) setError(result.message);
     },
     [node],
@@ -131,63 +58,59 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
     (choices: AgentConfigurationChoices) => {
       if (choices.harness === current && !choices.model && !choices.effort && !choices.profile) {
         // Same bare harness with no deeper pick — no-op.
-        setOpen(false);
+        close();
         return;
       }
+      // The pick is made: the popover gives way to the confirm or the re-seat.
+      close();
       if (readSkipReseatConfirm()) {
         void runReseat(choices);
         return;
       }
       setPending(choices);
     },
-    [current, runReseat],
+    [close, current, runReseat],
   );
 
   if (node.ether?.entity?.kind !== "agent") return null;
   if (resolveTerminalBinding(node)?.kind !== "native") return null;
 
-  const pop =
-    open && typeof document !== "undefined"
-      ? createPortal(
-          <div
-            ref={popRef}
-            className="agent-reseat-pop"
-            role="dialog"
-            aria-label="Re-seat agent"
-            data-canvas-menu-surface
-            style={popStyle}
-          >
-            <div className="agent-reseat-pop__title">Re-seat harness</div>
-            <AgentHarnessPick
-              currentHarness={current}
-              onConfigure={onConfigure}
-              listLabel="Available harnesses"
-            />
-            {error ? (
-              <p className="m-0 text-[11px] text-crimson" role="alert">
-                {error}
-              </p>
-            ) : null}
-          </div>,
-          document.body,
-        )
-      : null;
-
   return (
-    <div className="relative inline-flex" ref={rootRef}>
+    <div className="relative inline-flex">
       <KindKey
         label="Re-seat agent"
         title="Swap harness (stops current process, starts new seat)"
-        active={open}
+        active={anchor !== null}
         disabled={busy}
-        onClick={() => {
+        onClick={(event) => {
           setError(undefined);
-          setOpen((v) => !v);
+          setAnchor(anchor ? null : event.currentTarget);
         }}
       >
         <RefreshCw size={12} className={busy ? "animate-spin" : undefined} />
       </KindKey>
-      {pop}
+      {anchor ? (
+        <Popover
+          anchor={anchor}
+          onClose={close}
+          label="Re-seat agent"
+          sides={POP_SIDES}
+          width={280}
+          className="agent-reseat-pop"
+        >
+          <div className="agent-reseat-pop__title">Re-seat harness</div>
+          <AgentHarnessPick
+            currentHarness={current}
+            onConfigure={onConfigure}
+            listLabel="Available harnesses"
+          />
+        </Popover>
+      ) : null}
+      {error ? (
+        <p className="m-0 text-[11px] text-crimson" role="alert">
+          {error}
+        </p>
+      ) : null}
       {pending ? (
         <ReseatConfirmDialog
           fromLabel={current ? harnessDisplayName(current) : "current seat"}

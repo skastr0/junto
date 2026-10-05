@@ -10,7 +10,6 @@ import {
   seatLaunchCwd,
   writeSkipReseatConfirm,
 } from "../src/renderer/lib/agent-reseat";
-import { reseatPopPositionStyle } from "../src/renderer/components/rts/AgentReseatControl";
 
 describe("buildManagedAgentSeat / reseatManagedAgentNode", () => {
   it("builds the same seat fields for create and re-seat", () => {
@@ -103,28 +102,6 @@ describe("reseatChoicesFromConfiguration", () => {
       model: "m",
       effort: "high",
     });
-  });
-});
-
-describe("reseatPopPositionStyle", () => {
-  it("opens upward with fixed layer above the canvas", () => {
-    const style = reseatPopPositionStyle(
-      { left: 100, top: 700, right: 126, bottom: 726, width: 26, height: 26, x: 100, y: 700, toJSON: () => ({}) },
-      { width: 1200, height: 800 },
-    );
-    expect(style.position).toBe("fixed");
-    expect(style.zIndex).toBe(10001);
-    expect(style.left).toBe(100);
-    // bottom = viewportHeight - anchor.top + gap
-    expect(style.bottom).toBe(800 - 700 + 8);
-  });
-
-  it("clamps left edge when the key is near the right edge", () => {
-    const style = reseatPopPositionStyle(
-      { left: 1100, top: 700, right: 1126, bottom: 726, width: 26, height: 26, x: 1100, y: 700, toJSON: () => ({}) },
-      { width: 1200, height: 800 },
-    );
-    expect(Number(style.left) + Number(style.width)).toBeLessThanOrEqual(1200 - 8);
   });
 });
 

@@ -152,20 +152,7 @@
   color: var(--color-cyan);
 }
 
-/* Re-seat pop — always portaled to body (fixed + z-index 10001 via style).
-   Must clear React Flow / stage paint; nested under .rts-shell cannot. */
-.agent-reseat-pop {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 10px;
-  background: var(--color-raise);
-  box-shadow: 0 16px 40px var(--color-shadow-1);
-  pointer-events: auto;
-  overflow: hidden;
-}
+/* Re-seat pop: a ui Popover above the RTS key; the pick list scrolls inside it. */
 .agent-reseat-pop__title {
   font-size: 10px;
   letter-spacing: 0.12em;
@@ -181,61 +168,6 @@
   flex: 1 1 auto;
   max-height: none;
   overflow: auto;
-}
-
-.agent-reseat-confirm {
-  position: fixed;
-  inset: 0;
-  /* A modal over whatever asked for it, the agent editor popover included. */
-  z-index: calc(var(--layer-popover) + 1);
-  display: grid;
-  place-items: center;
-  pointer-events: auto;
-}
-.agent-reseat-confirm__backdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  margin: 0;
-  padding: 0;
-  background: var(--color-backdrop);
-  cursor: default;
-}
-.agent-reseat-confirm__card {
-  position: relative;
-  z-index: 1;
-  width: min(420px, calc(100vw - 32px));
-  padding: 18px 18px 14px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 12px;
-  background: var(--color-raise);
-  box-shadow: 0 24px 64px var(--color-shadow-1);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.agent-reseat-confirm__card strong {
-  font-size: 14px;
-  color: var(--color-ink);
-}
-.agent-reseat-confirm__card p {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--color-dim);
-}
-.agent-reseat-confirm__check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--color-ink-2);
-}
-.agent-reseat-confirm__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
 }
 
 .node-deck__launch-slot {

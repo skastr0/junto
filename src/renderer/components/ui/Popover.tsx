@@ -43,14 +43,21 @@ export function Popover({
   useLayoutEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
-    const rect = anchor.getBoundingClientRect();
-    setPosition(placeBesideRect(
-      rect,
-      { width: panel.offsetWidth, height: panel.offsetHeight },
-      { width: window.innerWidth, height: window.innerHeight },
-      sides,
-      align,
-    ));
+    const place = (): void => {
+      setPosition(placeBesideRect(
+        anchor.getBoundingClientRect(),
+        { width: panel.offsetWidth, height: panel.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+        sides,
+        align,
+      ));
+    };
+    place();
+    // Content that arrives late (a list that loads) changes the panel's size:
+    // place again, so it never grows over its anchor.
+    const observer = new ResizeObserver(place);
+    observer.observe(panel);
+    return () => observer.disconnect();
   }, [anchor, sides, align]);
 
   useEffect(() => {
