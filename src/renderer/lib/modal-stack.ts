@@ -139,9 +139,14 @@ export const subjectOf = (from: Element | null): HTMLElement | null => {
 
 const lastSubject = new WeakMap<Element, HTMLElement>();
 
+// The element text actually goes into. Narrower than isOperatorTyping, which
+// counts a whole terminal surface, header buttons included, as typing ground.
+const TEXT_ENTRY_SELECTOR =
+  "textarea, [contenteditable]:not([contenteditable='false']), input:not([type='button']):not([type='submit']):not([type='reset']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file'])";
+
 /** A field the operator types into took focus inside `surface`: it is the subject in use. */
 export const noteSubjectInUse = (surface: Element, field: HTMLElement): void => {
-  if (isOperatorTyping(field)) lastSubject.set(surface, field);
+  if (field.matches(TEXT_ENTRY_SELECTOR)) lastSubject.set(surface, field);
 };
 
 /**
