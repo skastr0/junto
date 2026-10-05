@@ -29,10 +29,10 @@ const INTERACTIVE_SELECTOR = [
   "[role='radio']",
   "[role='switch']",
   "[role='slider']",
-  // The terminal itself. Not the terminal surface as a whole: its header and
-  // rail are chrome, and a blank press there must give the keyboard back.
+  // The terminal itself. Not the terminal surface or its body: the header
+  // and the rail live inside those, and a blank press there must give the
+  // keyboard back.
   ".xterm",
-  ".native-terminal-surface__body",
 ].join(", ");
 
 /**
