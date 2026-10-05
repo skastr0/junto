@@ -6,13 +6,16 @@
  * is gone, so the feed must carry those needs. Real work is seeded through
  * the work repository, the way main writes it: a task Atlas claimed and then
  * left waiting on the operator (the stoppage, which holds Atlas up), and an
- * open request on a requests sink (a sink that wants input).
+ * open request on a requests sink (a sink that wants input). Both are written
+ * with origin times in the past, before the app has ever started: the app
+ * that shows them never saw them begin, as after a quit and relaunch, so the
+ * only place the times can come from is the journal.
  *
  * Asserts:
  *   - the stoppage, the held seat and the sink each appear as a feed row, in their region
  *   - the top bar button counts them, and its number is the feed header's
  *   - the button toggles the feed and no popover exists
- *   - after a reload the rows keep the time they were first seen
+ *   - each row shows the time its need truly began, on first launch and after a reload
  */
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
@@ -34,7 +37,10 @@ import { agentTextNode, canvasDoc, verbEdge, type Sandbox } from "../harness/san
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "needs-you-canvas";
-const FIRST_SEEN_KEY = "junto.needs-you.first-seen";
+// When each need began, well before this app process exists.
+const STOPPED_AT = Date.now() - 47 * 60_000;
+const ASKED_AT = Date.now() - 12 * 60_000;
+const iso = (ms: number): string => new Date(ms).toISOString();
 
 const ops: GroupNode = { id: "ops", type: "group", label: "Ops", x: 0, y: 0, width: 760, height: 360 };
 const atlas: TextNode = agentTextNode({ id: "atlas", key: "local:e2e-needs-atlas", label: "Atlas", harness: "claude", x: 40, y: 80 });
@@ -101,9 +107,26 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
               { messageId: "msg-task-migration", role: "user", parts: [{ kind: "text", text: "Run the accounts migration." }] },
             ],
           },
+          originAt: iso(STOPPED_AT - 30 * 60_000),
+          receivedAt: iso(STOPPED_AT - 30 * 60_000),
         });
-        yield* work.claimLocalTask({ sink: boardSink, basis, dependencyScope, taskId: "task-migration", actor });
-        yield* work.transitionTask({ sink: boardSink, basis, taskId: "task-migration", state: "input-required" });
+        yield* work.claimLocalTask({
+          sink: boardSink,
+          basis,
+          dependencyScope,
+          taskId: "task-migration",
+          actor,
+          originAt: iso(STOPPED_AT - 20 * 60_000),
+          receivedAt: iso(STOPPED_AT - 20 * 60_000),
+        });
+        yield* work.transitionTask({
+          sink: boardSink,
+          basis,
+          taskId: "task-migration",
+          state: "input-required",
+          originAt: iso(STOPPED_AT),
+          receivedAt: iso(STOPPED_AT),
+        });
         yield* work.createRequest({
           sink: { canvasName: CANVAS, nodeId: asks.id },
           basis,
@@ -120,6 +143,8 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
               },
             ],
           },
+          originAt: iso(ASKED_AT),
+          receivedAt: iso(ASKED_AT),
         });
       }),
     );
@@ -130,7 +155,7 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
   }
 };
 
-test("a work stoppage, the seat it holds up and a sink wanting input are feed rows, counted, and keep their time over a reload", async () => {
+test("a work stoppage, the seat it holds up and a sink wanting input are feed rows, counted, and show when they truly began", async () => {
   const junto = await launchJunto({ seedCanvases: { [CANVAS]: doc }, afterSeed: seedWork });
   try {
     const { page } = junto;
@@ -178,25 +203,33 @@ test("a work stoppage, the seat it holds up and a sink wanting input are feed ro
     await expect(modal).toHaveCount(0);
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
 
-    // A reload must not restamp the needs as now.
-    const readSeen = (): Promise<Record<string, number>> =>
-      page.evaluate(([key, canvas]) => JSON.parse(localStorage.getItem(key!) ?? "{}")[canvas!] ?? {}, [FIRST_SEEN_KEY, CANVAS]);
-    const before = await readSeen();
-    expect(Object.keys(before).sort()).toEqual(["held:atlas", "input:asks", "stoppage:board"]);
-    await page.waitForTimeout(1_200);
+    // Each row says when its need truly began: the stoppage and the seat it
+    // holds up since the task started waiting, the sink since the request.
+    const began: ReadonlyArray<readonly [string, number]> = [
+      ["stoppage:board", STOPPED_AT],
+      ["held:atlas", STOPPED_AT],
+      ["input:asks", ASKED_AT],
+    ];
+    const expectTrueTimes = async (): Promise<void> => {
+      for (const [id, at] of began) {
+        const row = modal.locator(`[data-item-id='${id}'] time`);
+        // The tooltip layer may have moved the title into its own attribute.
+        const said = await row.evaluate((time) => time.getAttribute("title") ?? time.getAttribute("data-junto-tooltip"));
+        expect(said).toBe(await page.evaluate((ms) => new Date(ms).toLocaleString(), at));
+      }
+      await expect(modal.locator("[data-item-id='stoppage:board'] time")).toHaveText(/^4[78]m$/);
+      await expect(modal.locator("[data-item-id='input:asks'] time")).toHaveText(/^1[23]m$/);
+    };
+    await trigger.click();
+    await expectTrueTimes();
+    await page.keyboard.press("Escape");
+
+    // A reload reads the same journal: nothing is restamped as now.
     await page.reload();
     await expect(page.locator(".react-flow__node", { hasText: "Atlas" })).toBeVisible({ timeout: 30_000 });
     await expect(trigger).toHaveAttribute("aria-label", "Needs you, 3", { timeout: 20_000 });
-    expect(await readSeen()).toEqual(before);
-    // The rows say that time, not the reload's.
     await trigger.click();
-    for (const id of ["stoppage:board", "held:atlas", "input:asks"]) {
-      // The tooltip layer may have moved the title into its own attribute.
-      const said = await modal
-        .locator(`[data-item-id='${id}'] time`)
-        .evaluate((time) => time.getAttribute("title") ?? time.getAttribute("data-junto-tooltip"));
-      expect(said).toBe(await page.evaluate((at) => new Date(at).toLocaleString(), before[id]!));
-    }
+    await expectTrueTimes();
   } finally {
     await junto.close();
   }

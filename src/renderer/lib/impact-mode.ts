@@ -3,12 +3,12 @@
 // edgeEval so impactCone can run without a second graph pass.
 
 import { observable } from "@legendapp/state";
-import type { CanvasDoc, EdgePhase } from "@shared/canvas";
+import type { CanvasDoc } from "@shared/canvas";
 import type { ExecutionSnapshot } from "@shared/ipc";
 import {
   deriveExecutionGraph,
+  executionGraphFromSnapshot,
   type BlockedReason,
-  type EdgeEval,
   type ExecutionGraph,
   type ExecutionGraphContext,
 } from "@shared/execution-graph";
@@ -44,40 +44,8 @@ export const executionGraphForImpact = (
   doc: CanvasDoc,
   execution: ExecutionSnapshot | null | undefined,
   context: ExecutionGraphContext,
-): ExecutionGraph => {
-  if (!execution) return deriveExecutionGraph(doc, context);
-
-  const phaseByEdgeId = new Map<string, EdgePhase>();
-  const detailByEdgeId = new Map<string, string>();
-  const edgeEvalById = new Map<string, EdgeEval>();
-
-  for (const edge of doc.edges) {
-    const phase =
-      (execution.phaseByEdgeId[edge.id] as EdgePhase | undefined) ?? "relates";
-    const detail = execution.detailByEdgeId[edge.id] ?? "";
-    phaseByEdgeId.set(edge.id, phase);
-    detailByEdgeId.set(edge.id, detail);
-    edgeEvalById.set(edge.id, {
-      phase: phase === "blocks" ? "blocks" : "relates",
-      detail,
-      generates: phase === "blocks",
-    });
-  }
-
-  const reasonsByNodeId = new Map<string, ReadonlyArray<BlockedReason>>();
-  for (const [id, reasons] of Object.entries(execution.reasonsByNodeId ?? {})) {
-    reasonsByNodeId.set(id, reasons as ReadonlyArray<BlockedReason>);
-  }
-
-  return {
-    phaseByEdgeId,
-    detailByEdgeId,
-    edgeEvalById,
-    blocked: new Set(execution.blocked),
-    blockedEdgeIds: new Set(execution.blockedEdgeIds),
-    reasonsByNodeId,
-  };
-};
+): ExecutionGraph =>
+  execution ? executionGraphFromSnapshot(doc, execution) : deriveExecutionGraph(doc, context);
 
 const reasonBrief = (reason: BlockedReason): string => {
   if (reason.kind === "edge") return reason.detail || "generating edge";

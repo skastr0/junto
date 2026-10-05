@@ -444,3 +444,45 @@ export const composeRegionExecutionContext = (
 
   return lines.join("\n");
 };
+
+/** The kernel's live projection of a canvas's execution graph, as it travels. */
+export type ExecutionGraphSnapshot = {
+  readonly phaseByEdgeId: Readonly<Record<string, EdgePhase>>;
+  readonly detailByEdgeId: Readonly<Record<string, string>>;
+  readonly blocked: ReadonlyArray<string>;
+  readonly blockedEdgeIds: ReadonlyArray<string>;
+  readonly reasonsByNodeId: Readonly<Record<string, ReadonlyArray<BlockedReason>>>;
+};
+
+/**
+ * The execution graph the kernel already derived, rebuilt from its snapshot
+ * without a second derivation: edge evaluations come back from the phases, so
+ * impact cones and canvas needs can read it in the renderer and in main.
+ */
+export const executionGraphFromSnapshot = (
+  doc: CanvasDoc,
+  execution: ExecutionGraphSnapshot,
+): ExecutionGraph => {
+  const phaseByEdgeId = new Map<string, EdgePhase>();
+  const detailByEdgeId = new Map<string, string>();
+  const edgeEvalById = new Map<string, EdgeEval>();
+  for (const edge of doc.edges) {
+    const phase = execution.phaseByEdgeId[edge.id] ?? "relates";
+    const detail = execution.detailByEdgeId[edge.id] ?? "";
+    phaseByEdgeId.set(edge.id, phase);
+    detailByEdgeId.set(edge.id, detail);
+    edgeEvalById.set(edge.id, {
+      phase: phase === "blocks" ? "blocks" : "relates",
+      detail,
+      generates: phase === "blocks",
+    });
+  }
+  return {
+    phaseByEdgeId,
+    detailByEdgeId,
+    edgeEvalById,
+    blocked: new Set(execution.blocked),
+    blockedEdgeIds: new Set(execution.blockedEdgeIds),
+    reasonsByNodeId: new Map(Object.entries(execution.reasonsByNodeId ?? {})),
+  };
+};

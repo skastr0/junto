@@ -29,10 +29,13 @@ import {
 } from "@shared/companion-protocol";
 import { installCosmeticPacks } from "@shared/cosmetics/catalog";
 import { decodeCosmeticPacks } from "@shared/cosmetics/load";
+import { feedCanvasNeeds } from "@shared/canvas-needs";
+import { executionGraphFromSnapshot } from "@shared/execution-graph";
 import { regionStack } from "@shared/graph";
 import {
   buildOperatorFeed,
   feedSeatsFromDoc,
+  type FeedCanvasNeed,
   type FeedHealth,
   type FeedSeatInput,
   type OperatorFeed,
@@ -46,6 +49,7 @@ import { nodeTitle } from "@renderer/lib/presentation";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import { AppRuntime } from "../../runtime";
 import { CanvasesService } from "../canvases";
+import { getExecutionByCanvas } from "../kernel/cycle";
 import { PausePlane } from "../pause-plane";
 import { PortraitOverrideRepository } from "../portraits/repository";
 import { SettingsService } from "../settings/service";
@@ -134,8 +138,25 @@ const feedSeats = (doc: CanvasDoc, now: number): ReadonlyArray<FeedSeatInput> =>
   return feedSeatsFromDoc(doc, { nameOf: nodeTitle, attentionByNodeId, healthByNodeId });
 };
 
+/**
+ * The needs only the canvas knows, from the kernel's own execution snapshot,
+ * so the phone counts what the desktop counts. Before the first kernel cycle
+ * there is no snapshot and so no canvas need yet.
+ */
+const canvasNeedsFor = (canvasName: string, doc: CanvasDoc, now: number): ReadonlyArray<FeedCanvasNeed> => {
+  const execution = getExecutionByCanvas().get(canvasName);
+  if (execution === undefined) return [];
+  return feedCanvasNeeds({ doc, graph: executionGraphFromSnapshot(doc, execution), nameOf: nodeTitle, nowMs: now });
+};
+
 const feedFor = (canvasName: string, view: CanvasView, now: number): OperatorFeed =>
-  buildOperatorFeed({ canvasName, nowMs: now, seats: feedSeats(view.doc, now), signals: view.signals });
+  buildOperatorFeed({
+    canvasName,
+    nowMs: now,
+    seats: feedSeats(view.doc, now),
+    signals: view.signals,
+    canvasNeeds: canvasNeedsFor(canvasName, view.doc, now),
+  });
 
 const processOf = (binding: string | undefined): "running" | "starting" | "stopped" | undefined => {
   if (!binding) return undefined;

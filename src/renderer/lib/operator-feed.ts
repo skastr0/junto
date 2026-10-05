@@ -2,13 +2,10 @@ import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { AgentSignal } from "@shared/agent-signals";
+import { feedCanvasNeeds } from "@shared/canvas-needs";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { rankStoppageSeeds, type RankedStoppage } from "@shared/impact";
-import { isHarnessId } from "@shared/managed-terminal-templates";
 import {
-  attentionText,
   buildOperatorFeed,
-  feedRegionFor,
   feedSeatsFromDoc,
   needsOperatorCount,
   type FeedCanvasNeed,
@@ -19,109 +16,22 @@ import {
 import type { ThreadHealthReading } from "@shared/thread-health";
 import { agentSeat$, bindingIdForNode, seatEventForNode } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
-import { chatCoarse$ } from "./chat-state";
+import { chatCoarse$, chatState$ } from "./chat-state";
 import { executionGraphForImpact } from "./impact-mode";
 import { kernel$ } from "./kernel-view";
 import { nodeTitle } from "./presentation";
 import { seatAwareness$ } from "./seat-awareness";
-import { liveAttentionReasons, notifyItem, seatFactsForNode } from "./seat-projections";
+import { attentionAgentKey } from "./seat-projections";
 import { state$ } from "./state";
-import { terminal$ } from "./terminal-state";
 import { threadHealthView, useHealthClock } from "./thread-health";
 
 /**
  * The desktop's reading of the operator feed: joins the live planes (declared
  * signals, seat control state, thread health) onto the document and hands
  * them to the shared projection, with the needs only the canvas knows
- * (stoppages, held nodes, sinks wanting input). Whether the feed is open is
+ * (`feedCanvasNeeds`: stoppages, held nodes, sinks wanting input). Whether the feed is open is
  * the operator modal slot's to say (lib/operator-modal).
  */
-
-/** A canvas need before it has a start time. */
-export type CanvasNeedDraft = Omit<FeedCanvasNeed, "since">;
-
-const holdsUp = (count: number): string =>
-  count === 0 ? "stuck, clear it to go on" : count === 1 ? "holding up 1 other" : `holding up ${count} others`;
-
-/**
- * What the canvas knows that no seat said: the stoppages that hold others
- * up, the nodes held up by their work, and the sinks and seats that want
- * input. One need per node, the stoppage first.
- */
-export const canvasNeeds = (input: {
-  readonly doc: CanvasDoc;
-  readonly stoppages: ReadonlyArray<RankedStoppage>;
-  readonly graphBlocked: ReadonlySet<string>;
-  readonly needsInput: ReadonlySet<string>;
-}): ReadonlyArray<CanvasNeedDraft> => {
-  const byId = new Map(input.doc.nodes.map((node) => [node.id, node] as const));
-  const out = new Map<string, CanvasNeedDraft>();
-  const add = (nodeId: string, prefix: string, kind: CanvasNeedDraft["kind"], text: string): void => {
-    if (out.has(nodeId)) return;
-    const node = byId.get(nodeId);
-    out.set(nodeId, {
-      itemId: `${prefix}:${nodeId}`,
-      kind,
-      seat: { nodeId, name: node ? nodeTitle(node) : nodeId, portraitIdentity: nodeId },
-      region: feedRegionFor(input.doc, nodeId),
-      text,
-    });
-  };
-  for (const stoppage of input.stoppages) {
-    add(stoppage.seedNodeId, "stoppage", "blocked", holdsUp(Math.max(0, stoppage.stops - 1)));
-  }
-  for (const nodeId of input.graphBlocked) add(nodeId, "held", "blocked", "waiting on blocked work upstream");
-  for (const nodeId of input.needsInput) add(nodeId, "input", "attention", attentionText(""));
-  return [...out.values()];
-};
-
-const FIRST_SEEN_KEY = "junto.needs-you.first-seen";
-
-type FirstSeen = Record<string, Record<string, number>>;
-
-const readFirstSeen = (): FirstSeen => {
-  try {
-    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(FIRST_SEEN_KEY) ?? "{}");
-    return typeof parsed === "object" && parsed !== null ? (parsed as FirstSeen) : {};
-  } catch {
-    return {};
-  }
-};
-
-/**
- * When each canvas need began. The work graph carries no start time, so the
- * first time this machine saw the need stands in for it. It is kept on disk
- * per canvas, so a reload does not restamp every stoppage as now, and it is
- * forgotten once the need clears.
- */
-export const stampCanvasNeeds = (
-  canvasName: string,
-  drafts: ReadonlyArray<CanvasNeedDraft>,
-  nowMs: number,
-): ReadonlyArray<FeedCanvasNeed> => {
-  const all = readFirstSeen();
-  const before = all[canvasName] ?? {};
-  const after: Record<string, number> = {};
-  for (const draft of drafts) after[draft.itemId] = before[draft.itemId] ?? nowMs;
-  const changed =
-    Object.keys(after).length !== Object.keys(before).length ||
-    Object.keys(after).some((id) => before[id] !== after[id]);
-  if (changed) {
-    const next = { ...all, [canvasName]: after };
-    if (drafts.length === 0) delete next[canvasName];
-    try {
-      globalThis.localStorage?.setItem(FIRST_SEEN_KEY, JSON.stringify(next));
-    } catch {
-      // No storage (a test, a locked profile): the time holds for this window only.
-    }
-  }
-  return drafts.map((draft) => ({ ...draft, since: after[draft.itemId]! }));
-};
-
-const managedSeat = (node: CanvasNode): boolean => {
-  const harness = node.ether?.terminal?.harness;
-  return typeof harness === "string" && isHarnessId(harness);
-};
 
 /** Build the feed for one canvas from the live stores, read once at `nowMs`. */
 export const operatorFeedFor = (
@@ -149,6 +59,32 @@ export const operatorFeedFor = (
   });
 };
 
+/**
+ * Nodes that want input for a reason the document does not carry, and when
+ * it began: a terminal that is not an agent seat whose screen wants input
+ * (its seat event's time), and a seat with a permission request pending in a
+ * live chat (when this window received it; a chat is not work, so that time
+ * is the chat session's, not the journal's).
+ */
+const liveWantsInput = (nodes: ReadonlyArray<CanvasNode>): ReadonlyMap<string, number> => {
+  const out = new Map<string, number>();
+  for (const node of nodes) {
+    const agentKey = attentionAgentKey(node);
+    if (!agentKey) {
+      // Agent seats in attention are the feed's own items already.
+      const event = seatEventForNode(node);
+      if (event?.state === "attention") out.set(node.id, event.at);
+      continue;
+    }
+    const chat = chatState$[agentKey].peek();
+    const requestId = chat?.pendingPermission?.requestId;
+    if (!requestId) continue;
+    const asked = chat.transcript.find((item) => item.kind === "permission" && item.id === requestId);
+    if (asked) out.set(node.id, asked.ts);
+  }
+  return out;
+};
+
 /** The open canvas's needs that no seat declared, read from the live stores. */
 const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const doc = use$(state$.doc);
@@ -157,33 +93,24 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
   const seatRev = use$(agentSeat$.rev);
-  const chatByAgent = use$(chatCoarse$) as
-    | Readonly<Record<string, { readonly pendingPermissionId?: string } | undefined>>
-    | undefined;
+  // One key per pending permission: the map changes only when one opens or closes.
+  const permissionKey = use$(() =>
+    Object.entries(chatCoarse$.get())
+      .map(([agentKey, slot]) => `${agentKey}:${slot?.pendingPermissionId ?? ""}`)
+      .join("|"),
+  );
   return useMemo(() => {
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
-    const graph = executionGraphForImpact(doc, execution, context);
-    const graphBlocked = new Set<string>();
-    const needsInput = new Set<string>();
-    for (const node of doc.nodes) {
-      const bindingId = bindingIdForNode(node);
-      const facts = seatFactsForNode({
-        nodeId: node.id,
-        seatEvent: seatEventForNode(node),
-        session: bindingId ? terminal$.sessionByBindingId[bindingId].peek() : undefined,
-        graphBlocked: graph.blocked.has(node.id),
-        attentionReasons: liveAttentionReasons(node, chatByAgent),
-        managedSeat: managedSeat(node),
-      });
-      const kind = notifyItem(facts);
-      if (kind === "blocked") graphBlocked.add(node.id);
-      else if (kind === "attention") needsInput.add(node.id);
-    }
-    const drafts = canvasNeeds({ doc, stoppages: rankStoppageSeeds(doc, graph), graphBlocked, needsInput });
-    return stampCanvasNeeds(canvasName, drafts, Date.now());
+    return feedCanvasNeeds({
+      doc,
+      graph: executionGraphForImpact(doc, execution, context),
+      nameOf: nodeTitle,
+      wantsInput: liveWantsInput(doc.nodes),
+      nowMs: Date.now(),
+    });
     // Kernel execution and seat state mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, canvasName, actorRefs, execution, executionRev, seatRev, chatByAgent]);
+  }, [doc, canvasName, actorRefs, execution, executionRev, seatRev, permissionKey]);
 };
 
 /** The live feed for the open canvas. */

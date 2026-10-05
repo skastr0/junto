@@ -181,7 +181,7 @@ const openRepository = async (
     generation: "1",
     contentSha256: intentSha256,
   });
-  return { runtime, repository, basis };
+  return { runtime, repository, basis, root };
 };
 
 
@@ -250,6 +250,31 @@ describe("WorkRepository stateSince projection", () => {
       }),
     );
     const snapshot = await runtime.runPromise(repository.readSnapshot(canvasName, "asks"));
+    expect(snapshot.requests?.items[0]).toMatchObject({ id: "r1", stateSince: atMinute(3) });
+  });
+
+  it("keeps the time through a full close and reopen of the database", async () => {
+    const { runtime, repository, basis, root } = await openRepository(installation("cc-state-since-reopen"));
+    const seat = actor("1", "recipient");
+    await runtime.runPromise(
+      repository.createRequest({
+        sink: asks,
+        basis,
+        raisedBy: seat,
+        request: { id: "r1", state: "input-required", claimedBy: seat.seatId, history: [note("m1", "Which region?")] },
+        originAt: atMinute(3),
+        receivedAt: atMinute(3),
+      }),
+    );
+    await runtime.dispose();
+
+    // A new process: nothing in memory, only the file.
+    const reopened = ManagedRuntime.make(
+      Layer.provideMerge(WorkRepositoryLive, makeStateEngineLive(join(root, "junto.db"))),
+    );
+    opened.push({ root, dispose: () => reopened.dispose() });
+    const again = await reopened.runPromise(WorkRepository);
+    const snapshot = await reopened.runPromise(again.readSnapshot(canvasName, "asks"));
     expect(snapshot.requests?.items[0]).toMatchObject({ id: "r1", stateSince: atMinute(3) });
   });
 
