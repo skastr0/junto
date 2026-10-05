@@ -90,6 +90,7 @@ export class InjectionSupervisor {
   private readonly continuations = new Map<string, { readonly notEpoch: string | undefined }>();
   private writer: NoticeWriter | undefined;
   private continuationWriter: NoticeWriter | undefined;
+  private continuationSettled: ((bindingId: string) => void) | undefined;
   private composer: ComposerLookup | undefined;
   private loader: OnboardedLoader | undefined;
   private recorder: OnboardedRecorder | undefined;
@@ -105,6 +106,20 @@ export class InjectionSupervisor {
    */
   setContinuationWriter(writer: NoticeWriter): void {
     this.continuationWriter = writer;
+  }
+
+  /** Told when a seat is no longer owed its continuation line. */
+  setContinuationSettled(listener: (bindingId: string) => void): void {
+    this.continuationSettled = listener;
+  }
+
+  private settleContinuation(bindingId: string): void {
+    this.continuations.delete(bindingId);
+    try {
+      this.continuationSettled?.(bindingId);
+    } catch (error) {
+      console.error("[supervisor] continuation listener failed:", error);
+    }
   }
 
   setComposerLookup(lookup: ComposerLookup): void {
@@ -273,7 +288,9 @@ export class InjectionSupervisor {
   /**
    * The seat offboarded with `--continue` and Junto is starting its fresh
    * session: tell that session, once, to read its handoff. The only caller is
-   * the offboard closer; a seat started any other way is told nothing.
+   * the continuation ledger, on behalf of the offboard closer (and again for
+   * what a previous run still owed); a seat started any other way is told
+   * nothing.
    */
   armContinuation(bindingId: string, offboarded: string | undefined): void {
     this.continuations.set(bindingId, { notEpoch: offboarded });
@@ -306,7 +323,7 @@ export class InjectionSupervisor {
     if (seat.onboarding === "unknown") return true;
     if (seat.onboarding === "onboarded") {
       // It already read its handoff: nothing left to say.
-      this.continuations.delete(bindingId);
+      this.settleContinuation(bindingId);
       return false;
     }
     if (seat.state !== "idle" || this.composerOf(bindingId) !== "empty") return true;
@@ -317,7 +334,7 @@ export class InjectionSupervisor {
       if (this.seats.get(bindingId) !== seat) return;
       seat.nudgeInFlight = false;
       if (!accepted) return;
-      this.continuations.delete(bindingId);
+      this.settleContinuation(bindingId);
       // The session's first message, and the turn it starts. The nudge
       // policy counts from here: that turn is not one of its own.
       seat.firstMessageSeen = true;

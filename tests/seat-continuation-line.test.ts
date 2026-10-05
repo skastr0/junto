@@ -4,10 +4,12 @@
  * is up and empty. Nothing else starts a session with a message: not a plain
  * offboard, and not a seat the operator opens.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ContinuationLedger } from "../src/main/junto/seat-sessions/continuation-pending";
 import {
   OFFBOARD_SETTLE_MS,
   SeatOffboardCloser,
@@ -221,23 +223,128 @@ describe("nothing else starts a session with a message", () => {
       }
     };
     walk(root);
-    const callers = sources.flatMap((path) => {
-      const text = readFileSync(path, "utf8");
-      return [...text.matchAll(/\.armContinuation\(/g)].map((match) => ({
-        file: path.slice(root.length + 1),
-        before: text.slice(Math.max(0, match.index - 400), match.index),
-      }));
-    });
-    expect(callers.map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
-    // That one call is the closer's kickoff port, which the closer reaches
-    // only after a rotation asked to wake (see the closer tests).
-    expect(callers[0]?.before).toMatch(/kickoff: async \(seatId, canvasName\) => \{/);
-    expect(callers).toHaveLength(1);
+    const callersOf = (pattern: RegExp) =>
+      sources.flatMap((path) => {
+        const text = readFileSync(path, "utf8");
+        return [...text.matchAll(pattern)].map((match) => ({
+          file: path.slice(root.length + 1),
+          before: text.slice(Math.max(0, match.index - 500), match.index),
+        }));
+      });
+    // The supervisor is armed by the ledger alone: when a continuation is
+    // owed, and again for what a previous run recorded and never delivered.
+    expect(new Set(callersOf(/\.armContinuation\(/g).map((caller) => caller.file))).toEqual(
+      new Set(["main/junto/seat-sessions/continuation-pending.ts"]),
+    );
+    // A continuation becomes owed in exactly one place: the closer's kickoff
+    // port, which the closer reaches only after a rotation asked to wake.
+    const owing = callersOf(/continuationLedger\.owe\(/g);
+    expect(owing.map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
+    expect(owing[0]?.before).toMatch(/kickoff: async \(seatId, canvasName\) => \{/);
+    expect(callersOf(/\bnew ContinuationLedger\(/g).map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
     // And the line itself is typed from one place.
     const users = sources
       .filter((path) => /\bCONTINUATION_LINE\b/.test(readFileSync(path, "utf8")))
       .map((path) => path.slice(root.length + 1))
       .sort();
     expect(users).toEqual(["main/junto/term/injection-supervisor.ts", "shared/seat-sessions.ts"]);
+  });
+});
+
+describe("a continuation owed across a restart", () => {
+  let dir: string | undefined;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+
+  /** One run of the app: a supervisor and a ledger over the same seats root. */
+  const run = (seatsRoot: string) => {
+    const supervisor = new InjectionSupervisor();
+    const typed: string[] = [];
+    supervisor.setContinuationWriter((_b, text) => {
+      typed.push(text);
+      return true;
+    });
+    supervisor.setWriter(() => true);
+    const ledger = new ContinuationLedger(supervisor, seatsRoot);
+    const boot = async (epoch: string) => {
+      for (const state of ["unknown", "idle"] as const) {
+        supervisor.noteSeatState({ bindingId: BINDING, epoch, state, reason: "test", confidence: "high", at: 0 });
+      }
+      await settled();
+    };
+    return { supervisor, ledger, typed, boot };
+  };
+
+  const pendingFile = (seatsRoot: string) => join(seatsRoot, "seat-a", "continuation.pending");
+
+  it("survives Junto quitting before the seat ever started", async () => {
+    dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
+    // Run 1: the seat offboards with --continue on a paused canvas. The
+    // session is rotated, nothing wakes the seat, and Junto quits.
+    const first = run(dir);
+    first.ledger.owe("seat-a", BINDING, "e1");
+    expect(first.supervisor.continuationPending(BINDING)).toBe(true);
+    expect(first.typed).toEqual([]);
+    expect(existsSync(pendingFile(dir))).toBe(true);
+
+    // Run 2: a new process with nothing in memory.
+    const second = run(dir);
+    expect(second.supervisor.continuationPending(BINDING)).toBe(false);
+    expect(second.ledger.restore()).toBe(1);
+    expect(second.supervisor.continuationPending(BINDING)).toBe(true);
+    // The canvas plays and the fresh session comes up.
+    await second.boot("e2");
+    expect(second.typed).toEqual([CONTINUATION_LINE]);
+    expect(existsSync(pendingFile(dir))).toBe(false);
+
+    // Run 3: delivered means delivered. Nothing is owed any more.
+    const third = run(dir);
+    expect(third.ledger.restore()).toBe(0);
+    await third.boot("e3");
+    expect(third.typed).toEqual([]);
+  });
+
+  it("is still owed after a restart that ends before the seat starts again", async () => {
+    dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
+    run(dir).ledger.owe("seat-a", BINDING, "e1");
+    const second = run(dir);
+    expect(second.ledger.restore()).toBe(1);
+    const third = run(dir);
+    expect(third.ledger.restore()).toBe(1);
+    await third.boot("e2");
+    expect(third.typed).toEqual([CONTINUATION_LINE]);
+  });
+
+  it("a restart never tells the generation that offboarded", async () => {
+    dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
+    run(dir).ledger.owe("seat-a", BINDING, "e1");
+    const second = run(dir);
+    second.ledger.restore();
+    await second.boot("e1");
+    expect(second.typed).toEqual([]);
+    expect(existsSync(pendingFile(dir))).toBe(true);
+  });
+
+  it("a session that onboards on its own is owed nothing", async () => {
+    dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
+    const first = run(dir);
+    first.ledger.owe("seat-a", BINDING, "e1");
+    first.supervisor.noteOnboarded(BINDING);
+    await first.boot("e2");
+    expect(first.typed).toEqual([]);
+    expect(existsSync(pendingFile(dir))).toBe(false);
+  });
+
+  it("restores nothing from a run that owed nothing, and drops a file it cannot read", () => {
+    dir = mkdtempSync(join(tmpdir(), "junto-continuation-"));
+    expect(run(dir).ledger.restore()).toBe(0);
+    mkdirSync(join(dir, "seat-a"), { recursive: true });
+    writeFileSync(pendingFile(dir), "not json");
+    const next = run(dir);
+    expect(next.ledger.restore()).toBe(0);
+    expect(next.supervisor.continuationPending(BINDING)).toBe(false);
+    expect(existsSync(pendingFile(dir))).toBe(false);
   });
 });

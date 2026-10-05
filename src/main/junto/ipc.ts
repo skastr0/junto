@@ -60,6 +60,7 @@ import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squ
 import { SeatGuidanceRepository } from "./seat-guidance/repository";
 import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
 import { SeatOffboardCloser } from "./seat-sessions/offboard-close";
+import { ContinuationLedger } from "./seat-sessions/continuation-pending";
 import {
   defaultSeatsRoot,
   markSessionOnboarded,
@@ -1984,6 +1985,13 @@ export const registerJuntoIpc = (): void => {
         );
       offboardCloser?.stop();
       const offboardedGeneration = new Map<string, string | undefined>();
+      // What a previous run still owed: a seat rotated on a paused canvas
+      // that had not started when Junto quit.
+      const continuationLedger = new ContinuationLedger(injectionSupervisor);
+      const owedContinuations = continuationLedger.restore();
+      if (owedContinuations > 0) {
+        console.info(`[offboard] ${owedContinuations} seat(s) still owed their continuation line`);
+      }
       offboardCloser = new SeatOffboardCloser({
         locate: managedSeatOn,
         isRunning: (bindingId) =>
@@ -1999,12 +2007,13 @@ export const registerJuntoIpc = (): void => {
           return offboardAndRotate(seatId, { canvasName, wake });
         },
         // The fresh session is told once, by the supervisor, when its
-        // composer is up and empty. This is the only caller: a seat started
-        // any other way opens to an empty composer and is told nothing.
+        // composer is up and empty; the ledger keeps what is owed across a
+        // restart. This is the only caller: a seat started any other way
+        // opens to an empty composer and is told nothing.
         kickoff: async (seatId, canvasName) => {
           const seat = await managedSeatOn(canvasName, seatId);
           if (seat === undefined) return false;
-          injectionSupervisor.armContinuation(seat.bindingId, offboardedGeneration.get(seatId));
+          continuationLedger.owe(seatId, seat.bindingId, offboardedGeneration.get(seatId));
           offboardedGeneration.delete(seatId);
           return true;
         },
