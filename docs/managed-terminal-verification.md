@@ -128,7 +128,7 @@ Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 
 
 Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` or transcripts silently disable. `--mcp-config` (if ever used) is variadic — put last.
 
-## Codex — 14/14 VERIFIED 
+## Codex — 15/15 VERIFIED 
 
 | # | fact | key receipt / trap |
 |---|---|---|
@@ -146,6 +146,7 @@ Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `
 | C12 | OSC title state machine: idle basename / braille working ~10Hz / **`Action Required` title for input-required** / empty on shutdown | startup modals (dir-trust, hooks-review) emit no title — grid only |
 | C13 | Mid-turn 0x03 interrupts, TUI survives | ⚠ idle 0x03 with EMPTY composer exits immediately, no confirmation; with text it only clears |
 | C14 | `-c developer_instructions` is NOT a Tier-A route (2026-08-25, codex-cli 0.149.1) | see the refutation below |
+| C15 | 0.156+ runs the TUI through a shared background app-server; `--no-daemon` keeps the session in the launched process (2026-10-05, codex-cli 0.160.0) | ⚠ without the flag the tool shell's parent is `codex app-server --managed-daemon` under launchd, so Junto's process-bound seat identity never resolves and every `junto` call fails. `-c features.daemon_auto_start=false` does NOT help when a daemon is already running. 0.155 and older reject the flag, so the host adds it only when `--help` lists it (`hostProbedFlags`). Probed with a TUI `!` shell command; model-run tool calls not separately probed |
 
 ### C14 — why Codex stays Tier B (probe receipt, 2026-08-25, codex-cli 0.149.1)
 
