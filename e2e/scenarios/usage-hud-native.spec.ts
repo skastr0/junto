@@ -98,6 +98,9 @@ const waitForBridge = async (handle: JuntoHandle): Promise<void> => {
     .toBe(true);
 };
 
+// Skipped as a whole, by the operator's ruling: the feature is experimental.
+test.skip(true, "Provider limits HUD is behind a flag that is off; revisit when the feature ships");
+
 test("usage HUD paints seeded multi-provider quotas and marks cache confidence honestly", async () => {
   const handle = await launchJunto({ seedUsage: MULTI_PROVIDER_STATE });
   try {
