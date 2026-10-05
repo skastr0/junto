@@ -116,8 +116,20 @@ export function WorkFocusShell() {
 
   const panelObserverRef = useRef<ResizeObserver | null>(null);
   const lastWritten = useRef<number | null>(null);
+  const lastRails = useRef<{ readonly front: string | undefined; readonly px: number } | null>(null);
   useEffect(() => {
     if (!hasFocus) return;
+    // The rail changed width under the same terminal (collapsed or expanded):
+    // the panel keeps its box and the terminal takes or gives the difference,
+    // in one step. Moving to another agent keeps the terminal's width instead.
+    const before = lastRails.current;
+    lastRails.current = { front: pane0, px: terminalRailsPx };
+    if (before && before.front === pane0 && before.px !== terminalRailsPx) {
+      const remembered = dock$.registry.peek().focusSize;
+      if (remembered && remembered.key === sizeKey) {
+        setWorkbenchFocusSize({ ...remembered, width: remembered.width + before.px - terminalRailsPx });
+      }
+    }
     const id = requestAnimationFrame(() => {
       const panel = document.querySelector(
         ".focus-surface__panel.work-focus-shell__panel",
@@ -159,7 +171,7 @@ export function WorkFocusShell() {
     };
     // terminalRailsPx remains part of the dependency contract if a future
     // instrument-pane presentation changes width.
-  }, [hasFocus, sizeKey, terminalRailsPx]);
+  }, [hasFocus, sizeKey, terminalRailsPx, pane0]);
 
   // Front-surface changes keep the same FocusSurface mounted — re-claim the
   // new terminal / composer so typing lands immediately.

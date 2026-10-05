@@ -117,11 +117,30 @@ test("the rail snaps between its two widths, and a seat with no connections has 
     await expect.poll(async () => Math.round((await rail(page).boundingBox())!.width)).toBe(248);
     const wide = (await stage.boundingBox())!.width;
 
+    // Collapse: the modal keeps its box and the terminal takes the 180px the
+    // rail gave up, in one resize, not one per frame.
+    const panel = page.locator(".focus-surface__panel.work-focus-shell__panel");
+    const panelWide = Math.round((await panel.boundingBox())!.width);
+    await stage.evaluate((element) => {
+      const seen: number[] = [];
+      (window as unknown as { __stageWidths: number[] }).__stageWidths = seen;
+      new ResizeObserver((entries) => {
+        for (const entry of entries) seen.push(Math.round(entry.contentRect.width));
+      }).observe(element);
+    });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+      (window as unknown as { __stageWidths: number[] }).__stageWidths.length = 0;
+    });
     await rail(page).getByTestId("actor-rail-toggle").click();
     await expect(rail(page)).toHaveAttribute("data-rail", "collapsed");
     await expect.poll(async () => Math.round((await rail(page).boundingBox())!.width)).toBe(68);
-    // The terminal never loses room to a collapse.
-    await expect.poll(async () => (await stage.boundingBox())!.width).toBeGreaterThanOrEqual(wide);
+    await expect.poll(async () => Math.round((await stage.boundingBox())!.width)).toBe(Math.round(wide) + 180);
+    await page.waitForTimeout(600);
+    expect(Math.round((await panel.boundingBox())!.width)).toBe(panelWide);
+    expect(await page.evaluate(() => (window as unknown as { __stageWidths: number[] }).__stageWidths)).toEqual([
+      Math.round(wide) + 180,
+    ]);
     // Other connections wait for the expanded rail.
     await expect(rail(page).getByTestId("actor-rail-others")).toHaveCount(0);
 
