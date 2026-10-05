@@ -6,7 +6,6 @@ import {
   useState,
   type KeyboardEvent,
   type ReactNode,
-  type RefObject,
 } from "react";
 import { ChevronLeft, ChevronRight, Columns2, FolderOpen, Pause, Play, X } from "lucide-react";
 import {
@@ -40,11 +39,11 @@ const STAGE_PAD = 32;
 type CompareMode = "side" | "swipe";
 type Compare = { readonly a: string; readonly b: string; readonly mode: CompareMode };
 
-const useElementSize = (): readonly [RefObject<HTMLDivElement | null>, MediaSize] => {
-  const ref = useRef<HTMLDivElement>(null);
+/** A ref to hang on whichever element is the stage area now, and its size. */
+const useElementSize = (): readonly [(element: HTMLDivElement | null) => void, MediaSize] => {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState<MediaSize>({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const element = ref.current;
     if (!element) return;
     const measure = (): void => {
       const { width, height } = element.getBoundingClientRect();
@@ -54,8 +53,8 @@ const useElementSize = (): readonly [RefObject<HTMLDivElement | null>, MediaSize
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
-  return [ref, size];
+  }, [element]);
+  return [setElement, size];
 };
 
 /** The largest scale, never above 1, at which a box fits a space. */
