@@ -11,6 +11,8 @@ import {
   reservedReason,
   resolveChord,
   resolveKey,
+  resolveRelease,
+  shortcutRepeats,
   type KeyContext,
   type KeyEventLike,
   type KeySituation,
@@ -25,6 +27,8 @@ const key = (over: Partial<KeyEventLike> & { key: string }): KeyEventLike => ({
 });
 
 const TYPING: ReadonlyArray<KeyContext> = ["terminal", "field"];
+// Everywhere the app is in normal use: every context but the open switcher.
+const APP: ReadonlyArray<KeyContext> = ["canvas", "terminal", "field", "working", "operator"];
 const at = (context: KeyContext, mac = true, typing = TYPING.includes(context)): KeySituation => ({
   mac,
   context,
@@ -70,7 +74,7 @@ describe("isBareChord", () => {
 
 describe("the key table on macOS", () => {
   it("opens search and the feed with Cmd from everywhere", () => {
-    for (const context of KEY_CONTEXTS) {
+    for (const context of APP) {
       expect(resolveKey(key({ key: "k", metaKey: true }), at(context))).toEqual({ id: "search.open" });
       expect(resolveKey(key({ key: "i", metaKey: true }), at(context))).toEqual({ id: "feed.open" });
     }
@@ -186,8 +190,8 @@ describe("the key table on macOS", () => {
     expect(resolveKey(key({ key: "z", metaKey: true }), at("terminal"))).toBeNull();
   });
 
-  it("steps through the agents that need the operator with Cmd and the backtick, from everywhere", () => {
-    for (const context of KEY_CONTEXTS) {
+  it("steps through the agents that need the operator with Cmd and the backtick", () => {
+    for (const context of ["canvas", "terminal", "field", "working", "switcher"] as const) {
       expect(resolveKey(key({ key: "`", code: "Backquote", metaKey: true }), at(context))).toEqual({
         id: "urgency.next",
       });
@@ -196,10 +200,42 @@ describe("the key table on macOS", () => {
       });
       expect(resolveKey(key({ key: "`", code: "Backquote", ctrlKey: true }), at(context))).toBeNull();
     }
+    expect(resolveKey(key({ key: "`", code: "Backquote", metaKey: true }), at("operator"))).toBeNull();
+  });
+
+  it("moves inside the open switcher with the arrows and h j k l, Cmd still held", () => {
+    const up = at("switcher", true, true);
+    for (const name of ["ArrowDown", "ArrowRight", "j", "l"]) {
+      expect(resolveKey(key({ key: name, metaKey: true }), up)).toEqual({ id: "switcher.next" });
+    }
+    for (const name of ["ArrowUp", "ArrowLeft", "k", "h"]) {
+      expect(resolveKey(key({ key: name, metaKey: true }), up)).toEqual({ id: "switcher.previous" });
+    }
+    expect(resolveKey(key({ key: "Enter", metaKey: true }), up)).toEqual({ id: "switcher.commit" });
+    expect(resolveKey(key({ key: "Escape", metaKey: true }), up)).toEqual({ id: "switcher.cancel" });
+  });
+
+  it("gives the switcher its keys only while it is up: Cmd+K is search again once it is down", () => {
+    expect(resolveKey(key({ key: "k", metaKey: true }), at("switcher"))).toEqual({ id: "switcher.previous" });
+    expect(resolveKey(key({ key: "k", metaKey: true }), at("terminal"))).toEqual({ id: "search.open" });
+    expect(resolveKey(key({ key: "j", metaKey: true }), at("terminal"))).toBeNull();
+    expect(resolveKey(key({ key: "w", metaKey: true }), at("switcher"))).toBeNull();
+  });
+
+  it("opens the chosen agent when Cmd is let go, only while the switcher is up", () => {
+    expect(resolveRelease("Cmd", at("switcher"))).toEqual({ id: "switcher.commit" });
+    for (const context of APP) expect(resolveRelease("Cmd", at(context))).toBeNull();
+  });
+
+  it("repeats only the stepping keys while a chord is held", () => {
+    for (const def of KEY_TABLE) {
+      const steps = ["urgency.next", "urgency.previous", "switcher.next", "switcher.previous"].includes(def.id);
+      expect(shortcutRepeats(def.id)).toBe(steps);
+    }
   });
 
   it("closes what is in front with Cmd+W from everywhere", () => {
-    for (const context of KEY_CONTEXTS) {
+    for (const context of APP) {
       expect(resolveKey(key({ key: "w", metaKey: true }), at(context))).toEqual({ id: "front.close" });
       expect(resolveKey(key({ key: "w", ctrlKey: true }), at(context))).toBeNull();
       expect(resolveKey(key({ key: "w", ctrlKey: true }), at(context, false))).toBeNull();
@@ -231,10 +267,12 @@ describe("the key table on macOS", () => {
 
   it("binds nothing to a reserved chord", () => {
     for (const def of KEY_TABLE) {
-      for (const chord of def.mac) expect(reservedReason(chord, true)).toBeNull();
+      // Cmd+H is the h of h j k l while the switcher is up, and only there.
+      const chords = def.id === "switcher.previous" ? def.mac.filter((chord) => chord !== "Cmd+H") : def.mac;
+      for (const chord of chords) expect(reservedReason(chord, true)).toBeNull();
     }
     for (const { chord } of RESERVED_CHORDS) {
-      for (const context of KEY_CONTEXTS) expect(resolveChord(chord, at(context))).toBeNull();
+      for (const context of APP) expect(resolveChord(chord, at(context))).toBeNull();
     }
   });
 });

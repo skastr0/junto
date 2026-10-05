@@ -1,11 +1,11 @@
 /**
- * Focus switcher — hold Control+Tab over an open focus modal.
+ * Focus switcher — hold Cmd and tap the backtick over an open focus modal.
  *   bun run test:e2e:fast e2e/scenarios/focus-switcher.spec.ts
  *
- * Two actor seats. Opening Alpha, then Control+Tab, must:
+ * Two actor seats. Opening Alpha, then Cmd+backtick, must:
  *   - show the HUD without closing the modal
- *   - cycle to another model while Control is held
- *   - commit on Control release and leave a focus surface up
+ *   - cycle to another model while Cmd is held
+ *   - commit when Cmd is let go and leave a focus surface up
  */
 import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -32,7 +32,7 @@ const fixture = canvasDoc(
   [],
 );
 
-test("Control+Tab HUD cycles focus models without closing the modal", async ({}, testInfo) => {
+test("Cmd+backtick HUD cycles focus models without closing the modal", async ({}, testInfo) => {
   const junto = await launchJunto({
     seedCanvases: { [CANVAS]: fixture },
   });
@@ -51,8 +51,8 @@ test("Control+Tab HUD cycles focus models without closing the modal", async ({},
     await expect(front).toBeVisible({ timeout: 20_000 });
     await expect(front.locator("header").first()).toContainText("Alpha hub");
 
-    await page.keyboard.down("Control");
-    await page.keyboard.press("Tab");
+    await page.keyboard.down("Meta");
+    await page.keyboard.press("Backquote");
 
     const hud = page.getByTestId("focus-switcher");
     await expect(hud).toBeVisible({ timeout: 8_000 });
@@ -64,10 +64,10 @@ test("Control+Tab HUD cycles focus models without closing the modal", async ({},
       fullPage: false,
     });
 
-    await page.keyboard.press("Tab");
+    await page.keyboard.press("Backquote");
     await expect(hud).toBeVisible();
 
-    await page.keyboard.up("Control");
+    await page.keyboard.up("Meta");
     await expect(hud).toHaveCount(0, { timeout: 8_000 });
 
     await expect(

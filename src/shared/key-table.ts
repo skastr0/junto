@@ -17,6 +17,7 @@
  * - field: focus is in any other field the operator types in.
  * - working: a working modal or Settings is open, focus is not in a field.
  * - operator: an operator modal (search, the needs-you feed) is open.
+ * - switcher: the urgency switcher is up, which means Cmd is being held.
  *
  * Laws the resolver holds for every row
  * - A chord with no Cmd, Ctrl or Alt is a typed character: it never fires
@@ -25,7 +26,7 @@
  * - Elsewhere there is no Cmd: today's Control chords are kept as they were.
  */
 
-export type KeyContext = "canvas" | "terminal" | "field" | "working" | "operator";
+export type KeyContext = "canvas" | "terminal" | "field" | "working" | "operator" | "switcher";
 
 export const KEY_CONTEXTS: ReadonlyArray<KeyContext> = [
   "canvas",
@@ -33,9 +34,12 @@ export const KEY_CONTEXTS: ReadonlyArray<KeyContext> = [
   "field",
   "working",
   "operator",
+  "switcher",
 ];
 
-const EVERYWHERE = KEY_CONTEXTS;
+// The switcher is not part of "everywhere": while it is up, its own rows
+// decide what each key means.
+const EVERYWHERE: ReadonlyArray<KeyContext> = ["canvas", "terminal", "field", "working", "operator"];
 const NOT_TYPING: ReadonlyArray<KeyContext> = ["canvas", "working", "operator"];
 
 export type ShortcutArea =
@@ -56,6 +60,10 @@ export type ShortcutId =
   | "git.review"
   | "urgency.next"
   | "urgency.previous"
+  | "switcher.next"
+  | "switcher.previous"
+  | "switcher.commit"
+  | "switcher.cancel"
   | "mirrors.next"
   | "mirrors.previous"
   | "canvas.undo"
@@ -77,6 +85,10 @@ export type ShortcutDef = {
   readonly where: ReadonlyArray<KeyContext>;
   /** Where it is live off macOS, when that differs. */
   readonly whereOther?: ReadonlyArray<KeyContext>;
+  /** Acts again on every auto-repeat while the chord is held. */
+  readonly repeats?: true;
+  /** Also runs when this modifier is let go. */
+  readonly onRelease?: "Cmd";
 };
 
 export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
@@ -143,10 +155,11 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   {
     id: "urgency.next",
     area: "Agents",
-    does: "Step to the agent that most needs you; hold Cmd and tap again for the next",
+    does: "Step to the agent that most needs you: hold Cmd, tap to step, let go to open it",
     mac: ["Cmd+Backquote"],
     other: [],
-    where: EVERYWHERE,
+    where: ["canvas", "terminal", "field", "working", "switcher"],
+    repeats: true,
   },
   {
     id: "urgency.previous",
@@ -154,7 +167,44 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     does: "Step back through the agents that need you",
     mac: ["Cmd+Shift+Backquote"],
     other: [],
-    where: EVERYWHERE,
+    where: ["canvas", "terminal", "field", "working", "switcher"],
+    repeats: true,
+  },
+  // While the switcher is up Cmd is held, so its keys are Cmd chords.
+  {
+    id: "switcher.next",
+    area: "Agents",
+    does: "In the switcher, move to the next agent",
+    mac: ["Cmd+ArrowDown", "Cmd+ArrowRight", "Cmd+J", "Cmd+L"],
+    other: [],
+    where: ["switcher"],
+    repeats: true,
+  },
+  {
+    id: "switcher.previous",
+    area: "Agents",
+    does: "In the switcher, move to the previous agent",
+    mac: ["Cmd+ArrowUp", "Cmd+ArrowLeft", "Cmd+K", "Cmd+H"],
+    other: [],
+    where: ["switcher"],
+    repeats: true,
+  },
+  {
+    id: "switcher.commit",
+    area: "Agents",
+    does: "In the switcher, open the chosen agent",
+    mac: ["Cmd+Enter"],
+    other: [],
+    where: ["switcher"],
+    onRelease: "Cmd",
+  },
+  {
+    id: "switcher.cancel",
+    area: "Agents",
+    does: "In the switcher, close it and stay where you were",
+    mac: ["Cmd+Escape"],
+    other: [],
+    where: ["switcher"],
   },
   {
     id: "git.review",
@@ -374,6 +424,24 @@ export const resolveChord = (
   }
   return null;
 };
+
+/** The shortcut that runs when a held modifier is let go here, or null. */
+export const resolveRelease = (
+  modifier: "Cmd",
+  situation: KeySituation,
+  table: ReadonlyArray<ShortcutDef> = KEY_TABLE,
+): KeyHit | null => {
+  const def = table.find(
+    (row) => row.onRelease === modifier && liveIn(row, situation.mac).includes(situation.context),
+  );
+  return def ? { id: def.id } : null;
+};
+
+/** True when the shortcut acts again on auto-repeat. */
+export const shortcutRepeats = (
+  id: ShortcutId,
+  table: ReadonlyArray<ShortcutDef> = KEY_TABLE,
+): boolean => table.find((row) => row.id === id)?.repeats === true;
 
 /** The shortcut a keydown means in this situation, or null. */
 export const resolveKey = (

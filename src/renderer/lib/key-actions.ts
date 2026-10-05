@@ -4,7 +4,14 @@ import { cycleAlertFocus } from "./alert-attention";
 import { resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "./canvas-zoom";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
 import { dock$ } from "./dock-state";
-import { cancelFocusSwitcher, focusMruNodeIds } from "./focus-switcher";
+import {
+  cancelFocusSwitcher,
+  commitFocusSwitcher,
+  focusMruNodeIds,
+  focusSwitcher$,
+  moveFocusSwitcher,
+  openFocusSwitcher,
+} from "./focus-switcher";
 import { closeFront } from "./front-close";
 import { toggleSeatGitDetail } from "./git-summary";
 import type { KeyActions } from "./key-dispatcher";
@@ -25,6 +32,10 @@ const frontNode = (): CanvasNode | undefined => {
   const nodeId = focusMruNodeIds(registry.surfaces, registry.focusMru)[0];
   return nodeId === undefined ? undefined : state$.doc.peek().nodes.find((node) => node.id === nodeId);
 };
+
+// The first tap brings the switcher up one step along; later taps move it.
+const stepSwitcher = (direction: 1 | -1): boolean =>
+  focusSwitcher$.session.peek() ? moveFocusSwitcher(direction) : openFocusSwitcher(direction);
 
 // The switcher is an operator surface too: one at a time.
 const toggleOperator = (id: OperatorModalId): void => {
@@ -49,6 +60,16 @@ export const KEY_ACTIONS: KeyActions = {
   // An empty slot takes nothing: the digit passes.
   "groups.recall": ({ digit }) => recallSlot(digit! - 1),
   "groups.jump": ({ digit }) => jumpToSlot(digit! - 1),
+  // With fewer than two places to go the switcher stays down and the key passes.
+  "urgency.next": () => stepSwitcher(1),
+  "urgency.previous": () => stepSwitcher(-1),
+  "switcher.next": () => moveFocusSwitcher(1),
+  "switcher.previous": () => moveFocusSwitcher(-1),
+  // Also runs when Cmd is let go.
+  "switcher.commit": () => {
+    commitFocusSwitcher();
+  },
+  "switcher.cancel": () => cancelFocusSwitcher(),
   // Nothing to show (no folder, not a git repository): the key passes.
   "git.review": () => {
     const node = frontNode();

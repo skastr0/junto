@@ -3,6 +3,7 @@ import { OPERATOR_TYPING_SELECTOR } from "../src/renderer/lib/focus-ownership";
 import {
   TERMINAL_SELECTOR,
   dispatchKey,
+  dispatchRelease,
   keyContextOf,
   type KeyActions,
 } from "../src/renderer/lib/key-dispatcher";
@@ -34,10 +35,16 @@ const at = (context: KeyContext, mac = true): KeySituation => ({
 });
 
 describe("keyContextOf", () => {
-  const place = { operator: false, terminal: false, typing: false, working: false };
+  const place = { switcher: false, operator: false, terminal: false, typing: false, working: false };
 
-  it("puts an open operator modal above everything", () => {
-    expect(keyContextOf({ operator: true, terminal: true, typing: true, working: true })).toBe("operator");
+  it("puts the open switcher above everything", () => {
+    expect(keyContextOf({ switcher: true, operator: true, terminal: true, typing: true, working: true })).toBe(
+      "switcher",
+    );
+  });
+
+  it("puts an open operator modal above the rest", () => {
+    expect(keyContextOf({ ...place, operator: true, terminal: true, typing: true, working: true })).toBe("operator");
   });
 
   it("names a terminal before any other field, wherever it is open", () => {
@@ -106,9 +113,24 @@ describe("dispatchKey", () => {
     for (const action of Object.values(actions)) expect(action).not.toHaveBeenCalled();
   });
 
-  it("does not act on auto-repeat or while a composition is open", () => {
+  it("takes a held chord without acting again, so it reaches neither the terminal nor the menu bar", () => {
+    const close = vi.fn();
+    const event = press({ key: "w", metaKey: true, repeat: true });
+    expect(dispatchKey(event, { "front.close": close }, at("terminal"))).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(event.stopPropagation).toHaveBeenCalled();
+  });
+
+  it("steps again on every repeat of the switcher keys", () => {
     const next = vi.fn();
-    expect(dispatchKey(press({ key: "]", metaKey: true, repeat: true }), { "mirrors.next": next }, at("canvas"))).toBeNull();
+    const event = press({ key: "`", code: "Backquote", metaKey: true, repeat: true });
+    expect(dispatchKey(event, { "urgency.next": next }, at("terminal"))).toBe("urgency.next");
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not act while a composition is open", () => {
+    const next = vi.fn();
     expect(dispatchKey(press({ key: "]", metaKey: true, isComposing: true }), { "mirrors.next": next }, at("canvas"))).toBeNull();
     expect(next).not.toHaveBeenCalled();
   });
@@ -117,6 +139,24 @@ describe("dispatchKey", () => {
     const event = press({ key: "k", metaKey: true });
     expect(dispatchKey(event, {}, at("canvas"))).toBeNull();
     expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe("dispatchRelease", () => {
+  it("opens the chosen agent when Cmd is let go with the switcher up", () => {
+    const commit = vi.fn();
+    expect(dispatchRelease(press({ key: "Meta" }), { "switcher.commit": commit }, at("switcher"))).toBe(
+      "switcher.commit",
+    );
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing for any other key, or with the switcher down", () => {
+    const commit = vi.fn();
+    expect(dispatchRelease(press({ key: "`", metaKey: true }), { "switcher.commit": commit }, at("switcher"))).toBeNull();
+    expect(dispatchRelease(press({ key: "Meta" }), { "switcher.commit": commit }, at("terminal"))).toBeNull();
+    expect(dispatchRelease(press({ key: "Shift" }), { "switcher.commit": commit }, at("switcher"))).toBeNull();
+    expect(commit).not.toHaveBeenCalled();
   });
 });
 

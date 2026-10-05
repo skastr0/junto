@@ -1,7 +1,8 @@
 /**
  * Focus switcher — Alt-Tab for focus models.
  *
- * Hold Control, tap Tab to cycle a frozen catalog, release Control to commit.
+ * Hold Cmd, tap the backtick to cycle a frozen catalog, let Cmd go to commit.
+ * The keys are rows in the key table; this file holds the model.
  * The catalog is a snapshot: MRU does not reshuffle until commit, so A↔B
  * flicks. Cmd+] / Cmd+[ remain the connected-actor ring; this is the global
  * jump (parked focus surfaces first, then hotbar, then the rest of the canvas).
@@ -9,7 +10,6 @@
  * Presentation and navigation only — nothing here writes the canvas.
  */
 import { observable } from "@legendapp/state";
-import { isOperatorModalOpen } from "./operator-modal";
 import type { CanvasNode } from "@shared/canvas";
 import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
 import {
@@ -217,74 +217,4 @@ export const commitFocusSwitcher = (): boolean => {
   if (!node) return false;
   const result = activateNodeSurface(node);
   return result.opened;
-};
-
-/**
- * Control+Tab — capture phase so the chord never reaches the focused xterm.
- * Consumed only when a session opens or moves; otherwise the event passes.
- */
-export const installFocusSwitcherHotkeys = (): (() => void) => {
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (isOperatorModalOpen()) return;
-    const session = focusSwitcher$.session.peek();
-
-    if (session && event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      cancelFocusSwitcher();
-      return;
-    }
-
-    if (session && !event.metaKey && !event.altKey) {
-      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-        event.preventDefault();
-        event.stopPropagation();
-        moveFocusSwitcher(1);
-        return;
-      }
-      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-        event.preventDefault();
-        event.stopPropagation();
-        moveFocusSwitcher(-1);
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        event.stopPropagation();
-        commitFocusSwitcher();
-        return;
-      }
-      if (event.key >= "1" && event.key <= "9") {
-        event.preventDefault();
-        event.stopPropagation();
-        jumpFocusSwitcherHotbar(Number(event.key));
-        return;
-      }
-    }
-
-    if (event.key !== "Tab" || !event.ctrlKey || event.metaKey || event.altKey) return;
-    if (state$.settingsOpen.peek()) return;
-
-    const direction: 1 | -1 = event.shiftKey ? -1 : 1;
-    const acted = session ? moveFocusSwitcher(direction) : openFocusSwitcher(direction);
-    if (!acted) return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  const onKeyUp = (event: KeyboardEvent): void => {
-    if (!focusSwitcher$.session.peek()) return;
-    if (event.key !== "Control" && event.code !== "ControlLeft" && event.code !== "ControlRight") {
-      return;
-    }
-    commitFocusSwitcher();
-  };
-
-  // focus-law: Control+Tab chord; bare keys act only while the switcher is open.
-  window.addEventListener("keydown", onKeyDown, { capture: true });
-  window.addEventListener("keyup", onKeyUp, { capture: true }); // focus-law: Control release commits the open switcher.
-  return () => {
-    window.removeEventListener("keydown", onKeyDown, { capture: true });
-    window.removeEventListener("keyup", onKeyUp, { capture: true });
-  };
 };

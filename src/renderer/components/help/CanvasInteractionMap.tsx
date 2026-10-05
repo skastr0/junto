@@ -43,7 +43,7 @@ export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "1–9", action: "recall slot: focus its node or region, select + frame its group - re-tap (~1s) cycles members + opens each" },
   { keys: "⌘1–9", action: "save selection → slot (one node, or a command group of many)" },
   { keys: "Space - `", action: "cycle notifications → ready → working (all canvas seats)" },
-  { keys: "Ctrl+Tab", action: "hold to switch focus models — release commits, Esc cancels" },
+  { keys: "⌘`", action: "hold ⌘ and tap to step through agents, let go to open, Esc cancels" },
   { keys: "⌘] ⌘[", action: "cycle connected agent terminals" },
   { keys: "double-click agent", action: "open its terminal" },
 ];

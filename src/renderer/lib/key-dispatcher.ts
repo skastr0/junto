@@ -1,5 +1,7 @@
 import {
   resolveKey,
+  resolveRelease,
+  shortcutRepeats,
   type KeyContext,
   type KeyHit,
   type KeySituation,
@@ -7,6 +9,7 @@ import {
 } from "../../shared/key-table";
 import { dock$ } from "./dock-state";
 import { isOperatorTyping } from "./focus-ownership";
+import { focusSwitcher$ } from "./focus-switcher";
 import { frontModalLayer } from "./modal-stack";
 import { isOperatorModalOpen } from "./operator-modal";
 import { isMac } from "./platform";
@@ -32,6 +35,8 @@ export type KeyAction = (hit: KeyHit, event: KeyboardEvent) => boolean | void;
 export type KeyActions = Readonly<Partial<Record<ShortcutId, KeyAction>>>;
 
 export type KeyPlace = {
+  /** The urgency switcher is up. */
+  readonly switcher: boolean;
   /** An operator modal (search, the needs-you feed) is open. */
   readonly operator: boolean;
   /** Focus is in a terminal. */
@@ -44,6 +49,7 @@ export type KeyPlace = {
 
 /** The one answer to "where is the keyboard". */
 export const keyContextOf = (place: KeyPlace): KeyContext => {
+  if (place.switcher) return "switcher";
   if (place.operator) return "operator";
   if (place.terminal) return "terminal";
   if (place.typing) return "field";
@@ -68,6 +74,7 @@ export const keySituation = (target: EventTarget | null): KeySituation => {
     mac: isMac(),
     typing,
     context: keyContextOf({
+      switcher: focusSwitcher$.session.peek() !== null,
       operator: isOperatorModalOpen() || front === "operator" || front === "operator-dialog",
       terminal,
       typing,
@@ -76,20 +83,43 @@ export const keySituation = (target: EventTarget | null): KeySituation => {
   };
 };
 
+const take = (event: KeyboardEvent): void => {
+  event.preventDefault();
+  event.stopPropagation();
+};
+
 /** What a keydown did: nothing of ours, or the shortcut that took it. */
 export const dispatchKey = (
   event: KeyboardEvent,
   actions: KeyActions,
   situation: KeySituation = keySituation(event.target),
 ): ShortcutId | null => {
-  // Auto-repeat never acts: holding a chord is one press.
-  if (event.repeat || event.isComposing) return null;
+  if (event.isComposing) return null;
   const hit = resolveKey(event, situation);
   if (hit === null) return null;
   const action = actions[hit.id];
-  if (!action || action(hit, event) === false) return null;
-  event.preventDefault();
-  event.stopPropagation();
+  if (!action) return null;
+  // Holding a chord is one press, unless its row says it repeats. The
+  // repeats are still ours: they reach neither the terminal nor the menu bar.
+  if (event.repeat && !shortcutRepeats(hit.id)) {
+    take(event);
+    return null;
+  }
+  if (action(hit, event) === false) return null;
+  take(event);
+  return hit.id;
+};
+
+/** A held modifier was let go: run the shortcut that waits on it here. */
+export const dispatchRelease = (
+  event: KeyboardEvent,
+  actions: KeyActions,
+  situation: KeySituation = keySituation(event.target),
+): ShortcutId | null => {
+  if (event.key !== "Meta") return null;
+  const hit = resolveRelease("Cmd", situation);
+  if (hit === null) return null;
+  actions[hit.id]?.(hit, event);
   return hit.id;
 };
 
@@ -97,7 +127,15 @@ export const installKeyDispatcher = (actions: KeyActions): (() => void) => {
   const onKeyDown = (event: KeyboardEvent): void => {
     dispatchKey(event, actions);
   };
+  const onKeyUp = (event: KeyboardEvent): void => {
+    dispatchRelease(event, actions);
+  };
   // focus-law: every shortcut goes through the key table, which never fires a typed character while the operator types.
   window.addEventListener("keydown", onKeyDown, { capture: true });
-  return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
+  // focus-law: acts only when Cmd is let go while the switcher is up.
+  window.addEventListener("keyup", onKeyUp, { capture: true });
+  return () => {
+    window.removeEventListener("keydown", onKeyDown, { capture: true });
+    window.removeEventListener("keyup", onKeyUp, { capture: true });
+  };
 };
