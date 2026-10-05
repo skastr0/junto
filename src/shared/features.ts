@@ -244,8 +244,7 @@ export const HARNESS_SETTINGS_ENABLED: boolean =
 
 /**
  * Seat awareness (Jev) and seat collaboration — the advisory sidecar, its hover,
- * the thread-health reading, the peer-help request, and the AI hold on the
- * delivery gate.
+ * the thread-health reading, and the peer-help request. Display only.
  *
  * EXPERIMENTAL in the ship profile: compiled in, off until the operator turns
  * it on in Settings. This is the build's tier, not the answer to "is it on":

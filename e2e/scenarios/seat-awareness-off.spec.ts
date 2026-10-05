@@ -76,5 +76,4 @@ test("a ship build renders no part of seat awareness and makes no call", async (
   await expect(page.locator("[data-seat-awareness]")).toHaveCount(0);
   await expect(page.locator("[data-seat-collaboration]")).toHaveCount(0);
   expect(mainLog.join("").includes("[jev-call]")).toBe(false);
-  expect(mainLog.join("").includes("[jev-hold]")).toBe(false);
 });

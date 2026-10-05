@@ -2,10 +2,10 @@
  * The seat-awareness product gate, across the three feature tiers.
  *
  * One gate covers the whole subsystem: the advisory sidecar, the hover that
- * paints its judgment, the peer-help request and its thread, and the AI hold on
- * the delivery gate. The ship profile carries it EXPERIMENTAL: compiled in, off
- * until the operator turns it on in Settings, Experimental. `JUNTO_SEAT_AWARENESS`
- * takes 0 (compiled out), 1 (on) or experimental.
+ * paints its judgment, and the peer-help request and its thread. The ship
+ * profile carries it EXPERIMENTAL: compiled in, off until the operator turns it
+ * on in Settings, Experimental. `JUNTO_SEAT_AWARENESS` takes 0 (compiled out),
+ * 1 (on) or experimental.
  *
  * Every consumer reads the one resolved predicate, so the tier alone never
  * turns anything on: that is what the source checks below hold.

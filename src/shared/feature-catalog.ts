@@ -131,8 +131,8 @@ export const FEATURE_CATALOG = {
   /**
    * Seat awareness (Jev) and seat collaboration: the advisory sidecar, the
    * hover that paints its judgment, the thread-health reading and the minimap
-   * tint it drives, the peer-help request and its thread, and the AI hold on
-   * the delivery gate.
+   * tint it drives, and the peer-help request and its thread. Display only:
+   * no judgment gates a delivery.
    *
    * Ship profile EXPERIMENTAL: compiled in, off until the operator turns it on
    * in Settings, Experimental. Off (the tier or the toggle), the sidecar

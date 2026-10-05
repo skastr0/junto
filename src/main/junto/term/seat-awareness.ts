@@ -7,7 +7,11 @@
  * real dependencies are bound, so the sidecar runs in the app while the module
  * stays a pure advisory plane.
  *
- * Two things are decided here, and both are display-only:
+ * Two things are decided here, and both are display-only. No judgment reaches
+ * the delivery gate: whether a seat may be typed into is the rule engine's call
+ * alone.
+ *
+ * The two:
  *
  *   1. **Enrollment.** A discovered environment key is not consent. The gate is
  *      off unless the operator enrolled it in settings, with a dev override
@@ -29,15 +33,12 @@
  */
 
 import { Context, Effect, Exit, Layer, Scope } from "effect";
-import type { AgentSeatState } from "@shared/agent-seat-state";
 import { SEAT_AWARENESS_COMPILED, seatAwarenessOn } from "@shared/features";
 import type { Settings } from "@shared/settings";
 import type { SeatAwarenessEvent } from "@renderer/lib/seat-awareness-contract";
 import { seatStateRuntime } from "./agent-state";
 import { terminalObserverPlane } from "./observer";
 import { seatAwarenessEventsForAdvisory } from "./awareness/awareness-wire";
-import { awarenessSeatHold } from "./awareness/seat-hold";
-import { JEV_TRACE_ENV } from "./awareness/jev-client";
 import {
   AwarenessRuntime,
   makeAwarenessLayer,
@@ -232,33 +233,6 @@ export const makeSeatAwarenessPlane = (): SeatAwarenessPlane => {
   let teardown: (() => void) | undefined;
 
   const publish = (advisory: AwarenessAdvisory, at: number): void => {
-    // The drive reads this before typing into a seat. It is fed here, at the
-    // one place an advisory exists, so no consumer has to reconstruct a verdict
-    // and the two can never disagree about the same judgment.
-    awarenessSeatHold.apply(
-      advisory,
-      seatStateRuntime.getState(advisory.bindingId) as
-        | AgentSeatState
-        | undefined,
-    );
-    // Under the same trace flag as the call log: the verdict that reaches the
-    // delivery gate, so a run can show what Jev is holding and why.
-    if (
-      process.env[JEV_TRACE_ENV] === "1" &&
-      awarenessSeatHold.holds(advisory.bindingId)
-    ) {
-      const verdict = awarenessSeatHold.verdictFor(advisory.bindingId);
-      console.log(
-        "[jev-hold] " +
-          JSON.stringify({
-            bindingId: advisory.bindingId,
-            state: verdict?.state ?? null,
-            health: verdict?.health ?? null,
-            concern: verdict?.concern ?? null,
-            reason: verdict?.reason ?? "",
-          }),
-      );
-    }
     const events = seatAwarenessEventsForAdvisory(advisory, at);
     if (events.length === 0) return;
     latestByBinding.set(advisory.bindingId, events);
@@ -334,9 +308,7 @@ export const makeSeatAwarenessPlane = (): SeatAwarenessPlane => {
       teardown = undefined;
       started = false;
       enabled = false;
-      // No sidecar means no verdicts: a hold must not outlive the plane, and a
-      // renderer that rehydrates after a toggle-off must not get old readings.
-      awarenessSeatHold.clear();
+      // A renderer that rehydrates after a toggle-off must not get old readings.
       latestByBinding.clear();
     },
     subscribe: (listener) => {

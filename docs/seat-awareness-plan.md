@@ -16,42 +16,31 @@ narrow typed questions and returns constrained answers with calibrated probabili
 Base functionality never depends on it: with no key, no network, or a failed provider,
 Junto behaves exactly as it does today.
 
-## 2 - Authority boundary (revised 2026-09-17: the AI drives)
+## 2 - Authority boundary (revised 2026-10-05: display only)
 
-The sidecar **drives seat state**. It is not decoration: the judgments below become the seat's
-state, its health, and an input to the delivery gate. What the operator asked for, and what the
-measurements now support, is exactly this: a refinement of the PTY subsystem that makes it more
-reactive and more intelligent than chrome rules can be.
+The sidecar is **display only**. Its judgments are shown on seat cards, the minimap, the feed
+and the companion, and they decide nothing.
 
-The AI drives:
+Between 2026-09-17 and 2026-10-05 the sidecar also drove a derived seat state and a delivery
+hold: a seat Jev judged blocked was not typed into. The operator removed both. Whether a seat
+may be typed into is a mechanical question and belongs to the deterministic rule engine alone;
+a dialog the rules miss is a rules bug, fixed with a rule. The hold was also never measured on
+the pack that ships (8c), lapsed when its judgment expired, and gave stuck mail an invisible
+cause. `awareness/seat-hold.ts` and `awareness/seat-state.ts` are gone, and
+`tests/awareness-authority.test.ts` pins that neither idle gate consults the sidecar.
 
-- **seat state** — `blocked_on_access | waiting_on_approval | waiting_on_answer | error_looping |
-  execution_failed | reviewing | editing | testing | running_command | investigating | unclear`,
-  none of which the deterministic rule packs can compute from chrome alone;
-- **seat health** — `attention | degraded | active | clear | unknown`, derived from the same
-  judgments and rolled up for the canvas;
-- **the delivery hold** — fail-closed, described below.
-
-Three bounds remain, and each is measured rather than cautious:
+Two bounds remain:
 
 1. **A proven dialog is not downgraded.** If the deterministic engine publishes `attention` for
-   a seat, an AI reading of the same screen cannot replace it: the derived state is reported as
-   detail and the control state stands. The screen proves a dialog; the model guesses at intent.
-2. **There is no AI idle.** The model never gets to say a seat is idle, because a wrong idle is
-   the one answer that could release automation. Absence of a judgment means the deterministic
-   state is the state.
-3. **The AI may hold a delivery closed, never open one.** A wrong hold costs a delayed prompt; a
-   wrong release types into a dialog. Pulsar measured the hazard directly: swapping two
-   alternatives flipped a verdict with the candidate unchanged, so a single-shot judgment is not
-   a stable basis for releasing an irreversible action. The hold is an additional gate input,
-   never a substitute for the deterministic one, and it is never the reason a delivery proceeds.
+   a seat, an AI reading of the same screen cannot replace it on any surface.
+2. **There is no AI idle.** The model never gets to say a seat is idle. Absence of a judgment
+   means the deterministic state is the state.
 
 Base functionality never depends on it: with no key, no network, or a failed provider, the
 deterministic state is the state, and the canvas keeps working.
 
-Jev still may not author canvas documents, set or clear flags, mark a seat seen, acknowledge a
-submission, or write work-plane rows. Those are control-plane powers, and none of them is needed
-for the seat to be reactive.
+Jev may not gate or trigger a delivery, author canvas documents, set or clear flags, mark a seat
+seen, acknowledge a submission, or write work-plane rows.
 
 ## 3 - Observations (orthogonal, never a fatter enum)
 
@@ -123,8 +112,8 @@ which supports the strong claim, so the stated safe direction was the unsafe one
 decode was fixed.
 
 **One gate, off in the ship profile (2026-09-18).** The whole subsystem — the advisory
-sidecar, the hover that paints its judgment, the peer-help request and its thread, and the
-AI hold on the delivery gate — is one compile-time feature gate,
+sidecar, the hover that paints its judgment, and the peer-help request and its thread — is
+one compile-time feature gate,
 `SEAT_AWARENESS_ENABLED` / `JUNTO_SEAT_AWARENESS`, and it is **off** in `SHIP_FEATURES`.
 A ship build constructs no client, observes nothing, renders no surface and refuses the
 collaboration action, so it behaves exactly as it did before the feature existed; the
@@ -134,9 +123,8 @@ opt-out and `JUNTO_AWARENESS=on|off` the dev override, so an enabled build still
 switch the operator owns.
 
 The reason for a dark gate rather than a default-on setting is the open question in 8c:
-the calibration numbers describe the harness pack, not the pack that ships, and the hold
-can defer an operator prompt. Neither belongs in a ship build until it is measured on its
-own terms. The privacy consequence is unchanged and stated plainly: with the gate on,
+the calibration numbers describe the harness pack, not the pack that ships. That does not
+belong in a ship build until it is measured on its own terms. The privacy consequence is unchanged and stated plainly: with the gate on,
 bounded terminal text leaves the machine for enrolled local managed seats.
 
 **The disabled sidecar says so.** With awareness disabled the wiring constructs no client, and
@@ -396,7 +384,8 @@ access_problem and execution_error were never wrong). The deterministic trace wa
 before and after the paid calls and was unchanged on all nine captures, so the model plane
 still cannot touch the control path.
 
-**Jev now drives one thing.** `awareness/seat-hold.ts` turns each advisory into the seat
+**Removed 2026-10-05 (see section 2); kept as the record of what was built.** Jev then drove
+one thing. `awareness/seat-hold.ts` turned each advisory into the seat
 verdict the drive reads: `isSeatIdle` is now `deterministic idle AND not AI-held`, so a seat
 Jev judges blocked on an approval or an access problem is not typed into. The direction is
 deliberate and tested: the AI can only add a hold, never open one, and every unknown (no
@@ -514,7 +503,7 @@ The approval, answer and access concerns count as waiting, and an accepted repet
 
 **What travels.** Health absences are audit facts, never readings. The reading rides the assessment it came from, and decode refuses it if it names another observation.
 
-**Authority.** Health is display only. It feeds no seat state, no delivery, and not the hold in `seat-hold.ts`.
+**Authority.** Health is display only. It feeds no seat state and no delivery.
 
 **Freshness differs from the judgment rule on purpose.** A health reading stays current inside the TTL, or while the live window digest still equals the one it was observed on. The case the operator asked for, a thread idle because it is waiting on them, would otherwise age out the moment its turn ended.
 

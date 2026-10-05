@@ -126,6 +126,23 @@ describe("awareness authority boundary", () => {
     expect(violations).toEqual([]);
   });
 
+  it("gates no delivery: whether a seat may be typed into is the rule engine's call alone", () => {
+    // The Jev hold is removed. The Command Center wiring may start the plane
+    // and forward its events, but it imports nothing from the advisory module
+    // itself, and neither idle gate consults anything but the seat-state runtime.
+    const wiring = read("src/main/junto/ipc.ts");
+    expect(/from\s+["'][^"']*term\/awareness\/[^"']*["']/u.test(wiring)).toBe(false);
+    const idleGates = wiring.match(/\bis(?:Seat)?Idle:\s*\(bindingId\)\s*=>[^,]*,/gu) ?? [];
+    expect(idleGates.length).toBeGreaterThanOrEqual(2);
+    for (const gate of idleGates) {
+      expect(gate.replace(/\s+/gu, " ")).toMatch(
+        /^is(?:Seat)?Idle: \(bindingId\) => seatStateRuntime\.isSeatIdle\(bindingId\),$/u,
+      );
+    }
+    // The plane offers the drive nothing to ask.
+    expect(read("src/main/junto/term/seat-awareness.ts")).not.toMatch(/\bholds?\b\s*[:(]/u);
+  });
+
   it("declares the read-only axes exactly, publishing only the three values the wire accepts", () => {
     expect([...AI_ACTIVITY_VALUES]).toEqual([
       "investigating",
