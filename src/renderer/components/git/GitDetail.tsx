@@ -14,11 +14,14 @@ import {
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { claimFocus } from "../../lib/focus-ownership";
 import { getJuntoApi } from "../../lib/junto-api";
+import { nodeTitle } from "../../lib/presentation";
+import { state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { InspectorTabs } from "../chat/InspectorTabs";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton, OverlayHeader } from "../ui";
 import { ReviewDiff } from "./ReviewDiff";
+import { ReviewFooter, type ReviewRecipient } from "./ReviewFooter";
 import "./git.css";
 
 const shortSha = (sha: string): string => sha.slice(0, 7);
@@ -101,14 +104,22 @@ export function GitRepositoryDetail({
   cwd,
   title,
   initialView = "commits",
+  recipient,
   onClose,
 }: {
   readonly cwd: string;
   readonly title: string;
   /** The view it opens on: a seat's review opens on its uncommitted work, a git node on its commits. */
   readonly initialView?: GitDetailView;
+  /** The session the review was opened from: its comments go to that agent unless they mention another. */
+  readonly recipient?: ReviewRecipient;
   readonly onClose: () => void;
 }) {
+  const doc = use$(state$.doc);
+  const nameOf = (nodeId: string): string => {
+    const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+    return node ? nodeTitle(node) : nodeId;
+  };
   const [view, setView] = useState<GitDetailView>(initialView);
   const [review, setReview] = useState<Extract<GitReviewResult, { ok: true }>>();
   const [activeFile, setActiveFile] = useState(0);
@@ -379,6 +390,24 @@ export function GitRepositoryDetail({
           </div>
         </div>
       )}
+      {reviewing && !error ? (
+        <ReviewFooter
+          root={cwd}
+          repository={cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd}
+          reviewed={
+            review
+              ? {
+                  view: review.view,
+                  branch: review.branch,
+                  ...(review.head ? { head: review.head } : {}),
+                  ...(review.base ? { base: review.base } : {}),
+                }
+              : undefined
+          }
+          recipient={recipient}
+          nameOf={nameOf}
+        />
+      ) : null}
       </div>
     </FocusSurface>
   );

@@ -19,6 +19,7 @@ import {
   useGitSummary,
   useSeatGitDetailOpen,
 } from "../../lib/git-summary";
+import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { GitRepositoryDetail } from "./GitDetail";
 import "./git.css";
@@ -62,6 +63,7 @@ export function SeatGitLine({ node }: { readonly node: CanvasNode }) {
           cwd={summary.root}
           title={`${name}, ${summary.branch}`}
           initialView="working"
+          recipient={{ nodeId: node.id, name: nodeTitle(node) }}
           onClose={() => closeSeatGitDetail(node.id)}
         />
       ) : null}

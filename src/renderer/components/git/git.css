@@ -246,3 +246,33 @@ html[data-theme="bright"] .git-browser__diff {
   justify-content: flex-end;
   gap: 6px;
 }
+
+/* The review's footer, pinned under the diff: an overall note, what is
+   pending, and the one send. */
+.git-review__footer {
+  display: grid;
+  flex: none;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--color-stroke);
+  background: var(--color-raise);
+  font-family: var(--font-mono);
+}
+
+.git-review__send {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.git-review__status {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.git-review__status[data-problem="true"] {
+  color: var(--color-amber);
+}

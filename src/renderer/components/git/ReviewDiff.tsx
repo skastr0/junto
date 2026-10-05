@@ -7,12 +7,12 @@
  * range of lines selected on one side. It joins the repository's pending
  * review; nothing is sent from here.
  */
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { PatchDiff } from "@pierre/diffs/react";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import { quoteDiffLines, reviewCommentAnchor, type ReviewComment, type ReviewSide } from "@shared/git-review";
-import { removeReviewComment, saveReviewComment, usePendingReview } from "../../lib/git-review";
+import { noteReviewComposer, removeReviewComment, saveReviewComment, usePendingReview } from "../../lib/git-review";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
 import { Button, IconButton, StatusDot, Textarea } from "../ui";
@@ -96,6 +96,13 @@ export function ReviewDiff({
   const review = usePendingReview(root);
   const comments = useMemo(() => review.comments.filter((comment) => comment.file === path), [review.comments, path]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // While a composer is open here, the surface's send button steps back.
+  const composing = draft !== null;
+  useEffect(() => {
+    if (!composing) return undefined;
+    noteReviewComposer(root, 1);
+    return () => noteReviewComposer(root, -1);
+  }, [composing, root]);
   // The lines selected on one side, if any: a comment added inside them covers them all.
   const [selected, setSelected] = useState<{ readonly side: ReviewSide; readonly start: number; readonly end: number } | null>(null);
 

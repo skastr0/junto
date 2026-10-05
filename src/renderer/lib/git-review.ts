@@ -82,3 +82,12 @@ export const keepUnsentComments = (root: string, comments: ReadonlyArray<ReviewC
   write(root, { comments, note: "" });
 
 export const recordSentReview = (root: string, sent: SentReview): void => sent$[root].set(sent);
+
+/** How many comment composers are open in a repository's review right now. */
+const composing$ = observable<Record<string, number>>({});
+
+/** A composer opened (+1) or closed (-1): the surface shows one primary action at a time. */
+export const noteReviewComposer = (root: string, delta: 1 | -1): void =>
+  composing$[root].set(Math.max(0, (composing$[root].peek() ?? 0) + delta));
+
+export const useReviewComposing = (root: string): boolean => use$(() => (composing$[root].get() ?? 0) > 0);
