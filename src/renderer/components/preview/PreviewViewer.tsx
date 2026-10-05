@@ -227,10 +227,10 @@ export function PreviewViewer({
     stage = (
       <>
         <div className="preview-viewer__compare-bar">
-          <Button size="sm" variant="chrome" aria-pressed={compare.mode === "side"} onClick={() => setCompare({ ...compare, mode: "side" })}>
+          <Button size="sm" variant={compare.mode === "side" ? "primary" : "chrome"} aria-pressed={compare.mode === "side"} onClick={() => setCompare({ ...compare, mode: "side" })}>
             Side by side
           </Button>
-          <Button size="sm" variant="chrome" aria-pressed={compare.mode === "swipe"} onClick={() => setCompare({ ...compare, mode: "swipe" })}>
+          <Button size="sm" variant={compare.mode === "swipe" ? "primary" : "chrome"} aria-pressed={compare.mode === "swipe"} onClick={() => setCompare({ ...compare, mode: "swipe" })}>
             Swipe
           </Button>
           <span className="preview-viewer__pick">
