@@ -263,6 +263,51 @@ const ensureListening = (): void => {
   window.addEventListener("keydown", onOutsideEscape);
 };
 
+// What floats above a modal and stays live with it: popovers, menus and
+// tooltips portal to the body as its siblings.
+const FLOATING_SELECTOR =
+  "[data-layer='popover'], [data-layer='operator-popover'], [data-popover-layer]:not([data-layer]), [data-canvas-menu-surface], [role='tooltip'], [role='menu'], [role='listbox'], script, style, link";
+
+const INERT_MARK = "data-modal-inert";
+
+/**
+ * Everything under the front modal is inert: not focusable, not clickable,
+ * and not read by a screen reader. Under a modal that takes the whole
+ * window, that is the app and every other modal. Under a docked surface,
+ * which shares the window with live chrome, it is the canvas it covers, so
+ * Tab can never land on something that cannot be seen.
+ */
+const syncInert = (): void => {
+  if (typeof document === "undefined") return;
+  const want = new Set<Element>();
+  const top = topOf(stack);
+  const container = top?.container() ?? null;
+  if (top && container) {
+    if (top.trap) {
+      for (const child of Array.from(document.body.children)) {
+        if (child.contains(container) || child.matches(FLOATING_SELECTOR)) continue;
+        want.add(child);
+      }
+    } else {
+      for (const sibling of Array.from(container.parentElement?.children ?? [])) {
+        if (sibling === container) continue;
+        if (sibling.matches(".react-flow") || sibling.querySelector(".react-flow")) want.add(sibling);
+      }
+    }
+  }
+  for (const marked of Array.from(document.querySelectorAll(`[${INERT_MARK}]`))) {
+    if (want.has(marked)) continue;
+    marked.removeAttribute("inert");
+    marked.removeAttribute(INERT_MARK);
+  }
+  for (const element of want) {
+    // Never take over an inert someone else set.
+    if (element.hasAttribute(INERT_MARK) || element.hasAttribute("inert")) continue;
+    element.setAttribute("inert", "");
+    element.setAttribute(INERT_MARK, "");
+  }
+};
+
 /** Join the stack. `leave` takes the modal out; `isTop` asks if it is topmost. */
 export const pushModal = (
   entry: ModalEntry,
@@ -270,10 +315,12 @@ export const pushModal = (
   ensureListening();
   const stacked: Stacked = { ...entry, seq: nextSeq++ };
   stack.push(stacked);
+  syncInert();
   return {
     leave: () => {
       const index = stack.indexOf(stacked);
       if (index >= 0) stack.splice(index, 1);
+      syncInert();
     },
     isTop: () => topOf(stack) === stacked,
   };
@@ -282,6 +329,7 @@ export const pushModal = (
 /** Test seam: forget every open modal. */
 export const resetModalStack = (): void => {
   stack.length = 0;
+  syncInert();
 };
 
 /**
