@@ -8,9 +8,8 @@ import { Kbd } from "./Kbd";
  *   HelpMap (shell) → HelpMapGroup → HelpMapKeys | custom body
  *   Kbd for any standalone key chip outside a map
  *
- * Placement is the caller's job (`className` / `style`). Use
- * `help-map--dock-top-right` for the station bar default, or nest
- * inline without a dock modifier.
+ * Placement is the caller's job: put it in a ui Popover to float it beside
+ * an anchor, or nest it inline.
  */
 
 export type HelpMapKeyRow = {

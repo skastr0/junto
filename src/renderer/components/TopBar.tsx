@@ -1,5 +1,5 @@
 import { use$, useObservable } from "@legendapp/state/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2 } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import {
@@ -21,8 +21,8 @@ import { openOperatorModal } from "../lib/operator-modal";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
-import { HUE, INK, withAlpha } from "../lib/theme";
-import { Dropdown } from "./ui";
+import { HUE, withAlpha } from "../lib/theme";
+import { Button, ConfirmDialog, Dialog, Dropdown, FieldLabel, Input, Popover } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
 import { UpdateChip } from "./UpdateChip";
@@ -30,6 +30,9 @@ import { NeedsYouInbox } from "./feed/NeedsYouInbox";
 import { UsageHud } from "./UsageHud";
 import { CommandGroupBar } from "./command-groups/CommandGroupBar";
 import { claimFocusOnMount } from "../lib/focus-ownership";
+
+// Module-level so the popover's placement effect sees one stable array.
+const HELP_SIDES = ["below"] as const;
 
 function CanvasPicker({
   canvases,
@@ -48,6 +51,7 @@ function CanvasPicker({
   readonly onCreate: (name: string) => void;
   readonly onDelete: (name: string) => void;
 }) {
+  const createFormId = useId();
   const createName$ = useObservable("");
   const createOpen$ = useObservable(false);
   const deleteOpen$ = useObservable(false);
@@ -77,9 +81,7 @@ function CanvasPicker({
     onCreate(name);
     closeCreate();
   };
-  const submitDelete = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!deleteTarget) return;
+  const confirmDelete = () => {
     onDelete(deleteTarget);
     closeDelete();
   };
@@ -114,32 +116,34 @@ function CanvasPicker({
         ) : null}
       </div>
       {createOpen ? (
-        <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeCreate}>
-          <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-dialog-title" onSubmit={submitCreate} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeCreate(); }}>
-            <h2 id="canvas-dialog-title">New canvas</h2>
-            <p>Choose a short name for this canvas.</p>
-            <label className="canvas-dialog__field">
-              <span>name</span>
-              <input ref={claimFocusOnMount} aria-label="Canvas name" value={createName} onChange={(event) => createName$.set(event.target.value)} placeholder="research" />
-            </label>
-            <div className="canvas-dialog__actions">
-              <button type="button" className="canvas-dialog__cancel" onClick={closeCreate}>cancel</button>
-              <button type="submit" className="canvas-dialog__submit" disabled={!createName.trim()}>create</button>
-            </div>
+        <Dialog
+          title="New canvas"
+          onClose={closeCreate}
+          actions={
+            <>
+              <Button size="md" variant="chrome" onClick={closeCreate}>Cancel</Button>
+              <Button size="md" variant="primary" type="submit" form={createFormId} disabled={!createName.trim()}>Create</Button>
+            </>
+          }
+        >
+          <form id={createFormId} className="grid gap-3" onSubmit={submitCreate}>
+            <span>Choose a short name for this canvas.</span>
+            <FieldLabel>
+              name
+              <Input ref={claimFocusOnMount} aria-label="Canvas name" value={createName} onChange={(event) => createName$.set(event.target.value)} placeholder="research" />
+            </FieldLabel>
           </form>
-        </div>
+        </Dialog>
       ) : null}
       {deleteOpen && deleteTarget ? (
-        <div className="canvas-dialog-backdrop" role="presentation" onMouseDown={closeDelete}>
-          <form className="canvas-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-delete-title" onSubmit={submitDelete} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") closeDelete(); }}>
-            <h2 id="canvas-delete-title">Delete canvas</h2>
-            <p>Permanently delete <strong style={{ color: INK }}>{deleteTarget}</strong>? This cannot be undone.</p>
-            <div className="canvas-dialog__actions">
-              <button type="button" className="canvas-dialog__cancel" ref={claimFocusOnMount} onClick={closeDelete}>cancel</button>
-              <button type="submit" className="canvas-dialog__danger">delete</button>
-            </div>
-          </form>
-        </div>
+        <ConfirmDialog
+          title="Delete canvas"
+          confirmLabel="Delete canvas"
+          onConfirm={confirmDelete}
+          onCancel={closeDelete}
+        >
+          <span>Permanently delete <strong className="text-ink">{deleteTarget}</strong>? This cannot be undone.</span>
+        </ConfirmDialog>
       ) : null}
     </>
   );
@@ -273,24 +277,8 @@ export function TopBar({
   const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
   const logsExplorer = use$(state$.settings.advanced.logsExplorer);
   const observabilityOpen = use$(state$.observabilityOpen);
-  const [helpOpen, setHelpOpen] = useState(false);
-  useEffect(() => {
-    if (!helpOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setHelpOpen(false);
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Element && !target.closest(".station-actions")) setHelpOpen(false);
-    };
-    // focus-law: Escape-only close of the help popover.
-    window.addEventListener("keydown", onKeyDown);
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, [helpOpen]);
+  const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
+  const closeHelp = () => setHelpAnchor(null);
   return (
     <header className="station-bar">
       {USAGE_ENABLED ? <UsageHud /> : null}
@@ -316,10 +304,7 @@ export function TopBar({
                 : "var(--color-stroke)",
               color: observabilityOpen ? HUE.cyan : HUE.steel,
             }}
-            onClick={() => {
-              setHelpOpen(false);
-              state$.observabilityOpen.set(!state$.observabilityOpen.peek());
-            }}
+            onClick={() => state$.observabilityOpen.set(!state$.observabilityOpen.peek())}
           >
             <ScrollText size={15} />
           </button>
@@ -329,19 +314,23 @@ export function TopBar({
             style={{ borderColor: "var(--color-stroke)", color: HUE.steel }}
             onPointerEnter={prefetchFleetChunk}
             onFocus={prefetchFleetChunk}
-            onClick={() => { setHelpOpen(false); openFleet(); }}>
+            onClick={openFleet}>
             <Radar size={15} />
           </button>
         ) : null}
         {HELP_MAP_ENABLED ? (
           <>
-            <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpOpen} aria-haspopup="dialog" onClick={() => setHelpOpen((open) => !open)}>
+            <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpAnchor !== null} aria-haspopup="dialog" onClick={(event) => setHelpAnchor(helpAnchor ? null : event.currentTarget)}>
               <CircleHelp size={15} />
             </button>
-            {helpOpen ? <CanvasInteractionMap onClose={() => setHelpOpen(false)} /> : null}
+            {helpAnchor ? (
+              <Popover anchor={helpAnchor} onClose={closeHelp} label="Interaction help" sides={HELP_SIDES} width={400} className="station-help">
+                <CanvasInteractionMap onClose={closeHelp} />
+              </Popover>
+            ) : null}
           </>
         ) : null}
-        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "var(--color-stroke)", color: HUE.steel }} title="Settings" onClick={() => { setHelpOpen(false); openSettings(); }}>
+        <button className="station-icon-button" aria-label="Open settings" style={{ borderColor: "var(--color-stroke)", color: HUE.steel }} title="Settings" onClick={() => openSettings()}>
           <Settings2 size={15} />
         </button>
       </div>

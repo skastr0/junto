@@ -632,23 +632,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .station-save--error { color: var(--color-crimson); }
 .station-save--error .station-save__dot { background: var(--color-crimson); }
 @keyframes station-pulse { 50% { opacity: .45; } }
-.canvas-dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: var(--color-backdrop); backdrop-filter: blur(2px); }
-.canvas-dialog { width: min(420px, calc(100vw - 40px)); border: 1px solid color-mix(in oklab, var(--color-main) 32%, transparent); border-radius: 12px; background: linear-gradient(145deg, color-mix(in oklab, var(--color-raise) 98%, transparent), color-mix(in oklab, var(--color-ground) 99%, transparent)); box-shadow: 0 24px 80px var(--color-shadow-1), 0 0 0 1px var(--color-overlay-1); padding: 22px; }
-.canvas-dialog__eyebrow { color: var(--color-amber); font-size: 8px; letter-spacing: .18em; text-transform: uppercase; }
-.canvas-dialog h2 { margin: 10px 0 6px; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 25px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
-.canvas-dialog p { margin: 0 0 20px; color: var(--color-dim); font-size: 11px; line-height: 1.55; }
-.canvas-dialog__field { display: grid; gap: 7px; color: var(--color-dim); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
-.canvas-dialog__field input { width: 100%; border: 1px solid var(--color-stroke); border-radius: 6px; background: color-mix(in oklab, var(--color-ground) 82%, transparent); color: var(--color-ink); padding: 10px 11px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; letter-spacing: 0; outline: none; }
-.canvas-dialog__field input:focus { border-color: color-mix(in oklab, var(--color-second) 65%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 10%, transparent); }
-.canvas-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
-.canvas-dialog__actions button { border-radius: 5px; padding: 8px 12px; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; transition: opacity .18s ease, background .18s ease, border-color .18s ease; }
-.canvas-dialog__cancel { border: 1px solid var(--color-stroke); color: var(--color-dim); }
-.canvas-dialog__cancel:hover { background: var(--color-overlay-2); color: var(--color-ink); }
-.canvas-dialog__submit { border: 1px solid color-mix(in oklab, var(--color-main) 52%, transparent); background: color-mix(in oklab, var(--color-main) 12%, transparent); color: var(--color-amber); }
-.canvas-dialog__submit:hover:not(:disabled) { background: color-mix(in oklab, var(--color-main) 20%, transparent); }
-.canvas-dialog__submit:disabled { cursor: not-allowed; opacity: .35; }
-.canvas-dialog__danger { border: 1px solid color-mix(in oklab, var(--color-accent) 55%, transparent); background: color-mix(in oklab, var(--color-accent) 14%, transparent); color: var(--color-crimson); }
-.canvas-dialog__danger:hover:not(:disabled) { background: color-mix(in oklab, var(--color-accent) 24%, transparent); }
 
 /* =============================================================================
    Focus switcher — hold-Control HUD over the live focus modal
@@ -846,12 +829,8 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 }
 .help-map--cyan { --help-map-accent: var(--color-cyan); }
 .help-map--narrow { width: min(360px, calc(100vw - 36px)); }
-.help-map--dock-top-right {
-  position: fixed;
-  top: calc(var(--bar-height) + 10px);
-  right: 18px;
-  z-index: 80;
-}
+/* The station bar's help popover: the map is its own frame. */
+.junto-popover.station-help { max-height: none; padding: 0; overflow: visible; border: 0; background: none; box-shadow: none; }
 .help-map__header {
   display: flex;
   align-items: flex-start;

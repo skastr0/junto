@@ -49,13 +49,13 @@ export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
 ];
 
 /**
- * Full canvas interaction map — dock under the station bar help trigger.
+ * Full canvas interaction map, shown in the station bar's help popover.
  * Reuse {@link HelpMap} pieces elsewhere; this is the canvas-shaped fill.
  */
 export function CanvasInteractionMap({ onClose }: { readonly onClose: () => void }) {
   return (
     <HelpMap
-      className="help-map--dock-top-right"
+      role="group"
       eyebrow="canvas"
       title="interaction map"
       aria-label="Interaction help"
