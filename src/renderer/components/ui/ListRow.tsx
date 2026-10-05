@@ -9,8 +9,11 @@ import type { ComponentPropsWithRef, ReactNode } from "react";
  * children: no menu, remove or switch inside it. A row that needs a trailing
  * control is a different shape, to be added here as a variant, not built
  * beside it. Without an onClick it is a plain line that only informs: no
- * hover, no focus stop, and never a disabled button, which would fade text
- * the operator is meant to read.
+ * hover, no focus stop, its text can be selected and copied, and it is never
+ * a disabled button, which would fade text the operator is meant to read.
+ * onClick alone decides which one you get: a row made interactive only by
+ * another handler (onPointerDown, onDoubleClick, onKeyDown) is still a plain
+ * div with no focus stop. Give it an onClick.
  *
  * The row chooses its own height and type and takes no className: place it
  * with the parent's layout. It carries no colour of its own; colour belongs
@@ -35,7 +38,7 @@ export function ListRow({
   readonly meta?: ReactNode;
   readonly selected?: boolean;
 } & Omit<ComponentPropsWithRef<"button">, "title" | "className" | "aria-current" | "children">) {
-  const row = "flex h-7 w-full shrink-0 items-center gap-2 rounded-sm px-2.5 text-left select-none";
+  const row = "flex h-7 w-full shrink-0 items-center gap-2 rounded-sm px-2.5 text-left";
   const content = (
     <>
       {leading ? <span className="flex shrink-0 items-center">{leading}</span> : null}
@@ -65,7 +68,7 @@ export function ListRow({
       data-selected={selected ? "true" : undefined}
       className={[
         row,
-        "outline-none transition-colors",
+        "outline-none transition-colors select-none",
         "hover:bg-overlay-1 data-[selected=true]:bg-overlay-2",
         // Inset, so a scrolling list that clips its edges still shows it.
         "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan/60",

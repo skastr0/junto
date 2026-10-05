@@ -37,6 +37,7 @@ describe("ui ListRow", () => {
     const out = html(<ListRow title="a" onClick={() => {}} />);
     expect(out).toContain("focus-visible:ring-inset");
     expect(out).toContain("focus-visible:ring-cyan/60");
+    expect(out).toContain("select-none");
   });
 
   it("without an onClick is a plain line: not a button, no hover, never faded", () => {
@@ -46,6 +47,8 @@ describe("ui ListRow", () => {
     expect(out).not.toContain("disabled");
     expect(out).not.toContain("hover:");
     expect(out).not.toContain("opacity-40");
+    // A line that only informs can be selected and copied.
+    expect(out).not.toContain("select-none");
     expect(out).toContain('data-testid="row"');
     expect(out).toContain("h-7");
   });
