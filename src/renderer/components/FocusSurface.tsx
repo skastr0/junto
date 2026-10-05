@@ -6,7 +6,7 @@ import {
   type FocusLayer,
   type FocusMeasure,
 } from "../lib/focus-measure";
-import { scheduleFocusPrimaryControl } from "../lib/focus-ownership";
+import { claimFocus, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
 import { useModalLayer } from "../lib/modal-stack";
 
 /**
@@ -110,9 +110,16 @@ export function FocusSurface({
   // Opening the modal is the operator opt-in: put keyboard on the subject
   // (xterm textarea, composer, first field) instead of leaving it on the canvas.
   useEffect(() => {
+    // A modal always holds the keyboard: first on its own panel, then on
+    // the subject when it has one. Without this a surface with no primary
+    // control leaves focus on whatever opened it, behind the dim.
+    const panel = panelRef.current;
+    if (contain === "viewport" && panel && !rootRef.current?.contains(document.activeElement)) {
+      claimFocus(panel, "open", { preventScroll: true });
+    }
     if (!claimFocusOnOpen) return;
     return scheduleFocusPrimaryControl(() => panelRef.current);
-  }, [claimFocusOnOpen]);
+  }, [claimFocusOnOpen, contain]);
 
   useEffect(() => {
     if (height !== "resizable") return;
@@ -165,6 +172,7 @@ export function FocusSurface({
             .join(" ")}
           data-measure={measure}
           data-height={height}
+          tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
         >

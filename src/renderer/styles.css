@@ -130,6 +130,7 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
 }
 .focus-surface__panel {
   position: relative;
+  outline: 0;
   z-index: 1;
   display: flex;
   flex-direction: column;

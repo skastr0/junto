@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { nextTabStop, topOf, type ModalLayer } from "../src/renderer/lib/modal-stack";
+import { afterEach, describe, expect, it } from "vitest";
+import { nextTabStop, pushModal, resetModalStack, topOf, type ModalLayer } from "../src/renderer/lib/modal-stack";
 
 const entry = (layer: ModalLayer, seq: number) => ({ layer, seq });
 
@@ -53,5 +53,27 @@ describe("tab trap", () => {
 
   it("does nothing in a modal with no stops", () => {
     expect(nextTabStop([], null, false)).toBeNull();
+  });
+});
+
+describe("who is topmost", () => {
+  afterEach(() => resetModalStack());
+  const open = (layer: ModalLayer) => pushModal({ layer, trap: true, container: () => null, onEscape: () => true });
+
+  it("is the dialog while it is open over its working modal, then the modal again", () => {
+    const editor = open("working");
+    expect(editor.isTop()).toBe(true);
+    const dialog = open("working-dialog");
+    expect(editor.isTop()).toBe(false);
+    expect(dialog.isTop()).toBe(true);
+    dialog.leave();
+    expect(editor.isTop()).toBe(true);
+  });
+
+  it("is the operator modal over both", () => {
+    const editor = open("working");
+    const dialog = open("working-dialog");
+    const search = open("operator");
+    expect([editor.isTop(), dialog.isTop(), search.isTop()]).toEqual([false, false, true]);
   });
 });

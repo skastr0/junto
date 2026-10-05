@@ -183,14 +183,19 @@ const ensureListening = (): void => {
   window.addEventListener("keydown", onOutsideEscape);
 };
 
-/** Join the stack; the returned function leaves it. */
-export const pushModal = (entry: ModalEntry): (() => void) => {
+/** Join the stack. `leave` takes the modal out; `isTop` asks if it is topmost. */
+export const pushModal = (
+  entry: ModalEntry,
+): { readonly leave: () => void; readonly isTop: () => boolean } => {
   ensureListening();
   const stacked: Stacked = { ...entry, seq: nextSeq++ };
   stack.push(stacked);
-  return () => {
-    const index = stack.indexOf(stacked);
-    if (index >= 0) stack.splice(index, 1);
+  return {
+    leave: () => {
+      const index = stack.indexOf(stacked);
+      if (index >= 0) stack.splice(index, 1);
+    },
+    isTop: () => topOf(stack) === stacked,
   };
 };
 
@@ -253,13 +258,16 @@ export const useModalLayer = ({
   const keepFocusRef = useRef(keepFocusOnClose);
   keepFocusRef.current = keepFocusOnClose;
 
+  const isTopRef = useRef<() => boolean>(() => true);
+
   useEffect(() => {
-    const leave = pushModal({
+    const { leave, isTop } = pushModal({
       layer,
       trap,
       container: () => containerRef.current,
       onEscape: () => onEscapeRef.current() !== false,
     });
+    isTopRef.current = isTop;
     const opener = openerRef.current;
     return () => {
       leave();
@@ -276,7 +284,10 @@ export const useModalLayer = ({
       // A popover or menu this modal opened portals outside it but still
       // bubbles here through React: its keys are its own.
       const inside = container !== null && event.target instanceof Node && container.contains(event.target);
-      if (inside) {
+      // A modal with another one above it is not the one being worked in:
+      // its keys wait. Escape travels on to the window, which sends it to
+      // the topmost modal.
+      if (inside && isTopRef.current()) {
         onKeyDown?.(event);
         if (event.key === "Escape" && !event.defaultPrevented) {
           if (onEscapeRef.current() !== false) {

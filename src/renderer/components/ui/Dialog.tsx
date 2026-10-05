@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { claimFocusOnMount, focusPrimaryControl } from "../../lib/focus-ownership";
+import { claimFocus, claimFocusOnMount, focusPrimaryControl } from "../../lib/focus-ownership";
 import { useModalLayer } from "../../lib/modal-stack";
 import { Button } from "./Button";
 import { Eyebrow } from "./Eyebrow";
@@ -48,8 +48,11 @@ export function Dialog({
 
   useEffect(() => {
     const card = cardRef.current;
-    // A control inside may already have claimed focus on mount.
-    if (card && !card.contains(document.activeElement)) focusPrimaryControl(card);
+    // A control inside may already have claimed focus on mount. Otherwise
+    // the first control takes it, or the card itself: a dialog always holds
+    // the keyboard.
+    if (!card || card.contains(document.activeElement)) return;
+    if (!focusPrimaryControl(card)) claimFocus(card, "open", { preventScroll: true });
   }, []);
 
   return createPortal(
