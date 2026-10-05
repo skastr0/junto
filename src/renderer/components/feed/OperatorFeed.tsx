@@ -47,7 +47,6 @@ import {
   type FeedItemKind,
   type FeedSection,
 } from "@shared/operator-feed";
-import { previewMarkdownText } from "@shared/preview";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { mailAgeLabel } from "../../lib/actor-ledger";
 import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signals-state";
@@ -75,7 +74,6 @@ import { SignalReply } from "../signals/SignalReply";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Kbd, StatusDot } from "../ui";
-import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import "./operator-feed.css";
 
 const LEAVE_MS = 280;
@@ -196,7 +194,7 @@ export function FeedCard({
               {health.stale ? <span className="operator-feed__faint">, last observed</span> : null}
             </p>
           ) : null}
-          {item.detail ? (
+          {item.detail && item.signalId ? (
             <button
               type="button"
               className="operator-feed__detail-toggle"
@@ -208,18 +206,13 @@ export function FeedCard({
             </button>
           ) : null}
           {/* Mounted with the open details, so a closed card reads no file. */}
-          {item.detail && expanded ? (
-            item.signalId ? (
-              <PreviewedMarkdown
-                markdown={item.detail}
-                source={{ kind: "signal", signalId: item.signalId }}
-                textClassName="operator-feed__detail"
-              />
-            ) : (
-              <div className="operator-feed__detail">
-                <ArtifactMarkdown source={previewMarkdownText(item.detail)} />
-              </div>
-            )
+          {/* Only a signal carries a detail, so the signal is always there to read from. */}
+          {item.detail && item.signalId && expanded ? (
+            <PreviewedMarkdown
+              markdown={item.detail}
+              source={{ kind: "signal", signalId: item.signalId }}
+              textClassName="operator-feed__detail"
+            />
           ) : null}
           {replying && item.signalId ? (
             <SignalReply
