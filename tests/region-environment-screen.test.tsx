@@ -489,6 +489,25 @@ describe("the resolved list", () => {
     expect(host.textContent).toContain("Env file in Payments: No file at ~/work/.env.");
   });
 
+  it("says it is reading while main consults the stores, which can take seconds", async () => {
+    const fake = makeFakeRegionEnvironmentPort({ report: [reported({})] });
+    let answer!: () => void;
+    const slow = {
+      ...fake.port,
+      report: (regionId: string) =>
+        new Promise<Awaited<ReturnType<typeof fake.port.report>>>((resolve) => {
+          answer = () => void fake.port.report(regionId).then(resolve);
+        }),
+    };
+    await mount({ sources: [keychain] }, { ...fake, port: slow });
+    expect(q('[data-testid="region-env-reading"]')?.textContent).toBe("Reading your stores.");
+    expect(all('[data-testid="region-env-variable"]')).toEqual([]);
+    await act(async () => answer());
+    await flush();
+    expect(q('[data-testid="region-env-reading"]')).toBeNull();
+    expect(all('[data-testid="region-env-variable"]')).toHaveLength(1);
+  });
+
   it("says so when the report cannot be read, and reads it again after every change", async () => {
     const fake = makeFakeRegionEnvironmentPort({ reportFailure: "Junto could not read the Keychain." });
     await mount({ sources: [keychain] }, fake);

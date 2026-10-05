@@ -312,10 +312,14 @@ export function RegionEnvironmentScreen({
   // The resolution follows what is saved: read it again after every change.
   const saved = useMemo(() => JSON.stringify(environment ?? null), [environment]);
   const [refresh, setRefresh] = useState(0);
+  const [reading, setReading] = useState(false);
   useEffect(() => {
     let live = true;
+    // Main reads the real stores to answer, which can take seconds.
+    setReading(true);
     void port.report(regionId).then((result) => {
       if (!live) return;
+      setReading(false);
       if (result.ok) {
         setReport(result.report);
         setReportProblem(undefined);
@@ -545,6 +549,11 @@ export function RegionEnvironmentScreen({
           <h3>What a seat here gets</h3>
           <p>Names and where they come from. Values are never shown.</p>
         </header>
+        {reading ? (
+          <p className="region-env__hint" role="status" data-testid="region-env-reading">
+            {report === undefined ? "Reading your stores." : "Reading your stores again."}
+          </p>
+        ) : null}
         {view.blocksLaunch ? (
           <p className="region-env__error" role="alert" data-testid="region-env-blocks-launch">
             A required source is failing, so seats in this region will not start until it is fixed.

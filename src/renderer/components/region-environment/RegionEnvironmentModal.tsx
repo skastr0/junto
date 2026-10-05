@@ -4,8 +4,9 @@ import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { ulid } from "ulid";
 import { getJuntoApi } from "../../lib/junto-api";
-import { setRegionEnvironment } from "../../lib/mutations";
+import { flushPendingCanvasSave, setRegionEnvironment } from "../../lib/mutations";
 import { regionEnvironmentPort } from "../../lib/region-environment-port";
+import { restartSeatOnSameSession } from "../../lib/seat-relaunch";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, OverlayHeader } from "../ui";
@@ -32,7 +33,16 @@ export function RegionEnvironmentModal({
   readonly onClose: () => void;
 }) {
   const node = use$(() => state$.doc.nodes.get().find((n) => n.id === nodeId));
-  const port = useMemo(() => regionEnvironmentPort(), []);
+  const port = useMemo(
+    () =>
+      regionEnvironmentPort({
+        canvasName: () => state$.canvasName.peek(),
+        flushSave: flushPendingCanvasSave,
+        findNode: (id) => state$.doc.peek().nodes.find((candidate) => candidate.id === id),
+        restartSeat: restartSeatOnSameSession,
+      }),
+    [],
+  );
   if (!node || node.type !== "group") return null;
   const environment = node.ether?.region?.environment;
   const label = node.label?.trim() || "this region";
