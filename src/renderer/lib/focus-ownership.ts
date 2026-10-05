@@ -144,6 +144,15 @@ const gestureLicenses = (gesture: OperatorGesture | null, typingField: unknown):
   return !containsNode(typingField, gesture.target);
 };
 
+const PRESSED_CONTROL_SELECTOR = "button, a[href], summary, [role='button'], [role='tab'], [role='menuitem']";
+
+type Matches = { readonly matches?: (selector: string) => boolean };
+
+const isPressedControl = (active: unknown): boolean => {
+  const matches = (active as Matches | null)?.matches;
+  return typeof matches === "function" && matches.call(active, PRESSED_CONTROL_SELECTOR) === true;
+};
+
 /** Pure verdict; claimFocus applies it. Exported for tests. */
 export const evaluateFocusClaim = (input: {
   readonly target: FocusNode | null;
@@ -161,7 +170,11 @@ export const evaluateFocusClaim = (input: {
   if (active === target) return { allowed: true, reason: "already-owned" };
   if (isPageRoot(active)) return { allowed: true, reason: "free" };
 
-  const typing = isOperatorTyping(active as Element);
+  // A button or tab inside a terminal surface is a control the operator
+  // pressed, not text they are typing: the surface counts as typing ground
+  // as a whole, but focus on its chrome must not block what that control
+  // opens (a modal opened from the agent header with Enter).
+  const typing = isOperatorTyping(active as Element) && !isPressedControl(active);
   if (cause === "async") {
     // Background work may only settle focus inside its own quiet chrome.
     if (containsNode(owner, active) && !typing) return { allowed: true, reason: "same-scope" };
