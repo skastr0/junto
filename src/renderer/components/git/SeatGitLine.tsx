@@ -57,7 +57,14 @@ export function SeatGitLine({ node }: { readonly node: CanvasNode }) {
           </span>
         ))}
       </button>
-      {open ? <GitRepositoryDetail cwd={summary.root} title={`${name}, ${summary.branch}`} onClose={() => closeSeatGitDetail(node.id)} /> : null}
+      {open ? (
+        <GitRepositoryDetail
+          cwd={summary.root}
+          title={`${name}, ${summary.branch}`}
+          initialView="working"
+          onClose={() => closeSeatGitDetail(node.id)}
+        />
+      ) : null}
     </>
   );
 }

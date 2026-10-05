@@ -1,12 +1,21 @@
-import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { X } from "lucide-react";
 import { PatchDiff } from "@pierre/diffs/react";
 import type { CanvasNode } from "@shared/canvas";
-import { splitPatchFiles, type GitCommit } from "@shared/git";
+import {
+  gitReviewTitle,
+  patchFilePath,
+  splitPatchFiles,
+  type GitCommit,
+  type GitReviewResult,
+  type GitReviewView,
+} from "@shared/git";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
+import { claimFocus } from "../../lib/focus-ownership";
 import { getJuntoApi } from "../../lib/junto-api";
 import { themeMode$ } from "../../lib/theme-mode";
+import { InspectorTabs } from "../chat/InspectorTabs";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton, OverlayHeader } from "../ui";
 import "./git.css";
@@ -59,6 +68,30 @@ export function GitDetail({
   return <GitRepositoryDetail cwd={cwd} title={title} onClose={onClose} />;
 }
 
+/** What the detail shows: a review of work not yet in the base, or one commit at a time. */
+export type GitDetailView = GitReviewView | "commits";
+
+const VIEW_TABS: ReadonlyArray<{ readonly id: GitDetailView; readonly label: string }> = [
+  { id: "working", label: "Uncommitted" },
+  { id: "base", label: "Since base" },
+  { id: "commits", label: "Commits" },
+];
+
+/** Up and down move through a list of options; Home and End jump to its ends. */
+const moveInList = (event: KeyboardEvent<HTMLElement>): void => {
+  const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+  if (step === 0 && event.key !== "Home" && event.key !== "End") return;
+  const options = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="option"]'));
+  if (options.length === 0) return;
+  event.preventDefault();
+  const at = options.findIndex((option) => option === document.activeElement || option.getAttribute("aria-selected") === "true");
+  const next =
+    event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : Math.min(options.length - 1, Math.max(0, at + step));
+  // The operator's own arrow key moves focus within the list they are in.
+  claimFocus(options[next], "gesture", { event });
+  options[next]?.click();
+};
+
 /**
  * A repository's commits and their diffs, for any folder: the git node opens
  * it for its own, the agent modal's git line for the folder its seat runs in.
@@ -66,12 +99,19 @@ export function GitDetail({
 export function GitRepositoryDetail({
   cwd,
   title,
+  initialView = "commits",
   onClose,
 }: {
   readonly cwd: string;
   readonly title: string;
+  /** The view it opens on: a seat's review opens on its uncommitted work, a git node on its commits. */
+  readonly initialView?: GitDetailView;
   readonly onClose: () => void;
 }) {
+  const [view, setView] = useState<GitDetailView>(initialView);
+  const [review, setReview] = useState<Extract<GitReviewResult, { ok: true }>>();
+  const [activeFile, setActiveFile] = useState(0);
+  const diffPane = useRef<HTMLDivElement>(null);
   const [commits, setCommits] = useState<ReadonlyArray<GitCommit>>([]);
   const [selected, setSelected] = useState<string>();
   const [patch, setPatch] = useState<string>("");
@@ -107,6 +147,44 @@ export function GitRepositoryDetail({
   }, [cwd]);
 
   useEffect(() => {
+    if (view === "commits") return;
+    setCut(undefined);
+    setPatchError(undefined);
+    setReview(undefined);
+    setActiveFile(0);
+    if (!cwd) {
+      setPatch("");
+      return;
+    }
+    let live = true;
+    setLoadingPatch(true);
+    void getJuntoApi()
+      ?.gitReview?.(cwd, view)
+      .then((result) => {
+        if (!live) return;
+        setLoadingPatch(false);
+        if (result.ok) {
+          setReview(result);
+          setPatch(result.patch);
+          if (result.shownFiles !== undefined) setCut({ files: result.files, shownFiles: result.shownFiles });
+        } else {
+          setPatch("");
+          setPatchError(result.error);
+        }
+      })
+      .catch(() => {
+        if (!live) return;
+        setLoadingPatch(false);
+        setPatch("");
+        setPatchError("git unavailable");
+      });
+    return () => {
+      live = false;
+    };
+  }, [cwd, view]);
+
+  useEffect(() => {
+    if (view !== "commits") return;
     setCut(undefined);
     setPatchError(undefined);
     if (!cwd || !selected) {
@@ -139,7 +217,7 @@ export function GitRepositoryDetail({
     return () => {
       live = false;
     };
-  }, [cwd, selected]);
+  }, [cwd, selected, view]);
 
   // The diff view follows Junto's theme, not the system's.
   const themeType = use$(themeMode$) === "bright" ? "light" : "dark";
@@ -153,7 +231,19 @@ export function GitRepositoryDetail({
     const frame = requestAnimationFrame(() => setMounted((count) => count + 1));
     return () => cancelAnimationFrame(frame);
   }, [mounted, fileDiffs]);
-  const active = commits.find((commit) => commit.sha === selected);
+  const filePaths = useMemo(() => fileDiffs.map(patchFilePath), [fileDiffs]);
+  const reviewing = view !== "commits";
+  // What is on screen, said honestly: a folder's uncommitted work is not one session's.
+  const showing = reviewing ? gitReviewTitle(view, review?.base) : undefined;
+  const goToFile = (index: number): void => {
+    setActiveFile(index);
+    // Every file up to the chosen one must be mounted before it can be scrolled to.
+    setMounted((count) => Math.max(count, index + 1));
+    requestAnimationFrame(() => {
+      diffPane.current?.querySelector(`[data-file-index="${String(index)}"]`)?.scrollIntoView({ block: "start" });
+    });
+  };
+  const active = view === "commits" ? commits.find((commit) => commit.sha === selected) : undefined;
   // The log's own count is the commit's; the capped read may have stopped early.
   const cutFiles = cut ? Math.max(active?.stats?.files ?? 0, cut.files ?? 0, cut.shownFiles) : 0;
 
@@ -161,7 +251,7 @@ export function GitRepositoryDetail({
     <FocusSurface
       measure="workspace"
       height="immersive"
-      label="Git commits"
+      label="Git review"
       onClose={onClose}
     >
       <div className="flex h-full min-h-0 flex-col" data-testid="git-detail">
@@ -175,13 +265,33 @@ export function GitRepositoryDetail({
           </IconButton>
         }
       />
+      <InspectorTabs label="What to show" tabs={VIEW_TABS} active={view} onSelect={(id) => setView(id as GitDetailView)} />
       {error ? (
         <div className="git-browser__empty" style={{ color: DIM }}>
           {error}
         </div>
       ) : (
-        <div className="git-browser min-h-0 flex-1">
-          <div className="git-browser__list" role="listbox" aria-label="Commits">
+        <div className="git-browser min-h-0 flex-1" data-view={view}>
+          {reviewing ? (
+            <div className="git-browser__list" role="listbox" aria-label="Changed files" onKeyDown={moveInList}>
+              {filePaths.map((path, index) => (
+                <button
+                  key={`${String(index)}:${path}`}
+                  type="button"
+                  role="option"
+                  aria-selected={index === activeFile}
+                  data-active={index === activeFile ? "true" : "false"}
+                  className="git-browser__row git-browser__file"
+                  title={path}
+                  onClick={() => goToFile(index)}
+                >
+                  <span className="git-browser__file-name">{path.split("/").pop()}</span>
+                  <span className="git-browser__file-folder">{path.split("/").slice(0, -1).join("/")}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+          <div className="git-browser__list" role="listbox" aria-label="Commits" onKeyDown={moveInList}>
             {commits.map((commit) => (
               <button
                 key={commit.sha}
@@ -208,7 +318,16 @@ export function GitRepositoryDetail({
               </button>
             ))}
           </div>
-          <div className="git-browser__diff">
+          )}
+          <div className="git-browser__diff" ref={diffPane}>
+            {showing ? (
+              <div className="git-browser__showing" data-testid="git-review-showing">
+                {showing}
+                {review?.untrackedLeftOut
+                  ? `, ${String(review.untrackedLeftOut)} more new ${review.untrackedLeftOut === 1 ? "file" : "files"} not shown`
+                  : ""}
+              </div>
+            ) : null}
             {loadingPatch ? (
               <div className="git-browser__empty" style={{ color: DIM }}>
                 loading diff
@@ -222,6 +341,7 @@ export function GitRepositoryDetail({
               ) : null}
               {fileDiffs.slice(0, mounted).map((file, index) => (
                 <FileDiffBoundary key={`${String(index)}:${file.slice(0, 200)}`} text={file}>
+                  <div data-file-index={index} className="git-browser__file-diff">
                   <PatchDiff
                     patch={file}
                     disableWorkerPool
@@ -231,6 +351,7 @@ export function GitRepositoryDetail({
                       overflow: "scroll",
                     }}
                   />
+                  </div>
                 </FileDiffBoundary>
               ))}
               </>
@@ -240,7 +361,13 @@ export function GitRepositoryDetail({
                   ? `diff unavailable: ${patchError}`
                   : cut
                     ? "diff too large to show here"
-                    : active ? "no diff" : "select a commit"}
+                    : view === "working"
+                      ? "Nothing uncommitted in this folder."
+                      : view === "base"
+                        ? review?.base
+                          ? `Nothing committed on this branch since ${review.base}.`
+                          : "This repository has no base branch to compare with, or this branch is it."
+                        : active ? "no diff" : "select a commit"}
               </div>
             )}
           </div>

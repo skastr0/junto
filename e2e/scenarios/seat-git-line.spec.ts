@@ -84,6 +84,15 @@ test("the agent modal header shows the seat's repository on one line and opens i
     const detail = page.getByTestId("git-detail");
     await expect(detail).toBeVisible();
     await expect(detail).toContainText("repo, feat/git-line");
+    // It opens on the review of what is not committed yet, said as the folder's, not the session's.
+    await expect(detail.getByTestId("git-review-showing")).toHaveText("Uncommitted changes in this folder");
+    await expect(detail.getByRole("option", { name: /notes\.txt/ })).toBeVisible();
+    // What the branch committed since main: both files it touched.
+    await detail.getByRole("tab", { name: "Since base" }).click();
+    await expect(detail.getByTestId("git-review-showing")).toHaveText("Committed on this branch since main");
+    await expect(detail.getByRole("option")).toHaveCount(2);
+    // And its commits, one at a time, as before.
+    await detail.getByRole("tab", { name: "Commits" }).click();
     await expect(detail).toContainText("Add the notes");
     // Two working surfaces, the detail on top: one dim each, as the layer model has it.
     await expect(page.locator("[data-layer-backdrop]")).toHaveCount(2);
