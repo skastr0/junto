@@ -6,8 +6,33 @@ import {
   type FocusLayer,
   type FocusMeasure,
 } from "../lib/focus-measure";
-import { claimFocus, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
+import { claimFocus, pickPrimaryFocusControl, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
 import { useModalLayer } from "../lib/modal-stack";
+
+// What a press may land on and keep: controls, fields, and the terminal.
+// Anything else in the panel is blank chrome or plain text.
+const INTERACTIVE_SELECTOR = [
+  "a[href]",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "summary",
+  "label",
+  "[contenteditable]:not([contenteditable='false'])",
+  "[tabindex]:not([tabindex='-1'])",
+  "[role='button']",
+  "[role='tab']",
+  "[role='option']",
+  "[role='menuitem']",
+  "[role='checkbox']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='slider']",
+  ".xterm",
+  ".native-terminal-surface",
+  "[data-terminal-surface]",
+].join(", ");
 
 /**
  * Focused single-subject overlay shell: the working modal. It sits at
@@ -173,7 +198,22 @@ export function FocusSurface({
           data-measure={measure}
           data-height={height}
           tabIndex={-1}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            // A press on blank chrome (an empty header, the space under a
+            // list) would park the keyboard on the panel, and typing would
+            // stop reaching the subject. Give it back to the primary control.
+            // A press on a control keeps what it did, and a drag that
+            // selected text is left alone.
+            const panel = panelRef.current;
+            const target = event.target;
+            if (!panel || !(target instanceof Element)) return;
+            const control = target.closest(INTERACTIVE_SELECTOR);
+            if (control !== null && control !== panel && panel.contains(control)) return;
+            if (window.getSelection()?.isCollapsed === false) return;
+            const primary = pickPrimaryFocusControl(panel);
+            if (primary) claimFocus(primary, "gesture", { event, preventScroll: true });
+          }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {children}
