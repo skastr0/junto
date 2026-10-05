@@ -259,7 +259,6 @@ export function CronScheduleSurface({
     <FocusSurface
       measure="form"
       height="fit"
-      layer="detail"
       label="Cron schedule"
       onClose={onClose}
       closeOnEscape

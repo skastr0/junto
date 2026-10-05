@@ -4,7 +4,7 @@ import { NodeResizer, NodeToolbar, Position, useReactFlow, useStoreApi } from "@
 import type { NodeProps } from "@xyflow/react";
 import { AlertTriangle, FolderOpen, Lock, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
-import { MAX_REGION_DEPTH } from "@shared/graph";
+import { MAX_REGION_DEPTH, UNNAMED_REGION } from "@shared/graph";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { claimFocus } from "../../lib/focus-ownership";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
@@ -119,7 +119,7 @@ function RegionLabel({
         onEdit();
       }}
     >
-      {label || "unnamed region"}
+      {label || UNNAMED_REGION}
     </span>
   );
 }

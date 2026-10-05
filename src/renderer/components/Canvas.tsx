@@ -16,7 +16,7 @@ import {
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
-import { executionGraphContextFromActorRefs } from "@shared/graph";
+import { executionGraphContextFromActorRefs, UNNAMED_REGION } from "@shared/graph";
 import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, MessageSquare, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
 import {
   clearSelection,
@@ -39,6 +39,7 @@ import {
   type ImpactSelection,
 } from "../lib/impact-mode";
 import { regionLabelDrag$ } from "../lib/region-label-drag";
+import { isOperatorModalOpen } from "../lib/operator-modal";
 import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
@@ -141,7 +142,7 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
   const regions = graphNodes.filter((node) => node.type === "group");
   const meaningfulRegions = regions.filter((node) => {
     const label = ((node.data as { readonly node?: { readonly label?: string } } | undefined)?.node?.label ?? "").trim().toLowerCase();
-    return Boolean(label) && !["n", "new region", "unnamed region"].includes(label);
+    return Boolean(label) && !["n", "new region", UNNAMED_REGION].includes(label);
   });
   const anchors = meaningfulRegions.length > 0 ? meaningfulRegions : regions.length > 0 ? regions : graphNodes.slice(0, 24);
   void rf.fitView({
@@ -811,6 +812,8 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // An operator modal above the canvas owns Escape while it is open.
+      if (isOperatorModalOpen()) return;
       event.preventDefault();
       dismiss();
     };
@@ -845,7 +848,6 @@ function ModeDeckFocus({
     <FocusSurface
       measure="workspace"
       height="fit"
-      layer="work"
       label="Add canvas item"
       onClose={onClose}
       panelClassName="node-deck-focus-panel"

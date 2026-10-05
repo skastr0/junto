@@ -66,7 +66,6 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
           <FocusSurface
             measure="workspace"
             height="resizable"
-            layer="detail"
             label="Image"
             onClose={() => setExpanded(false)}
           >
