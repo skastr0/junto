@@ -151,7 +151,7 @@ export function FeedCard({
   const health = item.kind === "health" ? undefined : item.health;
 
   return (
-    <div className={`operator-feed__slot${leaving ? " operator-feed__slot--leaving" : ""}`}>
+    <div className={`operator-feed__slot${leaving ? " operator-feed__slot--leaving" : ""}`} role="listitem">
       <article
         ref={ref}
         className={`operator-feed__card${selected ? " is-selected" : ""}`}
@@ -199,6 +199,7 @@ export function FeedCard({
               type="button"
               className="operator-feed__detail-toggle"
               aria-expanded={expanded}
+              aria-label={`${expanded ? "Hide details" : "Details"} from ${item.seat.name}`}
               onClick={onToggleDetail}
             >
               <ChevronDown size={12} className={expanded ? "operator-feed__chevron--open" : undefined} aria-hidden />
@@ -229,17 +230,29 @@ export function FeedCard({
                   replies={quickReplies}
                   pending={sending}
                   numbered={selected}
+                  to={item.seat.name}
                   onPick={onQuickReply}
                   className="operator-feed__quick"
                 />
               ) : null}
               <span className="operator-feed__actions-end">
                 {item.signalId ? (
-                  <Button size="xs" variant="subtle" onClick={() => onReply(true)}>
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    aria-label={`Write reply to ${item.seat.name}`}
+                    onClick={() => onReply(true)}
+                  >
                     Write reply
                   </Button>
                 ) : null}
-                <Button size="xs" variant="subtle" disabled={!node} onClick={() => openSeat(item, node)}>
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  disabled={!node}
+                  aria-label={`${isSeat ? "Open seat" : "Open"} ${item.seat.name}`}
+                  onClick={() => openSeat(item, node)}
+                >
                   {isSeat ? "Open seat" : "Open"}
                   <ArrowUpRight size={11} aria-hidden />
                 </Button>
@@ -280,7 +293,9 @@ function FeedRegionSection({
         <span className="operator-feed__region-rule" aria-hidden />
         {live > 0 ? <span className="operator-feed__region-count">{live}</span> : null}
       </header>
-      <div className="operator-feed__list">{children}</div>
+      <div className="operator-feed__list" role="list">
+        {children}
+      </div>
     </section>
   );
 }

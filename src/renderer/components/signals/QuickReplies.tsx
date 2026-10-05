@@ -11,6 +11,7 @@ export function QuickReplies({
   onPick,
   pending,
   numbered = false,
+  to,
   className,
 }: {
   readonly replies: ReadonlyArray<string>;
@@ -18,6 +19,11 @@ export function QuickReplies({
   /** The reply being sent, if any: every pill waits while one is in flight. */
   readonly pending: string | null;
   readonly numbered?: boolean;
+  /**
+   * Whose signal these answer, where several rows of the same replies share
+   * a surface: each pill's name then says it ("Reply Yes to Atlas").
+   */
+  readonly to?: string;
   readonly className?: string;
 }) {
   if (replies.length === 0) return null;
@@ -25,7 +31,7 @@ export function QuickReplies({
     <div
       className={["quick-replies", className].filter(Boolean).join(" ")}
       role="group"
-      aria-label="Quick replies"
+      aria-label={to ? `Quick replies to ${to}` : "Quick replies"}
       data-testid="quick-replies"
     >
       {replies.map((text, index) => {
@@ -38,6 +44,7 @@ export function QuickReplies({
             className="quick-reply"
             disabled={pending !== null}
             aria-busy={pending === text ? true : undefined}
+            aria-label={to ? `Reply ${text} to ${to}` : undefined}
             aria-keyshortcuts={numbered && key ? key : undefined}
             title={`Reply "${text}"${numbered && key ? ` (${key})` : ""}`}
             onClick={(event) => {
