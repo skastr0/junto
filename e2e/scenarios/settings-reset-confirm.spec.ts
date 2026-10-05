@@ -101,3 +101,36 @@ test("reset section asks first, and Escape closes only the confirm", async () =>
     await junto.close();
   }
 });
+
+test("the Agents section rows: a checkbox row is a label, a menu row is a group", async () => {
+  const junto = await launchJunto({ seedHarnessInstalls: ["claude"] });
+  try {
+    const { page } = junto;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Open settings" }).click();
+    await page.locator(".settings-nav__item", { hasText: "Agents" }).click();
+
+    // The checkbox row is still a label: its text toggles the checkbox.
+    const offer = page.getByRole("checkbox", { name: /^Offer .+ in palette$/ }).first();
+    await expect(offer).toBeVisible({ timeout: 20_000 });
+    const before = await offer.isChecked();
+    await page.getByText("off hides this harness even when the CLI is installed").first().click();
+    await expect.poll(() => offer.isChecked()).toBe(!before);
+
+    // A menu row is a named group: its text opens nothing, its button does.
+    for (const name of ["Default model", "Default effort", "Default permission mode"]) {
+      const row = page.getByRole("group", { name }).first();
+      await expect(row, `${name} is a group`).toBeVisible();
+      await row.getByText(name, { exact: true }).click();
+      await expect(page.getByRole("listbox"), `${name}: row text opens no menu`).toHaveCount(0);
+    }
+    const model = page.getByRole("group", { name: "Default model" }).first().getByRole("button");
+    if (await model.isEnabled()) {
+      await model.click();
+      await expect(page.getByRole("listbox")).toBeVisible();
+      await page.keyboard.press("Escape");
+    }
+  } finally {
+    await junto.close();
+  }
+});
