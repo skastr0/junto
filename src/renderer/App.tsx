@@ -30,7 +30,6 @@ import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
-import { installFocusSwitcherHotkeys } from "./lib/focus-switcher";
 import { KEY_ACTIONS } from "./lib/key-actions";
 import { installKeyDispatcher } from "./lib/key-dispatcher";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
@@ -76,7 +75,6 @@ import { WorkFocusShell } from "./components/workbench";
 import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
 import { TerminalGridFocus } from "./components/terminal/TerminalGridFocus";
 import { closeAllWorkbenchSurfaces, closeFocusModalSurface, dock$ } from "./lib/dock-state";
-import { closeAllTerminalSurfaces } from "./lib/terminal-state";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
 import { DemoLayer } from "./demo/demo-layer";
@@ -461,8 +459,6 @@ export function App() {
 
   // Every app shortcut: one listener, resolved against the key table.
   useEffect(() => installKeyDispatcher(KEY_ACTIONS), []);
-  // Control+Tab cycles focus models without closing the modal.
-  useEffect(() => installFocusSwitcherHotkeys(), []);
 
   // Command bar "Open canvas" action — one-shot request consumed here so the
   // readCanvas + loadDoc flow keeps its single owner in App.
@@ -556,7 +552,6 @@ export function App() {
           title="This work surface hit a render error"
           onReset={() => {
             closeAllWorkbenchSurfaces();
-            closeAllTerminalSurfaces();
           }}
         >
           <WorkFocusShell />

@@ -6,9 +6,8 @@
 import { useLayoutEffect, useRef } from "react";
 import { use$ } from "@legendapp/state/react";
 import { panesForLayout } from "../../lib/surface-registry";
-import { dock$, terminalSurfaceId } from "../../lib/dock-state";
+import { closeTerminalView, dock$, terminalSurfaceId } from "../../lib/dock-state";
 import {
-  closeTerminalSurface,
   terminal$,
   terminalSlotElement,
   terminalSlots$,
@@ -74,7 +73,7 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
       <div ref={hostRef} className="persistent-terminal-host">
         <RendererErrorBoundary
           title="This seat hit a render error"
-          onReset={() => closeTerminalSurface(nodeId)}
+          onReset={() => closeTerminalView(nodeId)}
         >
           <TerminalSurface
             node={node}

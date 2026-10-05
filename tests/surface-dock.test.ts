@@ -18,22 +18,26 @@ import {
   type WorkbenchState,
 } from "../src/renderer/lib/surface-registry";
 import {
+  chatSurfaceId,
   closeDockBrowser,
   closeFocusModalSurface,
+  closeTerminalView,
   closeWorkbenchSurface,
-  chatSurfaceId,
   dock$,
+  focusWorkbenchSurface,
   noteSurfaceId,
   openAgentChatSurface,
   openDockBrowser,
   openNoteSurface,
+  openTerminalSurface,
   pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
   stopDockBrowser,
   terminalSurfaceId,
+  unpinWorkbenchSurface,
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
-import { openTerminalSurface, terminal$ } from "../src/renderer/lib/terminal-state";
+import { terminal$ } from "../src/renderer/lib/terminal-state";
 import type { CanvasNode } from "../src/shared/canvas";
 import {
   discardAndCloseNoteSurface,
@@ -274,8 +278,6 @@ function resetDock(): void {
   dock$.opErrorByRef.set({});
   browser$.sessionByRef.set({});
   terminal$.openByNodeId.set({});
-  terminal$.preferredZoneByNodeId.set({});
-  terminal$.lastOpenNodeId.set(null);
 }
 
 const nativeTerminalNode = (id = "term-1"): CanvasNode =>
@@ -874,7 +876,7 @@ describe("dock-state", () => {
       openTerminalSurface(a, "pinned");
       const idA = terminalSurfaceId("t1");
       // Operator moves back to focus.
-      dock$.registry.set(unpinSurface(dock$.registry.peek(), idA).state);
+      unpinWorkbenchSurface(idA);
       expect(dock$.registry.peek().surfaces.find((s) => s.id === idA)?.zone).toBe("focus");
 
       openTerminalSurface(b, "focus");
@@ -884,21 +886,55 @@ describe("dock-state", () => {
       );
     });
 
-    it("a manual tab activation survives later terminal opens (one-shot promote)", () => {
+    it("a manual tab activation survives later terminal opens", () => {
       openTerminalSurface(nativeTerminalNode("t1"), "focus");
       openTerminalSurface(nativeTerminalNode("t2"), "focus");
-      // Operator clicks tab t1 — a path that bypasses lastOpenNodeId.
-      dock$.registry.set(
-        focusSurface(dock$.registry.peek(), terminalSurfaceId("t1")).state,
-      );
-      // A later open re-runs the observe; the stale t2 promote must not
-      // replay and yank the operator's choice back behind t2.
+      // Operator clicks tab t1.
+      focusWorkbenchSurface(terminalSurfaceId("t1"));
+      // A later open brings only the newly opened terminal forward; the
+      // operator's choice stays ahead of t2.
       openTerminalSurface(nativeTerminalNode("t3"), "focus");
       expect(dock$.registry.peek().focusMru).toEqual([
         terminalSurfaceId("t3"),
         terminalSurfaceId("t1"),
         terminalSurfaceId("t2"),
       ]);
+    });
+  });
+
+  describe("one owner for a terminal's view", () => {
+    it("a request for focus never pulls a pinned terminal out of the dock", () => {
+      const node = nativeTerminalNode("t1");
+      openTerminalSurface(node, "pinned");
+      openTerminalSurface(nativeTerminalNode("t2"), "pinned");
+      openTerminalSurface(node, "focus");
+      expect(dock$.registry.peek().surfaces.find((s) => s.id === terminalSurfaceId("t1"))?.zone).toBe("pinned");
+      expect(dock$.registry.peek().pinnedMru[0]).toBe(terminalSurfaceId("t1"));
+      expect(dock$.registry.peek().focusMru).toEqual([]);
+    });
+
+    it("closing the surface drops the terminal's view state, and the reverse", () => {
+      openTerminalSurface(nativeTerminalNode("t1"), "pinned");
+      closeWorkbenchSurface(terminalSurfaceId("t1"));
+      expect(terminal$.openByNodeId.peek()).toEqual({});
+
+      openTerminalSurface(nativeTerminalNode("t2"), "pinned");
+      closeTerminalView("t2");
+      expect(dock$.registry.peek().surfaces).toEqual([]);
+      expect(terminal$.openByNodeId.peek()).toEqual({});
+    });
+
+    it("pin, unpin, pin again leaves one surface in one zone each time", () => {
+      const id = terminalSurfaceId("t1");
+      openTerminalSurface(nativeTerminalNode("t1"));
+      for (const zone of ["pinned", "focus", "pinned"] as const) {
+        if (zone === "pinned") pinWorkbenchSurface(id);
+        else unpinWorkbenchSurface(id);
+        const registry = dock$.registry.peek();
+        expect(registry.surfaces).toEqual([{ id, kind: "terminal", zone }]);
+        expect(registry.pinnedMru).toEqual(zone === "pinned" ? [id] : []);
+        expect(registry.focusMru).toEqual(zone === "focus" ? [id] : []);
+      }
     });
   });
 

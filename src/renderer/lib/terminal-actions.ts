@@ -11,7 +11,8 @@ import { flushPendingCanvasSave } from "./mutations";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 import type { WorkZone } from "./surface-registry";
-import { openGridTerminalSurface, openTerminalSurface, terminal$ } from "./terminal-state";
+import { openTerminalSurface } from "./dock-state";
+import { openGridTerminalSurface, terminal$ } from "./terminal-state";
 
 const missingActorSurfaceMessage =
   "agent seat is incomplete — add an agent name, terminal binding, and harness";

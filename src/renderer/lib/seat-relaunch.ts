@@ -20,8 +20,8 @@ import {
   killTerminal,
   openTerminal,
 } from "./terminal-actions";
-import { closeTerminalSurface, terminal$ } from "./terminal-state";
-import { closeWorkbenchSurface, terminalSurfaceId } from "./dock-state";
+import { terminal$ } from "./terminal-state";
+import { closeTerminalView } from "./dock-state";
 
 /** How long a stopping harness gets before the restart is reported as stuck. */
 const EXIT_WAIT_MS = 15_000;
@@ -86,8 +86,7 @@ const restartRunningSeat = async (
   // The open surface would otherwise watch its own process die and offer a
   // reopen while this restart is already under way.
   if (surfaceWasOpen) {
-    closeWorkbenchSurface(terminalSurfaceId(node.id));
-    closeTerminalSurface(node.id);
+    closeTerminalView(node.id);
   }
 
   try {

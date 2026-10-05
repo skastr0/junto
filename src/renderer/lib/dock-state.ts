@@ -1,5 +1,6 @@
-import { observable, observe } from "@legendapp/state";
+import { observable } from "@legendapp/state";
 import type { CanvasNode, EtherBrowser } from "@shared/canvas";
+import { resolveTerminalBinding } from "@shared/terminal";
 import type {
   BrowserOpResult,
   BrowserSessionInfo,
@@ -34,11 +35,16 @@ import {
   type WorkZone,
 } from "./surface-registry";
 import { getJuntoApi } from "./junto-api";
-import { closeTerminalSurface, terminal$, terminalNodeIds } from "./terminal-state";
+import { dropTerminalView, terminal$ } from "./terminal-state";
 
-// Workbench side effects: pure transitions live in surface-registry.ts; this
-// module owns the observable + detach/stream cleanup. Every close DETACHES
-// only — warm browser sessions survive unless Stop Page is explicit.
+// The workbench: which surfaces are open, and whether each is in the focus
+// view or pinned to the dock. Pure transitions live in surface-registry.ts;
+// this module owns the one observable (dock$.registry) and is its only
+// writer: every open, close, pin and unpin of every kind of surface comes
+// through here, terminals included. Side effects of a close (browser detach,
+// dropping a terminal's view state) run from applyTransition and nowhere else.
+// Every close DETACHES only — warm browser sessions survive unless Stop Page
+// is explicit, and a terminal's process keeps running.
 
 export interface DockBrowserPayload {
   readonly nodeId: string;
@@ -159,10 +165,18 @@ const detachCurrentSession = (ref: string): void => {
     });
 };
 
-const clearStoppedSurface = (ref: string, observedSessionId: string | undefined): boolean => {
-  if (!clearBrowserSessionIfUnchanged(ref, observedSessionId)) return false;
+/**
+ * Remove a page surface whose runtime is already destroyed. The one close
+ * that must not detach: there is no session left to detach from.
+ */
+const removeStoppedBrowserSurface = (ref: string): void => {
   dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
   dock$.browserByRef[ref].delete();
+};
+
+const clearStoppedSurface = (ref: string, observedSessionId: string | undefined): boolean => {
+  if (!clearBrowserSessionIfUnchanged(ref, observedSessionId)) return false;
+  removeStoppedBrowserSurface(ref);
   return true;
 };
 
@@ -175,8 +189,7 @@ const forceClearStoppedSurface = (ref: string): void => {
   const current = browserSessionIdForRef(ref);
   clearBrowserSessionIfUnchanged(ref, current);
   browser$.sessionByRef[ref].delete();
-  dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
-  dock$.browserByRef[ref].delete();
+  removeStoppedBrowserSurface(ref);
 };
 
 /**
@@ -191,7 +204,7 @@ const applyTransition = (transition: WorkbenchTransition): void => {
       detachCurrentSession(closed.id);
     } else if (closed.kind === "terminal") {
       const nodeId = parseTerminalSurfaceId(closed.id);
-      if (nodeId) closeTerminalSurface(nodeId);
+      if (nodeId) dropTerminalView(nodeId);
     } else if (closed.kind === "chat") {
       // Closing a surface does not disconnect the ACP session. It only removes
       // the operator's current view, matching browser detach semantics.
@@ -397,48 +410,31 @@ export const closeDockBrowser = (ref: string): void => {
   applyTransition(closeSurface(dock$.registry.peek(), ref));
 };
 
-observe(() => {
-  terminal$.openByNodeId.get();
-  terminal$.openSeq.get();
-  const openIds = new Set(terminalNodeIds());
-  let registry = dock$.registry.peek();
-  for (const surface of registry.surfaces) {
-    if (surface.kind !== "terminal") continue;
-    const nodeId = parseTerminalSurfaceId(surface.id);
-    if (!nodeId || !openIds.has(nodeId)) registry = closeSurface(registry, surface.id).state;
-  }
-  for (const nodeId of openIds) {
-    // Grid-owned views live in the grid modal only; they never join the dock.
-    if (terminal$.gridOwnedByNodeId[nodeId].peek()) continue;
-    const id = terminalSurfaceId(nodeId);
-    // preferredZone is one-shot: apply once, then clear so a later sibling
-    // open / re-sync does not re-pin after the operator unpinned.
-    const preferred = terminal$.preferredZoneByNodeId[nodeId].peek();
-    const zone = preferred ?? "focus";
-    const existing = surfaceById(registry, id);
-    if (!existing) {
-      registry = openSurface(registry, { id, kind: "terminal" }, zone).state;
-    } else if (zone === "pinned" && existing.zone !== "pinned") {
-      // Open-pinned from the toolbar: move an already-open focus surface over.
-      registry = pinSurface(registry, id).state;
-    }
-    if (preferred !== undefined) {
-      terminal$.preferredZoneByNodeId[nodeId].delete();
-    }
-  }
-  // Promote exactly the requested surface, ONCE — a one-shot consumed like
-  // preferredZone. Replaying it on every pass yanked the front back over a
-  // manual tab click whenever any terminal opened or closed elsewhere, and
-  // could fire mid-teardown of a batch close. Peeked (untracked), so the
-  // consume does not re-trigger this observe; openTerminalSurface sets it
-  // before openByNodeId so the run this set triggers sees the fresh value.
-  const lastOpened = terminal$.lastOpenNodeId.peek();
-  if (lastOpened !== null && openIds.has(lastOpened)) {
-    registry = focusSurface(registry, terminalSurfaceId(lastOpened)).state;
-    terminal$.lastOpenNodeId.set(null);
-  }
-  dock$.registry.set(registry);
-});
+/**
+ * Open (or bring forward) a native terminal in the workbench. A view the grid
+ * owned moves into the workbench; the grid lets it go.
+ */
+export const openTerminalSurface = (
+  node: CanvasNode,
+  zone: WorkZone = "focus",
+  canvasName?: string,
+): void => {
+  if (resolveTerminalBinding(node)?.kind !== "native") return;
+  if (canvasName !== undefined) terminal$.canvasByNodeId[node.id].set(canvasName);
+  terminal$.gridOwnedByNodeId[node.id].delete();
+  terminal$.openByNodeId[node.id].set(node);
+  applyTransition(openSurface(dock$.registry.peek(), { id: terminalSurfaceId(node.id), kind: "terminal" }, zone));
+};
+
+/**
+ * Close one terminal's view wherever it lives: its workbench surface, or a
+ * grid cell that never joined the workbench. The process keeps running.
+ */
+export const closeTerminalView = (nodeId: string): void => {
+  const id = terminalSurfaceId(nodeId);
+  if (surfaceById(dock$.registry.peek(), id)) applyTransition(closeSurface(dock$.registry.peek(), id));
+  else dropTerminalView(nodeId);
+};
 
 export const pinWorkbenchSurface = (id: string): void => {
   applyTransition(pinSurface(dock$.registry.peek(), id));
@@ -477,10 +473,12 @@ export const setWorkbenchFocusSize = (
  * Close one workbench surface (view only). Browser closes detach over IPC;
  * terminal closes drop the view while the PTY keeps running.
  */
-/** Close every workbench surface so a crashed view remounts empty. */
+/** Close every surface and every terminal view so a crashed view remounts empty. */
 export const closeAllWorkbenchSurfaces = (): void => {
   const ids = dock$.registry.peek().surfaces.map((surface) => surface.id);
   for (const id of ids) closeWorkbenchSurface(id);
+  // Views the grid owned never joined the registry.
+  for (const nodeId of Object.keys(terminal$.openByNodeId.peek())) dropTerminalView(nodeId);
 };
 
 export const closeWorkbenchSurface = (id: string): void => {

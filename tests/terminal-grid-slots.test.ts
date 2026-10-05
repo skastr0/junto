@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
-import { dock$, terminalSurfaceId } from "../src/renderer/lib/dock-state";
+import { closeAllWorkbenchSurfaces, dock$, openTerminalSurface, terminalSurfaceId } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
 import {
-  closeAllTerminalSurfaces,
   closeGridTerminalSurfaces,
   openGridTerminalSurface,
-  openTerminalSurface,
   registerGridTerminalSlot,
   registerTerminalSlot,
   setGridTerminalCell,
@@ -38,7 +36,7 @@ afterEach(() => {
     registerTerminalSlot(id, null);
   }
   closeGridTerminalSurfaces();
-  closeAllTerminalSurfaces();
+  closeAllWorkbenchSurfaces();
   dock$.registry.set(initialWorkbenchState());
 });
 

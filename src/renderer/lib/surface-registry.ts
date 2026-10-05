@@ -134,8 +134,10 @@ export const visiblePanes = (state: WorkbenchState, zone: WorkZone): VisiblePane
 
 /**
  * Open (or re-focus) a surface into a zone. Default zone is focus.
- * Re-requesting an already-open surface moves it to the front of its current
- * zone MRU (zone argument ignored when already open, unless kinds clash).
+ * One rule for a surface that is already open, whatever its kind: it comes to
+ * the front of the zone it is in; a request for the pinned zone also moves it
+ * there. A request for focus never pulls a pinned surface out of the dock:
+ * only Unpin does that.
  * Multiple browser surfaces coexist — no global interactive eviction.
  */
 export const openSurface = (
@@ -145,6 +147,7 @@ export const openSurface = (
 ): WorkbenchTransition => {
   const existing = surfaceById(state, surface.id);
   if (existing && existing.kind === surface.kind) {
+    if (zone === "pinned" && existing.zone === "focus") return pinSurface(state, existing.id);
     // Re-focus: bring to front of its current zone.
     const z = existing.zone;
     return {

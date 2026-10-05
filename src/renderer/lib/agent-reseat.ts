@@ -13,10 +13,9 @@ import {
 } from "./node-factories";
 import { applyManagedAgentReseat } from "./mutations";
 import { killTerminal, openTerminal } from "./terminal-actions";
-import { closeTerminalSurface, terminal$ } from "./terminal-state";
+import { terminal$ } from "./terminal-state";
 import {
-  closeWorkbenchSurface,
-  terminalSurfaceId,
+  closeTerminalView,
 } from "./dock-state";
 
 /** Process-local only — resets on app restart. */
@@ -81,8 +80,7 @@ export const performManagedAgentReseat = async (
 
   // Drop open surface before binding id changes so attach cannot race.
   if (surfaceWasOpen) {
-    closeWorkbenchSurface(terminalSurfaceId(node.id));
-    closeTerminalSurface(node.id);
+    closeTerminalView(node.id);
   }
 
   let next: TextNode;
