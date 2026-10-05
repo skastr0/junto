@@ -30,6 +30,7 @@ import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
+import { installFocusSwitcherHotkeys } from "./lib/focus-switcher";
 import { KEY_ACTIONS } from "./lib/key-actions";
 import { installKeyDispatcher } from "./lib/key-dispatcher";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
@@ -459,6 +460,8 @@ export function App() {
 
   // Every app shortcut: one listener, resolved against the key table.
   useEffect(() => installKeyDispatcher(KEY_ACTIONS), []);
+  // Control+Tab cycles focus models without closing the modal.
+  useEffect(() => installFocusSwitcherHotkeys(), []);
 
   // Command bar "Open canvas" action — one-shot request consumed here so the
   // readCanvas + loadDoc flow keeps its single owner in App.
