@@ -338,6 +338,33 @@ test("a dialog opened from a working modal sits above it, under the operator mod
   await expect(launchTab, "the last Escape closes the working modal").not.toBeVisible();
 });
 
+test("Escape closes only the dialog even while focus sits in the working modal under it", async ({ junto }) => {
+  const { page } = junto;
+  await expect(page.locator('.react-flow__node[data-id="seat-ada"]')).toBeVisible({ timeout: 30_000 });
+  await fitBoard(page);
+
+  await seatMenu(page, "seat-ada");
+  await page.getByRole("button", { name: "Edit soul and instructions" }).click();
+  await expect(page.getByTestId("agent-editor-soul")).toBeVisible();
+  const launchTab = page.getByRole("tab", { name: "launch" });
+  await launchTab.click();
+  await page.getByRole("button", { name: "Save as profile" }).click();
+  const dialog = page.getByRole("dialog", { name: "Save as profile" });
+  await expect(dialog).toBeVisible();
+
+  // Put focus back in the editor, under the dialog, the way a late focus
+  // call or a screen reader jump can. The dialog is still the topmost modal.
+  await launchTab.evaluate((el) => (el as HTMLElement).focus());
+  expect(await launchTab.evaluate((el) => el === document.activeElement)).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(launchTab, "the editor under the dialog stays open").toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(launchTab, "the next Escape closes the editor").not.toBeVisible();
+});
+
 test("cmd+K then cmd+I swaps: one operator modal, never two", async ({ junto }) => {
   const { page } = junto;
   await mkdir(SHOTS, { recursive: true });
