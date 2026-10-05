@@ -101,6 +101,21 @@ test("the needs-you feed previews the files a signal names", async () => {
     state: "open",
   };
 
+  // Two more cards for the strip's shapes: a plain pair, and seven that fold into "+3".
+  const many = ["one", "two", "three", "four", "five", "six", "seven"];
+  for (const [index, name] of many.entries()) {
+    await writeFile(at(`${name}.png`), png(400, 300, [60 + index * 25, 120, 200 - index * 20], 40 * index));
+  }
+  const extra = (signalId: string, text: string, names: ReadonlyArray<string>): AgentSignal => ({
+    ...signal,
+    signalId,
+    text,
+    detail: names.map((name) => at(`${name}.png`)).join("\n"),
+    createdAt: signal.createdAt - 60_000,
+  });
+  const pairSignal = extra("sig-pair", "Two screenshots of the settings page.", many.slice(0, 2));
+  const manySignal = extra("sig-many", "Seven screenshots of the onboarding tour.", many);
+
   const junto = await launchJunto({
     seedCanvases: {
       [CANVAS]: canvasDoc(
@@ -108,7 +123,7 @@ test("the needs-you feed previews the files a signal names", async () => {
         [],
       ),
     },
-    seedAgentSignals: [signal],
+    seedAgentSignals: [signal, pairSignal, manySignal],
   });
   try {
     const { page } = junto;
@@ -152,6 +167,45 @@ test("the needs-you feed previews the files a signal names", async () => {
     await expect(thumbs.nth(1)).toContainText("B");
     await expect(strip).toContainText("cleaned-up.png, file not found");
     await page.screenshot({ path: join(SHOTS, "card-details-dark.png") });
+
+    // A pair with no labels wears no tags; seven fold into four and "+3", which opens the fifth.
+    const pairCard = feed.locator("[data-item-id='signal:sig-pair']");
+    await pairCard.getByRole("button", { name: "Details" }).click();
+    await expect(pairCard.getByTestId("preview-thumbnail")).toHaveCount(2);
+    await expect(pairCard.getByTestId("preview-strip")).not.toContainText("A");
+    const manyCard = feed.locator("[data-item-id='signal:sig-many']");
+    await manyCard.getByRole("button", { name: "Details" }).click();
+    await expect(manyCard.getByTestId("preview-thumbnail")).toHaveCount(4);
+    await manyCard.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(SHOTS, "cards-two-and-seven-dark.png") });
+    await manyCard.getByRole("button", { name: "3 more" }).click();
+    await expect(page.getByTestId("preview-viewer-title")).toHaveText("five.png");
+    await expect(page.getByTestId("preview-viewer-status")).toContainText("5 of 7");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("preview-viewer")).toHaveCount(0);
+
+    // The same surfaces in the bright edition, for the design review.
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
+    await page.screenshot({ path: join(SHOTS, "cards-two-and-seven-bright.png") });
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(SHOTS, "card-details-bright.png") });
+    await thumbs.nth(2).click();
+    await expect(page.getByTestId("preview-viewer-title")).toHaveText("rail-expanded.png");
+    await page.mouse.move(4, 700);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: join(SHOTS, "viewer-tall-bright.png") });
+    await page.keyboard.press("c");
+    await expect(page.getByTestId("preview-compare").locator("img")).toHaveCount(2);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: join(SHOTS, "compare-side-bright.png") });
+    await page.getByTestId("preview-viewer").getByRole("button", { name: "Swipe" }).click();
+    await expect(page.getByTestId("preview-compare").getByRole("slider")).toBeVisible();
+    await page.screenshot({ path: join(SHOTS, "compare-swipe-bright.png") });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("preview-viewer")).toHaveCount(0);
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+    await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
 
     // Main serves nothing the signal does not name.
     const refused = await page.evaluate(
