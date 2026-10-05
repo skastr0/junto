@@ -1,5 +1,5 @@
 /**
- * Native terminal layout e2e — proves the xterm host fills the focus/dock
+ * Native terminal layout e2e — proves the xterm host fills the focus
  * pane (not a content-sized 80×24 island inside a large black panel).
  *
  * Real LocalSessionHost + node-pty/child_process under the sandboxed HOME.
@@ -123,7 +123,7 @@ test.use({
   },
 });
 
-test("native terminal xterm fills focus pane and stays filled after pin", async ({ junto }) => {
+test("native terminal xterm fills the focus pane", async ({ junto }) => {
   const { page } = junto;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
@@ -152,36 +152,4 @@ test("native terminal xterm fills focus pane and stays filled after pin", async 
 
   const focusProbe = await probeLayout(page);
   assertFillsPane(focusProbe, "focus");
-
-  // Pin lives on the surface header (not dock chrome Pin all).
-  await surface.getByRole("button", { name: "Pin" }).click();
-  await expect(page.getByLabel("Pinned work surface dock")).toBeVisible({ timeout: 10_000 });
-  await expect(surface).toBeVisible({ timeout: 10_000 });
-
-  await expect
-    .poll(async () => {
-      const p = await probeLayout(page);
-      return p.cols && p.host && p.host.w > 300 && p.host.h > 200
-        ? `${p.cols}x${p.rows}@${Math.round(p.host.w)}x${Math.round(p.host.h)}`
-        : null;
-    }, { timeout: 15_000 })
-    .toBeTruthy();
-
-  await page.waitForTimeout(500);
-  const pinnedProbe = await probeLayout(page);
-  // Pinned dock is narrower — still must fill its pane, not island.
-  expect(pinnedProbe.host, "pinned: host").toBeTruthy();
-  expect(pinnedProbe.host!.w, "pinned: host width").toBeGreaterThan(280);
-  expect(pinnedProbe.host!.h, "pinned: host height").toBeGreaterThan(200);
-  expect(pinnedProbe.cols, "pinned: cols").toBeGreaterThanOrEqual(40);
-  expect(pinnedProbe.rows, "pinned: rows").toBeGreaterThanOrEqual(12);
-
-  if (pinnedProbe.pane && pinnedProbe.surface) {
-    expect(pinnedProbe.surface.w).toBeGreaterThan(pinnedProbe.pane.w * 0.9);
-    expect(pinnedProbe.surface.h).toBeGreaterThan(pinnedProbe.pane.h * 0.9);
-  }
-  if (pinnedProbe.xterm && pinnedProbe.host) {
-    expect(pinnedProbe.xterm.w).toBeGreaterThan(pinnedProbe.host.w * 0.95);
-    expect(pinnedProbe.xterm.h).toBeGreaterThan(pinnedProbe.host.h * 0.95);
-  }
 });

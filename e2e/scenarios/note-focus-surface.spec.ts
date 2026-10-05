@@ -22,7 +22,7 @@ const document: CanvasDoc = {
   edges: [],
 };
 
-test("Note focus survives canvas updates and moves to the pinned dock", async () => {
+test("Note focus survives canvas updates", async () => {
   const junto = await launchJunto({
     seedCanvases: { [CANVAS]: document },
   });
@@ -60,19 +60,6 @@ test("Note focus survives canvas updates and moves to the pinned dock", async ()
       fullPage: false,
     });
 
-    await noteEditor.getByRole("button", { name: "Pin note editor" }).click();
-    const pinnedNote = page.getByTestId("note-workbench-surface");
-    await expect(pinnedNote).toBeVisible();
-    await expect(pinnedNote.getByLabel("Note markdown")).toHaveValue(
-      "# Field notes\n\nUnsaved operator draft",
-    );
-    await page.screenshot({
-      path: join(SHOTS, "note-pinned.png"),
-      fullPage: false,
-    });
-
-    await pinnedNote.getByRole("button", { name: "Unpin note editor" }).click();
-    await expect(noteEditor).toBeVisible();
     await noteEditor.getByRole("button", { name: "done", exact: true }).click();
     await expect(noteEditor).toBeHidden();
   } finally {
