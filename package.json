@@ -38,6 +38,7 @@
     "lint:focus-law": "bun scripts/lint-focus-law.ts",
     "lint:overlay": "bun scripts/lint-overlay.ts",
     "lint:design-tokens": "bun scripts/lint-design-tokens.ts",
+    "tokens:convert": "bun scripts/design-token-codemod.ts",
     "check:overlay-bundle": "bun scripts/lint-overlay.ts --bundle",
     "test": "JUNTO_TEST_FEATURE_PROFILE=all-on bun scripts/run-unit-tests.ts",
     "test:features:ship": "JUNTO_TEST_FEATURE_PROFILE=ship vitest run tests/features-build-profile.test.ts tests/features-*-gate.test.ts tests/features-ui-gates.test.ts",
