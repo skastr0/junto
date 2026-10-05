@@ -2,8 +2,10 @@ import { cycleActorMirror } from "./actor-mirrors";
 import { cycleAlertFocus } from "./alert-attention";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
 import { dock$ } from "./dock-state";
+import { cancelFocusSwitcher } from "./focus-switcher";
 import type { KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
+import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 
 // A browser page in front owns Cmd+Z: it never edits the canvas behind it.
 const browserPageInFront = (): boolean => {
@@ -12,12 +14,25 @@ const browserPageInFront = (): boolean => {
   return front?.kind === "browser" && front.zone === "focus";
 };
 
+// The switcher is an operator surface too: one at a time.
+const toggleOperator = (id: OperatorModalId): void => {
+  cancelFocusSwitcher();
+  toggleOperatorModal(id);
+};
+
 /**
  * What each shortcut in the key table does. The table says which keys and
  * where; this says what happens. Nothing else in the app listens for an app
  * shortcut.
  */
 export const KEY_ACTIONS: KeyActions = {
+  // A modal's own chord closes it; the other's swaps to it.
+  "search.open": () => toggleOperator("search"),
+  "feed.open": () => toggleOperator("feed"),
+  "search.slash": () => {
+    cancelFocusSwitcher();
+    openOperatorModal("search");
+  },
   "groups.assign": ({ digit }) => assignSelectionToSlot(digit! - 1),
   // An empty slot takes nothing: the digit passes.
   "groups.recall": ({ digit }) => recallSlot(digit! - 1),

@@ -7,8 +7,8 @@ import {
 } from "../../shared/key-table";
 import { dock$ } from "./dock-state";
 import { isOperatorTyping } from "./focus-ownership";
-import { isModalLayerOpen } from "./modal-stack";
-import { isOperatorModalOpen, TERMINAL_SELECTOR } from "./operator-modal";
+import { frontModalLayer } from "./modal-stack";
+import { isOperatorModalOpen } from "./operator-modal";
 import { isMac } from "./platform";
 import { state$ } from "./state";
 
@@ -21,6 +21,10 @@ import { state$ } from "./state";
  * field. A key the table does not name, and a shortcut whose action had
  * nothing to do, pass through untouched.
  */
+
+// Mirrors the terminal entries of OPERATOR_TYPING_SELECTOR (focus-ownership);
+// a test holds the two together.
+export const TERMINAL_SELECTOR = ".xterm, .native-terminal-surface, [data-terminal-surface]";
 
 /** Runs a shortcut. Return false when there was nothing to do: the key passes. */
 export type KeyAction = (hit: KeyHit, event: KeyboardEvent) => boolean | void;
@@ -48,9 +52,7 @@ export const keyContextOf = (place: KeyPlace): KeyContext => {
 
 const workingModalOpen = (): boolean =>
   state$.settingsOpen.peek() ||
-  dock$.registry.surfaces.peek().some((surface) => surface.zone === "focus") ||
-  isModalLayerOpen("working") ||
-  isModalLayerOpen("working-dialog");
+  dock$.registry.surfaces.peek().some((surface) => surface.zone === "focus");
 
 type Closest = { readonly closest?: (selector: string) => unknown };
 
@@ -61,14 +63,15 @@ export const keySituation = (target: EventTarget | null): KeySituation => {
     typing && typeof (target as Closest | null)?.closest === "function"
       ? (target as Closest).closest!(TERMINAL_SELECTOR) != null
       : false;
+  const front = frontModalLayer();
   return {
     mac: isMac(),
     typing,
     context: keyContextOf({
-      operator: isOperatorModalOpen() || isModalLayerOpen("operator"),
+      operator: isOperatorModalOpen() || front === "operator" || front === "operator-dialog",
       terminal,
       typing,
-      working: workingModalOpen(),
+      working: front !== null || workingModalOpen(),
     }),
   };
 };

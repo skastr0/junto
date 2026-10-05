@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { dispatchKey, keyContextOf, type KeyActions } from "../src/renderer/lib/key-dispatcher";
+import { OPERATOR_TYPING_SELECTOR } from "../src/renderer/lib/focus-ownership";
+import {
+  TERMINAL_SELECTOR,
+  dispatchKey,
+  keyContextOf,
+  type KeyActions,
+} from "../src/renderer/lib/key-dispatcher";
 import type { KeyContext, KeySituation } from "../src/shared/key-table";
 
 const press = (over: Partial<KeyboardEvent> & { key: string }) => {
@@ -111,5 +117,12 @@ describe("dispatchKey", () => {
     const event = press({ key: "k", metaKey: true });
     expect(dispatchKey(event, {}, at("canvas"))).toBeNull();
     expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe("terminal selector", () => {
+  it("names only surfaces the typing guard already knows", () => {
+    const typing = OPERATOR_TYPING_SELECTOR.split(", ");
+    for (const selector of TERMINAL_SELECTOR.split(", ")) expect(typing).toContain(selector);
   });
 });

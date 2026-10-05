@@ -5,8 +5,9 @@ import { observable } from "@legendapp/state";
  * working modal (search, the needs-you feed). One slot holds the open one, so
  * opening a second swaps it and two never stack.
  *
- * The host (OperatorModalHost) owns the chords and renders the slot; the
- * shell (OperatorModalShell) owns the frame, focus and Escape.
+ * The host (OperatorModalHost) renders the slot; the shell
+ * (OperatorModalShell) owns the frame, focus and Escape. The chords that open
+ * them are in the key table.
  */
 
 export type OperatorModalId = "search" | "feed";
@@ -55,54 +56,6 @@ export const closeOperatorModal = (id?: OperatorModalId): void => {
 export const toggleOperatorModal = (id: OperatorModalId): void => {
   if (operatorModal$.open.peek() === id) closeOperatorModal();
   else openOperatorModal(id);
-};
-
-// Mirrors the terminal entries of OPERATOR_TYPING_SELECTOR (focus-ownership);
-// a test holds the two together.
-export const TERMINAL_SELECTOR = ".xterm, .native-terminal-surface, [data-terminal-surface]";
-
-export type OperatorChordKey = Pick<
-  KeyboardEvent,
-  "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "repeat" | "isComposing"
->;
-
-export type OperatorChordContext = {
-  readonly mac: boolean;
-  /** Focus is in a field the operator types in (terminals included). */
-  readonly typing: boolean;
-  /** Focus is in a terminal. */
-  readonly terminal: boolean;
-};
-
-const CHORD_KEYS: Readonly<Record<string, OperatorModalId>> = { k: "search", i: "feed" };
-
-/**
- * The one keyboard rule for opening operator modals.
- *
- * - macOS: Cmd+K and Cmd+I, from anywhere, a terminal or a text field
- *   included. Ctrl chords are never taken: they belong to the shell and to
- *   the field (Ctrl+K kills to the end of the line).
- * - Elsewhere there is no Cmd: Ctrl+K and Ctrl+I, anywhere but a terminal.
- * - Exactly one modifier: with Shift or Alt the chord is someone else's.
- * - A bare "/" opens search, only while the operator is not typing.
- */
-export const operatorModalForKey = (
-  event: OperatorChordKey,
-  context: OperatorChordContext,
-): OperatorModalId | null => {
-  if (event.repeat || event.isComposing || event.altKey) return null;
-  const meta = event.metaKey && !event.ctrlKey;
-  const ctrl = event.ctrlKey && !event.metaKey;
-  if (meta || ctrl) {
-    if (event.shiftKey) return null;
-    const id = CHORD_KEYS[event.key.toLowerCase()];
-    if (!id) return null;
-    if (context.mac) return meta ? id : null;
-    return ctrl && !context.terminal ? id : null;
-  }
-  if (event.metaKey || event.ctrlKey) return null;
-  if (event.key === "/" && !context.typing) return "search";
-  return null;
 };
 
 /**

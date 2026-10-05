@@ -116,6 +116,14 @@ describe("the key table on macOS", () => {
     }
   });
 
+  it("keeps the slash out of the way of chords, and reads it on layouts where it needs Shift", () => {
+    expect(resolveKey(key({ key: "/", metaKey: true }), at("canvas"))).toBeNull();
+    expect(resolveKey(key({ key: "/", altKey: true }), at("canvas"))).toBeNull();
+    expect(resolveKey(key({ key: "/", shiftKey: true }), at("canvas"))).toEqual({ id: "search.slash" });
+    expect(resolveKey(key({ key: "/" }), at("field"))).toBeNull();
+    expect(resolveKey(key({ key: "/" }), at("terminal"))).toBeNull();
+  });
+
   it("saves a command group with Cmd and a digit, and recalls it with the digit, on the canvas only", () => {
     expect(resolveKey(key({ key: "3", code: "Digit3", metaKey: true }), at("canvas"))).toEqual({
       id: "groups.assign",
@@ -190,6 +198,11 @@ describe("the key table off macOS", () => {
     }
     expect(resolveKey(key({ key: "k", ctrlKey: true }), at("terminal", false))).toBeNull();
     expect(resolveKey(key({ key: "i", ctrlKey: true }), at("terminal", false))).toBeNull();
+  });
+
+  it("does not take the Super key", () => {
+    expect(resolveKey(key({ key: "k", metaKey: true }), at("canvas", false))).toBeNull();
+    expect(resolveKey(key({ key: "i", metaKey: true }), at("canvas", false))).toBeNull();
   });
 
   it("takes nothing from a terminal", () => {
