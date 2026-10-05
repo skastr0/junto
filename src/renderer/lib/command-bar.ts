@@ -1,6 +1,6 @@
 import { batch } from "@legendapp/state";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { regionStack } from "@shared/graph";
+import { regionDisplayName, regionStack } from "@shared/graph";
 import { roleOf } from "@shared/physics";
 import { touchActiveMru } from "./hotbar-slots";
 import { specOf } from "./node-spec";
@@ -45,18 +45,15 @@ export interface CommandBarMatch {
 
 /**
  * Each node's region path, outermost to innermost ("Junto / PTY / mail"),
- * read from the one membership predicate (regionStack). Unnamed regions are
- * left out; a node inside no named region has no entry. Built once per doc
- * revision, never per keystroke.
+ * read from the one membership predicate (regionStack). Every containing
+ * region appears, an unnamed one by its placeholder; a node inside no region
+ * has no entry. Built once per doc revision, never per keystroke.
  */
 export const commandBarRegionPaths = (doc: CanvasDoc): ReadonlyMap<string, string> => {
   const paths = new Map<string, string>();
   for (const node of doc.nodes) {
-    const names = regionStack(doc, node.id).flatMap((region) => {
-      const name = region.label?.trim();
-      return name ? [name] : [];
-    });
-    if (names.length > 0) paths.set(node.id, names.join(" / "));
+    const stack = regionStack(doc, node.id);
+    if (stack.length > 0) paths.set(node.id, stack.map(regionDisplayName).join(" / "));
   }
   return paths;
 };

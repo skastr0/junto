@@ -99,6 +99,17 @@ const isFullyContained = (group: GroupNode, rect: RegionRect): boolean =>
  */
 export const MAX_REGION_DEPTH = 8;
 
+/** What a region with an empty label is called, everywhere it is named. */
+export const UNNAMED_REGION = "unnamed region";
+
+/**
+ * A region's display name: its trimmed label, or the one placeholder when the
+ * label is empty. An unnamed region is still a region, so region paths,
+ * rollups and titles all name it here and never leave it out.
+ */
+export const regionDisplayName = (group: GroupNode): string =>
+  group.label?.trim() || UNNAMED_REGION;
+
 /**
  * Every group whose rect fully contains the target rect, sorted
  * area-descending (outer → inner; equal area ties break on node id).

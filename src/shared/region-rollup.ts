@@ -7,7 +7,7 @@ import {
   type LiveTrustViews,
   type WorkBlockedSeat,
 } from "./execution-graph";
-import { groupMembers, isGroup } from "./graph";
+import { groupMembers, isGroup, regionDisplayName } from "./graph";
 import { resolveSpec } from "./physics";
 import { requestsNodeName } from "./requests-node-identity";
 import { boardNodeName } from "./board-node-identity";
@@ -62,7 +62,7 @@ export type MemberStatus = typeof MemberStatus.Type;
 
 export const RegionRollup = Schema.Struct({
   regionId: Schema.String,
-  // Group label trimmed; "unnamed region" when blank/absent.
+  // The region's display name (regionDisplayName): never empty.
   label: Schema.String,
   // Worst member severity; "idle" for an empty region.
   severity: MemberSeverity,
@@ -167,8 +167,6 @@ const titleOf = (node: CanvasNode): string => {
       return node.label ?? node.id;
   }
 };
-
-const regionLabel = (group: GroupNode): string => (group.label ?? "").trim() || "unnamed region";
 
 const deriveMember = (
   node: CanvasNode,
@@ -305,7 +303,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
     );
     rollups.push({
       regionId: node.id,
-      label: regionLabel(node),
+      label: regionDisplayName(node),
       severity: members[0]?.severity ?? "idle",
       counts: countBySeverity(members),
       members,

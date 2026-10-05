@@ -8,7 +8,7 @@ import {
   deriveExecutionGraph,
   type LiveTrustViews,
 } from "./execution-graph";
-import { groupMembers, isGroup } from "./graph";
+import { groupMembers, isGroup, regionDisplayName } from "./graph";
 import {
   formatRankedStoppageLine,
   rankStoppageSeeds,
@@ -75,11 +75,6 @@ const titleOf = (node: CanvasNode): string => {
       return node.label ?? node.id;
   }
 };
-
-// Region naming follows the rollup convention (trimmed label, human
-// fallback) so the regions and region rollups sections name a region the
-// same way. titleOf's group branch stays for member/edge contexts.
-const regionTitle = (group: GroupNode): string => (group.label ?? "").trim() || "unnamed region";
 
 const formatStats = (stats: Record<string, string | number>): string => {
   const parts = Object.keys(stats)
@@ -156,7 +151,7 @@ export const digestCanvas = (
     const regionLines = ["regions"];
     for (const group of groups) {
       const memberTitles = (members.get(group.id) ?? []).map(titleForId);
-      regionLines.push(`${regionTitle(group)} :: ${memberTitles.join(", ")}`);
+      regionLines.push(`${regionDisplayName(group)} :: ${memberTitles.join(", ")}`);
     }
     sections.push(regionLines);
   }

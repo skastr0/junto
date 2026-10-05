@@ -154,10 +154,25 @@ describe("command bar region paths", () => {
   ];
   const paths = commandBarRegionPaths({ nodes, edges: [] });
 
-  it("reads outermost to innermost and skips unnamed regions", () => {
-    expect(paths.get("deep")).toBe("Junto / PTY / mail");
+  it("reads outermost to innermost and names an unnamed region by its placeholder", () => {
+    expect(paths.get("deep")).toBe("Junto / PTY / unnamed region / mail");
     expect(paths.get("shallow")).toBe("Junto");
-    expect(paths.get("inner")).toBe("Junto / PTY");
+    expect(paths.get("inner")).toBe("Junto / PTY / unnamed region");
+  });
+
+  it("a node inside only an unnamed region still shows it", () => {
+    const lone = commandBarRegionPaths({
+      nodes: [box("blank", undefined, 0, 0, 100), at("n", "note", 10, 10)],
+      edges: [],
+    });
+    expect(lone.get("n")).toBe("unnamed region");
+  });
+
+  it("a labelled region never reads as the placeholder", () => {
+    const labels = ["PTY", "  padded  ", "0", "x", "Unnamed", "région été"];
+    const regions = labels.map((label, i) => box(`g${String(i)}`, label, i, i, 1000 - i * 2));
+    const labelled = commandBarRegionPaths({ nodes: [...regions, at("n", "note", 400, 400)], edges: [] });
+    expect(labelled.get("n")).toBe(labels.map((label) => label.trim()).join(" / "));
   });
 
   it("gives no entry to a node outside every region", () => {

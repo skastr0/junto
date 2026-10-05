@@ -4,9 +4,29 @@ import {
   actorRefResolverFromProjection,
   childRegions,
   groupMembers,
+  regionDisplayName,
   regionStack,
+  UNNAMED_REGION,
 } from "../src/shared/graph";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
+
+describe("regionDisplayName", () => {
+  const group = (label?: string) =>
+    ({ id: "g", type: "group", x: 0, y: 0, width: 10, height: 10, ...(label === undefined ? {} : { label }) }) as const;
+
+  it("is the trimmed label whenever the label has any text", () => {
+    for (const label of ["PTY", "  forge  ", "0", "x", "false", "unnamed", "\tOps\n"]) {
+      expect(regionDisplayName(group(label))).toBe(label.trim());
+      expect(regionDisplayName(group(label))).not.toBe(UNNAMED_REGION);
+    }
+  });
+
+  it("is the one placeholder only when the label is absent, empty or blank", () => {
+    for (const label of [undefined, "", "   ", "\n\t"]) {
+      expect(regionDisplayName(group(label))).toBe("unnamed region");
+    }
+  });
+});
 
 describe("graph derivations", () => {
   it("groupMembers includes a node whose center is inside the group and excludes one outside", () => {

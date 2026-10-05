@@ -1,4 +1,5 @@
 import type { CanvasNode } from "@shared/canvas";
+import { regionDisplayName } from "@shared/graph";
 import { requestsNodeName } from "@shared/requests-node-identity";
 import { boardNodeName } from "@shared/board-node-identity";
 
@@ -59,7 +60,7 @@ export const nodeTitle = (node: CanvasNode): string => {
   if (node.type === "link") {
     try { return new URL(node.url).host; } catch { return node.url; }
   }
-  return node.label ?? "region";
+  return regionDisplayName(node);
 };
 
 export const nodeDetail = (node: CanvasNode): string => {
