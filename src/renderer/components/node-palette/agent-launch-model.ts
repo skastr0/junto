@@ -17,6 +17,8 @@ export type AgentConfigurationChoices = {
   /** Named agent mode for harnesses whose one dial is a mode (Amp). */
   readonly mode?: string;
   readonly permissionMode?: string;
+  /** Extra harness arguments beyond the dials. */
+  readonly extraArgs?: readonly string[];
 };
 
 /**
@@ -31,6 +33,7 @@ export const withHarnessSettingsDefaults = (
     model: choices.model,
     effort: choices.effort,
     permissionMode: choices.permissionMode,
+    extraArgs: choices.extraArgs,
   });
   return {
     ...choices,

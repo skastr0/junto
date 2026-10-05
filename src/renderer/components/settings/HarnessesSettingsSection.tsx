@@ -5,7 +5,17 @@
 import { use$ } from "@legendapp/state/react";
 import { useCallback, useEffect, useState } from "react";
 import type { HarnessId } from "@shared/managed-terminal-templates";
-import { isSandboxGatedPermissionMode, templateFor } from "@shared/managed-terminal-templates";
+import {
+  isHarnessId,
+  isSandboxGatedPermissionMode,
+  templateFor,
+} from "@shared/managed-terminal-templates";
+import {
+  formatExtraArgs,
+  parseExtraArgsText,
+  sanitizeExtraArgs,
+  type HarnessHelpFlag,
+} from "@shared/launch-extra-args";
 import type {
   ManagedTerminalHarnessOption,
   ManagedTerminalModelOption,
@@ -15,7 +25,7 @@ import { HUE, INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { patchSettings, resetSettings } from "../../lib/settings-state";
 import { getJuntoApi } from "../../lib/junto-api";
-import { Button, Select } from "../ui";
+import { Button, Input, Select } from "../ui";
 
 type HarnessScan = ManagedTerminalHarnessOption & {
   readonly models: readonly ManagedTerminalModelOption[];
@@ -88,6 +98,7 @@ export function HarnessesSettingsSection() {
       model?: string;
       effort?: string;
       permissionMode?: string;
+      extraArgs?: readonly string[];
     },
   ): void => {
     void patchSettings({
@@ -288,11 +299,117 @@ export function HarnessesSettingsSection() {
                     />
                   </span>
                 </label>
+
+                {isHarnessId(row.harness) ? (
+                  <ExtraArgsField
+                    harness={row.harness}
+                    displayName={row.displayName}
+                    disabled={!row.installed}
+                    stored={prefs.extraArgs}
+                    onCommit={(extraArgs) => patchHarness(row.harness, { extraArgs })}
+                  />
+                ) : null}
               </li>
             );
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * Extra arguments every new seat of this harness starts with, plus the
+ * options the installed harness lists so they can be picked instead of
+ * remembered. Commits on blur; an existing seat keeps its own arguments and
+ * is edited from the seat (Start parameters).
+ */
+function ExtraArgsField({
+  harness,
+  displayName,
+  disabled,
+  stored,
+  onCommit,
+}: {
+  readonly harness: HarnessId;
+  readonly displayName: string;
+  readonly disabled: boolean;
+  readonly stored: readonly string[] | undefined;
+  readonly onCommit: (extraArgs: readonly string[]) => void;
+}) {
+  const storedText = formatExtraArgs(stored);
+  const [text, setText] = useState(storedText);
+  const [flags, setFlags] = useState<readonly HarnessHelpFlag[] | null>(null);
+  useEffect(() => {
+    setText(storedText);
+  }, [storedText]);
+  const sanitized = sanitizeExtraArgs(harness, parseExtraArgsText(text));
+
+  const commit = (next: string): void => {
+    const args = sanitizeExtraArgs(harness, parseExtraArgsText(next)).args;
+    if (formatExtraArgs(args) !== storedText) onCommit(args);
+  };
+  const loadFlags = (): void => {
+    if (flags !== null) return;
+    const load = getJuntoApi()?.managedTerminalFlags?.(harness);
+    if (!load) {
+      setFlags([]);
+      return;
+    }
+    void load.then((result) => setFlags(result.flags)).catch(() => setFlags([]));
+  };
+  const add = (flag: HarnessHelpFlag): void => {
+    const addition = flag.value ? `${flag.flag} ` : flag.flag;
+    const next = text.trim().length > 0 ? `${text.trim()} ${addition}` : addition;
+    setText(next);
+    if (!flag.value) commit(next);
+  };
+
+  return (
+    <div className="settings-field">
+      <span className="settings-field__label">
+        <span>Default extra arguments</span>
+      </span>
+      <span className="settings-field__control">
+        <Input
+          value={text}
+          disabled={disabled}
+          placeholder="--flag value"
+          aria-label={`${displayName} default extra arguments`}
+          spellCheck={false}
+          onChange={(event) => setText(event.target.value)}
+          onBlur={() => commit(text)}
+        />
+        {sanitized.rejected.map((item, index) => (
+          <span key={`${item.token}-${index}`} className="settings-field__hint" role="alert">
+            {item.token} is left out: {item.reason}.
+          </span>
+        ))}
+        {disabled ? null : (
+          <details onToggle={(event) => (event.currentTarget.open ? loadFlags() : undefined)}>
+            <summary className="settings-field__hint">Options {displayName} accepts</summary>
+            {flags === null ? (
+              <span className="settings-field__hint">Reading the installed harness…</span>
+            ) : flags.length === 0 ? (
+              <span className="settings-field__hint">The installed harness listed no options.</span>
+            ) : (
+              <ul className="settings-harness-flags" aria-label={`${displayName} options`}>
+                {flags.map((flag) => (
+                  <li key={flag.flag}>
+                    <button type="button" title={`Add ${flag.flag}`} onClick={() => add(flag)}>
+                      <code>
+                        {[flag.flag, ...flag.aliases].join(", ")}
+                        {flag.value ? ` ${flag.value}` : ""}
+                      </code>
+                      <span>{flag.description}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        )}
+      </span>
     </div>
   );
 }

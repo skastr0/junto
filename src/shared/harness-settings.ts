@@ -16,6 +16,7 @@ export type LaunchChoiceSlice = {
   readonly model?: string;
   readonly effort?: string;
   readonly permissionMode?: string;
+  readonly extraArgs?: readonly string[];
 };
 
 /**
@@ -33,12 +34,17 @@ export const mergeHarnessLaunchDefaults = (
     ...(prefs.model ? { model: prefs.model } : {}),
     ...(prefs.effort ? { effort: prefs.effort } : {}),
     ...(prefs.permissionMode ? { permissionMode: prefs.permissionMode } : {}),
+    ...(prefs.extraArgs && prefs.extraArgs.length > 0
+      ? { extraArgs: prefs.extraArgs }
+      : {}),
     // Explicit non-empty choice wins.
     ...(choices.model?.trim() ? { model: choices.model.trim() } : {}),
     ...(choices.effort?.trim() ? { effort: choices.effort.trim() } : {}),
     ...(choices.permissionMode?.trim()
       ? { permissionMode: choices.permissionMode.trim() }
       : {}),
+    // An explicit list wins whole, including an empty one (no extras).
+    ...(choices.extraArgs !== undefined ? { extraArgs: choices.extraArgs } : {}),
   };
 };
 

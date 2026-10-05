@@ -184,11 +184,18 @@ const RecentModels = Schema.Array(harnessPrefString(200)).pipe(
   Schema.check(Schema.isMaxLength(RECENT_MODELS_MAX * 4)),
 );
 
+/** One argv token each; bounds mirror `shared/launch-extra-args.ts`. */
+const HarnessExtraArgs = Schema.Array(harnessPrefString(4000)).pipe(
+  Schema.check(Schema.isMaxLength(64)),
+);
+
 export const HarnessInstancePrefs = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   model: Schema.optionalKey(harnessPrefString(200)),
   effort: Schema.optionalKey(harnessPrefString(64)),
   permissionMode: Schema.optionalKey(harnessPrefString(64)),
+  /** Extra harness arguments every new seat of this harness starts with. */
+  extraArgs: Schema.optionalKey(HarnessExtraArgs),
   recentModels: Schema.optionalKey(RecentModels),
 });
 export type HarnessInstancePrefs = typeof HarnessInstancePrefs.Type;
@@ -960,6 +967,8 @@ export const HarnessInstancePrefsPatch = Schema.Struct({
   effort: Schema.optionalKey(harnessPrefString(64)),
   permissionMode: Schema.optionalKey(harnessPrefString(64)),
   /** Replaces the list; [] clears it. */
+  extraArgs: Schema.optionalKey(HarnessExtraArgs),
+  /** Replaces the list; [] clears it. */
   recentModels: Schema.optionalKey(RecentModels),
 });
 export type HarnessInstancePrefsPatch = typeof HarnessInstancePrefsPatch.Type;
@@ -1442,7 +1451,14 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       let effort = prior.effort;
       let permissionMode = prior.permissionMode;
       let recentModels = prior.recentModels;
+      let extraArgs = prior.extraArgs;
       if (prefsPatch.enabled !== undefined) enabled = prefsPatch.enabled;
+      if (prefsPatch.extraArgs !== undefined) {
+        const kept = prefsPatch.extraArgs
+          .map((arg) => arg.trim())
+          .filter((arg) => arg.length > 0);
+        extraArgs = kept.length === 0 ? undefined : kept;
+      }
       if (prefsPatch.recentModels !== undefined) {
         const kept = sanitizeRecentModels(prefsPatch.recentModels);
         recentModels = kept.length === 0 ? undefined : kept;
@@ -1464,6 +1480,7 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
         ...(model !== undefined ? { model } : {}),
         ...(effort !== undefined ? { effort } : {}),
         ...(permissionMode !== undefined ? { permissionMode } : {}),
+        ...(extraArgs !== undefined ? { extraArgs } : {}),
         ...(recentModels !== undefined ? { recentModels } : {}),
       };
     }
