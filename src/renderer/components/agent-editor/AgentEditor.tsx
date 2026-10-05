@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Pencil, UserRoundPen, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { isHarnessId } from "@shared/managed-terminal-templates";
@@ -116,30 +116,12 @@ export function AgentEditor({
   readonly footer?: ReactNode;
   readonly onClose: () => void;
 }) {
-  // Escape belongs to this modal while it is open: a surface under it (the
-  // focus view it was opened from) must not close too. The close waits a
-  // microtask so the Name field's own Escape listener still sees the key.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      queueMicrotask(() => onCloseRef.current());
-    };
-    // focus-law: Escape-only close of the open customize modal.
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, []);
   return (
     <FocusSurface
       measure="document"
       height="fit"
-      layer="work"
       label={`Customize ${seat.name}`}
       panelClassName="agent-editor-modal"
-      closeOnEscape={false}
       onClose={onClose}
     >
       <div data-testid="agent-editor" className="agent-editor-modal__body" aria-label={`Customize ${seat.name}`}>

@@ -1110,7 +1110,6 @@ export function SettingsPanel() {
     <FocusSurface
       measure="document"
       height="fit"
-      layer="work"
       label="Settings"
       panelClassName="settings-panel"
       onClose={closeSettings}

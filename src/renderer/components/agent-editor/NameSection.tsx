@@ -37,19 +37,13 @@ export function NameSection({ seat }: AgentEditorSectionProps) {
   const latest = useRef({ value, editing, commit, dropped: false });
   latest.current = { ...latest.current, value, editing, commit };
   const input = useRef<HTMLInputElement | null>(null);
-  useEffect(() => {
-    // The modal closes a microtask after Escape, so this still sees the key.
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && document.activeElement === input.current) latest.current.dropped = true;
-    };
-    // focus-law: Escape-only, marks the typing dropped; never a shortcut.
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, { capture: true });
+  useEffect(
+    () => () => {
       const { value: text, editing: typing, commit: keep, dropped } = latest.current;
       if (typing && !dropped) keep(text);
-    };
-  }, []);
+    },
+    [],
+  );
 
   return (
     <div className="agent-editor__name-section">
@@ -71,6 +65,8 @@ export function NameSection({ seat }: AgentEditorSectionProps) {
           }}
           onBlur={() => editing && settle()}
           onKeyDown={(event) => {
+            // Escape drops the typing; the editor around the field then closes.
+            if (event.key === "Escape") latest.current.dropped = true;
             if (event.key !== "Enter") return;
             event.preventDefault();
             settle();
