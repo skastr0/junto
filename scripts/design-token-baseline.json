@@ -54,7 +54,7 @@
     "src/renderer/components/sheet/sheet.css": 7,
     "src/renderer/components/workbench/BrowserSurfaceSlot.tsx": 2,
     "src/renderer/demo/demo-layer.tsx": 1,
-    "src/renderer/styles.css": 152,
+    "src/renderer/styles.css": 106,
     "src/renderer/styles/canvas-lod.css": 2,
     "src/renderer/styles/factory-grammar.css": 1
   },
@@ -87,7 +87,7 @@
     "src/renderer/components/rules/RulingList.tsx": 1,
     "src/renderer/components/rules/creation/task-path.css": 2,
     "src/renderer/components/sheet/sheet.css": 5,
-    "src/renderer/styles.css": 76
+    "src/renderer/styles.css": 62
   },
   "leading": {
     "src/renderer/components/CanvasMagnifier.css": 1,
@@ -105,7 +105,7 @@
     "src/renderer/components/rts/RtsBottomBar.css": 7,
     "src/renderer/components/rts/rts-controls.css": 3,
     "src/renderer/components/rules/creation/task-path.css": 3,
-    "src/renderer/styles.css": 40,
+    "src/renderer/styles.css": 25,
     "src/renderer/styles/canvas-lod.css": 1,
     "src/renderer/styles/factory-grammar.css": 1
   },
@@ -135,7 +135,7 @@
     "src/renderer/demo/demo-layer.tsx": 1,
     "src/renderer/lib/loom-view.ts": 1,
     "src/renderer/main.tsx": 1,
-    "src/renderer/styles.css": 81,
+    "src/renderer/styles.css": 61,
     "src/renderer/styles/canvas-lod.css": 4,
     "src/renderer/styles/factory-grammar.css": 12
   },
