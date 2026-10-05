@@ -4,7 +4,10 @@ import {
   type SQLOutputValue,
 } from "node:sqlite";
 import { STATE_SCHEMA_SQL } from "./schema";
-import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../signals/state-schema";
+import {
+  AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
+  AGENT_SIGNALS_STATE_SCHEMA_SQL,
+} from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
 import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
@@ -176,7 +179,16 @@ export const STATE_SCHEMA_V8_IDENTITY = {
     "c575413a87057e541dcce8f16b5d7e3643590dedb56f3f92282717530bc012eb",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 8;
+/**
+ * Version 9 adds signal attachments: the files an agent attached to a signal,
+ * as references into the content store. Expand only.
+ */
+export const STATE_SCHEMA_V9_IDENTITY = {
+  actualSchemaSha256:
+    "a6a35c88c30b1efe477b4ddf2831c2170b786eae138e01ded00dc656dfc425e6",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 9;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -184,7 +196,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 8;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V8_IDENTITY;
+  STATE_SCHEMA_V9_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -269,6 +281,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V7_IDENTITY,
     migrate: (database) => {
       database.exec(SEAT_SESSIONS_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 8,
+    toVersion: 9,
+    name: "add signal attachments",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V8_IDENTITY,
+    migrate: (database) => {
+      database.exec(AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL);
     },
   },
 ];

@@ -1,7 +1,8 @@
 /**
- * The frozen version-1 through version-7 state schemas. Version 8 added seat
- * sessions (7 -> 8), so version 7 is the current composition without that
- * fragment. Version 7 added seat guidance and agent profiles (6 -> 7), so
+ * The frozen version-1 through version-8 state schemas. Version 9 added signal
+ * attachments (8 -> 9), so version 8 is the current composition without that
+ * fragment. Version 8 added seat sessions (7 -> 8), so version 7 is version 8
+ * without that fragment. Version 7 added seat guidance and agent profiles (6 -> 7), so
  * version 6 is version 7 without those two fragments. Version 6 added companion devices
  * (5 -> 6), so version 5 is version 6 without that fragment. Version 5 added portrait overrides (4 -> 5), so
  * version 4 is version 5 without that fragment. Version 4 added squads (3 -> 4), so version 3 is
@@ -11,7 +12,10 @@
  * shipped. Tests build historical databases from these to prove each step.
  */
 import { STATE_SCHEMA_FRAGMENTS } from "../../../src/main/junto/state/schema";
-import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../../../src/main/junto/signals/state-schema";
+import {
+  AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
+  AGENT_SIGNALS_STATE_SCHEMA_SQL,
+} from "../../../src/main/junto/signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../../../src/main/junto/squads/state-schema";
 import { PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL } from "../../../src/main/junto/portraits/state-schema";
 import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../../../src/main/junto/companion/state-schema";
@@ -25,7 +29,11 @@ const composedWithout = (retired: ReadonlyArray<string>): string =>
     STATE_SCHEMA_FRAGMENTS.filter((fragment) => !retired.includes(fragment)).join("\n"),
   );
 
-const V8_FRAGMENTS = [SEAT_SESSIONS_STATE_SCHEMA_SQL];
+const V9_FRAGMENTS = [AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL];
+
+export const STATE_SCHEMA_V8_SQL = composedWithout(V9_FRAGMENTS);
+
+const V8_FRAGMENTS = [...V9_FRAGMENTS, SEAT_SESSIONS_STATE_SCHEMA_SQL];
 
 export const STATE_SCHEMA_V7_SQL = composedWithout(V8_FRAGMENTS);
 

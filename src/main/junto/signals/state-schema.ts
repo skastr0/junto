@@ -32,3 +32,26 @@ export const AGENT_SIGNALS_STATE_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS agent_signals_by_seat
     ON agent_signals(canvas_name, node_id, state);
 `;
+
+/**
+ * Files an agent attached to a signal, in the order given. The bytes are in
+ * the content store; a row here is the signal's portable reference to one
+ * (digest, length, type, name) and the agent's caption. Rows go with their
+ * signal.
+ */
+export const AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_signal_attachments (
+    signal_id TEXT NOT NULL
+      REFERENCES agent_signals(signal_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL
+      CHECK (typeof(position) = 'integer' AND position BETWEEN 0 AND 11),
+    sha256 TEXT NOT NULL
+      CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^a-f0-9]*'),
+    byte_length INTEGER NOT NULL
+      CHECK (typeof(byte_length) = 'integer' AND byte_length >= 0),
+    media_type TEXT NOT NULL CHECK (length(media_type) BETWEEN 1 AND 255),
+    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 255),
+    caption TEXT CHECK (caption IS NULL OR length(caption) BETWEEN 1 AND 120),
+    PRIMARY KEY (signal_id, position)
+  ) STRICT, WITHOUT ROWID;
+`;

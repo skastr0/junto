@@ -18,8 +18,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V7_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V7_SQL, STATE_SCHEMA_V8_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url));
 
@@ -61,10 +60,18 @@ const versionSevenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 7),
 };
 
+// 8 -> 9 (signal attachments) lands on top; this suite stops at 8.
+const versionEightPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 8,
+  currentSchemaSql: STATE_SCHEMA_V8_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 8),
+};
+
 describe("state migration 7 -> 8 (seat sessions)", () => {
   it("freezes the version-seven witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V7_SQL)).toEqual(STATE_SCHEMA_V7_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V8_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V8_SQL)).toEqual(STATE_SCHEMA_V8_IDENTITY);
   });
 
   it("adds the table and leaves every existing row, immutable logs included, untouched", async () => {
@@ -76,7 +83,7 @@ describe("state migration 7 -> 8 (seat sessions)", () => {
       expect((before.work_events as unknown[]).length).toBeGreaterThan(0);
       expect(before).not.toHaveProperty("seat_sessions");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionEightPlan);
       expect(result).toMatchObject({ previousVersion: 7, schemaVersion: 8 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V8_IDENTITY);
 
@@ -92,7 +99,7 @@ describe("state migration 7 -> 8 (seat sessions)", () => {
   it("holds one open session per seat, ended rows carry their reason, and refuses anything else", async () => {
     const database = await openCopy();
     try {
-      migrateStateSchema(database);
+      migrateStateSchema(database, versionEightPlan);
       const insert = database.prepare(
         `INSERT INTO seat_sessions(seat_id, session_id, harness, notes_path, started_at, ended_at, end_reason)
          VALUES (?, ?, 'claude', '/n.md', ?, ?, ?)`,
