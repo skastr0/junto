@@ -10,13 +10,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import {
   chooseGitBase,
+  gitReviewedState,
+  gitReviewTitle,
   gitSummaryParts,
   isOwnGitBase,
   parseAheadBehind,
+  patchFilePath,
   porcelainHasChanges,
+  splitPatchFiles,
   type GitSummary,
 } from "../src/shared/git";
-import { GIT_SUMMARY_FRESH_MS, readGitSummary } from "../src/main/junto/adapters/git";
+import { GIT_REVIEW_UNTRACKED_MAX, GIT_SUMMARY_FRESH_MS, readGitReview, readGitSummary } from "../src/main/junto/adapters/git";
 import { seatGitFolder } from "../src/renderer/lib/git-summary";
 
 const text = (parts: ReturnType<typeof gitSummaryParts>): string => parts.map((part) => part.text).join(" ");
@@ -102,6 +106,27 @@ describe("the one line", () => {
       "detached at 0123456 Tagged 3d",
     );
     expect(text(gitSummaryParts(summary({ operation: "rebase", dirty: true }), NOW))).toBe("feat/git-line rebase in progress *");
+  });
+});
+
+describe("what a review says it is of", () => {
+  it("names the folder for uncommitted work, never a session", () => {
+    expect(gitReviewTitle("working")).toBe("Uncommitted changes in this folder");
+    expect(gitReviewTitle("base", "origin/main")).toBe("Committed on this branch since origin/main");
+    expect(gitReviewTitle("base")).toBe("No base branch to compare with");
+  });
+  it("says the reviewed state in one line for the mail", () => {
+    expect(gitReviewedState({ view: "working", branch: "feat/x", head: "0123abc" })).toBe(
+      "uncommitted changes in the folder, on feat/x at 0123abc",
+    );
+    expect(gitReviewedState({ view: "base", branch: "feat/x", head: "0123abc", base: "main" })).toBe(
+      "commits on feat/x at 0123abc since main",
+    );
+  });
+  it("reads the path a file section is about", () => {
+    expect(patchFilePath("diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n")).toBe("src/a.ts");
+    expect(patchFilePath("diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n")).toBe("gone.txt");
+    expect(patchFilePath("diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n")).toBe("new.txt");
   });
 });
 
@@ -232,6 +257,60 @@ describe("readGitSummary against real repositories", { timeout: 60_000 }, () => 
     git(repo, "checkout", "-q", "feat/git-line");
     writeFileSync(join(repo, ".git", "MERGE_HEAD"), `${git(repo, "rev-parse", "main")}\n`);
     expect((await read(repo)).operation).toBe("merge");
+  });
+
+  it("a review reads uncommitted work with new files, and the branch against its base", async () => {
+    const repo = makeRepo("review", "main");
+    git(repo, "checkout", "-q", "-b", "feat/review");
+    commit(repo, "file.txt", "a\nB\nc\n", "Change b");
+
+    // Nothing uncommitted yet.
+    const clean = await readGitReview(repo, "working");
+    expect(clean).toMatchObject({ ok: true, view: "working", patch: "", branch: "feat/review" });
+
+    // A tracked edit, a new untracked file, and an ignored file.
+    writeFileSync(join(repo, "file.txt"), "a\nB\nc\nd\n");
+    writeFileSync(join(repo, "brand-new.txt"), "hello\nworld\n");
+    writeFileSync(join(repo, ".git", "info", "exclude"), "scratch.log\n");
+    writeFileSync(join(repo, "scratch.log"), "noise\n");
+    const working = await readGitReview(repo, "working");
+    if (!working.ok) throw new Error(working.error);
+    const files = splitPatchFiles(working.patch).map(patchFilePath);
+    expect(files).toEqual(["file.txt", "brand-new.txt"]);
+    expect(working.patch).toContain("+d");
+    expect(working.patch).toContain("+hello");
+    expect(working.patch).not.toContain("noise");
+    expect(working.head).toMatch(/^[0-9a-f]{7,}$/u);
+    expect("base" in working).toBe(false);
+
+    // Against the base: only what the branch committed, not the uncommitted edit.
+    const base = await readGitReview(repo, "base");
+    if (!base.ok) throw new Error(base.error);
+    expect(base).toMatchObject({ view: "base", base: "main", branch: "feat/review" });
+    expect(splitPatchFiles(base.patch).map(patchFilePath)).toEqual(["file.txt"]);
+    expect(base.patch).toContain("+B");
+    expect(base.patch).not.toContain("+d");
+
+    // On the base branch itself there is nothing to compare, and no base is named.
+    git(repo, "stash", "-q", "--include-untracked");
+    git(repo, "checkout", "-q", "main");
+    const own = await readGitReview(repo, "base");
+    expect(own).toMatchObject({ ok: true, patch: "" });
+    expect(own.ok && "base" in own).toBe(false);
+  });
+
+  it("a review counts the new files it did not read", async () => {
+    const repo = makeRepo("many-new", "main");
+    for (let i = 0; i < GIT_REVIEW_UNTRACKED_MAX + 3; i += 1) writeFileSync(join(repo, `n${String(i).padStart(3, "0")}.txt`), "x\n");
+    const working = await readGitReview(repo, "working");
+    if (!working.ok) throw new Error(working.error);
+    expect(working.untrackedLeftOut).toBe(3);
+  });
+
+  it("a review of a folder that is not a repository says so", async () => {
+    const plain = join(base, "plain-review");
+    mkdirSync(plain);
+    expect(await readGitReview(plain, "working")).toEqual({ ok: false, error: "not a git repository" });
   });
 
   it("prefers the remote's default branch as the base", async () => {
