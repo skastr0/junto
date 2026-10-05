@@ -6,7 +6,7 @@ const html = (node: React.ReactElement): string => renderToStaticMarkup(node);
 
 describe("ui ListRow", () => {
   it("renders one 28px button line with its mark, title and meta", () => {
-    const out = html(<ListRow leading={<i data-mark />} title="notes.md" meta="2 edges" />);
+    const out = html(<ListRow leading={<i data-mark />} title="notes.md" meta="2 edges" onClick={() => {}} />);
     expect(out).toContain('type="button"');
     expect(out).toContain("h-7");
     expect(out).toContain("<i data-mark");
@@ -15,7 +15,7 @@ describe("ui ListRow", () => {
   });
 
   it("selected sets the fill and tells assistive tech, from one prop", () => {
-    const on = html(<ListRow selected title="a" />);
+    const on = html(<ListRow selected title="a" onClick={() => {}} />);
     expect(on).toContain('data-selected="true"');
     expect(on).toContain('aria-current="true"');
     const off = html(<ListRow title="a" />);
@@ -34,9 +34,20 @@ describe("ui ListRow", () => {
   });
 
   it("shows keyboard focus with an inset ring that a clipping list cannot cut off", () => {
-    const out = html(<ListRow title="a" />);
+    const out = html(<ListRow title="a" onClick={() => {}} />);
     expect(out).toContain("focus-visible:ring-inset");
     expect(out).toContain("focus-visible:ring-cyan/60");
+  });
+
+  it("without an onClick is a plain line: not a button, no hover, never faded", () => {
+    const out = html(<ListRow title="notes.md" meta="page" disabled data-testid="row" />);
+    expect(out.startsWith("<div")).toBe(true);
+    expect(out).not.toContain("<button");
+    expect(out).not.toContain("disabled");
+    expect(out).not.toContain("hover:");
+    expect(out).not.toContain("opacity-40");
+    expect(out).toContain('data-testid="row"');
+    expect(out).toContain("h-7");
   });
 
   it("declares no bracket value for type, tracking, leading or radius", () => {
