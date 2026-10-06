@@ -135,6 +135,112 @@ describe("InjectionSupervisor", () => {
     });
   });
 
+  describe("a message the operator types and sends", () => {
+    it("counts from the Enter, when no draft frame was ever seen", async () => {
+      // A fast typist, or a paste sent at once: the composer still reads
+      // empty when Enter arrives, and the turn starts before any repaint.
+      const { writer, supervisor, start, state } = rig();
+      await start();
+      supervisor.noteUserInput("b1", undefined, "first message");
+      supervisor.noteUserInput("b1", undefined, "\r");
+      expect(writer).not.toHaveBeenCalled();
+      state("working");
+      expect(writer).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts a paste and its Enter arriving as one chunk", async () => {
+      const { writer, supervisor, start, state } = rig();
+      await start();
+      supervisor.noteUserInput("b1", undefined, "\u001b[200~first message\u001b[201~\r");
+      state("working");
+      expect(writer).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts on a harness whose draft the probes cannot read", async () => {
+      const { writer, supervisor, composer, start, state } = rig();
+      await start();
+      composer.verdict = null;
+      for (const ch of "hello") supervisor.noteUserInput("b1", undefined, ch);
+      supervisor.noteUserInput("b1", undefined, "\r");
+      state("working");
+      // The gate still decides when it can be typed; the message is counted.
+      composer.verdict = "empty";
+      supervisor.onSnapshot(snap({ seq: 2n }));
+      expect(writer).toHaveBeenCalledTimes(1);
+    });
+
+    it("a lone Enter, an arrow key, or a one-key answer on an unread screen is a dialog, not a message", async () => {
+      for (const keys of [["\r"], ["\u001b[B", "\r"], ["1", "\r"], ["y\r"]]) {
+        const { writer, supervisor, composer, start, turn } = rig();
+        await start();
+        composer.verdict = null;
+        for (const key of keys) supervisor.noteUserInput("b1", undefined, key);
+        turn();
+        turn();
+        expect(writer, JSON.stringify(keys)).not.toHaveBeenCalled();
+      }
+    });
+
+    it("Enter while the seat asks for attention answers the seat, it does not start a conversation", async () => {
+      const { writer, supervisor, start, state } = rig();
+      await start();
+      state("attention");
+      supervisor.noteUserInput("b1", undefined, "yes please\r");
+      state("working");
+      state("idle");
+      expect(writer).not.toHaveBeenCalled();
+    });
+
+    it("Enter on an empty composer starts nothing, and a turn long after is not the operator's", async () => {
+      const { writer, supervisor, start, state } = rig();
+      const clock = { now: 1_000_000 };
+      supervisor.setNow(() => clock.now);
+      await start();
+      supervisor.noteUserInput("b1", clock.now, "\r");
+      state("working");
+      state("idle");
+      expect(writer).not.toHaveBeenCalled();
+      // A real message whose turn never started, then an unrelated turn later.
+      supervisor.noteUserInput("b1", clock.now, "hello there\r");
+      clock.now += 60_000;
+      state("working");
+      expect(writer).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a nudge the gate holds", () => {
+    it("goes out when the input box is free again, with no other event, and only then counts", async () => {
+      const writer = vi.fn<NoticeWriter>().mockReturnValueOnce(false).mockReturnValue(true);
+      const { supervisor, start, state, turn } = rig(writer);
+      await start();
+      state("working");
+      supervisor.noteMailWritten("b1");
+      expect(writer).toHaveBeenCalledTimes(1);
+      // The drive says the box is typeable again. Nothing else has happened.
+      supervisor.noteWritable("b1");
+      expect(writer).toHaveBeenCalledTimes(2);
+      // Held once, sent once: that was the first of the two, not the second.
+      state("idle");
+      turn();
+      turn();
+      expect(writer).toHaveBeenCalledTimes(2);
+      state("working");
+      expect(writer).toHaveBeenCalledTimes(3);
+    });
+
+    it("a writable signal sends nothing that is not due", async () => {
+      const { writer, supervisor, start } = rig();
+      supervisor.noteWritable("b1");
+      await start();
+      supervisor.noteWritable("b1");
+      expect(writer).not.toHaveBeenCalled();
+      supervisor.noteOnboarded("b1");
+      supervisor.noteMailWritten("b1");
+      supervisor.noteWritable("b1");
+      expect(writer).not.toHaveBeenCalled();
+    });
+  });
+
   describe("does not wait for the turn to end", () => {
     it("interjects while the first turn is still running", async () => {
       const { writer, supervisor, start, state } = rig();

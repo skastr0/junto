@@ -504,7 +504,7 @@ export const registerTerminalIpc = (
       // Input-origin tagging: user keystrokes must suppress injection.
       void written.then((ok) => {
         if (!ok) return;
-        injectionSupervisor.noteUserInput(owner.lease.bindingId);
+        injectionSupervisor.noteUserInput(owner.lease.bindingId, undefined, decoded);
       });
       return written;
     },

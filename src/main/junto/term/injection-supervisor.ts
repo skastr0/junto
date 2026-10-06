@@ -50,6 +50,10 @@ type SeatSupervision = {
   operatorTyped: boolean;
   /** A draft the operator typed was seen in the composer. */
   operatorDraft: boolean;
+  /** Printable characters the operator typed since their last Enter. */
+  typedSinceEnter: number;
+  /** When the operator last pressed Enter on what reads as a message. */
+  submittedAt: number | undefined;
   /** A first real message went into this generation's session. */
   firstMessageSeen: boolean;
   /** A counted turn is running. */
@@ -60,6 +64,16 @@ type SeatSupervision = {
   /** One transport request owns this generation's next nudge receipt. */
   nudgeInFlight: boolean;
 };
+
+/** Typed text shorter than this before Enter may be a dialog answer, not a message. */
+const MESSAGE_MIN_CHARS = 2;
+/** A turn that follows the operator's Enter starts within this; later ones are not theirs. */
+const SUBMIT_TO_TURN_MS = 15_000;
+
+/** Printable characters in operator bytes: escape sequences and controls are keys, not text. */
+const printableCount = (data: string): number =>
+  // CSI and SS3 sequences (arrows, paste markers, function keys), then controls.
+  data.replace(/\u001b(?:\[[0-9;?]*[ -/]*[@-~]|O.|.)/g, "").replace(/[\u0000-\u001f\u007f]/g, "").length;
 
 export type NoticeWriter = (bindingId: string, text: string) => boolean | Promise<boolean>;
 /** The composer as the drive's own gate reads it; null is unreadable. */
@@ -183,6 +197,8 @@ export class InjectionSupervisor {
       recorded: false,
       operatorTyped: false,
       operatorDraft: false,
+      typedSinceEnter: 0,
+      submittedAt: undefined,
       firstMessageSeen: false,
       inTurn: false,
       turnsWaited: 0,
@@ -250,15 +266,43 @@ export class InjectionSupervisor {
   }
 
   /**
-   * Operator bytes routed to the PTY (from the terminal write IPC). A draft
-   * the operator typed, followed by a turn, is a first message.
+   * Operator bytes routed to the PTY (from the terminal write IPC). A message
+   * the operator typed and sent, followed by a turn, is a first message.
+   *
+   * "Sent" is read off the bytes, not off a draft frame: a fast typist or a
+   * paste can reach Enter before the observer ever paints the draft, and some
+   * harnesses paint a draft the probes cannot read. Enter counts when the
+   * composer reads as a draft or as empty (the paint lags the keys), or when
+   * the operator typed a message's worth of text before it. A lone Enter or a
+   * one-key answer on a screen the probes cannot read is a dialog being
+   * answered, and a seat in attention is one by definition.
    */
-  noteUserInput(bindingId: string, at: number = this.now()): void {
+  noteUserInput(bindingId: string, at: number = this.now(), data = ""): void {
     this.userInputBindings.set(bindingId, at);
     const seat = this.seats.get(bindingId);
     if (seat === undefined) return;
     seat.operatorTyped = true;
-    if (this.composer?.(bindingId) === "draft") seat.operatorDraft = true;
+    const verdict = this.composer?.(bindingId);
+    if (verdict === "draft") seat.operatorDraft = true;
+    const enter = data.search(/[\r\n]/);
+    seat.typedSinceEnter += printableCount(enter === -1 ? data : data.slice(0, enter));
+    if (enter === -1) return;
+    const reads = verdict === "draft" || seat.operatorDraft || (verdict === "empty" && seat.typedSinceEnter > 0);
+    if (seat.state !== "attention" && (reads || seat.typedSinceEnter >= MESSAGE_MIN_CHARS)) {
+      seat.submittedAt = at;
+    }
+    seat.typedSinceEnter = printableCount(data.slice(enter + 1));
+  }
+
+  /**
+   * The seat's input box became typeable again after the drive held a write
+   * for it (a fresh keystroke, a draft, a dialog, an unread box). A nudge
+   * that was held then goes out now: held is not dropped, and it has not
+   * been counted.
+   */
+  noteWritable(bindingId: string): void {
+    const seat = this.seats.get(bindingId);
+    if (seat !== undefined) this.evaluate(bindingId, seat);
   }
 
   /** Last operator keystroke time for a binding, if any (process-local sticky). */
@@ -376,8 +420,12 @@ export class InjectionSupervisor {
     const previous = seat.state;
     seat.state = event.state as SeatSignal;
     if (event.state === "working" && previous !== "working") {
-      // The operator's draft left the composer and a turn began: it was sent.
-      if (!seat.firstMessageSeen && seat.operatorDraft) seat.firstMessageSeen = true;
+      // The operator sent a message and a turn began: that was the first.
+      // A draft that left the composer says the same where no Enter was seen.
+      const sent =
+        seat.submittedAt !== undefined && this.now() - seat.submittedAt <= SUBMIT_TO_TURN_MS;
+      if (!seat.firstMessageSeen && (sent || seat.operatorDraft)) seat.firstMessageSeen = true;
+      seat.submittedAt = undefined;
       if (seat.firstMessageSeen) this.startTurn(seat);
     }
     if (event.state === "idle" && seat.inTurn) {

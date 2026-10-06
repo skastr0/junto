@@ -443,6 +443,8 @@ const runProductBoot = async (): Promise<void> => {
     board: { configure: configureBoardDelivery },
   });
   handles.delivery = { dispose: () => remoteDelivery.dispose() };
+  // A nudge the drive held for the input box goes out when the box is free.
+  remoteDrive.subscribeMailWritable((bindingId) => injectionSupervisor.noteWritable(bindingId));
   // Same lifecycle ownership as Command Center (ACK/drain/generation).
   const disposeDriveRuntime = attachManagedTerminalDriveRuntime(remoteDrive, {
     subscribeHostEvents: (listener, options) =>

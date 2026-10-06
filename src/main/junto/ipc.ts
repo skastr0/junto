@@ -2357,6 +2357,9 @@ export const registerJuntoIpc = (): void => {
       // Mail held for an operator draft goes out once the draft is gone.
       managedDrive.subscribeMailWritable((bindingId) => {
         if (!productAutomationSuspended) messageDelivery.onSeatLive(bindingId);
+        // The onboarding nudge passes the same gate: one it held goes out
+        // now, instead of waiting for whatever the seat does next.
+        injectionSupervisor.noteWritable(bindingId);
       });
       messageDelivery.configure({
         transport: {
