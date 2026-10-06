@@ -8,6 +8,7 @@ import {
   SelectionMode,
   useConnection,
   useEdgesState,
+  useNodesInitialized,
   useNodesState,
   useReactFlow,
   useStore,
@@ -482,11 +483,15 @@ function useCanvasFocus(rf: CanvasFlow) {
 
 function useCanvasViewport(nodeCount: number, rf: CanvasFlow) {
   const fittedCanvasRef = useRef("");
+  // A fit reads each node's measured size. Asked for before React Flow has
+  // measured the nodes it finds nothing to fit, parks the camera on the
+  // origin at full zoom, and the canvas is never fitted again.
+  const measured = useNodesInitialized();
   useEffect(() => {
     let frame = 0;
     const tryFit = () => {
       const canvasName = state$.canvasName.peek();
-      if (!canvasName || nodeCount === 0 || fittedCanvasRef.current === canvasName) return;
+      if (!canvasName || nodeCount === 0 || !measured || fittedCanvasRef.current === canvasName) return;
       fittedCanvasRef.current = canvasName;
       frame = requestAnimationFrame(() => {
         // A dense corpus spanning thousands of flow pixels becomes unreadable
@@ -501,7 +506,7 @@ function useCanvasViewport(nodeCount: number, rf: CanvasFlow) {
       cancelAnimationFrame(frame);
       off();
     };
-  }, [nodeCount, rf]);
+  }, [nodeCount, measured, rf]);
 }
 
 function useCanvasInteractions(
