@@ -242,7 +242,8 @@ section as delivered, most urgent section first.
 Every schema a phone needs lives in modules whose import closure is only
 `effect`, so the mobile repo can copy them without the rest of the app:
 `src/shared/wire/operator-feed.ts` (OperatorFeed and its parts),
-`src/shared/wire/agent-signals.ts`, `src/shared/wire/thread-health.ts`,
+`src/shared/wire/agent-signals.ts` and the `src/shared/wire/content-ref.ts` its
+attachments use, `src/shared/wire/thread-health.ts`,
 `src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
 the wire modules never import the builders. A test fails the build if any
 wire module's closure grows past `effect`.

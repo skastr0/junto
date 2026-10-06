@@ -39,6 +39,7 @@ describe("wire module import closure", () => {
       new Set([
         "agent-signals.ts",
         "companion-protocol.ts",
+        "content-ref.ts",
         "operator-feed.ts",
         "thread-health.ts",
         // Not protocol: the --demo data, synced by junto-app's in-app demo.

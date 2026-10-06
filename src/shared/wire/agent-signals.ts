@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { ContentRef } from "../content";
+import { ContentRef } from "./content-ref";
 
 /**
  * Agent signals: a seat's own declared claim that it needs the operator.
