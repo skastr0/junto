@@ -75,6 +75,7 @@ import { SeatGuidanceRepository } from "./seat-guidance/repository";
 import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
 import { SeatOffboardCloser } from "./seat-sessions/offboard-close";
 import { ContinuationLedger } from "./seat-sessions/continuation-pending";
+import { makeOnboardNudgeInterject, watchSeatReadiness } from "./term/onboard-nudge-interject";
 import {
   defaultSeatsRoot,
   markSessionOnboarded,
@@ -84,7 +85,6 @@ import {
 import { buildOnboardNudge } from "@shared/managed-terminal-injection";
 import {
   onboardNudgeRefusal,
-  type OnboardNudgeRefusal,
   type SeatOnboardNudgeResult,
 } from "@shared/seat-onboarding-status";
 import {
@@ -2181,16 +2181,18 @@ export const registerJuntoIpc = (): void => {
       // waiting for an answer is never typed into, and the drive holds back
       // for a draft in the composer. Nothing is queued; a nudge that could
       // not be typed is tried again (or the operator presses again).
-      const interjectOnboardNudge = async (
-        bindingId: string,
-        text: string,
-      ): Promise<"written" | OnboardNudgeRefusal> => {
-        if (productAutomationSuspended || !mailReadyNow(bindingId)) return "unavailable";
-        // The drive's mail gate is the one check: it types only into an
-        // available input box and says why it did not.
-        const outcome = await managedDrive.writeMail(bindingId, text);
-        return outcome === "lost" ? "unavailable" : outcome;
-      };
+      const interjectOnboardNudge = makeOnboardNudgeInterject({
+        suspended: () => productAutomationSuspended,
+        mailReady: mailReadyNow,
+        writeMail: (bindingId, text) => managedDrive.writeMail(bindingId, text),
+      });
+      // A seat nobody has mailed is otherwise first looked at when its first
+      // turn starts, mid-turn, where a first look never says ready: the nudge
+      // would be refused before the drive was asked, with nothing to retry it.
+      watchSeatReadiness({
+        subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
+        mailReady: mailReadyNow,
+      });
       // The operator's nudge: the same sentence, typed now.
       privilegedIpc.handle(
         IPC_CHANNELS.seatOnboardNudge,
@@ -2423,6 +2425,8 @@ export const registerJuntoIpc = (): void => {
         }
         if (bracketedPasteOn.has(snap.bindingId)) return;
         bracketedPasteOn.add(snap.bindingId);
+        // The other half of a first ready moment: record it if this is one.
+        mailReadyNow(snap.bindingId);
         messageDelivery.onSeatLive(snap.bindingId);
       });
       // Play released a hold: its waiting mail starts the seats it names.

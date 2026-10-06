@@ -20,7 +20,13 @@ import {
 } from "../../../src/main/junto/term/drive";
 import { composerVerdictForHarness } from "../../../src/main/junto/term/agent-state";
 import { createManagedTerminalDrive } from "../../../src/main/junto/term/drive/managed-drive-factory";
+import { MailReadinessLatch } from "../../../src/main/junto/term/drive/mail-readiness";
 import { InjectionSupervisor } from "../../../src/main/junto/term/injection-supervisor";
+import {
+  makeOnboardNudgeInterject,
+  watchSeatReadiness,
+} from "../../../src/main/junto/term/onboard-nudge-interject";
+import type { AgentSeatStateEvent } from "../../../src/shared/agent-seat-state";
 import { SessionObserver } from "../../../src/main/junto/term/observer";
 import { buildOnboardNudge } from "../../../src/shared/managed-terminal-injection";
 import { DriveLoop, type DriveLoopOptions } from "../scripted-tui";
@@ -279,6 +285,147 @@ describe("a typed first message (codex, the screen from the app run)", () => {
       await settle(2_000);
     }
     expect(written.join("").split(NUDGE).length - 1).toBe(2);
+    drive.resetForTest();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The app's own path to the drive, mail readiness included.
+//
+// The cases above hand the supervisor the drive directly. The app does not:
+// the nudge first passes mail readiness, a latch that records the first
+// moment a generation's TUI is up and settled idle, and records it only when
+// something looks. This is the sequence the app run lost the nudge on twice:
+// a fresh seat nobody has mailed, a first message typed in its terminal.
+
+describe("a typed first message, through the app's path (mail readiness and the gate)", () => {
+  const app = (binding: string) => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const seat = { state: "idle" as AgentSeatStateEvent["state"], composer: "empty" as "empty" | "draft" };
+    const written: string[] = [];
+    const drive = createManagedTerminalDrive({
+      write: (_bindingId, data) => {
+        written.push(data);
+        return true;
+      },
+      isSeatIdle: () => seat.state === "idle",
+      seatState: () => seat.state,
+      onAttention: () => {},
+      snapshot: () => ({ text: "", lines: [] as string[] }),
+      composerVerdict: () => seat.composer,
+      harnessFor: () => "codex",
+    });
+    // Readiness exactly as ipc.ts reads it: the real latch over what the seat shows.
+    const latch = new MailReadinessLatch();
+    const looks: string[] = [];
+    const mailReady = (bindingId: string): boolean => {
+      const ready = latch.observe(bindingId, {
+        running: true,
+        generation: "e1",
+        harness: "codex",
+        seatState: seat.state,
+        bracketedPaste: true,
+        idleConfirmed: seat.state === "idle",
+      });
+      looks.push(`${seat.state}:${String(ready)}`);
+      return ready;
+    };
+    const listeners = new Set<(event: AgentSeatStateEvent) => void>();
+    const supervisor = new InjectionSupervisor();
+    supervisor.setNow(() => Date.now());
+    supervisor.setComposerLookup(() => seat.composer);
+    const outcomes: string[] = [];
+    const interject = makeOnboardNudgeInterject({ suspended: () => false, mailReady, writeMail: (b, t) => drive.writeMail(b, t) });
+    supervisor.setWriter((bindingId, text) =>
+      interject(bindingId, text).then((outcome) => {
+        outcomes.push(outcome);
+        return outcome === "written";
+      }),
+    );
+    drive.subscribeMailWritable((bindingId) => supervisor.noteWritable(bindingId));
+    // The order ipc.ts subscribes in: the supervisor first, then the watch.
+    listeners.add((event) => supervisor.noteSeatState(event));
+    const unwatch = watchSeatReadiness({
+      subscribeSeatState: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      mailReady,
+    });
+    const state = (next: AgentSeatStateEvent["state"]) => {
+      seat.state = next;
+      const event = { bindingId: binding, epoch: "e1", state: next, reason: "test", confidence: "high" as const, at: Date.now() };
+      for (const listener of [...listeners]) listener(event);
+    };
+    const key = (data: string) => {
+      seatOperatorInterlock.noteInput(binding);
+      supervisor.noteUserInput(binding, Date.now(), data);
+    };
+    const settle = async (ms: number) => {
+      await vi.advanceTimersByTimeAsync(ms);
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    };
+    return { drive, seat, written, outcomes, looks, state, key, settle, unwatch };
+  };
+
+  it("a fresh seat nobody has mailed still gets the nudge within the minute, mid-turn", async () => {
+    const { drive, seat, written, outcomes, state, key, settle } = app("seat-app-1");
+    // The seat comes up and sits idle. No mail is pending for it, so the mail
+    // layer never has a reason to look at it.
+    state("idle");
+    await settle(5_000);
+
+    // The run: a first message typed in the terminal, Enter 600 ms later.
+    for (const ch of "first message for learner") {
+      key(ch);
+      seat.composer = "draft";
+      drive.onComposerDraft("seat-app-1");
+      await settle(20);
+    }
+    await settle(600);
+    key("\r");
+    seat.composer = "empty";
+    drive.onComposerClear("seat-app-1");
+    state("working");
+    // Nothing repaints and no state changes for the rest of the minute.
+    await settle(60_000);
+
+    expect(seat.state).toBe("working");
+    expect(outcomes).not.toContain("unavailable");
+    expect(outcomes.at(-1)).toBe("written");
+    expect(written.join("").split(NUDGE).length - 1).toBe(1);
+    drive.resetForTest();
+  });
+
+  it("readiness is on record from the seat's own idle moment, not from the first attempt to type", async () => {
+    const { drive, looks, state, settle } = app("seat-app-2");
+    state("idle");
+    await settle(10);
+    // Looked at when the seat was told idle, before anything wanted to type.
+    expect(looks).toEqual(["idle:true"]);
+    state("working");
+    await settle(10);
+    // So a look mid-turn answers from the record instead of failing a first look.
+    expect(looks.at(-1)).toBe("working:true");
+    drive.resetForTest();
+  });
+
+  it("without that watch the first look comes mid-turn, fails, and nothing ever retries: the app's lost nudge", async () => {
+    const { drive, seat, written, outcomes, state, key, settle, unwatch } = app("seat-app-3");
+    unwatch();
+    state("idle");
+    await settle(5_000);
+    key("first message");
+    seat.composer = "draft";
+    await settle(600);
+    key("\r");
+    seat.composer = "empty";
+    state("working");
+    await settle(60_000);
+    // Refused before the drive was ever asked: no hold was armed, so the
+    // gate's "the box is free again" never fires for it.
+    expect(outcomes).toEqual(["unavailable"]);
+    expect(written.join("")).not.toContain(NUDGE);
     drive.resetForTest();
   });
 });
