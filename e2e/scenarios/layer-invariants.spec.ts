@@ -338,7 +338,7 @@ test("a dialog opened from a working modal sits above it, under the operator mod
   await expect(launchTab, "the last Escape closes the working modal").not.toBeVisible();
 });
 
-test("Escape closes only the dialog even while focus sits in the working modal under it", async ({ junto }) => {
+test("under an open dialog the working modal cannot take focus, and Escape closes only the dialog", async ({ junto }) => {
   const { page } = junto;
   await expect(page.locator('.react-flow__node[data-id="seat-ada"]')).toBeVisible({ timeout: 30_000 });
   await fitBoard(page);
@@ -352,10 +352,18 @@ test("Escape closes only the dialog even while focus sits in the working modal u
   const dialog = page.getByRole("dialog", { name: "Save as profile" });
   await expect(dialog).toBeVisible();
 
-  // Put focus back in the editor, under the dialog, the way a late focus
-  // call or a screen reader jump can. The dialog is still the topmost modal.
+  // Everything under the front modal is inert. Try to put focus back in the
+  // editor, the way a late focus call or a screen reader jump would: it does
+  // not land, and the dialog keeps the keyboard.
   await launchTab.evaluate((el) => (el as HTMLElement).focus());
-  expect(await launchTab.evaluate((el) => el === document.activeElement)).toBe(true);
+  expect(
+    await launchTab.evaluate((el) => el === document.activeElement),
+    "the modal under the dialog cannot take focus",
+  ).toBe(false);
+  expect(
+    await dialog.evaluate((el) => el.contains(document.activeElement)),
+    "the dialog still holds the keyboard",
+  ).toBe(true);
 
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
