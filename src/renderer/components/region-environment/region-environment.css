@@ -255,6 +255,14 @@
   min-width: 0;
 }
 
+/* The buttons keep their words on one line; the field gives way instead. */
+.region-env__folder-add > button,
+.region-env__path > button,
+.region-env__form-actions > button {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* The resolved list. */
 .region-env__variable {
   display: flex;

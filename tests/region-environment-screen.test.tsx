@@ -626,6 +626,34 @@ describe("restart to apply", () => {
     expect(q('[data-testid="region-env-stale"]')?.textContent).toContain("builder");
   });
 
+  it("lists a seat by its name on the canvas, not by the id the report carries", async () => {
+    const fake = makeFakeRegionEnvironmentPort({
+      seats: [
+        { seatId: "seat-1", title: "local:worker", changed: [] },
+        { seatId: "seat-9", title: "local:unknown", changed: [] },
+      ],
+      restart: { ok: false, message: "The seat is mid-turn." },
+    });
+    act(() => {
+      root.render(
+        <RegionEnvironmentScreen
+          regionId="inner"
+          environment={{ sources: [keychain] }}
+          port={fake.port}
+          newId={() => "x"}
+          onChange={() => {}}
+          seatName={(seatId) => (seatId === "seat-1" ? "Worker" : undefined)}
+        />,
+      );
+    });
+    await flush();
+    const rows = all(".region-env__stale-seat .region-env__source-title").map((node) => node.textContent);
+    // A seat the canvas cannot name falls back to what the report says.
+    expect(rows).toEqual(["Worker", "local:unknown"]);
+    await click(all('[data-testid="region-env-restart"]')[0]);
+    expect(q('[data-testid="region-env-stale"]')?.textContent).toContain("Worker: The seat is mid-turn.");
+  });
+
   it("says why a restart did not happen", async () => {
     const fake = makeFakeRegionEnvironmentPort({ seats, restart: { ok: false, message: "The seat is mid-turn." } });
     await mount({ sources: [keychain] }, fake);

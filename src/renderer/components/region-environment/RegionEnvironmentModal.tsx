@@ -65,6 +65,10 @@ export function RegionEnvironmentModal({
           port={port}
           newId={ulid}
           readDirectory={readLocalDirectory}
+          seatName={(seatId) => {
+            const seat = state$.doc.peek().nodes.find((candidate) => candidate.id === seatId);
+            return seat?.type === "text" ? seat.text.split("\n")[0] : undefined;
+          }}
           onChange={(next) => setRegionEnvironment(nodeId, next)}
         />
         <footer className="region-env-modal__footer">

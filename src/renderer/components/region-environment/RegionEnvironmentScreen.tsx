@@ -284,6 +284,7 @@ export function RegionEnvironmentScreen({
   onChange,
   newId,
   readDirectory,
+  seatName,
 }: {
   readonly regionId: string;
   readonly environment: RegionEnvironment | undefined;
@@ -293,6 +294,8 @@ export function RegionEnvironmentScreen({
   readonly newId: () => string;
   /** Lists a folder on this machine, for the file and folder pickers. */
   readonly readDirectory?: ReadDirectory;
+  /** The seat's name as the canvas shows it; the report's title is a fallback. */
+  readonly seatName?: (seatId: string) => string | undefined;
 }) {
   const sources = useMemo(() => environment?.sources ?? [], [environment]);
   const folders = environment?.folders ?? [];
@@ -385,12 +388,13 @@ export function RegionEnvironmentScreen({
     setFolderDraft("");
   };
 
+  const nameOf = (seat: StaleSeat): string => seatName?.(seat.seatId)?.trim() || seat.title;
   const restart = async (seat: StaleSeat) => {
     setRestarting(seat.seatId);
     setRestartProblem(undefined);
     const result = await port.restartSeat(seat.seatId);
     setRestarting(undefined);
-    if (!result.ok) setRestartProblem(`${seat.title}: ${result.message}`);
+    if (!result.ok) setRestartProblem(`${nameOf(seat)}: ${result.message}`);
     setRefresh((count) => count + 1);
   };
 
@@ -640,7 +644,7 @@ export function RegionEnvironmentScreen({
             {stale.map((seat) => (
               <li key={seat.seatId} className="region-env__stale-seat">
                 <div className="region-env__source-text">
-                  <span className="region-env__source-title">{seat.title}</span>
+                  <span className="region-env__source-title">{nameOf(seat)}</span>
                   <span className="region-env__source-detail">
                     {seat.changed.length > 0 ? `Changes on restart: ${seat.changed.join(", ")}` : "Its environment changes on restart."}
                   </span>
