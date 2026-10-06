@@ -9,6 +9,7 @@
  */
 
 import type { AgentSeatState } from "../../../../shared/agent-seat-state";
+import { harnessHasComposerProbes } from "../agent-state/composer";
 import {
   ManagedTerminalDrive,
   type ClipboardSafeAssert,
@@ -81,6 +82,7 @@ export const createManagedTerminalDrive = (
     },
     composerVerdict: deps.composerVerdict,
     seatState: deps.seatState,
+    composerProbed: (bindingId) => harnessHasComposerProbes(deps.harnessFor(bindingId)),
     harnessFor: deps.harnessFor,
     ...(deps.bracketedPaste !== undefined ? { bracketedPaste: deps.bracketedPaste } : {}),
     ...(deps.assertClipboardSafe !== undefined

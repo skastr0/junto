@@ -169,6 +169,7 @@ const replayEvents = async (
     operatorInput: new OperatorInterlock(),
     stallWatch: false,
     pasteToCrSettleMs: 0,
+    mailUnreadableGraceMs: 0,
   });
   disposers.push(() => {
     drive.resetForTest();
@@ -243,5 +244,51 @@ describe("Claude's folder-trust dialog", () => {
     expect(state).not.toBe("attention");
     expect(outcome).toBe("unreadable");
     expect(writes).toEqual([]);
+  });
+});
+
+describe("a seat that reads idle before its input box is painted", () => {
+  // What a codex seat puts on the wire at startup (and what the e2e fake
+  // codex in e2e/harness/crew-fixture.ts writes): bracketed paste on and an
+  // idle title first, the composer a moment later. Between the two the seat
+  // is idle with an unread box; mail sent then is typed, not answered queued.
+  it("codex: mail sent in that gap is typed once the composer paints", async () => {
+    const observer = new SessionObserver({ bindingId: BINDING, epoch: "e1", cols: 120, rows: 32 });
+    const runtime = new SeatStateRuntime({ turnProgressWatch: false });
+    runtime.bindHarness(BINDING, "codex", "e1");
+    const writes: string[] = [];
+    const drive = new ManagedTerminalDrive({
+      write: (_bindingId, data) => {
+        writes.push(data);
+        return true;
+      },
+      isSeatIdle: () => runtime.isSeatIdle(BINDING),
+      composerVerdict: () => runtime.composerVerdict(BINDING),
+      seatState: () => runtime.getState(BINDING),
+      harnessFor: () => "codex",
+      operatorInput: new OperatorInterlock(),
+      stallWatch: false,
+      pasteToCrSettleMs: 0,
+    });
+    disposers.push(() => {
+      drive.resetForTest();
+      runtime.stop();
+      observer.dispose();
+    });
+    const feed = async (data: string, seq: bigint) => {
+      observer.feed(data, seq);
+      await observer.snapshot();
+      runtime.observe(await observer.snapshot());
+    };
+    await feed("\x1b[?2004h\x1b]0;codex\x07", 1n);
+    expect(runtime.isSeatIdle(BINDING)).toBe(true);
+    expect(runtime.composerVerdict(BINDING)).toBeNull();
+
+    const mail = drive.writeMail(BINDING, NOTICE);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(writes).toEqual([]);
+    await feed("\x1b[2J\x1b[999;1H\u203a Ask Codex to do anything\r\n", 2n);
+    await expect(mail).resolves.toBe("written");
+    expect(writes).toEqual([encodeBracketedPaste(NOTICE), CR]);
   });
 });

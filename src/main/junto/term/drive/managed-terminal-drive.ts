@@ -185,6 +185,17 @@ export type MailWriteOutcome = "written" | "lost" | ComposerHold;
 export const isMailHold = (outcome: MailWriteOutcome): outcome is ComposerHold =>
   outcome !== "written" && outcome !== "lost";
 
+/**
+ * How long mail waits for an unread input box to become readable before it
+ * is held. A seat reads idle from its title a moment before its composer is
+ * painted, and a repaint can pass through a frame no probe matches; holding
+ * on those answers "queued" for mail that goes in a moment later.
+ */
+export const MAIL_UNREADABLE_GRACE_MS = 2_000;
+
+/** How often the grace wait looks at the screen again. */
+const MAIL_UNREADABLE_POLL_MS = 50;
+
 /** How often held mail looks again for the input box to be available. */
 export const MAIL_DRAFT_RECHECK_MS = 250;
 
@@ -253,6 +264,16 @@ export type ManagedTerminalDriveOptions = {
    * always holds mail. Absent = only the composer reading decides.
    */
   readonly seatState?: (bindingId: string) => string | undefined;
+  /**
+   * Whether this seat's harness has composer probes at all. A seat with none
+   * (junto-overseer, an unknown harness) can never read as empty, so mail is
+   * not held on its unread box: it is typed as it was before the composer
+   * gate, still never while the seat asks for attention or the operator is
+   * typing. Absent = every seat with a composer lookup is probed.
+   */
+  readonly composerProbed?: (bindingId: string) => boolean;
+  /** Grace for an unread input box (see MAIL_UNREADABLE_GRACE_MS). */
+  readonly mailUnreadableGraceMs?: number;
   /** Binding → harness id. Absent lookup = no Hermes multiline refuse. */
   readonly harnessFor?: SeatHarnessLookup;
   /**
@@ -288,6 +309,8 @@ export class ManagedTerminalDrive {
   private readonly pasteChip: PromptPendingLookup | undefined;
   private readonly composerVerdict: ComposerVerdictLookup | undefined;
   private readonly seatState: ((bindingId: string) => string | undefined) | undefined;
+  private readonly composerProbed: ((bindingId: string) => boolean) | undefined;
+  private readonly mailUnreadableGraceMs: number;
   private readonly harnessFor: SeatHarnessLookup | undefined;
   private readonly bracketedPaste: ((bindingId: string) => boolean) | undefined;
   private readonly interlock: OperatorInterlock;
@@ -393,6 +416,8 @@ export class ManagedTerminalDrive {
       return verdict;
     };
     this.seatState = options.seatState;
+    this.composerProbed = options.composerProbed;
+    this.mailUnreadableGraceMs = options.mailUnreadableGraceMs ?? MAIL_UNREADABLE_GRACE_MS;
     this.harnessFor = options.harnessFor;
     this.bracketedPaste = options.bracketedPaste;
     this.interlock = options.operatorInput ?? seatOperatorInterlock;
@@ -728,12 +753,16 @@ export class ManagedTerminalDrive {
    * Why mail may not be typed into this seat now, or undefined when it may.
    * A seat asking for attention always holds. A draft holds only when it is
    * the operator's; the drive's own stuck paste and text the harness painted
-   * are still a composer, and typeable. No composer lookup (a test seam)
-   * reads as an empty box.
+   * are still a composer, and typeable. A seat with no composer probes, and
+   * a drive with no composer lookup (a test seam), read as an empty box:
+   * with nothing to read the box by, an unread box is not a finding.
    */
   private mailHold(bindingId: string): ComposerHold | undefined {
+    const probed =
+      this.composerVerdict !== undefined &&
+      (this.composerProbed?.(bindingId) ?? true);
     const availability = composerAvailability(
-      this.composerVerdict === undefined ? "empty" : this.composerVerdict(bindingId),
+      probed ? this.composerVerdict!(bindingId) : "empty",
       this.seatState?.(bindingId),
     );
     if (availability === "dialog") return "dialog";
@@ -790,6 +819,12 @@ export class ManagedTerminalDrive {
       : text;
     const readyInMs = (this.readyAfter.get(bindingId) ?? 0) - this.now();
     if (readyInMs > 0) await delay(readyInMs);
+    // An unread box right now may be a frame, not a state: give it a moment.
+    const graceUntil = this.now() + this.mailUnreadableGraceMs;
+    while (this.mailHold(bindingId) === "unreadable" && this.now() < graceUntil) {
+      await delay(MAIL_UNREADABLE_POLL_MS);
+      if (!this.active(generation)) return "lost";
+    }
     while (this.writing.has(bindingId)) {
       await delay(Math.max(1, this.pasteToCrSettleMs));
       if (!this.active(generation)) return "lost";

@@ -50,3 +50,15 @@ export const composerVerdictForHarness = (
   if (!isHarnessId(harness)) return null;
   return composerVerdictFor(snapshot, rulePackFor(harness));
 };
+
+/**
+ * Whether Junto has any way to read this harness's input box: a known
+ * harness whose rule pack declares composer probes. False for an unknown
+ * harness and for a pack with none (junto-overseer). "The box cannot be
+ * read" only means something when this is true; with no probes at all, an
+ * unread box says nothing about the screen.
+ */
+export const harnessHasComposerProbes = (harness: string | undefined): boolean =>
+  harness !== undefined &&
+  isHarnessId(harness) &&
+  (rulePackFor(harness).composer?.length ?? 0) > 0;

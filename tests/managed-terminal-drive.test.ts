@@ -6,6 +6,7 @@ import {
   CR,
   INTERRUPT_BYTE,
   MAIL_DRAFT_RECHECK_MS,
+  MAIL_UNREADABLE_GRACE_MS,
   ManagedTerminalDrive,
   OPERATOR_INPUT_LATCH_MS,
   OperatorInterlock,
@@ -90,6 +91,7 @@ describe("ManagedTerminalDrive", () => {
       stallTimeoutMs: 10,
       // Unit tests assert paste+CR write counts without advancing real timers.
       pasteToCrSettleMs: 0,
+      mailUnreadableGraceMs: 0,
       ...over,
     });
 
@@ -431,6 +433,87 @@ describe("ManagedTerminalDrive", () => {
       await expect(drive.writeMail("b1", "mail")).resolves.toBe("unreadable");
       expect(writes).toEqual([]);
     }
+  });
+
+  it("mail gives an unread box a moment: a seat that reads idle before its composer paints is typed into, not held", async () => {
+    vi.useFakeTimers();
+    let verdict: "empty" | null = null;
+    drive = makeDrive({
+      composerVerdict: () => verdict,
+      seatState: () => "idle",
+      mailUnreadableGraceMs: MAIL_UNREADABLE_GRACE_MS,
+      now: () => Date.now(),
+    });
+    const mail = drive.writeMail("b1", "mail");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(writes).toEqual([]);
+    verdict = "empty";
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(mail).resolves.toBe("written");
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+  });
+
+  it("an input box still unread after the grace holds the mail", async () => {
+    vi.useFakeTimers();
+    drive = makeDrive({
+      composerVerdict: () => null,
+      seatState: () => "idle",
+      mailUnreadableGraceMs: MAIL_UNREADABLE_GRACE_MS,
+      now: () => Date.now(),
+    });
+    const mail = drive.writeMail("b1", "mail");
+    await vi.advanceTimersByTimeAsync(MAIL_UNREADABLE_GRACE_MS - 200);
+    let settled = false;
+    void mail.then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(400);
+    await expect(mail).resolves.toBe("unreadable");
+    expect(writes).toEqual([]);
+  });
+
+  it("a dialog and an operator draft are held at once, with no grace", async () => {
+    vi.useFakeTimers();
+    drive = makeDrive({
+      composerVerdict: () => null,
+      seatState: () => "attention",
+      mailUnreadableGraceMs: MAIL_UNREADABLE_GRACE_MS,
+      now: () => Date.now(),
+    });
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("dialog");
+  });
+
+  it("a seat with no composer probes gets its mail as before: typed on an unread box, never on attention", async () => {
+    vi.useFakeTimers();
+    for (const state of ["idle", "working", undefined]) {
+      drive?.resetForTest();
+      writes.length = 0;
+      drive = makeDrive({
+        composerVerdict: () => null,
+        composerProbed: () => false,
+        seatState: () => state,
+      });
+      await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
+      expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+    }
+    drive.resetForTest();
+    writes.length = 0;
+    drive = makeDrive({
+      composerVerdict: () => null,
+      composerProbed: () => false,
+      seatState: () => "attention",
+    });
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("dialog");
+    expect(writes).toEqual([]);
+  });
+
+  it("a seat with no composer probes still yields to the operator's fresh keystroke", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    drive = makeDrive({ composerVerdict: () => null, composerProbed: () => false, operatorInput });
+    operatorInput.noteInput("b1");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("draft");
+    expect(writes).toEqual([]);
   });
 
   it("mail held on a dialog goes in by itself once the box reads empty", async () => {

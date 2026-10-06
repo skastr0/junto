@@ -18,6 +18,7 @@ export {
   DEFAULT_QUEUE_TIMEOUT_MS,
   GROK_MIN_POST_SPAWN_MS,
   MAIL_DRAFT_RECHECK_MS,
+  MAIL_UNREADABLE_GRACE_MS,
   type ClipboardSafeAssert,
   type DriveAttentionCallback,
   type DriveAttentionReason,
