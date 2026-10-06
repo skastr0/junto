@@ -171,7 +171,7 @@ test("[fake-tui] the selection menu sends one message to every selected seat", a
     await page.locator(`.react-flow__node[data-id="${A}"]`).click();
     await page.locator(`.react-flow__node[data-id="${B}"]`).click({ modifiers: ["Shift"] });
     await page.locator(`.react-flow__node[data-id="${B}"]`).click({ button: "right" });
-    const menu = page.getByRole("menu", { name: "Actions for 2 nodes" });
+    const menu = page.getByRole("toolbar", { name: "Actions for 2 nodes" });
     await expect(menu).toBeVisible();
     await menu.getByRole("button", { name: "Message 2 agents" }).click();
 

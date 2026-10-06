@@ -74,7 +74,7 @@ const tour = async (page: import("@playwright/test").Page, theme: string): Promi
   await expect(page.getByTestId("rts-multi-command")).toBeVisible();
   await expect(page.getByTestId("rts-multi-command").getByRole("button", { name: /flag|Clear all flags/i })).toHaveCount(0);
   await page.mouse.click(b.x, b.y, { button: "right" });
-  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByRole("toolbar", { name: /^Actions for/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Flag blocker|Clear flags/ })).toHaveCount(0);
   await page.screenshot({ path: `${shots}/${theme}-3-multi-menu.png` });
   await page.keyboard.press("Escape");
