@@ -83,7 +83,12 @@ const shipProfileTests = (): string[] =>
 // electron-vite must not run beside tests: both download Electron and write
 // under out/.
 await allMustPass([
-  { name: "typecheck", cmd: ["tsc", "--noEmit"] },
+  {
+    name: "typecheck",
+    cmd: ["tsc", "--noEmit"],
+    // Node's default heap is too small for this program on a 7 GB runner.
+    env: { NODE_OPTIONS: "--max-old-space-size=4096" },
+  },
   {
     name: "test",
     cmd: ["bun", "scripts/run-unit-tests.ts", `--maxWorkers=${vitestWorkers}`],
