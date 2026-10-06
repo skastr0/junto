@@ -111,13 +111,6 @@ const writeKeyring = async (
 const createFixture = async (options: {
   readonly keyStatus?: "active" | "retired" | "revoked";
   readonly testGates?: ReadonlyArray<string>;
-  readonly unknownLicenseCount?: number;
-  readonly dependencyLicense?: string;
-  readonly dependencyLicenseSource?:
-    | "package-metadata"
-    | "bundled-license-file"
-    | "unresolved";
-  readonly sbomLicense?: string;
   readonly ciEvidencePackageSha256?: string;
   readonly stationQualificationPackageBytes?: number;
   readonly stationQualificationPackageSha256?: string;
@@ -218,46 +211,6 @@ const createFixture = async (options: {
     }),
     [STATION_QUALIFICATION_EVIDENCE_FILE]:
       "Human/operator attestation for one real two-installation Station qualification.\n",
-    "dependency-license-inventory.json": canonical({
-      schema: "junto/dependency-license-inventory/v1",
-      sourceRevision: REVISION,
-      packages: [{
-        name: "effect",
-        version: "3.0.0",
-        direct: true,
-        development: false,
-        license: options.dependencyLicense ?? "MIT",
-        licenseSource:
-          options.dependencyLicenseSource ?? "package-metadata",
-        purl: "pkg:npm/effect@3.0.0",
-      }],
-      unknownLicenseCount: options.unknownLicenseCount ?? 0,
-    }),
-    "sbom.cdx.json": canonical({
-      bomFormat: "CycloneDX",
-      specVersion: "1.6",
-      version: 1,
-      metadata: {
-        component: {
-          version: VERSION,
-          properties: [
-            { name: "junto:source-revision", value: REVISION },
-          ],
-        },
-      },
-      components: [{
-        type: "library",
-        name: "effect",
-        version: "3.0.0",
-        purl: "pkg:npm/effect@3.0.0",
-        licenses: [{ expression: options.sbomLicense ?? "MIT" }],
-        properties: [
-          { name: "junto:direct", value: "true" },
-          { name: "junto:development", value: "false" },
-          { name: "junto:license-source", value: "package-metadata" },
-        ],
-      }],
-    }),
     "CHANGELOG.md": "# Junto 0.1.0\n\nExact Linux release notes.\n",
     "source-revision.json": canonical({
       schema: "junto/source-revision/v1",
@@ -647,14 +600,14 @@ describe("signed Linux qualification candidate", () => {
     expect(manifest.files.map(({ file }) => file).sort()).toEqual(
       [...linuxQualificationCandidatePayloadFileNames(VERSION)].sort(),
     );
-    expect(manifest.files).toHaveLength(15);
+    expect(manifest.files).toHaveLength(13);
     expect(receipt).toMatchObject({
       schema:
         "junto/linux-qualification-candidate-verification-receipt/v1",
       ok: true,
       purpose: "station-qualification-candidate",
       publishable: false,
-      filesVerified: 15,
+      filesVerified: 13,
       packageSha256: manifest.package.sha256,
       ciEvidenceSha256: manifest.source.ciEvidence.sha256,
     });
@@ -754,7 +707,7 @@ describe("signed Linux release bundle", () => {
       keyringRevision: 7,
       signedAt: "2026-07-23T11:58:00.000Z",
       expiresAt: EXPIRES_AT,
-      filesVerified: 15,
+      filesVerified: 13,
       bundleFiles: expect.arrayContaining([
         expect.objectContaining({
           file: PACKAGE,
@@ -993,30 +946,6 @@ describe("signed Linux release bundle", () => {
     await expect(
       createFixture({ testGates: ciGates.slice(1) }),
     ).rejects.toThrow(/every release gate/u);
-  });
-
-  it("refuses to create signed metadata with unresolved dependency rights", async () => {
-    await expect(
-      createFixture({ unknownLicenseCount: 1 }),
-    ).rejects.toThrow(/unresolved rights/u);
-    await expect(
-      createFixture({
-        dependencyLicense: "UNKNOWN",
-        dependencyLicenseSource: "unresolved",
-      }),
-    ).rejects.toThrow(/unresolved rights/u);
-    await expect(
-      createFixture({
-        dependencyLicense: "Definitely-Not-A-License",
-        sbomLicense: "Definitely-Not-A-License",
-      }),
-    ).rejects.toThrow(/unresolved rights/u);
-  });
-
-  it("refuses inconsistent dependency inventory and SBOM evidence", async () => {
-    await expect(
-      createFixture({ sbomLicense: "Apache-2.0" }),
-    ).rejects.toThrow(/SBOM does not match/u);
   });
 
   it("requires CI evidence to bind the exact signed package", async () => {

@@ -240,7 +240,6 @@ native Ubuntu 24.04 x86-64 and upload:
 
 - source/tool inventory;
 - payload and verifier hashes;
-- dependency/license inventory and SBOM;
 - static ownership, mode, ELF, fuse, and protocol audit;
 - clean-user rootless install/update/removal receipts;
 - preflight status fixtures and negative security results;

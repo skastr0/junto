@@ -27,7 +27,6 @@ import {
   STATION_QUALIFICATION_EVIDENCE_FILE,
   STATION_QUALIFICATION_RECEIPT_FILE,
 } from "../src/shared/station-qualification";
-import { isRecognizedSpdxExpression } from "./spdx-license";
 
 export const LINUX_RELEASE_MANIFEST = "release-manifest.json";
 export const LINUX_RELEASE_SIGNATURE = "release-manifest.sig";
@@ -75,8 +74,6 @@ export type LinuxReleaseFileKind =
   | "runtime-receipt"
   | "ci-evidence-manifest"
   | "release-keyring"
-  | "dependency-license-inventory"
-  | "sbom"
   | "changelog"
   | "source-revision"
   | "operator-runbook"
@@ -313,8 +310,6 @@ const FILE_KINDS = new Set<LinuxReleaseFileKind>([
   "runtime-receipt",
   "ci-evidence-manifest",
   "release-keyring",
-  "dependency-license-inventory",
-  "sbom",
   "changelog",
   "source-revision",
   "operator-runbook",
@@ -330,8 +325,6 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["runtime-receipt", "packaged-runtime-smoke.json"],
   ["ci-evidence-manifest", "ci-evidence-manifest.json"],
   ["release-keyring", LINUX_RELEASE_KEYRING],
-  ["dependency-license-inventory", "dependency-license-inventory.json"],
-  ["sbom", "sbom.cdx.json"],
   ["changelog", "CHANGELOG.md"],
   ["source-revision", "source-revision.json"],
   ["operator-runbook", "OPERATIONS.md"],
@@ -1547,196 +1540,6 @@ const REQUIRED_CI_GATES = [
   "packaged-runtime-smoke",
 ] as const;
 
-const BUNDLED_LICENSE_FILES = new Set([
-  "LICENSE",
-  "LICENSE.txt",
-  "LICENSE.md",
-  "LICENCE",
-  "LICENCE.txt",
-  "LICENCE.md",
-  "COPYING",
-]);
-
-const validateDependencyLicenseInventory = (
-  receipt: Record<string, unknown>,
-  sourceRevision: string,
-): void => {
-  if (
-    receipt.schema !== "junto/dependency-license-inventory/v1" ||
-    receipt.sourceRevision !== sourceRevision ||
-    !Array.isArray(receipt.packages) ||
-    receipt.packages.length === 0 ||
-    receipt.unknownLicenseCount !== 0
-  ) {
-    throw new Error(
-      "dependency/license inventory is incomplete or has unresolved rights",
-    );
-  }
-  const seen = new Set<string>();
-  for (const [index, value] of receipt.packages.entries()) {
-    const dependency = record(value, `dependency license ${index}`);
-    const source = dependency.licenseSource;
-    exactKeys(
-      dependency,
-      source === "bundled-license-file"
-        ? [
-          "name",
-          "version",
-          "direct",
-          "development",
-          "license",
-          "licenseSource",
-          "licenseEvidence",
-          "purl",
-        ]
-        : [
-          "name",
-          "version",
-          "direct",
-          "development",
-          "license",
-          "licenseSource",
-          "purl",
-        ],
-      `dependency license ${index}`,
-    );
-    const name = requiredString(dependency.name, "dependency name", 214);
-    const version = requiredString(
-      dependency.version,
-      "dependency version",
-      128,
-    );
-    const license = requiredString(
-      dependency.license,
-      "dependency license expression",
-      256,
-    );
-    const purl = requiredString(dependency.purl, "dependency purl", 512);
-    if (
-      dependency.direct !== true && dependency.direct !== false ||
-      dependency.development !== true &&
-        dependency.development !== false ||
-      seen.has(purl) ||
-      !purl.startsWith("pkg:npm/") ||
-      !isRecognizedSpdxExpression(license)
-    ) {
-      throw new Error(
-        "dependency/license inventory is incomplete or has unresolved rights",
-      );
-    }
-    seen.add(purl);
-    if (source === "package-metadata") continue;
-    if (source !== "bundled-license-file" || license !== "MIT") {
-      throw new Error(
-        "dependency/license inventory is incomplete or has unresolved rights",
-      );
-    }
-    const evidence = record(
-      dependency.licenseEvidence,
-      `dependency license evidence ${name}@${version}`,
-    );
-    exactKeys(
-      evidence,
-      ["file", "sha256"],
-      `dependency license evidence ${name}@${version}`,
-    );
-    if (
-      !BUNDLED_LICENSE_FILES.has(
-        requireSafeFileName(evidence.file, "dependency license evidence file"),
-      )
-    ) {
-      throw new Error("dependency license evidence file is not recognized");
-    }
-    requireSha256(evidence.sha256, "dependency license evidence hash");
-  }
-};
-
-const validateSbomInventoryConsistency = (
-  inventory: Record<string, unknown>,
-  sbom: Record<string, unknown>,
-): void => {
-  if (!Array.isArray(inventory.packages) || !Array.isArray(sbom.components)) {
-    throw new Error("SBOM does not match dependency/license inventory");
-  }
-  const components = new Map<string, Record<string, unknown>>();
-  for (const [index, value] of sbom.components.entries()) {
-    const component = record(value, `SBOM component ${index}`);
-    exactKeys(
-      component,
-      ["type", "name", "version", "purl", "licenses", "properties"],
-      `SBOM component ${index}`,
-    );
-    const purl = requiredString(component.purl, "SBOM component purl", 512);
-    if (component.type !== "library" || components.has(purl)) {
-      throw new Error("SBOM does not match dependency/license inventory");
-    }
-    components.set(purl, component);
-  }
-  if (components.size !== inventory.packages.length) {
-    throw new Error("SBOM does not match dependency/license inventory");
-  }
-  for (const [index, value] of inventory.packages.entries()) {
-    const dependency = record(value, `dependency license ${index}`);
-    const purl = requiredString(dependency.purl, "dependency purl", 512);
-    const component = components.get(purl);
-    if (
-      component === undefined ||
-      component.name !== dependency.name ||
-      component.version !== dependency.version ||
-      !Array.isArray(component.licenses) ||
-      component.licenses.length !== 1 ||
-      !Array.isArray(component.properties)
-    ) {
-      throw new Error("SBOM does not match dependency/license inventory");
-    }
-    const license = record(component.licenses[0], "SBOM component license");
-    exactKeys(license, ["expression"], "SBOM component license");
-    if (license.expression !== dependency.license) {
-      throw new Error("SBOM does not match dependency/license inventory");
-    }
-    const properties = new Map<string, string>();
-    for (const value of component.properties) {
-      const property = record(value, "SBOM component property");
-      exactKeys(property, ["name", "value"], "SBOM component property");
-      const name = requiredString(property.name, "SBOM property name", 128);
-      const propertyValue = requiredString(
-        property.value,
-        "SBOM property value",
-        512,
-      );
-      if (properties.has(name)) {
-        throw new Error("SBOM contains a duplicate component property");
-      }
-      properties.set(name, propertyValue);
-    }
-    const evidence = dependency.licenseEvidence === undefined
-      ? undefined
-      : record(dependency.licenseEvidence, "dependency license evidence");
-    const expectedProperties = new Map([
-      ["junto:direct", String(dependency.direct)],
-      ["junto:development", String(dependency.development)],
-      ["junto:license-source", String(dependency.licenseSource)],
-      ...(evidence === undefined
-        ? []
-        : [
-          ["junto:license-evidence-file", String(evidence.file)] as const,
-          [
-            "junto:license-evidence-sha256",
-            String(evidence.sha256),
-          ] as const,
-        ]),
-    ]);
-    if (
-      properties.size !== expectedProperties.size ||
-      [...expectedProperties].some(([name, expected]) =>
-        properties.get(name) !== expected
-      )
-    ) {
-      throw new Error("SBOM does not match dependency/license inventory");
-    }
-  }
-};
-
 const LINUX_CI_EVIDENCE_TARGET = Object.freeze({
   runner: "ubuntu-24.04",
   os: "linux",
@@ -1992,41 +1795,12 @@ const validateEvidenceReceipt = (
     }
     return;
   }
-  if (file === "dependency-license-inventory.json") {
-    validateDependencyLicenseInventory(receipt, manifest.source.revision);
-    return;
-  }
-  if (file === "sbom.cdx.json") {
-    const metadata = record(receipt.metadata, "SBOM metadata");
-    const component = record(metadata.component, "SBOM root component");
-    const properties = Array.isArray(component.properties)
-      ? component.properties
-      : [];
-    const revision = properties.some((property) => {
-      const decoded = record(property, "SBOM property");
-      return decoded.name === "junto:source-revision" &&
-        decoded.value === manifest.source.revision;
-    });
-    if (
-      receipt.bomFormat !== "CycloneDX" ||
-      receipt.specVersion !== "1.6" ||
-      receipt.version !== 1 ||
-      component.version !== manifest.release.version ||
-      !Array.isArray(receipt.components) ||
-      receipt.components.length === 0 ||
-      !revision
-    ) {
-      throw new Error("CycloneDX SBOM does not match the release");
-    }
-  }
 };
 
 const validatePayloads = async (
   directory: string,
   manifest: LinuxEvidenceBundleManifest,
 ): Promise<void> => {
-  let dependencyInventory: Record<string, unknown> | undefined;
-  let sbom: Record<string, unknown> | undefined;
   for (const entry of manifest.files) {
     const maximum =
       entry.kind === "package"
@@ -2073,29 +1847,14 @@ const validatePayloads = async (
         entry.kind === "test-receipt" ||
         entry.kind === "package-audit" ||
         entry.kind === "runtime-receipt" ||
-        entry.kind === "ci-evidence-manifest" ||
-        entry.kind === "dependency-license-inventory" ||
-        entry.kind === "sbom"
+        entry.kind === "ci-evidence-manifest"
       ) {
         validateEvidenceReceipt(entry.file, text, manifest);
-      }
-      if (entry.kind === "dependency-license-inventory") {
-        dependencyInventory = parseEvidenceJson(
-          text,
-          "dependency/license inventory",
-        );
-      }
-      if (entry.kind === "sbom") {
-        sbom = parseEvidenceJson(text, "CycloneDX SBOM");
       }
     } finally {
       await admitted.handle.close();
     }
   }
-  if (dependencyInventory === undefined || sbom === undefined) {
-    throw new Error("release supply-chain evidence is incomplete");
-  }
-  validateSbomInventoryConsistency(dependencyInventory, sbom);
 };
 
 const validateHost = (host: LinuxReleaseHostFacts): void => {
