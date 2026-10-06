@@ -159,6 +159,41 @@ export const assertNoLiveJuntoRuntime = (
   }
 };
 
+/** The operator's own app may be open while a release is cut. With
+ * JUNTO_SMOKE_BESIDE_LIVE_APP=1 the smoke runs beside it: the installed app is
+ * never signalled, and since that app keeps writing its own home, isolation is
+ * proven by what the candidate's processes hold open, not by an unchanged tree. */
+export const smokeBesideLiveApp = (
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean => environment.JUNTO_SMOKE_BESIDE_LIVE_APP === "1";
+
+export const realHomeProtectedRoots = (realHome: string): ReadonlyArray<string> => [
+  path.join(realHome, ".junto"),
+  path.join(realHome, "Library", "Application Support", "Junto"),
+];
+
+/** `lsof -Fn` output: one `n<path>` line per open file of the smoke's processes. */
+export const assertNoRealHomeHandles = (
+  status: number | null,
+  stdout: string,
+  protectedRoots: ReadonlyArray<string>,
+): void => {
+  const names = stdout
+    .split("\n")
+    .filter((line) => line.startsWith("n"))
+    .map((line) => line.slice(1));
+  if (status !== 0 || names.length === 0) {
+    throw new Error("packaged Junto open files could not be listed");
+  }
+  if (
+    names.some((name) =>
+      protectedRoots.some((root) => name === root || name.startsWith(`${root}/`)),
+    )
+  ) {
+    throw new Error("packaged Junto holds a file open under a real Junto root");
+  }
+};
+
 export const parseDoctorReceipt = (output: string): DoctorReceipt => {
   let value: unknown;
   try {
@@ -409,11 +444,11 @@ const currentProcessRows = (): ReadonlyArray<ProcessRow> => {
   return parseProcessRows(result.stdout);
 };
 
-const preflightRuntime = (requestedAppPath: string): void => {
-  assertNoLiveJuntoRuntime(currentProcessRows(), [
-    "/Applications/Junto.app",
-    requestedAppPath,
-  ]);
+const preflightRuntime = (requestedAppPath: string, besideLiveApp: boolean): void => {
+  assertNoLiveJuntoRuntime(
+    currentProcessRows(),
+    besideLiveApp ? [requestedAppPath] : ["/Applications/Junto.app", requestedAppPath],
+  );
   const launchAgent = runFixed("/bin/launchctl", [
     "print",
     `gui/${String(currentUid())}/com.skastr0.junto`,
@@ -739,6 +774,7 @@ export interface PackagedRuntimeSmokeReceipt {
   readonly debugAuthority: false;
   readonly exitCode: 0;
   readonly realRootsUntouched: true;
+  readonly realRootProof: "unchanged-tree" | "no-open-handles";
   readonly tempRootRemoved: true;
 }
 
@@ -752,7 +788,8 @@ export const smokePackagedRuntime = async (
   if (path.basename(appPath) !== "Junto.app") {
     throw new Error("packaged runtime smoke requires Junto.app");
   }
-  preflightRuntime(appPath);
+  const besideLiveApp = smokeBesideLiveApp();
+  preflightRuntime(appPath, besideLiveApp);
   const executable = path.join(appPath, "Contents", "MacOS", "Junto");
   const packagedCli = path.join(appPath, "Contents", "Resources", "bin", "junto");
   await Promise.all([stat(executable), stat(packagedCli)]);
@@ -764,9 +801,12 @@ export const smokePackagedRuntime = async (
     path.join(realHome, ".junto", "state"),
     path.join(realHome, ".junto", "content"),
   ];
-  const beforeSnapshots = await Promise.all(realRoots.map(snapshotTree));
+  // Beside a live app the real roots change under its own writes, so they are
+  // not snapshotted or watched; the open-handle check below stands in.
+  const watchedRoots = besideLiveApp ? [] : realRoots;
+  const beforeSnapshots = await Promise.all(watchedRoots.map(snapshotTree));
   let realRootEvents = 0;
-  const watchers = realRoots
+  const watchers = watchedRoots
     .map((root) => watchTree(root, () => {
       realRootEvents += 1;
     }))
@@ -895,6 +935,18 @@ export const smokePackagedRuntime = async (
       "-sTCP:LISTEN",
     ]);
     assertNoTcpListeners(listeners.status, listeners.stdout);
+    if (besideLiveApp) {
+      const openFiles = runFixed(
+        "/usr/sbin/lsof",
+        ["-nP", "-p", knownPids.join(","), "-Fn"],
+        { maxBuffer: 8 * 1024 * 1024 },
+      );
+      assertNoRealHomeHandles(
+        openFiles.status,
+        openFiles.stdout,
+        realHomeProtectedRoots(realHome),
+      );
+    }
     if (output.overflowed()) {
       throw new Error("packaged Junto exceeded the bounded smoke output budget");
     }
@@ -955,7 +1007,7 @@ export const smokePackagedRuntime = async (
     }
 
     await delay(150);
-    const afterSnapshots = await Promise.all(realRoots.map(snapshotTree));
+    const afterSnapshots = await Promise.all(watchedRoots.map(snapshotTree));
     if (
       realRootEvents !== 0 ||
       beforeSnapshots.some((snapshot, index) => !sameSnapshot(snapshot, afterSnapshots[index]))
@@ -973,6 +1025,7 @@ export const smokePackagedRuntime = async (
       debugAuthority: false,
       exitCode: 0,
       realRootsUntouched: true,
+      realRootProof: besideLiveApp ? "no-open-handles" : "unchanged-tree",
     };
   } catch (error) {
     failed = true;

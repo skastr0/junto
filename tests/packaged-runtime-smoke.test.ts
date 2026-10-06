@@ -23,6 +23,9 @@ import {
   DARWIN_UNIX_SOCKET_PATH_MAX_BYTES,
   assertDarwinUnixSocketPathFits,
   assertNoLiveJuntoRuntime,
+  assertNoRealHomeHandles,
+  realHomeProtectedRoots,
+  smokeBesideLiveApp,
   assertNoTcpListeners,
   boundedProcessKind,
   descendantRows,
@@ -279,6 +282,25 @@ describe("packaged runtime smoke receipts", () => {
     expect(() => assertNoTcpListeners(1, "")).not.toThrow();
     expect(() => assertNoTcpListeners(0, "COMMAND PID ...")).toThrow(/TCP listener/u);
     expect(() => assertNoTcpListeners(2, "")).toThrow(/TCP listener/u);
+  });
+
+  it("runs beside a live app only when asked, and then refuses any open file under a real root", () => {
+    expect(smokeBesideLiveApp({})).toBe(false);
+    expect(smokeBesideLiveApp({ JUNTO_SMOKE_BESIDE_LIVE_APP: "1" })).toBe(true);
+    const roots = realHomeProtectedRoots("/Users/op");
+    const isolated = "p10\nfcwd\nn/private/tmp/junto-smoke-x/home\nn/Users/op/.junto-dev/x\n";
+    expect(() => assertNoRealHomeHandles(0, isolated, roots)).not.toThrow();
+    expect(() =>
+      assertNoRealHomeHandles(0, `${isolated}n/Users/op/.junto/state/junto.db\n`, roots),
+    ).toThrow(/real Junto root/u);
+    expect(() =>
+      assertNoRealHomeHandles(
+        0,
+        `${isolated}n/Users/op/Library/Application Support/Junto/Cookies\n`,
+        roots,
+      ),
+    ).toThrow(/real Junto root/u);
+    expect(() => assertNoRealHomeHandles(1, "", roots)).toThrow(/could not be listed/u);
   });
 
   it("fails before launch when an isolated Unix socket exceeds Darwin sun_path", () => {
