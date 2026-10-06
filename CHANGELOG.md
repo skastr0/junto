@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## 0.4.0 — 2026-10-06
+
+- Add git review to an agent's git detail: uncommitted, since base, and
+  commit views, comments on lines, and sending the review as one mail per
+  agent. A pending review lasts for the window and is lost on restart.
+- Let a signal carry attached files (`junto escalate`, `blocked`, and
+  `feedback` take `--attach`); the needs-you feed previews them. State
+  schema moves from 8 to 9.
+- Merge what needs the operator into one button, one count, and one list.
+- Preview the files an agent names in its text, with a viewer, slideshow,
+  and before and after compare.
+- Put every app shortcut in one key table: a Keyboard shortcuts section in
+  Settings changes them, the macOS menu bar follows them, Cmd+W closes what
+  is in front, and Cmd+backtick replaces Control+Tab as the switcher.
+- Add Interface size in Settings, Appearance.
+- Give a region an environment for the seats inside it, with sources from
+  the Keychain or 1Password, and one screen to edit and explain it.
+- Onboard a seat by nudge through `junto onboard`; a managed launch no
+  longer carries Junto instructions. Seats take the operator's own harness
+  arguments, per harness, profile, or seat.
+- Rework the agent modal: a one-line header, and a rail of the connected
+  agents as their canvas seats.
+- Make everything under the front modal inert, and ask destructive
+  questions through the working dialog.
+- Brighten dim and faint text in the dark theme, with a contrast floor.
+- Rest canvas wires faint and unpickable.
+- Update Electron to 43.5.0 and patch dependencies with high advisories.
+- Stop bundling licence notices in packages.
+- Let the packaged smoke run beside an open Junto
+  (`JUNTO_SMOKE_BESIDE_LIVE_APP=1`), so a release never needs the app closed.
+
 ## 0.3.4 — 2026-09-24
 
 - Drop the support email. The startup data-store failure dialog, SECURITY.md,
