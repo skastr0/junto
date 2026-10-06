@@ -168,7 +168,6 @@ describe("Linux remote displayless packaging helpers", () => {
   it("stages a link-free node-pty runtime from node-gyp hard-linked output", async () => {
     expect(LINUX_NODE_PTY_NATIVE_RELATIVE).toBe("build/Release/pty.node");
     expect(LINUX_NODE_PTY_RUNTIME_FILES).toEqual([
-      "LICENSE",
       "package.json",
       "lib/eventEmitter2.js",
       "lib/index.js",

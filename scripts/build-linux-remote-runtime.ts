@@ -79,13 +79,12 @@ export const REMOTE_NODE_PTY_RELATIVE =
 export const REMOTE_APP_PACKAGE_RELATIVE = "resources/app-remote/package.json";
 
 /**
- * Exact stock node-pty files needed by the displayless Linux runtime, plus its
- * license. Native compilation happens in a disposable workspace; node-gyp
+ * Exact stock node-pty files needed by the displayless Linux runtime. Native
+ * compilation happens in a disposable workspace; node-gyp
  * sources, object files, dependency files, and hard-link aliases never enter
  * the packaged tree.
  */
 export const LINUX_NODE_PTY_RUNTIME_FILES = [
-  "LICENSE",
   "package.json",
   "lib/eventEmitter2.js",
   "lib/index.js",
