@@ -112,7 +112,7 @@ const stage = (input: Awaited<ReturnType<typeof fixture>>) => stageLinuxDesktopR
 const active = (home: string) => join(home, ".local/bin/junto-desktop");
 
 describe("rootless Linux desktop installation", () => {
-  it("finishes buffered ASAR fixture writes before staging the archive", async () => {
+  itOnLinux("finishes buffered ASAR fixture writes before staging the archive", async () => {
     const write = WriteStream.prototype._write;
     const writev = WriteStream.prototype._writev!;
     vi.spyOn(WriteStream.prototype, "_write").mockImplementation(function (this: WriteStream, ...args) {
