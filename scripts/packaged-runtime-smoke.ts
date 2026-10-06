@@ -159,13 +159,18 @@ export const assertNoLiveJuntoRuntime = (
   }
 };
 
-/** The operator's own app may be open while a release is cut. With
- * JUNTO_SMOKE_BESIDE_LIVE_APP=1 the smoke runs beside it: the installed app is
- * never signalled, and since that app keeps writing its own home, isolation is
- * proven by what the candidate's processes hold open, not by an unchanged tree. */
+/** The operator's own app may be open while a release is cut, and a release
+ * never asks for it to be closed. When the installed app is running (or
+ * JUNTO_SMOKE_BESIDE_LIVE_APP=1 says so) the smoke runs beside it: the
+ * installed app is never signalled, and since that app keeps writing its own
+ * home, isolation is proven by what the candidate's processes hold open, not
+ * by an unchanged tree. */
 export const smokeBesideLiveApp = (
+  rows: ReadonlyArray<ProcessRow>,
   environment: NodeJS.ProcessEnv = process.env,
-): boolean => environment.JUNTO_SMOKE_BESIDE_LIVE_APP === "1";
+): boolean =>
+  environment.JUNTO_SMOKE_BESIDE_LIVE_APP === "1" ||
+  rows.some((row) => row.command.startsWith("/Applications/Junto.app/Contents/"));
 
 export const realHomeProtectedRoots = (realHome: string): ReadonlyArray<string> => [
   path.join(realHome, ".junto"),
@@ -788,7 +793,7 @@ export const smokePackagedRuntime = async (
   if (path.basename(appPath) !== "Junto.app") {
     throw new Error("packaged runtime smoke requires Junto.app");
   }
-  const besideLiveApp = smokeBesideLiveApp();
+  const besideLiveApp = smokeBesideLiveApp(currentProcessRows());
   preflightRuntime(appPath, besideLiveApp);
   const executable = path.join(appPath, "Contents", "MacOS", "Junto");
   const packagedCli = path.join(appPath, "Contents", "Resources", "bin", "junto");

@@ -284,9 +284,11 @@ describe("packaged runtime smoke receipts", () => {
     expect(() => assertNoTcpListeners(2, "")).toThrow(/TCP listener/u);
   });
 
-  it("runs beside a live app only when asked, and then refuses any open file under a real root", () => {
-    expect(smokeBesideLiveApp({})).toBe(false);
-    expect(smokeBesideLiveApp({ JUNTO_SMOKE_BESIDE_LIVE_APP: "1" })).toBe(true);
+  it("runs beside a live app when one is open or when asked, and then refuses any open file under a real root", () => {
+    expect(smokeBesideLiveApp([], {})).toBe(false);
+    expect(smokeBesideLiveApp([], { JUNTO_SMOKE_BESIDE_LIVE_APP: "1" })).toBe(true);
+    const live = [{ ...parseProcessRows(processFixture)[0]!, command: "/Applications/Junto.app/Contents/MacOS/Junto" }];
+    expect(smokeBesideLiveApp(live, {})).toBe(true);
     const roots = realHomeProtectedRoots("/Users/op");
     const isolated = "p10\nfcwd\nn/private/tmp/junto-smoke-x/home\nn/Users/op/.junto-dev/x\n";
     expect(() => assertNoRealHomeHandles(0, isolated, roots)).not.toThrow();
