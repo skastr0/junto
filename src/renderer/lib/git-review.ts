@@ -5,14 +5,14 @@ import { EMPTY_REVIEW, reviewIsEmpty, type PendingReview, type ReviewComment } f
 /**
  * The operator's pending reviews, one per repository, and what was last sent.
  *
- * A pending review survives closing and reopening the git detail, and a
- * reload: it is kept in this window's local storage, keyed by the
- * repository's top level, until it is sent or discarded. It is the
+ * A pending review survives closing and reopening the git detail: it is kept
+ * in this window's memory, keyed by the repository's top level, until it is
+ * sent or discarded. It does not survive a reload or a restart yet; the
+ * browser's own storage is not a store for the app (settings state
+ * architecture), so keeping it longer means the state engine. It is the
  * operator's draft, not work: nothing in main knows about it until it is
  * sent as mail.
  */
-
-const STORAGE_KEY = "junto.git-review.pending";
 
 export type SentReview = {
   /** Epoch ms it was sent. */
@@ -21,30 +21,12 @@ export type SentReview = {
   readonly mails: ReadonlyArray<{ readonly name: string; readonly comments: number }>;
 };
 
-const load = (): Record<string, PendingReview> => {
-  try {
-    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "{}");
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, PendingReview>) : {};
-  } catch {
-    return {};
-  }
-};
-
-const pending$ = observable<Record<string, PendingReview>>(load());
+const pending$ = observable<Record<string, PendingReview>>({});
 const sent$ = observable<Record<string, SentReview>>({});
-
-const save = (): void => {
-  try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(pending$.peek()));
-  } catch {
-    // No storage (a test, a locked profile): the review lasts for this window only.
-  }
-};
 
 const write = (root: string, next: PendingReview): void => {
   if (reviewIsEmpty(next)) pending$[root].delete();
   else pending$[root].set(next);
-  save();
 };
 
 export const pendingReview = (root: string): PendingReview => pending$[root].peek() ?? EMPTY_REVIEW;
@@ -74,7 +56,6 @@ export const setReviewNote = (root: string, note: string): void => write(root, {
 /** Drop the pending review: it was sent, or the operator discarded it. */
 export const clearPendingReview = (root: string): void => {
   pending$[root].delete();
-  save();
 };
 
 /** Keep the comments that could not be sent (no recipient); everything else went. */
