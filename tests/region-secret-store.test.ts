@@ -12,7 +12,9 @@ import {
   JUNTO_SECRET_SERVICE,
   KeychainCredentialStore,
   MemoryCredentialStore,
+  SECRET_STORE_ENV,
   SecretServiceCredentialStore,
+  forcedSecretStoreOf,
   openPlatformSecretStore,
   type SecretToolExec,
 } from "../src/main/junto/credentials/store";
@@ -180,6 +182,70 @@ describe("picking the backend at startup", () => {
       expect(opened.store.listIds()).toEqual([ID]);
       opened.store.delete(ID);
     }
+  });
+});
+
+describe("JUNTO_SECRET_STORE forces one store", () => {
+  const none: SecretToolExec = () => ({ status: undefined, stdout: "", notInstalled: true, timedOut: false });
+
+  it("reads file, keychain and keyring, and ignores anything else", () => {
+    expect(SECRET_STORE_ENV).toBe("JUNTO_SECRET_STORE");
+    expect(forcedSecretStoreOf("file")).toBe("file");
+    expect(forcedSecretStoreOf(" Keychain ")).toBe("keychain");
+    expect(forcedSecretStoreOf("keyring")).toBe("keyring");
+    expect(forcedSecretStoreOf(undefined)).toBeUndefined();
+    expect(forcedSecretStoreOf("")).toBeUndefined();
+    expect(forcedSecretStoreOf("vault")).toBeUndefined();
+  });
+
+  it("file: owner-only files on a Mac with a working Keychain, and no tool is ever run", () => {
+    const opened = openPlatformSecretStore({ directory, platform: "darwin", exec: fakeSecurity(), forced: "file" });
+    expect(opened.backend).toBe("file");
+    expect(opened.description).toBe(
+      "Junto keeps its secrets in owner-only files in its own folder (set by JUNTO_SECRET_STORE=file).",
+    );
+    opened.store.put(ID, VALUE);
+    expect(opened.store.get(ID)).toBe(VALUE);
+    expect(calls).toEqual([]);
+  });
+
+  it("keychain: the Keychain, whatever the platform default would be", () => {
+    const opened = openPlatformSecretStore({ directory, platform: "linux", exec: fakeSecurity(), forced: "keychain" });
+    expect(opened.backend).toBe("keychain");
+    expect(opened.description).toBe(
+      "Junto keeps its secrets in the macOS Keychain (set by JUNTO_SECRET_STORE=keychain).",
+    );
+  });
+
+  it("keyring: the Secret Service, whatever the platform default would be", () => {
+    const opened = openPlatformSecretStore({ directory, platform: "darwin", exec: fakeSecretTool(), forced: "keyring" });
+    expect(opened.backend).toBe("secret-service");
+    expect(opened.description).toBe(
+      "Junto keeps its secrets in the Linux keyring (Secret Service) (set by JUNTO_SECRET_STORE=keyring).",
+    );
+    expect(calls.every((call) => call.command === "secret-tool")).toBe(true);
+  });
+
+  it("a forced store that is not there is unavailable, never a quiet fallback", () => {
+    for (const forced of ["keychain", "keyring"] as const) {
+      const opened = openPlatformSecretStore({ directory, platform: "darwin", exec: none, forced });
+      expect(opened.backend).toBe("unavailable");
+      expect(opened.description).toBe(
+        `Junto has nowhere to keep secrets on this machine (set by JUNTO_SECRET_STORE=${forced}).`,
+      );
+      expect(() => opened.store.put(ID, VALUE)).toThrow();
+      const secrets = makeRegionSecrets(opened);
+      expect(secrets.save({ value: VALUE })).toEqual({ ok: false, message: opened.description });
+    }
+  });
+
+  it("the default is unchanged and says nothing about a switch", () => {
+    const mac = openPlatformSecretStore({ directory, platform: "darwin", exec: fakeSecurity() });
+    expect(mac.backend).toBe("keychain");
+    expect(mac.description).toBe("Junto keeps its secrets in the macOS Keychain.");
+    const linux = openPlatformSecretStore({ directory, platform: "linux", exec: fakeSecretTool() });
+    expect(linux.backend).toBe("secret-service");
+    expect(openPlatformSecretStore({ directory, platform: "linux", exec: none }).backend).toBe("file");
   });
 });
 

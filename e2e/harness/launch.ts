@@ -518,6 +518,9 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       SHELL: "/bin/sh",
       JUNTO_CANVASES_DIR: sandbox.canvasesDir,
       JUNTO_E2E: "1",
+      // Junto's own secrets go to owner-only files under this launch's
+      // throwaway home. Never the operator's real Keychain or keyring.
+      JUNTO_SECRET_STORE: "file",
       // Match electron-vite's real development contract exactly. It supplies
       // the loopback authority without a trailing slash; using a normalized
       // test-only URL here previously hid a black-window startup regression.

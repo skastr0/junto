@@ -11,6 +11,8 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  SECRET_STORE_ENV,
+  forcedSecretStoreOf,
   openPlatformSecretStore,
   regionSecretDirectory,
   type CredentialStore,
@@ -99,7 +101,11 @@ let current: RegionSecrets | undefined;
 export const regionSecrets = (): RegionSecrets => {
   if (current === undefined) {
     current = makeRegionSecrets(
-      openPlatformSecretStore({ directory: regionSecretDirectory(stateDatabasePath()) }),
+      openPlatformSecretStore({
+        directory: regionSecretDirectory(stateDatabasePath()),
+        // Read once, here: JUNTO_SECRET_STORE=file|keychain|keyring.
+        forced: forcedSecretStoreOf(process.env[SECRET_STORE_ENV]),
+      }),
     );
     // Said once, when the store is picked: which one is active on this machine.
     console.info(`[region-env] ${current.description}`);

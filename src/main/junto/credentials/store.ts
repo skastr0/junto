@@ -513,33 +513,71 @@ const BACKEND_DESCRIPTION: Readonly<Record<SecretStoreBackend, string>> = {
 };
 
 /**
- * Pick the secret store for this platform, once, at startup: the Keychain on
- * macOS, the Secret Service on Linux, and the owner-only file store wherever
- * the platform store is not there to use.
+ * The operator's switch for which store holds Junto's own secrets. Set it to
+ * keep a test run, or a machine of your own choosing, out of the platform
+ * store: `file` never touches a Keychain or a keyring.
+ */
+export const SECRET_STORE_ENV = "JUNTO_SECRET_STORE";
+
+/** The values the switch takes. Anything else is ignored. */
+export type ForcedSecretStore = "file" | "keychain" | "keyring";
+
+export const forcedSecretStoreOf = (value: string | undefined): ForcedSecretStore | undefined => {
+  const wanted = value?.trim().toLowerCase();
+  return wanted === "file" || wanted === "keychain" || wanted === "keyring" ? wanted : undefined;
+};
+
+/**
+ * Pick the secret store for this machine, once, when it is first opened: the
+ * Keychain on macOS, the Secret Service on Linux, and the owner-only file
+ * store wherever the platform store is not there to use.
+ *
+ * `forced` (from `JUNTO_SECRET_STORE`) names one store outright. A forced
+ * store that cannot be used is reported as unavailable: a secret is never
+ * written somewhere the operator did not ask for.
  */
 export const openPlatformSecretStore = (
-  options: PlatformStoreOptions & { readonly platform?: NodeJS.Platform },
+  options: PlatformStoreOptions & {
+    readonly platform?: NodeJS.Platform;
+    readonly forced?: ForcedSecretStore;
+  },
 ): OpenedSecretStore => {
   const platform = options.platform ?? process.platform;
+  const forcedNote = options.forced ? ` (set by ${SECRET_STORE_ENV}=${options.forced})` : "";
   const opened = (store: CredentialStore, backend: SecretStoreBackend): OpenedSecretStore => ({
     store,
     backend,
-    description: BACKEND_DESCRIPTION[backend],
+    description: `${BACKEND_DESCRIPTION[backend].replace(/\.$/u, "")}${forcedNote}.`,
   });
-  try {
-    if (platform === "darwin") {
-      const keychain = new KeychainCredentialStore(options);
-      if (keychain.available) return opened(keychain, "keychain");
+  const file = (): OpenedSecretStore => {
+    const store = openFileCredentialStore(options.directory);
+    return store.available ? opened(store, "file") : opened(store, "unavailable");
+  };
+  const keychain = (): OpenedSecretStore | undefined => {
+    try {
+      const store = new KeychainCredentialStore(options);
+      return store.available ? opened(store, "keychain") : undefined;
+    } catch {
+      return undefined;
     }
-    if (platform === "linux") {
-      const keyring = new SecretServiceCredentialStore(options);
-      if (keyring.available) return opened(keyring, "secret-service");
+  };
+  const keyring = (): OpenedSecretStore | undefined => {
+    try {
+      const store = new SecretServiceCredentialStore(options);
+      return store.available ? opened(store, "secret-service") : undefined;
+    } catch {
+      return undefined;
     }
-  } catch {
-    // Fall through to the file store.
-  }
-  const file = openFileCredentialStore(options.directory);
-  return file.available ? opened(file, "file") : opened(file, "unavailable");
+  };
+  const unavailable = (): OpenedSecretStore =>
+    opened(new UnavailableCredentialStore(), "unavailable");
+
+  if (options.forced === "file") return file();
+  if (options.forced === "keychain") return keychain() ?? unavailable();
+  if (options.forced === "keyring") return keyring() ?? unavailable();
+  if (platform === "darwin") return keychain() ?? file();
+  if (platform === "linux") return keyring() ?? file();
+  return file();
 };
 
 /** Where region secrets live when the file store is the backend. */
