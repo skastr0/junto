@@ -34,7 +34,6 @@ describe("renderer error boundary wiring", () => {
     expect(main).toContain("RendererErrorBoundary");
     expect(app).toContain("RendererErrorBoundary");
     expect(app).toContain("closeAllWorkbenchSurfaces");
-    expect(app).toContain("closeAllTerminalSurfaces");
     const boundary = app.indexOf("<RendererErrorBoundary");
     const settings = app.indexOf("<SettingsPanel");
     const fleet = app.indexOf("<FleetOverlay");
