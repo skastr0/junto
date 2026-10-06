@@ -946,7 +946,6 @@ export const auditPackagedApp = async (
   await requireRegularFile(appAsarPath);
   await requireExecutable(workCliPath);
   await validateRawAsarArchive(appAsarPath);
-  validateProjectNotices(appAsarPath);
   await assertMacHasNoRemoteResources(appPath);
   await auditRetiredStateRuntimeBundle({
     asarPath: appAsarPath,
@@ -997,13 +996,6 @@ export const auditPackagedApp = async (
   };
 };
 
-export const validateProjectNotices = (asarPath: string): void => {
-  for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
-    const contents = extractFile(asarPath, name);
-    if (contents.length === 0) throw new Error(`packaged app is missing ${name}`);
-  }
-};
-
 /** Structural source-build audit. It makes no Developer ID or notarization claim. */
 export const auditSourcePackagedApp = async (requestedPath: string) => {
   const appPath = await realpath(requestedPath);
@@ -1015,7 +1007,6 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   const workCliPath = path.join(appPath, "Contents", "Resources", "bin", "junto");
   await requireExecutable(workCliPath);
   await validateRawAsarArchive(asarPath);
-  validateProjectNotices(asarPath);
   await assertMacHasNoRemoteResources(appPath);
   await auditRetiredStateRuntimeBundle({ asarPath, workCliPath });
   const plist = JSON.parse(runFixedCommand("/usr/bin/plutil", [

@@ -25,14 +25,12 @@ import {
   DEFAULT_NODE_REMOTE_VERSION,
   LINUX_NODE_PTY_NATIVE_RELATIVE,
   LINUX_NODE_PTY_RUNTIME_FILES,
-  LINUX_REMOTE_NOTICE_FILES,
   PINNED_NODE_LINUX_X64_ARCHIVE_SHA256,
   pinnedNodeLinuxX64ArchiveSha256,
   LINUX_REMOTE_RUNTIME_REQUIRED_FILES,
   REMOTE_ENTRY_RELATIVE,
   REMOTE_ENTRY_SOURCE_RELATIVE,
   REMOTE_NODE_RELATIVE,
-  REMOTE_NODE_LICENSE_RELATIVE,
   REMOTE_WRAPPER_RELATIVE,
   installLinuxRemoteRuntime,
   extractNodeBinaryFromArchive,
@@ -145,32 +143,23 @@ describe("Linux remote displayless packaging helpers", () => {
     );
   });
 
-  it("extracts the Node binary and its notices from the same archive", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-node-notices-"));
+  it("extracts the Node binary from the archive", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "junto-node-extract-"));
     try {
       const memberRoot = `node-v${DEFAULT_NODE_REMOTE_VERSION}-linux-x64`;
       await mkdir(path.join(root, memberRoot, "bin"), { recursive: true });
       await writeFile(path.join(root, memberRoot, "bin", "node"), "node binary\n");
-      await writeFile(
-        path.join(root, memberRoot, "LICENSE"),
-        "Node and bundled dependency notices\n",
-      );
       const archive = path.join(root, "node.tar.gz");
       const tar = spawnSync("/usr/bin/tar", ["-czf", archive, "-C", root, memberRoot]);
       expect(tar.status).toBe(0);
       const destinationNode = path.join(root, "runtime", REMOTE_NODE_RELATIVE);
-      const destinationLicense = path.join(root, "runtime", REMOTE_NODE_LICENSE_RELATIVE);
       extractNodeBinaryFromArchive({
         archive,
         destinationNode,
-        destinationLicense,
         version: DEFAULT_NODE_REMOTE_VERSION,
       });
       expect(await readFile(destinationNode, "utf8")).toBe("node binary\n");
-      expect(await readFile(destinationLicense, "utf8"))
-        .toBe("Node and bundled dependency notices\n");
       expect((await lstat(destinationNode)).mode & 0o777).toBe(0o755);
-      expect((await lstat(destinationLicense)).mode & 0o777).toBe(0o644);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -313,9 +302,6 @@ describe("Linux remote displayless packaging helpers", () => {
         'console.log("remote-placeholder");\n',
         { mode: 0o644 },
       );
-      for (const notice of LINUX_REMOTE_NOTICE_FILES) {
-        await writeFile(path.join(root, notice), `distribution notice: ${notice}\n`);
-      }
       const { wrapperPath } = await stageJuntoRemoteWrapper(runtime);
       const { entryPath } = await stageRemoteEntry({
         repoRoot: root,
@@ -328,35 +314,11 @@ describe("Linux remote displayless packaging helpers", () => {
       expect(wrapper).toContain("unset ELECTRON_RUN_AS_NODE");
       const entry = await readFile(entryPath, "utf8");
       expect(entry).toContain("remote-placeholder");
-      for (const notice of LINUX_REMOTE_NOTICE_FILES) {
-        expect(await readFile(path.join(path.dirname(entryPath), notice), "utf8"))
-          .toBe(`distribution notice: ${notice}\n`);
-      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("refuses a Remote package missing a project distribution notice", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-remote-notices-"));
-    try {
-      const runtime = path.join(root, "runtime");
-      await mkdir(runtime, { recursive: true });
-      await mkdir(path.join(root, "out", "remote"), { recursive: true });
-      await writeFile(path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE), "module.exports = {};\n");
-      await writeFile(path.join(root, "LICENSE"), "project license\n");
-      await expect(installLinuxRemoteRuntime({
-        repoRoot: root,
-        runtimeRoot: runtime,
-        skipNativeRebuild: true,
-      })).rejects.toThrow(
-        /Remote distribution notice missing or not regular: THIRD_PARTY_NOTICES\.md/u,
-      );
-      expect(await readdir(runtime)).toEqual([]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("Linux remote displayless product contracts", () => {
@@ -369,8 +331,6 @@ describe("Linux remote displayless product contracts", () => {
         "resources/bin/node",
         "resources/bin/junto-remote",
         "resources/app-remote/junto-remote.js",
-        "resources/app-remote/LICENSE",
-        "resources/app-remote/THIRD_PARTY_NOTICES.md",
       ]),
     );
   });

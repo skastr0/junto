@@ -71,17 +71,12 @@ export const pinnedNodeLinuxX64ArchiveSha256 = (
 };
 
 export const REMOTE_NODE_RELATIVE = "resources/bin/node";
-export const REMOTE_NODE_LICENSE_RELATIVE = "resources/bin/node.LICENSE";
 export const REMOTE_WRAPPER_RELATIVE = "resources/bin/junto-remote";
 export const REMOTE_APP_DIR_RELATIVE = "resources/app-remote";
 export const REMOTE_ENTRY_RELATIVE = "resources/app-remote/junto-remote.js";
 export const REMOTE_NODE_PTY_RELATIVE =
   "resources/app-remote/node_modules/node-pty";
 export const REMOTE_APP_PACKAGE_RELATIVE = "resources/app-remote/package.json";
-export const LINUX_REMOTE_NOTICE_FILES = [
-  "LICENSE",
-  "THIRD_PARTY_NOTICES.md",
-] as const;
 
 /**
  * Exact stock node-pty files needed by the displayless Linux runtime, plus its
@@ -374,16 +369,13 @@ export const buildRemoteEntryBundle = async (input: {
 export const extractNodeBinaryFromArchive = ({
   archive,
   destinationNode,
-  destinationLicense,
   version,
 }: {
   readonly archive: string;
   readonly destinationNode: string;
-  readonly destinationLicense: string;
   readonly version: string;
 }): void => {
   const member = `node-v${requireNodeRemoteVersion(version)}-linux-x64/bin/node`;
-  const licenseMember = `node-v${requireNodeRemoteVersion(version)}-linux-x64/LICENSE`;
   const stagingParent = path.dirname(destinationNode);
   mkdirSync(stagingParent, { recursive: true });
   const extractRoot = mkdtempSync(path.join(stagingParent, ".node-extract-"));
@@ -396,13 +388,10 @@ export const extractNodeBinaryFromArchive = ({
       "--directory",
       extractRoot,
       member,
-      licenseMember,
     ]);
     const extracted = path.join(extractRoot, member);
     copyFileSync(extracted, destinationNode);
     chmodSync(destinationNode, 0o755);
-    copyFileSync(path.join(extractRoot, licenseMember), destinationLicense);
-    chmodSync(destinationLicense, 0o644);
   } finally {
     rmSync(extractRoot, { recursive: true, force: true });
   }
@@ -465,7 +454,6 @@ export const stageOfficialNodeBinary = async (input: {
   extractNodeBinaryFromArchive({
     archive,
     destinationNode: nodePath,
-    destinationLicense: path.join(input.runtimeRoot, REMOTE_NODE_LICENSE_RELATIVE),
     version,
   });
   return { nodePath, version, archiveSha256 };
@@ -633,15 +621,6 @@ export const stageRemoteEntry = async (input: {
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
   await copyFile(source, destination);
   await chmod(destination, 0o644);
-  for (const notice of LINUX_REMOTE_NOTICE_FILES) {
-    const noticeSource = path.join(input.repoRoot, notice);
-    if (!(await isNonSymlinkFile(noticeSource))) {
-      throw new Error(`Remote distribution notice missing or not regular: ${notice}`);
-    }
-    const noticeDestination = path.join(path.dirname(destination), notice);
-    await copyFile(noticeSource, noticeDestination);
-    await chmod(noticeDestination, 0o644);
-  }
   // CJS entry can resolve node-pty via NODE_PATH; package.json documents the surface.
   await writeFile(
     path.join(input.runtimeRoot, REMOTE_APP_PACKAGE_RELATIVE),
@@ -707,11 +686,7 @@ const assertExactStagedRemoteApp = async (input: {
   readonly requireNative: boolean;
 }): Promise<void> => {
   const actual = await walkRemoteAppFiles(input.appRoot);
-  const expected = [
-    "package.json",
-    "junto-remote.js",
-    ...LINUX_REMOTE_NOTICE_FILES,
-  ];
+  const expected = ["package.json", "junto-remote.js"];
   if (input.requireProvenance) {
     expected.push("package-runtime-provenance.json");
   }
@@ -915,10 +890,6 @@ export const installLinuxRemoteRuntime = async (input: {
         stagedNodePath,
         path.join(runtimeRoot, REMOTE_NODE_RELATIVE),
       );
-      await replaceOwnedRegularFile(
-        path.join(stageRoot, REMOTE_NODE_LICENSE_RELATIVE),
-        path.join(runtimeRoot, REMOTE_NODE_LICENSE_RELATIVE),
-      );
     }
 
     return {
@@ -945,7 +916,6 @@ export const installLinuxRemoteRuntime = async (input: {
 /** Required relative paths the archive audit must see for displayless remote. */
 export const LINUX_REMOTE_RUNTIME_REQUIRED_FILES = [
   REMOTE_NODE_RELATIVE,
-  REMOTE_NODE_LICENSE_RELATIVE,
   REMOTE_WRAPPER_RELATIVE,
   REMOTE_ENTRY_RELATIVE,
 ] as const;

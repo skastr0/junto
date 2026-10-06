@@ -84,7 +84,6 @@ const ROOT_TEXT_FILES = new Set([
   "CONTRIBUTING.md",
   "SECURITY.md",
   "LICENSE",
-  "THIRD_PARTY_NOTICES.md",
   "package.json",
   "index.html",
 ]);

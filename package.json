@@ -175,8 +175,7 @@
       "package.json",
       "!node_modules/@parcel/watcher{,/**/*}",
       "!node_modules/@parcel/watcher-*{,/**/*}",
-      "LICENSE",
-      "THIRD_PARTY_NOTICES.md"
+      "LICENSE"
     ],
     "extraResources": [
       {
@@ -232,8 +231,7 @@
         "!node_modules/node-pty/prebuilds/darwin-*/**",
         "!node_modules/node-pty/prebuilds/win32-*/**",
         "!node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/*.musl.node",
-        "LICENSE",
-        "THIRD_PARTY_NOTICES.md"
+        "LICENSE"
       ],
       "extraResources": [
         {
