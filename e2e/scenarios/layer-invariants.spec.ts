@@ -15,21 +15,19 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import type { CanvasDoc } from "../../src/shared/canvas";
-import { agentTextNode, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelNote, modelRegion, modelSeat, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "layer-invariants");
 const CANVAS = "layers";
 
-const board: CanvasDoc = {
-  nodes: [
-    { id: "rg-lab", type: "group", label: "lab", x: 20, y: 20, width: 860, height: 220 },
+const board = modelFixture([
+    modelRegion({ id: "rg-lab", label: "lab", x: 20, y: 20, width: 860, height: 220 }),
     ...["ada", "bea", "cy"].map((id, index) =>
-      agentTextNode({ id: `seat-${id}`, key: `local:layers-${id}`, label: id, x: 60 + index * 260, y: 80 }),
+      modelSeat({ id: `seat-${id}`, key: `local:layers-${id}`, label: id, x: 60 + index * 260, y: 80 }),
     ),
-    { id: "note-1", type: "text", text: "# Field notes\n\nThe operator draft stays put.", x: 60, y: 300, width: 260, height: 140 },
-    terminalTextNode({
+    { ...modelNote("note-1", "# Field notes\n\nThe operator draft stays put.", 60, 300), width: 260, height: 140 },
+    modelTerminal({
       id: "term-1",
       bindingId: "local:layers-term",
       label: "shell",
@@ -37,11 +35,9 @@ const board: CanvasDoc = {
       x: 680,
       y: 300,
     }),
-  ],
-  edges: [],
-};
+  ]);
 
-test.use({ juntoOptions: { seedCanvases: { [CANVAS]: board } } });
+test.use({ juntoOptions: { seedModels: { [CANVAS]: board } } });
 
 const OPERATOR = '[data-layer="operator"]';
 const OPENER = "data-e2e-opener";

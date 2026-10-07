@@ -1,4 +1,4 @@
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelNote } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 /**
@@ -11,16 +11,11 @@ import { expect, test } from "../harness/launch";
  */
 
 const NODES = Array.from({ length: 120 }, (_, index) => ({
-  id: `n-${index}`,
-  type: "text" as const,
-  x: (index % 12) * 280,
-  y: Math.floor(index / 12) * 140,
-  width: 240,
+  ...modelNote(`n-${index}`, `Note ${index}\nbody line for note ${index}`, (index % 12) * 280, Math.floor(index / 12) * 140),
   height: 90,
-  text: `Note ${index}\nbody line for note ${index}`,
 }));
 
-test.use({ juntoOptions: { seedCanvases: { probe: canvasDoc(NODES) } } });
+test.use({ juntoOptions: { seedModels: { probe: modelFixture(NODES) } } });
 
 const OPEN_BUDGET_MS = 100;
 

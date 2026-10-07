@@ -23,51 +23,51 @@
  */
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, textNode, verbEdge } from "../harness/sandbox";
+import type { Node, Wire } from "../../src/shared/model";
+import { modelFixture, modelNote, modelRegion, modelSeat, modelWire, type ModelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 /** Nested regions, two levels deep, dense with seats and notes, wired within and across. */
-const buildBoard = (): CanvasDoc => {
-  const nodes: CanvasNode[] = [];
-  const edges: CanvasEdge[] = [];
+const buildBoard = (): ModelFixture => {
+  const nodes: Node[] = [];
+  const edges: Wire[] = [];
   let seatIndex = 0;
   let previousTail: string | undefined;
   for (let r = 0; r < 6; r += 1) {
     const x = (r % 3) * 2_200;
     const y = Math.floor(r / 3) * 1_700;
     const outer = `rg-${r}`;
-    nodes.push({ id: outer, type: "group", label: `region ${r + 1}`, x, y, width: 2_000, height: 1_500 });
+    nodes.push(modelRegion({ id: outer, label: `region ${r + 1}`, x, y, width: 2_000, height: 1_500 }));
     for (let s = 0; s < 2; s += 1) {
       const inner = `${outer}-sub${s}`;
       const ix = x + 40 + s * 980;
       const iy = y + 80;
-      nodes.push({ id: inner, type: "group", label: `team ${r + 1}.${s + 1}`, x: ix, y: iy, width: 920, height: 1_360 });
+      nodes.push(modelRegion({ id: inner, label: `team ${r + 1}.${s + 1}`, x: ix, y: iy, width: 920, height: 1_360 }));
       const members: string[] = [];
       for (let i = 0; i < 10; i += 1) {
         const id = `${inner}-s${i}`;
         nodes.push({
-          ...agentTextNode({ id, key: `local:raster-${seatIndex}`, label: `seat ${seatIndex}`, x: 0, y: 0 }),
+          ...modelSeat({ id, key: `local:raster-${seatIndex}`, label: `seat ${seatIndex}`, x: 0, y: 0 }),
           x: ix + 30 + (i % 2) * 440,
           y: iy + 60 + Math.floor(i / 2) * 250,
         });
         seatIndex += 1;
         members.push(id);
       }
-      nodes.push(textNode(`${inner}-note`, `notes for team ${r + 1}.${s + 1}\n\n- plan\n- review\n- ship`, ix + 30, iy + 1_120));
+      nodes.push(modelNote(`${inner}-note`, `notes for team ${r + 1}.${s + 1}\n\n- plan\n- review\n- ship`, ix + 30, iy + 1_120));
       for (let i = 0; i < members.length - 1; i += 1) {
-        edges.push(verbEdge(`e-${inner}-${i}`, members[i]!, members[i + 1]!, "messages", nodes));
+        edges.push(modelWire(`e-${inner}-${i}`, members[i]!, members[i + 1]!, "messages", nodes));
       }
-      if (previousTail) edges.push(verbEdge(`e-x-${inner}`, previousTail, members[0]!, "messages", nodes));
+      if (previousTail) edges.push(modelWire(`e-x-${inner}`, previousTail, members[0]!, "messages", nodes));
       previousTail = members[members.length - 1];
     }
   }
-  return canvasDoc(nodes, edges);
+  return modelFixture(nodes, edges);
 };
 
 test.use({
   juntoOptions: {
-    seedCanvases: { raster: buildBoard() },
+    seedModels: { raster: buildBoard() },
     electronArgs: ["--force-device-scale-factor=2"],
   },
 });
