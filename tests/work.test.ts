@@ -3,9 +3,14 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Context, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { CanvasDoc, Message } from "../src/shared/canvas";
+import type { Message } from "../src/shared/work-model";
+import type { Canvas, Node, Wire } from "../src/shared/model";
+import type { ActorRef } from "../src/shared/work-protocol";
+import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
+import { seat, taskBoard, wire } from "./support/model-nodes";
 import { InstallationId } from "../src/shared/installation-id";
 import { HostId } from "../src/shared/remote-hosts";
 import {
@@ -27,28 +32,20 @@ const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);
  * binding unique to its canvas or its descriptor would conflict with a
  * same-named seat elsewhere.
  */
-const agentNode = (
-  id: string,
-  canvasName: string,
-  hostId = "local",
-): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: "profile-13",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 100,
-  ether: {
-    entity: { kind: "agent", name: `${hostId}:${id}` },
-    terminal: {
-      bindingId: `binding-${id}-${canvasName}`,
-      launch: { kind: "harness", argv: ["claude"] },
-      harness: "claude",
-    },
+const agentNode = (id: string, canvasName: string, hostId = "local") =>
+  seat(id, {
+    label: "profile-13",
     host: hostId,
-  },
-});
+    agentKey: `${hostId}:${id}`,
+    bindingId: `binding-${id}-${canvasName}` as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  });
+
+/** Make a canvas of these nodes and wires, as the operator would. */
+const write = (name: string, nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire>) =>
+  workRuntime.runPromise(seedCanvas(name, nodes, wires) as never);
+const seqOf = async (name: string): Promise<number> =>
+  ((await workRuntime.runPromise(readSeeded(name) as never)) as Canvas).seq;
 
 const mail = (messageId: string, text: string, role: Message["role"] = "user"): Message => ({
   messageId,
@@ -66,10 +63,6 @@ vi.mock("node:os", async (importOriginal) => {
 vi.mock("@shared/canvas", () => import("../src/shared/canvas"));
 vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
-import {
-  CanvasesLive,
-  CanvasesService,
-} from "../src/main/junto/canvases";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import {
   WorkRepository,
@@ -122,7 +115,7 @@ const makeWorkRuntime = (databasePath: string) => {
     ),
   );
   const canvasesLive = Layer.provideMerge(
-    CanvasesLive,
+    ModelStoresLive,
     repositoriesLive
   );
   return ManagedRuntime.make(((
@@ -137,7 +130,6 @@ const workRuntime = makeWorkRuntime(
   join(mockCanvasesHome, "state", "junto.db")
 );
 let work: Context.Service.Shape<typeof WorkService>;
-let canvases: Context.Service.Shape<typeof CanvasesService>;
 let repository: Context.Service.Shape<typeof WorkRepository>;
 
 beforeAll(async () => {
@@ -150,7 +142,6 @@ beforeAll(async () => {
     })
   );
   work = await workRuntime.runPromise(WorkService);
-  canvases = await workRuntime.runPromise(CanvasesService);
   repository = await workRuntime.runPromise(WorkRepository);
 });
 
@@ -160,35 +151,25 @@ afterAll(async () => {
 });
 
 const actorOf = async (name: string, nodeId: string) => {
-  const read = await workRuntime.runPromise(canvases.read(name));
-  const actor = read.actorRefs.find((candidate) => candidate.nodeId === nodeId);
+  const refs = (await workRuntime.runPromise(
+    Effect.flatMap(ModelActorRefs, (actors) => actors.read(name)) as never,
+  )) as ReadonlyArray<ActorRef>;
+  const actor = refs.find((candidate) => candidate.nodeId === nodeId);
   if (actor === undefined) throw new Error(`missing actor ref for ${nodeId}`);
   return actor;
 };
 
 describe("WorkService — mail", () => {
-  it("persists inbox mail without an authorial generation", async () => {
+  it("persists inbox mail without moving the canvas", async () => {
     const name = "work-mail-lane";
-    await workRuntime.runPromise(
-      canvases.write(name, {
-        nodes: [agentNode("sender", name), agentNode("recipient", name), {
-          id: "tasks", type: "text", text: "Tasks", x: 0, y: 0, width: 200, height: 100,
-          ether: { entity: { kind: "task" } },
-        }],
-        edges: [
-          {
-            id: "edge-message",
-            fromNode: "sender",
-            toNode: "recipient",
-            ether: { verb: "messages" },
-          },
-        ],
-      })
+    await write(
+      name,
+      [agentNode("sender", name), agentNode("recipient", name), taskBoard("tasks")],
+      [wire("edge-message", "sender", "recipient", "messages")],
     );
     const sender = await actorOf(name, "sender");
-    const authorialBefore = await workRuntime.runPromise(canvases.read(name));
+    const seqBefore = await seqOf(name);
 
-    const canvasRead = vi.spyOn(canvases, "read");
     const kernelChanges: Array<[string | undefined, string | undefined]> = [];
     const offKernel = work.subscribeWorkChanges((canvas, nodeId) => kernelChanges.push([canvas, nodeId]));
     const appended = await workRuntime.runPromise(
@@ -200,8 +181,6 @@ describe("WorkService — mail", () => {
 
     expect(appended).not.toHaveProperty("doc");
     expect(appended).not.toHaveProperty("revision");
-    expect(canvasRead).not.toHaveBeenCalled();
-    canvasRead.mockRestore();
     expect(kernelChanges).toEqual([]);
     const created = await workRuntime.runPromise(work.workTaskCreate(name, "tasks", "A kernel-visible task", { details: "Run a task." }));
     if (!created.ok) throw new Error(`${created.code}: ${created.message}`);
@@ -213,24 +192,16 @@ describe("WorkService — mail", () => {
     expect(
       messages
     ).toEqual([expect.objectContaining({ messageId: "inbox-lane-1" })]);
-    const authorialAfter = await workRuntime.runPromise(canvases.read(name));
-    expect(authorialAfter.revision).toBe(authorialBefore.revision);
+    // Mail and tasks are work: the canvas itself did not move.
+    expect(await seqOf(name)).toBe(seqBefore);
   });
 
   it("binds a mailbox ack once, and only to mail that exists", async () => {
     const name = "work-mail-react";
-    await workRuntime.runPromise(
-      canvases.write(name, {
-        nodes: [agentNode("sender", name), agentNode("owner", name)],
-        edges: [
-          {
-            id: "edge-mail",
-            fromNode: "sender",
-            toNode: "owner",
-            ether: { verb: "messages" },
-          },
-        ],
-      })
+    await write(
+      name,
+      [agentNode("sender", name), agentNode("owner", name)],
+      [wire("edge-mail", "sender", "owner", "messages")],
     );
     const sender = await actorOf(name, "sender");
     const owner = await actorOf(name, "owner");
@@ -276,21 +247,10 @@ describe("WorkService — mail", () => {
         "2026-07-28T00:00:00.000Z"
       )
     );
-    await workRuntime.runPromise(
-      canvases.write(name, {
-        nodes: [
-          agentNode("remote-sender", name, remoteHost),
-          agentNode("recipient", name),
-        ],
-        edges: [
-          {
-            id: "message",
-            fromNode: "remote-sender",
-            toNode: "recipient",
-            ether: { verb: "messages" },
-          },
-        ],
-      })
+    await write(
+      name,
+      [agentNode("remote-sender", name, remoteHost), agentNode("recipient", name)],
+      [wire("message", "remote-sender", "recipient", "messages")],
     );
     const remoteActor = await actorOf(name, "remote-sender");
 
