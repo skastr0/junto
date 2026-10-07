@@ -144,12 +144,13 @@ test("the rail snaps between its two widths, and a seat with no connections has 
     await rail(page).getByTestId("actor-rail-toggle").click();
     await expect(rail(page)).toHaveAttribute("data-rail", "collapsed");
     await expect.poll(async () => Math.round((await rail(page).boundingBox())!.width)).toBe(68);
-    await expect.poll(async () => Math.round((await stage.boundingBox())!.width)).toBe(Math.round(wide) + 180);
+    // Widths are fractional at some window sizes: compare the gain, not two rounded ends.
+    await expect.poll(async () => Math.round((await stage.boundingBox())!.width - wide)).toBe(180);
     await page.waitForTimeout(600);
     expect(Math.round((await panel.boundingBox())!.width)).toBe(panelWide);
-    expect(await page.evaluate(() => (window as unknown as { __stageWidths: number[] }).__stageWidths)).toEqual([
-      Math.round(wide) + 180,
-    ]);
+    const seen = await page.evaluate(() => (window as unknown as { __stageWidths: number[] }).__stageWidths);
+    expect(seen, "one resize").toHaveLength(1);
+    expect(Math.abs(seen[0]! - (wide + 180)), "to the full width").toBeLessThanOrEqual(1);
     // Other connections wait for the expanded rail.
     await expect(rail(page).getByTestId("actor-rail-others")).toHaveCount(0);
 
