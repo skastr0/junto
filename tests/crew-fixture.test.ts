@@ -6,46 +6,43 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { edgeGrant, type CanvasDoc } from "../src/shared/canvas";
+import { wireGrant } from "../src/shared/model";
+import { modelFixture, modelMessagesWire, modelSeat, modelNote, modelRegion, type ModelFixture } from "../e2e/harness/model";
 import {
-  crewDoc,
-  crewMessagesEdge,
-  crewRegionNode,
   crewSeatDir,
   crewSeatDirName,
-  crewSeatNode,
   crewSeatsDir,
 } from "../e2e/harness/crew-fixture";
 import type { Sandbox } from "../e2e/harness/sandbox";
 
-const seat = (id: string) => crewSeatNode({ id });
+const seat = (id: string) => modelSeat({ id });
 
-const pairDoc = (): CanvasDoc =>
-  crewDoc(
+const pairFixture = (): ModelFixture =>
+  modelFixture(
     [seat("a"), seat("b")],
-    [crewMessagesEdge("e-msg", "a", "b", [seat("a"), seat("b")])],
+    [modelMessagesWire("e-msg", "a", "b", [seat("a"), seat("b")])],
   );
 
-describe("crewSeatNode", () => {
+describe("modelSeat", () => {
   it("authors an agent kind on the codex fake-tui harness", () => {
     const node = seat("peer");
-    expect(node.ether?.entity?.kind).toBe("agent");
-    expect(node.ether?.terminal?.harness).toBe("codex");
-    expect(node.ether?.terminal?.bindingId).toBe("local:peer");
+    expect(node.kind).toBe("agent");
+    expect(node.harness).toBe("codex");
+    expect(node.bindingId).toBe("local:peer");
   });
 
   it("honors an explicit process-bind key", () => {
-    const node = crewSeatNode({ id: "x", key: "local:peer-1" });
-    expect(node.ether?.entity?.name).toBe("local:peer-1");
-    expect(node.ether?.terminal?.bindingId).toBe("local:peer-1");
+    const node = modelSeat({ id: "x", key: "local:peer-1" });
+    expect(node.agentKey).toBe("local:peer-1");
+    expect(node.bindingId).toBe("local:peer-1");
   });
 });
 
-describe("crewMessagesEdge", () => {
+describe("modelMessagesWire", () => {
   it("compiles the full messages grant by default", () => {
     const nodes = [seat("a"), seat("b")];
-    const edge = crewMessagesEdge("e", "a", "b", nodes);
-    const grant = edgeGrant(crewDoc(nodes, [edge]), edge);
+    const edge = modelMessagesWire("e", "a", "b", nodes);
+    const grant = wireGrant(edge, new Map(nodes.map((node) => [node.id, node.kind])));
     expect(grant?.ports).toContain("msg.prompt");
     expect(grant?.ports).toContain("seat.wait");
     expect(grant?.ports).toContain("terminal.read");
@@ -55,11 +52,11 @@ describe("crewMessagesEdge", () => {
 
   it("attenuates the compiled grant through mask", () => {
     const nodes = [seat("a"), seat("b")];
-    const edge = crewMessagesEdge("e", "a", "b", nodes, [
+    const edge = modelMessagesWire("e", "a", "b", nodes, [
       "msg.list",
       "msg.send",
     ]);
-    const grant = edgeGrant(crewDoc(nodes, [edge]), edge);
+    const grant = wireGrant(edge, new Map(nodes.map((node) => [node.id, node.kind])));
     expect(grant?.ports).toContain("msg.send");
     expect(grant?.ports).not.toContain("terminal.read");
     expect(grant?.ports).not.toContain("seat.wait");
@@ -67,32 +64,24 @@ describe("crewMessagesEdge", () => {
   });
 
   it("refuses a wire into geography", () => {
-    const note = {
-      id: "note",
-      type: "text" as const,
-      text: "plain note",
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 120,
-    };
+    const note = modelNote("note", "plain note");
     const nodes = [seat("a"), note];
-    expect(() => crewMessagesEdge("bad", "a", "note", nodes)).toThrow(
-      /messages/,
+    expect(() => modelMessagesWire("bad", "a", "note", nodes)).toThrow(
+      /allowed relationship/,
     );
   });
 });
 
-describe("crewRegionNode", () => {
+describe("modelRegion", () => {
   it("authors a hold region carrying its instruction", () => {
-    const region = crewRegionNode({
+    const region = modelRegion({
       id: "zone",
-      label: "crew zone",
+      label: "crew zone", hold: true, width: 1200, height: 800,
       instruction: "stay inside the zone",
     });
-    expect(region.type).toBe("group");
-    expect(region.ether?.region?.hold).toBe(true);
-    expect(region.ether?.region?.instruction).toBe("stay inside the zone");
+    expect(region.kind).toBe("region");
+    expect(region.hold).toBe(true);
+    expect(region.instruction).toBe("stay inside the zone");
   });
 });
 
@@ -127,10 +116,10 @@ describe("fake seat credential", () => {
   });
 });
 
-describe("assembled doc", () => {
+describe("assembled fixture", () => {
   it("keeps every fixture edge decodable", () => {
-    const doc = pairDoc();
-    expect(doc.edges).toHaveLength(1);
+    const doc = pairFixture();
+    expect(doc.wires).toHaveLength(1);
     expect(doc.nodes).toHaveLength(2);
   });
 });

@@ -1,14 +1,10 @@
 import type { Page } from "@playwright/test";
 import { Schema } from "effect";
 import { tmpdir } from "node:os";
-import { decodeCanvasDoc, type CanvasDoc } from "../../src/shared/canvas";
 import {
   Command, Node, Wire, Opened, asCanvasName,
   Region, Seat, Note, Terminal, type SheetGrid,
 } from "../../src/shared/model";
-import { canvasFromDocument, nodeToDocument, wireToDocument } from "../../src/shared/model/from-document";
-import { documentEdits } from "../../src/shared/model/document-edits";
-import { reconcileOverseerGrants } from "../../src/shared/overseer-authoring";
 import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import type { Task, Artifact } from "../../src/shared/work-model";
@@ -99,18 +95,6 @@ export const modelFixture = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wi
   nodes: nodes.map((node, z) => decodeNode({ ...node, z })), wires,
 });
 
-/** Temporary seed adapter, removed when the last scenario uses native builders. */
-export const modelFixtureFromDocument = (name: string, document: CanvasDoc): ModelFixture => {
-  const decoded = decodeCanvasDoc(reconcileOverseerGrants({ nodes: [], edges: [] }, document));
-  if (decoded._tag === "Failure") throw new Error(decoded.failure.message);
-  const canvas = canvasFromDocument(name, decoded.success);
-  const sheets: Record<string, SheetGrid> = {};
-  for (const node of decoded.success.nodes) {
-    if (node.ether?.entity?.kind === "sheet") sheets[node.id] = node.ether.sheet ?? { columns: [], rows: [] };
-  }
-  return { nodes: [...canvas.nodes.values()], wires: [...canvas.wires.values()], sheets };
-};
-
 export const modelSeedCommands = (name: string, fixture: ModelFixture): ReadonlyArray<Command> => {
   const canvas = asCanvasName(name);
   return [decodeCommand({ _tag: "CreateCanvas", canvas }), decodeCommand({
@@ -129,21 +113,6 @@ export const readModelCanvas = async (page: Page, canvas: string): Promise<Opene
 
 export const readModelNode = async (page: Page, canvas: string, id: string): Promise<Node | undefined> =>
   (await readModelCanvas(page, canvas)).nodes.find((node) => node.id === id);
-
-/** A temporary local projection for old seed editors, never a product read. */
-const fixtureDocumentFromOpened = async (page: Page, opened: Opened): Promise<CanvasDoc> => {
-  const name = opened.canvas;
-  const nodes = opened.nodes.map(nodeToDocument);
-  for (let index = 0; index < nodes.length; index++) {
-    if (opened.nodes[index].kind !== "sheet") continue;
-    const grid = await page.evaluate(({ canvas, id }) => window.junto!.modelSheetRead({ canvas, id }), { canvas: name, id: nodes[index].id });
-    nodes[index] = { ...nodes[index], ether: { ...nodes[index].ether, sheet: grid } };
-  }
-  return { nodes, edges: opened.wires.map(wireToDocument) };
-};
-
-export const readFixtureDocument = async (page: Page, name: string): Promise<CanvasDoc> =>
-  fixtureDocumentFromOpened(page, await readModelCanvas(page, name));
 
 export const commandModel = async (page: Page, input: unknown) =>
   page.evaluate((command) => window.junto!.modelCommand(command), decodeCommand(input));
@@ -165,30 +134,6 @@ export const installModelFixture = async (page: Page, fixture: ModelFixture, fal
 export const readModelSeat = async (page: Page, canvas: string, id: string): Promise<Seat | undefined> => {
   const node = await readModelNode(page, canvas, id);
   return node?.kind === "agent" ? node : undefined;
-};
-
-export const writeFixtureDocument = async (page: Page, name: string, next: CanvasDoc): Promise<number> => {
-  const opened = await readModelCanvas(page, name);
-  const before = await fixtureDocumentFromOpened(page, opened);
-  const decoded = decodeCanvasDoc(reconcileOverseerGrants(before, next));
-  if (decoded._tag === "Failure") throw new Error(decoded.failure.message);
-  for (const node of decoded.success.nodes) {
-    const old = opened.nodes.find((candidate) => candidate.id === node.id);
-    if (old?.kind === "agent" && node.ether?.entity?.kind === "agent" && old.sessionId !== node.ether?.terminal?.sessionId)
-      throw new Error("Fixture edits cannot record a runtime session; write harness capture evidence instead");
-  }
-  const steps = documentEdits(name, before, decoded.success, Math.max(-1, ...opened.nodes.map((node) => node.z)) + 1);
-  if (steps.length === 0) return opened.seq;
-  const command = decodeCommand({ _tag: "Batch", canvas: name, steps });
-  return (await page.evaluate((command) => window.junto!.modelCommand(command), command)).seq;
-};
-
-export const installFixtureDocument = async (page: Page, fixture: CanvasDoc, fallbackName = "fixture"): Promise<string> => {
-  const names = await page.evaluate(() => window.junto!.modelCanvases());
-  const name = names[0]?.name ?? fallbackName;
-  if (names.length === 0) await page.evaluate((command) => window.junto!.modelCommand(command), decodeCommand({ _tag: "CreateCanvas", canvas: name }));
-  await writeFixtureDocument(page, name, fixture);
-  return name;
 };
 
 export const grantOverseer = async (page: Page, canvas: string, id: string, overseer = true): Promise<void> => {

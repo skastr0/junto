@@ -1,4 +1,3 @@
-import { readFixtureDocument, writeFixtureDocument } from "./model";
 import { readSeatMailbox } from "./work-mail";
 /**
  * Crew fixture — deterministic generated-canvas crews for the local crew
@@ -31,90 +30,9 @@ import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
-import type { GroupNode } from "../../src/shared/canvas";
-import type { Port } from "../../src/shared/physics/schema";
-import type { Verb } from "../../src/shared/physics/verbs";
-import type { Message, Rule } from "../../src/shared/work-model";
-import {
-  agentTextNode,
-  canvasDoc,
-  verbEdge,
-  type Sandbox,
-} from "./sandbox";
+import type { Message } from "../../src/shared/work-model";
+import type { Sandbox } from "./sandbox";
 import { seededHarnessBinDir } from "./agent-harness-fixture";
-
-// ---------------------------------------------------------------------------
-// Canvas builders — legal verbs only (verbEdge throws on an illegal pair)
-// ---------------------------------------------------------------------------
-
-export type CrewSeatInput = {
-  readonly id: string;
-  readonly key?: string;
-  readonly label?: string;
-  readonly x?: number;
-  readonly y?: number;
-};
-
-/** A managed agent seat on the fake-tui harness (binary `codex`). */
-export const crewSeatNode = (input: CrewSeatInput): TextNode =>
-  agentTextNode({
-    id: input.id,
-    key: input.key ?? `local:${input.id}`,
-    label: input.label ?? input.id,
-    harness: "codex",
-    x: input.x,
-    y: input.y,
-  });
-
-/** messages edge; `mask` attenuates the compiled grant (grant-set, not deny-set). */
-export const crewMessagesEdge = (
-  id: string,
-  fromNode: string,
-  toNode: string,
-  nodes: ReadonlyArray<CanvasNode>,
-  mask?: ReadonlyArray<Port>,
-): CanvasEdge => {
-  const edge = verbEdge(id, fromNode, toNode, "messages" as Verb, nodes);
-  if (mask === undefined) return edge;
-  return { ...edge, ether: { ...edge.ether!, mask: [...mask] } };
-};
-
-/** A region (group) with optional operator contract. Members are geometric. */
-export const crewRegionNode = (input: {
-  readonly id: string;
-  readonly label?: string;
-  readonly x?: number;
-  readonly y?: number;
-  readonly width?: number;
-  readonly height?: number;
-  readonly instruction?: string;
-  readonly rules?: ReadonlyArray<Rule>;
-}): GroupNode => ({
-  id: input.id,
-  type: "group",
-  label: input.label,
-  x: input.x ?? 0,
-  y: input.y ?? 0,
-  width: input.width ?? 1200,
-  height: input.height ?? 800,
-  ether: {
-    region: {
-      hold: true,
-      ...(input.instruction !== undefined
-        ? { instruction: input.instruction }
-        : {}),
-      ...(input.rules !== undefined
-        ? { contract: { rules: [...input.rules] } }
-        : {}),
-    },
-  },
-});
-
-export const crewDoc = (
-  nodes: ReadonlyArray<CanvasNode>,
-  edges: ReadonlyArray<CanvasEdge> = [],
-): CanvasDoc => canvasDoc(nodes, edges);
 
 // ---------------------------------------------------------------------------
 // Seat control-plane paths (spec side; mirrors the fake's own derivation)
@@ -806,25 +724,6 @@ export const crewOccupySeat = async (
     }
   }
   return seat.ready(5_000);
-};
-
-/** Author a doc into a canvas through the app's own write path. */
-export const crewWriteCanvas = async (
-  page: Page,
-  canvas: string,
-  doc: CanvasDoc,
-): Promise<void> => {
-  await writeFixtureDocument(page, canvas, doc);
-};
-
-/** Mutate a canvas doc through the app's own write path (edges, rules, masks). */
-export const crewMutateCanvas = async (
-  page: Page,
-  canvas: string,
-  mutate: (doc: CanvasDoc) => CanvasDoc,
-): Promise<void> => {
-  const current = await readFixtureDocument(page, canvas);
-  await crewWriteCanvas(page, canvas, mutate(current as CanvasDoc));
 };
 
 // ---------------------------------------------------------------------------

@@ -8,25 +8,26 @@
  * measurement runs against the same geometry and a regression check can say
  * "this board, this camera, these numbers".
  *
- * The output is a plain CanvasDoc (plus optional open agent signals, so seat
+ * The output is a native model fixture (plus optional open agent signals, so seat
  * rings have something to wait on). Seed it with
  * `launchJunto({ stressCanvas: { preset: "nested" } })`, or call
- * `buildNestedCanvasFixture` and pass the doc to `seedCanvases` yourself.
+ * `buildNestedCanvasFixture` and pass its model to `seedModels` yourself.
  *
  * Layout is bottom-up: a region's size is its own members' grid plus its child
  * regions' grid, padded, with a per-region slack factor so fills are uneven and
  * leave empty ground the way operators' regions do. Every member and child
  * region lies fully inside its parent's rect, which is the membership predicate
- * (shared/graph.ts regionStack). Same seed and spec, same document, byte for
+ * (shared/graph.ts regionStack). Same seed and spec, same rows, byte for
  * byte.
  */
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { AgentSignal } from "../../src/shared/agent-signals";
-import type { CanvasDoc, CanvasEdge, CanvasNode, GroupNode, TextNode } from "../../src/shared/canvas";
+import type { Node, Wire, Region } from "../../src/shared/model";
+import { KIND_TABLES } from "../../src/main/junto/model/state-schema";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
-import { agentTextNode, canvasDoc, terminalTextNode, textNode, verbEdge } from "./sandbox";
+import { modelSeat, modelFixture, modelTerminal, modelNote, modelWire, modelRegion, modelNode, type ModelFixture } from "./model";
 
 /** A count, or an inclusive [min, max] range drawn from the seeded generator. */
 export type NestedCount = number | readonly [number, number];
@@ -148,7 +149,7 @@ export interface NestedCanvasStats {
 }
 
 export interface NestedCanvasFixture {
-  readonly doc: CanvasDoc;
+  readonly model: ModelFixture;
   readonly stats: NestedCanvasStats;
   /** Open signals on a seeded share of seats, addressed to `canvasName`. */
   readonly signals: (canvasName: string) => ReadonlyArray<AgentSignal>;
@@ -321,8 +322,8 @@ export const buildNestedCanvasFixture = (
   const random = makeRandom(spec.seed);
   const plans = planRegions(spec, random);
 
-  const groups: GroupNode[] = [];
-  const members: CanvasNode[] = [];
+  const groups: Region[] = [];
+  const members: Node[] = [];
   const seatsByRegion = new Map<string, string[]>();
   const counts = { seats: 0, notes: 0, terminals: 0, gits: 0 };
   let depth = 0;
@@ -333,7 +334,7 @@ export const buildNestedCanvasFixture = (
         counts.seats += 1;
         const id = `seat-${counts.seats}`;
         members.push(
-          agentTextNode({ id, key: `local:stress-${counts.seats}`, label: `seat ${counts.seats}`, x, y }),
+          modelSeat({ id, key: `local:stress-${counts.seats}`, label: `seat ${counts.seats}`, x, y }),
         );
         seatsByRegion.get(regionId)!.push(id);
         return;
@@ -341,13 +342,13 @@ export const buildNestedCanvasFixture = (
       case "note": {
         counts.notes += 1;
         const text = NOTE_TEXT[counts.notes % NOTE_TEXT.length]!;
-        members.push({ ...textNode(`note-${counts.notes}`, text, x, y), ...NOTE });
+        members.push({ ...modelNote(`note-${counts.notes}`, text, x, y), ...NOTE });
         return;
       }
       case "terminal": {
         counts.terminals += 1;
         members.push(
-          terminalTextNode({
+          modelTerminal({
             id: `terminal-${counts.terminals}`,
             bindingId: `stress-terminal-${counts.terminals}`,
             label: `shell ${counts.terminals}`,
@@ -359,15 +360,15 @@ export const buildNestedCanvasFixture = (
       }
       case "git": {
         counts.gits += 1;
-        const git: TextNode = {
+        const git = modelNode({
           id: `git-${counts.gits}`,
-          type: "text",
-          text: `repo ${counts.gits}`,
+          kind: "git",
+          label: `repo ${counts.gits}`,
           x,
           y,
           ...GIT,
-          ether: { entity: { kind: "git" }, git: { cwd: "/tmp" } },
-        };
+          cwd: "/tmp", z: 0,
+        });
         members.push(git);
         return;
       }
@@ -377,16 +378,15 @@ export const buildNestedCanvasFixture = (
   const layout = (measured: Measured, x: number, y: number): void => {
     const { plan } = measured;
     depth = Math.max(depth, plan.level + 1);
-    groups.push({
+    groups.push(modelRegion({
       id: plan.id,
-      type: "group",
       label: plan.label,
       x,
       y,
       width: measured.width,
       height: measured.height,
       ...(plan.color ? { color: plan.color } : {}),
-    });
+    }));
     seatsByRegion.set(plan.id, []);
     const innerX = x + PAD;
     let cursorY = y + HEADER;
@@ -428,18 +428,18 @@ export const buildNestedCanvasFixture = (
   for (let i = 0; i < spec.looseNotes; i += 1) {
     counts.notes += 1;
     const text = NOTE_TEXT[counts.notes % NOTE_TEXT.length]!;
-    members.push({ ...textNode(`note-${counts.notes}`, text, -NOTE.width - TOP_GAP, i * CELL_H), ...NOTE });
+    members.push({ ...modelNote(`note-${counts.notes}`, text, -NOTE.width - TOP_GAP, i * CELL_H), ...NOTE });
   }
 
-  // Outer regions first: the canvas paints document order, parents under children.
-  const nodes: CanvasNode[] = [...groups, ...members];
-  const edges: CanvasEdge[] = [];
+  // Outer regions first: the canvas paints z order, parents under children.
+  const nodes: Node[] = [...groups, ...members];
+  const edges: Wire[] = [];
   const wired = new Set<string>();
   const wire = (from: string, to: string): void => {
     const key = `${from}>${to}`;
     if (from === to || wired.has(key)) return;
     wired.add(key);
-    edges.push(verbEdge(`wire-${edges.length + 1}`, from, to, "messages", nodes));
+    edges.push(modelWire(`wire-${edges.length + 1}`, from, to, "messages", nodes));
   };
   // Seats in a region relay down a chain; every region's head reaches each
   // child region's head, so wires cross every nesting boundary.
@@ -466,7 +466,7 @@ export const buildNestedCanvasFixture = (
   const signalSeats = allSeats.filter(() => random() < spec.signalFraction);
 
   return {
-    doc: canvasDoc(nodes, edges),
+    model: modelFixture(nodes, edges),
     stats: {
       regions: groups.length,
       depth,
@@ -479,7 +479,7 @@ export const buildNestedCanvasFixture = (
   };
 };
 
-const boundsOf = (nodes: ReadonlyArray<CanvasNode>): NestedCanvasStats["bounds"] => {
+const boundsOf = (nodes: ReadonlyArray<Node>): NestedCanvasStats["bounds"] => {
   const minX = Math.min(...nodes.map((node) => node.x));
   const minY = Math.min(...nodes.map((node) => node.y));
   const maxX = Math.max(...nodes.map((node) => node.x + node.width));
@@ -506,10 +506,10 @@ export type NestedCanvasOptions = Partial<NestedCanvasSpec> & {
   readonly preset?: NestedCanvasPresetName;
 };
 
-/** The board as a CanvasDoc, for `launchJunto({ seedCanvases: { name: doc } })`. */
-export const buildNestedCanvas = (options: NestedCanvasOptions = {}): CanvasDoc => {
+/** Native rows for `launchJunto({ seedModels: { name: model } })`. */
+export const buildNestedCanvas = (options: NestedCanvasOptions = {}): ModelFixture => {
   const { preset = "nested", ...overrides } = options;
-  return buildNestedCanvasFixture(preset, overrides).doc;
+  return buildNestedCanvasFixture(preset, overrides).model;
 };
 
 // --- a real canvas's shape, from a database copy --------------------------------
@@ -526,7 +526,6 @@ const refuseLiveDatabase = (dbPath: string): string => {
 
 interface ShapeNodeRow {
   readonly node_id: string;
-  readonly type: string;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -558,24 +557,20 @@ export const loadFactoryShapeCanvas = (input: {
   let nodeRows: ReadonlyArray<ShapeNodeRow>;
   let edgeRows: ReadonlyArray<ShapeEdgeRow>;
   try {
-    const canvas = database
-      .prepare("SELECT canvas_id FROM canvas_documents WHERE canvas_name = ?")
-      .get(input.canvasName ?? "factory") as { canvas_id: string } | undefined;
-    if (!canvas) throw new Error(`no canvas named ${input.canvasName ?? "factory"} in ${input.dbPath}`);
-    nodeRows = database
-      .prepare(
-        `SELECT node_id, type, x, y, width, height,
-                CASE WHEN type = 'group' THEN color ELSE NULL END AS color,
-                json_extract(ether_json, '$.entity.kind') AS kind
-           FROM canvas_nodes WHERE canvas_id = ? ORDER BY z_index`,
-      )
-      .all(canvas.canvas_id) as unknown as ReadonlyArray<ShapeNodeRow>;
-    edgeRows = database
-      .prepare(
-        `SELECT from_node_id, to_node_id, json_extract(ether_json, '$.verb') AS verb
-           FROM canvas_edges WHERE canvas_id = ? ORDER BY z_index`,
-      )
-      .all(canvas.canvas_id) as unknown as ReadonlyArray<ShapeEdgeRow>;
+    const name = input.canvasName ?? "factory";
+    const canvas = database.prepare("SELECT canvas_name FROM canvases WHERE canvas_name = ?").get(name);
+    if (!canvas) throw new Error(`no canvas named ${name} in ${input.dbPath}`);
+    const shapes = Object.entries(KIND_TABLES).map(([kind, table]) =>
+      `SELECT canvas_name, id, z_index, x, y, width, height,
+              ${kind === "region" ? "color" : "NULL"} AS color, '${kind}' AS kind FROM ${table}`,
+    ).join(" UNION ALL ");
+    nodeRows = database.prepare(
+      `SELECT id AS node_id, x, y, width, height, color, kind
+         FROM (${shapes}) WHERE canvas_name = ? ORDER BY z_index, id`,
+    ).all(name) as unknown as ReadonlyArray<ShapeNodeRow>;
+    edgeRows = database.prepare(
+      "SELECT from_id AS from_node_id, to_id AS to_node_id, verb FROM wires WHERE canvas_name = ? ORDER BY id",
+    ).all(name) as unknown as ReadonlyArray<ShapeEdgeRow>;
   } finally {
     database.close();
   }
@@ -591,57 +586,56 @@ const rebuildShape = (
   const random = makeRandom(seed);
   const ids = new Map<string, string>();
   const counts = { regions: 0, seats: 0, notes: 0, terminals: 0, gits: 0 };
-  const nodes: CanvasNode[] = nodeRows.map((row) => {
+  const nodes: Node[] = nodeRows.map((row) => {
     const at = { x: Math.round(row.x), y: Math.round(row.y) };
     const size = { width: Math.round(row.width), height: Math.round(row.height) };
-    if (row.type === "group") {
+    if (row.kind === "region") {
       counts.regions += 1;
       const id = `region-${counts.regions}`;
       ids.set(row.node_id, id);
-      const group: GroupNode = {
+      const group = modelRegion({
         id,
-        type: "group",
         label: REGION_WORDS[counts.regions % REGION_WORDS.length]!,
         ...at,
         ...size,
         ...(row.color ? { color: row.color } : {}),
-      };
+      });
       return group;
     }
     if (row.kind === "agent") {
       counts.seats += 1;
       const id = `seat-${counts.seats}`;
       ids.set(row.node_id, id);
-      return agentTextNode({ id, key: `local:stress-${counts.seats}`, label: `seat ${counts.seats}`, ...at });
+      return { ...modelSeat({ id, key: `local:stress-${counts.seats}`, label: `seat ${counts.seats}`, ...at }), ...size };
     }
     if (row.kind === "terminal") {
       counts.terminals += 1;
       const id = `terminal-${counts.terminals}`;
       ids.set(row.node_id, id);
-      return terminalTextNode({ id, bindingId: `stress-terminal-${counts.terminals}`, label: `shell ${counts.terminals}`, ...at });
+      return { ...modelTerminal({ id, bindingId: `stress-terminal-${counts.terminals}`, label: `shell ${counts.terminals}`, ...at }), ...size };
     }
     if (row.kind === "git") {
       counts.gits += 1;
       const id = `git-${counts.gits}`;
       ids.set(row.node_id, id);
-      return { id, type: "text", text: `repo ${counts.gits}`, ...at, ...GIT, ether: { entity: { kind: "git" }, git: { cwd: "/tmp" } } };
+      return modelNode({ id, kind: "git", label: `repo ${counts.gits}`, ...at, ...size, cwd: "/tmp", z: 0 });
     }
     counts.notes += 1;
     const id = `note-${counts.notes}`;
     ids.set(row.node_id, id);
-    return { ...textNode(id, NOTE_TEXT[counts.notes % NOTE_TEXT.length]!, at.x, at.y), ...size };
+    return { ...modelNote(id, NOTE_TEXT[counts.notes % NOTE_TEXT.length]!, at.x, at.y), ...size };
   });
-  const kindOf = new Map(nodes.map((node) => [node.id, node.ether?.entity?.kind]));
-  const edges: CanvasEdge[] = [];
+  const kindOf = new Map<string, Node["kind"]>(nodes.map((node) => [node.id, node.kind]));
+  const edges: Wire[] = [];
   for (const row of edgeRows) {
     const from = ids.get(row.from_node_id);
     const to = ids.get(row.to_node_id);
     if (!from || !to || !row.verb) continue;
     if (!verbsForPair(kindOf.get(from), kindOf.get(to)).includes(row.verb as Verb)) continue;
-    edges.push(verbEdge(`wire-${edges.length + 1}`, from, to, row.verb as Verb, nodes));
+    edges.push(modelWire(`wire-${edges.length + 1}`, from, to, row.verb as Verb, nodes));
   }
-  const groups = nodes.filter((node): node is GroupNode => node.type === "group");
-  const inside = (outer: GroupNode, inner: GroupNode): boolean =>
+  const groups = nodes.filter((node): node is Region => node.kind === "region");
+  const inside = (outer: Region, inner: Region): boolean =>
     outer.id !== inner.id &&
     inner.x >= outer.x &&
     inner.y >= outer.y &&
@@ -651,10 +645,10 @@ const rebuildShape = (
     (deepest, group) => Math.max(deepest, 1 + groups.filter((outer) => inside(outer, group)).length),
     0,
   );
-  const seats = nodes.filter((node) => node.ether?.entity?.kind === "agent").map((node) => node.id);
+  const seats = nodes.filter((node) => node.kind === "agent").map((node) => node.id);
   const signalSeats = seats.filter(() => random() < signalFraction);
   return {
-    doc: canvasDoc(nodes, edges),
+    model: modelFixture(nodes, edges),
     stats: {
       ...counts,
       depth,

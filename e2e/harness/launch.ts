@@ -25,7 +25,6 @@ import { dirname, join } from "node:path";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { AgentSignal } from "../../src/shared/agent-signals";
-import type { CanvasDoc } from "../../src/shared/canvas";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
@@ -40,7 +39,6 @@ import {
   destroySandbox,
   removeFixtureCanvases,
   writeFixtureAgentSignals,
-  writeFixtureCanvas,
   writeFixtureModel,
   writeFixtureHosts,
   writeFixtureRetiredCommercialState,
@@ -93,15 +91,13 @@ export interface LaunchOptions {
   readonly demo?: boolean;
   /** Disable external Node TCP/HTTP and Chromium HTTP before product startup. */
   readonly offline?: boolean;
-  /** Canvas name -> document, seeded into the sandbox's SQLite database. */
-  readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
-  /** Canvas name -> native model rows; separate from the temporary document seed. */
+  /** Canvas name -> native model rows, seeded into the sandbox's SQLite database. */
   readonly seedModels?: Readonly<Record<string, ModelFixture>>;
   /** Open (or closed) agent signals seeded as durable rows before boot. */
   readonly seedAgentSignals?: ReadonlyArray<AgentSignal>;
   /**
    * A nested-region stress canvas (nested-canvas-fixture.ts) seeded as `name`
-   * (default "nested") beside `seedCanvases`, with its open agent signals
+   * (default "nested") beside `seedModels`, with its open agent signals
    * unless `signals` is false.
    */
   readonly nestedCanvas?: {
@@ -451,9 +447,9 @@ export const cleanupJuntoHarness = async (
 
 export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHandle> => {
   const nestedName = options.nestedCanvas?.name ?? "nested";
-  const seedCanvases: Readonly<Record<string, CanvasDoc>> = {
-    ...options.seedCanvases,
-    ...(options.nestedCanvas ? { [nestedName]: options.nestedCanvas.fixture.doc } : {}),
+  const seedModels: Readonly<Record<string, ModelFixture>> = {
+    ...options.seedModels,
+    ...(options.nestedCanvas ? { [nestedName]: options.nestedCanvas.fixture.model } : {}),
   };
   const seedAgentSignals: ReadonlyArray<AgentSignal> = [
     ...(options.seedAgentSignals ?? []),
@@ -469,11 +465,7 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     if (options.seedRetiredCommercialState === true) {
       await writeFixtureRetiredCommercialState(sandbox);
     }
-    for (const [name, doc] of Object.entries(seedCanvases)) {
-      await writeFixtureCanvas(sandbox, name, doc);
-    }
-    for (const [name, fixture] of Object.entries(options.seedModels ?? {})) {
-      if (name in seedCanvases) throw new Error(`Fixture canvas ${name} has both a document and a model seed`);
+    for (const [name, fixture] of Object.entries(seedModels)) {
       await writeFixtureModel(sandbox, name, fixture);
     }
     if (seedAgentSignals.length > 0) {
@@ -581,23 +573,19 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     // fixtures into the minted file, drop the empty first-run default
     // canvas, then reload the renderer so it boots onto the seeded canvas.
     if (options.demo === true) {
-      const seeds = Object.entries(seedCanvases);
-      const modelSeeds = Object.entries(options.seedModels ?? {});
-      if (seeds.length + modelSeeds.length > 0) {
+      const modelSeeds = Object.entries(seedModels);
+      if (modelSeeds.length > 0) {
         const demoDatabase = await findDemoRuntimeDatabase(sandbox.root);
         if (demoDatabase === undefined) {
           throw new Error(
             "demo-mode seed: the app's ephemeral demo database was not found under the sandbox temp root",
           );
         }
-        for (const [name, doc] of seeds) {
-          await writeFixtureCanvas(sandbox, name, doc, demoDatabase);
-        }
         for (const [name, fixture] of modelSeeds) await writeFixtureModel(sandbox, name, fixture, demoDatabase);
         await removeFixtureCanvases(
           sandbox,
           demoDatabase,
-          new Set([...seeds, ...modelSeeds].map(([name]) => name)),
+          new Set(modelSeeds.map(([name]) => name)),
         );
         await page.reload();
       }

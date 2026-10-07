@@ -88,7 +88,7 @@ export const waitForTerminalText = async (
 };
 
 /**
- * Wait until an echo terminal (`echoTerminalNode`) has read `needle` from its
+ * Wait until an echo terminal (`modelEchoTerminal`) has read `needle` from its
  * PTY: the proof that typed keys arrived, independent of how the grid paints.
  */
 export const waitForTerminalInput = async (

@@ -2,14 +2,14 @@ import type { Page } from "@playwright/test";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { expect, it, vi } from "vitest";
-import { createSandbox, destroySandbox, writeFixtureCanvas, writeFixtureModel } from "../e2e/harness/sandbox";
-import { installModelFixture, modelFixture, modelMessagesWire, modelNote, modelRegion, modelSeat, modelTerminal, modelWire, readFixtureDocument, writeFixtureDocument } from "../e2e/harness/model";
+import { createSandbox, destroySandbox, writeFixtureModel } from "../e2e/harness/sandbox";
+import { installModelFixture, modelFixture, modelMessagesWire, modelNote, modelRegion, modelSeat, modelTerminal, modelWire, readModelCanvas, commandModel, modelNode } from "../e2e/harness/model";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { Command, Wire } from "../src/shared/model";
 
-it("seeds native kinds and legacy fixtures into the same durable model, keeping grids separate", async () => {
+it("seeds native kinds and sink names into the durable model, keeping grids separate", async () => {
   const sandbox = await createSandbox();
   try {
     const rows = [modelRegion({ id: "region", label: "Lab", instruction: "Keep receipts" }),
@@ -17,13 +17,13 @@ it("seeds native kinds and legacy fixtures into the same durable model, keeping 
       modelSeat({ id: "seat-b" }),
       modelTerminal({ id: "shell", bindingId: "shell", label: "Shell" })];
     await writeFixtureModel(sandbox, "native", modelFixture(rows, [modelMessagesWire("mail", "seat-a", "seat-b", rows, ["msg.list"])]));
-    const frame = { x: 0, y: 0, width: 240, height: 100 };
+    const frame = { x: 0, y: 0, width: 240, height: 100, z: 0 };
     const grid = { columns: [{ id: "c", name: "Value" }], rows: [{ id: "r", cells: { c: "123" } }] };
-    await writeFixtureCanvas(sandbox, "old-seed", { nodes: [
-      { ...frame, id: "task", type: "text", text: "Backlog", ether: { entity: { kind: "task", name: "Backlog" }, tasks: { name: "Board", contract: { rules: [] }, items: [] } } },
-      { ...frame, id: "requests", type: "text", text: "Requests", ether: { entity: { kind: "requests", name: "Requests" }, requests: { name: "Inbox", items: [] } } },
-      { ...frame, id: "sheet", type: "text", text: "Grid", ether: { entity: { kind: "sheet", name: "Grid" }, sheet: grid } },
-    ], edges: [] });
+    await writeFixtureModel(sandbox, "sinks", { ...modelFixture([
+      modelNode({ ...frame, id: "task", kind: "task", name: "Board", contract: { rules: [] } }),
+      modelNode({ ...frame, id: "requests", kind: "requests", name: "Inbox" }),
+      modelNode({ ...frame, id: "sheet", kind: "sheet", label: "Grid" }),
+    ]), sheets: { sheet: grid } });
     const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"))));
     try {
       await runtime.runPromise(Effect.gen(function* () {
@@ -33,12 +33,11 @@ it("seeds native kinds and legacy fixtures into the same durable model, keeping 
         expect(native.nodes[1]).toMatchObject({ label: "A", bindingId: "local:a", harness: "codex", sessionId: "named-session" });
         expect(native.nodes[2]).toMatchObject({ label: "seat-b", agentKey: "local:seat-b", bindingId: "local:seat-b" });
         expect(native.wires).toMatchObject([{ from: "seat-a", to: "seat-b", verb: "messages", mask: ["msg.list"] }]);
-        const old = yield* model.open("old-seed");
-        expect(old.nodes.find((node) => node.id === "task")).toMatchObject({ kind: "task", name: "Board", contract: { rules: [] } });
-        expect(old.nodes.find((node) => node.id === "requests")).toMatchObject({ kind: "requests", name: "Inbox" });
-        expect(old.nodes.find((node) => node.id === "sheet")).not.toHaveProperty("rows");
-        expect(yield* model.readSheet("old-seed", "sheet")).toEqual(grid);
-        expect(old.nodes.every((node) => !("ether" in node))).toBe(true);
+        const sinks = yield* model.open("sinks");
+        expect(sinks.nodes.find((node) => node.id === "task")).toMatchObject({ kind: "task", name: "Board", contract: { rules: [] } });
+        expect(sinks.nodes.find((node) => node.id === "requests")).toMatchObject({ kind: "requests", name: "Inbox" });
+        expect(sinks.nodes.find((node) => node.id === "sheet")).not.toHaveProperty("rows");
+        expect(yield* model.readSheet("sinks", "sheet")).toEqual(grid);
       }));
     } finally { await runtime.dispose(); }
   } finally { await destroySandbox(sandbox); }
@@ -94,7 +93,7 @@ it("installs a native scenario topology in one event and rolls back an invalid r
 });
 
 
-it("converts a live fixture edit into one batch and refuses renderer session stamps", async () => {
+it("applies a native fixture edit in one event and refuses authored runtime session fields", async () => {
   const sandbox = await createSandbox();
   try {
     await writeFixtureModel(sandbox, "proof", modelFixture([modelNote("note", "before"), modelSeat({ id: "seat", key: "local:a", label: "A", sessionId: "runtime-id" })]));
@@ -109,13 +108,18 @@ it("converts a live fixture edit into one batch and refuses renderer session sta
       } });
       const page = { evaluate: (fn: (input: unknown) => unknown, input: unknown) => Promise.resolve(fn(input)) } as unknown as Page;
       try {
-        const before = await readFixtureDocument(page, "proof");
-        const seq = await writeFixtureDocument(page, "proof", { ...before, nodes: [...before.nodes].reverse().map((node) => node.id === "note" && node.type === "text" ? { ...node, x: 80, color: "4", text: "after" } : node) });
+        const { seq } = await commandModel(page, { _tag: "Batch", canvas: "proof", steps: [
+          { _tag: "Edit", canvas: "proof", id: "note", change: { kind: "note", text: "after" } },
+          { _tag: "Move", canvas: "proof", moves: [{ id: "note", x: 80, y: 0 }] },
+          { _tag: "Recolor", canvas: "proof", nodes: ["note"], color: "4" },
+          { _tag: "Restack", canvas: "proof", nodes: ["note"], to: "front" },
+        ] });
         expect(events).toHaveLength(1);
-        expect(events[0]).toMatchObject({ seq, nodes: expect.arrayContaining([{ ...modelNote("note", "after", 80, 0), color: "4", z: 1 }]) });
+        expect(events[0]).toMatchObject({ seq, nodes: expect.arrayContaining([{ ...modelNote("note", "after", 80, 0), color: "4", z: 2 }]) });
         expect((await runtime.runPromise(model.open("proof"))).nodes.map((node) => node.id)).toEqual(["seat", "note"]);
-        const edited = await readFixtureDocument(page, "proof");
-        await expect(writeFixtureDocument(page, "proof", { ...edited, nodes: edited.nodes.map((node) => node.id === "seat" ? { ...node, ether: { ...node.ether, terminal: { ...node.ether!.terminal!, sessionId: "invented" } } } : node) })).rejects.toThrow("runtime session");
+        const edited = await readModelCanvas(page, "proof");
+        await expect(commandModel(page, { _tag: "Edit", canvas: "proof", id: "seat", change: { kind: "agent", sessionId: "invented" } })).rejects.toThrow(/sessionId/);
+        expect(await readModelCanvas(page, "proof")).toEqual(edited);
         expect(events).toHaveLength(1);
       } finally { stop(); vi.unstubAllGlobals(); }
     } finally { await runtime.dispose(); }

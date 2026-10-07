@@ -30,7 +30,7 @@ test("the nested stress board mounts whole at the operator's display", async ({ 
   await mkdir(SHOTS, { recursive: true });
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".react-flow__node")).toHaveCount(fixture.doc.nodes.length, { timeout: 60_000 });
+  await expect(page.locator(".react-flow__node")).toHaveCount(fixture.model.nodes.length, { timeout: 60_000 });
   await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions);
   await expect(page.locator(".react-flow__edge")).toHaveCount(fixture.stats.edges, { timeout: 30_000 });
 
