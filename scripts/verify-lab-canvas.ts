@@ -117,11 +117,56 @@ const nodes = Array.from({ length: cards }, (_, i) => {
     y: Math.floor(i / 5) * 130,
   });
 });
+// --regions, --notes and --wires fill the canvas out to the shape of a real
+// one: regions drawn around pairs of seats, loose notes, and message wires
+// between neighbouring seats. Regions go first so they paint underneath.
+const regions = Number(arg("regions", "0"));
+const notes = Number(arg("notes", "0"));
+const wires = Number(arg("wires", "0"));
+const seatsOnly = nodes.slice();
+for (let i = 0; i < regions; i += 1) {
+  const anchor = seatsOnly[(i * 2) % seatsOnly.length]!;
+  nodes.unshift({
+    id: `verify-region-${String(i + 1).padStart(2, "0")}-${tag}`,
+    type: "group",
+    label: `region ${String(i + 1)}`,
+    x: anchor.x - 20,
+    y: anchor.y - 30,
+    width: 520,
+    height: 170,
+    ether: { region: { hold: false } },
+  } as never);
+}
+for (let i = 0; i < notes; i += 1) {
+  nodes.push({ id: `verify-note-${String(i + 1).padStart(2, "0")}-${tag}`, type: "text", text: `note ${String(i + 1)}`, x: -320, y: i * 140, width: 240, height: 120 } as never);
+}
+const edges = Array.from({ length: wires }, (_, i) => {
+  const from = seatsOnly[i % seatsOnly.length]!;
+  const to = seatsOnly[(i + 1 + Math.floor(i / seatsOnly.length) * 3) % seatsOnly.length]!;
+  return { id: `verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, fromNode: from.id, toNode: to.id, ether: { verb: "messages" } };
+}).filter((edge) => edge.fromNode !== edge.toNode);
+
+// --sinks adds one task board, one bulletin board and one pad beside the seats,
+// for measuring work changes other than mail.
+if (process.argv.includes("--sinks")) {
+  for (const [index, kind] of ["task", "board", "pad"].entries()) {
+    nodes.push({
+      id: `verify-${kind}-${tag}`,
+      type: "text",
+      text: kind,
+      x: 1400,
+      y: index * 260,
+      width: 320,
+      height: 220,
+      ether: { entity: { kind }, ...(kind === "task" ? { tasks: { name: "verify", items: [] } } : {}) },
+    } as never);
+  }
+}
 await page.evaluate(`(async () => {
   const api = window.junto;
   await api.createCanvas(${name}).catch(() => undefined);
   const read = await api.readCanvas(${name});
-  await api.writeCanvas(${name}, ${JSON.stringify(canvasDoc(nodes, []))}, read.revision);
+  await api.writeCanvas(${name}, ${JSON.stringify(canvasDoc(nodes, edges as never))}, read.revision);
 })()`);
 
 // Open the canvas the way a junto:// link does.
@@ -148,6 +193,6 @@ const state = await page.evaluate<Record<string, unknown>>(`(async () => ({
   paused: await window.junto.factoryPauseState(${name}).catch((error) => String(error)),
   size: [innerWidth, innerHeight],
 }))()`);
-console.log(JSON.stringify({ canvasName, cardsWritten: cards, ...state }));
+console.log(JSON.stringify({ canvasName, cardsWritten: cards, nodesWritten: nodes.length, wiresWritten: edges.length, ...state }));
 page.close();
 main.close();
