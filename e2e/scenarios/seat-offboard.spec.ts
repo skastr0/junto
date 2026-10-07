@@ -5,26 +5,34 @@
  *   bun run test:e2e:fast e2e/scenarios/seat-offboard.spec.ts
  *
  * The seat is the crew fixture's fake codex. Its agent runs `junto offboard`
- * mid-turn through the seat's own CLI, and the offboard ends the session at
- * once (main/junto/seat-sessions/offboard-close.ts): the process is stopped
- * while the seat is still mid-turn, with no wait for idle:
+ * mid-turn through the seat's own CLI. The seat moves on at once: the old
+ * process is taken off the seat without being signalled, and is left to
+ * finish its turn (main/junto/seat-sessions/drain.ts). It is stopped two
+ * seconds after it reads idle, and main logs how it ended.
  *
- *   O1 rest      the process stops, the seat rests and no longer names the old session,
- *                nothing is typed into the old session, and the next mail
- *                starts a fresh process on the new session.
- *   O2 continue  the process stops and a fresh one starts by itself on a new
- *                session id, and is typed exactly one line, CONTINUATION_LINE.
+ *   O1 rest      the seat is vacant within a moment while the old process
+ *                still runs; the seat rests and no longer names the old
+ *                session; nothing is typed into the old session; the next
+ *                mail starts a fresh process on the new session.
+ *   O2 continue  a fresh process starts by itself while the old one still
+ *                runs, and is typed exactly one line, CONTINUATION_LINE.
  *   O3 continue, on a seat that never ran `junto onboard`. Same flow, soft,
  *                and it records whether the onboarding nudge is typed into
- *                the old session between the offboard and the close.
+ *                the old session after the offboard.
+ *   All three end by letting the old turn finish (the OLD fake is set idle)
+ *   and require the old process gone a few seconds later, logged "(settled)".
  *
- * Old and fresh input. The fake appends everything its PTY input receives to
- * one stdin.log per seat, whichever process is running, so the two sessions
- * would run together. A wrapper in front of the fake (installOffboardSeatHarness)
- * moves the log aside at every launch: generation N's input ends up in
- * stdin.gen<N>.log once generation N+1 starts, and the running generation
- * writes stdin.log. The drive's own journal (JUNTO_PTY_TRACE=1) is the second
- * witness: every physical write into the seat's PTY, with its time.
+ * Old and fresh processes run side by side now, so each generation of a seat
+ * has a folder of its own. A wrapper in front of the fake
+ * (installOffboardSeatHarness) gives launch N the folder gen<N> under the
+ * seat's folder, and the fake (a patched copy) keeps everything there: its
+ * input log, its control file, its events. The old process is addressed
+ * through gen1's control file alone; the fresh one never reads it. The
+ * patched fake also writes the time into an `alive` file ten times a second,
+ * which is how a process is shown to be running, and when it stopped, without
+ * a pid or a signal. The drive's own journal (JUNTO_PTY_TRACE=1) is kept as a
+ * second witness, but it is keyed by seat, not by process: once a fresh
+ * process exists, only the per-generation input logs say who was typed to.
  *
  * Evidence: main's `[offboard]` lines and the test's own timeline are written
  * to `<id>-offboard-log.txt`, with the screenshots, in OFFBOARD_WALK_DIR when
@@ -45,12 +53,11 @@ import {
   crewMessagesEdge,
   crewOccupySeat,
   crewPlayFactory,
-  crewSeat,
   crewSeatDir,
   crewSeatNode,
   crewSeatsDir,
+  CrewSeat,
   installCrewSeatHarness,
-  type CrewSeat,
   type WorkEnvelope,
 } from "../harness/crew-fixture";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
@@ -167,27 +174,64 @@ const walk = async (testInfo: TestInfo, id: string, body: (walk: Walk) => Promis
 // Fake seat harness, with one input log per generation
 // ---------------------------------------------------------------------------
 
+/** The seat's move-on after an offboard must be seen within this (expected: about a second). */
+const MOVED_ON_AFTER_OFFBOARD_MS = 4_000;
+/** The old process must be gone this long after it is set idle (expected: 2 to 4 s; drain.ts DRAIN_SETTLE_MS is 2 s). */
+const GONE_AFTER_IDLE_MS = 8_000;
+/** How long the test looks for the old process to go at all. */
+const GONE_WATCH_MS = 30_000;
+/** The fake writes the time this often; a process silent for HEARTBEAT_STALE_MS is gone. */
+const HEARTBEAT_MS = 100;
+const HEARTBEAT_STALE_MS = 700;
+
 /**
- * The crew fixture's fake codex, behind a wrapper that, at every launch of a
- * seat, moves the previous process's stdin.log to stdin.gen<N>.log and leaves
- * a launch.<N+1> mark. Then it execs the fake, so the seat process is the
- * fake itself (same pid, same process-bound identity).
+ * The fake, changed in three places so that two generations of one seat can
+ * run side by side and be told apart: it keeps its files in the folder the
+ * wrapper names (WALK_SEAT_DIR), it writes the time into `alive` every
+ * HEARTBEAT_MS, and it records `sigterm` before it exits on one.
+ */
+const patchFake = (source: string): string => {
+  const edits: ReadonlyArray<readonly [string, string]> = [
+    ["const dir = path.join(", "const dir = process.env.WALK_SEAT_DIR || path.join("],
+    ['process.on("SIGTERM", () => process.exit(0));', 'process.on("SIGTERM", () => { ev("sigterm"); process.exit(0); });'],
+    [
+      "setInterval(() => {}, 60000); // keep alive",
+      `setInterval(() => { try { fs.writeFileSync(path.join(dir, "alive"), String(Date.now())); } catch {} }, ${String(HEARTBEAT_MS)});`,
+    ],
+  ];
+  let out = source;
+  for (const [from, to] of edits) {
+    if (!out.includes(from)) throw new Error(`SETUP: the crew fake no longer has the line this spec changes: ${from}`);
+    out = out.replace(from, to);
+  }
+  return out;
+};
+
+/**
+ * The crew fixture's fake codex (patched, see patchFake), behind a wrapper
+ * that gives every launch of a seat a folder of its own, gen<N>, and leaves a
+ * launch.<N> mark. Then it execs the fake, so the seat process is the fake
+ * itself (same pid, same process-bound identity).
  */
 const installOffboardSeatHarness = async (sandbox: Sandbox): Promise<void> => {
   await installCrewSeatHarness(sandbox);
   const bin = seededHarnessBinDir(sandbox);
   const fake = join(bin, "codex-crew-fake");
   await rename(join(bin, "codex"), fake);
+  await writeFile(fake, patchFake(await readFile(fake, "utf8")), "utf8");
+  await chmod(fake, 0o755);
   const script = [
     "#!/bin/sh",
-    "# [fake-tui] seat-offboard: one input log per seat generation, then become the crew fake.",
+    "# [fake-tui] seat-offboard: one folder per seat generation, then become the crew fake.",
     'if [ -n "${JUNTO_NODE_REF:-}" ]; then',
     `  dir='${crewSeatsDir(sandbox)}'/$(printf '%s' "$JUNTO_NODE_REF" | sed 's/:/--/')`,
     '  mkdir -p "$dir"',
     "  n=1",
     '  while [ -e "$dir/launch.$n" ]; do n=$((n + 1)); done',
-    '  if [ -f "$dir/stdin.log" ]; then mv "$dir/stdin.log" "$dir/stdin.gen$((n - 1)).log"; fi',
+    '  mkdir -p "$dir/gen$n"',
     '  date +%s > "$dir/launch.$n"',
+    '  WALK_SEAT_DIR="$dir/gen$n"',
+    "  export WALK_SEAT_DIR",
     "fi",
     `exec '${fake}' "$@"`,
     "",
@@ -199,25 +243,27 @@ const installOffboardSeatHarness = async (sandbox: Sandbox): Promise<void> => {
 
 const seatDir = (sandbox: Sandbox, nodeId: string): string => crewSeatDir(sandbox, CANVAS, nodeId);
 
+/** One generation of a seat (1 is its first process): its own control file, input log and events. */
+const genSeat = (sandbox: Sandbox, nodeId: string, generation: number): CrewSeat =>
+  new CrewSeat(join(seatDir(sandbox, nodeId), `gen${String(generation)}`));
+
 /** How many processes this seat has had. */
 const launches = async (sandbox: Sandbox, nodeId: string): Promise<number> =>
   (await readdir(seatDir(sandbox, nodeId)).catch(() => [] as string[])).filter((name) => /^launch\.\d+$/u.test(name)).length;
 
-const decodeInput = (raw: string): string =>
-  raw
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .map((line) => Buffer.from(line, "base64").toString("utf8"))
-    .join("");
+/** Everything generation `generation` received on its PTY input. */
+const inputOf = (sandbox: Sandbox, nodeId: string, generation: number): Promise<string> => genSeat(sandbox, nodeId, generation).stdinLog();
 
-/** Everything generation `generation` (1 is the first process) received on its PTY input. */
-const inputOf = async (sandbox: Sandbox, nodeId: string, generation: number): Promise<string> => {
-  const dir = seatDir(sandbox, nodeId);
-  const moved = await readFile(join(dir, `stdin.gen${String(generation)}.log`), "utf8").catch(() => undefined);
-  if (moved !== undefined) return decodeInput(moved);
-  // Not moved aside: it is the running generation's log, or it typed nothing.
-  if ((await launches(sandbox, nodeId)) !== generation) return "";
-  return decodeInput(await readFile(join(dir, "stdin.log"), "utf8").catch(() => ""));
+/** The last time this process said it was running; undefined before it ever did. */
+const lastAlive = async (seat: CrewSeat): Promise<number | undefined> => {
+  const at = Number(await readFile(join(seat.dir, "alive"), "utf8").catch(() => ""));
+  return Number.isFinite(at) && at > 0 ? at : undefined;
+};
+
+/** The process is running: it said so within the last HEARTBEAT_STALE_MS. */
+const isAlive = async (seat: CrewSeat): Promise<boolean> => {
+  const at = await lastAlive(seat);
+  return at !== undefined && Date.now() - at < HEARTBEAT_STALE_MS;
 };
 
 type DriveWrite = { readonly at: number; readonly ts: string; readonly stage: string };
@@ -258,7 +304,7 @@ const expectSeatState = async (page: Page, nodeId: string, state: string | RegEx
 
 /** Start the seat's fake and wait until it reads idle. */
 const startSeat = async (junto: JuntoHandle, node: TextNode): Promise<CrewSeat> => {
-  const seat = crewSeat(junto.sandbox, CANVAS, node.id);
+  const seat = genSeat(junto.sandbox, node.id, 1);
   await crewOccupySeat(junto.page, CANVAS, node, seat);
   await expectSeatState(junto.page, node.id, "idle");
   return seat;
@@ -359,23 +405,64 @@ const offboardMidTurn = async (
   const oldInputAtOffboard = await inputOf(sandbox, SEAT_ID, 1);
   await shot("offboarded-mid-turn");
 
-  // Offboard ends the session at once: the seat is still mid-turn, and
-  // nothing here ends the turn for it. The clock starts at the offboard.
+  // The seat moves on at once: it is still mid-turn, and nothing here ends
+  // the turn for it. The clock starts at the offboard.
   const idleAt = offboardedAt;
 
-  // The old process is gone.
+  // The seat no longer points at the old process (vacant, or a fresh one).
   let closedAt: number | undefined;
   const until = idleAt + 30_000;
   while (Date.now() < until) {
     const session = await sessionOf(page, SEAT_ID).catch(() => undefined);
     if (!isLive(session) || session?.epoch !== oldEpoch) {
-      closedAt = mark(`the old process is gone (session now: ${session ? `${session.status} ${session.epoch}` : "none"})`);
+      closedAt = mark(`the seat has moved on (session now: ${session ? `${session.status} ${session.epoch}` : "none"})`);
       break;
     }
     await sleep(50);
   }
-  note(testInfo, "offboard-to-closed-ms", closedAt === undefined ? "not closed within 30 s of the offboard" : String(closedAt - idleAt));
+  note(testInfo, "offboard-to-moved-on-ms", closedAt === undefined ? "not moved on within 30 s of the offboard" : String(closedAt - idleAt));
+  // The old process was not stopped: it is still running, off the seat.
+  const oldAlive = await isAlive(seat);
+  mark(`the old process is still running after the seat moved on: ${String(oldAlive)}`);
+  expect(oldAlive, "the old process is still alive after the offboard (it is left to finish its turn)").toBe(true);
   return { seat, peer, oldPid: oldReady.pid, offboardedAt, idleAt, closedAt, oldInputAtOffboard };
+};
+
+/**
+ * Let the old turn end and watch the old process go. The OLD fake is set
+ * idle through its own generation's control file (the fresh process has its
+ * own and never reads this one). Before that, its input must still be what it
+ * was when the offboard returned: nothing reached it in all the time since.
+ */
+const windDown = async (ctx: Walk, testInfo: TestInfo, check: typeof expect, closed: Closed, allow: (typedAfter: string) => string = (typed) => typed): Promise<void> => {
+  const { junto, mark, mainLog } = ctx;
+  const old = closed.seat;
+  const before = await inputOf(junto.sandbox, SEAT_ID, 1);
+  const typedAfter = before.startsWith(closed.oldInputAtOffboard) ? before.slice(closed.oldInputAtOffboard.length) : before;
+  check(allow(typedAfter), "nothing reached the old process in all its time off the seat").toBe("");
+  check(await isAlive(old), "the old process is still running until its turn ends").toBe(true);
+  await old.control({ screen: { mode: "idle" } });
+  const idleAt = mark("the old process's turn ended: its screen is idle");
+  let goneAt: number | undefined;
+  while (Date.now() < idleAt + GONE_WATCH_MS) {
+    const at = await lastAlive(old);
+    if (at !== undefined && Date.now() - at >= HEARTBEAT_STALE_MS) {
+      goneAt = at;
+      break;
+    }
+    await sleep(50);
+  }
+  const ms = goneAt === undefined ? undefined : Math.max(0, goneAt - idleAt);
+  mark(`the old process ${ms === undefined ? `was NOT gone within ${String(GONE_WATCH_MS)} ms of idle` : `was gone ${String(ms)} ms after it went idle (last heartbeat)`}`);
+  note(testInfo, "old-idle-to-gone-ms", ms === undefined ? "not gone" : String(ms));
+  check(goneAt, "the old process is gone once its turn has ended").toBeDefined();
+  if (ms !== undefined) check(ms, "old process idle to gone, in ms").toBeLessThan(GONE_AFTER_IDLE_MS);
+  const events = (await old.events()).filter((event) => event.event === "sigterm").length;
+  mark(`the old process recorded SIGTERM ${String(events)} time(s)`);
+  await check
+    .poll(() => offboardLines(mainLog()).join("\n"), { message: "main's [offboard] lines", timeout: 10_000 })
+    .toContain(`${SEAT_ID}: its offboarded session ended (settled)`);
+  check(await inputOf(junto.sandbox, SEAT_ID, 1), "the old process's input never changed after the offboard, to its end").toBe(before);
 };
 
 /** What the drive wrote into the seat between two moments, for the log and the checks. */
@@ -384,17 +471,17 @@ const writesBetween = (writes: ReadonlyArray<DriveWrite>, from: number, to: numb
 
 // ===========================================================================
 
-test("O1 [fake-tui] offboard to rest: the session closes at once, the seat rests, and mail wakes a fresh session", async ({}, testInfo) => {
+test("O1 [fake-tui] offboard to rest: the seat moves on at once and rests, the old process finishes its turn, and mail wakes a fresh session", async ({}, testInfo) => {
   test.setTimeout(360_000);
   await walk(testInfo, "O1", async (ctx) => {
     const { junto, mark, shot, mainLog } = ctx;
     const { page, sandbox } = junto;
     const closed = await offboardMidTurn(ctx, testInfo, { onboardFirst: true });
 
-    // Within about a second of the offboard its process stops, mid-turn.
-    expect(closed.closedAt, "the seat's process stopped after the offboard").toBeDefined();
-    expect(closed.closedAt! - closed.idleAt, "offboard to stopped, in ms").toBeLessThan(4_000);
-    expect(isLive(await sessionOf(page, SEAT_ID)), "no process is running on the seat").toBe(false);
+    // Within about a second of the offboard the seat is vacant, mid-turn.
+    expect(closed.closedAt, "the seat moved on after the offboard").toBeDefined();
+    expect(closed.closedAt! - closed.idleAt, "offboard to seat vacant, in ms").toBeLessThan(MOVED_ON_AFTER_OFFBOARD_MS);
+    expect(isLive(await sessionOf(page, SEAT_ID)), "no process is on the seat").toBe(false);
 
     // The seat rests: the closer says so, to the operator's panel and on the log.
     await expect.poll(() => offboardStage(page, SEAT_ID), { message: "where the seat's offboard stands", timeout: 10_000 }).toBe("resting");
@@ -428,8 +515,9 @@ test("O1 [fake-tui] offboard to rest: the session closes at once, the seat rests
     opData(await closed.peer.op("msg.send", { target: SEAT_ID, text: wakeMail }));
     mark("mail sent to the resting seat");
     await expect.poll(() => launches(sandbox, SEAT_ID), { message: "a fresh process starts for the mail", timeout: 60_000 }).toBe(2);
+    const fresh = genSeat(sandbox, SEAT_ID, 2);
     await expect
-      .poll(async () => (await closed.seat.ready()).pid, { message: "the fresh process's pid", timeout: 30_000 })
+      .poll(async () => (await fresh.ready()).pid, { message: "the fresh process's pid", timeout: 30_000 })
       .not.toBe(closed.oldPid);
     await expect.poll(() => inputOf(sandbox, SEAT_ID, 2), { message: "the fresh session's input", timeout: 60_000 }).toContain(wakeMail);
     mark("the fresh process received the mail");
@@ -439,12 +527,16 @@ test("O1 [fake-tui] offboard to rest: the session closes at once, the seat rests
     await expect
       .poll(
         async () =>
-          (opData(await closed.seat.op("onboard", {})).sessions as { readonly current?: { readonly session_id?: unknown } } | undefined)
+          (opData(await fresh.op("onboard", {})).sessions as { readonly current?: { readonly session_id?: unknown } } | undefined)
             ?.current?.session_id,
         { message: "the session the fresh process is on", timeout: 30_000 },
       )
       .not.toBe(FIRST_SESSION);
     await shot("woken-by-mail");
+
+    // The old turn ends: its process is wound down, and main says how.
+    await windDown(ctx, testInfo, expect, closed);
+    expect(await isAlive(fresh), "the fresh process is untouched by the old one's end").toBe(true);
   });
 });
 
@@ -460,15 +552,17 @@ const continueFlow = async (
   const { page, sandbox } = junto;
   const closed = await offboardMidTurn(ctx, testInfo, { onboardFirst, continuation: NEXT });
 
-  check(closed.closedAt, "the old process stopped after the offboard").toBeDefined();
-  if (closed.closedAt !== undefined) check(closed.closedAt - closed.idleAt, "offboard to stopped, in ms").toBeLessThan(4_000);
+  check(closed.closedAt, "the seat moved on after the offboard").toBeDefined();
+  if (closed.closedAt !== undefined) check(closed.closedAt - closed.idleAt, "offboard to seat moved on, in ms").toBeLessThan(MOVED_ON_AFTER_OFFBOARD_MS);
+  const fresh = genSeat(sandbox, SEAT_ID, 2);
 
   // A fresh process starts by itself: no mail, no click.
   await check.poll(() => launches(sandbox, SEAT_ID), { message: "a fresh process starts by itself", timeout: 60_000 }).toBe(2);
   await check
-    .poll(async () => (await closed.seat.ready()).pid, { message: "the fresh process's pid", timeout: 30_000 })
+    .poll(async () => (await fresh.ready()).pid, { message: "the fresh process's pid", timeout: 30_000 })
     .not.toBe(closed.oldPid);
   const freshAt = mark("a fresh process is up");
+  check(await isAlive(closed.seat), "the old process still runs beside the fresh one").toBe(true);
   note(testInfo, `${id}-offboard-to-fresh-ms`, String(freshAt - closed.idleAt));
   const freshSession = await nodeSessionId(page, SEAT_ID);
   check(freshSession, "the node no longer names the closed session").not.toBe(FIRST_SESSION);
@@ -497,7 +591,8 @@ const continueFlow = async (
   mark(`old session input when offboard returned: ${JSON.stringify(closed.oldInputAtOffboard)}`);
   mark(`old session input typed after offboard: ${JSON.stringify(typedAfter)}`);
   const writes = await driveWrites(sandbox, bindingOf(SEAT_ID));
-  const closedAt = closed.closedAt ?? freshAt;
+  // The journal is keyed by seat: it speaks for the old process only until the fresh one exists.
+  const closedAt = Math.min(closed.closedAt ?? freshAt, freshAt);
   const before = writesBetween(writes, 0, closed.offboardedAt);
   const between = writesBetween(writes, closed.offboardedAt, closedAt);
   const after = writesBetween(writes, closedAt, Number.MAX_SAFE_INTEGER);
@@ -517,7 +612,10 @@ const continueFlow = async (
 
   if (onboardFirst) {
     check(oldInput, "nothing was typed into the old session after offboard").toBe(closed.oldInputAtOffboard);
-    check(between, "drive writes into the seat between offboard and the close").toEqual([]);
+    // The drive journal is keyed by the seat's binding, which the fresh
+    // process shares, so a write in this window may be the continuation line
+    // going to the fresh session. The old process's own input log, above, is
+    // the witness; the journal window is recorded, not judged.
   } else {
     // O3: the nudge is recorded above, never failed on. Anything else typed is a miss.
     check(typedText(typedAfter.split(NUDGE).join("")).replace(/\[vc-[0-9a-f]{8}\]\s*/gu, ""), "nothing but a nudge was typed into the old session after offboard").toBe("");
@@ -529,7 +627,7 @@ const continueFlow = async (
   check(offboardLines(mainLog()).join("\n"), "main's [offboard] line").toContain(`${SEAT_ID} offboarded; continuing in a fresh session`);
 
   // `junto onboard` in the fresh session hands it the continuation.
-  const onboard = opData(await closed.seat.op("onboard", {}));
+  const onboard = opData(await fresh.op("onboard", {}));
   const handoff = onboard.handoff as { readonly continuation?: unknown; readonly from_session?: unknown } | undefined;
   mark(`junto onboard in the fresh session, handoff: ${JSON.stringify(handoff ?? null)}`);
   check(String(handoff?.continuation ?? ""), "the handoff carries the continuation note").toContain("next");
@@ -539,6 +637,13 @@ const continueFlow = async (
     "the fresh process is not on the closed session",
   ).not.toBe(FIRST_SESSION);
   await shot("fresh-session-onboarded");
+
+  // The old turn ends: its process is wound down, and main says how. In O3
+  // a nudge typed into the old session is recorded above, never failed on.
+  await windDown(ctx, testInfo, check, closed, (typed) =>
+    onboardFirst ? typed : typedText(typed.split(NUDGE).join("")).replace(/\[vc-[0-9a-f]{8}\]\s*/gu, ""),
+  );
+  check(await isAlive(fresh), "the fresh process is untouched by the old one's end").toBe(true);
 };
 
 test("O2 [fake-tui] offboard to continue: a fresh session starts by itself and is typed one line", async ({}, testInfo) => {
