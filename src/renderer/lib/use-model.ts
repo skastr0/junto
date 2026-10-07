@@ -1,6 +1,7 @@
 import { use$ } from "@legendapp/state/react";
 import { useEffect } from "react";
 import type { Node, NodeKind, NodeOf, Wire } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import { getJuntoApi } from "./junto-api";
 import { createModelStore, type ModelCanvasStatus } from "./model-store";
 
@@ -13,6 +14,15 @@ export const useOpenCanvas = (canvas: string): ModelCanvasStatus => {
     return modelStore.open(canvas);
   }, [canvas]);
   return use$(() => (canvas ? modelStore.canvas$(canvas).status.get() : "closed"));
+};
+
+/** One node as it stands now, read once and not followed. */
+export const nodeAt = (canvas: string, id: string): Node | undefined => modelStore.node$(canvas, id).peek();
+
+/** What a node is called now, or its id when the store does not hold it. */
+export const titleAt = (canvas: string, id: string): string => {
+  const node = nodeAt(canvas, id);
+  return node === undefined ? id : titleOf(node);
 };
 
 /** One node. The caller hears changes to this node and no other. */
