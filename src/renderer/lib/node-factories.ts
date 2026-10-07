@@ -8,20 +8,17 @@ import type {
   TextNode,
 } from "@shared/canvas";
 import type { HarnessId } from "@shared/managed-terminal-templates";
-import { templateFor } from "@shared/managed-terminal-templates";
 import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
-  managedHarnessEnabled,
   PAD_ENABLED,
   REQUESTS_ENABLED,
   SHEET_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
-import { sanitizeExtraArgs } from "@shared/launch-extra-args";
-import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import { emptySheet } from "@shared/sheet";
 import { isValidStationHostId } from "@shared/station";
+import { seatParts } from "./model-factories";
 import { AGENT_NODE_SIZE, INSTRUMENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-geometry";
 
 const requireHostId = (value: string): string => {
@@ -133,93 +130,20 @@ export type ManagedAgentSeatFields = {
 export const buildManagedAgentSeat = (
   options: ManagedAgentSeatOptions,
 ): ManagedAgentSeatFields => {
-  if (!managedHarnessEnabled(options.harness)) {
-    throw new Error(`managed harness ${options.harness} is disabled in this build`);
-  }
-  const host = requireHostId(options.host);
-  const agentHost = requireHostId(options.agentHost ?? host);
-  const template = templateFor(options.harness);
-  const extraArgs = sanitizeExtraArgs(options.harness, options.extraArgs).args;
-  // Document launch: argv only — main injects scrubbed seat env at spawn.
-  const full = resolveManagedLaunch(
-    options.harness,
-    {
-      ...(options.profile ? { profile: options.profile } : {}),
-      ...(options.model ? { model: options.model } : {}),
-      ...(options.effort ? { effort: options.effort } : {}),
-      ...(options.mode ? { mode: options.mode } : {}),
-      ...(options.permissionMode
-        ? { permissionMode: options.permissionMode }
-        : {}),
-      ...(extraArgs.length > 0 ? { extraArgs } : {}),
-      ...(options.cwd ? { cwd: options.cwd } : {}),
-    },
-    {},
-  );
-  const launch: EtherTerminalLaunch = {
-    kind: "harness",
-    argv: full.argv,
-    ...(full.cwd ? { cwd: full.cwd } : {}),
-    ...(extraArgs.length > 0 ? { extraArgs: [...extraArgs] } : {}),
-  };
-  const agentKey =
-    options.harness === "hermes" && options.profile
-      ? `${agentHost}:${options.profile}`
-      : `${agentHost}:${options.harness}`;
-  const parts = [
-    template.displayName,
-    options.profile,
-    options.model,
-    options.effort,
-    options.mode,
-  ].filter((p): p is string => Boolean(p && p.trim()));
-  const label = options.label?.trim() || parts.join(" - ");
-  // Pin harnesses (Claude/Grok/Pi/Cursor) require a UUID for their session-id
-  // flag; ULIDs are rejected. The id is minted here, before the seat exists, so
-  // the node knows its session from the first spawn and every later wake
-  // resumes that exact one.
-  const pinSession =
-    template.capabilityBadges.sessionId === "pin"
-      ? crypto.randomUUID()
-      : undefined;
-  // Re-resolve argv with session pin when supported.
-  const launchWithSession: EtherTerminalLaunch = pinSession
-    ? (() => {
-        const pinned = resolveManagedLaunch(
-          options.harness,
-          {
-            ...(options.profile ? { profile: options.profile } : {}),
-            ...(options.model ? { model: options.model } : {}),
-            ...(options.effort ? { effort: options.effort } : {}),
-            ...(options.mode ? { mode: options.mode } : {}),
-            ...(options.permissionMode
-              ? { permissionMode: options.permissionMode }
-              : {}),
-            ...(extraArgs.length > 0 ? { extraArgs } : {}),
-            ...(options.cwd ? { cwd: options.cwd } : {}),
-            sessionId: pinSession,
-          },
-          {},
-        );
-        return {
-          kind: "harness" as const,
-          argv: pinned.argv,
-          ...(pinned.cwd ? { cwd: pinned.cwd } : {}),
-          ...(extraArgs.length > 0 ? { extraArgs: [...extraArgs] } : {}),
-        };
-      })()
-    : launch;
+  // The launch rules live with the model's seat (model-factories.ts); this
+  // only lays the result out as the document holds it.
+  const seat = seatParts(options);
   return {
-    text: label,
+    text: seat.label,
     ether: {
-      entity: { kind: "agent", name: agentKey },
-      host,
+      entity: { kind: "agent", name: seat.agentKey },
+      host: seat.host,
       terminal: {
-        bindingId: ulid(),
-        label,
-        harness: options.harness,
-        launch: launchWithSession,
-        ...(pinSession ? { sessionId: pinSession } : {}),
+        bindingId: seat.bindingId,
+        label: seat.label,
+        harness: seat.harness,
+        launch: seat.launch as EtherTerminalLaunch,
+        ...(seat.sessionId ? { sessionId: seat.sessionId } : {}),
       },
     },
   };
