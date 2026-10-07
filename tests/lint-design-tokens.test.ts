@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { scan } from "../scripts/lint-design-tokens";
+import { hueOf, scan } from "../scripts/lint-design-tokens";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const LINT = path.join(ROOT, "scripts/lint-design-tokens.ts");
@@ -48,6 +48,32 @@ describe("lint:design-tokens", () => {
   it("lets token classes through in a component", () => {
     const clean = '<p className="text-label text-ink tracking-eyebrow leading-body rounded-md font-mono bg-ink/[0.04]" />';
     expect(scan(clean, ".tsx")).toEqual([]);
+  });
+
+  it("flags a mark hue used as a text colour, in css and in a component", () => {
+    expect(rules(".a { color: var(--color-cyan); }", ".css")).toEqual(["text-hue"]);
+    expect(rules(".a { color: var(--color-second); }", ".css")).toEqual(["text-hue"]);
+    expect(rules('<p className="text-amber hover:text-crimson" />', ".tsx")).toEqual(["text-hue", "text-hue"]);
+    expect(rules('<p className="text-cyan/70" />', ".tsx")).toEqual(["text-hue"]);
+    expect(rules("<p style={{ color: HUE.amber }} />", ".tsx")).toEqual(["text-hue"]);
+    expect(rules('<p style={{ color: "var(--color-accent)" }} />', ".tsx")).toEqual(["text-hue"]);
+  });
+
+  it("lets the text form of a hue, and a hue on anything that is not text, through", () => {
+    const css = `
+      .a { color: var(--color-cyan-fg); color: var(--color-amber-hi); color: var(--color-ink); }
+      .b { border-color: var(--color-cyan); background-color: var(--color-amber); fill: var(--color-crimson); }
+      .c { color: var(--color-violet); }
+    `;
+    expect(scan(css, ".css")).toEqual([]);
+    const tsx = '<p className="text-amber-fg text-amber-hi text-cyan-fg/70 bg-amber/10 border-cyan text-violet text-ink" />';
+    expect(scan(tsx, ".tsx")).toEqual([]);
+  });
+
+  it("names the hue of a hit, folding role names into their hue", () => {
+    expect(hueOf("color: var(--color-second)")).toBe("cyan");
+    expect(hueOf("text-main")).toBe("amber");
+    expect(hueOf("text-crimson")).toBe("crimson");
   });
 
   it("reports the line of each literal", () => {

@@ -9,6 +9,11 @@
  * many each file holds per rule, and the gate fails when a file's count
  * rises. A file the baseline does not name starts at zero.
  *
+ * The text-hue rule holds one more law: a hue used as a text colour takes
+ * its -fg form. It cannot tell a word from an icon that paints with
+ * `color`, so an icon in the mark hue is a known false hit: it sits in the
+ * baseline, and a new one is written with a fill or stroke instead.
+ *
  *   bun run lint:design-tokens            check
  *   bun run lint:design-tokens --update   lower the baseline to today's
  *                                         counts (it never raises one)
@@ -27,7 +32,7 @@ const BASELINE = path.join(ROOT, "scripts/design-token-baseline.json");
 // The build output of the token source: the one file where values are born.
 const EXEMPT_FILES = new Set(["src/renderer/styles/theme.generated.css"]);
 
-export const RULES = ["font-size", "font-family", "tracking", "leading", "radius", "color"] as const;
+export const RULES = ["font-size", "font-family", "tracking", "leading", "radius", "color", "text-hue"] as const;
 export type Rule = (typeof RULES)[number];
 
 /** What to write instead, shown with every failure. */
@@ -38,6 +43,21 @@ const REMEDY: Record<Rule, string> = {
   leading: "use leading-compact, leading-dense, leading-body, leading-open, or var(--leading-*)",
   radius: "use rounded-sm, rounded-md, rounded-lg, rounded-xl, rounded-pill, or var(--radius-*)",
   color: "use a color token: text-ink, bg-raise, var(--color-*)",
+  "text-hue":
+    "words take the text form of a hue: text-amber-fg, text-cyan-fg, text-crimson-fg, or var(--color-*-fg). The plain hue is for marks (dots, rings, icons, borders)",
+};
+
+// Each of these hues has two tokens: the hue itself, tuned for marks, and a
+// -fg form tuned for words. In the bright theme the mark form is near 3 to 1
+// on the ground, under the 4.5 floor for text. main, second and accent are
+// the role names for amber, cyan and crimson.
+const TEXT_HUES = "amber|cyan|crimson|main|second|accent";
+const HUE_OF: Record<string, string> = { main: "amber", second: "cyan", accent: "crimson" };
+
+/** The hue a text-hue hit names, with role names folded into their hue. */
+export const hueOf = (text: string): string => {
+  const name = new RegExp(`(${TEXT_HUES})`).exec(text)?.[1] ?? "";
+  return HUE_OF[name] ?? name;
 };
 
 type Pattern = { readonly rule: Rule; readonly re: RegExp };
@@ -51,6 +71,8 @@ const CSS_PATTERNS: readonly Pattern[] = [
   { rule: "leading", re: /(?<![\w-])line-height:(?!\s*(?:var\(|normal\b|inherit\b|[01]\s*[;}]))[^;{}]+/g },
   { rule: "radius", re: /(?<![\w])border(?:-[a-z]+){0,2}-radius:(?!\s*(?:var\(|inherit\b))[^;{}]*\d(?:px|rem|em)\b/g },
   { rule: "color", re: /#[0-9a-fA-F]{3,8}\b(?=[^{}]*[;}])|\b(?:rgba?|hsla?)\(/g },
+  // `color:` alone, so a border, background or fill in the same hue is not text.
+  { rule: "text-hue", re: new RegExp(`(?<![\\w-])color:\\s*var\\(--color-(?:${TEXT_HUES})\\)`, "g") },
 ];
 
 const SCRIPT_PATTERNS: readonly Pattern[] = [
@@ -60,6 +82,13 @@ const SCRIPT_PATTERNS: readonly Pattern[] = [
   { rule: "leading", re: /\bleading-\[[^\]]+\]/g },
   { rule: "radius", re: /\brounded(?:-[a-z]{1,2})?-\[[^\]]+\]|\bborderRadius:\s*["'`]?[\d.]/g },
   { rule: "color", re: /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b(?![\w-])|\b(?:rgba?|hsla?)\(/g },
+  {
+    rule: "text-hue",
+    re: new RegExp(
+      `(?<![\\w-])text-(?:${TEXT_HUES})(?![\\w-])|\\bcolor:\\s*(?:HUE\\.(?:amber|cyan|crimson)\\b|["'\`]var\\(--color-(?:${TEXT_HUES})\\)["'\`])`,
+      "g",
+    ),
+  },
 ];
 
 export type Hit = { readonly rule: Rule; readonly line: number; readonly text: string };
@@ -156,6 +185,13 @@ const main = (): void => {
         folders.set(folder, (folders.get(folder) ?? 0) + n);
       }
       console.log(`${rule}: ${total(now, rule)}`);
+      if (rule === "text-hue") {
+        const hues = new Map<string, number>();
+        for (const hits of byFile.values()) {
+          for (const hit of hits) if (hit.rule === rule) hues.set(hueOf(hit.text), (hues.get(hueOf(hit.text)) ?? 0) + 1);
+        }
+        console.log(`  by hue: ${[...hues].sort((a, b) => b[1] - a[1]).map(([hue, n]) => `${hue} ${n}`).join(", ")}`);
+      }
       for (const [folder, n] of [...folders].sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(4)}  ${folder}`);
     }
     return;
@@ -167,7 +203,9 @@ const main = (): void => {
     for (const rule of RULES) {
       next[rule] = {};
       for (const [file, n] of Object.entries(now[rule] ?? {})) {
-        const allowed = firstRun ? n : Math.min(n, baseline[rule]?.[file] ?? 0);
+        // A rule the baseline has never held is recorded as it stands today.
+        const recording = firstRun || baseline[rule] === undefined;
+        const allowed = recording ? n : Math.min(n, baseline[rule]?.[file] ?? 0);
         if (allowed > 0) next[rule]![file] = allowed;
       }
     }
