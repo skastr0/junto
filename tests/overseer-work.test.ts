@@ -9,6 +9,7 @@ import { ActorSeatId } from "../src/shared/actor-seat";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { OPERATOR_SEAT_ID, operatorActorRef } from "../src/shared/work-reference";
+import type { ActorRef } from "../src/shared/work-protocol";
 import {
   admitLiveOverseer,
   admitOverseerWorkTarget,
@@ -16,7 +17,12 @@ import {
   overseerWorkAdmin,
   requiresConnection,
 } from "../src/main/junto/work/authz";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import {
+  grantOverseer as grantSeat,
+  ModelStoresLive,
+  seedCanvas,
+} from "./support/seed-canvas";
+import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -120,7 +126,7 @@ const makeRuntime = () => {
       makeInstallOpsLive(join(installRoot, "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   return ManagedRuntime.make(
     Layer.provideMerge(
       WorkLive,
@@ -150,33 +156,23 @@ afterAll(async () => {
 });
 
 const actorOn = async (canvas: string, nodeId: string) => {
-  const canvases = await runtime.runPromise(CanvasesService);
-  const read = await runtime.runPromise(canvases.read(canvas));
-  const actor = read.actorRefs.find((candidate) => candidate.nodeId === nodeId);
+  const refs = await runtime.runPromise(
+    Effect.flatMap(ModelActorRefs, (actors) => actors.read(canvas)) as never,
+  ) as ReadonlyArray<ActorRef>;
+  const actor = refs.find((candidate) => candidate.nodeId === nodeId);
   if (actor === undefined) throw new Error(`missing actor ${nodeId}`);
-  return { canvases, read, actor };
+  return { actor };
 };
 
 const writeFactory = async (
   canvas: string,
   edges: CanvasDoc["edges"] = [],
 ) => {
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write(canvas, factoryDoc(canvas, edges)));
-  return canvases;
+  await runtime.runPromise(seedCanvas(canvas, factoryDoc(canvas, edges)) as never);
 };
 
 const grantOverseer = async (canvas: string, nodeId: string, overseer: boolean) => {
-  const canvases = await runtime.runPromise(CanvasesService);
-  const read = await runtime.runPromise(canvases.read(canvas));
-  return runtime.runPromise(
-    canvases.canvasOverseerSet({
-      canvasName: canvas,
-      nodeId,
-      overseer,
-      expectedRevision: read.revision,
-    }),
-  );
+  return runtime.runPromise(grantSeat(canvas, nodeId, overseer) as never);
 };
 
 describe("overseer work authz", () => {
@@ -287,10 +283,10 @@ describe("executeOverseerWork", () => {
   });
 
   it("sends mail onto another canvas without an origin alias", async () => {
-    const canvases = await writeFactory("origin-mail");
+    await writeFactory("origin-mail");
     await grantOverseer("origin-mail", "boss", true);
     await runtime.runPromise(
-      canvases.write("target-mail", {
+      seedCanvas("target-mail", {
         nodes: [mailboxNode("peer", "target-mail")],
         edges: [],
       }),
@@ -321,9 +317,9 @@ describe("executeOverseerWork", () => {
         "2026-09-11T00:00:00.000Z",
       ),
     );
-    const canvases = await writeFactory("remote-admin");
+    // Seeded once: the model does not put another agent in a seat's session.
     await runtime.runPromise(
-      canvases.write("remote-admin", {
+      seedCanvas("remote-admin", {
         nodes: [
           mailboxNode("peer", "remote-admin"),
           agentNode("boss", "remote-admin", remoteHost),
@@ -384,9 +380,8 @@ describe("executeOverseerWork", () => {
       height: 100,
       ether: { entity: { kind }, host: "local", [kind === "task" ? "tasks" : "requests"]: { items: [] } },
     });
-    const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(
-      canvases.write("rows", {
+      seedCanvas("rows", {
         nodes: [...factoryDoc("rows").nodes, sink("todo", "task"), sink("asks", "requests")],
         edges: [],
       }),

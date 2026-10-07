@@ -9,7 +9,6 @@ import { InstallationId } from "../src/shared/installation-id";
 import { CommandCenterConfiguration } from "../src/shared/station-api";
 import type { OverseerCaller, OverseerRequest } from "../src/shared/overseer-control";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
-import { CanvasesService } from "../src/main/junto/canvases";
 import { ChatServiceContext, type ChatService } from "../src/main/junto/chat/service";
 import { NodeDeleteService } from "../src/main/junto/chat/node-delete";
 import { StationRepository } from "../src/main/junto/station/repository";
@@ -166,13 +165,6 @@ const boot = async (mode: "succeed" | "fail") => {
         subscribeCanvasesChanges: () => () => undefined,
       } as never),
       Layer.succeed(ModelActorRefs, { read: () => Effect.succeed(read.actorRefs) } as never),
-      Layer.mock(CanvasesService, {
-        liveDocuments: () => Effect.succeed([{ canvasName: read.name, doc: read.doc }]),
-        read: () => Effect.succeed(read),
-        start: () => undefined,
-        subscribeChanges: () => () => undefined,
-        announceInstalledProjection: () => undefined,
-      }),
     ),
   );
   runtimes.push(runtime);

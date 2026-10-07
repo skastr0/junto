@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import {
+  grantOverseer,
+  ModelStoresLive,
+  readSeeded,
+  seedCanvas,
+} from "./support/seed-canvas";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { executeOverseerCanvas } from "../src/main/junto/overseer/canvas";
@@ -51,15 +56,14 @@ const boot = async () => {
     WorkProjectionReaderLive,
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state.db")), makeInstallOpsLive(join(root, "install-ops.db"))));
-  const runtime = ManagedRuntime.make(Layer.provideMerge(CanvasesLive, repositories));
+  const runtime = ManagedRuntime.make(Layer.provideMerge(ModelStoresLive, repositories));
   disposals.push(async () => {
     await runtime.dispose();
     await rm(root, { recursive: true, force: true });
   });
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write("factory", document()));
-  const initial = await runtime.runPromise(canvases.read("factory"));
-  await runtime.runPromise(canvases.canvasOverseerSet({ ...identity, overseer: true, expectedRevision: initial.revision }));
+  await runtime.runPromise(seedCanvas("factory", document()));
+  const initial = await runtime.runPromise(readSeeded("factory"));
+  await runtime.runPromise(grantOverseer(identity.canvasName, identity.nodeId, true));
   const repository = makeLiveRepository(await runtime.runPromise(SqlClient.SqlClient));
   let currentIdentity: OverseerHostIdentity | undefined = identity;
   let authorityListener: ((value: OverseerHostIdentity | undefined) => void) | undefined;
@@ -121,9 +125,9 @@ const boot = async () => {
     // The overseer names more stores than this rig builds; a move reads only the model.
     runtime.runPromise(executeOverseerCanvas(identity, request).pipe(Effect.provideService(OverseerLiveExecution, constraint)) as never);
   return {
-    runtime, canvases, repository, service, feedback, transcript, delegation, next, assigned, enqueue, move, execute,
+    runtime, repository, service, feedback, transcript, delegation, next, assigned, enqueue, move, execute,
     sessionId: live.sessionId,
-    graph: () => runtime.runPromise(canvases.read("factory")),
+    graph: () => runtime.runPromise(readLiveCanvas("factory") as never) as Promise<CanvasReadResult>,
     reconnect: async () => { live = await start(); return live; },
     authority: (value: OverseerHostIdentity | undefined) => { currentIdentity = value; authorityListener?.(value); },
   };

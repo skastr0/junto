@@ -9,7 +9,12 @@ import { Deferred, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { type CanvasDoc, type CanvasNode, type TextNode } from "../src/shared/canvas";
 import type { OverseerCaller } from "../src/shared/overseer-control";
 import { InstallationId } from "../src/shared/station-api";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import {
+  grantOverseer,
+  ModelStoresLive,
+  readSeeded,
+  seedCanvas,
+} from "./support/seed-canvas";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { StationRepository, StationRepositoryLive } from "../src/main/junto/station/repository";
@@ -125,7 +130,7 @@ describe("overseer composition canvas hook with live grant", () => {
         makeInstallOpsLive(installOpsPath),
       ),
     );
-    const canvases = Layer.provideMerge(CanvasesLive, repositories);
+    const canvases = Layer.provideMerge(ModelStoresLive, repositories);
     return ManagedRuntime.make(
       Layer.provideMerge(
         WorkLive,
@@ -150,15 +155,12 @@ describe("overseer composition canvas hook with live grant", () => {
     await runtime.runPromise(settings.setStationTopology({
       role: "command-center", hostId: "local", supervisedPreferred: false,
     }));
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("ops", overseerDoc()));
-    await runtime.runPromise(canvases.write(targetCanvas, {
+    await runtime.runPromise(seedCanvas("ops", overseerDoc()));
+    await runtime.runPromise(seedCanvas(targetCanvas, {
       nodes: [agent("peer", "bind-peer")], edges: [],
     }));
-    const ops = await runtime.runPromise(canvases.read("ops"));
-    await runtime.runPromise(canvases.canvasOverseerSet({
-      ...origin, overseer: true, expectedRevision: ops.revision,
-    }));
+    const ops = await runtime.runPromise(readSeeded("ops"));
+    await runtime.runPromise(grantOverseer(origin.canvasName, origin.nodeId, true));
 
     const run = <A, E>(effect: Effect.Effect<A, E, ModelService | ModelActorRefs | StationRepository>) =>
       runtime!.runPromise(effect.pipe(Effect.delay("5 millis")) as never) as Promise<A>;
@@ -182,10 +184,10 @@ describe("overseer composition canvas hook with live grant", () => {
       Effect.result(commitAgentReseat(mapped.caller, mapped.args, mapped.next)),
     );
     expect(result._tag).toBe("Success");
-    const after = await runtime.runPromise(canvases.read(targetCanvas));
+    const after = await runtime.runPromise(readSeeded(targetCanvas));
     const peer = after.doc.nodes.find((node) => node.id === "peer");
     expect(peer).toMatchObject({ text: "reseated", ether: { terminal: { bindingId: "bind-peer-next" } } });
-    const originAfter = await runtime.runPromise(canvases.read(origin.canvasName));
+    const originAfter = await runtime.runPromise(readSeeded(origin.canvasName));
     expect(originAfter.doc.nodes[0]).toMatchObject({ id: "overseer", ether: { overseer: true, terminal: { bindingId: "bind-overseer" } } });
   });
 

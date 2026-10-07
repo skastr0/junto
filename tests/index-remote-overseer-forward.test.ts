@@ -20,7 +20,7 @@ import {
 } from "../src/shared/overseer-control";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { WorkLive } from "../src/main/junto/work/service";
-import { CanvasesLive } from "../src/main/junto/canvases";
+import { ModelStoresLive } from "./support/seed-canvas";
 import {
   StationRepository,
   StationRepositoryLive,
@@ -104,7 +104,7 @@ const layers = (root: string) => {
     makeInstallOpsLive(join(root, "install-ops.db")),
   ));
   return Layer.provideMerge(WorkLive, Layer.mergeAll(
-    Layer.provideMerge(CanvasesLive, repositories),
+    Layer.provideMerge(ModelStoresLive, repositories),
     StationLivePeerRegistryLive,
     seatStubLayer,
     chatsStubLayer,

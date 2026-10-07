@@ -9,7 +9,12 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import {
+  grantOverseer,
+  ModelStoresLive,
+  readSeeded,
+  seedCanvas,
+} from "./support/seed-canvas";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
@@ -44,7 +49,7 @@ const layers = (root: string, withStore: boolean) => {
     makeInstallOpsLive(join(root, "install-ops.db")),
   ));
   return Layer.provideMerge(WorkLive, Layer.mergeAll(
-    Layer.provideMerge(CanvasesLive, repositories), StationLivePeerRegistryLive,
+    Layer.provideMerge(ModelStoresLive, repositories), StationLivePeerRegistryLive,
   ));
 };
 const makeRuntime = (root: string, withStore: boolean) => ManagedRuntime.make(layers(root, withStore));
@@ -68,18 +73,17 @@ const boot = async (options: { readonly withStore?: boolean; readonly grant?: bo
   await runtime.runPromise(settings.setStationTopology({
     role: "command-center", hostId: "local", supervisedPreferred: false,
   }));
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write("origin", {
+  await runtime.runPromise(seedCanvas("origin", {
     nodes: [
       region("region-cli", "CLI"),
       { id: "boss", type: "text", text: "Boss", x: 17, y: -31, width: 240, height: 120, ether: managedAgentEther("local:boss") },
     ],
     edges: [],
   } as unknown as CanvasDoc));
-  await runtime.runPromise(canvases.write("target", { nodes: [region("region-far", "Far")], edges: [] } as unknown as CanvasDoc));
+  await runtime.runPromise(seedCanvas("target", { nodes: [region("region-far", "Far")], edges: [] } as unknown as CanvasDoc));
   if (options.grant ?? true) {
-    const read = await runtime.runPromise(canvases.read("origin"));
-    await runtime.runPromise(canvases.canvasOverseerSet({ ...caller, overseer: true, expectedRevision: read.revision }));
+    const read = await runtime.runPromise(readSeeded("origin"));
+    await runtime.runPromise(grantOverseer(caller.canvasName, caller.nodeId, true));
   }
   const adapters: OverseerRuntime = {
     native: vi.fn(() => Effect.succeed({ observed: true })),

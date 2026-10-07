@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import {
+  grantOverseer,
+  ModelStoresLive,
+  readSeeded,
+  seedCanvas,
+} from "./support/seed-canvas";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -38,7 +43,7 @@ const layers = (root: string) => {
     makeInstallOpsLive(join(root, "install-ops.db")),
   ));
   return Layer.provideMerge(WorkLive, Layer.mergeAll(
-    Layer.provideMerge(CanvasesLive, repositories), StationLivePeerRegistryLive,
+    Layer.provideMerge(ModelStoresLive, repositories), StationLivePeerRegistryLive,
   ));
 };
 const makeRuntime = (root: string) => ManagedRuntime.make(layers(root));
@@ -57,35 +62,33 @@ const boot = async () => {
   await runtime.runPromise(settings.setStationTopology({
     role: "command-center", hostId: "local", supervisedPreferred: false,
   }));
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write("origin", {
+  await runtime.runPromise(seedCanvas("origin", {
     nodes: [{
       id: "boss", type: "text", text: "Boss", x: 17, y: -31, width: 240, height: 120,
       ether: managedAgentEther("local:boss"),
     }], edges: [],
   }));
-  await runtime.runPromise(canvases.create("target"));
+  await runtime.runPromise(seedCanvas("target", { nodes: [], edges: [] }));
   const toggle = async (overseer: boolean) => {
-    const read = await runtime.runPromise(canvases.read("origin"));
-    await runtime.runPromise(canvases.canvasOverseerSet({ ...caller, overseer, expectedRevision: read.revision }));
+    await runtime.runPromise(grantOverseer(caller.canvasName, caller.nodeId, overseer));
   };
   const adapters: OverseerRuntime = {
     native: vi.fn(() => Effect.succeed({ observed: true })),
     forward: vi.fn<OverseerRuntime["forward"]>((_caller, request) => Effect.succeed({ ok: true, operation: request.operation, data: { forwarded: true } })),
   };
-  return { canvases, toggle, adapters };
+  return { toggle, adapters };
 };
 
 describe("integrated overseer dispatcher", () => {
   it("requires a human grant, authors another canvas without edges, and refuses self deletion", async () => {
-    const { canvases, toggle, adapters } = await boot();
+    const { toggle, adapters } = await boot();
     const run = (request: Parameters<typeof executeOverseer>[1]) => runtime.runPromise(executeOverseer(caller, request, adapters));
     expect(await run({ operation: "canvas.list" })).toMatchObject({ ok: false, error: { type: "Forbidden" } });
     await toggle(true);
     expect(await run({ operation: "node.create", args: {
       canvas: "target", node: { type: "text", id: "note", text: "cross-canvas", x: 11, y: -19, width: 200, height: 80 },
     } })).toMatchObject({ ok: true, operation: "node.create" });
-    const target = await runtime.runPromise(canvases.read("target"));
+    const target = await runtime.runPromise(readSeeded("target"));
     expect(target.doc.nodes[0]).toMatchObject({ id: "note", text: "cross-canvas", x: 11, y: -19 });
     expect(await run({ operation: "node.delete", args: { nodeId: "boss" } })).toMatchObject({ ok: false, error: { type: "Forbidden" } });
     expect(await run({ operation: "canvas.screenshot" })).toEqual({ ok: true, operation: "canvas.screenshot", data: { observed: true } });
@@ -175,7 +178,7 @@ describe("integrated overseer dispatcher", () => {
   });
 
   it("returns the resolver's report for env.doctor, narrowed by node, and edits a region through dispatch", async () => {
-    const { canvases, toggle, adapters } = await boot();
+    const { toggle, adapters } = await boot();
     await toggle(true);
     const whole = {
       regions: [{ regionId: "box", regionLabel: "Box", sealed: false, sources: [] }],
@@ -205,7 +208,7 @@ describe("integrated overseer dispatcher", () => {
     } })).toMatchObject({ ok: true });
     expect(await run({ operation: "env.seal", args: { nodeId: "box", sealed: true } }))
       .toMatchObject({ ok: true, operation: "env.seal", data: { nodeId: "box", environment: { sealed: true } } });
-    const stored = (await runtime.runPromise(canvases.read("origin"))).doc.nodes.find((node) => node.id === "box");
+    const stored = (await runtime.runPromise(readSeeded("origin"))).doc.nodes.find((node) => node.id === "box");
     expect(stored?.ether?.region?.environment).toEqual({ sealed: true });
     expect(adapters.native).not.toHaveBeenCalled();
   });

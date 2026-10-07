@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Result } from "effect";
 import {
-  CanvasesLive,
-  CanvasesService,
-} from "../src/main/junto/canvases";
+  grantOverseer,
+  ModelStoresLive,
+  readSeeded,
+  seedCanvas,
+} from "./support/seed-canvas";
 import {
   executeOverseerCanvas,
   setOverseerNativeDeleteHooks,
@@ -107,7 +109,7 @@ describe("executeOverseerCanvas", () => {
         makeInstallOpsLive(installOpsPath),
       ),
     );
-    const canvases = Layer.provideMerge(CanvasesLive, repositories);
+    const canvases = Layer.provideMerge(ModelStoresLive, repositories);
     return ManagedRuntime.make(
       Layer.provideMerge(
         WorkLive,
@@ -138,19 +140,12 @@ describe("executeOverseerCanvas", () => {
   const boot = async () => {
     await installEnv();
     runtime = makeRuntime(join(stateDir, "junto.db"));
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("ops", overseerDoc()));
-    await runtime.runPromise(canvases.write("other", aliasDoc()));
-    const ops = await runtime.runPromise(canvases.read("ops"));
+    await runtime.runPromise(seedCanvas("ops", overseerDoc()));
+    await runtime.runPromise(seedCanvas("other", aliasDoc()));
+    const ops = await runtime.runPromise(readSeeded("ops"));
     await runtime.runPromise(
-      canvases.canvasOverseerSet({
-        canvasName: "ops",
-        nodeId: "overseer",
-        overseer: true,
-        expectedRevision: ops.revision,
-      }),
+      grantOverseer("ops", "overseer", true),
     );
-    return canvases;
   };
 
   const run = (
@@ -168,7 +163,7 @@ describe("executeOverseerCanvas", () => {
    * transaction lists the canvases: the `nth` time they are listed.
    */
   const beforeTheWrite = async (
-    happen: Effect.Effect<unknown, unknown, never>,
+    happen: Effect.Effect<unknown, unknown, ModelService>,
     nth = 2,
   ) => {
     const model = await runtime!.runPromise(ModelService);
@@ -178,7 +173,9 @@ describe("executeOverseerCanvas", () => {
       listCanvases: () =>
         Effect.gen(function* () {
           listed += 1;
-          if (listed === nth) yield* Effect.orDie(happen);
+          if (listed === nth) {
+            yield* Effect.orDie(Effect.provideService(happen, ModelService, model));
+          }
           return yield* model.listCanvases();
         }),
     } as typeof model;
@@ -223,10 +220,12 @@ describe("executeOverseerCanvas", () => {
   });
 
   it("creates and deletes a foreign canvas, refusing self-canvas delete", async () => {
-    const canvases = await boot();
+    await boot();
     await expectOk({ operation: "canvas.create", args: { canvas: "fresh" } });
-    const names = await runtime!.runPromise(canvases.list);
-    expect(names.some((row) => row.name === "fresh")).toBe(true);
+    const names = await runtime!.runPromise(
+      Effect.flatMap(ModelService, (model) => model.listCanvases()),
+    );
+    expect(names).toContain("fresh");
     await expectErr(
       { operation: "canvas.delete", args: { canvas: "ops" } },
       "AuthError",
@@ -243,7 +242,7 @@ describe("executeOverseerCanvas", () => {
   });
 
   it("creates, moves, resizes, and deletes foreign nodes; refuses self-delete", async () => {
-    const canvases = await boot();
+    await boot();
     const created = (await expectOk({
       operation: "node.create",
       args: {
@@ -266,7 +265,7 @@ describe("executeOverseerCanvas", () => {
       operation: "node.resize",
       args: { nodeId: "wide", width: 80, height: 200 },
     });
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     const moved = after.doc.nodes.find((node) => node.id === created.node.id);
     const resized = after.doc.nodes.find((node) => node.id === "wide");
     expect(moved).toMatchObject({ x: 80, y: 90 });
@@ -287,15 +286,10 @@ describe("executeOverseerCanvas", () => {
   });
 
   it("refuses deleting a granted alias of the caller's physical binding without native prepare", async () => {
-    const canvases = await boot();
-    const other = await runtime!.runPromise(canvases.read("other"));
+    await boot();
+    const other = await runtime!.runPromise(readSeeded("other"));
     await runtime!.runPromise(
-      canvases.canvasOverseerSet({
-        canvasName: "other",
-        nodeId: "alias",
-        overseer: true,
-        expectedRevision: other.revision,
-      }),
+      grantOverseer("other", "alias", true),
     );
     let prepared = 0;
     setOverseerNativeDeleteHooks({
@@ -311,7 +305,7 @@ describe("executeOverseerCanvas", () => {
     );
     expect(error.message).toMatch(/physical binding/u);
     expect(prepared).toBe(0);
-    const still = await runtime!.runPromise(canvases.read("other"));
+    const still = await runtime!.runPromise(readSeeded("other"));
     expect(still.doc.nodes.some((node) => node.id === "alias")).toBe(true);
   });
 
@@ -407,11 +401,11 @@ describe("executeOverseerCanvas", () => {
   });
 
   it("commits a complete structural batch with one canvas notification", async () => {
-    const canvases = await boot();
+    await boot();
     const before = await revisionOf("ops");
     const foreign = await revisionOf("other");
     const changes: string[] = [];
-    const unsubscribe = canvases.subscribeChanges((name) => changes.push(name));
+    const unsubscribe = (await runtime!.runPromise(ModelService)).subscribeChanges((event) => changes.push(event.canvas));
     const result = await expectOk({
       operation: "canvas.batch",
       args: {
@@ -432,7 +426,7 @@ describe("executeOverseerCanvas", () => {
       { operation: "edge.connect", edgeId: "e3" },
     ] });
     expect(changes).toEqual(["ops"]);
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     expect(await revisionOf("ops")).not.toBe(before);
     expect(after.doc.nodes.find((node) => node.id === "n3")).toMatchObject({ x: 640, y: 220 });
     expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ text: "batched" });
@@ -441,28 +435,26 @@ describe("executeOverseerCanvas", () => {
   });
 
   it("batches past a stored edge it never touched, and names its default from its own verb list", async () => {
-    const canvases = await boot();
+    await boot();
     const page: CanvasNode = {
       ...note("page", { x: 900, y: 0, width: 320, height: 200 }),
       ether: { entity: { kind: "page" } },
     };
     const seeded = overseerDoc();
-    await runtime!.runPromise(canvases.write("ops", {
+    await runtime!.runPromise(seedCanvas("ops", {
       nodes: [...seeded.nodes, page],
       edges: [
         { id: "stale-page", fromNode: "peer", toNode: "page", ether: { verb: "navigates" } },
       ],
     }));
-    const current = await runtime!.runPromise(canvases.read("ops"));
-    await runtime!.runPromise(canvases.canvasOverseerSet({
-      canvasName: "ops", nodeId: "overseer", overseer: true, expectedRevision: current.revision,
-    }));
+    const current = await runtime!.runPromise(readSeeded("ops"));
+    await runtime!.runPromise(grantOverseer("ops", "overseer", true));
 
     await expectOk({ operation: "canvas.batch", args: { operations: [
       { operation: "node.move", nodeId: "n1", x: 640, y: 220 },
       { operation: "edge.connect", edge: { id: "e3", fromNode: "overseer", toNode: "peer", verb: "messages" } },
     ] } });
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     expect(after.doc.edges.map((edge) => edge.id).sort()).toEqual(["e3", "stale-page"]);
 
     const verbs = (await expectOk({
@@ -474,9 +466,9 @@ describe("executeOverseerCanvas", () => {
   });
 
   it("authors a region's environment through the canvas commit path", async () => {
-    const canvases = await boot();
+    await boot();
     const changes: string[] = [];
-    const unsubscribe = canvases.subscribeChanges((name) => changes.push(name));
+    const unsubscribe = (await runtime!.runPromise(ModelService)).subscribeChanges((event) => changes.push(event.canvas));
     const env = (operation: string, args: Record<string, unknown>) =>
       expectOk({ operation, args: { nodeId: "region", ...args } } as OverseerRequest) as Promise<{
         nodeId: string;
@@ -485,7 +477,7 @@ describe("executeOverseerCanvas", () => {
       }>;
 
     expect(await env("env.show", {})).toEqual({ nodeId: "region", environment: {} });
-    const before = await runtime!.runPromise(canvases.read("ops"));
+    const before = await runtime!.runPromise(readSeeded("ops"));
     const added = await env("env.source-add", {
       source: { kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
     });
@@ -493,7 +485,7 @@ describe("executeOverseerCanvas", () => {
     expect(added.environment.sources).toEqual([
       { id: added.sourceId, kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
     ]);
-    const afterAdd = await runtime!.runPromise(canvases.read("ops"));
+    const afterAdd = await runtime!.runPromise(readSeeded("ops"));
     expect(afterAdd.revision).not.toBe(before.revision);
     expect(changes).toEqual(["ops"]);
 
@@ -510,7 +502,7 @@ describe("executeOverseerCanvas", () => {
     await env("env.folders", { folders: ["~/.config/gh"] });
     unsubscribe();
 
-    const stored = (await runtime!.runPromise(canvases.read("ops"))).doc.nodes.find(
+    const stored = (await runtime!.runPromise(readSeeded("ops"))).doc.nodes.find(
       (node) => node.id === "region",
     );
     expect(stored).toMatchObject({
@@ -535,8 +527,8 @@ describe("executeOverseerCanvas", () => {
   });
 
   it("refuses environment edits it cannot honor and leaves the canvas as it was", async () => {
-    const canvases = await boot();
-    const before = await runtime!.runPromise(canvases.read("ops"));
+    await boot();
+    const before = await runtime!.runPromise(readSeeded("ops"));
     const refused: ReadonlyArray<readonly [OverseerRequest, WorkErrorBody["type"]]> = [
       [{ operation: "env.seal", args: { nodeId: "n1", sealed: true } }, "InputError"],
       [{ operation: "env.show", args: { nodeId: "n1" } }, "InputError"],
@@ -548,20 +540,18 @@ describe("executeOverseerCanvas", () => {
       [{ operation: "env.source-add", args: { nodeId: "region", source: { kind: "value", name: "bad name", value: "x" } } }, "InputError"],
     ];
     for (const [request, type] of refused) await expectErr(request, type);
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     expect(after.revision).toBe(before.revision);
     expect(after.doc).toEqual(before.doc);
 
-    await runtime!.runPromise(canvases.canvasOverseerSet({
-      canvasName: "ops", nodeId: "overseer", overseer: false, expectedRevision: after.revision,
-    }));
+    await runtime!.runPromise(grantOverseer("ops", "overseer", false));
     await expectErr({ operation: "env.seal", args: { nodeId: "region", sealed: true } }, "AuthError");
     await expectErr({ operation: "env.show", args: { nodeId: "region" } }, "AuthError");
   });
 
   it("leaves every node and revision unchanged when the final batch graph is invalid", async () => {
-    const canvases = await boot();
-    const before = await runtime!.runPromise(canvases.read("ops"));
+    await boot();
+    const before = await runtime!.runPromise(readSeeded("ops"));
     for (const operations of [
       [
         { operation: "node.create", node: note("n3", { x: 600, y: 200, width: 240, height: 120 }) },
@@ -573,15 +563,15 @@ describe("executeOverseerCanvas", () => {
       ],
     ]) {
       await expectErr({ operation: "canvas.batch", args: { operations } }, "InputError");
-      const after = await runtime!.runPromise(canvases.read("ops"));
+      const after = await runtime!.runPromise(readSeeded("ops"));
       expect(after.revision).toBe(before.revision);
       expect(after.doc).toEqual(before.doc);
     }
   });
 
   it("refuses batch native identity changes and new aliases of live overseer bindings", async () => {
-    const canvases = await boot();
-    const before = await runtime!.runPromise(canvases.read("ops"));
+    await boot();
+    const before = await runtime!.runPromise(readSeeded("ops"));
     for (const operation of [
       { operation: "node.configure", nodeId: "peer", changes: { ether: { terminal: { bindingId: "replacement", harness: "amp" } } } },
       { operation: "node.configure", nodeId: "overseer", changes: { ether: { host: "remote" } } },
@@ -590,12 +580,12 @@ describe("executeOverseerCanvas", () => {
       await expectErr({ operation: "canvas.batch", args: { operations: [
         { operation: "node.move", nodeId: "n1", x: 999, y: 999 }, operation,
       ] } }, "AuthError");
-      expect((await runtime!.runPromise(canvases.read("ops"))).revision).toBe(before.revision);
+      expect((await runtime!.runPromise(readSeeded("ops"))).revision).toBe(before.revision);
     }
   });
 
   it("rejects stale batch revisions and revoked grants at the write transaction", async () => {
-    const canvases = await boot();
+    await boot();
     const before = await revisionOf("ops");
     await expectOk({ operation: "node.move", args: { nodeId: "n1", x: 450, y: 0 } });
     const request: OverseerRequest = { operation: "canvas.batch", args: {
@@ -603,43 +593,34 @@ describe("executeOverseerCanvas", () => {
       operations: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }],
     } };
     await expectErr(request, "ClaimConflict");
-    const current = await runtime!.runPromise(canvases.read("ops"));
-    await runtime!.runPromise(canvases.canvasOverseerSet({
-      canvasName: "ops", nodeId: "overseer", overseer: false, expectedRevision: current.revision,
-    }));
+    const current = await runtime!.runPromise(readSeeded("ops"));
+    await runtime!.runPromise(grantOverseer("ops", "overseer", false));
     await expectErr(request, "AuthError");
-    expect((await runtime!.runPromise(canvases.read("ops"))).doc.nodes.find((node) => node.id === "n1"))
+    expect((await runtime!.runPromise(readSeeded("ops"))).doc.nodes.find((node) => node.id === "n1"))
       .toMatchObject({ x: 450, y: 0 });
   });
 
   it("rechecks batch authority after preflight and before authoring", async () => {
-    const canvases = await boot();
-    const current = await runtime!.runPromise(canvases.read("ops"));
+    await boot();
+    const current = await runtime!.runPromise(readSeeded("ops"));
     // The first read is the preflight grant check; the second opens the write.
     const wrapped = await beforeTheWrite(
-      canvases.canvasOverseerSet({
-        canvasName: "ops", nodeId: "overseer", overseer: false, expectedRevision: current.revision,
-      }),
+      grantOverseer("ops", "overseer", false),
     );
     const result = await runtime!.runPromise(Effect.result(executeOverseerCanvas(CALLER, {
       operation: "canvas.batch",
       args: { operations: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }] },
     }).pipe(Effect.provideService(ModelService, wrapped))));
     expect(Result.isFailure(result) && result.failure.type).toBe("AuthError");
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ x: 300, y: 0 });
   });
 
   it("revalidates grant in the same transaction as a write after revoke", async () => {
-    const canvases = await boot();
-    const ops = await runtime!.runPromise(canvases.read("ops"));
+    await boot();
+    const ops = await runtime!.runPromise(readSeeded("ops"));
     await runtime!.runPromise(
-      canvases.canvasOverseerSet({
-        canvasName: "ops",
-        nodeId: "overseer",
-        overseer: false,
-        expectedRevision: ops.revision,
-      }),
+      grantOverseer("ops", "overseer", false),
     );
     await expectErr(
       {
@@ -652,44 +633,32 @@ describe("executeOverseerCanvas", () => {
     );
   });
 
-  it("canvasOverseerSet toggles every alias of the binding", async () => {
-    const canvases = await boot();
-    const ops = await runtime!.runPromise(canvases.read("ops"));
-    const result = await runtime!.runPromise(
-      canvases.canvasOverseerSet({
-        canvasName: "ops",
-        nodeId: "overseer",
-        overseer: false,
-        expectedRevision: ops.revision,
-      }),
-    );
-    expect(result.binding).toEqual({ hostId: "local", bindingId: "bind-overseer" });
-    expect(result.affected.map((row) => row.name).sort()).toEqual(["ops", "other"]);
-    const other = await runtime!.runPromise(canvases.read("other"));
-    expect(other.doc.nodes[0]?.ether?.overseer).toBeUndefined();
+  it("a grant, and taking it away, reaches every alias of the binding", async () => {
+    await boot();
+    const aliasGrant = async () =>
+      (await runtime!.runPromise(readSeeded("other"))).doc.nodes[0]?.ether?.overseer;
+    // boot granted the seat on ops; the same binding on another canvas follows.
+    expect(await aliasGrant()).toBe(true);
+    await runtime!.runPromise(grantOverseer("ops", "overseer", false));
+    expect(await aliasGrant()).toBeUndefined();
   });
 
   const noteText = (node: CanvasNode | undefined): string | undefined =>
     node?.type === "text" ? node.text : undefined;
 
   it("create then revoke leaves no grant; a later create cannot restore it", async () => {
-    const canvases = await boot();
+    await boot();
     await expectOk({
       operation: "node.create",
       args: {
         node: { type: "text", text: "racy", x: 0, y: 0, width: 100, height: 40 },
       },
     });
-    const ops = await runtime!.runPromise(canvases.read("ops"));
+    const ops = await runtime!.runPromise(readSeeded("ops"));
     await runtime!.runPromise(
-      canvases.canvasOverseerSet({
-        canvasName: "ops",
-        nodeId: "overseer",
-        overseer: false,
-        expectedRevision: ops.revision,
-      }),
+      grantOverseer("ops", "overseer", false),
     );
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     expect(after.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
     expect(after.doc.nodes.some((node) => noteText(node) === "racy")).toBe(true);
     await expectErr(
@@ -701,21 +670,16 @@ describe("executeOverseerCanvas", () => {
       },
       "AuthError",
     );
-    const late = await runtime!.runPromise(canvases.read("ops"));
+    const late = await runtime!.runPromise(readSeeded("ops"));
     expect(late.doc.nodes.some((node) => noteText(node) === "late")).toBe(false);
     expect(late.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
   });
 
   it("revoke then create is AuthError and does not restore the grant", async () => {
-    const canvases = await boot();
-    const ops = await runtime!.runPromise(canvases.read("ops"));
+    await boot();
+    const ops = await runtime!.runPromise(readSeeded("ops"));
     await runtime!.runPromise(
-      canvases.canvasOverseerSet({
-        canvasName: "ops",
-        nodeId: "overseer",
-        overseer: false,
-        expectedRevision: ops.revision,
-      }),
+      grantOverseer("ops", "overseer", false),
     );
     await expectErr(
       {
@@ -726,7 +690,7 @@ describe("executeOverseerCanvas", () => {
       },
       "AuthError",
     );
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     expect(after.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
     expect(after.doc.nodes.some((node) => noteText(node) === "racy")).toBe(false);
   });
@@ -761,7 +725,7 @@ describe("executeOverseerCanvas", () => {
   };
 
   it("interrupting during native prepare does not leave a lease", async () => {
-    const canvases = await boot();
+    await boot();
     const native = deferredNative();
     setOverseerNativeDeleteHooks(native.hooks);
     const fiber = runtime!.runFork(
@@ -774,13 +738,13 @@ describe("executeOverseerCanvas", () => {
     const interrupted = runtime!.runPromise(Fiber.interrupt(fiber));
     native.release();
     await interrupted;
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     expect(after.doc.nodes.some((node) => node.id === "peer")).toBe(true);
     expect(native.finishes).toEqual(["aborted"]);
   });
 
   it("interrupting after prepare finishes the lease aborted and does not delete", async () => {
-    const canvases = await boot();
+    await boot();
     const entered = await runtime!.runPromise(Deferred.make<void>());
     const gate = await runtime!.runPromise(Deferred.make<void>());
     const finishes: Array<"committed" | "aborted"> = [];
@@ -813,7 +777,7 @@ describe("executeOverseerCanvas", () => {
     await runtime!.runPromise(Deferred.await(entered));
     await runtime!.runPromise(Fiber.interrupt(fiber));
     await runtime!.runPromise(Deferred.succeed(gate, undefined));
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     expect(after.doc.nodes.some((node) => node.id === "peer")).toBe(true);
     expect(finishes).toEqual(["aborted"]);
   });
@@ -836,18 +800,13 @@ describe("executeOverseerCanvas", () => {
   });
 
   it("generic write cannot restore a revoked grant", async () => {
-    const canvases = await boot();
-    const before = await runtime!.runPromise(canvases.read("ops"));
+    await boot();
+    const before = await runtime!.runPromise(readSeeded("ops"));
     await runtime!.runPromise(
-      canvases.canvasOverseerSet({
-        canvasName: "ops",
-        nodeId: "overseer",
-        overseer: false,
-        expectedRevision: before.revision,
-      }),
+      grantOverseer("ops", "overseer", false),
     );
-    await runtime!.runPromise(canvases.write("ops", overseerDoc()));
-    const after = await runtime!.runPromise(canvases.read("ops"));
+    await runtime!.runPromise(seedCanvas("ops", overseerDoc()));
+    const after = await runtime!.runPromise(readSeeded("ops"));
     const seat = after.doc.nodes.find((node) => node.id === "overseer");
     expect(seat?.ether?.overseer).toBeUndefined();
   });
