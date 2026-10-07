@@ -90,11 +90,11 @@ export const liveAttachProbe: AttachProbe = {
 const FLAG_HELP = {
   attach: { looks: "a path to a file that exists", example: '--attach "Before=/abs/before.png"' },
   code: {
-    looks: "<language>:<text>, where the text may be @file or - for stdin",
+    looks: "<language>:<text>, where the text may be @file (a file that exists) or - for stdin",
     example: '--code "The guard=ts:if (!user) return;"',
   },
   diff: {
-    looks: "unified diff text (it starts with diff, ---, Index: or @@), @file, or - for stdin",
+    looks: "unified diff text (it starts with diff, ---, Index: or @@), @file (a file that exists), or - for stdin",
     example: 'git diff | junto feedback "..." --diff "What changed=-"',
   },
   compare: { looks: "<before path>,<after path>, two files that exist", example: '--compare "The limit=old.ts,new.ts"' },
@@ -134,18 +134,26 @@ export const splitCaption = (
   return isValue(value) ? { value, caption } : isValue(value.trim()) ? { value: value.trim(), caption } : undefined;
 };
 
-const textOf = (raw: string): AttachText => {
+/** `@path` names a file only when that file exists: code may well start with `@` (a decorator, a CSS rule). */
+const fileNamed = (raw: string, isFile: AttachProbe["isFile"]): string | undefined => {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("@") || trimmed.length < 2 || trimmed.includes("\n")) return undefined;
+  const path = trimmed.slice(1);
+  return isFile(path) ? path : undefined;
+};
+
+const textOf = (raw: string, isFile: AttachProbe["isFile"]): AttachText => {
   const trimmed = raw.trim();
   if (trimmed === "-" || trimmed === "@-") return { from: "stdin" };
-  if (trimmed.startsWith("@") && trimmed.length > 1 && !trimmed.includes("\n")) return { from: "file", path: trimmed.slice(1) };
-  return { from: "inline", text: raw };
+  const path = fileNamed(raw, isFile);
+  return path === undefined ? { from: "inline", text: raw } : { from: "file", path };
 };
 
 const CODE_VALUE = /^([A-Za-z0-9.+#_-]{1,32}):([\s\S]+)$/u;
 const DIFF_START = /^(?:diff |--- |Index: |@@)/u;
-const isDiffValue = (value: string): boolean => {
+const isDiffValue = (value: string, isFile: AttachProbe["isFile"]): boolean => {
   const trimmed = value.trim();
-  return trimmed === "-" || trimmed === "@-" || (trimmed.startsWith("@") && !trimmed.startsWith("@@") && !trimmed.includes("\n") && trimmed.length > 1) || DIFF_START.test(value.trimStart());
+  return trimmed === "-" || trimmed === "@-" || fileNamed(value, isFile) !== undefined || DIFF_START.test(value.trimStart());
 };
 
 /** The one comma at which both sides are files; undefined when none or several. */
@@ -182,12 +190,12 @@ export const planAttachFlags = (
     const split = splitCaption(raw, (value) => CODE_VALUE.test(value));
     const match = split ? CODE_VALUE.exec(split.value) : null;
     if (!split || !match) return fail("code", raw);
-    plans.push(withCaption({ kind: "code" as const, language: match[1]!, text: textOf(match[2]!) }, split.caption));
+    plans.push(withCaption({ kind: "code" as const, language: match[1]!, text: textOf(match[2]!, probe.isFile) }, split.caption));
   }
   for (const raw of flags.diff ?? []) {
-    const split = splitCaption(raw, isDiffValue);
+    const split = splitCaption(raw, (value) => isDiffValue(value, probe.isFile));
     if (!split) return fail("diff", raw);
-    plans.push(withCaption({ kind: "diff" as const, text: textOf(split.value) }, split.caption));
+    plans.push(withCaption({ kind: "diff" as const, text: textOf(split.value, probe.isFile) }, split.caption));
   }
   for (const raw of flags.compare ?? []) {
     const split = splitCaption(raw, (value) => comparePair(value, probe.isFile) !== undefined);

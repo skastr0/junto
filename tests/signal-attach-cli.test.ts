@@ -92,7 +92,7 @@ describe("the one caption rule", () => {
 
 describe("planAttachFlags", () => {
   const probe: AttachProbe = {
-    isFile: (path) => ["old.ts", "new.ts", "a,b.ts", "shot.png"].includes(path),
+    isFile: (path) => ["old.ts", "new.ts", "a,b.ts", "shot.png", "src/rate-limit.ts", "fix.patch"].includes(path),
     resolveCommit: (rev) => (rev === "HEAD" || rev === "abc1234" ? "a".repeat(40) : undefined),
   };
   const plan = (flags: AttachFlags) => {
@@ -112,6 +112,16 @@ describe("planAttachFlags", () => {
       { kind: "code", language: "py", text: { from: "stdin" } },
     ]);
     expect(plan({ code: ["no language here"] })).toMatch(/^--code: /);
+  });
+
+  it("reads code that starts with @ as code: a decorator or a CSS rule is not a file", () => {
+    expect(plan({ code: ["ts:@Injectable()", "py:@property", "The rule=css:@media (min-width: 1px) { a { color: red } }"] })).toEqual([
+      { kind: "code", language: "ts", text: { from: "inline", text: "@Injectable()" } },
+      { kind: "code", language: "py", text: { from: "inline", text: "@property" } },
+      { kind: "code", language: "css", caption: "The rule", text: { from: "inline", text: "@media (min-width: 1px) { a { color: red } }" } },
+    ]);
+    // A diff named by @ must be a file that exists; anything else must read as a diff.
+    expect(plan({ diff: ["@gone.patch"] })).toMatch(/^--diff: /);
   });
 
   it("reads a diff from text, a file or stdin", () => {
