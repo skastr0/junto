@@ -316,3 +316,13 @@ html[data-theme="bright"] .git-browser__diff {
   background: var(--color-overlay-1);
   color: var(--color-ink);
 }
+
+/* The plus in the gutter shares its cell with the line number: it sits above
+   the number and covers it, so it reads as a button and a press lands on it. */
+.git-review__add {
+  position: relative;
+  z-index: 2;
+  background: var(--color-raise);
+  color: var(--color-ink);
+  pointer-events: auto;
+}

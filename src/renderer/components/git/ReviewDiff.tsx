@@ -268,6 +268,7 @@ export function ReviewDiff({
       renderGutterUtility={(getHoveredLine) => (
         <IconButton
           size="xs"
+          className="git-review__add"
           aria-label="Add comment"
           title="Add comment"
           onClick={() => {
