@@ -780,7 +780,7 @@ test("B3 [fake-tui] a required Keychain source that does not exist shows red wit
     const refusal = await page.evaluate(
       async ([canvasName, node]) => {
         try {
-          await window.junto!.terminalCreate({ node, canvasName });
+          await window.junto!.modelStart({ canvas: canvasName, id: node.id });
           return "the seat started";
         } catch (error) {
           return error instanceof Error ? error.message : String(error);

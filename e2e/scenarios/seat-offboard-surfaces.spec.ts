@@ -2175,7 +2175,7 @@ const quitFlow = (variant: "winding-down" | "fresh-held"): void => {
       // The test starts it, as the operator would.
       await page.evaluate(
         async ([canvasName, node]) => {
-          await window.junto!.terminalCreate({ node, canvasName }).catch(() => undefined);
+          await window.junto!.modelStart({ canvas: canvasName, id: node.id }).catch(() => undefined);
         },
         [CANVAS, SEAT] as const,
       );

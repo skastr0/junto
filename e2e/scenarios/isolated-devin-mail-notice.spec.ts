@@ -143,7 +143,7 @@ const eligiblePrompt = (grid: SeatReadResult): boolean => {
 
 const occupyDevinOnce = async (page: Page) => {
   await page.evaluate(async ([canvas, node]) => {
-    await window.junto!.terminalCreate({ node, canvasName: canvas });
+    await window.junto!.modelStart({ canvas, id: node.id });
   }, [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinReceiverNode] as const);
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
@@ -151,7 +151,7 @@ const occupyDevinOnce = async (page: Page) => {
     if (session?.status === "running" && session.pid !== undefined && session.pid > 0) return session;
     await page.waitForTimeout(250);
   }
-  throw new Error("Real Devin never ran after one terminalCreate");
+  throw new Error("Real Devin never ran after one modelStart");
 };
 
 const receiptAt = (value: unknown, key: string): number | undefined => {
@@ -265,7 +265,7 @@ test("isolated Devin [real-harness]: delivered mail reaches readAt", async () =>
       await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
       await crewPlayFactory(page);
       await page.evaluate(async ([canvas, node]) => {
-        await window.junto!.terminalCreate({ node, canvasName: canvas });
+        await window.junto!.modelStart({ canvas, id: node.id });
       }, [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinSenderNode] as const);
       await sender.ready(45_000);
       occupied = await occupyDevinOnce(page);

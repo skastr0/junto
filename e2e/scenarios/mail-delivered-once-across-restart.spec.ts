@@ -219,7 +219,7 @@ const receiptOf = async (page: Page, nodeId: string, messageId: string): Promise
 const startByHand = async (page: Page, node: TextNode): Promise<void> => {
   await page.evaluate(
     async ([canvasName, seatNode]) => {
-      await window.junto!.terminalCreate({ node: seatNode, canvasName }).catch(() => undefined);
+      await window.junto!.modelStart({ canvas: canvasName, id: seatNode.id }).catch(() => undefined);
     },
     [CANVAS, node] as const,
   );

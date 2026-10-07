@@ -776,7 +776,7 @@ export const crewPlayFactory = async (page: Page): Promise<void> => {
 };
 
 /**
- * Occupy a seat: terminalCreate on the agent node through the live API,
+ * Occupy a seat: modelStart, by canvas and id, through the live API,
  * retried until the fake registers — the same gesture as opening the
  * seat's terminal in the UI.
  */
@@ -789,11 +789,11 @@ export const crewOccupySeat = async (
 ): Promise<CrewSeatReady> => {
   const occupy = () =>
     page.evaluate(
-      async ([canvasName, seatNode]) => {
+      async ([canvasName, seatId]) => {
         const api = window.junto!;
-        await api.terminalCreate({ node: seatNode, canvasName });
+        await api.modelStart({ canvas: canvasName, id: seatId });
       },
-      [canvas, node] as const,
+      [canvas, node.id] as const,
     );
   const deadline = Date.now() + timeoutMs;
   await occupy().catch(() => undefined);
