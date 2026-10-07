@@ -5,12 +5,18 @@
  *
  * The seat is the crew fixture's fake codex, which proxies real work-control
  * calls over the app's socket with its own process-bound identity, so
- * `offboard` and `onboard` take the product path. The seat's session id
- * changes on its canvas node between the two, the way a rotation or a new
- * capture changes it; the app's recorder turns that into history.
+ * `offboard` and `onboard` take the product path. The offboard moves the seat
+ * on and leaves the first process to wind down off the seat; anything that
+ * process asks of Junto afterwards is refused. So the second `onboard` comes
+ * from a fresh process on the seat, once the first is gone: the two share the
+ * fixture's one folder per seat, and only one of them may answer there. The
+ * fresh process's session id arrives on the canvas node the way a new capture
+ * sets it; the app's recorder turns that into history.
  *
  *   bun run test:e2e:fast e2e/scenarios/seat-sessions.spec.ts
  */
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
 import { PAST_SESSIONS_FRAMING } from "../../src/shared/seat-sessions";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -36,6 +42,16 @@ const seatNode: TextNode = {
   ether: { ...base.ether, terminal: { ...base.ether!.terminal!, sessionId: FIRST } },
 };
 
+/** The process is still there: signal 0 asks without touching it. */
+const isRunning = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const data = (envelope: WorkEnvelope): Record<string, any> => {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
   return (envelope as { data?: Record<string, any> }).data ?? {};
@@ -52,7 +68,7 @@ test("a seat's second session onboards with the first one's notes", async () => 
     await expect(page.locator(`.react-flow__node[data-id="${SEAT}"]`)).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
     const seat = crewSeat(sandbox, CANVAS, SEAT);
-    await crewOccupySeat(page, CANVAS, seatNode, seat);
+    const first = await crewOccupySeat(page, CANVAS, seatNode, seat);
 
     // Session one hands off.
     const notes = "# Parser wired for all three feeds\n\n- Next: retry on 429.\n- Why it matters: the nightly sync fails without it.";
@@ -61,7 +77,20 @@ test("a seat's second session onboards with the first one's notes", async () => 
     const notesPath = String(offboard.notes_path);
     expect(notesPath).toContain(`/.junto/seats/${SEAT}/sessions/${FIRST}.md`);
 
-    // The seat moves to a second session.
+    // The first process is off the seat and reads idle, as the fake does
+    // between turns: Junto stops it after the settle (seat-sessions/drain.ts
+    // DRAIN_SETTLE_MS).
+    await expect.poll(() => isRunning(first.pid), { message: "the first process is gone", timeout: 30_000 }).toBe(false);
+    await rm(join(seat.dir, "ready.json"), { force: true });
+
+    // A fresh process takes the seat, started from the node as the offboard left it.
+    const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
+    const rested = doc.nodes.find((node) => node.id === SEAT) as TextNode;
+    expect(rested.ether?.terminal?.sessionId, "the node no longer names the closed session").not.toBe(FIRST);
+    const fresh = await crewOccupySeat(page, CANVAS, rested, seat);
+    expect(fresh.pid, "a fresh process is on the seat").not.toBe(first.pid);
+
+    // Its session id is captured onto the node.
     await crewMutateCanvas(page, CANVAS, (doc: CanvasDoc) => ({
       ...doc,
       nodes: doc.nodes.map((node) =>
@@ -83,7 +112,7 @@ test("a seat's second session onboards with the first one's notes", async () => 
       session_id: FIRST,
       notes_path: notesPath,
       gist: "Parser wired for all three feeds",
-      ended_because: "replaced",
+      ended_because: "offboard",
     });
     expect(sessions.past[0].notes).toContain("retry on 429");
   } finally {
