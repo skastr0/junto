@@ -12,7 +12,7 @@
 import { Component, useMemo, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { File, MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
-import type { DiffLineAnnotation } from "@pierre/diffs";
+import { getFiletypeFromFileName, type DiffLineAnnotation } from "@pierre/diffs";
 import { splitPatchFiles } from "@shared/git";
 import { themeMode$ } from "../../lib/theme-mode";
 import "./code-view.css";
@@ -27,11 +27,42 @@ const THEME = { dark: "pierre-dark", light: "pierre-light" } as const;
 
 const useThemeType = (): "light" | "dark" => (use$(themeMode$) === "bright" ? "light" : "dark");
 
-const contents = (name: string | undefined, text: string, language: string | undefined): FileContents => ({
-  name: name?.trim() || "text",
-  contents: text,
-  ...(language?.trim() ? { lang: language.trim().toLowerCase() as NonNullable<FileContents["lang"]> } : {}),
-});
+// What people call a language, as the file ending the library knows it by.
+const LANGUAGE_ENDING: Readonly<Record<string, string>> = {
+  typescript: "ts",
+  javascript: "js",
+  python: "py",
+  rust: "rs",
+  ruby: "rb",
+  golang: "go",
+  kotlin: "kt",
+  csharp: "cs",
+  "c#": "cs",
+  "c++": "cpp",
+  shell: "sh",
+  zsh: "sh",
+  markdown: "md",
+  yaml: "yml",
+  dockerfile: "docker",
+  plaintext: "txt",
+  text: "txt",
+};
+
+/**
+ * A language an agent named, as one the library can highlight. A name it does
+ * not know is no language at all, so the text is shown plain and never lost.
+ */
+const knownLanguage = (language: string | undefined): NonNullable<FileContents["lang"]> | undefined => {
+  const asked = language?.trim().toLowerCase();
+  if (!asked) return undefined;
+  const known = getFiletypeFromFileName(`x.${LANGUAGE_ENDING[asked] ?? asked}`);
+  return known === "text" ? undefined : known;
+};
+
+const contents = (name: string | undefined, text: string, language: string | undefined): FileContents => {
+  const lang = knownLanguage(language);
+  return { name: name?.trim() || "text", contents: text, ...(lang ? { lang } : {}) };
+};
 
 /** Text the library could not draw is still shown, plain. */
 class PlainOnFailure extends Component<{ readonly text: string; readonly children: ReactNode }, { readonly failed: boolean }> {
