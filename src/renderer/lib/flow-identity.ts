@@ -13,11 +13,13 @@
 
 type Position = { readonly x: number; readonly y: number };
 
-/** The fields a rebuild sets. Anything else on a node is React Flow's own. */
+/**
+ * The fields a rebuild sets and that are compared as they are. `data` and
+ * `style` are compared by what they say: a node the canvas made again (one
+ * that moved) carries new objects for both that say what the old ones said.
+ */
 const OURS = [
   "type",
-  "data",
-  "style",
   "zIndex",
   "className",
   "selected",
@@ -30,8 +32,24 @@ const OURS = [
   "parentId",
 ] as const;
 
-type FlowLike = { readonly id: string; readonly position: Position } & {
+type FlowLike = {
+  readonly id: string;
+  readonly position: Position;
+  readonly data?: unknown;
+  readonly style?: unknown;
+  readonly measured?: unknown;
+} & {
   readonly [K in (typeof OURS)[number]]?: unknown;
+};
+
+/** Two flat objects that say the same: the same keys with the same values. */
+const flatSame = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  const was = a as Record<string, unknown>;
+  const now = b as Record<string, unknown>;
+  const keys = Object.keys(now);
+  return keys.length === Object.keys(was).length && keys.every((key) => was[key] === now[key]);
 };
 
 /** True when the rebuilt node says nothing the held one does not already say. */
@@ -39,6 +57,8 @@ export const saysTheSame = <N extends FlowLike>(held: N, rebuilt: N): boolean =>
   held === rebuilt ||
   (held.position.x === rebuilt.position.x &&
     held.position.y === rebuilt.position.y &&
+    flatSame(held.data, rebuilt.data) &&
+    flatSame(held.style, rebuilt.style) &&
     OURS.every((field) => held[field] === rebuilt[field]));
 
 /**
@@ -52,7 +72,16 @@ export const keepHeldNodes = <N extends FlowLike>(held: ReadonlyArray<N>, rebuil
   let same = held.length === rebuilt.length;
   const next = rebuilt.map((node, index) => {
     const before = heldById.get(node.id);
-    const kept = before !== undefined && saysTheSame(before, node) ? before : node;
+    const kept =
+      before === undefined
+        ? node
+        : saysTheSame(before, node)
+          ? before
+          : // A card that changed without changing size keeps its measurement,
+            // so React Flow does not measure it again and re-announce it.
+            before.measured !== undefined && node.measured === undefined && flatSame(before.style, node.style)
+            ? { ...node, measured: before.measured }
+            : node;
     if (kept !== held[index]) same = false;
     return kept;
   });
@@ -69,9 +98,5 @@ type CardProps = { readonly id: string; readonly selected?: boolean; readonly da
  */
 export const sameCard = (before: CardProps, after: CardProps): boolean => {
   if (before.id !== after.id || before.selected !== after.selected) return false;
-  if (before.data === after.data) return true;
-  const was = before.data as Record<string, unknown>;
-  const now = after.data as Record<string, unknown>;
-  const keys = Object.keys(now);
-  return keys.length === Object.keys(was).length && keys.every((key) => was[key] === now[key]);
+  return flatSame(before.data, after.data);
 };

@@ -44,6 +44,25 @@ describe("a rebuild leaves alone the nodes React Flow already holds", () => {
     expect(keepHeldNodes(held, [rebuilt("a", 80), rebuilt("b", 300)])).toBe(held);
   });
 
+  it("keeps a dropped card whose rebuilt node is a new object saying the same", () => {
+    // The canvas makes a moved node again: new data and style objects with
+    // the same content. React Flow already holds the card where it now is.
+    const dropped = { ...measured(rebuilt("a")), position: { x: 80, y: 0 } };
+    const held = [dropped];
+    const again = rebuilt("a", 80, { data: { ...data }, style: { ...style } });
+    expect(keepHeldNodes(held, [again])).toBe(held);
+  });
+
+  it("carries the measurement to a card that changed without changing size", () => {
+    const held = [measured(rebuilt("a")), measured(rebuilt("b", 300))];
+    const next = keepHeldNodes(held, [rebuilt("a"), rebuilt("b", 340, { style: { ...style } })]);
+    expect(next[1]?.position.x).toBe(340);
+    expect(next[1]?.measured).toEqual({ width: 240, height: 120 });
+    // A card that changed size is measured afresh.
+    const resized = keepHeldNodes(held, [rebuilt("a"), rebuilt("b", 300, { style: { width: 300, height: 120 } })]);
+    expect(resized[1]?.measured).toBeUndefined();
+  });
+
   it("takes the rebuilt node when anything a rebuild sets differs", () => {
     const held = measured(rebuilt("a"));
     expect(saysTheSame(held, rebuilt("a", 0, { selected: true }))).toBe(false);
