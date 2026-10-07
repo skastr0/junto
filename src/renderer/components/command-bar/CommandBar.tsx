@@ -16,7 +16,7 @@ import {
 } from "../../lib/command-bar";
 import { closeOperatorModal } from "../../lib/operator-modal";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
-import { regionPaths } from "../../lib/region-path";
+import { regionPaths, regionTrails, type RegionStep } from "../../lib/region-path";
 import { regionTallyParts } from "../../lib/region-glance";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
@@ -134,11 +134,11 @@ function AgentDetail({ glance }: { readonly glance: SeatGlance }) {
 /** The node's title, then its region path in dim type when it sits in one. */
 function RowHead({
   node,
-  path,
+  trail,
   accent,
 }: {
   readonly node: CanvasNode;
-  readonly path: string | undefined;
+  readonly trail: ReadonlyArray<RegionStep> | undefined;
   readonly accent?: boolean;
 }) {
   return (
@@ -149,16 +149,16 @@ function RowHead({
       >
         {nodeTitle(node)}
       </span>
-      {path ? (
-        <RegionCrumb path={path} className="command-bar__row-path" testId="command-bar-row-crumb" />
+      {trail ? (
+        <RegionCrumb trail={trail} className="command-bar__row-path" testId="command-bar-row-crumb" />
       ) : null}
     </span>
   );
 }
 
-type RowFaceProps = { readonly node: CanvasNode; readonly path: string | undefined };
+type RowFaceProps = { readonly node: CanvasNode; readonly trail: ReadonlyArray<RegionStep> | undefined };
 
-function AgentRowFace({ node, path }: RowFaceProps) {
+function AgentRowFace({ node, trail }: RowFaceProps) {
   const glance = useSeatGlance(node);
   return (
     <>
@@ -166,7 +166,7 @@ function AgentRowFace({ node, path }: RowFaceProps) {
         <SeatRingView node={node} px={28} glance={glance} />
       </span>
       <span className="command-bar__row-main">
-        <RowHead node={node} path={path} accent />
+        <RowHead node={node} trail={trail} accent />
         <span className="command-bar__row-detail">
           <AgentDetail glance={glance} />
         </span>
@@ -175,13 +175,13 @@ function AgentRowFace({ node, path }: RowFaceProps) {
   );
 }
 
-function NodeRowFace({ node, path }: RowFaceProps) {
-  if (node.ether?.entity?.kind === "agent") return <AgentRowFace node={node} path={path} />;
+function NodeRowFace({ node, trail }: RowFaceProps) {
+  if (node.ether?.entity?.kind === "agent") return <AgentRowFace node={node} trail={trail} />;
   return (
     <>
       <NodeKindMark node={node} className="command-bar__mark" />
       <span className="command-bar__row-main">
-        <RowHead node={node} path={path} />
+        <RowHead node={node} trail={trail} />
         <span className="command-bar__row-detail">
           {node.type === "group" ? <RegionDetail node={node} /> : nodeDetail(node)}
         </span>
@@ -223,6 +223,7 @@ export function CommandBar() {
   );
   // Region paths are derived once per doc revision, never per keystroke.
   const regionPathById = useMemo(() => regionPaths(doc), [doc]);
+  const regionTrailById = useMemo(() => regionTrails(doc), [doc]);
   const nodeMatches = useMemo(
     () => filterCommandBarNodes(doc.nodes, query, recentIds, urgencyById, regionPathById),
     [doc.nodes, query, recentIds, urgencyById, regionPathById],
@@ -370,7 +371,7 @@ export function CommandBar() {
                     commit(row, event.metaKey || event.ctrlKey);
                   }}
                 >
-                  <NodeRowFace node={row.node} path={regionPathById.get(row.node.id)} />
+                  <NodeRowFace node={row.node} trail={regionTrailById.get(row.node.id)} />
                   <span className="command-bar__row-kind">{nodeTypeLabel(row.node)}</span>
                 </div>
               ) : (

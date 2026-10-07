@@ -13,3 +13,6 @@
   direction: rtl;
   text-align: left;
 }
+/* A region with a colour lends it to its own name, held back toward the
+   crumb's grey so the path stays a quiet line. */
+.region-crumb__step { color: color-mix(in oklab, var(--crumb-hue, var(--color-faint)) 70%, var(--color-faint)); }

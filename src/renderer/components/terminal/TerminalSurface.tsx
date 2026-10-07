@@ -74,7 +74,7 @@ import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
 import { RegionCrumb } from "../RegionCrumb";
 import { SeatGitLine } from "../git/SeatGitLine";
-import { regionPath } from "../../lib/region-path";
+import { regionTrail } from "../../lib/region-path";
 import { ActorRail } from "./ActorRail";
 import { SeatDetailsButton } from "./SeatDetails";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
@@ -1922,7 +1922,7 @@ export function TerminalSurface({
   const attached = status === "control";
   // Where the seat sits, as cmd+K says it. A primitive, so the header does not
   // re-render on every doc write.
-  const crumb = use$(() => regionPath(state$.doc.get(), node.id));
+  const crumb = use$(() => regionTrail(state$.doc.get(), node.id));
   const processDead = status === "exited" || killPhase === "stopped";
   const processStopping = killPhase === "stopping" || status === "stopping…";
   const showDeadOverlay = processDead || processStopping;
@@ -2059,7 +2059,7 @@ export function TerminalSurface({
           // What gives way when the header is short: the region crumb first,
           // then the status loses its tail, the name last. Only the crumb shrinks.
           <span className="flex min-w-0 items-center gap-2">
-            {crumb ? <RegionCrumb path={crumb} className="shrink" testId="terminal-header-crumb" /> : null}
+            {crumb.length > 0 ? <RegionCrumb trail={crumb} className="shrink" testId="terminal-header-crumb" /> : null}
             <span className="shrink-0" data-testid="terminal-header-name">
               {label}
             </span>
