@@ -22,7 +22,8 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
-import { mailboxMessageDeliveryId } from "../src/main/junto/work/mailbox-receipts";
+import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
+import { mailboxMessageDeliveryId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 
 const root = join(tmpdir(), `junto-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -48,6 +49,9 @@ const fixtureSeatNodeIds: ReadonlyArray<string> = [
   "inbox-authority",
   "notification-mailbox",
   "paged-inbox",
+  "companion-seat",
+  "companion-peer",
+  "companion-unrelated",
 ];
 const fixtureSeatNode = (
   id: string,
@@ -60,7 +64,9 @@ const fixtureSeatNode = (
   width: 240,
   height: 100,
   text: id,
-  ether: { entity: { kind: "agent", name: `local:${id}` } },
+  ether: { entity: { kind: "agent", name: `local:${id}` },
+    ...(id.startsWith("companion-") ? { terminal: { bindingId: `binding-${id}`, harness: "claude" } } : {}),
+  },
 });
 const fixtureTopology: CanvasDoc = {
   nodes: fixtureSeatNodeIds.map(fixtureSeatNode),
@@ -234,6 +240,44 @@ describe("WorkRepository v2 local authority", () => {
     } finally {
       unsubscribe();
     }
+  });
+
+  it("selects companion inbound and sent mail before decoding unrelated or older payloads", async () => {
+    const seat = "companion-seat";
+    const peer = "companion-peer";
+    const id = (digit: number) => "0".repeat(25) + digit;
+    const append = async (target: string, digit: number, role: "user" | "agent", sender: string) => {
+      await runtime.runPromise(repository.appendMessage({
+        sink: { canvasName: "factory", nodeId: target }, basis: authorialBasis, sentBy: { ...actor, nodeId: sender },
+        destination: { kind: "mailbox" }, message: { messageId: id(digit), role,
+          parts: [{ kind: "text", text: `mail-${digit}` }], metadata: { senderNodeId: sender } },
+        originAt: observedAt, receivedAt: observedAt,
+      }));
+    };
+    await append(seat, 1, "user", peer);
+    await append(peer, 2, "user", seat);
+    await append(seat, 3, "user", peer);
+    await append("companion-unrelated", 4, "user", "someone-else");
+    await append(seat, 5, "agent", seat);
+    const sink = { canvasName: "factory", nodeId: peer };
+    for (const deliveryId of [mailboxMessageDeliveryId("factory", peer, id(2)), mailboxMessageReadId("factory", peer, id(2))]) {
+      await runtime.runPromise(repository.acceptDelivery({ sink, basis: authorialBasis, receipt: {
+        deliveryId, deliveredItem: { kind: "message", sink, itemId: id(2) },
+        actor: { ...actor, nodeId: peer }, acceptedAt: observedAt,
+      } }));
+    }
+    await runtime.runPromise(Effect.gen(function* () {
+      yield* sql`PRAGMA ignore_check_constraints=ON`;
+      yield* sql.withTransaction(unjournaledWorkMutationEffect("test.fixture-seed",
+        sql`UPDATE work_messages SET parts_json='invalid JSON' WHERE message_id IN (${id(1)},${id(4)},${id(5)})`,
+      )).pipe(Effect.ensuring(sql`PRAGMA ignore_check_constraints=OFF`.pipe(Effect.asVoid, Effect.orDie)));
+    }));
+    const rows = await runtime.runPromise(repository.companionMail("factory", seat, 2));
+    expect(rows.map((row) => [row.nodeId, row.message.messageId])).toEqual([[seat, id(3)], [peer, id(2)]]);
+    expect(rows[1]?.message.metadata).toMatchObject({ deliveredAt: Date.parse(observedAt), readAt: Date.parse(observedAt) });
+    expect((await runtime.runPromise(repository.companionMail("factory", seat, 0))).map((row) => row.message.messageId)).toEqual([id(3)]);
+    expect(await runtime.runPromise(repository.companionMail("another-canvas", seat, 2))).toEqual([]);
+    await expect(runtime.runPromise(repository.companionMail("factory", seat, 3))).rejects.toThrow();
   });
 
   it("persists ContentRef parts on new mail", async () => {
