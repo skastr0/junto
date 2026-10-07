@@ -34,14 +34,6 @@ import { seatUrgencyNow, useSeatGlance } from "../SeatRing";
 import { IconButton, ListRow } from "../ui";
 import "./actor-rail.css";
 
-/**
- * Where a bubble's anchor sits below its seat's centre. The canvas bubble's
- * tail tip hangs 4px above its anchor (9px gap less the 5px tail); 20px more
- * puts the tip on the lower left of its own ring, which keeps a two-line card
- * clear of the ring of the seat above.
- */
-const TAIL_TIP_PX = 24;
-
 /** One connected agent: the canvas seat under a cover button that moves to it. */
 function RailSeat({
   peer,
@@ -107,10 +99,8 @@ function RailSeat({
 }
 
 /**
- * Where a seat's bubble hangs: just left of the rail, level with the seat.
- * The canvas bubble anchors to this box the way it anchors to its node, and
- * keeps itself inside the rail's bubble frame (data-preamble-frame), the
- * strip of terminal beside the rail.
+ * Where a seat's bubble hangs: just left of the rail, level with the seat's
+ * centre, its tail on the card's right edge pointing at the portrait.
  */
 function RailBubble({
   nodeId,
@@ -134,7 +124,7 @@ function RailBubble({
       const middle = element.offsetTop + element.offsetHeight / 2 - list.scrollTop;
       // A seat scrolled out of the rail shows no bubble.
       const visible = middle > list.offsetTop && middle < list.offsetTop + list.clientHeight;
-      setTop(visible ? middle + TAIL_TIP_PX : null);
+      setTop(visible ? middle : null);
     };
     place();
     list?.addEventListener("scroll", place, { passive: true });
@@ -143,7 +133,7 @@ function RailBubble({
   if (!bubble || top === null) return null;
   return (
     <div className="actor-rail__bubble" style={{ top }} data-testid="actor-rail-bubble" data-peer-node-id={nodeId}>
-      <PreambleBubble nodeId={nodeId} bubble={bubble} selected={false} />
+      <PreambleBubble nodeId={nodeId} bubble={bubble} selected={false} tail="right" />
     </div>
   );
 }
@@ -219,7 +209,7 @@ export function ActorRail({ node }: { readonly node: CanvasNode }) {
           </ul>
         ) : null}
       </div>
-      <div className="actor-rail__bubbles" data-preamble-frame>
+      <div className="actor-rail__bubbles">
         {ordered.map((peer) => (
           <RailBubble
             key={peer.id}

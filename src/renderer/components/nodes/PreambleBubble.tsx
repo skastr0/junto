@@ -100,15 +100,21 @@ function Note({ item, faded = false }: { readonly item: PreambleItem; readonly f
  * top of the canvas, and slides in from the sides, so it is always readable.
  * One frame: the note it replaced lingers as a faded line above the current
  * one for a moment, inside the same bubble.
+ *
+ * `tail="right"` is for a seat in a column, where a tail underneath would
+ * point between two seats: the bubble sits to the left of its anchor, level
+ * with it, and the tail leaves the card's right edge.
  */
 export function PreambleBubble({
   nodeId,
   bubble,
   selected,
+  tail = "ring",
 }: {
   readonly nodeId: string;
   readonly bubble: SeatBubble;
   readonly selected: boolean;
+  readonly tail?: "ring" | "right";
 }) {
   const { current, previous } = bubble;
   const ref = useRef<HTMLDivElement>(null);
@@ -119,6 +125,8 @@ export function PreambleBubble({
 
   useLayoutEffect(() => {
     const el = ref.current;
+    // A side bubble is placed by its anchor and neither flips nor slides.
+    if (tail === "right") return;
     // The canvas, or whatever surface a seat outside it names as its frame.
     const frame = el?.closest(".react-flow, [data-preamble-frame]");
     if (!el || !frame) return;
@@ -137,7 +145,7 @@ export function PreambleBubble({
     if (box.right > bounds.right - EDGE) dx = (bounds.right - EDGE - box.right) / zoom;
     if (box.left + dx * zoom < bounds.left + EDGE) dx = (bounds.left + EDGE - box.left) / zoom;
     if (dx !== 0) el.style.setProperty("--pre-dx", `${String(Math.round(dx))}px`);
-  }, [current.shownAt, lifted]);
+  }, [current.shownAt, lifted, tail]);
 
   return (
     <div
@@ -150,6 +158,7 @@ export function PreambleBubble({
       data-action={current.action}
       data-tone={current.tone}
       data-lifted={lifted ? "true" : undefined}
+      data-tail={tail === "right" ? "right" : undefined}
       role="status"
       aria-live="polite"
       style={{ "--pre-dx": "0px" } as CSSProperties}

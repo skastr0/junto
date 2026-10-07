@@ -193,13 +193,15 @@ test("a voiced preamble shows the canvas bubble beside its seat and never takes 
       await expect(page.locator('.react-flow__node[data-id="bea"] [data-testid="node-preamble"]')).toHaveCount(1);
 
       // It did not move the keyboard. It speaks from its own portrait: the card
-      // ends on bea's ring, left of the ring's centre, and touches no other seat's ring.
+      // ends just left of bea's ring, level with the ring's centre, and touches
+      // no other seat's ring.
       expect(await typingInTerminal(page)).toBe(true);
       const card = (await bubble.locator(".junto-preamble__card").boundingBox())!;
       const ringOf = async (id: string) => (await rail(page).locator(`[data-peer-node-id="${id}"] .junto-mark`).first().boundingBox())!;
       const own = await ringOf("bea");
-      expect(card.x + card.width).toBeGreaterThan(own.x);
-      expect(card.x + card.width).toBeLessThan(own.x + own.width / 2);
+      expect(card.x + card.width).toBeLessThanOrEqual(own.x);
+      expect(card.x + card.width).toBeGreaterThan(own.x - 12);
+      expect(Math.abs(card.y + card.height / 2 - (own.y + own.height / 2))).toBeLessThan(2);
       // A ring is a circle: the card's nearest point to another seat's centre
       // stays outside its radius, for a two-line note too.
       const offRing = async (box: { x: number; y: number; width: number; height: number }, other: string): Promise<boolean> => {

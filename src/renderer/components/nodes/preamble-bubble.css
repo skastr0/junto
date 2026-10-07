@@ -86,6 +86,25 @@
   transform: rotate(225deg);
 }
 
+/* In a column of seats (the agent modal's rail) the bubble sits to the left
+   of its anchor, level with it, and the tail leaves the card's right edge:
+   a tail underneath would point between two seats. */
+.junto-preamble[data-tail="right"] {
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: auto;
+  align-items: flex-end;
+  transform: translateY(-50%);
+}
+.junto-preamble[data-tail="right"] .junto-preamble__card::after {
+  top: calc(50% - 4.5px);
+  right: -5px;
+  bottom: auto;
+  left: auto;
+  transform: rotate(-45deg);
+}
+
 .junto-preamble__line {
   display: flex;
   min-width: 0;
