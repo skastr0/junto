@@ -1,8 +1,11 @@
+import { use$ } from "@legendapp/state/react";
 import { Table } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { isNumericColumn, sheetGlance } from "@shared/sheet";
 import { DIM, INK } from "../../lib/theme";
 import { editText } from "../../lib/mutations";
+import { useSheetGrid } from "../../lib/sheet-store";
+import { state$ } from "../../lib/state";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import "./sheet.css";
 
@@ -19,7 +22,9 @@ export function SheetCard({
   readonly renaming?: boolean;
   readonly onRenameDone?: () => void;
 }) {
-  const sheet = node.ether?.sheet;
+  // The grid is content of its own, read by canvas and id, not off the node.
+  const canvas = use$(state$.canvasName);
+  const sheet = useSheetGrid(canvas, node.id);
   const rawText = node.type === "text" ? node.text : "";
   const firstLine = rawText.split("\n")[0] ?? "";
   const label = firstLine || "sheet";

@@ -7,12 +7,12 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { use$ } from "@legendapp/state/react";
 import { Copy, Plus, Trash2, X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import {
   addSheetColumn,
   addSheetRow,
-  emptySheet,
   isNumericColumn,
   removeSheetColumn,
   removeSheetRow,
@@ -34,6 +34,8 @@ import {
   setNodeSheet,
   setNodeSheetTyping,
 } from "../../lib/mutations";
+import { useSheetGrid } from "../../lib/sheet-store";
+import { state$ } from "../../lib/state";
 import "./sheet.css";
 
 /**
@@ -49,10 +51,27 @@ export function SheetDetail({
   readonly node: CanvasNode;
   readonly onClose: () => void;
 }) {
+  // The grid is content of its own, read by canvas and id. The editor opens
+  // on the grid as read, never on an empty one: it writes its draft back, and
+  // an editor opened before the read would write an empty grid over the sheet.
+  const canvas = use$(state$.canvasName);
+  const stored = useSheetGrid(canvas, node.id);
+  if (stored === undefined) return null;
+  return <SheetEditor node={node} stored={stored} onClose={onClose} />;
+}
+
+function SheetEditor({
+  node,
+  stored,
+  onClose,
+}: {
+  readonly node: CanvasNode;
+  readonly stored: EtherSheet;
+  readonly onClose: () => void;
+}) {
   const rawText = node.type === "text" ? node.text : "";
   const title = rawText.split("\n")[0]?.trim() || "Sheet";
-  const stored = node.ether?.sheet;
-  const [draft, setDraft] = useState<EtherSheet>(() => stored ?? emptySheet());
+  const [draft, setDraft] = useState<EtherSheet>(() => stored);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const typingTimer = useRef<number | null>(null);
@@ -88,9 +107,10 @@ export function SheetDetail({
       window.clearTimeout(typingTimer.current);
       typingTimer.current = null;
     }
-    setNodeSheet(node.id, draftRef.current);
+    // An editor closed with nothing changed writes nothing.
+    if (draftRef.current !== stored) setNodeSheet(node.id, draftRef.current);
     flushNodeSheetTyping(node.id);
-  }, [node.id]);
+  }, [node.id, stored]);
 
   const commitNow = useCallback(
     (next: EtherSheet) => {
@@ -121,9 +141,11 @@ export function SheetDetail({
   useEffect(
     () => () => {
       if (typingTimer.current !== null) window.clearTimeout(typingTimer.current);
-      setNodeSheet(node.id, draftRef.current);
+      if (draftRef.current !== stored) setNodeSheet(node.id, draftRef.current);
       flushNodeSheetTyping(node.id);
     },
+    // `stored` is the grid the editor opened on; it is read once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [node.id],
   );
 

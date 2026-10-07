@@ -39,6 +39,7 @@ import {
   selectNode,
   state$,
 } from "./state";
+import { sheetStore } from "./sheet-store";
 
 // Undo is commands (authoring). These two stacks are only what the document
 // looked like before each remembered act, so that a step back or forward shows
@@ -1197,19 +1198,26 @@ const remintSheetCard = (): void => {
   state$.docEpoch.set(state$.docEpoch.peek() + 1);
 };
 
+/** The grid last written to each sheet, so the same one is not written twice. */
+const lastSheetWritten = new Map<string, EtherSheet>();
+
 const applyNodeSheet = (
   id: string,
   sheet: EtherSheet,
   options: { readonly structural: boolean; readonly recordHistory: boolean },
 ): void => {
   const doc = state$.doc.peek();
-  const current = doc.nodes.find((n) => n.id === id);
-  if (current?.ether?.sheet === sheet) {
+  const name = state$.canvasName.peek();
+  const key = `${name}/${id}`;
+  if (sheetStore.gridOf(name, id) === sheet || lastSheetWritten.get(key) === sheet) {
     // Typing already wrote this object without reminting React Flow. A later
     // structural flush still has to bump docVersion so the card face catches up.
     if (options.structural) remintSheetCard();
     return;
   }
+  // Whoever shows this sheet sees the grid now, ahead of main saying so.
+  lastSheetWritten.set(key, sheet);
+  sheetStore.show(name, id, sheet);
   commitDoc(
     {
       ...doc,
