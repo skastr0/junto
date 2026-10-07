@@ -2,6 +2,8 @@
 
 Captured 7 October 2026 UTC. This is an investigation and proposed implementation sequence, not a claim that the subsystem has been fixed.
 
+Follow-up: [cross-harness environment identity qualification](cli-harness-identity-qualification.md) records launch tests, installed Codex/Prime/Pi execution probes, daemon forwarding requirements, and the remaining live-generation checks.
+
 ## Findings that determine the next change
 
 **The CLI demonstrably blocks Electron main during process identity checks.** A TypeScript/Effect probe issued 24 concurrent packaged `ping` calls in 2.63 seconds. Bypassing CLI startup and sending 24 fresh socket requests still took 1.69 seconds. All requests succeeded. Main-thread samples during those bursts spent 55.5% and 39.3% of their respective observation windows inside `node::SyncProcessRunner::Spawn`. The idle window showed 2.2%.
