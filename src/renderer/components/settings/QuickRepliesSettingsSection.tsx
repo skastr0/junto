@@ -114,8 +114,7 @@ export function QuickRepliesSettingsSection() {
   return (
     <div className="settings-section quick-replies-settings" data-testid="settings-quick-replies-section">
       <p className="settings-note quick-replies-settings__intro">
-        Offered as one-click answers when an agent is waiting on you, on feed cards and in the seat sidebar.
-        Each is sent to the agent as your reply. On the selected feed card, keys 1 to 9 send them.
+        One-click answers when an agent is waiting on you. Keys 1 to 9 send them.
       </p>
       {replies.length === 0 ? (
         <p className="settings-note">No quick replies. Add one below.</p>
@@ -149,7 +148,7 @@ export function QuickRepliesSettingsSection() {
       <p className="settings-note">
         {duplicate && text.length > 0
           ? "That reply is already in the list."
-          : `${replies.length} of ${QUICK_REPLY_BOUNDS.maxCount}, one line each, up to ${QUICK_REPLY_BOUNDS.maxChars} characters.`}
+          : `${replies.length} of ${QUICK_REPLY_BOUNDS.maxCount}`}
       </p>
     </div>
   );
