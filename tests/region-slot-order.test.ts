@@ -8,15 +8,15 @@ import {
 import {
   deriveRegionRollups as deriveRegionRollupsWithContext,
 } from "../src/shared/region-rollup";
-import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
-import type { CanvasDoc } from "../src/shared/canvas";
-import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
+import type { Canvas } from "../src/shared/model";
+import { executionContextForCanvas, TEST_CANVAS_NAME } from "./helpers/actor-ref-fixtures";
+import { canvasOf, note, region } from "./support/model-nodes";
 
-const deriveRegionRollups = (doc: CanvasDoc) => {
-  const context = executionContextForDoc(doc);
+const deriveRegionRollups = (canvas: Canvas) => {
+  const context = executionContextForCanvas(canvas);
   return deriveRegionRollupsWithContext({
-    canvas: canvasFromDocument(context.canvasName, doc),
-    itemsOf: workItemsFromDocument(doc),
+    canvas,
+    itemsOf: () => [],
     canvasName: context.canvasName,
     resolveActorRef: context.resolveActorRef,
   });
@@ -74,15 +74,16 @@ describe("clearSlot", () => {
 
 describe("cold rollup shell", () => {
   it("deriveRegionRollups without activity inputs still lists every group", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        { id: "r1", type: "group", label: "Tower", x: 0, y: 0, width: 200, height: 200 },
-        { id: "r2", type: "group", label: "Booth", x: 300, y: 0, width: 200, height: 200 },
-        { id: "n1", type: "text", text: "note", x: 10, y: 10, width: 80, height: 40 },
+    const canvas = canvasOf(
+      [
+        region("r1", { x: 0, y: 0, width: 200, height: 200 }, { label: "Tower" as never }),
+        region("r2", { x: 300, y: 0, width: 200, height: 200 }, { label: "Booth" as never }),
+        note("n1", "note", { x: 10, y: 10, width: 80, height: 40 }),
       ],
-      edges: [],
-    };
-    const rollups = deriveRegionRollups(doc);
+      [],
+      TEST_CANVAS_NAME,
+    );
+    const rollups = deriveRegionRollups(canvas);
     expect(rollups.map((r) => r.label)).toEqual(["Tower", "Booth"]);
     expect(rollups.every((r) => r.severity === "idle")).toBe(true);
   });
