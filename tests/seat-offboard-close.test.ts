@@ -1,18 +1,17 @@
 /**
- * The offboard closer: once the agent that ran `junto offboard` is idle, a
- * plain offboard closes the session and leaves the seat resting, and only
- * `--continue` starts the fresh session and mails it the kickoff. Also the
- * rotation sequence with and without the wake.
+ * The offboard closer: `junto offboard` ends the session, mechanically and at
+ * once. The moment the offboard is announced (its notes on disk, its reply
+ * written), the closer rotates the seat: no idle reading, no settle, no tick.
+ * A plain offboard leaves the seat resting; `--continue` starts the fresh
+ * session and has it told to read its handoff. Also the rotation sequence
+ * with and without the wake.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  OFFBOARD_CLOSE_TICK_MS,
-  OFFBOARD_SETTLE_MS,
   SeatOffboardCloser,
-  seatClosable,
-  type ClosingSeat,
   type OffboardClosePorts,
 } from "../src/main/junto/seat-sessions/offboard-close";
+import * as closerModule from "../src/main/junto/seat-sessions/offboard-close";
 import { rotateSeatSession, type RotatingSeat, type SeatRotatePorts } from "../src/main/junto/seat-sessions/rotate";
 import type { SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
 import type { OffboardMode, SeatOffboardProgress } from "../src/shared/seat-sessions";
@@ -20,23 +19,27 @@ import type { OffboardMode, SeatOffboardProgress } from "../src/shared/seat-sess
 const harness = (over: Partial<OffboardClosePorts> = {}) => {
   const h = {
     now: 1_000,
-    running: true,
-    idle: false,
-    seat: { bindingId: "bind-a", sessionId: "s1" } as ClosingSeat | undefined,
-    closes: [] as Array<{ seatId: string; wake: boolean }>,
+    order: [] as string[],
+    closes: [] as Array<{ seatId: string; canvasName: string; wake: boolean }>,
     kickoffs: [] as string[],
+    released: [] as string[],
     progress: [] as SeatOffboardProgress[],
     woke: true,
   };
   const ports: OffboardClosePorts = {
-    locate: async () => h.seat,
-    isRunning: () => h.running,
-    isIdle: () => h.idle,
-    close: async ({ seatId }, wake) => {
-      h.closes.push({ seatId, wake });
+    close: async ({ seatId, canvasName }, wake) => {
+      h.order.push(`close:${seatId}`);
+      h.closes.push({ seatId, canvasName, wake });
       return { ok: true, ended: "s1", next: "s2", woke: wake && h.woke };
     },
-    kickoff: async ({ seatId }) => (h.kickoffs.push(seatId), true),
+    kickoff: async ({ seatId }) => {
+      h.order.push(`kickoff:${seatId}`);
+      h.kickoffs.push(seatId);
+      return true;
+    },
+    release: ({ seatId }) => {
+      h.released.push(seatId);
+    },
     publish: (progress) => h.progress.push(progress),
     now: () => h.now,
     ...over,
@@ -44,123 +47,275 @@ const harness = (over: Partial<OffboardClosePorts> = {}) => {
   return { h, closer: new SeatOffboardCloser(ports) };
 };
 
-const offboard = (mode: OffboardMode, sessionId = "s1"): SeatOffboardEvent => ({
-  seatId: "a",
+const offboard = (mode: OffboardMode, seatId = "a", sessionId = "s1"): SeatOffboardEvent => ({
+  seatId,
   canvasName: "c",
   sessionId,
   at: 1_000,
   mode,
 });
 
-/** Tick through the settle period while the seat sits idle. */
-const settle = async (h: { now: number }, closer: SeatOffboardCloser) => {
-  await closer.tick();
-  h.now += OFFBOARD_SETTLE_MS;
-  await closer.tick();
-};
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("SeatOffboardCloser", () => {
-  it("plain offboard closes the session once idle and lets the seat rest: no wake, no kickoff", async () => {
-    const { h, closer } = harness();
+  it("issues the stop straight from the offboard: no idle reading, no settle, no tick", async () => {
+    let stopIssued = false;
+    const { h, closer } = harness({
+      close: async ({ seatId, canvasName }, wake) => {
+        stopIssued = true;
+        h.closes.push({ seatId, canvasName, wake });
+        return { ok: true, ended: "s1", next: "s2", woke: false };
+      },
+    });
     closer.offboarded(offboard("rest"));
-    // Mid-turn: nothing happens.
-    await closer.tick();
-    expect(h.closes).toEqual([]);
+    // Synchronously, in the same call: nothing was waited for, not even a
+    // microtask. There is no clock in this test at all.
+    expect(stopIssued).toBe(true);
+    expect(h.closes).toEqual([{ seatId: "a", canvasName: "c", wake: false }]);
+  });
 
-    h.idle = true;
-    await settle(h, closer);
-    expect(h.closes).toEqual([{ seatId: "a", wake: false }]);
+  it("has no port through which it could ask whether the seat is idle or running", () => {
+    // The old design read idle and waited. That it cannot is the contract.
+    const { closer } = harness();
+    expect(closer).not.toHaveProperty("tick");
+    const ports: Record<keyof OffboardClosePorts, true> = {
+      close: true,
+      kickoff: true,
+      release: true,
+      publish: true,
+      onOffboard: true,
+      now: true,
+      log: true,
+    };
+    expect(Object.keys(ports).sort()).toEqual(["close", "kickoff", "log", "now", "onOffboard", "publish", "release"]);
+    expect(closerModule).not.toHaveProperty("OFFBOARD_SETTLE_MS");
+    expect(closerModule).not.toHaveProperty("OFFBOARD_CLOSE_TICK_MS");
+    expect(closerModule).not.toHaveProperty("seatClosable");
+  });
+
+  it("a seat that is working when it offboards is closed all the same", async () => {
+    // Offboard is run mid-turn by definition: the turn in flight is cut.
+    vi.useFakeTimers({ now: 1_000 });
+    const seat = { state: "working" as string, pid: 100 as number | undefined };
+    const { h, closer } = harness({
+      close: async ({ seatId, canvasName }, wake) => {
+        h.closes.push({ seatId, canvasName, wake });
+        seat.pid = undefined;
+        seat.state = "gone";
+        return { ok: true, ended: "s1", next: "s2", woke: false };
+      },
+    });
+    await closer.offboarded(offboard("rest"));
+    expect(seat.pid).toBeUndefined();
+    expect(h.progress.map((p) => p.stage)).toEqual(["saved", "resting"]);
+    // And no timer was ever armed to do it later.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("plain offboard closes the session and lets the seat rest: no wake, no kickoff", async () => {
+    const { h, closer } = harness();
+    await closer.offboarded(offboard("rest"));
+    expect(h.closes).toEqual([{ seatId: "a", canvasName: "c", wake: false }]);
     expect(h.kickoffs).toEqual([]);
     expect(h.progress.map((p) => p.stage)).toEqual(["saved", "resting"]);
-
-    // Closed once, never again.
-    await settle(h, closer);
-    expect(h.closes).toHaveLength(1);
   });
 
-  it("--continue rotates right away: the fresh session starts and gets the kickoff", async () => {
+  it("--continue restarts: the fresh session starts, then is told to read its handoff", async () => {
     const { h, closer } = harness();
-    closer.offboarded(offboard("continue"));
-    h.idle = true;
-    await settle(h, closer);
-    expect(h.closes).toEqual([{ seatId: "a", wake: true }]);
-    expect(h.kickoffs).toEqual(["a"]);
+    await closer.offboarded(offboard("continue"));
+    expect(h.order).toEqual(["close:a", "kickoff:a"]);
+    expect(h.closes).toEqual([{ seatId: "a", canvasName: "c", wake: true }]);
     expect(h.progress.map((p) => p.stage)).toEqual(["saved", "started"]);
-  });
-
-  it("waits out the settle period, and starts it over when a turn begins", async () => {
-    const { h, closer } = harness();
-    closer.offboarded(offboard("rest"));
-    h.idle = true;
-    await closer.tick();
-    h.now += OFFBOARD_SETTLE_MS - 1;
-    h.idle = false;
-    await closer.tick();
-    h.idle = true;
-    h.now += 1;
-    await closer.tick();
-    expect(h.closes).toEqual([]);
-    h.now += OFFBOARD_SETTLE_MS;
-    await closer.tick();
-    expect(h.closes).toHaveLength(1);
-  });
-
-  it("closes a seat with no running process at once", async () => {
-    const { h, closer } = harness();
-    h.running = false;
-    closer.offboarded(offboard("rest"));
-    await closer.tick();
-    expect(h.closes).toEqual([{ seatId: "a", wake: false }]);
-  });
-
-  it("the latest offboard's mode wins", async () => {
-    const { h, closer } = harness();
-    closer.offboarded(offboard("continue"));
-    closer.offboarded(offboard("rest"));
-    h.idle = true;
-    await settle(h, closer);
-    expect(h.closes).toEqual([{ seatId: "a", wake: false }]);
-  });
-
-  it("drops an offboard whose seat already moved to another session", async () => {
-    const { h, closer } = harness();
-    closer.offboarded(offboard("continue", "s0"));
-    h.idle = true;
-    await settle(h, closer);
-    expect(h.closes).toEqual([]);
   });
 
   it("carries the operator's ask through to the close, and reports a paused canvas as waiting", async () => {
     const { h, closer } = harness();
     h.woke = false;
     closer.asked({ seatId: "a", canvasName: "c" }, "continue");
-    closer.offboarded(offboard("continue"));
-    h.idle = true;
-    await settle(h, closer);
+    await closer.offboarded(offboard("continue"));
     expect(h.progress.map((p) => p.stage)).toEqual(["asked", "saved", "waiting"]);
     expect(h.progress.every((p) => p.askedAt === 1_000)).toBe(true);
-    // The kickoff waits in the mailbox for the wake.
+    // The continuation is still owed to the seat for when it starts.
     expect(h.kickoffs).toEqual(["a"]);
     expect(closer.current()).toEqual([expect.objectContaining({ seatId: "a", stage: "waiting" })]);
 
     // The agent's own offboard, no ask: no askedAt.
-    closer.offboarded(offboard("rest", "s2"));
+    await closer.offboarded(offboard("rest", "a", "s2"));
     expect(h.progress.at(-1)).not.toHaveProperty("askedAt");
   });
 
-  it("reports a close Junto could not make, and a seat that left its canvas", async () => {
-    const failing = harness({ close: async () => ({ ok: false, reason: "this seat runs on another installation" }) });
-    failing.closer.offboarded(offboard("rest"));
-    failing.h.idle = true;
-    await settle(failing.h, failing.closer);
-    expect(failing.h.progress.at(-1)).toMatchObject({ stage: "failed", message: "this seat runs on another installation" });
+  it("a close Junto could not make is reported with its reason, and the seat may be typed into again", async () => {
+    const { h, closer } = harness({
+      close: async () => ({ ok: false, reason: "this seat runs on another installation" }),
+    });
+    await closer.offboarded(offboard("rest"));
+    expect(h.progress.at(-1)).toMatchObject({ stage: "failed", message: "this seat runs on another installation" });
+    // Its process was never stopped: the fence on it must not outlive the attempt.
+    expect(h.released).toEqual(["a"]);
+  });
 
-    const gone = harness();
-    gone.h.seat = undefined;
-    gone.closer.offboarded(offboard("continue"));
-    await gone.closer.tick();
-    expect(gone.h.closes).toEqual([]);
-    expect(gone.h.progress.at(-1)).toMatchObject({ stage: "failed" });
+  it("a close that throws is a failure of that seat, reported, never an unhandled rejection", async () => {
+    const { h, closer } = harness({
+      close: async () => {
+        throw new Error("could not stop the process");
+      },
+    });
+    await expect(closer.offboarded(offboard("continue"))).resolves.toBeUndefined();
+    expect(h.progress.at(-1)?.stage).toBe("failed");
+    expect(h.progress.at(-1)?.message).toContain("could not stop the process");
+    expect(h.kickoffs).toEqual([]);
+    expect(h.released).toEqual(["a"]);
+  });
+
+  it("a session that closed leaves the fence to lift with its process, not by the closer", async () => {
+    const { h, closer } = harness();
+    await closer.offboarded(offboard("continue"));
+    expect(h.released).toEqual([]);
+  });
+
+  it("the fresh session it could not tell is a failure the operator sees", async () => {
+    const { h, closer } = harness({ kickoff: async () => false });
+    await closer.offboarded(offboard("continue"));
+    expect(h.progress.at(-1)).toMatchObject({
+      stage: "failed",
+      message: "The fresh session is ready, but Junto could not send it the kickoff.",
+    });
+  });
+
+  describe("which seat, on which canvas", () => {
+    it("hands the offboarding seat and its canvas, by name, to the close and to the kickoff", async () => {
+      const asked: Array<{ port: string; seatId: string; canvasName: string }> = [];
+      const { closer } = harness({
+        close: async (seat, wake) => {
+          asked.push({ port: "close", ...seat });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+        kickoff: async (seat) => {
+          asked.push({ port: "kickoff", ...seat });
+          return true;
+        },
+      });
+      await closer.offboarded(offboard("continue"));
+      expect(asked).toEqual([
+        { port: "close", seatId: "a", canvasName: "c" },
+        { port: "kickoff", seatId: "a", canvasName: "c" },
+      ]);
+    });
+  });
+
+  describe("several seats offboarding in the same instant", () => {
+    const SEATS = ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
+    /** As long as a stubborn process takes to be force-killed and declared gone. */
+    const SLOW_CLOSE_MS = 3_000;
+
+    const many = (over: Partial<OffboardClosePorts> = {}) => {
+      vi.useFakeTimers({ now: 1_000 });
+      const started: Array<{ seatId: string; at: number }> = [];
+      const closed: Array<{ seatId: string; at: number }> = [];
+      const rig = harness({
+        close: async ({ seatId }, wake) => {
+          started.push({ seatId, at: Date.now() });
+          await new Promise((resolve) => setTimeout(resolve, SLOW_CLOSE_MS));
+          closed.push({ seatId, at: Date.now() });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+        now: () => Date.now(),
+        ...over,
+      });
+      const stageOf = (seatId: string) =>
+        rig.h.progress.filter((entry) => entry.seatId === seatId).at(-1)?.stage;
+      return { ...rig, started, closed, stageOf };
+    };
+
+    it("every stop is issued in the same instant, and they finish together", async () => {
+      const { closer, started, closed, stageOf } = many();
+      const at = Date.now();
+      const flights = SEATS.map((seatId) => closer.offboarded(offboard("continue", seatId)));
+      // All ten stops are out before a single one has finished.
+      expect(started.map((entry) => entry.seatId)).toEqual(SEATS);
+      expect(started.every((entry) => entry.at === at)).toBe(true);
+      await vi.advanceTimersByTimeAsync(SLOW_CLOSE_MS);
+      await Promise.all(flights);
+      expect(closed.map((entry) => entry.seatId).sort()).toEqual(SEATS);
+      // One after another this would be thirty seconds.
+      expect(Math.max(...closed.map((entry) => entry.at)) - at).toBe(SLOW_CLOSE_MS);
+      for (const seatId of SEATS) expect(stageOf(seatId)).toBe("started");
+    });
+
+    it("one seat whose close never returns holds up nobody", async () => {
+      const { h, closer, stageOf } = many({
+        close: async ({ seatId, canvasName }, wake) => {
+          if (seatId === "s3") return new Promise(() => {});
+          h.closes.push({ seatId, canvasName, wake });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+      });
+      for (const seatId of SEATS) void closer.offboarded(offboard("continue", seatId));
+      await vi.advanceTimersByTimeAsync(10);
+      expect(h.closes.map((entry) => entry.seatId).sort()).toEqual(SEATS.filter((seatId) => seatId !== "s3"));
+      expect(stageOf("s3")).toBe("saved");
+      expect(stageOf("s4")).toBe("started");
+    });
+
+    it("one seat whose close fails, fails alone and says so", async () => {
+      const { h, closer, stageOf } = many({
+        close: async ({ seatId, canvasName }, wake) => {
+          if (seatId === "s2") throw new Error("could not stop the process");
+          h.closes.push({ seatId, canvasName, wake });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+      });
+      await Promise.all(SEATS.map((seatId) => closer.offboarded(offboard("continue", seatId))));
+      expect(h.closes).toHaveLength(9);
+      expect(stageOf("s2")).toBe("failed");
+      expect(stageOf("s6")).toBe("started");
+    });
+
+    it("a second offboard from a seat already closing does not close it twice", async () => {
+      const { closer, started } = many();
+      const first = closer.offboarded(offboard("continue", "s0"));
+      const second = closer.offboarded(offboard("rest", "s0"));
+      await vi.advanceTimersByTimeAsync(SLOW_CLOSE_MS);
+      await Promise.all([first, second]);
+      expect(started).toHaveLength(1);
+    });
+
+    it("the fresh session's own offboard, later, is a close of its own", async () => {
+      const { closer, started } = many();
+      const first = closer.offboarded(offboard("continue", "s0", "s1"));
+      await vi.advanceTimersByTimeAsync(SLOW_CLOSE_MS);
+      await first;
+      const second = closer.offboarded(offboard("rest", "s0", "s2"));
+      await vi.advanceTimersByTimeAsync(SLOW_CLOSE_MS);
+      await second;
+      expect(started).toHaveLength(2);
+    });
+  });
+
+  describe("a process that ignores the stop", () => {
+    it("is waited for only as long as the forced kill takes, and the fresh session still starts", async () => {
+      // The host force-kills on its own bound and declares the generation
+      // gone; rotation's stop returns then. The closer waits on nothing else.
+      vi.useFakeTimers({ now: 1_000 });
+      const FORCED_KILL_MS = 3_000;
+      const { h, closer } = harness({
+        close: async ({ seatId, canvasName }, wake) => {
+          await new Promise((resolve) => setTimeout(resolve, FORCED_KILL_MS));
+          h.closes.push({ seatId, canvasName, wake });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+        now: () => Date.now(),
+      });
+      const at = Date.now();
+      const flight = closer.offboarded(offboard("continue"));
+      await vi.advanceTimersByTimeAsync(FORCED_KILL_MS);
+      await flight;
+      expect(Date.now() - at).toBe(FORCED_KILL_MS);
+      expect(h.kickoffs).toEqual(["a"]);
+      expect(h.progress.at(-1)?.stage).toBe("started");
+    });
   });
 });
 
@@ -190,253 +345,5 @@ describe("rotateSeatSession wake", () => {
     const { acts, ports } = recorder();
     expect(await rotateSeatSession("a", ports, { wake: true })).toMatchObject({ ok: true, woke: true });
     expect(acts.at(-1)).toBe("wake a");
-  });
-
-  describe("which seat, on which canvas", () => {
-    /**
-     * A canvas that answers only for the seat it holds, the way the app's
-     * lookup does. Asked for canvas "a" and seat "c" it knows nothing.
-     */
-    const canvases: Record<string, Record<string, ClosingSeat>> = {
-      c: { a: { bindingId: "bind-a", sessionId: "s1" } },
-    };
-    const lookedUp: Array<{ seatId: string; canvasName: string }> = [];
-    const onCanvas = (over: Partial<OffboardClosePorts> = {}) =>
-      harness({
-        locate: async (seat) => {
-          lookedUp.push({ ...seat });
-          return canvases[seat.canvasName]?.[seat.seatId];
-        },
-        ...over,
-      });
-
-    it("the closer finds the seat it is closing, so the session does close", async () => {
-      // The defect this pins: the lookup was handed the seat where it expected
-      // the canvas, found nothing, and every close failed as "no longer on its
-      // canvas" while the agent's notes sat saved.
-      lookedUp.length = 0;
-      const { h, closer } = onCanvas();
-      h.idle = true;
-      closer.offboarded(offboard("continue"));
-      await settle(h, closer);
-      expect(lookedUp.at(-1)).toEqual({ seatId: "a", canvasName: "c" });
-      expect(h.closes).toEqual([{ seatId: "a", wake: true }]);
-      expect(h.kickoffs).toEqual(["a"]);
-      expect(h.progress.at(-1)).toMatchObject({ stage: "started" });
-      expect(h.progress.some((progress) => progress.stage === "failed")).toBe(false);
-    });
-
-    it("hands the same seat and canvas to the close and to the kickoff", async () => {
-      const asked: Array<{ port: string; seatId: string; canvasName: string }> = [];
-      const { h, closer } = onCanvas({
-        close: async (seat, wake) => {
-          asked.push({ port: "close", ...seat });
-          return { ok: true, ended: "s1", next: "s2", woke: wake };
-        },
-        kickoff: async (seat) => {
-          asked.push({ port: "kickoff", ...seat });
-          return true;
-        },
-      });
-      h.idle = true;
-      closer.offboarded(offboard("continue"));
-      await settle(h, closer);
-      expect(asked).toEqual([
-        { port: "close", seatId: "a", canvasName: "c" },
-        { port: "kickoff", seatId: "a", canvasName: "c" },
-      ]);
-    });
-
-    it("a seat that really is gone from its canvas fails with that reason, published for the seat", async () => {
-      const { h, closer } = onCanvas();
-      h.idle = true;
-      closer.offboarded({ ...offboard("rest"), seatId: "ghost" });
-      await settle(h, closer);
-      expect(h.closes).toEqual([]);
-      expect(h.progress.at(-1)).toMatchObject({
-        seatId: "ghost",
-        canvasName: "c",
-        stage: "failed",
-        message: "The seat is no longer on its canvas.",
-      });
-    });
-  });
-
-  describe("several seats offboarding at once", () => {
-    const SEATS = ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
-    /** Each close takes as long as a stubborn process takes to exit. */
-    const SLOW_CLOSE_MS = 10_000;
-
-    const many = (over: Partial<OffboardClosePorts> = {}) => {
-      vi.useFakeTimers({ now: 1_000 });
-      const closed: Array<{ seatId: string; at: number }> = [];
-      const progress: SeatOffboardProgress[] = [];
-      const idle = new Set<string>(SEATS);
-      const closer = new SeatOffboardCloser({
-        locate: async ({ seatId }) => ({ bindingId: `bind-${seatId}`, sessionId: "s1" }),
-        isRunning: () => true,
-        isIdle: (bindingId) => idle.has(bindingId.replace("bind-", "")),
-        close: async ({ seatId }, wake) => {
-          await new Promise((resolve) => setTimeout(resolve, SLOW_CLOSE_MS));
-          closed.push({ seatId, at: Date.now() });
-          return { ok: true, ended: "s1", next: "s2", woke: wake };
-        },
-        kickoff: async () => true,
-        publish: (entry) => progress.push(entry),
-        now: () => Date.now(),
-        ...over,
-      });
-      const offboardAll = (seats: ReadonlyArray<string> = SEATS) => {
-        for (const seatId of seats) {
-          closer.offboarded({ seatId, canvasName: "c", sessionId: "s1", at: Date.now(), mode: "continue" });
-        }
-      };
-      /** The closer's own clock: a tick every second, as in the app. */
-      const run = async (ms: number) => {
-        for (let elapsed = 0; elapsed < ms; elapsed += OFFBOARD_CLOSE_TICK_MS) {
-          void closer.tick();
-          await vi.advanceTimersByTimeAsync(OFFBOARD_CLOSE_TICK_MS);
-        }
-      };
-      const stageOf = (seatId: string) => progress.filter((entry) => entry.seatId === seatId).at(-1)?.stage;
-      return { closer, closed, progress, idle, offboardAll, run, stageOf };
-    };
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it("ten seats close together, not one after another", async () => {
-      const { closed, offboardAll, run, stageOf } = many();
-      const startedAt = Date.now();
-      offboardAll();
-      // Settle, then one slow close each, side by side.
-      await run(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
-      expect(closed.map((entry) => entry.seatId).sort()).toEqual(SEATS);
-      const last = Math.max(...closed.map((entry) => entry.at)) - startedAt;
-      // One after another this is over a minute and a half.
-      expect(last).toBeLessThanOrEqual(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
-      for (const seatId of SEATS) expect(stageOf(seatId)).toBe("started");
-    });
-
-    it("a seat that goes idle while others are still closing is not kept waiting for them", async () => {
-      const { closed, idle, offboardAll, run } = many();
-      idle.delete("s9");
-      offboardAll();
-      await run(OFFBOARD_SETTLE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
-      // Nine closes are in flight. The tenth finishes its turn now.
-      const idleAt = Date.now();
-      idle.add("s9");
-      await run(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
-      const late = closed.find((entry) => entry.seatId === "s9");
-      expect(late).toBeDefined();
-      expect(late!.at - idleAt).toBeLessThanOrEqual(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
-    });
-
-    it("one seat whose close never returns does not hold up the others", async () => {
-      const { closed, offboardAll, run, stageOf } = many({
-        close: async ({ seatId }, wake) => {
-          if (seatId === "s3") return new Promise(() => {});
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          closed.push({ seatId, at: Date.now() });
-          return { ok: true, ended: "s1", next: "s2", woke: wake };
-        },
-      });
-      offboardAll();
-      await run(OFFBOARD_SETTLE_MS + 3 * OFFBOARD_CLOSE_TICK_MS);
-      expect(closed.map((entry) => entry.seatId).sort()).toEqual(SEATS.filter((seatId) => seatId !== "s3"));
-      expect(stageOf("s3")).toBe("saved");
-      expect(stageOf("s4")).toBe("started");
-    });
-
-    it("one seat whose close fails, or whose lookup throws, fails alone and says so", async () => {
-      const { closed, offboardAll, run, stageOf, progress } = many({
-        locate: async ({ seatId }) => {
-          if (seatId === "s5") throw new Error("canvas unreadable");
-          return { bindingId: `bind-${seatId}`, sessionId: "s1" };
-        },
-        close: async ({ seatId }, wake) => {
-          if (seatId === "s2") throw new Error("could not stop the process");
-          closed.push({ seatId, at: Date.now() });
-          return { ok: true, ended: "s1", next: "s2", woke: wake };
-        },
-      });
-      offboardAll();
-      await run(OFFBOARD_SETTLE_MS + 3 * OFFBOARD_CLOSE_TICK_MS);
-      expect(closed).toHaveLength(8);
-      expect(stageOf("s2")).toBe("failed");
-      expect(progress.find((entry) => entry.seatId === "s2" && entry.stage === "failed")?.message).toContain(
-        "could not stop the process",
-      );
-      expect(stageOf("s5")).toBe("failed");
-      expect(stageOf("s6")).toBe("started");
-    });
-
-    it("never closes the same seat twice, however many ticks pass while its close is in flight", async () => {
-      let closes = 0;
-      const { offboardAll, run } = many({
-        close: async (_seat, wake) => {
-          closes += 1;
-          await new Promise((resolve) => setTimeout(resolve, SLOW_CLOSE_MS));
-          return { ok: true, ended: "s1", next: "s2", woke: wake };
-        },
-      });
-      offboardAll(["s0"]);
-      await run(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 3 * OFFBOARD_CLOSE_TICK_MS);
-      expect(closes).toBe(1);
-    });
-
-    it("an offboard that arrives for a seat while its close is in flight waits for that close", async () => {
-      const order: string[] = [];
-      const { closer, offboardAll, run } = many({
-        close: async (_seat, wake) => {
-          order.push("close:start");
-          await new Promise((resolve) => setTimeout(resolve, SLOW_CLOSE_MS));
-          order.push("close:end");
-          return { ok: true, ended: "s1", next: "s2", woke: wake };
-        },
-        // The fresh session is the one the node names once the close is done.
-        locate: async () => ({ bindingId: "bind-s0", sessionId: order.includes("close:end") ? "s2" : "s1" }),
-      });
-      offboardAll(["s0"]);
-      await run(OFFBOARD_SETTLE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
-      expect(order).toEqual(["close:start"]);
-      // The fresh session offboards too, before the first close has returned.
-      closer.offboarded({ seatId: "s0", canvasName: "c", sessionId: "s2", at: Date.now(), mode: "rest" });
-      await run(4 * OFFBOARD_CLOSE_TICK_MS);
-      expect(order).toEqual(["close:start"]);
-      await run(SLOW_CLOSE_MS + OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 3 * OFFBOARD_CLOSE_TICK_MS);
-      expect(order).toEqual(["close:start", "close:end", "close:start", "close:end"]);
-    });
-  });
-
-  describe("an operator draft when the close comes due", () => {
-    it("a seat is closable only when idle with nothing of the operator's in its input box", () => {
-      expect(seatClosable({ idle: true, inputBoxHold: undefined })).toBe(true);
-      expect(seatClosable({ idle: true, inputBoxHold: "draft" })).toBe(false);
-      expect(seatClosable({ idle: true, inputBoxHold: "dialog" })).toBe(false);
-      // Junto types nothing to close a session: an unread box is no reason to
-      // wait, and for a harness with no probes it would be a wait for ever.
-      expect(seatClosable({ idle: true, inputBoxHold: "unreadable" })).toBe(true);
-      expect(seatClosable({ idle: false, inputBoxHold: undefined })).toBe(false);
-    });
-
-    it("the close waits while the draft is there, restarts its settle, and goes when it is gone", async () => {
-      const box = { hold: "draft" as "draft" | undefined };
-      const { h, closer } = harness({
-        isIdle: () => seatClosable({ idle: true, inputBoxHold: box.hold }),
-      });
-      closer.offboarded(offboard("rest"));
-      for (let i = 0; i < 5; i += 1) await settle(h, closer);
-      expect(h.closes).toEqual([]);
-      expect(h.progress.at(-1)).toMatchObject({ stage: "saved" });
-      // The operator sends or clears the draft.
-      box.hold = undefined;
-      await closer.tick();
-      expect(h.closes).toEqual([]);
-      h.now += OFFBOARD_SETTLE_MS;
-      await closer.tick();
-      expect(h.closes).toEqual([{ seatId: "a", wake: false }]);
-    });
   });
 });

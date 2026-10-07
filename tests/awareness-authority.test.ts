@@ -129,11 +129,13 @@ describe("awareness authority boundary", () => {
   it("gates no delivery: whether a seat may be typed into is the rule engine's call alone", () => {
     // The Jev hold is removed. The Command Center wiring may start the plane
     // and forward its events, but it imports nothing from the advisory module
-    // itself, and neither idle gate consults anything but the seat-state runtime.
+    // itself, and no idle gate consults anything but the seat-state runtime.
+    // (The offboard closer had a second idle gate; offboard now ends the
+    // session at once and reads no idle at all, so the drive's is the one left.)
     const wiring = read("src/main/junto/ipc.ts");
     expect(/from\s+["'][^"']*term\/awareness\/[^"']*["']/u.test(wiring)).toBe(false);
     const idleGates = wiring.match(/\bis(?:Seat)?Idle:\s*\(bindingId\)\s*=>[^,]*,/gu) ?? [];
-    expect(idleGates.length).toBeGreaterThanOrEqual(2);
+    expect(idleGates.length).toBeGreaterThanOrEqual(1);
     for (const gate of idleGates) {
       expect(gate.replace(/\s+/gu, " ")).toMatch(
         /^is(?:Seat)?Idle: \(bindingId\) => seatStateRuntime\.isSeatIdle\(bindingId\),$/u,

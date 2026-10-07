@@ -73,7 +73,8 @@ import { SquadRepository, type SquadRepositoryError } from "./squads/repository"
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
 import { SeatGuidanceRepository } from "./seat-guidance/repository";
 import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
-import { SeatOffboardCloser, seatClosable } from "./seat-sessions/offboard-close";
+import { SeatOffboardCloser } from "./seat-sessions/offboard-close";
+import { closingFence, fencedWriter } from "./term/closing-fence";
 import { ContinuationLedger } from "./seat-sessions/continuation-pending";
 import { makeOnboardNudgeInterject, watchSeatReadiness } from "./term/onboard-nudge-interject";
 import {
@@ -1804,10 +1805,23 @@ export const registerJuntoIpc = (): void => {
       };
       // Single shared destination-drive recipe (managed-drive-factory);
       // this callsite only supplies Command Center evidence sources.
+      // A seat that has offboarded is sealed until its process is gone. The
+      // fence tells generations apart by the host's own record, so it lifts
+      // the moment that process exits or a fresh one takes the binding.
+      closingFence.setLiveGeneration((bindingId) => {
+        const live = termPlane.host.get(bindingId);
+        return live !== undefined && live.status !== "exited" ? live.epoch : undefined;
+      });
       const managedDrive = createManagedTerminalDrive({
-        write: (bindingId, data) =>
-          !productAutomationSuspended &&
-          termPlane.host.writeManagedSeat(bindingId, data),
+        // Every byte Junto types into a seat goes through here: a sealed
+        // seat takes none, whichever path asked.
+        write: fencedWriter(
+          closingFence,
+          (bindingId: string, data: string) =>
+            !productAutomationSuspended &&
+            termPlane.host.writeManagedSeat(bindingId, data),
+          false,
+        ),
         isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
         seatState: (bindingId) => seatStateRuntime.getState(bindingId),
         // Only Grok has the clipboard-image TUI trap. Electron exposes the
@@ -1843,7 +1857,7 @@ export const registerJuntoIpc = (): void => {
       });
       bindManagedTerminalDriveForOverseer(managedDrive);
       const driveReady = (bindingId: string): boolean => {
-        if (productAutomationSuspended) return false;
+        if (productAutomationSuspended || closingFence.sealed(bindingId)) return false;
         const slot = seatStateRuntime.machine.getSlot(bindingId);
         return isManagedTerminalReady({
           harness: slot?.harness,
@@ -2093,16 +2107,6 @@ export const registerJuntoIpc = (): void => {
         console.info(`[offboard] ${owedContinuations} seat(s) still owed their continuation line`);
       }
       offboardCloser = new SeatOffboardCloser({
-        locate: managedSeatOn,
-        isRunning: (bindingId) =>
-          !productAutomationSuspended && termPlane.host.get(bindingId)?.status === "running",
-        // Idle says nothing about the composer: a seat with the operator's
-        // draft in it reads idle too, and closing would throw the draft away.
-        isIdle: (bindingId) =>
-          seatClosable({
-            idle: seatStateRuntime.isSeatIdle(bindingId),
-            inputBoxHold: managedDrive.inputBoxHold(bindingId),
-          }),
         close: async (address, wake) => {
           // Name the generation that offboarded before it is replaced: the
           // fresh one may be up by the time the rotation returns.
@@ -2123,11 +2127,19 @@ export const registerJuntoIpc = (): void => {
           offboardedGeneration.delete(address.seatId);
           return true;
         },
+        // The close failed before the process was stopped: the session goes
+        // on, so it may be typed into again.
+        release: (address) => {
+          void managedSeatOn(address).then((seat) => closingFence.release(seat?.bindingId));
+        },
         publish: (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress),
         onOffboard: subscribeSeatOffboard,
         log: (message) => console.info(`[offboard] ${message}`),
       });
       offboardCloser.start();
+      closingFence.subscribeLifted((bindingId) => {
+        if (!productAutomationSuspended) messageDelivery.onSeatLive(bindingId);
+      });
       privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => offboardCloser?.current() ?? []);
       privilegedIpc.handle(
         IPC_CHANNELS.seatOffboardAsk,
@@ -2190,6 +2202,7 @@ export const registerJuntoIpc = (): void => {
       // not be typed is tried again (or the operator presses again).
       const interjectOnboardNudge = makeOnboardNudgeInterject({
         suspended: () => productAutomationSuspended,
+        sealed: (bindingId) => closingFence.sealed(bindingId),
         mailReady: mailReadyNow,
         writeMail: (bindingId, text) => managedDrive.writeMail(bindingId, text),
       });
@@ -2307,6 +2320,10 @@ export const registerJuntoIpc = (): void => {
         });
         if (event.state === "gone") {
           seatSessionCapture.forget(event.bindingId);
+          // An offboarded session's process is gone: the fence lifts, and
+          // mail that arrived while it was ending now wakes the seat (rest)
+          // or waits for the fresh session that is starting (continue).
+          closingFence.release(event.bindingId);
         }
         if (
           event.state === "attention" &&
@@ -2373,8 +2390,10 @@ export const registerJuntoIpc = (): void => {
       messageDelivery.configure({
         transport: {
           // Physical only: a running process whose TUI is up (mail-readiness).
+          // A seat that has offboarded is not live for mail: what arrives
+          // while its session ends waits for the fresh one.
           seatLive: (bindingId) =>
-            !productAutomationSuspended && mailReadyNow(bindingId),
+            !productAutomationSuspended && !closingFence.sealed(bindingId) && mailReadyNow(bindingId),
           // Mail to a seat that has not run `junto onboard` carries the
           // pointer on its own line.
           seatOnboarded: (bindingId) => injectionSupervisor.isOnboarded(bindingId),

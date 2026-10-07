@@ -1,103 +1,74 @@
 /**
- * The offboard closer: once an agent that ran `junto offboard` is idle
- * between turns, close its session in the mode the agent chose.
+ * The offboard closer: `junto offboard` ends the session, mechanically and
+ * at once.
  *
- * rest: the session ends, the seat gets a fresh session id, and its process
- * stops. The seat rests; whatever wakes it next starts the fresh session,
+ * The moment an offboard is announced (its notes are on disk and its reply
+ * has been written back to the agent's CLI), the closer rotates the seat:
+ * the session ends, the seat gets a fresh session id, and its process is
+ * stopped. Nothing is waited for: not an idle seat, not a settle, not a tick.
+ * The turn in flight is cut; that is what offboard means.
+ *
+ * rest: the seat rests; whatever wakes it next starts the fresh session,
  * which onboards into the notes.
  *
- * continue: the same, then Junto starts the fresh session right away and
- * tells it, in one line, to read its handoff, so it carries on unprompted.
- * Nothing else starts a session with a message: a seat that rests, or one the
- * operator opens, comes up to its own empty composer.
+ * continue: the same, then Junto starts the fresh session as soon as the old
+ * process is gone and has it told, in one line, to read its handoff.
+ *
+ * From the offboard until the old process is gone nothing is typed into the
+ * seat (the closing fence, sealed where the offboard is accepted). The fence
+ * lifts with the process; if the close fails before the process was stopped,
+ * the closer releases it.
+ *
+ * Each seat is its own: many seats offboarding in the same instant are all
+ * stopped in that instant, and one that fails or hangs delays no other.
  *
  * The closer also keeps where each seat's offboard stands (asked, saved,
- * resting, started) for the operator. Everything outside the clock comes in
- * through ports, so the closer runs the same against the app and a test.
+ * resting, started, waiting, failed) for the operator. Everything it touches
+ * comes in through ports, so it runs the same against the app and a test.
  */
 import type { OffboardMode, SeatAddress, SeatOffboardProgress, SeatOffboardStage } from "@shared/seat-sessions";
 import type { SeatRotateResult } from "./rotate";
 import type { SeatOffboardEvent } from "./service";
 
-/** The seat as the closer needs it, read off its canvas. */
-export type ClosingSeat = {
-  readonly bindingId: string;
-  /** The session the node names now, when it names one. */
-  readonly sessionId?: string;
-};
-
 export type OffboardClosePorts = {
-  readonly locate: (seat: SeatAddress) => Promise<ClosingSeat | undefined>;
-  /** The seat's process is running. */
-  readonly isRunning: (bindingId: string) => boolean;
-  /** The seat can be closed now: idle between turns, no operator draft (see seatClosable). */
-  readonly isIdle: (bindingId: string) => boolean;
-  /** End the session and give the seat a fresh one; start it only when `wake`. */
+  /**
+   * End the session, give the seat a fresh one and stop its process; start
+   * the fresh one only when `wake`. Resolves once the old process is gone.
+   */
   readonly close: (seat: SeatAddress, wake: boolean) => Promise<SeatRotateResult>;
   /** Have the fresh session of a continuing seat told to read its handoff. */
   readonly kickoff: (seat: SeatAddress) => Promise<boolean>;
+  /**
+   * The close failed before the seat's process was stopped: the session goes
+   * on, so lift the fence that was keeping everything out of it.
+   */
+  readonly release?: (seat: SeatAddress) => void;
   readonly publish: (progress: SeatOffboardProgress) => void;
-  /** Told whenever an agent runs `junto offboard`. */
+  /** Told whenever an agent's `junto offboard` has been answered. */
   readonly onOffboard?: (listener: (event: SeatOffboardEvent) => void) => () => void;
   readonly now?: () => number;
   readonly log?: (message: string) => void;
 };
 
-/**
- * May an offboarded session be closed now? Only between turns, and never
- * over something the operator is in the middle of: a draft in the composer
- * would be lost with the process, and a dialog is theirs to answer. An input
- * box Junto cannot read is not a reason to wait: it types nothing here, and
- * a harness whose box it can never read would otherwise never close.
- */
-export const seatClosable = (input: {
-  /** Idle between turns, confirmed. */
-  readonly idle: boolean;
-  /** Why mail would be held for this seat's input box now, if it would. */
-  readonly inputBoxHold: "draft" | "dialog" | "unreadable" | undefined;
-}): boolean => input.idle && input.inputBoxHold !== "draft" && input.inputBoxHold !== "dialog";
-
-export const OFFBOARD_CLOSE_TICK_MS = 1_000;
-/**
- * How long the seat must sit idle before its session closes. The agent runs
- * offboard mid-turn; this outlasts a stale idle reading and the turn's last
- * words.
- */
-export const OFFBOARD_SETTLE_MS = 2_000;
-
-type Pending = {
-  readonly seatId: string;
-  readonly canvasName: string;
-  readonly sessionId: string;
-  readonly mode: OffboardMode;
-  idleSince?: number;
-};
-
 const addressOf = (entry: SeatAddress): SeatAddress => ({ seatId: entry.seatId, canvasName: entry.canvasName });
 
-const keyOf = (canvasName: string, seatId: string): string => `${canvasName}\u0000${seatId}`;
+const keyOf = (seat: SeatAddress): string => `${seat.canvasName}\u0000${seat.seatId}`;
 
 export class SeatOffboardCloser {
-  private readonly pending = new Map<string, Pending>();
-  private readonly closing = new Set<string>();
+  /** Seats being closed right now, each with its own flight. */
+  private readonly closing = new Map<string, Promise<void>>();
   private readonly progress = new Map<string, SeatOffboardProgress>();
-  private timer: ReturnType<typeof setInterval> | undefined;
   private unsubscribeOffboard: (() => void) | undefined;
-  /** Seats a tick is looking at right now; a later tick leaves them alone. */
-  private readonly stepping = new Set<string>();
 
   constructor(private readonly ports: OffboardClosePorts) {}
 
-  start(intervalMs = OFFBOARD_CLOSE_TICK_MS): void {
-    if (this.timer !== undefined) return;
-    this.unsubscribeOffboard = this.ports.onOffboard?.((event) => this.offboarded(event));
-    this.timer = setInterval(() => void this.tick(), intervalMs);
-    this.timer.unref?.();
+  /** Listen for offboards. There is no clock: each one is acted on as it arrives. */
+  start(): void {
+    if (this.unsubscribeOffboard !== undefined) return;
+    this.unsubscribeOffboard = this.ports.onOffboard?.((event) => void this.offboarded(event)) ?? (() => {});
   }
 
   stop(): void {
-    if (this.timer !== undefined) clearInterval(this.timer);
-    this.timer = undefined;
     this.unsubscribeOffboard?.();
     this.unsubscribeOffboard = undefined;
   }
@@ -106,21 +77,15 @@ export class SeatOffboardCloser {
     return this.ports.now?.() ?? Date.now();
   }
 
-  private report(
-    seatId: string,
-    canvasName: string,
-    mode: OffboardMode,
-    stage: SeatOffboardStage,
-    message?: string,
-  ): void {
-    const key = keyOf(canvasName, seatId);
+  private report(seat: SeatAddress, mode: OffboardMode, stage: SeatOffboardStage, message?: string): void {
+    const key = keyOf(seat);
     const at = this.now();
     // An ask carries through to the close it led to; a new ask starts over.
     const previous = this.progress.get(key);
     const askedAt = stage === "asked" ? at : previous?.stage === "asked" || previous?.stage === "saved" ? previous.askedAt : undefined;
     const progress: SeatOffboardProgress = {
-      seatId,
-      canvasName,
+      seatId: seat.seatId,
+      canvasName: seat.canvasName,
       mode,
       stage,
       at,
@@ -133,20 +98,29 @@ export class SeatOffboardCloser {
 
   /** The operator sent the offboard prompt for this mode. */
   asked(seat: SeatAddress, mode: OffboardMode): void {
-    this.report(seat.seatId, seat.canvasName, mode, "asked");
+    this.report(seat, mode, "asked");
   }
 
-  /** An agent ran `junto offboard`: close its session at its next idle moment. */
-  offboarded(event: SeatOffboardEvent): void {
-    const key = keyOf(event.canvasName, event.seatId);
-    // The latest offboard decides the mode; its notes replaced the earlier ones.
-    this.pending.set(key, {
-      seatId: event.seatId,
-      canvasName: event.canvasName,
-      sessionId: event.sessionId,
-      mode: event.mode,
+  /**
+   * An agent's `junto offboard` was answered: close its session now. The stop
+   * is issued before this returns; the promise settles when the close is
+   * through (the old process gone, the fresh one started or the seat at rest).
+   */
+  offboarded(event: SeatOffboardEvent): Promise<void> {
+    const seat = addressOf(event);
+    const key = keyOf(seat);
+    const flying = this.closing.get(key);
+    if (flying !== undefined) {
+      // That session is already ending; it cannot offboard twice.
+      this.ports.log?.(`${event.seatId} offboarded again while its session was closing; ignored`);
+      return flying;
+    }
+    this.report(seat, event.mode, "saved");
+    const flight = this.close(seat, event.mode).finally(() => {
+      if (this.closing.get(key) === flight) this.closing.delete(key);
     });
-    this.report(event.seatId, event.canvasName, event.mode, "saved");
+    this.closing.set(key, flight);
+    return flight;
   }
 
   /** Where every seat's latest offboard stands, for a renderer that just started. */
@@ -154,95 +128,34 @@ export class SeatOffboardCloser {
     return [...this.progress.values()];
   }
 
-  /**
-   * One pass over every seat waiting to close. Each seat is its own: they
-   * are looked at side by side, a slow close (a process that takes its ten
-   * seconds to exit) delays no other seat, and a seat that fails, fails
-   * alone. Ticks may overlap; a seat already being looked at, or already
-   * closing, is skipped until that is done, so no seat is closed twice.
-   */
-  async tick(): Promise<void> {
-    const due = [...this.pending].filter(([key]) => !this.stepping.has(key) && !this.closing.has(key));
-    await Promise.all(
-      due.map(async ([key, entry]) => {
-        this.stepping.add(key);
-        try {
-          await this.step(key, entry);
-        } catch (error) {
-          // Nothing a seat's ports throw may reach another seat's close.
-          this.pending.delete(key);
-          this.ports.log?.(`closing ${entry.seatId} failed: ${String(error)}`);
-          this.report(entry.seatId, entry.canvasName, entry.mode, "failed", String(error));
-        } finally {
-          this.stepping.delete(key);
-        }
-      }),
-    );
-  }
-
-  private async step(key: string, entry: Pending): Promise<void> {
-    const seat = await this.ports.locate(addressOf(entry)).catch(() => undefined);
-    if (seat === undefined) {
-      this.pending.delete(key);
-      this.report(entry.seatId, entry.canvasName, entry.mode, "failed", "The seat is no longer on its canvas.");
-      return;
-    }
-    if (seat.sessionId !== undefined && seat.sessionId !== entry.sessionId) {
-      // The seat already moved to another session: that offboard is spent.
-      this.pending.delete(key);
-      return;
-    }
-    // A seat with no process has no turn in flight: close it now.
-    if (this.ports.isRunning(seat.bindingId)) {
-      if (!this.ports.isIdle(seat.bindingId)) {
-        entry.idleSince = undefined;
-        return;
-      }
-      const now = this.now();
-      entry.idleSince ??= now;
-      if (now - entry.idleSince < OFFBOARD_SETTLE_MS) return;
-    }
-    // A newer offboard for this seat may have replaced this entry while the
-    // ports were being asked; it is that one's turn then, at a later tick.
-    if (this.pending.get(key) !== entry) return;
-    this.pending.delete(key);
-    this.closing.add(key);
+  private async close(seat: SeatAddress, mode: OffboardMode): Promise<void> {
+    const wake = mode === "continue";
+    let result: SeatRotateResult;
     try {
-      await this.close(key, entry);
-    } finally {
-      this.closing.delete(key);
+      // Called in the same turn of the event loop as the offboard arrived.
+      result = await this.ports.close(seat, wake);
+    } catch (error) {
+      result = { ok: false, reason: String(error) };
     }
-  }
-
-  private async close(key: string, entry: Pending): Promise<void> {
-    const wake = entry.mode === "continue";
-    const result = await this.ports
-      .close(addressOf(entry), wake)
-      .catch((error: unknown): SeatRotateResult => ({ ok: false, reason: String(error) }));
     if (!result.ok) {
-      this.ports.log?.(`closing ${entry.seatId} failed: ${result.reason}`);
-      this.report(entry.seatId, entry.canvasName, entry.mode, "failed", result.reason);
+      this.ports.release?.(seat);
+      this.ports.log?.(`closing ${seat.seatId} failed: ${result.reason}`);
+      this.report(seat, mode, "failed", result.reason);
       return;
     }
     if (!wake) {
-      this.ports.log?.(`${entry.seatId} offboarded; its session closed and the seat rests`);
-      this.report(entry.seatId, entry.canvasName, entry.mode, "resting");
+      this.ports.log?.(`${seat.seatId} offboarded; its session closed and the seat rests`);
+      this.report(seat, mode, "resting");
       return;
     }
-    // The kickoff waits for a seat that did not start (a paused canvas),
-    // and reaches the fresh session when it does.
-    const mailed = await this.ports.kickoff(addressOf(entry)).catch(() => false);
-    if (!mailed) {
-      this.report(
-        entry.seatId,
-        entry.canvasName,
-        entry.mode,
-        "failed",
-        "The fresh session is ready, but Junto could not send it the kickoff.",
-      );
+    // The continuation is owed to a seat that did not start (a paused
+    // canvas) too, and reaches the fresh session when it does.
+    const told = await this.ports.kickoff(seat).catch(() => false);
+    if (!told) {
+      this.report(seat, mode, "failed", "The fresh session is ready, but Junto could not send it the kickoff.");
       return;
     }
-    this.ports.log?.(`${entry.seatId} offboarded; continuing in a fresh session`);
-    this.report(entry.seatId, entry.canvasName, entry.mode, result.woke ? "started" : "waiting");
+    this.ports.log?.(`${seat.seatId} offboarded; continuing in a fresh session`);
+    this.report(seat, mode, result.woke ? "started" : "waiting");
   }
 }

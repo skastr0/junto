@@ -645,34 +645,6 @@ describe("ManagedTerminalDrive", () => {
     await expect(drive.writeMail("b1", "more")).resolves.toBe("draft");
   });
 
-  it("inputBoxHold answers the mail rule without typing or arming anything", async () => {
-    vi.useFakeTimers();
-    const operatorInput = new OperatorInterlock(() => clock);
-    const box = { verdict: "empty" as "empty" | "draft" | null, state: "idle" as "idle" | "attention" };
-    drive = makeDrive({ composerVerdict: () => box.verdict, seatState: () => box.state, operatorInput });
-    expect(drive.inputBoxHold("b1")).toBeUndefined();
-
-    // Text the harness painted by itself is not the operator's.
-    box.verdict = "draft";
-    drive.onComposerDraft("b1");
-    expect(drive.inputBoxHold("b1")).toBeUndefined();
-    // The operator types into it: now it is their draft.
-    operatorInput.noteInput("b1");
-    clock += OPERATOR_INPUT_LATCH_MS + 1;
-    expect(drive.inputBoxHold("b1")).toBe("draft");
-
-    box.state = "attention";
-    expect(drive.inputBoxHold("b1")).toBe("dialog");
-    box.state = "idle";
-    box.verdict = null;
-    expect(drive.inputBoxHold("b1")).toBe("unreadable");
-
-    // Asking changed nothing: nothing was typed, and mail is not held behind it.
-    expect(writes).toEqual([]);
-    box.verdict = "empty";
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
-  });
-
   it("a draft that appeared under a fresh keystroke stays the operator's across repaints", async () => {
     vi.useFakeTimers();
     const operatorInput = new OperatorInterlock(() => clock);

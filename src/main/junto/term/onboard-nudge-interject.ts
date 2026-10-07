@@ -26,12 +26,14 @@ export type OnboardNudgeOutcome = "written" | OnboardNudgeRefusal;
 export const makeOnboardNudgeInterject =
   (deps: {
     readonly suspended: () => boolean;
+    /** The seat has offboarded and its session is ending (the closing fence). */
+    readonly sealed?: (bindingId: string) => boolean;
     /** The seat's terminal can take a paste now (mail readiness). */
     readonly mailReady: (bindingId: string) => boolean;
     readonly writeMail: (bindingId: string, text: string) => Promise<MailWriteOutcome>;
   }) =>
   async (bindingId: string, text: string): Promise<OnboardNudgeOutcome> => {
-    if (deps.suspended() || !deps.mailReady(bindingId)) return "unavailable";
+    if (deps.suspended() || deps.sealed?.(bindingId) === true || !deps.mailReady(bindingId)) return "unavailable";
     // The drive's mail gate is the one check on the input box: it types only
     // into an available one and says why it did not.
     const outcome = await deps.writeMail(bindingId, text);

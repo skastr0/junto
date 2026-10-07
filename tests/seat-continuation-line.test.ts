@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContinuationLedger } from "../src/main/junto/seat-sessions/continuation-pending";
 import {
-  OFFBOARD_SETTLE_MS,
   SeatOffboardCloser,
   type OffboardClosePorts,
 } from "../src/main/junto/seat-sessions/offboard-close";
@@ -61,9 +60,6 @@ const rig = () => {
   const clock = { now: 1_000 };
   let offboarded: string | undefined;
   const ports: OffboardClosePorts = {
-    locate: async () => ({ bindingId: BINDING, sessionId: "s1" }),
-    isRunning: () => true,
-    isIdle: () => true,
     close: async (_seat, wake) => {
       offboarded = supervisor.generationOf(BINDING);
       state("gone");
@@ -79,12 +75,9 @@ const rig = () => {
     now: () => clock.now,
   };
   const closer = new SeatOffboardCloser(ports);
-  /** The agent runs `junto offboard`; the closer closes it once it sits idle. */
+  /** The agent runs `junto offboard`; the closer ends its session at once. */
   const offboard = async (mode: OffboardMode) => {
-    closer.offboarded({ seatId: "a", canvasName: "c", sessionId: "s1", at: clock.now, mode });
-    await closer.tick();
-    clock.now += OFFBOARD_SETTLE_MS;
-    await closer.tick();
+    await closer.offboarded({ seatId: "a", canvasName: "c", sessionId: "s1", at: clock.now, mode });
     await settled();
   };
   const turn = () => {

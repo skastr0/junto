@@ -14,7 +14,8 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame, workControlTokenPath } from "../src/shared/work-control";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
-import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
+import { respondThen, startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
+import { closingFence } from "../src/main/junto/term/closing-fence";
 import { WorkLive } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
@@ -187,6 +188,81 @@ describe("junto offboard", () => {
     } finally {
       unsubscribe();
     }
+  });
+
+  it("seals the seat before it answers, and announces the close only after the answer is written", async () => {
+    closingFence.clearForTest();
+    const sealedAtAnnounce: boolean[] = [];
+    const unsubscribe = subscribeSeatOffboard(() => sealedAtAnnounce.push(closingFence.sealed("bind-agent")));
+    try {
+      expect(closingFence.sealed("bind-agent")).toBe(false);
+      const result = await op("offboard", { notes: "# Done\n\n- nothing left" });
+      expect(result.ok).toBe(true);
+      // By the time the caller has its answer, nothing can be typed into the session.
+      expect(closingFence.sealed("bind-agent")).toBe(true);
+      for (let i = 0; i < 20 && sealedAtAnnounce.length === 0; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(sealedAtAnnounce).toEqual([true]);
+      // The reply no longer tells the agent to finish its turn: there is no turn left.
+      expect(result.data.next_step).toContain("this session ends now");
+      expect(result.data.next_step).not.toMatch(/idle|finish this turn/);
+    } finally {
+      unsubscribe();
+      closingFence.clearForTest();
+    }
+  });
+
+  it("a refused offboard seals nothing and announces nothing", async () => {
+    closingFence.clearForTest();
+    const events: SeatOffboardEvent[] = [];
+    const unsubscribe = subscribeSeatOffboard((event) => events.push(event));
+    try {
+      const result = await op("offboard", { notes: "   " });
+      expect(result.ok).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(closingFence.sealed("bind-agent")).toBe(false);
+      expect(events).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("the answer is written before what follows it, and what follows always runs, once", () => {
+    const order: string[] = [];
+    const envelope = { ok: true, command: "offboard", data: {} } as never;
+    respondThen(
+      {
+        destroyed: false,
+        write: ((_frame: unknown, flushed?: () => void) => {
+          order.push("written");
+          flushed?.();
+          flushed?.();
+          return true;
+        }) as never,
+      },
+      envelope,
+      () => order.push("then"),
+    );
+    expect(order).toEqual(["written", "then"]);
+
+    // The caller is already gone: the close must still happen.
+    const gone: string[] = [];
+    respondThen({ destroyed: true, write: (() => true) as never }, envelope, () => gone.push("then"));
+    expect(gone).toEqual(["then"]);
+
+    const failed: string[] = [];
+    respondThen(
+      {
+        destroyed: false,
+        write: (() => {
+          throw new Error("EPIPE");
+        }) as never,
+      },
+      envelope,
+      () => failed.push("then"),
+    );
+    expect(failed).toEqual(["then"]);
   });
 
   it("refuses notes that say nothing, unknown fields, and a seat whose session id is not known", async () => {

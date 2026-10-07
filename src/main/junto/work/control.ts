@@ -163,6 +163,7 @@ import {
   PAST_SESSIONS_FRAMING,
   SEAT_SESSION_CONTINUATION_MAX_CHARS,
   SEAT_SESSION_NOTES_MAX_CHARS,
+  type OffboardMode,
 } from "@shared/seat-sessions";
 import { PortraitOverrideRepository } from "../portraits/repository";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
@@ -225,6 +226,7 @@ import {
   tasksNodeIdentity,
   tasksNodeName,
 } from "@shared/tasks-node-identity";
+import { closingFence } from "../term/closing-fence";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import {
   admitProcessIdentity,
@@ -1246,13 +1248,9 @@ const dispatchOp = (
           details: { retryable: true },
         })),
       );
-      announceSeatOffboard({
-        seatId: self.id,
-        canvasName: caller.canvasName,
-        sessionId: session.sessionId,
-        at: session.offboardedAt ?? Date.now(),
-        mode,
-      });
+      // The session is closed from the transport, once this reply has been
+      // written back (see the offboard branch after dispatch): the notes are
+      // on disk by now, and that is the only thing the close waits for.
       return {
         session_id: session.sessionId,
         gist: session.gist ?? gist,
@@ -1262,8 +1260,8 @@ const dispatchOp = (
         disposition: "applied" as const,
         next_step:
           mode === "continue"
-            ? "your notes and continuation are saved; finish this turn and stop. When you go idle Junto starts a fresh session of this seat, and it reads your continuation first"
-            : "your notes are saved; finish this turn and stop. When you go idle Junto closes this session and the seat rests until its next wake. Running offboard again before then replaces the notes",
+            ? "your notes and continuation are saved and this session ends now; Junto is starting a fresh session of this seat, and it reads your continuation first"
+            : "your notes are saved and this session ends now; the seat rests until its next wake, which starts a fresh session that reads your notes",
       };
     }
 
@@ -2798,6 +2796,29 @@ const respond = (socket: Socket, envelope: WorkResponseEnvelope): void => {
   }
 };
 
+/**
+ * Write a reply and run `then` once it has left this process. `then` always
+ * runs, exactly once: a client that is already gone, or a write that fails,
+ * must not stop what follows the reply.
+ */
+export const respondThen = (socket: Pick<Socket, "destroyed" | "write">, envelope: WorkResponseEnvelope, then: () => void): void => {
+  let ran = false;
+  const once = (): void => {
+    if (ran) return;
+    ran = true;
+    then();
+  };
+  if (socket.destroyed) {
+    once();
+    return;
+  }
+  try {
+    socket.write(encodeWorkFrame(envelope), once);
+  } catch {
+    once();
+  }
+};
+
 type WorkDispatchResult = Result.Result<unknown, WorkErrorBody>;
 
 /** Every main-minted principal anchor participates in generation identity. */
@@ -3383,8 +3404,13 @@ export const startWorkControlServer = async (
         // Onboarded means exactly this: `junto onboard` answered the seat's
         // own process. No other work-plane call counts.
         if (req.op === "onboard") injectionSupervisor.noteOnboarded(admittedBindingId);
-        // An offboarded session waits to be closed: it is not nudged again.
-        if (req.op === "offboard") injectionSupervisor.noteOffboardSaved(admittedBindingId);
+        // Offboard ends the session at once. From this instant nothing is
+        // typed into it: the fence is up before the reply leaves, and the
+        // close itself follows the reply (below).
+        if (req.op === "offboard") {
+          closingFence.seal(admittedBindingId);
+          injectionSupervisor.noteOffboardSaved(admittedBindingId);
+        }
         if (req.op === "preamble" && options.onPreamble) {
           const value = outcome.success as {
             readonly preambleId?: unknown;
@@ -3432,7 +3458,23 @@ export const startWorkControlServer = async (
             options.onAgentSignal(signal);
           }
         }
-        respond(socket, workOk(req.op, outcome.success, req.id));
+        if (req.op === "offboard" && admittedSeat !== undefined) {
+          // The close cuts the turn in flight, the agent's own CLI call
+          // included, so its answer is written out first.
+          const seat = admittedSeat;
+          const saved = outcome.success as { readonly session_id: string; readonly mode: OffboardMode };
+          respondThen(socket, workOk(req.op, outcome.success, req.id), () =>
+            announceSeatOffboard({
+              seatId: seat.nodeId,
+              canvasName: seat.canvasName,
+              sessionId: saved.session_id,
+              at: Date.now(),
+              mode: saved.mode,
+            }),
+          );
+        } else {
+          respond(socket, workOk(req.op, outcome.success, req.id));
+        }
       } catch (error) {
         if (error instanceof MainAuthoringRefused) {
           respond(
