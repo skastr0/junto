@@ -162,12 +162,15 @@ if (process.argv.includes("--sinks")) {
     } as never);
   }
 }
-await page.evaluate(`(async () => {
-  const api = window.junto;
-  await api.createCanvas(${name}).catch(() => undefined);
-  const read = await api.readCanvas(${name});
-  await api.writeCanvas(${name}, ${JSON.stringify(canvasDoc(nodes, edges as never))}, read.revision);
-})()`);
+// --open-only opens a canvas an earlier run made, without writing it again.
+if (!process.argv.includes("--open-only")) {
+  await page.evaluate(`(async () => {
+    const api = window.junto;
+    await api.createCanvas(${name}).catch(() => undefined);
+    const read = await api.readCanvas(${name});
+    await api.writeCanvas(${name}, ${JSON.stringify(canvasDoc(nodes, edges as never))}, read.revision);
+  })()`);
+}
 
 // Open the canvas the way a junto:// link does.
 const first = nodes[0]!;

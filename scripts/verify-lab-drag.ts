@@ -4,7 +4,7 @@
  * them with real mouse moves at one move per frame, and records the frame
  * intervals during the drag and in the second after the drop.
  *
- *   bun scripts/verify-lab-drag.ts [--select 10] [--steps 90] [--repeats 5] [--out DIR]
+ *   bun scripts/verify-lab-drag.ts [--select 10] [--steps 90] [--repeats 5] [--profile-first] [--out DIR]
  *
  * Run after scripts/verify-lab-canvas.ts, under the app-run lock.
  */
@@ -19,6 +19,7 @@ const arg = (name: string, fallback: string): string => {
 const select = Number(arg("select", "10"));
 const steps = Number(arg("steps", "90"));
 const repeats = Number(arg("repeats", "5"));
+const profileFirst = process.argv.includes("--profile-first");
 const rendererPort = process.env.JUNTO_PERF_LAB_RENDERER_PORT ?? "9229";
 const outDir = resolve(arg("out", "."));
 mkdirSync(outDir, { recursive: true });
@@ -153,6 +154,10 @@ let movedOnFirstDrag = -1;
 for (let repeat = 0; repeat < repeats; repeat += 1) {
   const direction = repeat % 2 === 0 ? 1 : -1;
   await take();
+  if (profileFirst && repeat === 0) {
+    await send("Profiler.enable", {});
+    await send("Profiler.start", {});
+  }
   await mouse("mousePressed", grip.x, grip.y);
   const started = Date.now();
   for (let step = 1; step <= steps; step += 1) {
@@ -161,6 +166,24 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   }
   const dragMs = Date.now() - started;
   const during = await take();
+  if (profileFirst && repeat === 0) {
+    // Where the window's main thread spent the first drag, by function.
+    const { profile } = await send("Profiler.stop", {});
+    const self = new Map<number, number>();
+    const deltas: number[] = profile.timeDeltas ?? [];
+    (profile.samples as number[]).forEach((id, index) => self.set(id, (self.get(id) ?? 0) + (deltas[index] ?? 0)));
+    const by = new Map<string, number>();
+    for (const node of profile.nodes as Array<{ id: number; callFrame: { functionName: string; url: string; lineNumber: number } }>) {
+      const ms = (self.get(node.id) ?? 0) / 1000;
+      if (ms === 0) continue;
+      const file = node.callFrame.url.split("/").at(-1) ?? "";
+      const key = `${node.callFrame.functionName || "(anonymous)"} ${file}:${String(node.callFrame.lineNumber)}`;
+      by.set(key, (by.get(key) ?? 0) + ms);
+    }
+    const top = [...by].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([name, ms]) => [name, Math.round(ms)]);
+    writeFileSync(join(outDir, "first-drag.cpuprofile"), JSON.stringify(profile));
+    console.log(JSON.stringify({ firstDragSelfMsByFunction: top }));
+  }
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
   await sleep(1_200);
   const after = await take();
