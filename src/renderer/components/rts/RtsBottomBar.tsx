@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { use$ } from "@legendapp/state/react";
+import { CountedSurface } from "../../lib/performance/surface-commits";
 import {
   CircleDot,
   Copy,
@@ -581,13 +582,19 @@ export const RtsBottomBar = memo(function RtsBottomBar({ minimap, tools }: { rea
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
       {/* One row: command, kind, minimap. Command groups live in the top bar,
           needs-you in the top-right inbox. */}
-      <CommandCard regionRollup={selectedRegion} />
-      <KindMiddle />
+      <CountedSurface id="bottom-bar-commands">
+        <CommandCard regionRollup={selectedRegion} />
+        <KindMiddle />
+      </CountedSurface>
       <div className="rts-right">
         {/* Tools after minimap in DOM + high z-index so they stay clickable. */}
         <div className="rts-minimap-slot">
-          <MinimapChrome>{minimap}</MinimapChrome>
-          {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
+          <CountedSurface id="bottom-bar-minimap">
+            <MinimapChrome>{minimap}</MinimapChrome>
+          </CountedSurface>
+          <CountedSurface id="bottom-bar-tools">
+            {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
+          </CountedSurface>
         </div>
       </div>
     </div>
