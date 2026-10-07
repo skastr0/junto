@@ -160,9 +160,17 @@ export const replaceSelection = ({
       : "";
   const edgeId = nodeIds.length === 0 ? requestedEdgeId : "";
 
+  // The same cards selected is not a new selection. React Flow reports its
+  // selection again whenever its nodes are reordered (a drop brings the cards
+  // it moved to the front), with the same ids in a new array and a new order;
+  // writing that would wake every reader of the selection for nothing. The
+  // list already held is kept, in the order the operator selected in.
+  const held = state$.selectedNodeIds.peek();
+  const sameCards = held.length === nodeIds.length && nodeIds.every((id) => held.includes(id));
+
   batch(() => {
     state$.selectedNodeId.set(nodeId);
-    state$.selectedNodeIds.set(nodeIds);
+    if (!sameCards) state$.selectedNodeIds.set(nodeIds);
     state$.selectedEdgeId.set(edgeId);
   });
 };
