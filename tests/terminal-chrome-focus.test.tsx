@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   firstChromeControl,
   focusFrontTerminal,
@@ -29,7 +29,23 @@ const PANE = `
 
 const chord = (key: string): KeyboardEvent => new KeyboardEvent("keydown", { key, metaKey: true });
 
+/** The same chord as it arrives from the element that has the keyboard. */
+const chordFrom = (key: string, target: Element): KeyboardEvent => {
+  const event = chord(key);
+  Object.defineProperty(event, "target", { value: target });
+  return event;
+};
+
+// jsdom lays nothing out: every element is on screen unless a test says not.
+const rects = Element.prototype.getClientRects;
+beforeEach(() => {
+  Element.prototype.getClientRects = function (this: Element) {
+    return (this.hasAttribute("data-offscreen") ? [] : [{}]) as unknown as DOMRectList;
+  };
+});
+
 afterEach(() => {
+  Element.prototype.getClientRects = rects;
   document.body.innerHTML = "";
 });
 
@@ -46,6 +62,27 @@ describe("the keyboard's way out of a terminal", () => {
     const host = mount(`<div class="p"><div class="native-terminal-surface"><header><button disabled>a</button><button id="b">b</button></header></div></div>`);
     expect(firstChromeControl(host.querySelector(".p"))?.id).toBe("b");
     expect(firstChromeControl(null)).toBeNull();
+  });
+
+  it("never lands on a control that is not on screen", () => {
+    const host = mount(`<div class="p"><div class="native-terminal-surface"><header><button data-offscreen>a</button><button id="b">b</button></header></div></div>`);
+    expect(firstChromeControl(host.querySelector(".p"))?.id).toBe("b");
+  });
+
+  it("stays in the pane the key was pressed in when several terminals are side by side", () => {
+    mount(`
+      <div class="workbench-pane"><div class="native-terminal-surface">
+        <header><button id="one">One</button></header><div class="xterm"><textarea id="pty-one"></textarea></div>
+      </div></div>
+      <div class="workbench-pane"><div class="native-terminal-surface">
+        <header><button id="two">Two</button></header><div class="xterm"><textarea id="pty-two"></textarea></div>
+      </div></div>`);
+    const pty = document.getElementById("pty-two")!;
+    pty.focus();
+    expect(focusTerminalChrome(chordFrom("ArrowUp", pty))).toBe(true);
+    expect(document.activeElement?.id).toBe("two");
+    expect(focusFrontTerminal(chordFrom("ArrowDown", document.activeElement!))).toBe(true);
+    expect(document.activeElement?.id).toBe("pty-two");
   });
 
   it("hands the keyboard back to the terminal", () => {
