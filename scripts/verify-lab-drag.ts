@@ -4,11 +4,12 @@
  * them with real mouse moves at one move per frame, and records the frame
  * intervals during the drag and in the second after the drop.
  *
- *   bun scripts/verify-lab-drag.ts [--select 10] [--steps 90] [--repeats 5] [--profile-first] [--profile-drops] [--out DIR]
+ *   bun scripts/verify-lab-drag.ts [--select 10] [--steps 90] [--repeats 5] [--profile-first] [--profile-drops] [--trace-drops] [--out DIR]
  *
  * Run after scripts/verify-lab-canvas.ts, under the app-run lock.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { loadavg } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -21,6 +22,7 @@ const steps = Number(arg("steps", "90"));
 const repeats = Number(arg("repeats", "5"));
 const profileFirst = process.argv.includes("--profile-first");
 const profileDrops = process.argv.includes("--profile-drops");
+const traceDrops = process.argv.includes("--trace-drops");
 const rendererPort = process.env.JUNTO_PERF_LAB_RENDERER_PORT ?? "9229";
 const outDir = resolve(arg("out", "."));
 mkdirSync(outDir, { recursive: true });
@@ -36,8 +38,12 @@ const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise<void>((ok) => (ws.onopen = () => ok()));
 let next = 1;
 const waiting = new Map<number, (value: any) => void>();
+let traceEvents: any[] = [];
+let traceDone: (() => void) | undefined;
 ws.onmessage = (event) => {
   const message = JSON.parse(String(event.data));
+  if (message.method === "Tracing.dataCollected") traceEvents.push(...message.params.value);
+  if (message.method === "Tracing.tracingComplete") traceDone?.();
   const done = message.id === undefined ? undefined : waiting.get(message.id);
   if (done) {
     waiting.delete(message.id);
@@ -236,6 +242,15 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
     await send("Profiler.start", {});
     await sleep(120);
   }
+  // With --trace-drops a timeline trace covers the drop: what the browser
+  // itself did (style, layout, paint), which a CPU profile shows only as time
+  // outside any function. A user-timing mark places the release in the trace.
+  if (traceDrops) {
+    traceEvents = [];
+    await send("Tracing.start", { transferMode: "ReportEvents", traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "disabled-by-default-devtools.timeline.stack", "blink.user_timing", "loading", "latencyInfo"] } });
+    await sleep(150);
+    await evaluate(`performance.mark("verify:release")`);
+  }
   const released = Date.now();
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
@@ -258,6 +273,39 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
     const path = join(outDir, `drop-${String(repeat)}-${direction === 1 ? "down-right" : "up-left"}.cpuprofile`);
     writeFileSync(path, JSON.stringify(profile));
     console.log(JSON.stringify({ dropProfile: path, repeat, dropMs, selfMsByFunction: top }));
+  }
+  if (traceDrops) {
+    await sleep(1_200);
+    const complete = new Promise<void>((done) => { traceDone = done; });
+    await send("Tracing.end", {});
+    await complete;
+    const path = join(outDir, `drop-${String(repeat)}-${direction === 1 ? "down-right" : "up-left"}.trace.json.gz`);
+    writeFileSync(path, gzipSync(JSON.stringify({ traceEvents })));
+    const mark = traceEvents.find((e) => e.name === "verify:release");
+    if (mark) {
+      // Complete events on the thread that carried the mark, in the second after it.
+      const from = mark.ts as number;
+      const until = from + 1_000_000;
+      const mine = traceEvents.filter((e) => e.ph === "X" && e.pid === mark.pid && e.tid === mark.tid && e.ts >= from && e.ts < until);
+      const sum = new Map<string, { count: number; ms: number; longest: number }>();
+      for (const e of mine) {
+        const slot = sum.get(e.name) ?? { count: 0, ms: 0, longest: 0 };
+        slot.count += 1;
+        slot.ms += (e.dur ?? 0) / 1000;
+        slot.longest = Math.max(slot.longest, (e.dur ?? 0) / 1000);
+        sum.set(e.name, slot);
+      }
+      const named = ["RunTask", "EventDispatch", "FunctionCall", "UpdateLayoutTree", "Layout", "PrePaint", "Paint", "Layerize", "Commit", "HitTest", "UpdateLayer", "CompositeLayers", "MinorGC", "MajorGC", "V8.GC_MC_BACKGROUND_MARKING", "TimerFire", "FireAnimationFrame", "IntersectionObserverController::computeIntersections", "ResizeObserverController::gatherObservations"];
+      const durations = Object.fromEntries(named.filter((n) => sum.has(n)).map((n) => [n, { count: sum.get(n)!.count, ms: Math.round(sum.get(n)!.ms * 10) / 10, longest: Math.round(sum.get(n)!.longest * 10) / 10 }]));
+      const others = [...sum].filter(([n]) => !named.includes(n)).sort((a, b) => b[1].ms - a[1].ms).slice(0, 8).map(([n, v]) => [n, v.count, Math.round(v.ms * 10) / 10]);
+      // What each layout and style pass covered, and what asked for a layout from script.
+      const layouts = mine.filter((e) => e.name === "Layout").map((e) => ({ ms: Math.round((e.dur ?? 0) / 100) / 10, dirty: e.args?.beginData?.dirtyObjects, total: e.args?.beginData?.totalObjects, partial: e.args?.beginData?.partialLayout, forcedBy: (e.args?.beginData?.stackTrace ?? []).slice(0, 3).map((f: any) => `${f.functionName || "(anonymous)"}:${String(f.lineNumber)}`) })).sort((a, b) => b.ms - a.ms).slice(0, 6);
+      const styles = mine.filter((e) => e.name === "UpdateLayoutTree").map((e) => ({ ms: Math.round((e.dur ?? 0) / 100) / 10, elements: e.args?.elementCount, forcedBy: (e.args?.beginData?.stackTrace ?? []).slice(0, 3).map((f: any) => `${f.functionName || "(anonymous)"}:${String(f.lineNumber)}`) })).sort((a, b) => b.ms - a.ms).slice(0, 6);
+      const paints = mine.filter((e) => e.name === "Paint").length;
+      console.log(JSON.stringify({ dropTrace: path, repeat, dropMs, events: traceEvents.length, mainThreadInTheSecondAfterRelease: durations, otherSlices: others, layouts, styles, paints }));
+    } else {
+      console.log(JSON.stringify({ dropTrace: path, repeat, dropMs, events: traceEvents.length, note: "release mark not found in the trace" }));
+    }
   }
   await sleep(3_000);
   const after = await take();
