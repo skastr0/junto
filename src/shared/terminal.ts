@@ -187,9 +187,6 @@ export const resolveTerminalBinding = (
   };
 };
 
-export const isTerminalNode = (node: CanvasNode): boolean =>
-  resolveTerminalBinding(node) !== undefined;
-
 /** Runtime summary for inventory / quit dialog (never canvas). */
 export type TerminalSessionSummary = {
   readonly bindingId: string;

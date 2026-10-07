@@ -4,7 +4,6 @@ import type { CanvasNode } from "../src/shared/canvas";
 import {
   actorDeliverySurfaceOf,
   deliveryTargetFromSurface,
-  isManagedAgentNode,
 } from "../src/shared/actor-surface";
 import { deliveryTargetOf } from "../src/shared/message-delivery";
 import { resolveTerminalBinding } from "../src/shared/terminal";
@@ -71,13 +70,11 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
     expect(deliveryTargetFromSurface(s!)).toEqual({
       bindingId: "bind-1",
     });
-    expect(isManagedAgentNode(managedAgent())).toBe(true);
   });
 
   it("agent without terminal ports is illegal — not ACP, not a surface", () => {
     expect(actorDeliverySurfaceOf(illegalAgent())).toBeUndefined();
     expect(() => nodeFromDocument("factory", illegalAgent(), 0)).toThrow(/"bad".*canvas can hold/);
-    expect(isManagedAgentNode(illegalAgent())).toBe(false);
   });
 
   it("terminal kind is geography — no actor surface, no inbox, still a terminal", () => {

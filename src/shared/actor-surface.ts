@@ -65,13 +65,6 @@ export type ManagedAgentNode = CanvasNode & {
   };
 };
 
-export const isManagedAgentNode = (node: CanvasNode): node is ManagedAgentNode => {
-  if (node.ether?.entity?.kind !== "agent") return false;
-  const name = node.ether.entity.name?.trim();
-  const bindingId = node.ether.terminal?.bindingId?.trim();
-  return Boolean(name && bindingId && node.ether.terminal?.harness);
-};
-
 // ── Decode from document ───────────────────────────────────────────────────
 
 /**

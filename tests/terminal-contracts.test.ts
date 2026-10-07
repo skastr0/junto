@@ -8,7 +8,6 @@ import {
 } from "../src/shared/canvas";
 import {
   resolveTerminalBinding,
-  isTerminalNode,
   xtermCapabilities,
 } from "../src/shared/terminal";
 import { resolveNodeHostId, isExecutableEntityKind } from "../src/shared/station";
@@ -85,7 +84,6 @@ describe("resolveTerminalBinding", () => {
       expect(b.hostId).toBe("remote-a");
       expect(b.launch?.kind).toBe("command");
     }
-    expect(isTerminalNode(node)).toBe(true);
     expect(resolveNodeHostId(node)).toBe("remote-a");
   });
 
