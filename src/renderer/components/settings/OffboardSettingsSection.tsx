@@ -8,6 +8,8 @@
  *   cache window   how long a still seat stays cheap to give a turn
  *   idle nudge     ask a still seat to offboard and continue (inside the window)
  *   auto offboard  end a still seat's session with no notes (at or past it)
+ *   worth cutting  how much a session must have done before either rule
+ *                  touches it: work time, or transcript size. Either is enough.
  *
  * A change is saved the moment it is entered, unless it would break that
  * order: then nothing is saved and the line under the section says why.
@@ -18,10 +20,18 @@ import { HARNESS_IDS, isHarnessId, templateFor } from "@shared/managed-terminal-
 import {
   OFFBOARD_MINUTES_MAX,
   OFFBOARD_MINUTES_MIN,
+  OFFBOARD_TOKENS_MAX,
+  OFFBOARD_TOKENS_MIN,
+  offboardRulesFor,
   type OffboardRulesPatch,
 } from "@shared/seat-offboard";
 import { offboardRules } from "@shared/settings";
-import { parseOffboardMinutes, planOffboardRulesChange, seedHarnessOverride } from "../../lib/seat-offboard";
+import {
+  parseOffboardMinutes,
+  parseOffboardTokens,
+  planOffboardRulesChange,
+  seedHarnessOverride,
+} from "../../lib/seat-offboard";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
 import { Button, Dropdown, Switch } from "../ui";
@@ -30,19 +40,30 @@ import "./offboard-settings.css";
 
 const harnessName = (harness: string): string => (isHarnessId(harness) ? templateFor(harness).displayName : harness);
 
-/** A minutes field: commits on blur or Enter, Escape drops the edit. */
+type Unit = "minutes" | "tokens";
+
+const UNIT: Readonly<
+  Record<Unit, { readonly word: string; readonly min: number; readonly max: number; readonly parse: (raw: string) => number | undefined }>
+> = {
+  minutes: { word: "min", min: OFFBOARD_MINUTES_MIN, max: OFFBOARD_MINUTES_MAX, parse: parseOffboardMinutes },
+  tokens: { word: "tokens", min: OFFBOARD_TOKENS_MIN, max: OFFBOARD_TOKENS_MAX, parse: parseOffboardTokens },
+};
+
+/** A whole-number field: commits on blur or Enter, Escape drops the edit. */
 function MinutesInput({
   label,
   value,
+  unit = "minutes",
   disabled,
   testId,
   onCommit,
 }: {
   readonly label: string;
   readonly value: number;
+  readonly unit?: Unit;
   readonly disabled?: boolean;
   readonly testId?: string;
-  readonly onCommit: (minutes: number) => Promise<boolean>;
+  readonly onCommit: (next: number) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<string>();
   // A landed change ends the edit: the stored value is what the field shows.
@@ -50,7 +71,7 @@ function MinutesInput({
 
   const commit = async (): Promise<void> => {
     if (draft === undefined) return;
-    const next = parseOffboardMinutes(draft);
+    const next = UNIT[unit].parse(draft);
     if (next === undefined || next === value) {
       setDraft(undefined);
       return;
@@ -60,13 +81,13 @@ function MinutesInput({
   };
 
   return (
-    <span className="offboard-settings__minutes">
+    <span className="offboard-settings__minutes" data-unit={unit}>
       <input
         type="number"
         inputMode="numeric"
-        min={OFFBOARD_MINUTES_MIN}
-        max={OFFBOARD_MINUTES_MAX}
-        step={1}
+        min={UNIT[unit].min}
+        max={UNIT[unit].max}
+        step={unit === "tokens" ? 1_000 : 1}
         value={draft ?? String(value)}
         disabled={disabled}
         aria-label={label}
@@ -82,7 +103,7 @@ function MinutesInput({
           }
         }}
       />
-      <span aria-hidden>min</span>
+      <span aria-hidden>{UNIT[unit].word}</span>
     </span>
   );
 }
@@ -102,6 +123,8 @@ export function OffboardSettingsSection() {
     return patchSettings({ offboard: plan.patch });
   };
 
+  // Rules saved before the thresholds existed carry none: read them filled in.
+  const worth = offboardRulesFor(rules, undefined).worth;
   const overrides = Object.entries(rules.harness ?? {}).filter(([harness]) => isHarnessId(harness));
   const free = HARNESS_IDS.filter((harness) => rules.harness?.[harness] === undefined);
 
@@ -163,6 +186,33 @@ export function OffboardSettingsSection() {
         />
       </FieldRow>
 
+      <FieldRow
+        label="Worth cutting: work time"
+        hint="the idle nudge and auto offboard leave a session alone until it has done enough. This much time spent working is enough."
+        group
+      >
+        <MinutesInput
+          label="Work time that makes a session worth cutting, minutes"
+          value={worth.workMinutes}
+          testId="offboard-worth-work"
+          onCommit={(minutes) => change({ worth: { workMinutes: minutes } })}
+        />
+      </FieldRow>
+
+      <FieldRow
+        label="Worth cutting: session size"
+        hint="or a transcript grown to about this many tokens, whichever comes first. A session that has not worked at all is never cut. Your own Offboard buttons ignore both."
+        group
+      >
+        <MinutesInput
+          unit="tokens"
+          label="Session size that makes a session worth cutting, tokens"
+          value={worth.tokens}
+          testId="offboard-worth-tokens"
+          onCommit={(tokens) => change({ worth: { tokens } })}
+        />
+      </FieldRow>
+
       {problem ? (
         <p className="settings-error" role="alert" data-testid="offboard-settings-problem">
           Not saved. {problem}
@@ -171,8 +221,8 @@ export function OffboardSettingsSection() {
 
       <div className="offboard-settings__harnesses" role="group" aria-label="Per harness">
         <p className="settings-note">
-          Per harness: a harness can run on its own window, and have each rule on or off and timed by itself. A
-          harness with no row here follows the installation.
+          Per harness: a harness can run on its own window and thresholds, and have each rule on or off and timed
+          by itself. A harness with no row here follows the installation.
         </p>
         {overrides.map(([harness, over]) => {
           const name = harnessName(harness);
@@ -182,6 +232,8 @@ export function OffboardSettingsSection() {
             nudgeOn: over.nudge?.enabled ?? rules.nudge.enabled,
             auto: over.auto?.minutes ?? rules.auto.minutes,
             autoOn: over.auto?.enabled ?? rules.auto.enabled,
+            work: over.worth?.workMinutes ?? worth.workMinutes,
+            tokens: over.worth?.tokens ?? worth.tokens,
           };
           return (
             <div key={harness} className="offboard-settings__harness" data-testid={`offboard-harness-${harness}`}>
@@ -220,6 +272,20 @@ export function OffboardSettingsSection() {
                   label={`${name} auto offboard after, minutes`}
                   value={set.auto}
                   onCommit={(minutes) => change({ harness: { [harness]: { auto: { minutes } } } })}
+                />
+              </label>
+              <label>
+                <span>worth</span>
+                <MinutesInput
+                  label={`${name} work time that makes a session worth cutting, minutes`}
+                  value={set.work}
+                  onCommit={(minutes) => change({ harness: { [harness]: { worth: { workMinutes: minutes } } } })}
+                />
+                <MinutesInput
+                  unit="tokens"
+                  label={`${name} session size that makes a session worth cutting, tokens`}
+                  value={set.tokens}
+                  onCommit={(tokens) => change({ harness: { [harness]: { worth: { tokens } } } })}
                 />
               </label>
               <Button

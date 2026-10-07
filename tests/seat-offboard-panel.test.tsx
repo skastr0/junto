@@ -109,6 +109,18 @@ describe("one seat", () => {
     expect(byId("seat-offboard-preferred")?.parentElement?.contains(byId("seat-offboard-now"))).toBe(true);
   });
 
+  it("shows what the session has done, and when that is too small for the automatic rules", async () => {
+    await open(["a"], fakeOps([status("a", { workMinutes: 42, sessionTokens: 180_400, worthCutting: true })]).ops);
+    expect(byId("seat-offboard-session")?.textContent).toBe("This session: 42m of work, about 180k tokens.");
+    await open(["a"], fakeOps([status("a", { workMinutes: 3, worthCutting: false })]).ops);
+    expect(byId("seat-offboard-session")?.textContent).toBe(
+      "This session: 3m of work. Too small for the automatic rules to act on.",
+    );
+    // The buttons are not held to it.
+    expect(byId<HTMLButtonElement>("seat-offboard-now")?.disabled).toBe(false);
+    expect(byId<HTMLButtonElement>("seat-offboard-ask-continue")?.disabled).toBe(false);
+  });
+
   it("working: offboard now cannot be pressed and says why; asking still can", async () => {
     await open(["a"], fakeOps([status("a", { now: working, idleMinutes: null })]).ops);
     expect(byId<HTMLButtonElement>("seat-offboard-now")?.disabled).toBe(true);

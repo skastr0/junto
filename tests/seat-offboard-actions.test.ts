@@ -8,6 +8,7 @@ import {
   offboardPreferred,
   offboardSessionLine,
   parseOffboardMinutes,
+  parseOffboardTokens,
   planOffboardRulesChange,
   seedHarnessOverride,
 } from "../src/renderer/lib/seat-offboard";
@@ -178,6 +179,7 @@ describe("a change to the automatic rules, before it is saved", () => {
           cacheWindowMinutes: 60,
           auto: { enabled: true, minutes: 120 },
           nudge: { enabled: false, minutes: 40 },
+          worth: { workMinutes: 30, tokens: 200_000 },
         },
       },
     });
@@ -198,14 +200,37 @@ describe("a minutes field", () => {
 
 describe("what a seat's current session has done", () => {
   it("says the work time and the estimated size", () => {
-    expect(offboardSessionLine(42, 180_400)).toBe("This session: 42m of work, about 180k tokens.");
-    expect(offboardSessionLine(95, 1_240_000)).toBe("This session: 1h 35m of work, about 1.2M tokens.");
-    expect(offboardSessionLine(0, 850)).toBe("This session: 0m of work, about 850 tokens.");
-    expect(offboardSessionLine(120, 2_000_000)).toBe("This session: 2h of work, about 2M tokens.");
+    expect(offboardSessionLine([status({ workMinutes: 42, sessionTokens: 180_400, worthCutting: true })])).toBe(
+      "This session: 42m of work, about 180k tokens.",
+    );
+    expect(offboardSessionLine([status({ workMinutes: 95, sessionTokens: 1_240_000, worthCutting: true })])).toBe(
+      "This session: 1h 35m of work, about 1.2M tokens.",
+    );
+    expect(offboardSessionLine([status({ workMinutes: 120, sessionTokens: 2_000_000, worthCutting: true })])).toBe(
+      "This session: 2h of work, about 2M tokens.",
+    );
   });
-  it("leaves out what is not known, and says nothing when neither is", () => {
-    expect(offboardSessionLine(42, null)).toBe("This session: 42m of work.");
-    expect(offboardSessionLine(undefined, 200_000)).toBe("This session: about 200k tokens.");
-    expect(offboardSessionLine(null, undefined)).toBe("");
+  it("leaves the size out when the transcript cannot be found", () => {
+    expect(offboardSessionLine([status({ workMinutes: 42, worthCutting: true })])).toBe("This session: 42m of work.");
+  });
+  it("says when the session is too small for the automatic rules", () => {
+    expect(offboardSessionLine([status({ workMinutes: 3, sessionTokens: 850, worthCutting: false })])).toBe(
+      "This session: 3m of work, about 850 tokens. Too small for the automatic rules to act on.",
+    );
+  });
+  it("is silent for a selection, and when main reports neither measure", () => {
+    const one = status({ workMinutes: 42, worthCutting: true });
+    expect(offboardSessionLine([one, one])).toBe("");
+    expect(offboardSessionLine([status()])).toBe("");
+    expect(offboardSessionLine([])).toBe("");
+  });
+});
+
+describe("a session size field", () => {
+  it("takes a whole token count from 1,000 to 100,000,000, with or without separators", () => {
+    expect(parseOffboardTokens("200000")).toBe(200_000);
+    expect(parseOffboardTokens("200,000")).toBe(200_000);
+    expect(parseOffboardTokens(" 1000 ")).toBe(1_000);
+    for (const raw of ["", "999", "100000001", "2.5", "200k", "-1"]) expect(parseOffboardTokens(raw)).toBeUndefined();
   });
 });

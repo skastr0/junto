@@ -14,6 +14,7 @@ import {
   offboardNowBlock,
   offboardNowLine,
   offboardPreferred,
+  offboardSessionLine,
   seatOffboardOps,
   type SeatOffboardOps,
 } from "../../lib/seat-offboard";
@@ -100,6 +101,7 @@ export function SeatOffboardPanel({
   const many = count > 1;
   const title = many ? `Offboard ${agentCountLabel(count)}` : `Offboard ${seats[0]?.name ?? "agent"}`;
   const idle = offboardIdleLine(statuses);
+  const session = offboardSessionLine(statuses);
   const preferred = offboardPreferred(statuses);
   const nowBlock = offboardNowBlock(statuses);
 
@@ -143,6 +145,11 @@ export function SeatOffboardPanel({
         {idle ? (
           <span className="seat-offboard-panel__idle" data-testid="seat-offboard-idle">
             {idle}
+          </span>
+        ) : null}
+        {session ? (
+          <span className="seat-offboard-panel__idle" data-testid="seat-offboard-session">
+            {session}
           </span>
         ) : null}
       </div>

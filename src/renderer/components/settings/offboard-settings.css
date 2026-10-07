@@ -26,6 +26,9 @@
   padding: 7px 10px;
   font-size: var(--text-body-lg);
 }
+.offboard-settings__minutes[data-unit="tokens"] input[type="number"] {
+  width: 116px;
+}
 .offboard-settings__harnesses {
   display: flex;
   flex-direction: column;

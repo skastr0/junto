@@ -94,6 +94,22 @@ describe("the offboard rules in Settings", () => {
     expect(field("offboard-cache-window").value).toBe("60");
   });
 
+  it("shows the worth-cutting thresholds: 30 minutes of work, 200,000 tokens", () => {
+    expect(field("offboard-worth-work").value).toBe("30");
+    expect(field("offboard-worth-tokens").value).toBe("200000");
+  });
+
+  it("saves a threshold, and ignores a size outside 1,000 to 100,000,000", async () => {
+    await enter("offboard-worth-work", "45");
+    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { worth: { workMinutes: 45 } } });
+    await enter("offboard-worth-tokens", "350000");
+    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { worth: { tokens: 350_000 } } });
+    patchSettings.mockClear();
+    await enter("offboard-worth-tokens", "500");
+    expect(patchSettings).not.toHaveBeenCalled();
+    expect(field("offboard-worth-tokens").value).toBe("200000");
+  });
+
   it("turns a rule on or off with its switch", async () => {
     await act(async () => {
       field("offboard-auto-on").click();
@@ -130,7 +146,7 @@ describe("a harness with its own rules", () => {
   it("shows that harness's window, and each rule's switch and minutes", () => {
     const row = host.querySelector('[data-testid="offboard-harness-codex"]')!;
     expect(row.textContent).toContain("Codex");
-    expect(Array.from(row.querySelectorAll<HTMLInputElement>('input[type="number"]')).map((input) => input.value)).toEqual(["30", "20", "90"]);
+    expect(Array.from(row.querySelectorAll<HTMLInputElement>('input[type="number"]')).map((input) => input.value)).toEqual(["30", "20", "90", "30", "200000"]);
     expect(field("offboard-harness-codex-nudge-on").checked).toBe(false);
     expect(field("offboard-harness-codex-auto-on").checked).toBe(true);
   });

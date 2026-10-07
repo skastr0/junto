@@ -1,6 +1,8 @@
 import {
   OFFBOARD_MINUTES_MAX,
   OFFBOARD_MINUTES_MIN,
+  OFFBOARD_TOKENS_MAX,
+  OFFBOARD_TOKENS_MIN,
   OFFBOARD_REFUSAL_REASON,
   applyOffboardRulesPatch,
   offboardRulesFor,
@@ -176,17 +178,20 @@ const tokensWords = (tokens: number): string => {
 
 /**
  * What one seat's current session has done: time spent working, and the
- * size of its transcript as a token estimate. Either may be unknown (the
- * size is, when the transcript cannot be found); empty when both are.
+ * size of its transcript as a token estimate (unknown when the transcript
+ * cannot be found). When that is not yet enough for the automatic rules to
+ * act on it, the line says so: the buttons still work. A selection gets no
+ * such line.
  */
-export const offboardSessionLine = (
-  workMinutes: number | null | undefined,
-  tokens: number | null | undefined,
-): string => {
-  const work = typeof workMinutes === "number" ? `${minutesWords(workMinutes)} of work` : undefined;
-  const size = typeof tokens === "number" ? `about ${tokensWords(tokens)} tokens` : undefined;
-  if (work === undefined && size === undefined) return "";
-  return `This session: ${[work, size].filter((part) => part !== undefined).join(", ")}.`;
+export const offboardSessionLine = (statuses: ReadonlyArray<SeatOffboardStatus>): string => {
+  if (statuses.length !== 1) return "";
+  const only = statuses[0]!;
+  const parts: string[] = [];
+  if (only.workMinutes !== undefined) parts.push(`${minutesWords(only.workMinutes)} of work`);
+  if (only.sessionTokens !== undefined) parts.push(`about ${tokensWords(only.sessionTokens)} tokens`);
+  if (parts.length === 0) return "";
+  const line = `This session: ${parts.join(", ")}.`;
+  return only.worthCutting === false ? `${line} Too small for the automatic rules to act on.` : line;
 };
 
 /** The action to mark as preferred: one seat's own; a selection has none. */
@@ -236,9 +241,18 @@ export const seedHarnessOverride = (rules: OffboardRules, harness: string): Offb
         cacheWindowMinutes: set.cacheWindowMinutes,
         auto: { enabled: set.auto.enabled, minutes: set.auto.minutes },
         nudge: { enabled: set.nudge.enabled, minutes: set.nudge.minutes },
+        worth: { workMinutes: set.worth.workMinutes, tokens: set.worth.tokens },
       },
     },
   };
+};
+
+/** A typed token count, or undefined when it is not a whole number in range. Takes "200000" and "200,000". */
+export const parseOffboardTokens = (raw: string): number | undefined => {
+  const text = raw.trim().replace(/[,_ ]/gu, "");
+  if (!/^\d+$/u.test(text)) return undefined;
+  const tokens = Number(text);
+  return tokens >= OFFBOARD_TOKENS_MIN && tokens <= OFFBOARD_TOKENS_MAX ? tokens : undefined;
 };
 
 /** A typed minutes value, or undefined when it is not a whole number in range. */
