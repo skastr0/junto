@@ -15,7 +15,7 @@ import {
   type CanvasDoc,
   type CanvasEdge,
   type CanvasNode,
-} from "../../../src/shared/canvas";
+} from "../frozen-canvas-types";
 import { InstallationId } from "../../../src/shared/installation-id";
 import {
   WORK_PROTOCOL,

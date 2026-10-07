@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { CanvasDoc } from "../src/main/junto/station/frozen-document";
 import { InstallationId } from "../src/shared/installation-id";
 import {
   LogicalSequence,

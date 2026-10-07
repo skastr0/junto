@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   serializeCanvas,
   type CanvasDoc,
-} from "../src/shared/canvas";
+} from "../src/main/junto/station/frozen-document";
 import {
   ConfigureRequest,
   InstallationId,

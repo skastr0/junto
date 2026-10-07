@@ -5,7 +5,7 @@ import {
   Schema,
 } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { CanvasDoc } from "../src/main/junto/station/frozen-document";
 import {
   InstallationId,
   LogicalSequence,

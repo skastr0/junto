@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import { CanvasDoc, serializeCanvas } from "../src/shared/canvas";
+import { CanvasDoc, serializeCanvas } from "../src/main/junto/station/frozen-document";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,

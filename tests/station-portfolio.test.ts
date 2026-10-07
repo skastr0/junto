@@ -4,7 +4,7 @@ import {
   serializeCanvas,
   type CanvasDoc,
   type EtherNodeExtension,
-} from "../src/shared/canvas";
+} from "../src/main/junto/station/frozen-document";
 import { InstallationId } from "../src/shared/installation-id";
 import {
   STATION_PORTFOLIO_PROTOCOL,

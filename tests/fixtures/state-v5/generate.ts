@@ -8,7 +8,7 @@
  *
  * Frozen history: this build cannot regenerate the stored database.
  */
-import type { CanvasDoc } from "../../../src/shared/canvas";
+import type { CanvasDoc } from "../frozen-canvas-types";
 
 const agent = (id: string, x: number, extra: Record<string, unknown> = {}) => ({
   id,

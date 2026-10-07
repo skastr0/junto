@@ -6,7 +6,7 @@ import { Effect, Result, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas, type CanvasDoc } from "../src/main/junto/station/frozen-document";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,

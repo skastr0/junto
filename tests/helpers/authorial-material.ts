@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { CanvasDoc } from "../../src/shared/canvas";
+import type { CanvasDoc } from "../fixtures/frozen-canvas-types";
 import { bodySha256Of as canvasBodySha256Of } from "../../src/main/junto/work/body-sha256";
 
 /** Historical portfolio identity used only by frozen station test fixtures. */

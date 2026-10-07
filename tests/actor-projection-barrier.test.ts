@@ -31,7 +31,7 @@ import type { StationFleetTarget } from "../src/main/junto/station/fleet-target-
 import type { DesiredProjection } from "../src/main/junto/station/propagation";
 import { Schema } from "effect";
 import { InstallationId } from "../src/shared/installation-id";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { CanvasDoc } from "../src/main/junto/station/frozen-document";
 import { StationFleetPeerUnavailable } from "../src/main/junto/station/fleet-propagation";
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import type {

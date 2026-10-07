@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
-import type { CanvasDoc } from "../../src/shared/canvas";
 import type { Canvas } from "../../src/shared/model";
 import type { Task } from "../../src/shared/work-model";
 import type {
@@ -8,12 +7,10 @@ import type {
   LiveTrustViews,
 } from "../../src/shared/execution-graph";
 import { executionGraphContextFromActorRefs } from "../../src/shared/graph";
-import { resolveSpec, roleOf } from "../../src/shared/physics";
 import {
   ActorRef,
   type ActorRef as ActorRefValue,
 } from "../../src/shared/work-protocol";
-import { workItemsFromDocument } from "../../src/shared/model/from-document";
 
 export const TEST_CANVAS_NAME = "c";
 
@@ -30,36 +27,6 @@ export const actorRefFixture = (
     canvasName,
     nodeId,
   });
-
-export const actorRefsForDoc = (
-  doc: CanvasDoc,
-  canvasName = TEST_CANVAS_NAME,
-): ReadonlyArray<ActorRefValue> =>
-  doc.nodes
-    .filter(
-      (node) =>
-        roleOf(
-          resolveSpec({
-            isGroup: node.type === "group",
-            kind: node.ether?.entity?.kind,
-          }),
-        ) === "actor",
-    )
-    .map((node) => actorRefFixture(node.id, canvasName));
-
-export const executionContextForDoc = (
-  doc: CanvasDoc,
-  canvasName = TEST_CANVAS_NAME,
-  trust: LiveTrustViews = {},
-): ExecutionGraphContext =>
-  executionGraphContextFromActorRefs(
-    canvasName,
-    actorRefsForDoc(doc, canvasName),
-    workItemsFromDocument(doc),
-    trust,
-  );
-
-// ── The same fixtures for a canvas built from model nodes ───────────────────
 
 /** One actor reference per seat on the canvas: a seat is the model's one actor. */
 export const actorRefsForCanvas = (
