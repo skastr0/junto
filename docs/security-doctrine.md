@@ -289,17 +289,16 @@ The target product contract is:
 - undo, recovery, and "what authority changed?" remain operator facilities and
   must not restore a revoked overseer grant from a stale document.
 
-There is no JSON Canvas import or export. No file on disk carries canvas
+There is no canvas file, import or export. No file on disk carries canvas
 contents, and none can grant live authority over a running factory.
 
 Canonical live and durable state is `~/.junto/state/junto.db`. During normal
 product operation it is an owner-only SQLite database opened by exactly one
 main-process `StateEngine`: Electron main on Command Center or packaged Node
 main on Remote. Renderers, CLIs, helpers, fleet callers, and other processes
-use IPC/control APIs and never open it. App-owned
-write/create/remove operations commit full-map `canvas_generations` and advance
-`canvas_head` transactionally. History is ordinary queryable database state,
-not a content-addressed directory or manifest tree.
+use IPC/control APIs and never open it. A change to a canvas is a command that
+names the rows it touches, committed in one transaction and followed by one
+event (`src/shared/model/`).
 
 There is no sealed state-preflight database opener. Install/update stages the
 package, quiesces the incumbent, and cutovers; schema and content migration run
@@ -419,8 +418,8 @@ or key-management system merely because the canvas is authoritative.
 
 ### Agent surface
 
-The protected document remains the product. Compiled projections and
-capability-bound tools are the agent API.
+The app is its model: seats, regions, wires and the other kinds, as typed rows.
+Capability-bound tools are the agent API.
 
 Ordinary agents may receive deterministic text or visual projections, scoped
 context (including region briefing text via work-control onboard), work

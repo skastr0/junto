@@ -215,36 +215,17 @@ No row is concurrently authoritative in two installations. A move to another
 home is an explicit transfer with one cutover point. Code must not approximate
 that move with dual reads or dual writes.
 
-## Canvas and history
+## Canvases
 
-The canvas document remains JSON Canvas 1.0 plus Junto's `ether` extension,
-but its live representation is stored in SQLite:
+There is no canvas document. A canvas is a name and the rows on it: one table
+per kind of node (seats, regions, terminals, pages, task boards and the rest)
+and one for wires, each with real columns for exactly that kind's fields
+(`src/shared/model/`). There is no extension column and no stored body.
 
-- `canvas_generations` records the logical generation, cause, creation time,
-  intent hash, and document count;
-- `canvas_generation_documents` stores every complete document in that
-  generation with its content hash;
-- `canvas_head` selects the one current generation.
-
-Every authorial commit is a full-map transaction. A generation is either
-complete and selected or absent; no pointer file or manifest can become
-half-written. History is queryable database state. Retention is keep-all by
-default; physical retirement is a separate operator-approved compaction.
-
-Authorial canvas writes persist one relational current graph
-(`canvas_documents`, `canvas_objects`, `canvas_nodes`, `canvas_edges`),
-content-addressed immutable `canvas_checkpoints` (reused when the serialized
-body is unchanged), compact `canvas_generation_manifests`, and an append-only
-`canvas_commit_envelopes` row in the same SQLite transaction as
-`canvas_generations` / `canvas_head`. Automatic deletion of
-`canvas_generation_documents` bodies is removed. Historical generation
-document rows remain readable and are never rewritten. Future physical
-compaction is a separately approved operation with backup, parity, fleet, and
-Work-reference proofs.
-
-Screenshots, diagnostic bundles, and plugin payloads are deliberate outputs.
-The app does not watch or ingest them as live state. It writes no canvas
-file, digest file, or SVG file.
+A change is a command that names the rows it touches. It commits in one
+transaction, advances that canvas's `seq` by one, and main emits one event
+carrying the rows that changed. Nothing reads, writes, compares or hashes a
+canvas as one value, and no history of whole canvases is kept.
 
 ## Work plane and ordering
 

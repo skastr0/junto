@@ -2,7 +2,7 @@
 
 ## The canvas
 
-A canvas is a [JSON Canvas](https://jsoncanvas.org) document. Nodes are agents, terminals, notes, labels, git cards, and regions. Edges are relationships. You author it in the app; agents do not write it unless you make one an overseer.
+A canvas is a named place. Nodes are agents, terminals, notes, labels, git cards, and regions. Edges are relationships. You author it in the app; agents do not write it unless you make one an overseer.
 
 ## Seats
 
