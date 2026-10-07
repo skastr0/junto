@@ -1,3 +1,4 @@
+import { nodeFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
@@ -235,12 +236,12 @@ describe("message-delivery pure helpers", () => {
 
   it("resolves the agent seat; bare agent and raw terminals are unreachable", () => {
     // Agents without ether.terminal.bindingId never fall back to ACP.
-    expect(deliveryTargetOf(agentNode())).toEqual({
+    expect(deliveryTargetOf(nodeFromDocument("factory", agentNode(), 0))).toEqual({
       bindingId: "bind-profile-13",
     });
     // Geography holds no inbox — a raw user terminal
     // is a delivery target.
-    expect(deliveryTargetOf(terminalNode())).toBeUndefined();
+    expect(deliveryTargetOf(nodeFromDocument("factory", terminalNode(), 0))).toBeUndefined();
     const bare: CanvasDoc["nodes"][number] = {
       id: "x",
       type: "text",
@@ -251,7 +252,7 @@ describe("message-delivery pure helpers", () => {
       height: 10,
       ether: { entity: { kind: "agent", name: "local:orphan" } },
     };
-    expect(deliveryTargetOf(bare)).toBeUndefined();
+    expect(deliveryTargetOf(nodeFromDocument("factory", bare, 0))).toBeUndefined();
   });
 
 

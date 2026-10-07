@@ -52,7 +52,7 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
       transport: { seatLive: () => true, writeMail: async (_binding, text) => { writes.push(text); return "written"; } },
       store: {
         listCanvasNames: async () => ["factory"],
-        readDoc: async () => ({ nodes: [{ id: "inbox", type: "text", text: "inbox", x: 25, y: 50, width: 200, height: 100, ether: { entity: { kind: "agent", name: "local:inbox" }, terminal: { bindingId: "binding-inbox", harness: "claude" } } }], edges: [] }),
+        readCanvas: (canvas) => runtime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(canvas))),
         readMessage: (canvas, node, messageId) => runtime.runPromise(repo.mailMessage(canvas, node, messageId)),
         listMail: (canvas, node) => runtime.runPromise(repo.mailbox(canvas, node)),
         acceptMessageDelivery: stamp,

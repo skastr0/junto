@@ -4,12 +4,9 @@
 // delivered = metadata.deliveredAt stamped.
 
 import { decodeTime } from "ulid";
-import type { CanvasNode, Message } from "./canvas";
-import {
-  actorDeliverySurfaceOf,
-  deliveryTargetFromSurface,
-  type SurfaceDeliveryTarget,
-} from "./actor-surface";
+import type { Node } from "./model";
+import type { Message } from "./work-model";
+import type { SurfaceDeliveryTarget } from "./actor-surface";
 
 const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
@@ -258,9 +255,7 @@ export const ptyInjectMarksRead = (_message: Message): boolean => false;
  * beside the surfaces it is derived from.
  */
 export const deliveryTargetOf = (
-  node: CanvasNode,
+  node: Node,
 ): SurfaceDeliveryTarget | undefined => {
-  const surface = actorDeliverySurfaceOf(node);
-  if (!surface) return undefined;
-  return deliveryTargetFromSurface(surface);
+  return node.kind === "agent" ? { bindingId: node.bindingId } : undefined;
 };

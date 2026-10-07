@@ -1,3 +1,4 @@
+import { nodeFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import {
@@ -75,14 +76,14 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
 
   it("agent without terminal ports is illegal — not ACP, not a surface", () => {
     expect(actorDeliverySurfaceOf(illegalAgent())).toBeUndefined();
-    expect(deliveryTargetOf(illegalAgent())).toBeUndefined();
+    expect(deliveryTargetOf(nodeFromDocument("factory", illegalAgent(), 0))).toBeUndefined();
     expect(isManagedAgentNode(illegalAgent())).toBe(false);
   });
 
   it("terminal kind is geography — no actor surface, no inbox, still a terminal", () => {
     // Geography holds no delivery surface: a raw shell is not an actor seat.
     expect(actorDeliverySurfaceOf(rawShell())).toBeUndefined();
-    expect(deliveryTargetOf(rawShell())).toBeUndefined();
+    expect(deliveryTargetOf(nodeFromDocument("factory", rawShell(), 0))).toBeUndefined();
     // It still resolves as a terminal to attach to — geography hosts a PTY.
     expect(resolveTerminalBinding(rawShell())).toMatchObject({
       kind: "native",
@@ -91,7 +92,7 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
   });
 
   it("deliveryTargetOf is surface-derived only (no agent key target)", () => {
-    expect(deliveryTargetOf(managedAgent())).toEqual({
+    expect(deliveryTargetOf(nodeFromDocument("factory", managedAgent(), 0))).toEqual({
       bindingId: "bind-1",
     });
   });

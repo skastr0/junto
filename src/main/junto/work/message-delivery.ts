@@ -32,7 +32,8 @@
  * only delivery fact.
  */
 
-import type { CanvasDoc, Message } from "@shared/canvas";
+import { asNodeId, type Canvas } from "@shared/model";
+import type { Message } from "@shared/work-model";
 import { readMailExtension } from "@shared/crew";
 import {
   composeImmediatePromptPayload,
@@ -104,10 +105,10 @@ export type MessageDeliveryReadSite = "scan" | "attempt";
 
 export type MessageDeliveryStore = {
   readonly listCanvasNames: () => Promise<ReadonlyArray<string>>;
-  readonly readDoc: (
+  readonly readCanvas: (
     canvas: string,
     site: MessageDeliveryReadSite,
-  ) => Promise<CanvasDoc | undefined>;
+  ) => Promise<Canvas | undefined>;
   readonly readMessage: (canvas: string, nodeId: string, messageId: string) => Promise<Message | undefined>;
   readonly listMail: (canvas: string, nodeId: string) => Promise<ReadonlyArray<Message>>;
   /** Stamp the durable delivery receipt (`deliveredAt`). */
@@ -297,9 +298,9 @@ export class MessageDeliveryService {
     const transport = this.transport;
     const store = this.store;
     if (!this.active(generation) || !transport || !store) return "waiting";
-    const doc = await store.readDoc(canvas, "attempt");
+    const doc = await store.readCanvas(canvas, "attempt");
     if (!this.active(generation)) return "waiting";
-    const node = doc?.nodes.find((candidate) => candidate.id === nodeId);
+    const node = doc?.nodes.get(asNodeId(nodeId));
     const message = await store.readMessage(canvas, nodeId, messageId);
     const target = node === undefined ? undefined : deliveryTargetOf(node);
     if (!node || !message || !target) {
@@ -514,10 +515,10 @@ export class MessageDeliveryService {
     }
     for (const canvas of names) {
       if (!this.active(generation)) return;
-      const doc = await store.readDoc(canvas, "scan").catch(() => undefined);
+      const doc = await store.readCanvas(canvas, "scan").catch(() => undefined);
       if (!doc) continue;
       const pending: Array<{ nodeId: string; message: Message }> = [];
-      for (const node of doc.nodes) {
+      for (const node of doc.nodes.values()) {
         if (!deliveryTargetOf(node)) continue;
         for (const message of await store.listMail(canvas, node.id)) {
           if (isPendingDelivery(message)) pending.push({ nodeId: node.id, message });
@@ -553,8 +554,8 @@ export class MessageDeliveryService {
     if (!this.active(generation) || !transport || !store) return;
     if (this.flights.has(key)) return;
     const flight = (async (): Promise<MailDeliveryState> => {
-      const doc = await store.readDoc(pending.canvas, "attempt");
-      const node = doc?.nodes.find((candidate) => candidate.id === pending.actorNodeId);
+      const doc = await store.readCanvas(pending.canvas, "attempt");
+      const node = doc?.nodes.get(asNodeId(pending.actorNodeId));
       const target = node === undefined ? undefined : deliveryTargetOf(node);
       if (!target) {
         this.responses.delete(key);

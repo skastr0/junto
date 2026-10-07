@@ -177,7 +177,6 @@ import {
 } from "./term/managed-pulse-bridge";
 import {
   factoryBoardTransport,
-  factoryDeliveryReadTag,
   factoryPulseTransport,
   wireFactorySupervisor,
 } from "./term/factory-delivery-composition";
@@ -2560,17 +2559,14 @@ export const registerJuntoIpc = (): void => {
             }),
         },
         store: {
-          listCanvasNames: () =>
-            AppRuntime.runPromise(
-              canvases.list.pipe(Effect.map((entries) => entries.map((e) => e.name))),
+          listCanvasNames: () => AppRuntime.runPromise(
+            Effect.flatMap(ModelService, (model) => model.listCanvases()),
+          ),
+          readCanvas: (name) => AppRuntime.runPromise(
+            Effect.flatMap(ModelService, (model) => model.canvas(name)).pipe(
+              Effect.catch(() => Effect.succeed(undefined)),
             ),
-          readDoc: (name, site) =>
-            AppRuntime.runPromise(
-              canvases.read(name, factoryDeliveryReadTag(site)).pipe(
-                Effect.map((r) => r.doc),
-                Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
-              ),
-            ),
+          ),
           readMessage: (canvas, nodeId, messageId) => AppRuntime.runPromise(mailRepository.mailMessage(canvas, nodeId, messageId)),
           listMail: (canvas, nodeId) => AppRuntime.runPromise(mailRepository.mailbox(canvas, nodeId)),
           acceptMessageDelivery: (canvas, nodeId, messageId) =>

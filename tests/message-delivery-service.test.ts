@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src/shared/crew";
@@ -70,9 +71,9 @@ const rig = (
   const wakes: Array<{ bindingId: string; canvas: string; nodeId: string }> = [];
   const store: MessageDeliveryStore = {
     listCanvasNames: async () => [canvas],
-    readDoc: async () => {
+    readCanvas: async () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
-      return doc;
+      return canvasFromDocument("crew", doc);
     },
     readMessage: async (_canvas, _nodeId, messageId) => messages.find((message) => message.messageId === messageId),
     listMail: async () => messages,

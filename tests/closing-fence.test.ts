@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * The closing fence: from `junto offboard` accepted to the old process gone,
  * nothing is typed into the seat; what arrives in that window goes to the
@@ -209,7 +210,7 @@ describe("mail that arrives between the offboard and the exit", () => {
     const wakes: string[] = [];
     const store: MessageDeliveryStore = {
       listCanvasNames: async () => [CANVAS],
-      readDoc: async () => doc,
+      readCanvas: async () => canvasFromDocument("crew", doc),
       readMessage: async (_canvas, _node, messageId) => messages.find((message) => message.messageId === messageId),
       listMail: async () => messages,
       acceptMessageDelivery: async (_canvas, _node, messageId) => {
