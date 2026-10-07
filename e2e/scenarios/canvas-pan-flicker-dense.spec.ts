@@ -11,8 +11,8 @@
  *
  * Run: bun run test:e2e:fast e2e/scenarios/canvas-pan-flicker-dense.spec.ts
  */
-import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+import type { Node, Seat, Wire } from "../../src/shared/model";
+import { modelFixture, modelRegion, modelSeat, modelWire, type ModelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import {
   capture,
@@ -31,8 +31,8 @@ const MIN_ZOOM = 0.15; // Canvas.tsx minZoom={0.15}
 // a region and relay across region boundaries (agent→agent admits
 // "messages"), so every region has live wire paths.
 
-const seat = (id: string, keyIndex: number): TextNode =>
-  agentTextNode({
+const seat = (id: string, keyIndex: number): Seat =>
+  modelSeat({
     id,
     key: `local:dense-${keyIndex}`,
     label: `dense seat ${keyIndex}`,
@@ -42,11 +42,11 @@ const seat = (id: string, keyIndex: number): TextNode =>
 
 type Placement = { readonly x: number; readonly y: number };
 
-const place = (node: TextNode, at: Placement): TextNode => ({ ...node, x: at.x, y: at.y });
+const place = (node: Seat, at: Placement): Seat => ({ ...node, x: at.x, y: at.y });
 
-const buildBoard = (): CanvasDoc => {
-  const nodes: CanvasNode[] = [];
-  const edges: CanvasEdge[] = [];
+const buildBoard = (): ModelFixture => {
+  const nodes: Node[] = [];
+  const edges: Wire[] = [];
 
   const seatsPerRegion = [16, 16, 16, 16, 15, 15];
   const origin = (index: number): Placement => ({
@@ -61,7 +61,7 @@ const buildBoard = (): CanvasDoc => {
   seatsPerRegion.forEach((count, regionIndex) => {
     const at = origin(regionIndex);
     const id = `rg-${regionIndex + 1}`;
-    nodes.push({ id, type: "group", label: `region ${regionIndex + 1}`, x: at.x, y: at.y, width: 1_420, height: 720 });
+    nodes.push(modelRegion({ id, label: `region ${regionIndex + 1}`, x: at.x, y: at.y, width: 1_420, height: 720 }));
     const members: string[] = [];
     for (let i = 0; i < count; i += 1) {
       const member = place(seat(`${id}-s${i}`, seatIndex), {
@@ -74,22 +74,22 @@ const buildBoard = (): CanvasDoc => {
     }
     // Relay chain across the region.
     for (let i = 0; i < members.length - 1; i += 1) {
-      edges.push(verbEdge(`e-${id}-${i}`, members[i]!, members[i + 1]!, "messages", nodes));
+      edges.push(modelWire(`e-${id}-${i}`, members[i]!, members[i + 1]!, "messages", nodes));
     }
     // Relay the tail into the next region's head.
     if (previousTail) {
-      edges.push(verbEdge(`e-xlink-${regionIndex}`, previousTail, members[0]!, "messages", nodes));
+      edges.push(modelWire(`e-xlink-${regionIndex}`, previousTail, members[0]!, "messages", nodes));
     }
     previousTail = members[members.length - 1];
     regionHeads.push(members[0]!);
   });
 
-  return canvasDoc(nodes, edges);
+  return modelFixture(nodes, edges);
 };
 
 const boardDoc = buildBoard();
 const NODE_COUNT = boardDoc.nodes.length; // 100
-const EDGE_COUNT = boardDoc.edges.length; // 93
+const EDGE_COUNT = boardDoc.wires.length; // 93
 
 /**
  * Nudge the camera so the whole board sits near the viewport center.
@@ -137,7 +137,7 @@ async function centerBoardInViewport(page: import("@playwright/test").Page): Pro
 
 test.use({
   juntoOptions: {
-    seedCanvases: { dense: boardDoc },
+    seedModels: { dense: boardDoc },
   },
 });
 

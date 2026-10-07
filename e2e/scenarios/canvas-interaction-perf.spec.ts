@@ -6,8 +6,8 @@
  * Thresholds are wall-clock from Playwright's side — generous enough for CI
  * variance, tight enough to fail on an O(n) full-graph remint.
  */
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+import type { Node, Wire } from "../../src/shared/model";
+import { modelFixture, modelSeat, modelWire, type ModelFixture } from "../harness/model";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../harness/launch";
 
@@ -21,13 +21,13 @@ const NODE_COUNT = COLS * ROWS;
  * measured on an edgeless canvas. Every node is a seat, and each neighbour
  * pair is wired agent → agent `messages`.
  */
-const denseNodes = (): CanvasNode[] => {
-  const nodes: CanvasNode[] = [];
+const denseNodes = (): Node[] => {
+  const nodes: Node[] = [];
   for (let row = 0; row < ROWS; row += 1) {
     for (let col = 0; col < COLS; col += 1) {
       const i = row * COLS + col;
       nodes.push(
-        agentTextNode({
+        modelSeat({
           id: `n${i}`,
           key: `local:perf-${i}`,
           label: `Perf node ${i}`,
@@ -40,12 +40,12 @@ const denseNodes = (): CanvasNode[] => {
   return nodes;
 };
 
-const denseDoc = (): CanvasDoc => {
+const denseDoc = (): ModelFixture => {
   const nodes = denseNodes();
-  const edges: CanvasEdge[] = [];
+  const edges: Wire[] = [];
   const wire = (id: string, fromRow: number, fromCol: number, to: string) => {
     const from = `n${fromRow * COLS + fromCol}`;
-    edges.push(verbEdge(id, from, to, "messages", nodes));
+    edges.push(modelWire(id, from, to, "messages", nodes));
   };
   for (let row = 0; row < ROWS; row += 1) {
     for (let col = 0; col < COLS; col += 1) {
@@ -54,15 +54,15 @@ const denseDoc = (): CanvasDoc => {
       if (row > 0) wire(`e-${id}-v`, row - 1, col, id);
     }
   }
-  return canvasDoc(nodes, edges);
+  return modelFixture(nodes, edges);
 };
 
 /** Authored wires — every one must survive decode and reach the canvas. */
-const EDGE_COUNT = denseDoc().edges.length;
+const EDGE_COUNT = denseDoc().wires.length;
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
+    seedModels: {
       perf: denseDoc(),
     },
   },

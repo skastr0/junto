@@ -8,8 +8,8 @@
  *
  * Run: bun run test:e2e:fast e2e/scenarios/canvas-pan-flicker.spec.ts
  */
-import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+import type { Node, Seat, Wire } from "../../src/shared/model";
+import { modelFixture, modelRegion, modelSeat, modelWire, type ModelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import {
   capture,
@@ -26,8 +26,8 @@ const GESTURE_MS = 6_000;
 // geography — alpha contains bravo, bravo contains delta — plus a sibling
 // region charlie.
 
-const seat = (id: string, keyIndex: number): TextNode =>
-  agentTextNode({
+const seat = (id: string, keyIndex: number): Seat =>
+  modelSeat({
     id,
     key: `local:flick-${keyIndex}`,
     label: `flick seat ${keyIndex}`,
@@ -36,11 +36,11 @@ const seat = (id: string, keyIndex: number): TextNode =>
   });
 
 type Placement = { readonly x: number; readonly y: number };
-const place = (node: TextNode, at: Placement): TextNode => ({ ...node, x: at.x, y: at.y });
+const place = (node: Seat, at: Placement): Seat => ({ ...node, x: at.x, y: at.y });
 
-const buildField = (): CanvasDoc => {
-  const nodes: CanvasNode[] = [];
-  const edges: CanvasEdge[] = [];
+const buildField = (): ModelFixture => {
+  const nodes: Node[] = [];
+  const edges: Wire[] = [];
 
   // Geography: alpha ⊃ bravo ⊃ delta, charlie standalone.
   const alphaAt = { x: 0, y: 0 };
@@ -57,9 +57,9 @@ const buildField = (): CanvasDoc => {
     height: number,
     seats: number,
     columns: number,
-  ): TextNode[] => {
-    nodes.push({ id, type: "group", label, x: at.x, y: at.y, width, height });
-    const members: TextNode[] = [];
+  ): Seat[] => {
+    nodes.push(modelRegion({ id, label, x: at.x, y: at.y, width, height }));
+    const members: Seat[] = [];
     for (let i = 0; i < seats; i += 1) {
       members.push(place(seat(`${id}-s${i}`, seatIndex++), {
         x: at.x + 30 + (i % columns) * 270,
@@ -80,25 +80,25 @@ const buildField = (): CanvasDoc => {
   const charlieMembers = cluster("rg-charlie", "charlie", charlieAt, 900, 560, 6, 3);
 
   const lead = place(
-    agentTextNode({ id: "lead", key: "local:flick-lead", label: "flick lead", x: 0, y: 0 }),
+    modelSeat({ id: "lead", key: "local:flick-lead", label: "flick lead", x: 0, y: 0 }),
     { x: 1020, y: 620 },
   );
   nodes.push(lead);
 
   // Wire every seat to the shared lead: agent → agent `messages`.
   for (const member of [...alphaMembers, ...bravoMembers, ...deltaMembers, ...charlieMembers]) {
-    edges.push(verbEdge(`e-${member.id}`, member.id, "lead", "messages", nodes));
+    edges.push(modelWire(`e-${member.id}`, member.id, "lead", "messages", nodes));
   }
-  return canvasDoc(nodes, edges);
+  return modelFixture(nodes, edges);
 };
 
 const fixtureDoc = buildField();
 const NODE_COUNT = fixtureDoc.nodes.length;
-const EDGE_COUNT = fixtureDoc.edges.length;
+const EDGE_COUNT = fixtureDoc.wires.length;
 
 test.use({
   juntoOptions: {
-    seedCanvases: { flicker: fixtureDoc },
+    seedModels: { flicker: fixtureDoc },
   },
 });
 

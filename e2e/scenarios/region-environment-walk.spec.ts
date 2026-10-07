@@ -1,4 +1,4 @@
-import { readModelCanvas, readModelSeat } from "../harness/model";
+import { modelFixture, modelRegion, modelSeat, readModelCanvas, readModelSeat, type ModelFixture } from "../harness/model";
 /**
  * Region Environment screen, visual walk [fake-tui]: twelve steps (S1 to S12), one
  * test each except S12, which shares S4's test and state, every state a person would want to look at saved as a
@@ -30,14 +30,12 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
-import type { CanvasDoc, EnvSource, EtherRegionEnvironment, GroupNode, TextNode } from "../../src/shared/canvas";
+import type { EnvSource, Region, RegionEnvironment } from "../../src/shared/model/region";
 import { SOURCE_KINDS } from "../../src/renderer/lib/region-environment";
 import {
-  crewDoc,
   crewOccupySeat,
   crewPlayFactory,
   crewSeat,
-  crewSeatNode,
   installCrewSeatHarness,
   type WorkEnvelope,
 } from "../harness/crew-fixture";
@@ -61,20 +59,9 @@ const regionNode = (input: {
   readonly width: number;
   readonly height: number;
   readonly sources?: ReadonlyArray<EnvSource>;
-}): GroupNode => ({
-  id: input.id,
-  type: "group",
-  label: input.label,
-  x: input.x,
-  y: input.y,
-  width: input.width,
-  height: input.height,
-  ether: {
-    region: {
-      hold: true,
-      ...(input.sources ? { environment: { sources: [...input.sources] } } : {}),
-    },
-  },
+}): Region => modelRegion({
+  id: input.id, label: input.label, x: input.x, y: input.y, width: input.width, height: input.height,
+  hold: true, ...(input.sources ? { environment: { sources: [...input.sources] } } : {}),
 });
 
 const plainValue = (id: string, name: string, value: string): EnvSource => ({ id, kind: "value", name, value });
@@ -82,15 +69,10 @@ const plainValue = (id: string, name: string, value: string): EnvSource => ({ id
 const OUTER = { id: "org", label: "Org", x: 40, y: 40, width: 700, height: 440 } as const;
 const INNER = { id: "team", label: "Team", x: 80, y: 140, width: 440, height: 260 } as const;
 
-const seatBase = crewSeatNode({ id: "worker", label: "Worker", x: 120, y: 250 });
-/** The one seat, inside Team, with a session to keep (seat-sessions.spec.ts seeds it the same way). */
-const SEAT: TextNode = {
-  ...seatBase,
-  ether: { ...seatBase.ether, terminal: { ...seatBase.ether!.terminal!, sessionId: SESSION } },
-};
-
-const walkDoc = (innerSources?: ReadonlyArray<EnvSource>): CanvasDoc =>
-  crewDoc([regionNode(OUTER), regionNode({ ...INNER, ...(innerSources ? { sources: innerSources } : {}) }), SEAT]);
+/** The one seat inside Team keeps its explicit harness session. */
+const SEAT = modelSeat({ id: "worker", key: "local:worker", label: "Worker", x: 120, y: 250, sessionId: SESSION });
+const walkFixture = (innerSources?: ReadonlyArray<EnvSource>): ModelFixture =>
+  modelFixture([regionNode(OUTER), regionNode({ ...INNER, ...(innerSources ? { sources: innerSources } : {}) }), SEAT]);
 
 // ---------------------------------------------------------------------------
 // Launch, theme, evidence
@@ -127,10 +109,10 @@ const forceDark = async (page: Page): Promise<void> => {
 const walk = async (
   testInfo: TestInfo,
   step: string,
-  doc: CanvasDoc,
+  fixture: ModelFixture,
   body: (junto: JuntoHandle) => Promise<void>,
 ): Promise<void> => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: doc }, afterSeed: installCrewSeatHarness });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture }, afterSeed: installCrewSeatHarness });
   try {
     await expect(junto.page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await forceDark(junto.page);
@@ -149,7 +131,7 @@ const opData = (envelope: WorkEnvelope): Record<string, unknown> => {
 };
 
 /** The region's environment as the canvas has it saved. */
-const savedEnvironment = async (page: Page, regionId: string): Promise<EtherRegionEnvironment | undefined> => {
+const savedEnvironment = async (page: Page, regionId: string): Promise<RegionEnvironment | undefined> => {
   const opened = await readModelCanvas(page, CANVAS);
   const region = opened.nodes.find((node) => node.id === regionId);
   return region?.kind === "region" ? region.environment : undefined;
@@ -245,7 +227,7 @@ const stickingOut = (box: Locator): Promise<ReadonlyArray<string>> =>
 
 test("S1 entry: the key icon in the region toolbar opens a panel titled Environment that fits and scrolls", async ({}, testInfo) => {
   test.setTimeout(180_000);
-  await walk(testInfo, "S1", walkDoc(), async ({ page }) => {
+  await walk(testInfo, "S1", walkFixture(), async ({ page }) => {
     await shot(page, testInfo, "S1", "canvas");
     await selectRegion(page, INNER.id);
 
@@ -316,7 +298,7 @@ test("SH bottom bar: the region's Environment key", async ({}, testInfo) => {
   // Two regions side by side: one with nothing set, one that already has a source.
   const BARE = { id: "bare", label: "Bare", x: 40, y: 60, width: 420, height: 260 } as const;
   const STOCKED = { id: "stocked", label: "Stocked", x: 520, y: 60, width: 420, height: 260 } as const;
-  const doc = crewDoc([regionNode(BARE), regionNode({ ...STOCKED, sources: [plainValue("src-org", "ORG", "x")] })]);
+  const doc = modelFixture([regionNode(BARE), regionNode({ ...STOCKED, sources: [plainValue("src-org", "ORG", "x")] })]);
   // The key's name, and the toolbar key's tooltip. The strip key's own tooltip adds its state (RegionKey.tsx).
   const TOOLTIP = "Environment and secrets";
   const TOOLTIP_UNSET = `${TOOLTIP}: none yet`;
@@ -503,24 +485,16 @@ test("SI region strip keys, by eye: three labelled keys, their hover, pressed, s
   test.setTimeout(240_000);
   const PLAIN = { id: "plain", label: "Plain", x: 40, y: 60, width: 420, height: 260 } as const;
   const FULL = { id: "full", label: "Full", x: 520, y: 60, width: 420, height: 260 } as const;
-  // A briefing is `ether.region.instruction`, folder paths are
-  // `ether.region.defaults.paths` (host to path), an environment is
-  // `ether.region.environment`: all three are read off the group node by the
-  // strip (KindSurface.tsx, RegionKindSurface), so they are seeded in the canvas.
-  const full: GroupNode = {
+  // Seed the region's briefing, folder paths and environment independently.
+  const full = modelRegion({
     ...regionNode(FULL),
-    ether: {
-      region: {
-        hold: true,
-        instruction: "Keep the build green and say when it is not.",
-        defaults: { paths: { local: "/tmp/junto-region-walk" } },
-        environment: { sources: [plainValue("src-org", "ORG", "x")] },
-      },
-    },
-  };
+    instruction: "Keep the build green and say when it is not.",
+    defaults: { paths: { local: "/tmp/junto-region-walk" } },
+    environment: { sources: [plainValue("src-org", "ORG", "x")] },
+  });
   const tooltip = (page: Page): Locator => page.locator(".junto-tooltip[data-positioned='true']");
 
-  await walk(testInfo, "SI", crewDoc([regionNode(PLAIN), full]), async ({ page }) => {
+  await walk(testInfo, "SI", modelFixture([regionNode(PLAIN), full]), async ({ page }) => {
     const colours = await themeColours(page);
     const keys = page.locator(".rts-region-keys .rts-region-key");
 
@@ -712,7 +686,7 @@ test("SJ Environment screen, by eye: the empty state, the lead action, and the o
   // Made up, and looked up only: a read that finds nothing.
   const item = `junto-e2e-no-such-item-${Math.random().toString(36).slice(2, 10)}`;
 
-  await walk(testInfo, "SJ", crewDoc([regionNode(PLAIN)]), async ({ page }) => {
+  await walk(testInfo, "SJ", modelFixture([regionNode(PLAIN)]), async ({ page }) => {
     /** What leads the screen, and how its first section sits. */
     const layout = (dialog: Locator): Promise<Record<string, unknown>> =>
       dialog.getByTestId("region-env").evaluate((scroller) => {
@@ -879,7 +853,7 @@ test("SJ Environment screen, by eye: the empty state, the lead action, and the o
 
 test("S2 forms: eight kinds, Keychain first, each showing only its own fields, switching clears them", async ({}, testInfo) => {
   test.setTimeout(240_000);
-  await walk(testInfo, "S2", walkDoc(), async ({ page }) => {
+  await walk(testInfo, "S2", walkFixture(), async ({ page }) => {
     const dialog = await openRegionEnvironment(page, INNER.id);
     await settled(dialog);
     await dialog.getByTestId("region-env-add-source").click();
@@ -954,7 +928,7 @@ test("S2 forms: eight kinds, Keychain first, each showing only its own fields, s
 
 test("S3 plain value: the row appears at once and the resolved list names it without its value", async ({}, testInfo) => {
   test.setTimeout(180_000);
-  await walk(testInfo, "S3", walkDoc(), async ({ page }) => {
+  await walk(testInfo, "S3", walkFixture(), async ({ page }) => {
     // Every "Reading your stores" line the screen shows, as it shows it.
     await page.evaluate(() => {
       const seen: string[] = [];
@@ -1023,7 +997,7 @@ const secretFiles = async (homeDir: string): Promise<ReadonlyArray<{ readonly na
 
 test("S4 and S12 secret: masked while typed, saved only to the sandbox file store, never shown again, then removed", async ({}, testInfo) => {
   test.setTimeout(240_000);
-  await walk(testInfo, "S4", walkDoc(), async ({ page, app, sandbox }) => {
+  await walk(testInfo, "S4", walkFixture(), async ({ page, app, sandbox }) => {
     // Main says which store it opened, once, on its log (region-env/secret-store.ts).
     const mainLog: string[] = [];
     const keep = (chunk: Buffer): void => {
@@ -1149,7 +1123,7 @@ test("S4 and S12 secret: masked while typed, saved only to the sandbox file stor
 
 test("S5 command: arguments show as chips, and an unclosed quote is refused in words", async ({}, testInfo) => {
   test.setTimeout(180_000);
-  await walk(testInfo, "S5", walkDoc(), async ({ page }) => {
+  await walk(testInfo, "S5", walkFixture(), async ({ page }) => {
     const dialog = await openRegionEnvironment(page, INNER.id);
     await settled(dialog);
     const form = await openSourceForm(dialog, "command");
@@ -1202,7 +1176,7 @@ test("S6 pickers: browse a folder for an env file, and use a folder for Folders"
     await writeFile(join(dir, "notes.txt"), "a normal file\n", "utf8");
     await writeFile(join(dir, ".env"), "DOTTED=1\n", "utf8");
 
-    await walk(testInfo, "S6", walkDoc(), async ({ page }) => {
+    await walk(testInfo, "S6", walkFixture(), async ({ page }) => {
       const dialog = await openRegionEnvironment(page, INNER.id);
       await settled(dialog);
 
@@ -1287,7 +1261,7 @@ test("S6 pickers: browse a folder for an env file, and use a folder for Folders"
 test("S7 order: a drag and the arrows reorder sources, and the order survives closing the screen", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const seeded = [plainValue("src-one", "ONE", "1"), plainValue("src-two", "TWO", "2"), plainValue("src-three", "THREE", "3")];
-  await walk(testInfo, "S7", walkDoc(seeded), async ({ page }) => {
+  await walk(testInfo, "S7", walkFixture(seeded), async ({ page }) => {
     let dialog = await openRegionEnvironment(page, INNER.id);
     await settled(dialog);
     soft(await sourceTitles(dialog), "the order to start with").toEqual(["ONE", "TWO", "THREE"]);
@@ -1350,7 +1324,7 @@ test("S7 order: a drag and the arrows reorder sources, and the order survives cl
 
 test("S8 inheritance: an outer name is inherited, an inner one overrides it, and Sealed cuts it off", async ({}, testInfo) => {
   test.setTimeout(240_000);
-  await walk(testInfo, "S8", walkDoc(), async ({ page }) => {
+  await walk(testInfo, "S8", walkFixture(), async ({ page }) => {
     // ORG = x on the outer region.
     const outer = await openRegionEnvironment(page, OUTER.id);
     await settled(outer);
@@ -1414,7 +1388,7 @@ test("S9 errors [fake-tui]: a missing Keychain item reads red with a reason, the
   test.setTimeout(300_000);
   // Made up, and looked up only: a read that finds nothing.
   const item = `junto-e2e-no-such-item-${Math.random().toString(36).slice(2, 10)}`;
-  await walk(testInfo, "S9", walkDoc(), async ({ page, sandbox }) => {
+  await walk(testInfo, "S9", walkFixture(), async ({ page, sandbox }) => {
     await crewPlayFactory(page);
     const dialog = await openRegionEnvironment(page, INNER.id);
     await settled(dialog);
@@ -1498,7 +1472,7 @@ test("S9 errors [fake-tui]: a missing Keychain item reads red with a reason, the
 
 test("S10 restart to apply [fake-tui]: changing a source lists the running seat, and restart keeps its session", async ({}, testInfo) => {
   test.setTimeout(300_000);
-  await walk(testInfo, "S10", walkDoc([plainValue("src-stage", "STAGE", "one")]), async ({ page, sandbox }) => {
+  await walk(testInfo, "S10", walkFixture([plainValue("src-stage", "STAGE", "one")]), async ({ page, sandbox }) => {
     await crewPlayFactory(page);
     const seat = crewSeat(sandbox, CANVAS, SEAT.id);
     const started = await crewOccupySeat(page, CANVAS, SEAT, seat);
@@ -1583,7 +1557,7 @@ const relaunchOnSameSandbox = async (junto: JuntoHandle): Promise<ElectronApplic
 test("S11 persistence: sources, order, sealed and folders are as left after a quit and relaunch", async ({}, testInfo) => {
   test.setTimeout(360_000);
   const dir = await mkdtemp(join(tmpdir(), "junto-env-walk-"));
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: walkDoc() }, afterSeed: installCrewSeatHarness });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: walkFixture() }, afterSeed: installCrewSeatHarness });
   let second: ElectronApplication | undefined;
   let page = junto.page;
   try {

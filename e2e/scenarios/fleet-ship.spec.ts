@@ -11,9 +11,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { CanvasDoc, GroupNode } from "../../src/shared/canvas";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelRegion, type ModelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "fleet-ship");
@@ -41,28 +40,12 @@ const terminalOnlyMac: RemoteHost = {
   capabilities: ["terminal"],
 };
 
-const emptyFleetDoc = canvasDoc([]);
+const emptyFleetFixture = modelFixture([]);
 
-const shipRoutingDoc = (): CanvasDoc => {
-  const region: GroupNode = {
-    id: "ship-region",
-    type: "group",
-    label: "ship region",
-    x: 40,
-    y: 40,
-    width: 680,
-    height: 360,
-    ether: {
-      region: {
-        hold: true,
-        defaults: {
-          paths: { local: "/Users/operator/Projects/junto", "remote-a": "/tmp/remote-a" },
-        },
-      },
-    },
-  };
-  return canvasDoc([region]);
-};
+const shipRoutingFixture = (): ModelFixture => modelFixture([modelRegion({
+  id: "ship-region", label: "ship region", x: 40, y: 40, width: 680, height: 360,
+  hold: true, defaults: { paths: { local: "/Users/operator/Projects/junto", "remote-a": "/tmp/remote-a" } },
+})]);
 
 const waitForCanvas = async (page: Page): Promise<void> => {
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -89,7 +72,7 @@ test.beforeAll(async () => {
 
 test("SHIP Fleet entry, empty state, enrollment validation, and clean relaunch", async () => {
   const junto = await launchJunto({
-    seedCanvases: { "fleet-ship-empty": emptyFleetDoc },
+    seedModels: { "fleet-ship-empty": emptyFleetFixture },
   });
   try {
     const { page } = junto;
@@ -138,7 +121,7 @@ test("SHIP Fleet entry, empty state, enrollment validation, and clean relaunch",
 
 test("SHIP station detail shows probe truth and main-owned deploy gating", async () => {
   const junto = await launchJunto({
-    seedCanvases: { "fleet-ship-detail": emptyFleetDoc },
+    seedModels: { "fleet-ship-detail": emptyFleetFixture },
     seedHosts: [localHost, enrolledRemote, terminalOnlyMac],
   });
   try {
@@ -177,7 +160,7 @@ test("SHIP station detail shows probe truth and main-owned deploy gating", async
 
 test("SHIP routing exposes enrolled hosts for terminal, agent, regions, and Machine settings", async () => {
   const junto = await launchJunto({
-    seedCanvases: { "fleet-ship-routing": shipRoutingDoc() },
+    seedModels: { "fleet-ship-routing": shipRoutingFixture() },
     seedHosts: [localHost, enrolledRemote],
   });
   try {
@@ -236,7 +219,7 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, regions, and Mach
 
 test("SHIP Fleet stays usable in bright mode, reduced motion, and a narrow viewport", async () => {
   const junto = await launchJunto({
-    seedCanvases: { "fleet-ship-a11y": emptyFleetDoc },
+    seedModels: { "fleet-ship-a11y": emptyFleetFixture },
     seedHosts: [localHost, enrolledRemote],
   });
   try {
