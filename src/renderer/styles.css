@@ -1950,7 +1950,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   transition: background 0.15s ease;
 }
 .junto-row-button:hover { background: var(--color-overlay-1); }
-.junto-row-button:focus-visible { outline: 1px solid color-mix(in oklab, var(--color-main) 50%, transparent); outline-offset: 1px; }
+.junto-row-button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
 
 /* Detail chrome (content classes live under junto-modal__*).
    Host: FocusSurface measure=document — every overlay goes through it. */
