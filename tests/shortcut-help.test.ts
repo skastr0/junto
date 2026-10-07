@@ -11,7 +11,7 @@ describe("the help's keys come from the key table", () => {
       expect(shown, def.id).toBe((def.fixed === undefined && def.mac.length > 0) || canvasOwn);
     }
     expect(rows.find((row) => row.action.startsWith("Open search, or close"))?.keys).toBe("⌘K");
-    expect(rows.find((row) => row.action.startsWith("Go to the next agent that raised"))?.keys).toBe("Space - `");
+    expect(rows.find((row) => row.action.startsWith("Go to the next agent on the canvas"))?.keys).toBe("Space - `");
     expect(rows.find((row) => row.action.startsWith("Pan the canvas"))?.keys).toBe("Arrow keys - WASD");
     expect(rows.find((row) => row.action.startsWith("Delete what is selected"))?.keys).toBe("Backspace - Delete");
   });

@@ -194,7 +194,7 @@ describe("keyboard shortcuts section", () => {
   });
 
   it("names the screen's own key that a new chord would land on", async () => {
-    const button = startRecording("Next agent alert");
+    const button = startRecording("Next agent on the canvas");
     await press(button, { key: "w", code: "KeyW" });
     expect(host.textContent).toContain("Already used by Pan the canvas");
     expect(patches).toEqual([]);

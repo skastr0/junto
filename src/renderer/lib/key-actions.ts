@@ -1,6 +1,5 @@
 import type { CanvasNode } from "@shared/canvas";
 import { cycleActorMirror } from "./actor-mirrors";
-import { cycleAlertFocus } from "./alert-attention";
 import { resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "./canvas-zoom";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
 import { dock$ } from "./dock-state";
@@ -18,6 +17,7 @@ import type { KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { state$ } from "./state";
+import { stepToNextAgent } from "./urgency-step";
 
 // The node whose surface is in front, when one is open.
 const frontNode = (): CanvasNode | undefined => {
@@ -68,8 +68,8 @@ export const KEY_ACTIONS: KeyActions = {
     const node = frontNode();
     return node !== undefined && toggleSeatGitDetail(node);
   },
-  // With no alert waiting, Space and the backtick stay with whatever has focus.
-  "alerts.next": () => cycleAlertFocus(),
+  // With no agent on the canvas, Space and the backtick stay with whatever has focus.
+  "alerts.next": () => stepToNextAgent(),
   "canvas.undo": () => undo(),
   "canvas.redo": () => redo(),
   "canvas.zoomIn": () => zoomCanvasIn(),

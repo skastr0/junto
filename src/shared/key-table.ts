@@ -226,9 +226,9 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "alerts.next",
-    name: "Next agent alert",
     area: "Canvas",
-    does: "Go to the next agent that raised an alert",
+    name: "Next agent on the canvas",
+    does: "Go to the next agent on the canvas, most urgent first",
     mac: ["Space", "Backquote"],
     other: ["Space", "Backquote"],
     // Canvas only: inside a working modal Space belongs to the surface.
