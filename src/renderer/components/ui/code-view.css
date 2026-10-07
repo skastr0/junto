@@ -1,0 +1,39 @@
+/* Code and diffs (CodeView.tsx). The diff library is styled through its own
+   variables only, each from a house token, so a diff or a code block looks
+   the same in the git review, a commit and a needs-you card, in both themes.
+   The row height is the one length here that is not a token: the library lays
+   rows on a grid and needs a whole length, 1.5 times the code size. */
+.code-view {
+  min-width: 0;
+  color-scheme: dark;
+  --diffs-font-family: var(--font-mono);
+  --diffs-header-font-family: var(--font-mono);
+  --diffs-font-size: var(--text-body-lg);
+  --diffs-line-height: calc(var(--text-body-lg) * 1.5);
+  --diffs-addition-color: var(--color-green);
+  --diffs-deletion-color: var(--color-crimson);
+  --diffs-modified-color: var(--color-amber);
+  --diffs-fg-number: var(--color-faint);
+  /* A selected line or range: the house cyan, not the library's blue. */
+  --diffs-selection-base: var(--color-second);
+  --diffs-dark-bg: transparent;
+  --diffs-dark: var(--color-ink);
+}
+
+html[data-theme="bright"] .code-view {
+  color-scheme: light;
+  --diffs-light-bg: transparent;
+  --diffs-light: var(--color-ink);
+}
+
+/* Text the library could not draw. */
+.code-view__plain {
+  margin: 0;
+  padding: 8px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+  white-space: pre;
+  color: var(--color-ink);
+}

@@ -18,6 +18,7 @@ export { OverlayHeader } from "./OverlayHeader";
 export { ToolbarPill } from "./ToolbarPill";
 export { Kbd, KeyChord } from "./Kbd";
 export { Popover } from "./Popover";
+export { CodeBlock, DiffView, type DiffLineAnnotation, type DiffSide, type DiffSource } from "./CodeView";
 export { Dialog, ConfirmDialog } from "./Dialog";
 export { Slider } from "./Slider";
 export {
