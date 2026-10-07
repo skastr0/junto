@@ -13,7 +13,7 @@ import type { GitCommitResult } from "@shared/git";
 import { getJuntoApi } from "../../lib/junto-api";
 import { seatGitFolder } from "../../lib/git-summary";
 import { state$ } from "../../lib/state";
-import { DiffView } from "../ui";
+import { Button, DiffView } from "../ui";
 import "./git.css";
 
 const whenLabel = (iso: string): string | undefined => {
@@ -28,6 +28,7 @@ export function CommitPreview({
   nodeId,
   sha,
   layout = "unified",
+  onReview,
 }: {
   /** The canvas and seat of the agent that sent the card. */
   readonly canvasName: string;
@@ -35,6 +36,11 @@ export function CommitPreview({
   readonly sha: string;
   /** Unified suits a card; split suits a wide stage. */
   readonly layout?: "split" | "unified";
+  /**
+   * Open the full review of this commit. Pass it only when the sender can be
+   * reviewed (canReviewCommit); the action shows once the commit has been read.
+   */
+  readonly onReview?: (() => void) | undefined;
 }) {
   const openCanvas = use$(state$.canvasName);
   const folder = use$(() => {
@@ -99,6 +105,13 @@ export function CommitPreview({
           {when ? <time dateTime={commit.authoredAt}>{when}</time> : null}
           {branch ? <span>on {branch}</span> : null}
         </p>
+        {onReview ? (
+          <div className="commit-preview__actions">
+            <Button size="md" variant="chrome" data-testid="commit-preview-review" onClick={onReview}>
+              Review this commit
+            </Button>
+          </div>
+        ) : null}
       </header>
       {files.length > 0 ? (
         <ul className="commit-preview__files" aria-label={`${String(files.length)} ${files.length === 1 ? "file" : "files"} changed`}>

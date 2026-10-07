@@ -14,7 +14,7 @@ import { observable } from "@legendapp/state";
  * modal at a time: a swap out and a swap back, never a stack.
  */
 
-export type OperatorModalId = "search" | "feed";
+export type OperatorModalId = "search" | "feed" | "git";
 
 export const operatorModal$ = observable<{ open: OperatorModalId | null }>({ open: null });
 

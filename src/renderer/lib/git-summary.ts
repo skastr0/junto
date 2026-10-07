@@ -6,6 +6,7 @@ import type { GitSummary } from "@shared/git";
 import { resolveRegionCwd } from "@shared/region-defaults";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { getJuntoApi } from "./junto-api";
+import { openOperatorModalFrom, type OperatorModalPlaces } from "./operator-modal";
 import { state$ } from "./state";
 
 /**
@@ -133,3 +134,39 @@ export const useGitSummary = (folder: string | undefined): GitSummary | undefine
   const summary = use$(() => (folder ? summaries$[folder].get() : undefined));
   return summary ?? undefined;
 };
+
+/**
+ * The commit under review in the operator layer: one an agent sent with a
+ * needs-you card. Set as the review opens from the card, cleared as it
+ * closes. The slot remembers the way back to the card; this is only what to
+ * show.
+ */
+const commitReview$ = observable<{ readonly nodeId: string; readonly sha: string } | null>(null);
+
+/**
+ * Whether a commit on a card can be reviewed: its sender is an agent on the
+ * open canvas with a folder of its own. Otherwise the action is not offered.
+ */
+export const canReviewCommit = (canvasName: string, nodeId: string): boolean => {
+  if (state$.canvasName.peek() !== canvasName) return false;
+  const doc = state$.doc.peek();
+  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+  return node !== undefined && seatGitFolder(doc, node) !== undefined;
+};
+
+/**
+ * Open the full review of a commit in place of the feed, to return to
+ * `place` when it closes. Called by the feed, which owns its place.
+ */
+export const openCommitReview = (input: {
+  readonly nodeId: string;
+  readonly sha: string;
+  readonly place: OperatorModalPlaces["feed"];
+}): void => {
+  commitReview$.set({ nodeId: input.nodeId, sha: input.sha });
+  openOperatorModalFrom("feed", "git", input.place);
+};
+
+export const useCommitReview = (): { readonly nodeId: string; readonly sha: string } | null => use$(commitReview$);
+
+export const clearCommitReview = (): void => commitReview$.set(null);

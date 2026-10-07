@@ -413,3 +413,8 @@
 .commit-preview__count [data-sign="del"] {
   color: var(--color-crimson-fg);
 }
+
+.commit-preview__actions {
+  display: flex;
+  padding-top: 4px;
+}

@@ -3,12 +3,15 @@ import type { ComponentType } from "react";
 import { operatorModal$, type OperatorModalId } from "../../lib/operator-modal";
 import { CommandBar } from "../command-bar/CommandBar";
 import { OperatorFeed } from "../feed/OperatorFeed";
+import { CommitReviewModal } from "../git/CommitReviewModal";
 
 // The operator modals. A modal joins the layer by adding its body here; its
 // chord is a row in the key table.
 const MODALS: Record<OperatorModalId, ComponentType> = {
   search: CommandBar,
   feed: OperatorFeed,
+  // Opened from a commit on a needs-you card; closing it returns to that card.
+  git: CommitReviewModal,
 };
 
 /**
