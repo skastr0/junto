@@ -1,9 +1,9 @@
 import { canvasReceiptBasis, recordDeliveryReceiptRefusal } from "../work/delivery-receipts";
 // KernelService — the Effect Tag + Live layer that runs kernel evaluation
 // continuously over EVERY hydrated canvas, window-optional. This module owns
-// lifecycle (hydration, doc resync, the 30s safety interval) and binds
+// lifecycle (hydration, world resync, the 30s safety interval) and binds
 // cycle.ts's injectable seams to concrete main-side collaborators
-// (CanvasesService, timer scheduler, factory claim delivery).
+// (ModelService, WorkService, timer scheduler, factory claim delivery).
 //
 // Region Pulse delivery / arming product path is retired — repository arm/
 // debug-pulse methods remain for schema-identity tests only.
@@ -24,15 +24,13 @@ import { canvasReceiptBasis, recordDeliveryReceiptRefusal } from "../work/delive
 import { createHash } from "node:crypto";
 import { cutBeforeWake } from "../seat-sessions/operator-offboard";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { asNodeId } from "@shared/model/base";
 import { nodeOf, nodesOf } from "@shared/model/canvas";
-import { nodeFromDocument } from "@shared/model/from-document";
 import type { Seat } from "@shared/model/kinds";
 import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
-import { identityHints } from "@shared/connections";
+import { seatIdentityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   DEFAULT_STATION_HOST_ID,
@@ -61,7 +59,8 @@ import type {
   KernelSnapshot,
   WatcherRuntimeState,
 } from "@shared/ipc";
-import { CanvasesService } from "../canvases";
+import { ModelActorRefs } from "../model/actor-refs";
+import { ModelService } from "../model/service";
 import { SnapshotsService } from "../snapshots";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
@@ -105,7 +104,7 @@ import {
   setPageLoadDeps,
   setRaisedHandDeps,
 } from "./cycle";
-import { withTaskRow, workOf, worldFromDocument, type World } from "./world";
+import { withTaskRow, workOf, type World } from "./world";
 import {
   admitSchedulerEffectAutomation,
   setSchedulerEffectDeps,
@@ -138,7 +137,7 @@ export class KernelService extends Context.Service<KernelService,
       nodeId: string,
     ) => Promise<boolean>;
     // Begin hydration + the evaluation loop. Idempotent, matching
-    // CanvasesService.start()/SnapshotsService.start().
+    // SnapshotsService.start().
     // Host supplies ManagedRuntime entry (AppRuntime / RemoteRuntime).
     readonly start: (host: KernelHost) => void;
     // Irreversibly stop admitting new kernel work. Existing terminal/agent
@@ -384,7 +383,8 @@ const splitNamespacedKey = (key: string): readonly [canvasName: string, id: stri
   return [key.slice(0, idx), key.slice(idx + 2)];
 };
 
-type CanvasesShape = Context.Service.Shape<typeof CanvasesService>;
+type ModelShape = Context.Service.Shape<typeof ModelService>;
+type ActorRefsShape = Context.Service.Shape<typeof ModelActorRefs>;
 type SnapshotsShape = Context.Service.Shape<typeof SnapshotsService>;
 type PauseShape = Context.Service.Shape<typeof PausePlane>;
 type SchedulerShape = Context.Service.Shape<typeof SchedulerRepository>;
@@ -529,19 +529,6 @@ const runtimeAuthority = (
       };
 };
 
-/**
- * The seat a freshly read document node describes, for the wake path, which
- * reads its one node from the canvas service and not from the held world.
- */
-const seatOfDocument = (canvasName: string, node: CanvasNode): Seat | undefined => {
-  try {
-    const seat = nodeFromDocument(canvasName, node, 0);
-    return seat.kind === "agent" ? seat : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 type ActorAvailability = {
   readonly isLocalSeatReady: (bindingId: string) => boolean;
   readonly installationForHost: (
@@ -622,7 +609,8 @@ export const managedTaskDeliveryId = (
 // not a claim-path receipt (see buildFactoryClaimPrompt + factory physics test).
 
 const makeKernelService = (
-  canvases: CanvasesShape,
+  model: ModelShape,
+  actorRefs: ActorRefsShape,
   snapshots: SnapshotsShape,
   pause: PauseShape,
   scheduler: SchedulerShape,
@@ -633,19 +621,9 @@ const makeKernelService = (
   workRepository: WorkRepositoryShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
 ): KernelServiceShape => {
-  // What the cycle reads. `docs` holds the documents those worlds were made
-  // from, only for the two readers that still take a document: identity hints
-  // and the claim briefing.
+  // What the cycle reads: each canvas as the model holds it, and beside it
+  // the work the work service answers for it.
   const worlds = new Map<string, World>();
-  const docs = new Map<string, CanvasDoc>();
-  const hold = (name: string, doc: CanvasDoc): void => {
-    docs.set(name, doc);
-    worlds.set(name, worldFromDocument(name, doc));
-  };
-  const drop = (name: string): void => {
-    docs.delete(name);
-    worlds.delete(name);
-  };
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
 
   // Host runners bound on first start() from AppRuntime / RemoteRuntime.
@@ -1152,7 +1130,7 @@ const makeKernelService = (
                 buildFactoryClaimPrompt({
                   boardId: sink.id,
                   task,
-                  doc: docs.get(canvasName),
+                  canvas,
                 }),
               ),
             );
@@ -1161,8 +1139,12 @@ const makeKernelService = (
             // durably suppresses restart replay. The send→receipt crash window
             // remains intentionally at-least-once until that transport accepts
             // an idempotency key; pre-writing would instead risk silent loss.
-            const { intentWitness } = yield* canvases.readWithIntentWitness(canvasName);
-            const basis = canvasReceiptBasis(intentWitness);
+            // The receipt names the canvas as it stands now, not as the cycle
+            // read it before the prompt went out.
+            const basis = canvasReceiptBasis({
+              canvasName,
+              seq: (yield* model.canvas(canvasName)).seq,
+            });
             yield* workRepository.acceptDelivery({
               sink: sinkRef,
               basis,
@@ -1198,7 +1180,7 @@ const makeKernelService = (
     const registry =
       scope.role === ""
         ? activeActorRegistry([])
-        : activeActorRegistry(yield* canvases.activeActorRefs());
+        : activeActorRegistry(yield* actorRefs.read());
     if (!generationIsActive(generation)) return;
     setActorRefResolver(registry.resolve);
     const currentSnapshots = yield* snapshots.current;
@@ -1265,19 +1247,16 @@ const makeKernelService = (
         return false;
       };
       // Node-scoped: every question below this line is structural — the seat
-      // surface on one node, its compiled actor reference, its containing
-      // region's pause state, and the topology the spawn intent compiles from
-      // edges. None of them reads a Work lane, so none of them may pay for the
-      // whole factory's tasks, messages, requests, artifacts, board and pad.
-      const read = yield* Effect.result(
-        canvases.readNodeStructure(canvasName, nodeId),
-      );
+      // on one node, its compiled actor reference and its canvas's pause
+      // state. None of them reads a Work lane. The model answers from the
+      // canvas it holds, so a stale kernel world cannot mint a process.
+      const read = yield* Effect.result(model.canvas(canvasName));
       if (!generationIsActive(generation)) return false;
       if (read._tag === "Failure") return refuse("canvas read failed");
-      if (read.success === undefined) {
+      const node = read.success.nodes.get(asNodeId(nodeId));
+      if (node === undefined) {
         return refuse("node is not on the canvas");
       }
-      const node = read.success.node;
 
       const scope = yield* refreshStationScope(stations, () =>
         generationIsActive(generation),
@@ -1285,17 +1264,17 @@ const makeKernelService = (
       if (!generationIsActive(generation)) return false;
       if (scope.role === "") return refuse("station scope unavailable");
 
-      const actorRefs = yield* Effect.result(canvases.activeActorRefs());
+      const refs = yield* Effect.result(actorRefs.read());
       if (!generationIsActive(generation)) return false;
-      if (actorRefs._tag === "Failure") {
+      if (refs._tag === "Failure") {
         return refuse("active actor portfolio unavailable");
       }
-      const registry = activeActorRegistry(actorRefs.success);
+      const registry = activeActorRegistry(refs.success);
       const authority = runtimeAuthority(scope, registry, canvasName, node);
       if (authority === undefined) {
         return refuse("actor reference is not in the compiled portfolio");
       }
-      const seat = seatOfDocument(canvasName, node);
+      const seat = node.kind === "agent" ? node : undefined;
       if (
         seat === undefined ||
         !isManagedSeatRuntimeLocal(canvasName, seat, authority)
@@ -1326,83 +1305,81 @@ const makeKernelService = (
       run(wakeManagedSeatProgram(canvasName, nodeId)),
     );
 
-  // --- doc hydration + mid-cycle resync ---------------------------------------
+  // --- world hydration + mid-cycle resync -------------------------------------
 
-  const hydrateDoc = (
+  const hydrateWorld = (
     name: string,
     generation: number,
   ): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
       if (!generationIsActive(generation)) return;
       const result = yield* Effect.result(
-        canvases.read(name, "kernel.hydrateDoc"),
+        Effect.all({
+          canvas: model.canvas(name),
+          work: work.readKernelWork(name),
+        }),
       );
       if (result._tag === "Success" && generationIsActive(generation)) {
-        hold(name, result.success.doc);
+        worlds.set(name, result.success);
       }
-      // else: a broken/mid-write canvas is skipped this pass — one bad doc
-      // never stalls hydration of the rest.
+      // else: a canvas that cannot be read is skipped this pass — one bad
+      // canvas never stalls hydration of the rest.
     });
 
   // Bounded concurrency — a station can accumulate many canvases; hydration
   // must not fan out one unbounded Promise.all across all of them at once.
   const MAX_CONCURRENT_HYDRATIONS = 4;
 
-  const hydrateAllDocs = (
+  const hydrateAllWorlds = (
     generation: number,
   ): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
       if (!generationIsActive(generation)) return;
-      const summaries = yield* canvases.list;
+      const names = yield* model.listCanvases();
       if (!generationIsActive(generation)) return;
-      for (let i = 0; i < summaries.length; i += MAX_CONCURRENT_HYDRATIONS) {
-        if (!generationIsActive(generation)) return;
-        const batch = summaries.slice(i, i + MAX_CONCURRENT_HYDRATIONS);
-        yield* Effect.forEach(
-          batch,
-          (summary) => hydrateDoc(summary.name, generation),
-          { concurrency: MAX_CONCURRENT_HYDRATIONS },
-        );
-      }
+      yield* Effect.forEach(
+        names,
+        (name) => hydrateWorld(name, generation),
+        { concurrency: MAX_CONCURRENT_HYDRATIONS },
+      );
       if (generationIsActive(generation)) setWorlds(worlds);
     });
 
-  // App-owned create/write/mutate -> reread into the map; delete -> drop +
-  // purge its namespaced in-memory state. subscribeChanges only reports a
-  // name, not the kind of change, so list() is the source of truth for
-  // "still there". Every authority commit notifies this path.
+  // A change to a canvas or to its work -> read both again; a canvas that is
+  // gone -> drop it and purge its namespaced in-memory state. The model's list
+  // is the source of truth for "still there".
   const resyncCanvas = (name: string): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
       const generation = activeGeneration();
       if (!generationIsActive(generation)) return;
-      const summaries = yield* canvases.list;
+      const names = yield* model.listCanvases();
       if (!generationIsActive(generation)) return;
-      if (!summaries.some((summary) => summary.name === name)) {
-        drop(name);
+      if (!names.some((held) => held === name)) {
+        worlds.delete(name);
         purgeCanvasMemory(name);
         scheduleCycle();
         return;
       }
 
-      const result = yield* Effect.result(
-        canvases.read(name, "kernel.resyncDoc"),
-      );
-      if (result._tag === "Success" && generationIsActive(generation)) {
-        hold(name, result.success.doc);
+      const before = worlds.get(name);
+      yield* hydrateWorld(name, generation);
+      if (worlds.get(name) !== before && generationIsActive(generation)) {
         fork(refreshWithIdentityHints());
         scheduleCycle();
       }
-      // else: transient read/decode failure (e.g. mid-write) — keep the
-      // previously hydrated doc; the next app-owned change notification retries.
+      // else: transient read failure — keep the world already held; the next
+      // change notification retries.
     });
 
-  // Enrichment hints derive from identity resolution over every hydrated doc
-  // against the CURRENT snapshot (shared/connections.ts). Cold start: the
-  // first poll fetches base lists unhinted, the next resolves against them —
-  // convergence within two cycles, by design.
+  // Enrichment hints name the agent every held seat runs
+  // (shared/connections.ts). Cold start: the first poll fetches base lists
+  // unhinted, the next resolves against them — convergence within two cycles,
+  // by design.
   const refreshWithIdentityHints = () =>
-    Effect.flatMap(snapshots.current, (state) =>
-      snapshots.refresh(identityHints(docs.values(), state)),
+    Effect.suspend(() =>
+      snapshots.refresh(
+        seatIdentityHints([...worlds.values()].map((world) => world.canvas)),
+      ),
     );
 
   const startProgram = (
@@ -1411,15 +1388,23 @@ const makeKernelService = (
     Effect.gen(function* () {
       yield* pause.start;
       if (!generationIsActive(generation)) return;
-      yield* hydrateAllDocs(generation);
+      yield* hydrateAllWorlds(generation);
       if (!generationIsActive(generation)) return;
       fork(refreshWithIdentityHints());
 
       lifecycleCleanups = [
         // Immediate lane, keyed by canvas: a burst of commits on one canvas
         // now costs ONE re-read instead of one fork per notification.
-        canvases.subscribeChanges((name) => {
-          scheduleResync(name);
+        model.subscribeChanges((event) => {
+          scheduleResync(event.canvas);
+        }),
+        model.subscribeCanvasesChanges((event) => {
+          scheduleResync(event.canvas);
+        }),
+        // Task, request, board and artifact rows; mail never resyncs the kernel.
+        work.subscribeWorkChanges((canvasName) => {
+          if (canvasName !== undefined) scheduleResync(canvasName);
+          else for (const name of worlds.keys()) scheduleResync(name);
         }),
         snapshots.subscribe(() => scheduleCycle()),
         livePeers.subscribe(() => scheduleCycle()),
@@ -1614,7 +1599,8 @@ export const makeSchedulerProductionEffectDeps = (
 export const KernelLive = Layer.effect(
   KernelService,
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
+    const model = yield* ModelService;
+    const actorRefs = yield* ModelActorRefs;
     const snapshots = yield* SnapshotsService;
     const pause = yield* PausePlane;
     const scheduler = yield* SchedulerRepository;
@@ -1627,7 +1613,8 @@ export const KernelLive = Layer.effect(
     // No Runtime capture (V4-KERNEL / V4-PROGRAM / migration/runtime.md).
     // Domain Effects exit only after start(host) binds AppRuntime / RemoteRuntime.
     return makeKernelService(
-      canvases,
+      model,
+      actorRefs,
       snapshots,
       pause,
       scheduler,

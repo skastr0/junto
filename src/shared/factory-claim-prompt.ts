@@ -7,7 +7,6 @@
  * Claim delivery must never gate on a prior `/compact` harness turn.
  */
 
-import type { CanvasDoc } from "./canvas";
 import type { Task } from "./work-model";
 import { taskBrief, taskMediaParts } from "./task";
 import {
@@ -21,24 +20,34 @@ import {
 } from "./rules";
 import { flowDestinations } from "./flow-graph";
 import { asNodeId } from "./model/base";
-import { regionStack } from "./model/canvas";
-import { nodesFromDocument, wiresFromDocument } from "./model/from-document";
-import { tasksNodeIdentity, tasksNodeName } from "./tasks-node-identity";
+import type { Canvas } from "./model/canvas";
+import { nodeOf, regionStack } from "./model/canvas";
+import { taskBoardTitle } from "./model/title";
 
 export type FactoryClaimPromptInput = {
   /** Tasks node id on the canvas (CLI `target`). */
   readonly boardId: string;
   readonly task: Task;
   /**
-   * Live document. Supplies the board's standing rules: instructions, rules in
-   * force, pinned rulings, checks, and the next boards. Omitted
-   * (tests, callers without a document) leaves the briefing at its base contract.
+   * The canvas the board is on. Supplies the board's standing rules:
+   * instructions, rules in force, pinned rulings, checks, and the next boards.
+   * Omitted (tests, callers without a canvas) leaves the briefing at its base
+   * contract.
    */
-  readonly doc?: CanvasDoc;
+  readonly canvas?: Board;
 };
 
-const nodeById = (doc: CanvasDoc, nodeId: string) =>
-  doc.nodes.find((node) => node.id === nodeId);
+type Board = Pick<Canvas, "nodes" | "wires">;
+
+/** What a board is called; a board no longer on the canvas is named by its id. */
+const boardTitle = (canvas: Board, boardId: string) =>
+  taskBoardTitle(nodeOf(canvas, asNodeId(boardId), "task"), boardId);
+
+const boardName = (canvas: Board, boardId: string): string =>
+  boardTitle(canvas, boardId).name;
+
+/** A board called plain "Tasks" has neither a name nor instructions to go by. */
+const NAMING_HINT = "Name this node to name the board.";
 
 const provenanceOf = (entry: RuleInForce): string => {
   switch (entry.provenance.kind) {
@@ -53,21 +62,19 @@ const provenanceOf = (entry: RuleInForce): string => {
 
 /**
  * Board rules, visits, and checks sections. Every line is derived from the
- * document the operator authored — the briefing never invents a rule.
+ * canvas the operator authored — the briefing never invents a rule.
  */
 const boardSections = (
-  doc: CanvasDoc,
+  canvas: Board,
   boardId: string,
   task: Task,
 ): readonly string[] => {
   const lines: string[] = [];
 
-  const boardNode = nodeById(doc, boardId);
-  const identity = tasksNodeIdentity(boardNode, boardId);
-  const canvas = nodesFromDocument(doc);
+  const identity = boardTitle(canvas, boardId);
   const contract = boardContractOf(canvas, boardId);
   lines.push("", `Board: ${identity.name}`);
-  if (identity.namingHint) lines.push(identity.namingHint);
+  if (identity.source === "id" && identity.name === "Tasks") lines.push(NAMING_HINT);
   const instructions = contract?.instructions;
   if (instructions !== undefined && instructions.trim().length > 0) {
     lines.push("", "What this board is for:", instructions.trim());
@@ -110,11 +117,11 @@ const boardSections = (
     lines.push("", "Pinned rulings for this region stack:", ...rulings);
   }
 
-  const destinations = flowDestinations(wiresFromDocument(doc), boardId);
+  const destinations = flowDestinations(canvas, boardId);
   if (destinations.length > 0) {
     const namedDestinations = destinations.map((destination) => ({
       id: destination,
-      name: tasksNodeName(nodeById(doc, destination), destination),
+      name: boardName(canvas, destination),
     }));
     lines.push(
       "",
@@ -131,7 +138,7 @@ const boardSections = (
     for (const destination of destinations) {
       const checks = requiredChecks(canvas, boardId, destination);
       if (checks.length === 0) continue;
-      const destinationName = tasksNodeName(nodeById(doc, destination), destination);
+      const destinationName = boardName(canvas, destination);
       lines.push(
         `Checks required before sending on to ${destinationName}:`,
         ...checks.map(({ check, side }) => `- ${side}: ${check.label}`),
@@ -155,7 +162,7 @@ const boardSections = (
     for (const visit of priorVisits) {
       const handoffNote = visit.handoffNote?.trim();
       lines.push(
-        `- ${tasksNodeName(nodeById(doc, visit.board), visit.board)} (${visit.exit ?? "left"})${handoffNote ? `: ${handoffNote}` : ""}`,
+        `- ${boardName(canvas, visit.board)} (${visit.exit ?? "left"})${handoffNote ? `: ${handoffNote}` : ""}`,
       );
     }
   }
@@ -182,7 +189,7 @@ const boardSections = (
 export const buildFactoryClaimPrompt = (
   input: FactoryClaimPromptInput,
 ): string => {
-  const { boardId, task, doc } = input;
+  const { boardId, task, canvas } = input;
   const brief = taskBrief(task);
   const listExample = `junto tasks list '{"target":"${boardId}"}'`;
   const updateExample = `junto tasks update '{"target":"${boardId}","task":"${task.id}","state":"completed","note":"<what you did>"}'`;
@@ -225,25 +232,21 @@ export const buildFactoryClaimPrompt = (
     }
   }
 
-  const board = doc === undefined ? [] : boardSections(doc, boardId, task);
+  const board = canvas === undefined ? [] : boardSections(canvas, boardId, task);
   const rules =
-    doc === undefined ? [] : rulesInForce(nodesFromDocument(doc), boardId, task);
+    canvas === undefined ? [] : rulesInForce(canvas, boardId, task);
 
   // Machine-readable mirror of the prose guidance: a seat that parses only the
   // JSON briefing must carry the same board guidance as the prose. Handoff only
   // travels when the board can send the task on.
   const contract =
-    doc === undefined
-      ? undefined
-      : boardContractOf(nodesFromDocument(doc), boardId);
+    canvas === undefined ? undefined : boardContractOf(canvas, boardId);
   const identity =
-    doc === undefined
-      ? undefined
-      : tasksNodeIdentity(nodeById(doc, boardId), boardId);
+    canvas === undefined ? undefined : boardTitle(canvas, boardId);
   const guidanceInstructions = contract?.instructions?.trim();
   const guidanceHandling = contract?.incoming?.handling?.trim();
   const guidanceHandoff =
-    doc !== undefined && flowDestinations(wiresFromDocument(doc), boardId).length > 0
+    canvas !== undefined && flowDestinations(canvas, boardId).length > 0
       ? contract?.outgoing?.handoff?.trim()
       : undefined;
   const guidance = {
@@ -276,11 +279,11 @@ export const buildFactoryClaimPrompt = (
           })),
         }
       : {}),
-    ...(doc !== undefined && flowDestinations(wiresFromDocument(doc), boardId).length > 0
+    ...(canvas !== undefined && flowDestinations(canvas, boardId).length > 0
       ? {
-          next: flowDestinations(wiresFromDocument(doc), boardId).map((nodeId) => ({
+          next: flowDestinations(canvas, boardId).map((nodeId) => ({
             nodeId,
-            name: tasksNodeName(nodeById(doc, nodeId), nodeId),
+            name: boardName(canvas, nodeId),
           })),
         }
       : {}),

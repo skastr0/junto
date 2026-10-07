@@ -1,6 +1,7 @@
 import type { CanvasDoc, EtherEntity } from "./canvas";
 import type { Entity, EntitySource, SnapshotState } from "./entities";
 import type { BindingHint } from "./ipc";
+import type { Canvas } from "./model/canvas";
 
 // The ONE place node identity joins the live corpus. A node stores only what
 // it IS (ether.entity: kind + immutable name); which hermes agent it connects
@@ -93,6 +94,25 @@ export const identityHints = (
         seen.add(dedup);
         hints.push({ source: connection.source, key: connection.key });
       }
+    }
+  }
+  return hints;
+};
+
+/**
+ * The same hints from canvases: every seat names the Hermes agent it runs by
+ * its agent key, whether or not that agent is in the current bundle.
+ */
+export const seatIdentityHints = (
+  canvases: Iterable<Pick<Canvas, "nodes">>,
+): ReadonlyArray<BindingHint> => {
+  const seen = new Set<string>();
+  const hints: BindingHint[] = [];
+  for (const canvas of canvases) {
+    for (const node of canvas.nodes.values()) {
+      if (node.kind !== "agent" || seen.has(node.agentKey)) continue;
+      seen.add(node.agentKey);
+      hints.push({ source: "hermes", key: node.agentKey });
     }
   }
   return hints;

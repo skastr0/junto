@@ -2,22 +2,12 @@ import type { CanvasDoc } from "@shared/canvas";
 import type { Canvas } from "@shared/model/canvas";
 import { canvasFromDocument } from "@shared/model/from-document";
 import type { Task } from "@shared/work-model";
+import type { KernelWork } from "@shared/work-kernel";
 import type { WatchRead, WorkRead } from "@shared/work-read";
 
 // What the kernel holds of one canvas: what is on it and how it is joined,
-// and beside it the work the kernel reads. A canvas holds no work.
-
-export type KernelWork = {
-  /** Every task board and requests node with rows, by node id, in lane order. */
-  readonly tasks: ReadonlyMap<string, ReadonlyArray<Task>>;
-  /** Topic and post counts of each board that has any. */
-  readonly boards: ReadonlyMap<
-    string,
-    { readonly topics: number; readonly posts: number }
-  >;
-  /** How many artifacts each artifacts node holds. */
-  readonly artifacts: ReadonlyMap<string, number>;
-};
+// and beside it the work the work service answers for it. A canvas holds no
+// work.
 
 export type World = {
   readonly canvas: Canvas;
@@ -61,9 +51,9 @@ export const withTaskRow = (
 };
 
 /**
- * The world a document describes, for the kernel while it is still handed
- * documents: the canvas from its nodes and edges, the work from what its
- * nodes carry.
+ * The world a document describes: the canvas from its nodes and edges, the
+ * work from what its nodes carry. Tests describe a world this way; the kernel
+ * reads the model and the work service.
  */
 export const worldFromDocument = (name: string, doc: CanvasDoc): World => {
   const tasks = new Map<string, ReadonlyArray<Task>>();
