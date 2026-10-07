@@ -42,6 +42,7 @@ import { playCue } from "../../lib/sound";
 import type { ClaimedTask } from "../../lib/claimed-task";
 import { claimedTask$ } from "../../lib/claimed-task-index";
 import { state$ } from "../../lib/state";
+import { modelStore } from "../../lib/use-model";
 import {
   deadStateCopy,
   killActionCopy,
@@ -1958,7 +1959,12 @@ export function TerminalSurface({
   const attached = status === "control";
   // Where the seat sits, as cmd+K says it. A primitive, so the header does not
   // re-render on every doc write.
-  const crumb = use$(() => regionTrail(state$.doc.get(), node.id));
+  const crumb = use$(() => {
+    const canvasName = state$.canvasName.get();
+    // Follow the canvas's nodes: a trail reads every region's rectangle.
+    modelStore.canvas$(canvasName).nodes.get();
+    return regionTrail(modelStore.canvasOf(canvasName), node.id);
+  });
   const processDead = status === "exited" || killPhase === "stopped";
   const processStopping = killPhase === "stopping" || status === "stopping…";
   const showDeadOverlay = processDead || processStopping;

@@ -1,5 +1,4 @@
-import type { CanvasDoc } from "@shared/canvas";
-import { regionDisplayName, regionStack } from "@shared/graph";
+import { asNodeId, regionName, regionStack, type Placed } from "@shared/model";
 
 /** One region on a node's path: its name, and its colour when it has one. */
 export type RegionStep = { readonly id: string; readonly name: string; readonly color?: string };
@@ -9,21 +8,21 @@ export type RegionStep = { readonly id: string; readonly name: string; readonly 
  * colour, from the one membership predicate (regionStack). Empty for a node
  * inside no region.
  */
-export const regionTrail = (doc: CanvasDoc, nodeId: string): ReadonlyArray<RegionStep> =>
-  regionStack(doc, nodeId).map((group) => ({
-    id: group.id,
-    name: regionDisplayName(group),
-    ...(group.color ? { color: group.color } : {}),
+export const regionTrail = (canvas: Placed, nodeId: string): ReadonlyArray<RegionStep> =>
+  regionStack(canvas, asNodeId(nodeId)).map((region) => ({
+    id: region.id,
+    name: regionName(region),
+    ...(region.color ? { color: region.color } : {}),
   }));
 
 /** The trail as the operator reads it in one string ("Junto / PTY / mail"). */
 export const trailPath = (trail: ReadonlyArray<RegionStep>): string => trail.map((step) => step.name).join(" / ");
 
-/** Every node's region trail; nodes inside no region have no entry. Build once per doc revision. */
-export const regionTrails = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<RegionStep>> => {
+/** Every node's region trail; nodes inside no region have no entry. Build once per canvas change. */
+export const regionTrails = (canvas: Placed): ReadonlyMap<string, ReadonlyArray<RegionStep>> => {
   const trails = new Map<string, ReadonlyArray<RegionStep>>();
-  for (const node of doc.nodes) {
-    const trail = regionTrail(doc, node.id);
+  for (const node of canvas.nodes.values()) {
+    const trail = regionTrail(canvas, node.id);
     if (trail.length > 0) trails.set(node.id, trail);
   }
   return trails;
@@ -35,16 +34,16 @@ export const regionTrails = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<
  * Every containing region appears, an unnamed one by its placeholder. A node
  * inside no region has no path.
  */
-export const regionPath = (doc: CanvasDoc, nodeId: string): string | undefined => {
-  const stack = regionStack(doc, nodeId);
-  return stack.length > 0 ? stack.map(regionDisplayName).join(" / ") : undefined;
+export const regionPath = (canvas: Placed, nodeId: string): string | undefined => {
+  const stack = regionStack(canvas, asNodeId(nodeId));
+  return stack.length > 0 ? stack.map(regionName).join(" / ") : undefined;
 };
 
-/** Every node's region path; nodes inside no region have no entry. Build once per doc revision. */
-export const regionPaths = (doc: CanvasDoc): ReadonlyMap<string, string> => {
+/** Every node's region path; nodes inside no region have no entry. Build once per canvas change. */
+export const regionPaths = (canvas: Placed): ReadonlyMap<string, string> => {
   const paths = new Map<string, string>();
-  for (const node of doc.nodes) {
-    const path = regionPath(doc, node.id);
+  for (const node of canvas.nodes.values()) {
+    const path = regionPath(canvas, node.id);
     if (path !== undefined) paths.set(node.id, path);
   }
   return paths;

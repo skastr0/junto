@@ -15,6 +15,7 @@ import { useModalLayer } from "../lib/modal-stack";
 import { regionTrails, type RegionStep } from "../lib/region-path";
 import { seatSaying } from "../lib/seat-line";
 import { state$ } from "../lib/state";
+import { useCanvas } from "../lib/use-model";
 import { accentColor } from "../lib/theme";
 import { RegionCrumb } from "./RegionCrumb";
 import { SeatRingView, useSeatGlance } from "./SeatRing";
@@ -106,7 +107,9 @@ function SwitcherCard({
  */
 function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) {
   const doc = use$(state$.doc);
-  const trails = useMemo(() => regionTrails(doc), [doc]);
+  // Region membership is the model's; the rest of this HUD still reads the document.
+  const canvas = useCanvas(use$(state$.canvasName));
+  const trails = useMemo(() => regionTrails(canvas), [canvas]);
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 

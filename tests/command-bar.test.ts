@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { filterCommandBarNodes } from "../src/renderer/lib/command-bar";
 import { regionPath, regionPaths } from "../src/renderer/lib/region-path";
 import type { CanvasNode } from "../src/shared/canvas";
+import { canvasOf, note, region } from "./support/model-nodes";
 
 const text = (
   id: string,
@@ -153,7 +154,16 @@ describe("command bar region paths", () => {
     at("shallow", "lead", 900, 900),
     at("root", "loner", 5000, 5000),
   ];
-  const paths = regionPaths({ nodes, edges: [] });
+  /** The same boxes and cards as the model holds them, for the region paths. */
+  const modelOf = (held: ReadonlyArray<CanvasNode>) =>
+    canvasOf(
+      held.map((node) =>
+        node.type === "group"
+          ? region(node.id, { x: node.x, y: node.y, width: node.width, height: node.height }, node.label === undefined ? {} : { label: node.label })
+          : note(node.id, node.type === "text" ? node.text : node.id, { x: node.x, y: node.y, width: node.width, height: node.height }),
+      ),
+    );
+  const paths = regionPaths(modelOf(nodes));
 
   it("reads outermost to innermost and names an unnamed region by its placeholder", () => {
     expect(paths.get("deep")).toBe("Junto / PTY / unnamed region / mail");
@@ -162,23 +172,20 @@ describe("command bar region paths", () => {
   });
 
   it("one node's path is the same string the map holds", () => {
-    const doc = { nodes, edges: [] };
-    expect(regionPath(doc, "deep")).toBe(paths.get("deep"));
-    expect(regionPath(doc, "root")).toBeUndefined();
+    const canvas = modelOf(nodes);
+    expect(regionPath(canvas, "deep")).toBe(paths.get("deep"));
+    expect(regionPath(canvas, "root")).toBeUndefined();
   });
 
   it("a node inside only an unnamed region still shows it", () => {
-    const lone = regionPaths({
-      nodes: [box("blank", undefined, 0, 0, 100), at("n", "note", 10, 10)],
-      edges: [],
-    });
+    const lone = regionPaths(modelOf([box("blank", undefined, 0, 0, 100), at("n", "note", 10, 10)]));
     expect(lone.get("n")).toBe("unnamed region");
   });
 
   it("a labelled region never reads as the placeholder", () => {
     const labels = ["PTY", "  padded  ", "0", "x", "Unnamed", "région été"];
     const regions = labels.map((label, i) => box(`g${String(i)}`, label, i, i, 1000 - i * 2));
-    const labelled = regionPaths({ nodes: [...regions, at("n", "note", 400, 400)], edges: [] });
+    const labelled = regionPaths(modelOf([...regions, at("n", "note", 400, 400)]));
     expect(labelled.get("n")).toBe(labels.map((label) => label.trim()).join(" / "));
   });
 

@@ -20,6 +20,7 @@ import { regionPaths, regionTrails, type RegionStep } from "../../lib/region-pat
 import { regionTallyParts } from "../../lib/region-glance";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
+import { useCanvas } from "../../lib/use-model";
 import { accentColor, HUE, HUE_TEXT } from "../../lib/theme";
 import { NodeKindMark } from "../NodeKindMark";
 import { RegionCrumb } from "../RegionCrumb";
@@ -222,8 +223,10 @@ export function CommandBar() {
     [doc.nodes],
   );
   // Region paths are derived once per doc revision, never per keystroke.
-  const regionPathById = useMemo(() => regionPaths(doc), [doc]);
-  const regionTrailById = useMemo(() => regionTrails(doc), [doc]);
+  // Region membership is the model's; the rest of the bar still reads the document.
+  const canvas = useCanvas(use$(state$.canvasName));
+  const regionPathById = useMemo(() => regionPaths(canvas), [canvas]);
+  const regionTrailById = useMemo(() => regionTrails(canvas), [canvas]);
   const nodeMatches = useMemo(
     () => filterCommandBarNodes(doc.nodes, query, recentIds, urgencyById, regionPathById),
     [doc.nodes, query, recentIds, urgencyById, regionPathById],

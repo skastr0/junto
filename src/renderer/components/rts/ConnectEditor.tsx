@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { use$ } from "@legendapp/state/react";
 import { Search } from "lucide-react";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { addEdge } from "../../lib/edge-mutations";
 import { claimFocus } from "../../lib/focus-ownership";
 import { nodeTitle } from "../../lib/presentation";
 import { regionTrails, trailPath } from "../../lib/region-path";
+import { state$ } from "../../lib/state";
+import { useCanvas } from "../../lib/use-model";
 import { accentColor, INK } from "../../lib/theme";
 import { AgentPortrait } from "../AgentPortrait";
 import { RegionCrumb } from "../RegionCrumb";
@@ -32,7 +35,9 @@ export function ConnectEditor({
     claimFocus(inputRef.current, "open");
   }, []);
 
-  const trailById = useMemo(() => regionTrails(doc), [doc]);
+  // Region membership is the model's; the list of agents still reads the document.
+  const canvas = useCanvas(use$(state$.canvasName));
+  const trailById = useMemo(() => regionTrails(canvas), [canvas]);
   const agents = useMemo(
     () =>
       doc.nodes.filter(
