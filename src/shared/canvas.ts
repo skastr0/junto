@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { HarnessId } from "./managed-terminal-templates";
-import { EtherSheet } from "./sheet";
+import { SheetGrid } from "./model/sheet";
 import { Port } from "./physics/schema";
 import {
   compileVerb,
@@ -21,7 +21,6 @@ import {
   Ruling,
 } from "./work-model";
 
-export { EtherSheet } from "./sheet";
 
 export {
   Artifact,
@@ -451,7 +450,7 @@ export const EtherNodeExtension = Schema.Struct({
    * projection: the operator types it, the document owns it, and agents read
    * it without a work-plane row behind it.
    */
-  sheet: Schema.optionalKey(EtherSheet),
+  sheet: Schema.optionalKey(SheetGrid),
   /**
    * Work-surface binding for entity.kind === "terminal" (raw geography) OR
    * entity.kind === "agent" (managed seat). The **agent** seat requires

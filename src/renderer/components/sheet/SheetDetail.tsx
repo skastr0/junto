@@ -9,7 +9,7 @@ import {
 } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Copy, Plus, Trash2, X } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { SheetGrid } from "@shared/model/sheet";
 import {
   addSheetColumn,
   addSheetRow,
@@ -23,7 +23,6 @@ import {
   SHEET_MAX_COLUMNS,
   SHEET_MAX_ROWS,
   SHEET_ROW_HEIGHT_PX,
-  type EtherSheet,
 } from "@shared/sheet";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton } from "../ui/IconButton";
@@ -36,42 +35,45 @@ import {
 } from "../../lib/mutations";
 import { useSheetGrid } from "../../lib/sheet-store";
 import { state$ } from "../../lib/state";
+import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import "./sheet.css";
 
 /**
  * The sheet editor: a virtualized grid of text inputs. Typing lives in a
- * local draft so the canvas document (and React Flow) is not reminted on
- * every keystroke. Coalesced writes still land on the node — there is no
+ * local draft so the sheet grid is not persisted on
+ * every keystroke. Coalesced writes land on the grid row — there is no
  * save button because there is no second durable copy of the data.
  */
 export function SheetDetail({
-  node,
+  nodeId,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
 }) {
   // The grid is content of its own, read by canvas and id. The editor opens
   // on the grid as read, never on an empty one: it writes its draft back, and
   // an editor opened before the read would write an empty grid over the sheet.
   const canvas = use$(state$.canvasName);
-  const stored = useSheetGrid(canvas, node.id);
-  if (stored === undefined) return null;
-  return <SheetEditor node={node} stored={stored} onClose={onClose} />;
+  const isSheet = useNodeValue(canvas, nodeId, (node) => node?.kind === "sheet");
+  const label = useNodeFieldOf(canvas, nodeId, "sheet", (node) => node.label);
+  const stored = useSheetGrid(canvas, isSheet ? nodeId : "");
+  if (!isSheet || stored === undefined) return null;
+  return <SheetEditor key={`${canvas}/${nodeId}`} nodeId={nodeId} title={label?.trim() || "Sheet"} stored={stored} onClose={onClose} />;
 }
 
 function SheetEditor({
-  node,
+  nodeId,
+  title,
   stored,
   onClose,
 }: {
-  readonly node: CanvasNode;
-  readonly stored: EtherSheet;
+  readonly nodeId: string;
+  readonly title: string;
+  readonly stored: SheetGrid;
   readonly onClose: () => void;
 }) {
-  const rawText = node.type === "text" ? node.text : "";
-  const title = rawText.split("\n")[0]?.trim() || "Sheet";
-  const [draft, setDraft] = useState<EtherSheet>(() => stored);
+  const [draft, setDraft] = useState<SheetGrid>(() => stored);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const typingTimer = useRef<number | null>(null);
@@ -108,29 +110,29 @@ function SheetEditor({
       typingTimer.current = null;
     }
     // An editor closed with nothing changed writes nothing.
-    if (draftRef.current !== stored) setNodeSheet(node.id, draftRef.current);
-    flushNodeSheetTyping(node.id);
-  }, [node.id, stored]);
+    if (draftRef.current !== stored) setNodeSheet(nodeId, draftRef.current);
+    flushNodeSheetTyping(nodeId);
+  }, [nodeId, stored]);
 
   const commitNow = useCallback(
-    (next: EtherSheet) => {
+    (next: SheetGrid) => {
       if (typingTimer.current !== null) {
         window.clearTimeout(typingTimer.current);
         typingTimer.current = null;
       }
-      flushNodeSheetTyping(node.id);
-      setNodeSheet(node.id, next);
+      flushNodeSheetTyping(nodeId);
+      setNodeSheet(nodeId, next);
     },
-    [node.id],
+    [nodeId],
   );
 
   const scheduleTyping = useCallback(() => {
     if (typingTimer.current !== null) window.clearTimeout(typingTimer.current);
     typingTimer.current = window.setTimeout(() => {
       typingTimer.current = null;
-      setNodeSheetTyping(node.id, draftRef.current);
+      setNodeSheetTyping(nodeId, draftRef.current);
     }, 120);
-  }, [node.id]);
+  }, [nodeId]);
 
   useEffect(() => {
     return registerCanvasDraftCommit(() => {
@@ -141,16 +143,16 @@ function SheetEditor({
   useEffect(
     () => () => {
       if (typingTimer.current !== null) window.clearTimeout(typingTimer.current);
-      if (draftRef.current !== stored) setNodeSheet(node.id, draftRef.current);
-      flushNodeSheetTyping(node.id);
+      if (draftRef.current !== stored) setNodeSheet(nodeId, draftRef.current);
+      flushNodeSheetTyping(nodeId);
     },
     // `stored` is the grid the editor opened on; it is read once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [node.id],
+    [nodeId],
   );
 
   const apply = useCallback(
-    (next: EtherSheet, mode: "typing" | "structure") => {
+    (next: SheetGrid, mode: "typing" | "structure") => {
       setDraft(next);
       draftRef.current = next;
       if (mode === "typing") scheduleTyping();
@@ -342,9 +344,9 @@ const SheetRowView = memo(function SheetRowView({
   onCell,
   onDeleteRow,
 }: {
-  readonly row: EtherSheet["rows"][number];
+  readonly row: SheetGrid["rows"][number];
   readonly index: number;
-  readonly columns: EtherSheet["columns"];
+  readonly columns: SheetGrid["columns"];
   readonly numericByColumn: Readonly<Record<string, boolean>>;
   readonly onCell: (rowId: string, columnId: string, value: string) => void;
   readonly onDeleteRow: (rowId: string) => void;

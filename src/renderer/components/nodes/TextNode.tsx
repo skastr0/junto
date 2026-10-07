@@ -248,7 +248,7 @@ function TimerCard({ canvas, id }: { readonly canvas: string; readonly id: strin
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
 /** The kinds whose card body still takes the document's node. */
-const DOCUMENT_BODY_KINDS: ReadonlySet<string> = new Set(["sheet", "git"]);
+const DOCUMENT_BODY_KINDS: ReadonlySet<string> = new Set(["git"]);
 
 /**
  * Draws what still takes the document's node, and follows that node itself,
@@ -510,11 +510,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         </WithDocumentNode>
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "sheet" ? (
-        <WithDocumentNode id={id}>
-          {(node) => (
-            <SheetDetail node={node} onClose={() => setWorkDetail(false)} />
-          )}
-        </WithDocumentNode>
+        <SheetDetail nodeId={id} onClose={() => setWorkDetail(false)} />
       ) : null}
       {workDetail && entityKind === "git" ? (
         <WithDocumentNode id={id}>
@@ -682,13 +678,11 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             <BoardCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "pad" ? (
             <PadCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
+          ) : entityKind === "sheet" ? (
+            <SheetCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : DOCUMENT_BODY_KINDS.has(entityKind ?? "") ? (
             <WithDocumentNode id={id}>
-              {(node) => entityKind === "sheet" ? (
-                <SheetCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />
-              ) : entityKind === "git" ? (
-                <GitCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />
-              ) : null}
+              {(node) => <GitCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />}
             </WithDocumentNode>
           ) : (
             <NoteMarkdown source={text} />

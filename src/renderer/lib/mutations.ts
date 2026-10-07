@@ -1,10 +1,10 @@
+import type { SheetGrid } from "@shared/model/sheet";
 import type {
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
   EtherRegionContract,
   EtherRegionDefaults,
-  EtherSheet,
   EtherTimer,
   EtherWatch,
   NodeSide,
@@ -34,7 +34,7 @@ import { createDocumentProjection } from "./document-projection";
 import { canvasAfter } from "./model-undo";
 import { inPaintOrder, type Canvas } from "@shared/model/canvas";
 import { canvasFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
-import { recolored, regionEdited, renamed, topZ } from "./model-edits";
+import { recolored, regionEdited, renamed, sheetWritten, topZ } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -1286,68 +1286,29 @@ const stripEmptyRegionContract = (
   return { ...(rules ? { rules } : {}), ...(rulings ? { rulings } : {}) };
 };
 
-/**
- * Operator-authored region rules: statements the work must satisfy
- * (stacked outer -> inner across the region stack) and pinned rulings
- * (escalation precedents). Group nodes only —
- * seats have no authorial write path to this contract.
- */
-const remintSheetCard = (): void => {
-  state$.docVersion.set(state$.docVersion.peek() + 1);
-  state$.docEpoch.set(state$.docEpoch.peek() + 1);
+/** The grid last written, including after an editor releases its store hold. */
+const lastSheetWritten = new Map<string, SheetGrid>();
+
+const applyNodeSheet = (id: string, sheet: SheetGrid, remember: boolean): void => {
+  commitCommands((canvas) => {
+    const key = `${canvas.name}/${id}`;
+    const now = sheetStore.gridOf(canvas.name, id);
+    if (now === sheet || (now === undefined && lastSheetWritten.get(key) === sheet)) return [];
+    const commands = sheetWritten(canvas, id, sheet, now);
+    if (commands.length > 0) lastSheetWritten.set(key, sheet);
+    return commands;
+  }, { remember });
 };
 
-/** The grid last written to each sheet, so the same one is not written twice. */
-const lastSheetWritten = new Map<string, EtherSheet>();
-
-const applyNodeSheet = (
-  id: string,
-  sheet: EtherSheet,
-  options: { readonly structural: boolean; readonly recordHistory: boolean },
-): void => {
-  const doc = state$.doc.peek();
-  const name = state$.canvasName.peek();
-  const key = `${name}/${id}`;
-  if (sheetStore.gridOf(name, id) === sheet || lastSheetWritten.get(key) === sheet) {
-    // Typing already wrote this object without reminting React Flow. A later
-    // structural flush still has to bump docVersion so the card face catches up.
-    if (options.structural) remintSheetCard();
-    return;
-  }
-  // Whoever shows this sheet sees the grid now, ahead of main saying so.
-  lastSheetWritten.set(key, sheet);
-  sheetStore.show(name, id, sheet);
-  commitDoc(
-    {
-      ...doc,
-      nodes: doc.nodes.map((n) => {
-        if (n.id !== id) return n;
-        return { ...n, ether: { ...(n.ether ?? {}), sheet } };
-      }),
-    },
-    options.structural,
-    options.recordHistory,
-  );
-};
-
-/**
- * Write a sheet's grid onto its node. The sheet is authored content, so this is
- * an ordinary canvas commit — no work-plane round trip, and the agent path
- * (sheet.read) has no counterpart that lands here.
- *
- * Keystroke bursts share one undo step and do not remint React Flow (the
- * overlay holds a local draft). Row/column edits and closing the editor
- * remint once so the card face matches. Quitting still flushes through
- * `registerCanvasDraftCommit`.
- */
-export const setNodeSheet = (id: string, sheet: EtherSheet): void => {
-  applyNodeSheet(id, sheet, { structural: true, recordHistory: true });
+/** Write the separately held grid; typing bursts share the first write's undo. */
+export const setNodeSheet = (id: string, sheet: SheetGrid): void => {
+  applyNodeSheet(id, sheet, true);
 };
 
 const sheetTypingBurst = new Map<string, ReturnType<typeof setTimeout>>();
 const SHEET_TYPING_BURST_MS = 400;
 
-export const setNodeSheetTyping = (id: string, sheet: EtherSheet): void => {
+export const setNodeSheetTyping = (id: string, sheet: SheetGrid): void => {
   const recordHistory = !sheetTypingBurst.has(id);
   const previous = sheetTypingBurst.get(id);
   if (previous !== undefined) clearTimeout(previous);
@@ -1357,7 +1318,7 @@ export const setNodeSheetTyping = (id: string, sheet: EtherSheet): void => {
       sheetTypingBurst.delete(id);
     }, SHEET_TYPING_BURST_MS),
   );
-  applyNodeSheet(id, sheet, { structural: false, recordHistory });
+  applyNodeSheet(id, sheet, recordHistory);
 };
 
 /** Drop a coalesced typing burst so the next write starts a new undo frame. */

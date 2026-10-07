@@ -77,6 +77,8 @@ export const createSheetStore = (getApi: () => SheetApi | undefined) => {
     hold,
     /** The grid as it stands now, read once and not followed. */
     gridOf: (canvas: string, id: string): SheetGrid | undefined => grids$[keyOf(canvas, id)]!.peek(),
+    /** After a refused write, read the grid main still holds. */
+    reread: (canvas: string, id: string): void => { if (held.has(keyOf(canvas, id))) read(canvas, id); },
     /** Show a grid the window has just written, ahead of main saying so. */
     show: (canvas: string, id: string, grid: SheetGrid): void => {
       const key = keyOf(canvas, id);

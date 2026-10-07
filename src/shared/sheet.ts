@@ -6,13 +6,13 @@
  * column is this under". It exists so a number or a name can be jotted on the
  * canvas next to the work it belongs to, and so an agent can read that grid.
  *
- * Authority: the canvas document (`ether.sheet`), same as note text. This is
- * authored content, not a projection of a work-plane row, so there is no
- * revision counter and no SQLite table behind it. Agents read it through
- * `sheet.read`; the canvas stays operator-authored.
+ * Authority: the sheet grid's own SQLite row, read by node id and written by
+ * operator commands. Agents read through `sheet.read`; the grid travels only
+ * when it changes, independently of node placement and Work.
  */
 
 import { Schema } from "effect";
+import type { SheetGrid } from "./model/sheet";
 
 export const SHEET_MAX_COLUMNS = 32;
 export const SHEET_MAX_ROWS = 500;
@@ -43,14 +43,6 @@ export const SheetRow = Schema.Struct({
 });
 export type SheetRow = typeof SheetRow.Type;
 
-export const EtherSheet = Schema.Struct({
-  columns: Schema.Array(SheetColumn).pipe(
-    Schema.check(Schema.isMaxLength(SHEET_MAX_COLUMNS)),
-  ),
-  rows: Schema.Array(SheetRow).pipe(Schema.check(Schema.isMaxLength(SHEET_MAX_ROWS))),
-});
-export type EtherSheet = typeof EtherSheet.Type;
-
 /** Stable ids without ulid: position-free, collision-checked against the sheet. */
 const nextId = (prefix: string, taken: ReadonlySet<string>): string => {
   for (let n = 1; n <= SHEET_MAX_ROWS + SHEET_MAX_COLUMNS + 1; n += 1) {
@@ -60,14 +52,14 @@ const nextId = (prefix: string, taken: ReadonlySet<string>): string => {
   return `${prefix}${taken.size + 1}`;
 };
 
-const columnIds = (sheet: EtherSheet): Set<string> =>
+const columnIds = (sheet: SheetGrid): Set<string> =>
   new Set(sheet.columns.map((column) => column.id));
 
-const rowIds = (sheet: EtherSheet): Set<string> =>
+const rowIds = (sheet: SheetGrid): Set<string> =>
   new Set(sheet.rows.map((row) => row.id));
 
 /** A fresh sheet: two named columns and one empty row to type into. */
-export const emptySheet = (): EtherSheet => ({
+export const emptySheet = (): SheetGrid => ({
   columns: [
     { id: "c1", name: "Column A" },
     { id: "c2", name: "Column B" },
@@ -75,7 +67,7 @@ export const emptySheet = (): EtherSheet => ({
   rows: [{ id: "r1", cells: {} }],
 });
 
-export const addSheetColumn = (sheet: EtherSheet, name?: string): EtherSheet => {
+export const addSheetColumn = (sheet: SheetGrid, name?: string): SheetGrid => {
   if (sheet.columns.length >= SHEET_MAX_COLUMNS) return sheet;
   const id = nextId("c", columnIds(sheet));
   const label = (name ?? `Column ${String(sheet.columns.length + 1)}`).slice(
@@ -85,17 +77,17 @@ export const addSheetColumn = (sheet: EtherSheet, name?: string): EtherSheet => 
   return { ...sheet, columns: [...sheet.columns, { id, name: label }] };
 };
 
-export const addSheetRow = (sheet: EtherSheet): EtherSheet => {
+export const addSheetRow = (sheet: SheetGrid): SheetGrid => {
   if (sheet.rows.length >= SHEET_MAX_ROWS) return sheet;
   const id = nextId("r", rowIds(sheet));
   return { ...sheet, rows: [...sheet.rows, { id, cells: {} }] };
 };
 
 export const renameSheetColumn = (
-  sheet: EtherSheet,
+  sheet: SheetGrid,
   columnId: string,
   name: string,
-): EtherSheet => ({
+): SheetGrid => ({
   ...sheet,
   columns: sheet.columns.map((column) =>
     column.id === columnId
@@ -105,7 +97,7 @@ export const renameSheetColumn = (
 });
 
 /** Dropping a column drops its cells too — nothing keeps orphaned values. */
-export const removeSheetColumn = (sheet: EtherSheet, columnId: string): EtherSheet => {
+export const removeSheetColumn = (sheet: SheetGrid, columnId: string): SheetGrid => {
   if (!sheet.columns.some((column) => column.id === columnId)) return sheet;
   return {
     columns: sheet.columns.filter((column) => column.id !== columnId),
@@ -118,18 +110,18 @@ export const removeSheetColumn = (sheet: EtherSheet, columnId: string): EtherShe
   };
 };
 
-export const removeSheetRow = (sheet: EtherSheet, rowId: string): EtherSheet => ({
+export const removeSheetRow = (sheet: SheetGrid, rowId: string): SheetGrid => ({
   ...sheet,
   rows: sheet.rows.filter((row) => row.id !== rowId),
 });
 
-/** Write one cell. Blank text clears the key so the document stays sparse. */
+/** Write one cell. Blank text clears the key so the grid stays sparse. */
 export const setSheetCell = (
-  sheet: EtherSheet,
+  sheet: SheetGrid,
   rowId: string,
   columnId: string,
   value: string,
-): EtherSheet => {
+): SheetGrid => {
   if (!sheet.columns.some((column) => column.id === columnId)) return sheet;
   const text = value.slice(0, SHEET_MAX_CELL_LENGTH);
   return {
@@ -145,7 +137,7 @@ export const setSheetCell = (
 };
 
 export const sheetCell = (
-  sheet: EtherSheet,
+  sheet: SheetGrid,
   rowId: string,
   columnId: string,
 ): string => {
@@ -155,9 +147,9 @@ export const sheetCell = (
 
 /**
  * True when the whole column reads as numbers (blank cells ignored). Presentation
- * only: it right-aligns the column. The document never stores a cell type.
+ * only: it right-aligns the column. The grid never stores a cell type.
  */
-export const isNumericColumn = (sheet: EtherSheet, columnId: string): boolean => {
+export const isNumericColumn = (sheet: SheetGrid, columnId: string): boolean => {
   let seen = false;
   for (const row of sheet.rows) {
     const raw = (row.cells[columnId] ?? "").trim();
@@ -176,7 +168,7 @@ const escapeCell = (value: string): string =>
  * Markdown table — the sheet's read shape for agents and for copy-out.
  * A sheet with no columns renders as an empty string, not a broken table.
  */
-export const sheetToMarkdown = (sheet: EtherSheet): string => {
+export const sheetToMarkdown = (sheet: SheetGrid): string => {
   if (sheet.columns.length === 0) return "";
   const header = `| ${sheet.columns.map((column) => escapeCell(column.name)).join(" | ")} |`;
   const divider = `| ${sheet.columns.map(() => "---").join(" | ")} |`;
@@ -211,7 +203,7 @@ export const visibleSheetRowRange = (
 };
 
 /** Card glance line: shape first, then the first column names. */
-export const sheetGlance = (sheet: EtherSheet | undefined): string => {
+export const sheetGlance = (sheet: SheetGrid | undefined): string => {
   const columns = sheet?.columns.length ?? 0;
   const rows = sheet?.rows.length ?? 0;
   const shape = `${String(rows)} row${rows === 1 ? "" : "s"}, ${String(columns)} column${columns === 1 ? "" : "s"}`;
