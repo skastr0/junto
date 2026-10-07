@@ -4,7 +4,9 @@ import { resolveSpec, roleOf } from "../src/shared/physics";
 import { toFlow } from "../src/renderer/lib/convert";
 import { makeGroupNode, makeLabelNode, makeTextNode } from "../src/renderer/lib/node-factories";
 import { isLabelNode } from "../src/renderer/lib/presentation";
-import { planConnectToTarget } from "../src/renderer/lib/edge-mutations";
+import { targetPlanOn } from "../src/renderer/lib/edge-mutations";
+import { asNodeId, type Node } from "../src/shared/model";
+import { canvasOf, seat } from "./support/model-nodes";
 import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 
 const emptyContext = {
@@ -65,19 +67,17 @@ describe("label geography node", () => {
     expect(nodes[0]?.style?.pointerEvents).toBe("none");
   });
 
-  it("planConnectToTarget refuses labels as source or target", () => {
-    const label = makeLabelNode(0, 0);
-    const a = { ...makeTextNode(10, 10), id: "a" };
-    const b = { ...makeTextNode(20, 20), id: "b" };
-    const nodes = [label, a, b];
+  it("a batch connect refuses labels as source or target", () => {
+    const label = { kind: "label", id: asNodeId("label"), text: "Label", x: 0, y: 0, width: 120, height: 40, z: 0 } as Node;
+    const canvas = canvasOf([label, seat("a"), seat("b")]);
 
-    const asTarget = planConnectToTarget(["a"], label.id, nodes, []);
+    const asTarget = targetPlanOn(canvas, ["a"], "label");
     expect(asTarget.toAdd).toEqual([]);
     expect(asTarget.skipped).toEqual([{ source: "a", reason: "invalid-target" }]);
 
-    const asSource = planConnectToTarget([label.id], "b", nodes, []);
+    const asSource = targetPlanOn(canvas, ["label"], "b");
     expect(asSource.toAdd).toEqual([]);
-    expect(asSource.skipped).toEqual([{ source: label.id, reason: "label-source" }]);
+    expect(asSource.skipped).toEqual([{ source: "label", reason: "label-source" }]);
   });
 
   it("catalog lists Label under canvas", () => {

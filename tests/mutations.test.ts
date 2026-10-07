@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/renderer/lib/mutations";
-import { addEdge, connectAllToTarget, deleteEdges, planConnectToTarget } from "../src/renderer/lib/edge-mutations";
+import { addEdge, connectAllToTarget, deleteEdges, targetPlanOn } from "../src/renderer/lib/edge-mutations";
+import * as fixtures from "./support/model-nodes";
 import { findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$ } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
@@ -574,53 +575,22 @@ describe("renderer graph mutations", () => {
     expect(state$.error.peek()).toBe("A node cannot connect to itself.");
   });
 
-  describe("planConnectToTarget (pure edge-batch helper, RTS-006)", () => {
-    // Agents wire to agents; geography notes are deliberately unwirable.
-    const batchNodes: CanvasDoc["nodes"] = [
-      {
-        id: "a",
-        type: "text",
-        text: "A",
-        x: 0,
-        y: 0,
-        width: 200,
-        height: 80,
-        ether: { entity: { kind: "agent", name: "local:a" } },
-      },
-      {
-        id: "b",
-        type: "text",
-        text: "B",
-        x: 100,
-        y: 0,
-        width: 200,
-        height: 80,
-        ether: { entity: { kind: "agent", name: "local:b" } },
-      },
-      {
-        id: "c",
-        type: "text",
-        text: "C",
-        x: 200,
-        y: 0,
-        width: 200,
-        height: 80,
-        ether: { entity: { kind: "agent", name: "local:c" } },
-      },
-      { id: "region", type: "group", label: "R", x: 0, y: 100, width: 400, height: 200 },
-      {
-        id: "note",
-        type: "text",
-        text: "geography note",
-        x: 0,
-        y: 500,
-        width: 200,
-        height: 80,
-      },
-    ];
+  describe("targetPlanOn (the plan a batch connect follows, RTS-006)", () => {
+    // Agents wire to agents; a note only sits there and takes no wire.
+    const batch = (wires: Parameters<typeof fixtures.canvasOf>[1] = []) =>
+      fixtures.canvasOf(
+        [
+          fixtures.seat("a"),
+          fixtures.seat("b"),
+          fixtures.seat("c"),
+          fixtures.region("region", { x: 0, y: 100, width: 400, height: 200 }),
+          fixtures.note("note", "geography note"),
+        ],
+        wires,
+      );
 
     it("plans mail wires from each agent to the target agent", () => {
-      const plan = planConnectToTarget(["a", "b"], "c", batchNodes, []);
+      const plan = targetPlanOn(batch(), ["a", "b"], "c");
       expect(plan.toAdd.map((c) => ({ from: c.fromNode, to: c.toNode }))).toEqual([
         { from: "a", to: "c" },
         { from: "b", to: "c" },
@@ -629,17 +599,16 @@ describe("renderer graph mutations", () => {
     });
 
     it("refuses geography notes as unwirable", () => {
-      const plan = planConnectToTarget(["note"], "c", batchNodes, []);
+      const plan = targetPlanOn(batch(), ["note"], "c");
       expect(plan.toAdd).toEqual([]);
       expect(plan.skipped).toEqual([{ source: "note", reason: "refused-pair" }]);
     });
 
     it("skips self, duplicates, groups, and missing sources", () => {
-      const plan = planConnectToTarget(
+      const plan = targetPlanOn(
+        batch([fixtures.wire("e1", "b", "c", "messages")]),
         ["a", "a", "c", "region", "missing", "b"],
         "c",
-        batchNodes,
-        [{ id: "e1", fromNode: "b", toNode: "c" }],
       );
       expect(plan.toAdd).toEqual([
         { fromNode: "a", toNode: "c", verb: "messages" },
@@ -654,19 +623,19 @@ describe("renderer graph mutations", () => {
     });
 
     it("rejects group targets and missing targets for every source", () => {
-      expect(planConnectToTarget(["a", "b"], "region", batchNodes, []).skipped).toEqual([
+      expect(targetPlanOn(batch(), ["a", "b"], "region").skipped).toEqual([
         { source: "a", reason: "invalid-target" },
         { source: "b", reason: "invalid-target" },
       ]);
-      expect(planConnectToTarget(["a"], "gone", batchNodes, []).toAdd).toEqual([]);
+      expect(targetPlanOn(batch(), ["a"], "gone").toAdd).toEqual([]);
     });
 
-    it("does not mutate inputs", () => {
+    it("writes nothing and leaves what it was given as it was", () => {
       const sources = ["a", "b"] as const;
-      const edges: CanvasDoc["edges"] = [];
-      const plan = planConnectToTarget(sources, "c", batchNodes, edges);
+      const canvas = batch();
+      const plan = targetPlanOn(canvas, sources, "c");
       expect(plan.toAdd).toHaveLength(2);
-      expect(edges).toHaveLength(0);
+      expect(canvas.wires.size).toBe(0);
       expect(sources).toEqual(["a", "b"]);
     });
   });

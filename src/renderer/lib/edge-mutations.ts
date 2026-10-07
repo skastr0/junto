@@ -1,9 +1,7 @@
 import { ulid } from "ulid";
-import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import { defaultVerbForPair, verbsForPair, type Verb } from "@shared/physics";
 import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
-import { isGitNode, isLabelNode } from "./presentation";
 import { removalPolicy, wireRemovalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { canvasAsItStands, commitCommands, parseSide } from "./mutations";
@@ -21,12 +19,6 @@ import { titleOf } from "@shared/model/title";
  * default. Ports, watch predicates, fire actions, and the task path hop are
  * compiled from the verb (`physics/verbs.ts`), never stored beside it.
  */
-
-/** Authored kind, or nothing for a region — geography holds no verb. */
-const kindOf = (node: CanvasNode | undefined): string | undefined =>
-  node === undefined || node.type === "group"
-    ? undefined
-    : node.ether?.entity?.kind;
 
 export type DrawVerbs = {
   /** Verbs the pair admits, in table order. Empty means connect is refused. */
@@ -200,7 +192,7 @@ export type EdgeBatchSkipReason =
   | "refused-pair"
   | "flow-cycle";
 
-/** Plan payload speaks the document's one edge word: the verb. */
+/** A wire a plan asks for: its two ends in stored order, and its verb. */
 export type EdgeBatchCandidate = {
   readonly fromNode: string;
   readonly toNode: string;
@@ -221,14 +213,14 @@ export type EdgeBatchPlan = {
 
 /**
  * Pure planner: given selected source ids and a target, compute which wires to
- * create. Does not touch state, ids, or the document.
+ * create. Does not touch state, ids, or the canvas.
  * - Skips self, groups-as-sources, missing sources, duplicates (existing or
  *   within the batch).
  * - Invalid target (missing / group) skips every source with `invalid-target`.
  * - A pair the verb grammar refuses skips with `refused-pair`.
  * - Each wire is stored in its verb's order, so a duplicate is judged on the
  *   stored pair rather than the order the operator happened to select in.
- * - A `feeds` hop that would close a cycle (against the document AND the hops
+ * - A `feeds` hop that would close a cycle (against the canvas AND the hops
  *   already planned in this batch) skips with `flow-cycle`.
  */
 /** What a plan needs to know of a card: whether it takes a wire at all, and its kind. */
@@ -240,20 +232,10 @@ type PlanNode = {
 /** A wire as a plan reads it: its two ends, and its verb when it has one. */
 type PlanWire = { readonly from: string; readonly to: string; readonly verb?: Verb | undefined };
 
-const planNodeOfDocument = (node: CanvasNode): PlanNode => ({
-  takes: node.type === "group" ? "region" : isLabelNode(node) ? "label" : isGitNode(node) ? "git" : "wire",
-  kind: kindOf(node),
-});
 const planNodeOf = (node: Node): PlanNode => ({
   takes: node.kind === "region" ? "region" : node.kind === "label" ? "label" : node.kind === "git" ? "git" : "wire",
   kind: physicsKind(node.kind),
 });
-const planWireOfDocument = (edge: CanvasEdge): PlanWire => ({
-  from: edge.fromNode,
-  to: edge.toNode,
-  verb: edge.ether?.verb,
-});
-
 /** Whether these wires, as a canvas, hold a loop of boards. */
 const loopIn = (wires: ReadonlyArray<PlanWire>): FlowCycleError | undefined =>
   validateFlowDag({
@@ -337,20 +319,6 @@ const planToTarget = (
   return { toAdd, skipped };
 };
 
-/** The same plan over document nodes and edges, for callers that still hold a document. */
-export const planConnectToTarget = (
-  sourceIds: ReadonlyArray<string>,
-  targetId: string,
-  nodes: ReadonlyArray<CanvasNode>,
-  edges: ReadonlyArray<CanvasEdge>,
-): EdgeBatchPlan =>
-  planToTarget(
-    sourceIds,
-    targetId,
-    new Map(nodes.map((node) => [node.id, planNodeOfDocument(node)] as const)),
-    edges.map(planWireOfDocument),
-  );
-
 /** What the canvas holds, as a plan reads it. */
 const planView = (canvas: Canvas) => ({
   nodes: new Map([...canvas.nodes.values()].map((node) => [node.id as string, planNodeOf(node)] as const)),
@@ -372,7 +340,7 @@ const addPlanned = (canvas: Canvas, plan: EdgeBatchPlan): { commands: ReadonlyAr
 };
 
 /**
- * Commit one wire per valid selected source → target in a single document
+ * Commit one wire per valid selected source → target in a single
  * write. Preserves selection when `keepSelection` (shift-RMB multi-target
  * convenience). Returns the plan for callers/tests.
  */
@@ -450,18 +418,6 @@ const planMesh = (
   return { toAdd, skipped };
 };
 
-/** The same plan over document nodes and edges, for callers that still hold a document. */
-export const planConnectMesh = (
-  nodeIds: ReadonlyArray<string>,
-  nodes: ReadonlyArray<CanvasNode>,
-  edges: ReadonlyArray<CanvasEdge>,
-): EdgeBatchPlan =>
-  planMesh(
-    nodeIds,
-    new Map(nodes.map((node) => [node.id, planNodeOfDocument(node)] as const)),
-    edges.map(planWireOfDocument),
-  );
-
 /** Wire every pair in the selection as one act (one undo step); selection stays. */
 export const connectMesh = (nodeIds: ReadonlyArray<string>): EdgeBatchPlan => {
   let plan: EdgeBatchPlan = { toAdd: [], skipped: [] };
@@ -477,17 +433,6 @@ export const connectMesh = (nodeIds: ReadonlyArray<string>): EdgeBatchPlan => {
     return addPlanned(canvas, plan).commands;
   });
   return plan;
-};
-
-/** Edges with both ends inside `nodeIds`; wires to outside nodes stay out. */
-export const edgeIdsWithin = (
-  nodeIds: ReadonlyArray<string>,
-  edges: ReadonlyArray<CanvasEdge>,
-): ReadonlyArray<string> => {
-  const inside = new Set(nodeIds);
-  return edges
-    .filter((edge) => inside.has(edge.fromNode) && inside.has(edge.toNode))
-    .map((edge) => edge.id);
 };
 
 /** The wires with both ends among `nodeIds`; wires to cards outside stay out. */

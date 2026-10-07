@@ -6,7 +6,8 @@ import { resolveSpec, roleOf } from "../src/shared/physics";
 import { toFlow } from "../src/renderer/lib/convert";
 import { makeGitNode, makeTextNode } from "../src/renderer/lib/node-factories";
 import { isGitNode } from "../src/renderer/lib/presentation";
-import { planConnectToTarget } from "../src/renderer/lib/edge-mutations";
+import { targetPlanOn } from "../src/renderer/lib/edge-mutations";
+import { canvasOf, seat } from "./support/model-nodes";
 import { nodeSurfaceKind } from "../src/renderer/lib/activate-node-surface";
 import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 
@@ -52,14 +53,13 @@ describe("git geography node", () => {
     expect(nodes.find((n) => n.id === note.id)?.connectable).toBe(true);
   });
 
-  it("planConnectToTarget refuses git as source or target", () => {
-    const git = makeGitNode(0, 0, "/tmp/repo");
-    const a = { ...makeTextNode(10, 10), id: "a" };
-    const nodes = [git, a];
-    const asTarget = planConnectToTarget(["a"], git.id, nodes, []);
+  it("a batch connect refuses git as source or target", () => {
+    const git = newGit({ x: 0, y: 0, z: 0 }, "/tmp/repo");
+    const canvas = canvasOf([git, seat("a")]);
+    const asTarget = targetPlanOn(canvas, ["a"], git.id);
     expect(asTarget.toAdd).toEqual([]);
     expect(asTarget.skipped).toEqual([{ source: "a", reason: "invalid-target" }]);
-    const asSource = planConnectToTarget([git.id], "a", nodes, []);
+    const asSource = targetPlanOn(canvas, [git.id], "a");
     expect(asSource.toAdd).toEqual([]);
     expect(asSource.skipped[0]?.reason).toBe("label-source");
   });

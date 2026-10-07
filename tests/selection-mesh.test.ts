@@ -4,11 +4,9 @@ import { loadDoc, undo } from "../src/renderer/lib/mutations";
 import {
   connectMesh,
   disconnectWithin,
-  edgeIdsWithin,
   meshPlanOn,
   targetPlanOn,
   wireIdsWithin,
-  planConnectMesh,
 } from "../src/renderer/lib/edge-mutations";
 import { canvasOf, region, seat, wire as modelWire } from "./support/model-nodes";
 import { agentCountLabel, agentSeatIds } from "../src/renderer/lib/multi-selection";
@@ -42,7 +40,7 @@ const wire = (id: string, fromNode: string, toNode: string): CanvasEdge => ({
   ether: { verb: "messages" },
 });
 
-const pairs = (plan: ReturnType<typeof planConnectMesh>) =>
+const pairs = (plan: ReturnType<typeof meshPlanOn>) =>
   plan.toAdd.map((c) => [c.fromNode, c.toNode].sort().join("|")).sort();
 
 // No `junto` bridge, so commits stay in memory; confirm accepts deletes.
@@ -73,26 +71,29 @@ describe("the same plans asked of the model canvas", () => {
   });
 });
 
-describe("planConnectMesh", () => {
+describe("meshPlanOn", () => {
+  const seats = [seat("a"), seat("b"), seat("c"), seat("d")];
+
   it("wires one edge per unordered pair", () => {
-    const plan = planConnectMesh(["a", "b", "c", "d"], nodes, []);
+    const plan = meshPlanOn(canvasOf(seats), ["a", "b", "c", "d"]);
     expect(pairs(plan)).toEqual(["a|b", "a|c", "a|d", "b|c", "b|d", "c|d"]);
     expect(plan.skipped).toEqual([]);
   });
 
   it("skips pairs already wired in either direction", () => {
-    const plan = planConnectMesh(["a", "b", "c"], nodes, [wire("e1", "b", "a"), wire("e2", "a", "c")]);
+    const wired = canvasOf(seats, [modelWire("e1", "b", "a", "messages"), modelWire("e2", "a", "c", "messages")]);
+    const plan = meshPlanOn(wired, ["a", "b", "c"]);
     expect(pairs(plan)).toEqual(["b|c"]);
     expect(plan.skipped.filter((s) => s.reason === "duplicate")).toHaveLength(2);
   });
 
   it("ignores repeated ids and plans nothing for fewer than two", () => {
-    expect(planConnectMesh(["a", "a"], nodes, []).toAdd).toEqual([]);
-    expect(planConnectMesh([], nodes, []).toAdd).toEqual([]);
+    expect(meshPlanOn(canvasOf(seats), ["a", "a"]).toAdd).toEqual([]);
+    expect(meshPlanOn(canvasOf(seats), []).toAdd).toEqual([]);
   });
 
   it("follows the pair grammar the single-target connect uses", () => {
-    const plan = planConnectMesh(["a", "b"], nodes, []);
+    const plan = meshPlanOn(canvasOf(seats), ["a", "b"]);
     expect(plan.toAdd).toHaveLength(1);
     expect(typeof plan.toAdd[0]?.verb).toBe("string");
   });
@@ -120,11 +121,6 @@ describe("connectMesh", () => {
 
 describe("disconnect within a selection", () => {
   const edges = [wire("in1", "a", "b"), wire("in2", "c", "a"), wire("out", "a", "d")];
-
-  it("finds only edges with both ends inside", () => {
-    expect(edgeIdsWithin(["a", "b", "c"], edges)).toEqual(["in1", "in2"]);
-    expect(edgeIdsWithin(["a"], edges)).toEqual([]);
-  });
 
   it("removes inside edges in one write and keeps outside ones", () => {
     state$.canvasName.set("selection-mesh-test");
