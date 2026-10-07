@@ -61,11 +61,28 @@ const mouse = (type: string, x: number, y: number, extra: object = {}) =>
   send("Input.dispatchMouseEvent", { type, x, y, button: type === "mouseMoved" ? "none" : "left", clickCount: type === "mouseMoved" ? 0 : 1, ...extra });
 
 // Seat cards that are fully on screen, top-left first.
-const cards = await evaluate<Array<{ id: string; x: number; y: number }>>(`(() => [...document.querySelectorAll(".react-flow__node")]
+const seatsOnScreen = () => evaluate<Array<{ id: string; x: number; y: number }>>(`(() => [...document.querySelectorAll(".react-flow__node")]
   .filter((card) => (card.getAttribute("data-id") ?? "").startsWith("verify-seat-"))
   .map((card) => { const box = card.getBoundingClientRect(); return { id: card.getAttribute("data-id"), x: box.left + box.width / 2, y: box.top + box.height / 2, w: box.width, h: box.height }; })
   .filter((box) => box.x > 40 && box.y > 80 && box.x < innerWidth - 40 && box.y < innerHeight - 160 && box.w > 6 && box.h > 6)
   .sort((a, b) => a.y - b.y || a.x - b.x))()`);
+// A canvas opens at a readable zoom that may show only a few cards. Zoom out
+// with the pinch gesture (wheel with Ctrl) until enough seats are on screen,
+// or zooming out stops helping.
+let cards = await seatsOnScreen();
+let zoomSteps = 0;
+for (let tries = 0; tries < 14 && cards.length < select; tries += 1) {
+  const size = await evaluate<{ w: number; h: number }>(`({ w: innerWidth, h: innerHeight })`);
+  await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: Math.round(size.w / 2), y: Math.round(size.h / 2), deltaX: 0, deltaY: 120, modifiers: 2 });
+  await sleep(450);
+  const next = await seatsOnScreen();
+  zoomSteps += 1;
+  if (next.length < cards.length) break;
+  cards = next;
+}
+await sleep(800);
+cards = await seatsOnScreen();
+console.log(JSON.stringify({ zoomOutSteps: zoomSteps, seatCardsOnScreen: cards.length, viewport: await evaluate<string>(`document.querySelector(".react-flow__viewport")?.style.transform ?? ""`) }));
 if (cards.length < 3) {
   console.error(`verify lab: only ${String(cards.length)} seat cards on screen, need at least 3`);
   process.exit(1);
