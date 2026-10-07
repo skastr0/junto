@@ -192,6 +192,8 @@ test("a voiced preamble shows the canvas bubble beside its seat and never takes 
       await expect(bubble.locator(".junto-preamble__card .junto-preamble__text")).toHaveText(`rolling out step two (${mode})`);
       await expect(page.locator('.react-flow__node[data-id="bea"] [data-testid="node-preamble"]')).toHaveCount(1);
 
+      await page.screenshot({ path: test.info().outputPath(`rail-bubble-${mode}.png`) });
+
       // It did not move the keyboard. It speaks from its own portrait: the card
       // ends just left of bea's ring, level with the ring's centre, and touches
       // no other seat's ring.
@@ -231,6 +233,36 @@ test("a voiced preamble shows the canvas bubble beside its seat and never takes 
       await expect(rail(page).locator('[data-testid="node-preamble"][data-node-id="bea"]')).toHaveCount(0);
       await expect(page.locator('.react-flow__node[data-id="bea"] [data-testid="node-preamble"]')).toHaveCount(0);
     }
+  } finally {
+    await junto.close();
+  }
+});
+
+test("search over an open agent opens the result on Enter", async () => {
+  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+  try {
+    const { page } = junto;
+    await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
+
+    // Over the canvas Enter goes to the node and opens nothing.
+    await page.keyboard.press("Meta+k");
+    const input = page.getByTestId("command-bar-input");
+    await input.fill("bea");
+    await expect(page.getByTestId("command-bar-enter-hint")).toHaveText("go to");
+    await page.screenshot({ path: test.info().outputPath("search-over-canvas.png") });
+    await page.keyboard.press("Enter");
+    await expect(input).toHaveCount(0);
+    await expect(front(page)).toHaveCount(0);
+
+    // Over an open agent the same Enter opens the result there.
+    await open(page, "lead");
+    await page.keyboard.press("Meta+k");
+    await input.fill("bea");
+    await expect(page.getByTestId("command-bar-enter-hint")).toHaveText("open");
+    await page.screenshot({ path: test.info().outputPath("search-over-agent.png") });
+    await page.keyboard.press("Enter");
+    await expect(input).toHaveCount(0);
+    await expect(front(page).locator("header").first()).toContainText("bea", { timeout: 20_000 });
   } finally {
     await junto.close();
   }
