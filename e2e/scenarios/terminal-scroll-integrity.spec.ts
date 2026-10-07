@@ -210,18 +210,25 @@ test("the size the child process sees matches the size xterm renders", async ({
 
   const mismatches: string[] = [];
 
+  // The child is told a new size once the view has stopped changing
+  // (PTY_NOTIFY_SETTLE_MS after the last fit), so right after a resize the two
+  // legitimately differ. Ask again for a few seconds; a mismatch that outlasts
+  // that is the defect.
   const compare = async (where: string, marker: string): Promise<void> => {
-    const rendered = await renderedGeom(page);
-    const child = await ptyGeom(page, marker);
-    if (!rendered || !child) {
-      mismatches.push(`${where}: could not read geometry (rendered=${JSON.stringify(rendered)} child=${JSON.stringify(child)})`);
-      return;
+    let last = "";
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      const rendered = await renderedGeom(page);
+      const child = await ptyGeom(page, `${marker}N${String(attempt)}`);
+      if (!rendered || !child) {
+        last = `${where}: could not read geometry (rendered=${JSON.stringify(rendered)} child=${JSON.stringify(child)})`;
+      } else if (rendered.cols !== child.cols || rendered.rows !== child.rows) {
+        last = `${where}: xterm renders ${rendered.cols}x${rendered.rows} but the child process sees ${child.cols}x${child.rows} — every absolute cursor write from a TUI lands on the wrong row`;
+      } else {
+        return;
+      }
+      await page.waitForTimeout(1_000);
     }
-    if (rendered.cols !== child.cols || rendered.rows !== child.rows) {
-      mismatches.push(
-        `${where}: xterm renders ${rendered.cols}x${rendered.rows} but the child process sees ${child.cols}x${child.rows} — every absolute cursor write from a TUI lands on the wrong row`,
-      );
-    }
+    mismatches.push(`${last} (still so after 6 asks, a second apart)`);
   };
 
   await compare("at rest after attach", "G1");

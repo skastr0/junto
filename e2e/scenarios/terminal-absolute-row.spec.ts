@@ -68,6 +68,22 @@ test("a TUI status line lands on the real last row, not a stale one", async ({ j
     await waitForTerminalPaint(page);
   }
   await waitForTerminalText(page, "STATUS-ROW-", 15_000);
+  // The child is told the restored size once the view has stopped changing
+  // (PTY_NOTIFY_SETTLE_MS after the last fit) and redraws its status on its
+  // next pass. Give it that long; a status still on a stale row after ten
+  // seconds is the defect, and the check below says so.
+  await expect
+    .poll(
+      async () => {
+        const now = await rowTexts(page);
+        const latest = now.filter((t) => t.includes("STATUS-ROW-")).at(-1) ?? "";
+        const claimed = Number(/STATUS-ROW-(\d+)/.exec(latest)?.[1] ?? "0");
+        return claimed > 0 && Math.abs(claimed - now.length) <= 1;
+      },
+      { timeout: 10_000, intervals: [250] },
+    )
+    .toBe(true)
+    .catch(() => undefined);
 
   const rows = await rowTexts(page);
   const statusAt = rows.map((t, i) => ({ t, i })).filter((r) => r.t.includes("STATUS-ROW-"));

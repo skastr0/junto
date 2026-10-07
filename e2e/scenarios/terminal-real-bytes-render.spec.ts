@@ -97,7 +97,11 @@ for (const { harness, scenario } of CASES) {
 
     // Push the real harness stream through the real PTY into the real xterm.
     await surface.locator(".xterm-screen").click();
-    await page.keyboard.type(`cat ${raw}`);
+    // Home and clear first: the capture was recorded from an empty screen
+    // with the cursor at the top, and the headless reference starts there
+    // too. Replayed below a prompt and a command line it scrolls one row
+    // further than the reference, and a row goes missing for that alone.
+    await page.keyboard.type(`printf '\\033[H\\033[2J'; cat ${raw}`);
     await page.keyboard.press("Enter");
     // The capture has arrived when the screen stops changing; reading sooner
     // sees the prompt and none of the payload.
