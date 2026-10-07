@@ -18,7 +18,8 @@ import {
   OFFBOARD_MISSING,
   executeOverseerOffboard,
 } from "../src/main/junto/overseer/offboard";
-import type { OverseerOffboard } from "../src/main/junto/overseer/offboard-seam";
+import { overseerOffboard, type OverseerOffboard } from "../src/main/junto/overseer/offboard-seam";
+import { setOperatorOffboard } from "../src/main/junto/seat-sessions/operator-offboard";
 import { offboardRefusedAny } from "../src/cli/commands/overseer";
 
 const caller = { canvasName: "factory", nodeId: "boss" };
@@ -258,6 +259,44 @@ describe("offboard rules", () => {
     ]) {
       expect(await executeOverseerOffboard(caller, request, failing))
         .toEqual({ ok: false, error: { type: "InternalError", message: OFFBOARD_FAILED } });
+    }
+  });
+});
+
+describe("the product binding", () => {
+  it("passes main's own answer through while the app has not wired the operation", async () => {
+    setOperatorOffboard(undefined);
+    const ran = await executeOverseerOffboard(
+      caller,
+      { operation: "agent.offboard", args: { nodeIds: ["a", "b"], action: "now" } },
+      overseerOffboard,
+    );
+    expect(ran).toEqual({
+      ok: true,
+      data: {
+        results: [
+          { seatId: "a", ok: false, code: "failed", reason: "Junto is still starting. Try again in a moment." },
+          { seatId: "b", ok: false, code: "failed", reason: "Junto is still starting. Try again in a moment." },
+        ],
+        closed: 0,
+        asked: 0,
+        refused: 2,
+      },
+    });
+    expect(offboardRefusedAny(ran.ok ? ran.data : undefined)).toBe(true);
+    expect(
+      await executeOverseerOffboard(caller, { operation: "agent.offboard-status", args: { nodeIds: ["a"] } }, overseerOffboard),
+    ).toMatchObject({ ok: true, data: [{ seatId: "a", now: { allowed: false, code: "failed" }, preferred: "ask" }] });
+  });
+
+  it("reaches the operation main installed, as the overseer", async () => {
+    const run = vi.fn(async () => summarizeOffboardRun([]));
+    setOperatorOffboard({ run, status: async () => [], tick: async () => summarizeOffboardRun([]) } as never);
+    try {
+      await executeOverseerOffboard(caller, { operation: "agent.offboard", args: { nodeIds: ["a"] } }, overseerOffboard);
+      expect(run).toHaveBeenCalledWith({ canvasName: "factory", seatIds: ["a"], action: "ask" }, "overseer");
+    } finally {
+      setOperatorOffboard(undefined);
     }
   });
 });

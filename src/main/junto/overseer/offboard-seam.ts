@@ -6,6 +6,10 @@ import type {
   SeatOffboardRunResult,
   SeatOffboardStatus,
 } from "@shared/seat-offboard";
+import {
+  runSeatOffboard,
+  seatOffboardStatus,
+} from "../seat-sessions/operator-offboard";
 
 /**
  * The seam to the operator's offboard entry point in main.
@@ -14,12 +18,6 @@ import type {
  * do, through the same entry point: main decides whether a seat can be ended
  * now, main words the ask, main holds the rules. Nothing on this side tests
  * idleness, composes a prompt, builds a row, or retries.
- *
- * STAND-IN: the entry point has not landed. The four members are
- * `runSeatOffboard`, `seatOffboardStatus`, `readOffboardRules` and
- * `patchOffboardRules` in `main/junto/seat-sessions/operator-offboard.ts`.
- * Until they land this is undefined and every `agent.offboard*` operation
- * answers Unsupported. The swap is this one binding.
  */
 export type OverseerOffboardRulesPatched =
   | { readonly ok: true; readonly rules: OffboardRules }
@@ -41,4 +39,13 @@ export type OverseerOffboard = {
     Promise<OverseerOffboardRulesPatched>;
 };
 
-export const overseerOffboard: OverseerOffboard | undefined = undefined;
+// The rules live with the app's wiring (its runtime, the terminal plane), so
+// that module is loaded on first use and never by a test that fakes this seam.
+const live = () => import("../seat-sessions/operator-offboard-live");
+
+export const overseerOffboard: OverseerOffboard | undefined = {
+  run: runSeatOffboard,
+  status: seatOffboardStatus,
+  readRules: async () => (await live()).readOffboardRules(),
+  patchRules: async (patch) => (await live()).patchOffboardRules(patch),
+};

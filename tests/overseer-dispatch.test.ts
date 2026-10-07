@@ -268,9 +268,6 @@ describe("integrated overseer dispatcher", () => {
       .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
     expect(rules.auto).toEqual({ enabled: false, minutes: 120 });
 
-    // No entry point bound: Unsupported, and the native adapter is never asked.
-    expect(await run_({ operation: "agent.offboard-rules" }, adapters))
-      .toMatchObject({ ok: false, error: { type: "Unsupported" } });
     expect(adapters.native).not.toHaveBeenCalled();
   });
 

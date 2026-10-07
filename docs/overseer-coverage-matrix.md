@@ -198,9 +198,9 @@ replay.
 | Rules | `agent.offboard-rules` answers `{rules, effective}`; `agent.offboard-configure` takes `OffboardRulesPatch`, main applies, checks and saves it, and a refused change is `InvalidArguments` with main's message unchanged |
 | One entry point | `src/main/junto/overseer/offboard-seam.ts`; the handler adds no idle test, no ask wording, no rows and no retry |
 
-The seam is not yet bound to product code: until main's entry point lands
-every `agent.offboard*` operation answers `Unsupported`. Tests use a fake
-entry point.
+The seam is bound to main's `runSeatOffboard`, `seatOffboardStatus`,
+`readOffboardRules` and `patchOffboardRules`. Tests replace it with a fake
+entry point, and one test drives the real operation module over fake ports.
 
 ## Region environment and secrets
 
