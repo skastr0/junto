@@ -178,7 +178,7 @@ entities (counts + digest). The working copy for a wired agent is
 
 ## Physics and work plane
 
-Card: JSON Canvas `text` node, `ether.entity.kind = "pad"`. Glance
+Card: a node of kind `pad`. Glance
 = title + shape count + unread pin count. SQLite owns truth.
 
 ```

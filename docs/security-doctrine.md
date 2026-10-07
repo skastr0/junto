@@ -358,16 +358,10 @@ replacement parity, no current reader/writer, fleet compatibility evidence,
 and explicit retention intent. Canonical user and factory history has no
 automatic retirement horizon.
 
-Authorial canvas writes persist one relational current graph
-(`canvas_documents`, `canvas_objects`, `canvas_nodes`, `canvas_edges`),
-content-addressed immutable `canvas_checkpoints` (reused when the serialized
-body is unchanged), compact `canvas_generation_manifests`, and an append-only
-`canvas_commit_envelopes` row in the same SQLite transaction as
-`canvas_generations` / `canvas_head`. Automatic deletion of
-`canvas_generation_documents` bodies is removed. Historical generation
-document rows remain readable and are never rewritten. Future physical
-compaction is a separately approved operation with backup, parity, fleet, and
-Work-reference proofs.
+A canvas is stored as rows: one `canvases` row carrying its `seq`, one typed
+table per kind of node, and `wires`. A command changes those rows and advances
+`seq` in one SQLite transaction; there is no stored document, checkpoint or
+generation history to retain or compact.
 
 The transient in-memory schema compiler contains no product data and is not an
 authority connection.

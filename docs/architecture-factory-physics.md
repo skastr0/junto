@@ -83,9 +83,9 @@ still admit by peer PID.
 | **Region** | `region` | Geography + optional briefing text |
 | **Geography / furniture** | raw `terminal`, notes, labels, unknown/open-vocab kinds (incl. retired `project` strings) | Spatial or operator surface; no actor seat, inbox, work claim, or ocap wield |
 
-**Forbidden:** `ether.role` (or any authorial role field) as the source of truth.
-Kind → role is derived in code. Wrong kind is fixed by changing entity kind, not
-by stamping a role overlay.
+**Forbidden:** any authorial role field as the source of truth.
+Kind → role is derived in code. A node of the wrong kind is replaced by one of
+the right kind, not stamped with a role overlay.
 
 `worker` is reserved for a future native-agent surface and must not appear as a
 current entity kind. ACP, terminal transport, SSH, and a provider harness are
@@ -123,7 +123,7 @@ cascade on edges. No claimed blocking item on the connected sink → soft
 **relates**.
 
 **Multi-hop stoppage is a relay node, not an edge flag.** There is no
-`ether.relayState` (or any cascade property on edges). To propagate stoppage
+cascade property on a wire. To propagate stoppage
 beyond the direct claimant actor, author an explicit **relay** scheduler:
 sink→relay input wire carries `when` (watch); relay→target output wire carries
 `does` (effects). Stoppage evaluation marks only the edge’s `toNode` actor;
@@ -132,7 +132,7 @@ further hops are wire automation, not phase cascade.
 **Retired (do not reintroduce):** well-known `project` kind; stop modes
 `glyphs` / `wip`; `depends` phase; edge cascade flags (`relayState`); dual
 product keys `criteria` / `notify` / `effect` (scrub may map them once on
-decode — not authoring); node-body `ether.relay`; automatic dependency cascade
+decode — not authoring); a relay field on a node body; automatic dependency cascade
 between packet-sinks or actors; the whole authored `ports` / `stops` / `wake` /
 `slot` / `when` / `does` / `flow` field set itself — an edge now authors a
 single `verb`, and every one of those is compiled from it (`src/shared/physics/verbs.ts`).
@@ -161,7 +161,7 @@ Ports never substitute for process-bind identity. Open queues never block.
 
 - **Seat** — stable `agent` node where one host-local process may bind. Survives
   occupant restarts; authored by humans and compiled to one installation.
-  Overseer is a human toggle on that seat (`ether.overseer`), not a second
+  Overseer is a human toggle on that seat (its `overseer` flag), not a second
   actor kind. Copied nodes do not inherit the grant. The occupant cannot
   retire its own seat.
 - **Occupant** — live Junto-spawned agent process and its registered
@@ -294,7 +294,7 @@ the act can touch the OS.
 |----------|-----|
 | **ACL matrix** (principal × resource × verb tables) | Ocaps + edges scale with the drawn factory; matrices diverge from the document |
 | **Ambient region grants** | Region is geography, not a security domain |
-| **Authorial `ether.role`** | Role is derived from kind; mirrors stay derived |
+| **Authorial role field** | Role is derived from kind; mirrors stay derived |
 | **Client-supplied identity** | No `JUNTO_NODE_REF`. Ordinary work identity is the generation credential main injected at spawn |
 | **Encoding occupancy in the authorial document as authority** | Occupancy is live; restart re-baselines seats |
 | **Stops as access control** | Derived stoppage filters phase only, never access |
@@ -307,7 +307,7 @@ the act can touch the OS.
 | Surface | Factory physics reading |
 |---------|-------------------------|
 | Human draws edge, picks verb, in Command Center | Mint ocap |
-| `ether.verb` on edge | Sole authored fact; compiles ports, stoppage-eligibility, wake, and every scheduler facet |
+| `verb` on a wire | Sole authored fact; compiles ports, stoppage-eligibility, wake, and every scheduler facet |
 | Compiled `wake` (board verbs) | Operator megaphone eligibility (`participates` on, `messages` off) |
 | Compiled `when` / `does` / `flow` / `chain` | Scheduler watch predicate / fire action / task-path hop / chain — all from the verb |
 | Work control socket + generation credential | Occupant admission. The credential names the generation. It is not a shared file |
@@ -328,7 +328,7 @@ they are not degraded through a compatibility rewrite. Unknown
 
 | Area | Module |
 |------|--------|
-| Document + verb | `src/shared/canvas.ts` (`EtherEdgeExtension`) |
+| Wire + verb | `src/shared/model/wire.ts` (`Wire`) |
 | Verb table + compile | `src/shared/physics/verbs.ts` (`VERB_TABLE`, `compileVerb`) |
 | Execution graph (phase from claimed sink state) | `src/shared/execution-graph.ts` |
 | Derived graph / phase | `src/shared/graph.ts` |

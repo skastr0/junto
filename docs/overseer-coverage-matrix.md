@@ -36,7 +36,7 @@ plus outer socket `tests/work-control-transport.test.ts` and
 
 ## Authorization (every wire op)
 
-Process-bind to a managed agent seat with live `ether.overseer`. Pause and
+Process-bind to a managed agent seat whose `overseer` flag is on. Pause and
 blocked do not deny administration. Ordinary agents stay edge-scoped
 (`ScopeError` without a matching edge and port). Remote occupants send closed
 Station `overseer` on the existing Command Center-opened duplex session;
@@ -232,7 +232,7 @@ entry point, and one test drives the real operation module over fake ports.
 
 | item | contract |
 | --- | --- |
-| Environment edits | read-modify-write of `ether.region.environment` on one group node, committed under the `node.configure` transaction, grant and revision rules; a node that is not a region is refused |
+| Environment edits | an `Edit` of one region's `environment`, sent as `node.configure` under its grant and stale-`seq` rules; a node that is not a region is refused |
 | Source shape | the canvas document's own `EnvSource`; `env.source-add` and `env.source-edit` derive an input where `id` may be omitted |
 | `env.doctor` | the resolver's `RegionEnvironmentReport`, unchanged, narrowed by `nodeId`; CLI exits non-zero when a `required` source is `missing` or `error` and still prints the report |
 | `secret.put` | value enters by stdin only at the CLI; a `value` key in the argument, a terminal on stdin, or an empty value is an `InputError`; exactly one trailing newline is stripped |

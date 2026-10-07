@@ -155,7 +155,7 @@ Summarised:
 ```ts
 type OperatorFeed = { version: 1; canvasName: string; generatedAt: number; count: number; sections: FeedSection[] };
 type FeedSection  = { region: FeedRegion; items: FeedItem[]; worstUrgency: number };
-type FeedRegion   = { regionId: string | null; label: string; path: string[]; color?: string }; // color: JSON Canvas preset "1".."6" or #hex
+type FeedRegion   = { regionId: string | null; label: string; path: string[]; color?: string }; // color: preset "1".."6" or #hex
 type FeedItem = {
   itemId: string;
   kind: "blocked" | "attention" | "escalate" | "feedback" | "health";
