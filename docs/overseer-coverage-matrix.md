@@ -180,6 +180,12 @@ replay.
 | `agent.offboard-status` | read | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; fake entry point only |
 | `agent.offboard-rules` | read | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; fake entry point only |
 | `agent.offboard-configure` | mutation | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; fake entry point only |
+| `references.list` | read | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
+| `references.read` | read | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
+| `references.write` | mutation | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
+| `references.delete` | mutation | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
+| `briefing.read` | read | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
+| `briefing.write` | mutation | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
 
 ## Human toggle (not a wire operation)
 
@@ -213,6 +219,18 @@ entry point, and one test drives the real operation module over fake ports.
 | No echo | `decodeOverseerArgs` answers a fixed sentence for `secret.put`; the CLI omits `received` for it; results carry ids and the store name only |
 | Locality | `secret.*` runs on the caller's installation and is never forwarded |
 | `junto env report` | ordinary command; a seat reads its own `SeatEnvironmentReport` from work op `env.report`; same exit rule |
+
+## Briefing and references
+
+| item | contract |
+| --- | --- |
+| Store | `app_texts` in `junto.db`: one briefing, app-wide references, and a region's references keyed by canvas name and region node id as plain values |
+| Place | no `regionId` is the app-wide references; with one, that region's on `canvas` or the overseer's own canvas; `canvas` without `regionId` is refused; a region that is not on the canvas is `NotFound` |
+| Body | `references write` and `briefing write` take the body from `--body <text or @file or ->`, or as `body` in the argument; given twice, or empty, is an `InputError` at the CLI |
+| Author | a write records `overseer:<node id>`; the operator's own writes record `operator` |
+| Name | lower-cased; 1 to 80 characters of letters, digits, dot, underscore and dash; no bound on description or body beyond the 1 MiB overseer request |
+| Residency | forwarded to Command Center from a Remote like other authoring |
+| `junto references list` and `read` | ordinary commands; a seat reads its own scope from work ops `references.list` and `references.read` |
 
 Product bindings sit behind one import each:
 `src/main/junto/overseer/secret-store-seam.ts` (the platform secret store) and

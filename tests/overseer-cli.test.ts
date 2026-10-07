@@ -577,6 +577,94 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
     expect(parseStdout(missing.stdout)).toEqual({ ok: true, command: "env report", data: next });
   });
 
+  it("takes a write's prose from --body as text, a file or stdin, and keeps the argument small", async () => {
+    const observed: Array<Record<string, unknown>> = [];
+    const { home, workHome } = await startFakeWorkSocket((request) => {
+      observed.push(request);
+      const { operation } = request.args as { operation: string };
+      return overseerOk(operation, { written: true });
+    });
+    const prose = "# Style\n\nSay \"plain\" things.\nBackslash \\ and {braces} stay as typed.\n";
+    const file = join(home, "style.md");
+    await writeFile(file, prose);
+
+    const fromFile = await runCli(
+      ["overseer", "references", "write", '{"name":"style","description":"How we write"}', "--body", `@${file}`],
+      { workHome },
+    );
+    expect(fromFile.code).toBe(0);
+    expect(parseStdout(fromFile.stdout)).toEqual({ ok: true, command: "overseer references write", data: { written: true } });
+    expect(innerOf(observed.at(-1))).toEqual({
+      operation: "references.write",
+      args: { name: "style", description: "How we write", body: prose },
+    });
+
+    const fromStdin = await runCli(
+      ["overseer", "references", "write", '{"name":"runbook","regionId":"region-1"}', "--body", "-"],
+      { workHome, stdin: prose },
+    );
+    expect(fromStdin.code).toBe(0);
+    expect(innerOf(observed.at(-1))).toEqual({
+      operation: "references.write",
+      args: { name: "runbook", regionId: "region-1", body: prose },
+    });
+
+    const inline = await runCli(["overseer", "briefing", "write", "--body", "Commit by explicit path."], { workHome });
+    expect(inline.code).toBe(0);
+    expect(innerOf(observed.at(-1))).toEqual({ operation: "briefing.write", args: { body: "Commit by explicit path." } });
+
+    const jsonOnly = await runCli(["overseer", "references", "write", '{"name":"style","body":"In the argument."}'], { workHome });
+    expect(jsonOnly.code).toBe(0);
+    expect(innerOf(observed.at(-1))).toEqual({ operation: "references.write", args: { name: "style", body: "In the argument." } });
+
+    const sent = observed.length;
+    const refusals: ReadonlyArray<readonly [ReadonlyArray<string>, string, string?]> = [
+      [["overseer", "references", "write", '{"name":"style","body":"a"}', "--body", "b"], "given twice"],
+      [["overseer", "references", "write", '{"name":"style"}'], "needs a body"],
+      [["overseer", "references", "write", '{"name":"style"}', "--body", "  "], "junto overseer references delete"],
+      [["overseer", "references", "write", '{"name":"style","body":""}'], "junto overseer references delete"],
+      [["overseer", "briefing", "write", "--body", "-"], "needs a body", ""],
+      [["overseer", "references", "write", "-", "--body", "-"], "not both", '{"name":"style"}'],
+      [["overseer", "references", "write", "{}", "--body", "text"], "name"],
+      [["overseer", "references", "write", '{"name":"style","nope":1}', "--body", "text"], "nope"],
+    ];
+    for (const [args, expected, stdin] of refusals) {
+      const refused = await runCli(args, { workHome, ...(stdin === undefined ? {} : { stdin }) });
+      expect(refused.code).toBe(1);
+      const error = (JSON.parse(refused.stderr.trim()) as { error: { type: string; message: string } }).error;
+      expect(error.type).toBe("InputError");
+      expect(JSON.stringify(error)).toContain(expected);
+    }
+    // A refused write never reaches the socket.
+    expect(observed).toHaveLength(sent);
+  });
+
+  it("sends the other references and briefing commands as their own operations", async () => {
+    const observed: Array<Record<string, unknown>> = [];
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed.push(request);
+      return overseerOk((request.args as { operation: string }).operation, {});
+    });
+    for (const [args, operation, sent] of [
+      [["overseer", "references", "list"], "references.list", {}],
+      [["overseer", "references", "list", '{"canvas":"factory","regionId":"region-1"}'], "references.list", { canvas: "factory", regionId: "region-1" }],
+      [["overseer", "references", "read", '{"name":"style"}'], "references.read", { name: "style" }],
+      [["overseer", "references", "delete", '{"name":"style","regionId":"region-1"}'], "references.delete", { name: "style", regionId: "region-1" }],
+      [["overseer", "briefing", "read"], "briefing.read", {}],
+    ] as const) {
+      const result = await runCli(args, { workHome });
+      expect(result.code).toBe(0);
+      expect(innerOf(observed.at(-1))).toEqual({ operation, args: sent });
+    }
+    for (const operation of ["references.list", "references.read", "references.write", "references.delete", "briefing.read", "briefing.write"]) {
+      expect(overseerExamples.some((example) => example.command_id === `overseer.${operation}`)).toBe(true);
+    }
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("references write");
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("briefing write --body");
+    const help = await runCli(["overseer", "references", "write", "--help"]);
+    expect(`${help.stdout}${help.stderr}`).toContain("--body");
+  });
+
   it("lists and reads references as ordinary commands, the name a plain argument", async () => {
     const observed: Array<Record<string, unknown>> = [];
     const listing = { references: [{ name: "style", scope: "app", read: "junto references read style", bytes: 10, updatedAt: 1 }] };

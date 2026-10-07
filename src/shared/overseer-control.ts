@@ -171,6 +171,12 @@ export const OVERSEER_OPERATION_NAMES = [
   "agent.offboard-status",
   "agent.offboard-rules",
   "agent.offboard-configure",
+  "references.list",
+  "references.read",
+  "references.write",
+  "references.delete",
+  "briefing.read",
+  "briefing.write",
 ] as const;
 
 export const OverseerOperation = Schema.Literals(OVERSEER_OPERATION_NAMES);
@@ -759,6 +765,36 @@ export const OverseerSecretPutInput = Schema.Struct({
 });
 export type OverseerSecretPutInput = typeof OverseerSecretPutInput.Type;
 
+// The operator's texts (`@shared/references`). No `regionId` is the app-wide
+// references; with one, that region's, on `canvas` or the overseer's own.
+// A name is normalized and judged by the store, so its reason reads the same
+// to an overseer as to the operator.
+const ReferencePlaceArgs = {
+  canvas: Schema.optionalKey(CanvasName),
+  regionId: Schema.optionalKey(Id),
+} as const;
+const ReferenceNamed = { name: NonEmpty, ...ReferencePlaceArgs } as const;
+const ReferencesWrite = Schema.Struct({
+  ...ReferenceNamed,
+  description: Schema.optionalKey(Schema.String),
+  body: Schema.String,
+});
+const BriefingWrite = Schema.Struct({ body: Schema.String });
+
+/**
+ * What `junto overseer references write` and `briefing write` take as their
+ * JSON argument. The body is prose: it comes from `--body <text | @file | ->`
+ * so it never has to be JSON-escaped, or as `body` here, never both.
+ */
+export const OverseerReferencesWriteInput = Schema.Struct({
+  ...ReferenceNamed,
+  description: Schema.optionalKey(Schema.String),
+  body: Schema.optionalKey(Schema.String),
+});
+export const OverseerBriefingWriteInput = Schema.Struct({
+  body: Schema.optionalKey(Schema.String),
+});
+
 /**
  * One strict schema per operation. This registry is the dispatcher source of
  * truth and the CLI's offline schema catalog. Unknown/excess fields fail.
@@ -885,6 +921,12 @@ export const OverseerArgsSchemas = {
   "agent.offboard-status": AgentOffboardStatus,
   "agent.offboard-rules": EmptyArgs,
   "agent.offboard-configure": OffboardRulesPatch,
+  "references.list": Schema.Struct(ReferencePlaceArgs),
+  "references.read": Schema.Struct(ReferenceNamed),
+  "references.write": ReferencesWrite,
+  "references.delete": Schema.Struct(ReferenceNamed),
+  "briefing.read": EmptyArgs,
+  "briefing.write": BriefingWrite,
 } as const satisfies Record<OverseerOperation, Schema.Top>;
 
 export type OverseerArgsFor<Operation extends OverseerOperation> =
@@ -980,6 +1022,9 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "secret.list",
   "agent.offboard-status",
   "agent.offboard-rules",
+  "references.list",
+  "references.read",
+  "briefing.read",
 ] as const satisfies ReadonlyArray<OverseerOperation>;
 
 const READ_ONLY_OPERATIONS = new Set<OverseerOperation>(

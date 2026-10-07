@@ -67,7 +67,13 @@ export type ReferenceAuthor = "operator" | `overseer:${string}`;
 /** Main -> renderer: something in the store changed; open pages read again. */
 export type ReferencesChangedEvent =
   | { readonly kind: "briefing" }
-  | { readonly kind: "reference"; readonly name: string };
+  | {
+      readonly kind: "reference";
+      readonly name: string;
+      /** Set for a region's reference; absent for an app-wide one. */
+      readonly canvasName?: string;
+      readonly regionId?: string;
+    };
 
 export type ReferenceWriteInput = {
   readonly name: string;

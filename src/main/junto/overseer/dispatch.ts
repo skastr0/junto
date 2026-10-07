@@ -20,6 +20,7 @@ import { executeOverseerCanvas } from "./canvas";
 import { overseerEnvReport, type OverseerEnvReport } from "./env-report-seam";
 import { executeOverseerOffboard } from "./offboard";
 import { overseerOffboard, type OverseerOffboard } from "./offboard-seam";
+import { executeOverseerReferences } from "./references";
 import { executeOverseerSecret } from "./secret";
 import { overseerSecretStore, type OverseerSecretStore } from "./secret-store-seam";
 import { executeOverseerWork } from "./work";
@@ -180,6 +181,12 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
           runtime.offboard ?? overseerOffboard,
         ),
       );
+      return outcome.ok
+        ? ({ ok: true, operation, data: outcome.data } satisfies OverseerResult)
+        : ({ ok: false, operation, error: outcome.error } satisfies OverseerResult);
+    }
+    if (operation.startsWith("references.") || operation.startsWith("briefing.")) {
+      const outcome = yield* executeOverseerReferences(caller, { operation, args: decoded.success });
       return outcome.ok
         ? ({ ok: true, operation, data: outcome.data } satisfies OverseerResult)
         : ({ ok: false, operation, error: outcome.error } satisfies OverseerResult);

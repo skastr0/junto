@@ -122,6 +122,12 @@ const FROZEN_OPERATIONS = [
   "agent.offboard-status",
   "agent.offboard-rules",
   "agent.offboard-configure",
+  "references.list",
+  "references.read",
+  "references.write",
+  "references.delete",
+  "briefing.read",
+  "briefing.write",
 ] as const;
 
 const FROZEN_READ_ONLY = [
@@ -168,6 +174,9 @@ const FROZEN_READ_ONLY = [
   "secret.list",
   "agent.offboard-status",
   "agent.offboard-rules",
+  "references.list",
+  "references.read",
+  "briefing.read",
 ] as const;
 
 const quotedOps = (matrix: string): ReadonlyArray<string> =>
@@ -182,7 +191,7 @@ describe("overseer coverage matrix", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
     expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
-    expect(FROZEN_OPERATIONS).toHaveLength(113);
+    expect(FROZEN_OPERATIONS).toHaveLength(119);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
     expect(matrix).toContain("canvasOverseerSet");
     expect(matrix).toContain("tests/overseer-admission.test.ts");

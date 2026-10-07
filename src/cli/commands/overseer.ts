@@ -8,6 +8,8 @@ import {
   OVERSEER_OPERATION_NAMES,
   OVERSEER_SECRET_ARGS_OPERATIONS,
   OverseerArgsSchemas,
+  OverseerBriefingWriteInput,
+  OverseerReferencesWriteInput,
   OverseerSecretPutInput,
   decodeOverseerArgs,
   decodeOverseerResult,
@@ -21,6 +23,7 @@ import type {
   CommandExample,
   CommandSchemaContract,
 } from "../core/discovery";
+import { withBody } from "../core/body-input";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { executeReportCommand } from "../core/env-report";
 import { AuthError, InputError, RuntimeDown, WireError } from "../core/errors";
@@ -197,6 +200,8 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   git: "Git status, log, show on a git node",
   env: "Region environment: show, source-add, source-edit, source-remove, source-reorder, seal, folders, doctor",
   secret: "Junto's own secret store on this machine: put (value on stdin), delete, list",
+  references: "The operator's named references, app-wide or one region's: list, read, write (body from --body), delete",
+  briefing: "The app briefing every seat gets at onboard: read, write (body from --body)",
 };
 
 const describeEntry = (entry: OverseerCatalogEntry): string =>
@@ -306,8 +311,61 @@ const makeSecretPutCommand = (entry: OverseerCatalogEntry) =>
     ),
   );
 
+const bodyOption = Flag.string("body").pipe(
+  Flag.optional,
+  Flag.withDescription("The body: text, @file, or - for stdin. Not together with \"body\" in the argument"),
+);
+
+const BODY_WRITE: Partial<Record<OverseerOperation, { readonly description: string; readonly empty: string }>> = {
+  "references.write": {
+    description:
+      "Create or replace a reference: {name, description?, canvas?, regionId?}, the body from --body <text | @file | ->",
+    empty: "a reference needs a body; to remove one use junto overseer references delete",
+  },
+  "briefing.write": {
+    description: "Replace the app briefing every seat gets at onboard, the body from --body <text | @file | ->",
+    empty: "the briefing needs a body; the operator clears it in Settings",
+  },
+};
+
+/**
+ * A write whose body is prose: the JSON argument stays small and the body
+ * comes from `--body`, so it never has to be JSON-escaped.
+ */
+const makeBodyWriteCommand = (
+  entry: OverseerCatalogEntry,
+  spec: { readonly description: string; readonly empty: string },
+) =>
+  Command.make(
+    entry.verb,
+    { input: optionalJsonInputArg, body: bodyOption, timeout: timeoutOption },
+    ({ input, body, timeout }) =>
+      executeJsonCommand(
+        commandNameFor(entry),
+        Effect.gen(function* () {
+          const raw = toUndefined(input);
+          const argument = yield* loadJsonInput(Schema.Unknown, raw === undefined || raw.trim().length === 0 ? "{}" : raw);
+          const args = yield* withBody({ input: raw, argument, flag: toUndefined(body), emptyMessage: spec.empty });
+          const decoded = decodeOverseerArgs(entry.operation, args);
+          if (Result.isFailure(decoded)) {
+            return yield* Effect.fail(
+              new InputError({
+                message: decoded.failure.message,
+                path: "args",
+                expected: entry.operation,
+                hint: `junto overseer schema show ${entry.operation}`,
+              }),
+            );
+          }
+          return yield* callOverseer(entry.operation, decoded.success, toUndefined(timeout));
+        }),
+      ),
+  ).pipe(Command.withDescription(spec.description));
+
 const makeFamilyVerbCommand = (entry: OverseerCatalogEntry) =>
-  entry.operation === "secret.put"
+  BODY_WRITE[entry.operation] !== undefined
+    ? makeBodyWriteCommand(entry, BODY_WRITE[entry.operation]!)
+    : entry.operation === "secret.put"
     ? makeSecretPutCommand(entry)
     : entry.operation === "env.doctor"
       ? makeDoctorCommand(entry)
@@ -528,7 +586,12 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
     // wire carries: the value never is an argument.
     schema: entry.operation === "secret.put"
       ? OverseerSecretPutInput
-      : OverseerArgsSchemas[entry.operation],
+      // The body may come from --body, so the argument need not carry it.
+      : entry.operation === "references.write"
+        ? OverseerReferencesWriteInput
+        : entry.operation === "briefing.write"
+          ? OverseerBriefingWriteInput
+          : OverseerArgsSchemas[entry.operation],
     accepts_batch: false,
     input_modes: entry.operation === "secret.put" ? secretPutInputModes : inputModes,
   }),
@@ -826,6 +889,52 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     description: "Ids only.",
     args: ["overseer", "secret", "list"],
     input: {},
+  },
+  {
+    command_id: commandIdFor("references.list"),
+    command: "overseer references list",
+    name: "list the app-wide references",
+    description: "Names, descriptions and sizes. Add regionId (and canvas) for one region's.",
+    args: ["overseer", "references", "list"],
+    input: {},
+  },
+  {
+    command_id: commandIdFor("references.read"),
+    command: "overseer references read",
+    name: "read one region's reference",
+    args: ["overseer", "references", "read"],
+    input: { name: "runbook", regionId: "region-1" },
+  },
+  {
+    command_id: commandIdFor("references.write"),
+    command: "overseer references write",
+    name: "write a reference from a file",
+    description:
+      "Keep the argument small and give the prose with --body: junto overseer references write '{\"name\":\"style\",\"description\":\"How we write\"}' --body @style.md. --body also takes text or - for stdin. The body may instead be \"body\" in the argument, never both.",
+    args: ["overseer", "references", "write"],
+    input: { name: "style", description: "How we write", body: "Plain words. Short sentences." },
+  },
+  {
+    command_id: commandIdFor("references.delete"),
+    command: "overseer references delete",
+    name: "delete an app-wide reference",
+    args: ["overseer", "references", "delete"],
+    input: { name: "style" },
+  },
+  {
+    command_id: commandIdFor("briefing.read"),
+    command: "overseer briefing read",
+    name: "read the app briefing",
+    args: ["overseer", "briefing", "read"],
+    input: {},
+  },
+  {
+    command_id: commandIdFor("briefing.write"),
+    command: "overseer briefing write",
+    name: "replace the app briefing",
+    description: "Every seat gets this text at onboard. Give it with --body: junto overseer briefing write --body @briefing.md.",
+    args: ["overseer", "briefing", "write"],
+    input: { body: "Commit by explicit path. Ask before you delete." },
   },
 ];
 

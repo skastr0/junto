@@ -10,6 +10,7 @@ import {
   type StoredReference,
 } from "@shared/references";
 import { StateTransactionOperation } from "../state/service";
+import { emitReferencesChanged } from "./changes";
 
 export class ReferencesPersistenceError extends Schema.TaggedError<ReferencesPersistenceError>()(
   "ReferencesPersistenceError",
@@ -83,6 +84,15 @@ const keyOf = (place: ReferencePlace) =>
     ? { scopeKind: "app", canvasName: "", regionId: "" }
     : { scopeKind: "region", canvasName: place.canvasName, regionId: place.regionId };
 
+const changed = (place: ReferencePlace, name: string) =>
+  Effect.sync(() =>
+    emitReferencesChanged(
+      place.kind === "app"
+        ? { kind: "reference", name }
+        : { kind: "reference", name, canvasName: place.canvasName, regionId: place.regionId },
+    ),
+  );
+
 const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | ReferenceRefused) =>
   error instanceof ReferenceRefused
     ? error
@@ -135,7 +145,7 @@ export const ReferencesRepositoryLive: Layer.Layer<ReferencesRepository, never, 
         return Option.isNone(row) ? null : { body: row.value.body, updatedAt: row.value.updated_at };
       }, Effect.mapError(persistence("briefing.read")));
 
-      const briefingWrite = Effect.fn("references.briefing.write")(function* (body: unknown, by: ReferenceAuthor) {
+      const briefingStore = Effect.fn("references.briefing.write")(function* (body: unknown, by: ReferenceAuthor) {
         const text = cleanReferenceText(body);
         if (text === undefined) {
           yield* sql`DELETE FROM app_texts WHERE scope_kind = 'briefing'`;
@@ -162,7 +172,7 @@ export const ReferencesRepositoryLive: Layer.Layer<ReferencesRepository, never, 
         return Option.isNone(row) ? null : fromRow(row.value);
       }, Effect.mapError(persistence("read")));
 
-      const write = Effect.fn("references.write")(function* (
+      const writeRow = Effect.fn("references.write")(function* (
         place: ReferencePlace,
         input: { readonly name: unknown; readonly description?: unknown; readonly body: unknown },
         by: ReferenceAuthor,
@@ -189,7 +199,7 @@ export const ReferencesRepositoryLive: Layer.Layer<ReferencesRepository, never, 
         return { name, ...(description !== undefined ? { description } : {}), body, updatedAt };
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "references.write"), Effect.mapError(persistence("write")));
 
-      const remove = Effect.fn("references.remove")(function* (place: ReferencePlace, name: unknown) {
+      const removeRow = Effect.fn("references.remove")(function* (place: ReferencePlace, name: unknown) {
         const key = { ...keyOf(place), name: yield* named(name) };
         const existing = yield* rowAt(key);
         if (Option.isNone(existing)) return false;
@@ -200,6 +210,16 @@ export const ReferencesRepositoryLive: Layer.Layer<ReferencesRepository, never, 
         `;
         return true;
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "references.remove"), Effect.mapError(persistence("remove")));
+
+      // Listeners hear of a write once it is committed, never from inside it.
+      const briefingWrite = (body: unknown, by: ReferenceAuthor) =>
+        briefingStore(body, by).pipe(Effect.tap(() => Effect.sync(() => emitReferencesChanged({ kind: "briefing" }))));
+      const write = (...input: Parameters<typeof writeRow>) =>
+        writeRow(...input).pipe(Effect.tap((reference) => changed(input[0], reference.name)));
+      const remove = (place: ReferencePlace, name: unknown) =>
+        removeRow(place, name).pipe(
+          Effect.tap((removed) => (removed ? changed(place, String(name).trim().toLowerCase()) : Effect.void)),
+        );
 
       const regionTexts = Effect.fn("references.regionTexts")(function* (
         canvasName: string,

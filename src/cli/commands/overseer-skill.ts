@@ -112,6 +112,14 @@ Prefer what the operator already has: an existing Keychain item (\`keychain\`), 
 
 No operation returns a secret value. Do not put one in an argument, a \`value\` source, a message, or a note.
 
+\`references\` and \`briefing\` are the operator's own texts, kept in Junto. The briefing is one text every seat gets at \`junto onboard\`. A reference is a named piece of prose that onboard only lists; a seat reads it with \`junto references read <name>\`. Without \`regionId\` a command acts on the app-wide references; with it, on that region's (\`canvas\` defaults to your own).
+
+- \`references list {canvas?, regionId?}\`, \`references read {name, canvas?, regionId?}\`, \`references delete {name, canvas?, regionId?}\`.
+- \`references write {name, description?, canvas?, regionId?}\` creates or replaces one. **Give the prose with \`--body <text | @file | ->\`** so it is never JSON-escaped: \`junto overseer references write '{"name":"style"}' --body @style.md\`. \`"body"\` in the argument also works; both at once is refused. A name is lower-cased, 1 to 80 characters of letters, digits, dot, underscore and dash. An empty body is refused: delete instead.
+- \`briefing read\`, \`briefing write --body <text | @file | ->\`.
+
+A seat inside a region sees that region's reference in place of an outer or app-wide one of the same name.
+
 ## Implemented here (CLI)
 
 - Catalog encode, strict arg decode, work-socket transport for every \`OverseerOperation\`
