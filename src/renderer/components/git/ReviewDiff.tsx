@@ -264,6 +264,11 @@ export function ReviewDiff({
   // The lines selected on one side, if any: a comment added inside them covers them all.
   const [selected, setSelected] = useState<{ readonly side: ReviewSide; readonly start: number; readonly end: number } | null>(null);
 
+  const keepSelection = useRef((slot: HTMLSpanElement | null): void => {
+    // A listener on the element itself: it must run before the diff's own, which React's would not.
+    slot?.addEventListener("pointerdown", (event) => event.stopPropagation());
+  }).current;
+
   const annotations = useMemo<DiffLineAnnotation<Row>[]>(() => {
     const rows: DiffLineAnnotation<Row>[] = comments
       .filter((comment) => comment.id !== draft?.id)
@@ -330,6 +335,10 @@ export function ReviewDiff({
       }}
       lineAnnotations={annotations}
       renderGutterUtility={(getHoveredLine) => (
+        // The plus sits in the line number's cell, where a press selects that
+        // line. The press on the plus stops here, before the diff hears it, so
+        // a marked range is still marked when the comment opens on it.
+        <span ref={keepSelection} className="git-review__add-slot">
         <IconButton
           size="xs"
           className="git-review__add"
@@ -342,6 +351,7 @@ export function ReviewDiff({
         >
           <Plus size={12} />
         </IconButton>
+        </span>
       )}
       renderAnnotation={(annotation) => {
         const row = annotation.metadata;

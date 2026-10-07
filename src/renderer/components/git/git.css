@@ -299,6 +299,10 @@
 
 /* The plus in the gutter shares its cell with the line number: it sits above
    the number and covers it, so it reads as a button and a press lands on it. */
+.git-review__add-slot {
+  display: contents;
+}
+
 .git-review__add {
   position: relative;
   z-index: 2;
