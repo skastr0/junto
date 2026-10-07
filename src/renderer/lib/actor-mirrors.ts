@@ -16,7 +16,6 @@
  */
 import { observable } from "@legendapp/state";
 import { asNodeId, type Canvas, type Node, type Seat } from "@shared/model";
-import { nodeToDocument } from "@shared/model/from-document";
 import { actorEdgeRows } from "./actor-edges";
 import { dock$, parseTerminalSurfaceId } from "./dock-state";
 import { state$ } from "./state";
@@ -96,10 +95,7 @@ export const nextInRing = (
   return next === undefined || next === currentId ? null : next;
 };
 
-/**
- * The open canvas as the store holds it. Opening a terminal still takes the
- * document form of a node, so a seat is turned into it at those two calls.
- */
+/** The open canvas as the store holds it. */
 const canvasNow = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
 
 /** Sticky ring anchor. Presentation state only — never persisted. */
@@ -122,13 +118,12 @@ export const frontTerminalNodeId = (): string | null => {
  * contains the target by construction).
  */
 export const openActorMirror = (peer: Seat, fromNodeId: string): void => {
-  const canvas = canvasNow();
   const anchor = mirrorAnchor$.peek();
-  const standing = anchor !== null ? actorRingOf(canvas, anchor) : null;
+  const standing = anchor !== null ? actorRingOf(canvasNow(), anchor) : null;
   if (!standing || !standing.memberIds.includes(peer.id)) {
     mirrorAnchor$.set(fromNodeId);
   }
-  void openTerminal(nodeToDocument(peer), "focus");
+  void openTerminal(state$.canvasName.peek(), peer.id, "focus");
 };
 
 /**
@@ -143,9 +138,8 @@ export const cycleActorMirror = (direction: 1 | -1): boolean => {
   if (!ring) return false;
   const nextId = nextInRing(ring.memberIds, currentId, direction);
   if (!nextId) return false;
-  const next = canvas.nodes.get(asNodeId(nextId));
-  if (!next) return false;
+  if (!canvas.nodes.has(asNodeId(nextId))) return false;
   mirrorAnchor$.set(ring.anchorId);
-  void openTerminal(nodeToDocument(next), "focus");
+  void openTerminal(state$.canvasName.peek(), nextId, "focus");
   return true;
 };
