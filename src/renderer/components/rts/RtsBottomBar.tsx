@@ -589,12 +589,8 @@ export const RtsBottomBar = memo(function RtsBottomBar({ minimap, tools }: { rea
       <div className="rts-right">
         {/* Tools after minimap in DOM + high z-index so they stay clickable. */}
         <div className="rts-minimap-slot">
-          <CountedSurface id="bottom-bar-minimap">
-            <MinimapChrome>{minimap}</MinimapChrome>
-          </CountedSurface>
-          <CountedSurface id="bottom-bar-tools">
-            {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
-          </CountedSurface>
+          <MinimapChrome>{minimap}</MinimapChrome>
+          {tools ? <div className="rts-field-tools-slot">{tools}</div> : null}
         </div>
       </div>
     </div>
