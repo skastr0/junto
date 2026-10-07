@@ -104,36 +104,51 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
 const chipTone = (memberIds: ReadonlyArray<string>, tones: ReadonlyMap<string, SeatRollup>) =>
   memberIds.reduce<SeatRollup | undefined>((worst, id) => worseRollup(worst, tones.get(id)), undefined);
 
+const SELECTION_SPLIT = "";
+
 type Drag = { readonly from: "slot" | "extra"; readonly index: number };
 
 type Overflow = "none" | "start" | "end" | "both";
 
+/** A child this much in view counts as wholly in view; under it, the row goes on that way. */
+const WHOLLY_IN_VIEW = 0.98;
+
 /**
- * Which ends of the row hide chips, kept current as the row resizes, scrolls,
- * or gains chips; a mouse wheel scrolls the row sideways.
+ * Which ends of the row hide chips; a mouse wheel scrolls the row sideways.
+ *
+ * The row takes whatever room the rest of the top bar leaves, so it changes
+ * width whenever a neighbour does, which is often and has nothing to do with
+ * its chips. Asking it for its scroll position each time made it the first
+ * script to read layout after every such change, and the browser restyled
+ * the window to answer. So nothing is measured here: the browser is asked to
+ * say when the first and the last child stop being wholly in view, which it
+ * works out itself after layout and reports only when the answer changes.
  */
 function useRowOverflow(count: number) {
   const ref = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState<Overflow>("none");
   useEffect(() => {
     const row = ref.current;
-    if (!row) return;
-    const measure = (): void => {
-      const start = row.scrollLeft > 1;
-      const end = row.scrollLeft + row.clientWidth < row.scrollWidth - 1;
-      setOverflow(start && end ? "both" : start ? "start" : end ? "end" : "none");
-    };
-    // The observer reports once on observe and again whenever the row or its
-    // chips change size, each time after layout is done. Reading there costs
-    // nothing; reading straight after a commit made the browser restyle the
-    // whole window to answer.
-    const observer = new ResizeObserver(measure);
-    observer.observe(row);
-    row.addEventListener("scroll", measure, { passive: true });
-    return () => {
-      observer.disconnect();
-      row.removeEventListener("scroll", measure);
-    };
+    if (!row || typeof IntersectionObserver === "undefined") return;
+    const first = row.firstElementChild;
+    const last = row.lastElementChild;
+    if (!first || !last) return;
+    let start = false;
+    let end = false;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const hidden = entry.intersectionRatio < WHOLLY_IN_VIEW;
+          if (entry.target === first) start = hidden;
+          if (entry.target === last) end = hidden;
+        }
+        setOverflow(start && end ? "both" : start ? "start" : end ? "end" : "none");
+      },
+      { root: row, threshold: [WHOLLY_IN_VIEW] },
+    );
+    observer.observe(first);
+    if (last !== first) observer.observe(last);
+    return () => observer.disconnect();
   }, [count]);
   const onWheel = (event: React.WheelEvent<HTMLDivElement>): void => {
     const row = ref.current;
@@ -156,7 +171,13 @@ export function CommandGroupBar() {
   // follows its own members.
   const live = useLiveNodeIds();
   const selectedNodeId = use$(state$.selectedNodeId);
-  const selectedNodeIds = use$(state$.selectedNodeIds);
+  // The selection is followed as its ids in id order, as one string: whoever
+  // writes it, a new array holding the same nodes does not redraw the bar.
+  const selectedKey = use$(() => [...state$.selectedNodeIds.get()].sort().join(SELECTION_SPLIT));
+  const selectedNodeIds = useMemo(
+    () => (selectedKey === "" ? [] : selectedKey.split(SELECTION_SPLIT)),
+    [selectedKey],
+  );
   const drag = useRef<Drag | null>(null);
   const row = useRowOverflow(slots.length + extras.length);
 
@@ -276,7 +297,12 @@ export function CommandGroupBar() {
             : "Save the selection as a new group: the next free slot, or past nine without a key"
         }
         onClick={() => {
-          saveSelectionToCommandGroup(selection, "new");
+          // The group keeps the order the operator selected in, which the
+          // followed string does not: read the selection as it stands.
+          saveSelectionToCommandGroup(
+            currentSelectionIds(state$.selectedNodeId.peek(), state$.selectedNodeIds.peek()),
+            "new",
+          );
         }}
       >
         <Plus size={13} strokeWidth={2} />
