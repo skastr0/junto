@@ -155,7 +155,7 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
                 {agentCount(count)}
               </span>
               {status ? (
-                <span className="min-w-0 truncate text-body font-normal text-amber" role="status">
+                <span className="min-w-0 truncate text-body font-normal text-amber-fg" role="status">
                   {status}
                 </span>
               ) : null}

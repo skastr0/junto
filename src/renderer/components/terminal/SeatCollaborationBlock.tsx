@@ -167,7 +167,7 @@ export function SeatCollaborationBlock({
           </div>
         ))}
         {error !== undefined ? (
-          <p className="text-label leading-snug text-crimson">{error}</p>
+          <p className="text-label leading-snug text-crimson-fg">{error}</p>
         ) : null}
       </div>
     </section>

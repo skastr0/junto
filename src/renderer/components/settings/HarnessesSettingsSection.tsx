@@ -21,7 +21,7 @@ import type {
   ManagedTerminalModelOption,
 } from "@shared/ipc";
 import { harnessPrefsFor } from "@shared/settings";
-import { HUE, INK } from "../../lib/theme";
+import { HUE_TEXT, INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { patchSettings, resetSettings } from "../../lib/settings-state";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -143,7 +143,7 @@ export function HarnessesSettingsSection() {
       </div>
 
       {error ? (
-        <p className="settings-note" style={{ color: HUE.crimson }} role="status">
+        <p className="settings-note" style={{ color: HUE_TEXT.crimson }} role="status">
           {error}
         </p>
       ) : null}
@@ -217,7 +217,7 @@ export function HarnessesSettingsSection() {
                 <FieldRow
                   group
                   label="Default model"
-                  {...(row.modelsError ? { hint: <span style={{ color: HUE.crimson }}>{row.modelsError}</span> } : {})}
+                  {...(row.modelsError ? { hint: <span style={{ color: HUE_TEXT.crimson }}>{row.modelsError}</span> } : {})}
                 >
                   <Select
                     dense

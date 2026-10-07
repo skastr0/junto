@@ -32,6 +32,14 @@ export const HUE = {
   pink: "var(--color-pink)",
 } as const;
 
+// The same three hues as words. A hue painted as text takes its -fg form:
+// the mark form above is near 3 to 1 on the bright ground.
+export const HUE_TEXT = {
+  amber: "var(--color-amber-fg)",
+  cyan: "var(--color-cyan-fg)",
+  crimson: "var(--color-crimson-fg)",
+} as const;
+
 // Ground-to-ink ladder. CSS variable references so these resolve against the
 // active theme mode (dark/bright) in inline styles instead of freezing to
 // dark-mode hexes at module load. Canvas 2D consumers use themeFor(mode)

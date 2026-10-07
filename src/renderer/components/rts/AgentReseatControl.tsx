@@ -109,7 +109,7 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
         </Popover>
       ) : null}
       {error ? (
-        <p className="m-0 text-[11px] text-crimson" role="alert">
+        <p className="m-0 text-[11px] text-crimson-fg" role="alert">
           {error}
         </p>
       ) : null}

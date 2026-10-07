@@ -174,7 +174,7 @@ export function HostDirectoryPicker({
 
   let status: ReactNode;
   if (!loading && error) {
-    status = <div role="alert" className={`${STATUS_CLASS} text-crimson`}>{error}</div>;
+    status = <div role="alert" className={`${STATUS_CLASS} text-crimson-fg`}>{error}</div>;
   } else if (!snapshot) {
     status = <div role="status" className={`${STATUS_CLASS} text-dim`}>Reading {hostId}…</div>;
   }

@@ -59,7 +59,7 @@ export function OnboardingSection({ node }: { readonly node: CanvasNode }) {
         </p>
       ) : null}
       {problem ? (
-        <p className="mt-1 text-label leading-snug text-amber" role="alert">
+        <p className="mt-1 text-label leading-snug text-amber-fg" role="alert">
           {problem}
         </p>
       ) : null}

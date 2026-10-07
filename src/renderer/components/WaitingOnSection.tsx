@@ -5,7 +5,7 @@ import { waitingOnPath, formatWaitingOnLines } from "@shared/impact";
 import { selectNode, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { executionGraphForImpact } from "../lib/impact-mode";
-import { HUE } from "../lib/theme";
+import { HUE, HUE_TEXT } from "../lib/theme";
 
 /**
  * Inspector "Waiting on…" — reverse-walks reasonsByNodeId from the selected
@@ -40,7 +40,7 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
 
   return (
     <div className="inspector-section" aria-label="Waiting on">
-      <div className="inspector-section__label" style={{ color: HUE.crimson }}>
+      <div className="inspector-section__label" style={{ color: HUE_TEXT.crimson }}>
         Waiting on…
       </div>
       <ol className="inspector-waiting-on" style={{ margin: 0, paddingLeft: 16, listStyle: "decimal" }}>

@@ -45,7 +45,7 @@ import {
   restartAndInstallUpdate,
   updateState$,
 } from "../lib/update-state";
-import { HUE, INK, themeFor } from "../lib/theme";
+import { HUE_TEXT, INK, themeFor } from "../lib/theme";
 import { getJuntoApi } from "../lib/junto-api";
 import { FocusSurface } from "./FocusSurface";
 import { Button, ConfirmDialog, Eyebrow, IconButton, Input, OverlayHeader, Select } from "./ui";
@@ -648,7 +648,7 @@ function AdvancedSection() {
         </FieldRow>
       )}
       {loginItemError ? (
-        <p className="settings-note" style={{ color: HUE.crimson }} role="alert">
+        <p className="settings-note" style={{ color: HUE_TEXT.crimson }} role="alert">
           {loginItemError}
         </p>
       ) : null}
@@ -826,7 +826,7 @@ function UpdatesSection() {
         </div>
       </FieldRow>
       {localError || (status.phase === "error" && status.error) ? (
-        <p className="settings-note" style={{ color: HUE.crimson }} role="alert">
+        <p className="settings-note" style={{ color: HUE_TEXT.crimson }} role="alert">
           {localError ?? status.error?.message}
         </p>
       ) : null}

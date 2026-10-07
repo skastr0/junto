@@ -2174,14 +2174,14 @@ export function TerminalSurface({
           className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-body"
           role="status"
         >
-          <span className="shrink-0 uppercase tracking-eyebrow text-cyan">
+          <span className="shrink-0 uppercase tracking-eyebrow text-cyan-fg">
             Claimed task
           </span>
           <strong className="min-w-0 flex-1 truncate text-ink">
             {taskBrief(claimedTask.task)}
           </strong>
           {releaseError ? (
-            <span className="max-w-[32ch] truncate text-crimson" title={releaseError}>
+            <span className="max-w-[32ch] truncate text-crimson-fg" title={releaseError}>
               {releaseError}
             </span>
           ) : null}

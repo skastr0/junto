@@ -3,8 +3,8 @@ import { Eyebrow } from "../ui";
 
 const COUNT_TONE = {
   faint: "text-faint",
-  amber: "text-amber",
-  crimson: "text-crimson",
+  amber: "text-amber-fg",
+  crimson: "text-crimson-fg",
 } as const;
 
 /** One headed group inside seat details: a quiet title, a count, then its rows. */

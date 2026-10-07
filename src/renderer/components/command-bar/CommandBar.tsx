@@ -20,7 +20,7 @@ import { regionPaths, regionTrails, type RegionStep } from "../../lib/region-pat
 import { regionTallyParts } from "../../lib/region-glance";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
-import { accentColor, HUE } from "../../lib/theme";
+import { accentColor, HUE, HUE_TEXT } from "../../lib/theme";
 import { NodeKindMark } from "../NodeKindMark";
 import { RegionCrumb } from "../RegionCrumb";
 import { SeatRingView, seatUrgencyNow, useSeatGlance, type SeatGlance } from "../SeatRing";
@@ -112,7 +112,7 @@ function AgentDetail({ glance }: { readonly glance: SeatGlance }) {
       </>
     );
   } else if (saying.kind === "failure") {
-    words = <span style={{ color: HUE.amber }}>{saying.text}</span>;
+    words = <span style={{ color: HUE_TEXT.amber }}>{saying.text}</span>;
   } else if (saying.kind === "reading") {
     words = (
       <>
