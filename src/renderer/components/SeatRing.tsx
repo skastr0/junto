@@ -9,7 +9,7 @@ import { agentSeat$, bindingIdForNode } from "../lib/agent-seat-state";
 import type { AgentChatCoarse } from "../lib/chat-state";
 import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-state";
 import { kernel$ } from "../lib/kernel-view";
-import { attentionCoarse$, useNodeAttentionReasons } from "../lib/occupancy-feed";
+import { attentionCoarse$, useNodeAttentionReasons, useSeatAttentionReasons } from "../lib/occupancy-feed";
 import { attentionReasonsForNode, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
 import { seatUrgency, type SeatUrgency } from "../lib/seat-line";
 import { state$ } from "../lib/state";
@@ -98,6 +98,18 @@ export function useSeatGlance(node: CanvasNode): SeatGlance {
   };
 }
 
+/** A native seat's live facts, subscribed by its binding and agent key. */
+export function useSeatGlanceOf(seat: Seat): SeatGlance {
+  const seatEvent = use$(agentSeat$.byBindingId[seat.bindingId]);
+  const needsLook = use$(() => agentSeat$.needsLookByBindingId[seat.bindingId].get() === true);
+  const session = use$(terminal$.sessionByBindingId[seat.bindingId]);
+  const graphBlocked = use$(() => kernel$.execution.get()?.blocked.includes(seat.id) === true);
+  const attentionReasons = useSeatAttentionReasons(seat.agentKey);
+  const signal = useSeatSignalRollup(use$(state$.canvasName), seat.id);
+  const health = useThreadHealthMark(seat.bindingId, signal?.kind);
+  return { ...seatControlOf(seat.id, seat.harness, { seatEvent, needsLook, session, graphBlocked, attentionReasons }), health, signal };
+}
+
 /**
  * How urgently a seat wants the operator right now (seatUrgency), read once
  * from the same stores without subscribing: a list sorted by it holds its
@@ -145,7 +157,7 @@ export function SeatRingView({
   px,
   glance,
 }: {
-  readonly node: CanvasNode;
+  readonly node: CanvasNode | Seat;
   readonly px: number;
   readonly glance: SeatGlance;
 }) {
@@ -162,7 +174,7 @@ export function SeatRingView({
       healthLabel={health.label}
       signal={signal?.kind}
       signalCount={signal?.openCount}
-      crest={isOverseerSeat(node)}
+      crest={"kind" in node ? node.overseer : isOverseerSeat(node)}
     >
       <AgentPortrait
         identity={node.id}

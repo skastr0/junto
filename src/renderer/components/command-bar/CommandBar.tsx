@@ -1,7 +1,8 @@
 import { use$ } from "@legendapp/state/react";
 import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CanvasNode, GroupNode } from "@shared/canvas";
+import type { Node, NodeOf } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import { harnessDisplayName } from "@shared/spawn-failure";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import {
@@ -15,16 +16,17 @@ import {
   focusCanvasNode,
 } from "../../lib/command-bar";
 import { closeOperatorModal } from "../../lib/operator-modal";
-import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
+import { detailOf } from "../../lib/node-presentation";
+import { useRegionRollups } from "../../lib/region-rollups";
 import { regionPaths, regionTrails, type RegionStep } from "../../lib/region-path";
 import { regionTallyParts } from "../../lib/region-glance";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { accentColor, HUE, HUE_TEXT } from "../../lib/theme";
-import { NodeKindMark } from "../NodeKindMark";
+import { KindMark } from "../NodeKindMark";
 import { RegionCrumb } from "../RegionCrumb";
-import { SeatRingView, seatUrgencyNow, useSeatGlance, type SeatGlance } from "../SeatRing";
+import { SeatRingView, seatUrgencyOf, useSeatGlanceOf, type SeatGlance } from "../SeatRing";
 import { Kbd } from "../ui";
 import { claimFocus } from "../../lib/focus-ownership";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
@@ -64,8 +66,8 @@ const TALLY_HUES = {
  * A region's line: what needs the operator inside it (the plate's tally,
  * idle members left out), else its briefing, else how much it holds.
  */
-function RegionDetail({ node }: { readonly node: GroupNode }) {
-  const tally = use$(() => state$.regionCountsByNodeId.get()[node.id]);
+function RegionDetail({ node }: { readonly node: NodeOf<"region"> }) {
+  const tally = useRegionRollups((rows) => rows.find((row) => row.regionId === node.id)?.counts ?? null) ?? undefined;
   const live = regionTallyParts(tally).filter((part) => part.tone !== "steel");
   if (live.length > 0) {
     return (
@@ -79,7 +81,7 @@ function RegionDetail({ node }: { readonly node: GroupNode }) {
       </>
     );
   }
-  const briefing = node.ether?.region?.instruction?.trim().split("\n")[0];
+  const briefing = node.instruction?.trim().split("\n")[0];
   if (briefing) return <>{briefing}</>;
   const total = tally?.total ?? 0;
   return <>{total === 0 ? "empty" : total === 1 ? "1 node" : `${String(total)} nodes`}</>;
@@ -138,7 +140,7 @@ function RowHead({
   trail,
   accent,
 }: {
-  readonly node: CanvasNode;
+  readonly node: Node;
   readonly trail: ReadonlyArray<RegionStep> | undefined;
   readonly accent?: boolean;
 }) {
@@ -148,7 +150,7 @@ function RowHead({
         className="command-bar__row-title"
         style={accent && node.color ? { color: accentColor(node.color) } : undefined}
       >
-        {nodeTitle(node)}
+        {titleOf(node)}
       </span>
       {trail ? (
         <RegionCrumb trail={trail} className="command-bar__row-path" testId="command-bar-row-crumb" />
@@ -157,10 +159,10 @@ function RowHead({
   );
 }
 
-type RowFaceProps = { readonly node: CanvasNode; readonly trail: ReadonlyArray<RegionStep> | undefined };
+type RowFaceProps = { readonly node: Node; readonly trail: ReadonlyArray<RegionStep> | undefined };
 
-function AgentRowFace({ node, trail }: RowFaceProps) {
-  const glance = useSeatGlance(node);
+function AgentRowFace({ node, trail }: { readonly node: NodeOf<"agent">; readonly trail: ReadonlyArray<RegionStep> | undefined }) {
+  const glance = useSeatGlanceOf(node);
   return (
     <>
       <span className="command-bar__mark command-bar__mark--seat">
@@ -177,14 +179,14 @@ function AgentRowFace({ node, trail }: RowFaceProps) {
 }
 
 function NodeRowFace({ node, trail }: RowFaceProps) {
-  if (node.ether?.entity?.kind === "agent") return <AgentRowFace node={node} trail={trail} />;
+  if (node.kind === "agent") return <AgentRowFace node={node} trail={trail} />;
   return (
     <>
-      <NodeKindMark node={node} className="command-bar__mark" />
+      <KindMark node={node} className="command-bar__mark" />
       <span className="command-bar__row-main">
         <RowHead node={node} trail={trail} />
         <span className="command-bar__row-detail">
-          {node.type === "group" ? <RegionDetail node={node} /> : nodeDetail(node)}
+          {node.kind === "region" ? <RegionDetail node={node} /> : detailOf(node)}
         </span>
       </span>
     </>
@@ -192,11 +194,12 @@ function NodeRowFace({ node, trail }: RowFaceProps) {
 }
 
 type CommandBarRow =
-  | { readonly kind: "node"; readonly node: CanvasNode; readonly index: number; readonly position: number }
+  | { readonly kind: "node"; readonly node: Node; readonly index: number; readonly position: number }
   | { readonly kind: "action"; readonly action: CommandBarAction; readonly position: number };
 
 export function CommandBar() {
-  const doc = use$(state$.doc);
+  const canvas = useCanvas(use$(state$.canvasName));
+  const nodes = useMemo(() => [...canvas.nodes.values()].sort((a, b) => a.z - b.z), [canvas]);
   const recentIds = use$(state$.hotbarActiveMru);
   const [query, setQuery] = useState("");
   const [tabMode, setTabMode] = useState<"nodes" | "actions">("nodes");
@@ -210,26 +213,24 @@ export function CommandBar() {
   // Catalog is rebuilt once per open so labels reflect live state.
   const actions = useMemo(() => buildCommandBarActions(), []);
   const mode = commandBarMode(query, tabMode);
-  // Agents lead the list, most urgent first. Read once per open (and per doc
+  // Agents lead the list, most urgent first. Read once per open (and per model
   // change), not live: rows never jump under the cursor. Each row's ring and
   // line stay live.
   const urgencyById = useMemo(
     () =>
       new Map(
-        doc.nodes
-          .filter((node) => node.ether?.entity?.kind === "agent")
-          .map((node) => [node.id, seatUrgencyNow(node)] as const),
+        nodes
+          .filter((node): node is NodeOf<"agent"> => node.kind === "agent")
+          .map((node) => [node.id, seatUrgencyOf(node)] as const),
       ),
-    [doc.nodes],
+    [nodes],
   );
-  // Region paths are derived once per doc revision, never per keystroke.
-  // Region membership is the model's; the rest of the bar still reads the document.
-  const canvas = useCanvas(use$(state$.canvasName));
+  // Region paths are derived once per canvas change, never per keystroke.
   const regionPathById = useMemo(() => regionPaths(canvas), [canvas]);
   const regionTrailById = useMemo(() => regionTrails(canvas), [canvas]);
   const nodeMatches = useMemo(
-    () => filterCommandBarNodes(doc.nodes, query, recentIds, urgencyById, regionPathById),
-    [doc.nodes, query, recentIds, urgencyById, regionPathById],
+    () => filterCommandBarNodes(nodes, query, recentIds, urgencyById, regionPathById),
+    [nodes, query, recentIds, urgencyById, regionPathById],
   );
   const actionMatches = useMemo(
     () => filterCommandBarActions(actions, query),
@@ -375,7 +376,7 @@ export function CommandBar() {
                   }}
                 >
                   <NodeRowFace node={row.node} trail={regionTrailById.get(row.node.id)} />
-                  <span className="command-bar__row-kind">{nodeTypeLabel(row.node)}</span>
+                  <span className="command-bar__row-kind">{row.node.kind}</span>
                 </div>
               ) : (
                 <div

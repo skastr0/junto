@@ -18,6 +18,7 @@ import {
   Tag,
   type LucideIcon,
 } from "lucide-react";
+import type { Node } from "@shared/model";
 import type { CanvasNode } from "@shared/canvas";
 import { nodeTypeLabel } from "../lib/presentation";
 import { accentColor, HUE } from "../lib/theme";
@@ -100,4 +101,17 @@ export function NodeKindMark({
       <Icon size={iconSize} strokeWidth={1.75} />
     </span>
   );
+}
+
+
+/** A native node's kind and colour, with no document shape or extension bag. */
+export function KindMark({ node, className, iconSize = 14 }: {
+  readonly node: Pick<Node, "kind" | "color">;
+  readonly className: string;
+  readonly iconSize?: number;
+}) {
+  const Icon = KIND_ICONS[node.kind] ?? (node.kind === "region" ? SquareDashed : node.kind === "file" ? File : node.kind === "link" ? Link2 : FileText);
+  const hue = node.color ? accentColor(node.color) : node.kind === "region" ? NEUTRAL_HUE : KIND_HUES[node.kind] ?? HUE.steel;
+  return <span className={className} data-region={node.kind === "region" ? "true" : undefined}
+    style={{ "--mark-hue": hue } as CSSProperties}><Icon size={iconSize} strokeWidth={1.75} /></span>;
 }

@@ -1,17 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { filterCommandBarNodes } from "../src/renderer/lib/command-bar";
 import { regionPath, regionPaths } from "../src/renderer/lib/region-path";
-import type { CanvasNode } from "../src/shared/canvas";
-import { canvasOf, note, region } from "./support/model-nodes";
+import { asNodeId, type Node } from "../src/shared/model";
+import { canvasOf, note, region as regionNode, seat } from "./support/model-nodes";
 
-const text = (
-  id: string,
-  body: string,
-  ether?: CanvasNode["ether"],
-): CanvasNode => ({ id, type: "text", x: 0, y: 0, width: 200, height: 80, text: body, ether });
+const text = (id: string, body: string): Node => note(id, body);
 
 describe("command bar node ranking", () => {
-  it("keeps document order when the query is empty", () => {
+  it("keeps paint order when the query is empty", () => {
     const nodes = [text("a", "Alpha"), text("b", "Beta"), text("c", "Gamma")];
     const result = filterCommandBarNodes(nodes, "", []);
     expect(result.map((match) => match.node.id)).toEqual(["a", "b", "c"]);
@@ -21,7 +17,7 @@ describe("command bar node ranking", () => {
   it("ranks title-prefix above title-substring above body matches", () => {
     const nodes = [
       text("body", "Alpha\nmentions cascade deep inside"),
-      text("inside", "Cascade", { entity: { kind: "note" } }),
+      text("inside", "Cascade"),
       text("prefix", "Cascade Ridge"),
       text("nomatch", "Unrelated"),
     ];
@@ -43,7 +39,7 @@ describe("command bar node ranking", () => {
     expect(result[1]?.node.id).toBe("sub");
   });
 
-  it("breaks ties by hotbar recency, then document order", () => {
+  it("breaks ties by hotbar recency, then paint order", () => {
     const nodes = [text("a", "Alpha task"), text("b", "Beta task"), text("c", "Gamma task")];
     const result = filterCommandBarNodes(nodes, "task", ["c", "b"]);
     expect(result.map((match) => match.node.id)).toEqual(["c", "b", "a"]);
@@ -55,9 +51,9 @@ describe("command bar node ranking", () => {
     expect(result.map((match) => match.node.id)).toEqual(["a"]);
   });
 
-  it("matches entity names through searchText", () => {
+  it("matches agent keys through native search", () => {
     const nodes = [
-      text("named", "Quiet note", { entity: { kind: "agent", name: "worker-9" } }),
+      seat("named", { label: "Quiet note", agentKey: "worker-9" }),
       text("plain", "Quiet note"),
     ];
     expect(filterCommandBarNodes(nodes, "worker-9", []).map((m) => m.node.id)).toEqual(["named"]);
@@ -65,10 +61,9 @@ describe("command bar node ranking", () => {
 });
 
 describe("command bar agent bias", () => {
-  const agent = (id: string, body: string): CanvasNode =>
-    text(id, body, { entity: { kind: "agent", name: `local:${id}` } });
-  const region = (id: string, label: string): CanvasNode => ({ id, type: "group", label, x: 0, y: 0, width: 400, height: 300 });
-  const link = (id: string): CanvasNode => ({ id, type: "link", url: `https://example.com/${id}`, x: 0, y: 0, width: 200, height: 80 });
+  const agent = (id: string, label: string): Node => seat(id, { label });
+  const region = (id: string, label: string): Node => regionNode(id, { x: 0, y: 0, width: 400, height: 300 }, { label });
+  const link = (id: string): Node => ({ id: asNodeId(id), kind: "link", url: `https://example.com/${id}`, x: 0, y: 0, width: 200, height: 80, z: 0 });
 
   // Document order deliberately buries the agents under other kinds.
   const nodes = [
@@ -120,31 +115,16 @@ describe("command bar agent bias", () => {
     const prefix = filterCommandBarNodes(mixed, "yak", [], new Map([["seat", 0]]));
     // All three are title prefixes except the note (substring): agent, region, note.
     expect(prefix.map((match) => match.node.id)).toEqual(["seat", "r", "n"]);
-    const titled = [region("r", "Research"), agent("seat", "reviewer\nreads research papers")];
-    // The region's title matches; the agent only matches in its body.
+    const titled = [region("r", "Research"), seat("seat", { label: "reviewer", agentKey: "local:research" })];
+    // The region's title matches; the agent only matches by its key.
     expect(filterCommandBarNodes(titled, "research", []).map((match) => match.node.id)).toEqual(["r", "seat"]);
   });
 });
 
 describe("command bar region paths", () => {
-  const box = (id: string, label: string | undefined, x: number, y: number, size: number): CanvasNode => ({
-    id,
-    type: "group",
-    x,
-    y,
-    width: size,
-    height: size,
-    label,
-  });
-  const at = (id: string, body: string, x: number, y: number): CanvasNode => ({
-    id,
-    type: "text",
-    x,
-    y,
-    width: 10,
-    height: 10,
-    text: body,
-  });
+  const box = (id: string, label: string | undefined, x: number, y: number, size: number): Node =>
+    regionNode(id, { x, y, width: size, height: size }, label === undefined ? {} : { label });
+  const at = (id: string, body: string, x: number, y: number): Node => note(id, body, { x, y, width: 10, height: 10 });
   const nodes = [
     box("outer", "Junto", 0, 0, 1000),
     box("mid", "PTY", 100, 100, 500),
@@ -154,15 +134,7 @@ describe("command bar region paths", () => {
     at("shallow", "lead", 900, 900),
     at("root", "loner", 5000, 5000),
   ];
-  /** The same boxes and cards as the model holds them, for the region paths. */
-  const modelOf = (held: ReadonlyArray<CanvasNode>) =>
-    canvasOf(
-      held.map((node) =>
-        node.type === "group"
-          ? region(node.id, { x: node.x, y: node.y, width: node.width, height: node.height }, node.label === undefined ? {} : { label: node.label })
-          : note(node.id, node.type === "text" ? node.text : node.id, { x: node.x, y: node.y, width: node.width, height: node.height }),
-      ),
-    );
+  const modelOf = (held: ReadonlyArray<Node>) => canvasOf(held);
   const paths = regionPaths(modelOf(nodes));
 
   it("reads outermost to innermost and names an unnamed region by its placeholder", () => {

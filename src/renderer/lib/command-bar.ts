@@ -1,9 +1,10 @@
 import { batch } from "@legendapp/state";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import { fuzzyMatch } from "./fuzzy-match";
 import { touchActiveMru } from "./hotbar-slots";
 import { roleOfKind } from "./model-kind";
-import { nodeTitle, searchText } from "./presentation";
+import { searchOf } from "./node-presentation";
 import { selectNode, state$ } from "./state";
 import { nodeAt } from "./use-model";
 
@@ -37,7 +38,7 @@ export const focusCanvasNode = (nodeId: string): void => {
 };
 
 export interface CommandBarMatch {
-  readonly node: CanvasNode;
+  readonly node: Node;
   readonly score: number;
   readonly index: number;
 }
@@ -45,13 +46,13 @@ export interface CommandBarMatch {
 /** Resting: the urgency an agent without a reading ranks at. */
 const URGENCY_UNKNOWN = 4;
 
-const isAgent = (node: CanvasNode): boolean => node.ether?.entity?.kind === "agent";
+const isAgent = (node: Node): boolean => node.kind === "agent";
 
 /** Empty-query groups: agents, then regions, then notes, then everything else. */
-const kindRank = (node: CanvasNode): number => {
+const kindRank = (node: Node): number => {
   if (isAgent(node)) return 0;
-  if (node.type === "group") return 1;
-  if (node.type === "text") return 2;
+  if (node.kind === "region") return 1;
+  if (node.kind === "note" || node.kind === "label") return 2;
   return 3;
 };
 
@@ -66,10 +67,10 @@ const kindRank = (node: CanvasNode): number => {
  * the node's region path (`regionPathById`) match as plain substrings, so a
  * region name finds the nodes inside it. A title hit outranks the same hit in
  * other text; at equal match quality agents rank above other kinds, the most urgent agent first. Remaining ties break
- * by hotbar MRU recency, then document order.
+ * by hotbar MRU recency, then paint order.
  */
 export const filterCommandBarNodes = (
-  nodes: ReadonlyArray<CanvasNode>,
+  nodes: ReadonlyArray<Node>,
   query: string,
   recentIds: ReadonlyArray<string>,
   urgencyById: ReadonlyMap<string, number> = new Map(),
@@ -86,16 +87,16 @@ export const filterCommandBarNodes = (
     }
     // The trailing space keeps a whole-title match in the prefix tier, so a
     // note named exactly like the query does not outrank the agents.
-    const title = `${nodeTitle(node)} `;
+    const title = `${titleOf(node)} `;
     const inTitle = fuzzyMatch(q, { identity: [title] });
     const anywhere = fuzzyMatch(q, {
       identity: [title],
-      metadata: [searchText(node), regionPathById.get(node.id) ?? ""],
+      metadata: [searchOf(node), regionPathById.get(node.id) ?? ""],
     });
     const score = Math.max(anywhere?.score ?? 0, inTitle ? inTitle.score + 1 : 0);
     if (score > 0) matches.push({ node, score, index });
   }
-  const urgency = (node: CanvasNode): number => urgencyById.get(node.id) ?? URGENCY_UNKNOWN;
+  const urgency = (node: Node): number => urgencyById.get(node.id) ?? URGENCY_UNKNOWN;
   matches.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     const aAgent = isAgent(a.node);
