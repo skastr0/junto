@@ -1519,7 +1519,7 @@ test("WC2 S2 S4-2 [fake-tui] bottom bar, a selection: the strip above the compos
       // rts/KindSurface.tsx:417-418 (the strip), :350 (the composer), chat/ChatComposer.tsx:76, 84, 115.
       const shell = page.locator(".rts-shell");
       const middle = page.locator(".rts-panel--mid");
-      const strip = middle.getByRole("toolbar", { name: "Actions for the selected agents" });
+      const strip = middle.getByRole("toolbar", { name: "Selected agents actions" });
       const key = page.getByTestId("rts-seat-offboard");
       const composer = page.getByTestId("rts-multi-prompt");
       const field = composer.locator(".chat-composer__input");

@@ -439,7 +439,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
   if (classified.surface === "kind:agent" && targets.length > 0) {
     return (
       <>
-        <div className="rts-kind-strip" role="toolbar" aria-label="Actions for the selected agents">
+        <div className="rts-kind-strip" role="toolbar" aria-label="Selected agents actions">
           <SeatOffboardKindKey nodeIds={targets.map((target) => target.nodeId)} />
         </div>
         <MultiPromptComposer
