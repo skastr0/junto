@@ -103,10 +103,10 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     const signalsNow = (): Promise<ReadonlyArray<AgentSignal>> =>
       page.evaluate((canvas) => window.junto!.agentSignalsList(canvas), CANVAS);
 
-    // A file no preview can show is refused at the CLI, by name, and nothing is raised.
-    const refused = await ada.cli(["feedback", "Here is the build.", "--attach", at("build.zip")]);
+    // A file that is not there is refused at the CLI, by name, and nothing is raised.
+    const refused = await ada.cli(["feedback", "Here is the build.", "--attach", at("gone.zip")]);
     expect(refused.ok).toBe(false);
-    expect(`${refused.stdout}${refused.stderr}`).toContain("build.zip");
+    expect(`${refused.stdout}${refused.stderr}`).toContain("gone.zip");
     expect(await signalsNow()).toEqual([]);
 
     // The real thing: two captioned files, raised by the seat itself.
@@ -198,7 +198,16 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     await mkdir(dir, { recursive: true });
     const bigBytes = 20 * 1024 * 1024;
     await writeFile(at("run.log"), Buffer.alloc(bigBytes, "a line of the run's log\n"));
-    const big = await ada.cli(["escalate", "The full run log is attached.", "--attach", `Run log=${at("run.log")}`]);
+    await writeFile(at("build.zip"), "PK not something a preview shows");
+    // No kind of ours either: a file no preview draws rides along and shows by its name.
+    const big = await ada.cli([
+      "escalate",
+      "The full run log is attached.",
+      "--attach",
+      `Run log=${at("run.log")}`,
+      "--attach",
+      at("build.zip"),
+    ]);
     expect(big.ok, `${big.stdout}${big.stderr}`).toBe(true);
     await expect
       .poll(async () => (await signalsNow()).filter((raisedSignal) => raisedSignal.state === "open").length, { timeout: 15_000 })
@@ -206,6 +215,7 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     const bigSignal = (await signalsNow()).find((raisedSignal) => raisedSignal.state === "open")!;
     expect(bigSignal.attachments?.map((attachment) => [attachment.caption, attachment.ref.displayName, attachment.ref.mediaType, attachment.ref.byteLength])).toEqual([
       ["Run log", "run.log", "text/plain", bigBytes],
+      [undefined, "build.zip", "application/octet-stream", 32],
     ]);
     await rm(dir, { recursive: true, force: true });
     const shown = await page.evaluate(
@@ -213,7 +223,29 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
         window.junto!.previewRead({ source: { kind: "signal", signalId }, target: { kind: "attachment", index: 0 }, variant: "full" }),
       bigSignal.signalId,
     );
-    expect(shown).toMatchObject({ ok: true, kind: "text", name: "run.log", byteLength: bigBytes, truncated: true });
+    expect(shown.ok && shown.kind === "text" && shown.text.length).toBe(bigBytes);
+    expect(shown).toMatchObject({ ok: true, kind: "text", name: "run.log", byteLength: bigBytes, truncated: false });
+    const zipShown = await page.evaluate(
+      (signalId) =>
+        window.junto!.previewRead({ source: { kind: "signal", signalId }, target: { kind: "attachment", index: 1 }, variant: "full" }),
+      bigSignal.signalId,
+    );
+    expect(zipShown).toMatchObject({ ok: true, kind: "file", name: "build.zip", byteLength: 32 });
+
+    // The whole log opens in the viewer, not a first slice of it.
+    await page.keyboard.press("Meta+I");
+    await expect(feed).toBeVisible({ timeout: 10_000 });
+    const bigCard = feed.locator(`[data-item-id='signal:${bigSignal.signalId}']`);
+    await bigCard.getByRole("button", { name: /Details/ }).click();
+    const bigThumbs = bigCard.getByTestId("preview-strip").getByTestId("preview-thumbnail");
+    await expect(bigThumbs).toHaveCount(2);
+    const opening = Date.now();
+    await bigThumbs.nth(0).click();
+    await expect(viewer.getByTestId("preview-viewer-title")).toHaveText("run.log");
+    await expect(viewer.getByTestId("preview-text")).toBeVisible({ timeout: 60_000 });
+    console.log(`whole 20 MB log on screen in ${Date.now() - opening} ms`);
+    await expect(viewer.getByTestId("preview-viewer-status")).not.toContainText("showing the first");
+    await page.screenshot({ path: join(SHOTS, "whole-log-dark.png") });
   } finally {
     await junto.close();
     await rm(dir, { recursive: true, force: true });
