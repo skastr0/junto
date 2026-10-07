@@ -3,12 +3,10 @@ import { use$ } from "@legendapp/state/react";
 import { useRtsNodes } from "../lib/rts-selection";
 import { HashMap, HashSet, Option } from "effect";
 import type {
-  CanvasDoc,
   CanvasNode,
   EtherRegionDefaults,
   EtherWatch,
 } from "@shared/canvas";
-import { compileEdgeGrant, edgeKindIndex } from "@shared/canvas";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
@@ -34,12 +32,11 @@ import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { physicsKind, roleOfKind } from "../lib/model-kind";
 import { useCanvas, useNodeValue } from "../lib/use-model";
-import { asNodeId as asModelNodeId } from "@shared/model";
+import { asNodeId as asModelNodeId, wireGrant, wireKinds } from "@shared/model";
 import { LOCAL_HOST } from "@shared/model/base";
 import { titleOf } from "@shared/model/title";
 import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
-import { nodeTitle, searchText } from "../lib/presentation";
 import { Chip, Select, type ChipTone } from "./ui";
 import { RegionRules } from "./rules";
 import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
@@ -671,25 +668,28 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
  * action fall out of that plus the two kinds.
  */
 export function RelayEditor({ node }: { readonly node: CanvasNode }) {
-  const doc = use$(state$.doc);
-  const kinds = useMemo(() => edgeKindIndex(doc), [doc]);
-  const inbound = doc.edges.filter(
-    (edge) =>
-      edge.toNode === node.id && compileEdgeGrant(edge, kinds)?.when !== undefined,
-  );
-  const outbound = doc.edges.filter(
-    (edge) =>
-      edge.fromNode === node.id && compileEdgeGrant(edge, kinds)?.does !== undefined,
-  );
+  // What a relay watches and what it does are its wires, so the canvas is
+  // followed; this is mounted only while a relay is inspected.
+  const canvas = useCanvas(use$(state$.canvasName));
+  const { inbound, outbound } = useMemo(() => {
+    const kinds = wireKinds(canvas.nodes.values());
+    const wires = [...canvas.wires.values()];
+    return {
+      inbound: wires.flatMap((wire) => {
+        const when = wire.to === node.id ? wireGrant(wire, kinds)?.when : undefined;
+        return when === undefined ? [] : [{ wire, when }];
+      }),
+      outbound: wires.filter((wire) => wire.from === node.id && wireGrant(wire, kinds)?.does !== undefined),
+    };
+  }, [canvas, node.id]);
   const watchLine =
     inbound.length === 0
       ? "Not watching anything yet"
       : inbound
-          .map((edge) => {
-            const src = doc.nodes.find((n) => n.id === edge.fromNode);
-            const name = src ? nodeTitle(src) : "a connected node";
-            const when = compileEdgeGrant(edge, kinds)?.when;
-            const word = when?.word === "signals" ? "raises a hand" : "completes";
+          .map(({ wire, when }) => {
+            const src = canvas.nodes.get(wire.from);
+            const name = src ? titleOf(src) : "a connected node";
+            const word = when.word === "signals" ? "raises a hand" : "completes";
             return `${name} ${word}`;
           })
           .join("; ");
