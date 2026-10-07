@@ -7,12 +7,14 @@ import type {
 import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, isTerminalTaskState, taskBrief } from "./task";
 import { dependencyScopeIndex } from "./task-dep-scope";
+import { workReadFromDocument } from "./work-read";
 import { taskDepStatus } from "./task-deps";
 import {
   resolveActorRefAt,
   type ActorRefResolver,
 } from "./attention";
 import type { Canvas } from "./model/canvas";
+import { nodesFromDocument } from "./model/from-document";
 import type { Node } from "./model/kinds";
 import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
@@ -405,7 +407,7 @@ export const composeRegionExecutionContext = (
       taskLines.push(`${titleOf(node, id)} :: ${pending}/${items.length} pending - ${preview}`);
     } else {
       const open = items.filter((item) => !isTerminalTaskState(item.state)).length;
-      const depById = dependencyScopeIndex(doc, id);
+      const depById = dependencyScopeIndex(nodesFromDocument(doc), workReadFromDocument(doc), id);
       const preview = items
         .map((item) => {
           const mark = isTerminalTaskState(item.state) ? "[x]" : "[ ]";

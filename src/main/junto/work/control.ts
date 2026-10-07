@@ -221,10 +221,11 @@ import {
   rulesInForce,
   taskAdmissionState,
 } from "@shared/rules";
-import { regionStack } from "@shared/graph";
+import { regionStack } from "@shared/model/canvas";
 import { sheetToMarkdown } from "@shared/sheet";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
-import { canvasFromDocument } from "@shared/model/from-document";
+import { canvasFromDocument, nodesFromDocument, nodeFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
+import { asNodeId, inPaintOrder } from "@shared/model";
 import { wiresFromDocument } from "@shared/model/from-document";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import {
@@ -527,11 +528,12 @@ const mapWorkCode = (
 const refuseUnadmittedSubmitted = (
   task: Task | undefined,
   node: CanvasNode | undefined,
+  contract: import("@shared/work-model").TasksContract | undefined,
 ): WorkErrorBody | undefined => {
   if (task === undefined || task.state !== "submitted") return undefined;
   const admission = taskAdmissionState(
     task,
-    boardContractOf(node),
+    contract,
     Date.now(),
   );
   if (admission === "claimable") return undefined;
@@ -627,9 +629,7 @@ const boardGuidance = (
   outgoingHandoff?: string;
   outgoingDescription?: string;
 } => {
-  const contract = boardContractOf(
-    doc.nodes.find((node) => node.id === board),
-  );
+  const contract = boardContractOf(nodesFromDocument(doc), board);
   const instructions = contract?.instructions?.trim();
   const incomingHandling = contract?.incoming?.handling?.trim();
   const incomingDescription = contract?.incoming?.description?.trim();
@@ -653,12 +653,12 @@ const boardRulesMap = (doc: CanvasDoc, fromNodeId: string) =>
   [...reachableBoards(wiresFromDocument(doc), fromNodeId)].map((board) => {
     const node = doc.nodes.find((candidate) => candidate.id === board);
     const identity = tasksNodeIdentity(node, board);
-    const contract = boardContractOf(node);
+    const contract = boardContractOf(nodesFromDocument(doc), node?.id ?? "");
     const incoming = contract?.incoming;
     return {
       board,
       name: identity.name,
-      rules: rulesInForce(doc, board).map((entry) => ({
+      rules: rulesInForce(canvasFromDocument("", doc), board).map((entry) => ({
         id: entry.rule.id,
         text: entry.rule.text,
         provenance: entry.provenance,
@@ -681,19 +681,19 @@ const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
   if (!TASKS_ENABLED) return undefined;
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   const identity = tasksNodeIdentity(node, nodeId);
-  const contract = boardContractOf(node);
+  const contract = boardContractOf(nodesFromDocument(doc), node?.id ?? "");
   const next = flowDestinations(wiresFromDocument(doc), nodeId).map((destination) => {
     const destinationNode = doc.nodes.find(
       (candidate) => candidate.id === destination,
     );
-    const incoming = boardContractOf(destinationNode)?.incoming;
+    const incoming = boardContractOf(nodesFromDocument(doc), destination)?.incoming;
     return {
       board: destination,
       name: tasksNodeName(destinationNode, destination),
       ...(incoming?.description !== undefined
         ? { description: incoming.description }
         : {}),
-      admission: resolveTaskAdmission(boardContractOf(destinationNode)),
+      admission: resolveTaskAdmission(boardContractOf(nodesFromDocument(doc), destination)),
     };
   });
   if (contract === undefined && next.length === 0) return undefined;
@@ -704,7 +704,7 @@ const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
     },
     contract: {
       ...boardGuidance(doc, nodeId),
-      rules: rulesInForce(doc, nodeId).length,
+      rules: rulesInForce(canvasFromDocument("", doc), nodeId).length,
       admission: resolveTaskAdmission(contract),
     },
     next,
@@ -712,7 +712,7 @@ const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
 };
 
 const rulingsForRegionStack = (doc: CanvasDoc, nodeId: string) =>
-  regionStack(doc, nodeId).flatMap((group) => {
+  regionStack(nodesFromDocument(doc), asNodeId(nodeId)).flatMap((group) => {
     const rulings = regionContractOf(group)?.rulings ?? [];
     if (rulings.length === 0) return [];
     return [{
@@ -921,7 +921,8 @@ const seatConfigurationOf = (node: CanvasNode) =>
  * the seat announced that the harness's own files already prove.
  */
 const currentSeatSession = (node: CanvasNode): SeatSessionObservation | undefined => {
-  const named = seatSessionOnNode(node);
+  const modelNode = nodeFromDocument("", node, 0);
+  const named = modelNode === undefined ? undefined : seatSessionOnNode(modelNode);
   if (named) return named;
   const surface = actorDeliverySurfaceOf(node);
   if (surface?._tag !== "managedAgent") return undefined;
@@ -1135,7 +1136,7 @@ const dispatchOp = (
       };
     }
 
-    const read = yield* canvases.read(caller.canvasName, "work.control").pipe(
+    const read = yield* work.readTopology(caller.canvasName).pipe(
       Effect.mapError(
         (e): WorkErrorBody => ({
           type: "StaleNodeRef",
@@ -1147,7 +1148,7 @@ const dispatchOp = (
         }),
       ),
     );
-    const board = read.doc;
+    const board: CanvasDoc = { nodes: inPaintOrder(read.canvas).map(nodeToDocument), edges: [...read.canvas.wires.values()].map(wireToDocument) };
     const callerErr = ensureCaller(board, caller.nodeId);
     if (callerErr) return yield* Effect.fail(callerErr);
 
@@ -1390,12 +1391,12 @@ const dispatchOp = (
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const items = gate.node?.ether?.tasks?.items ?? [];
+      const items = yield* work.readTasks(caller.canvasName, decoded.success.target).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
       // Onion visibility holds by construction: rows at this board carry only
       // the current visit's thread; prior interiors live on prior boards'
       // rows. Ambient guidance (board purpose + region stack briefings) is
       // additive so seats can compose against the standing contract.
-      const contract = gate.node?.ether?.tasks?.contract;
+      const contract = boardContractOf(read.canvas, decoded.success.target);
       const ambient = regionStackFor(board, decoded.success.target);
       return {
         target: decoded.success.target,
@@ -1578,13 +1579,11 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      const task = gate.node?.ether?.tasks?.items.find(
-        (candidate) => candidate.id === decoded.success.task,
-      );
+      const task = yield* work.readTask(caller.canvasName, decoded.success.target, decoded.success.task).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
       // Unadmitted submitted rows refuse every seat mutation first — a
       // submitted task waiting on approval, wait, or a Me board is not the
       // caller's to complete, send on, or release.
-      const unadmitted = refuseUnadmittedSubmitted(task, gate.node);
+      const unadmitted = refuseUnadmittedSubmitted(task, gate.node, boardContractOf(read.canvas, gate.node?.id ?? ""));
       if (unadmitted !== undefined) {
         return yield* Effect.fail(unadmitted);
       }
@@ -1764,9 +1763,7 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      const task = gate.node?.ether?.tasks?.items.find(
-        (candidate) => candidate.id === decoded.success.task,
-      );
+      const task = yield* work.readTask(caller.canvasName, decoded.success.target, decoded.success.task).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
       if (
         task?.claimedBy !== undefined &&
         task.claimedBy !== actor.success.seatId
@@ -1784,7 +1781,7 @@ const dispatchOp = (
           },
         });
       }
-      const unadmitted = refuseUnadmittedSubmitted(task, gate.node);
+      const unadmitted = refuseUnadmittedSubmitted(task, gate.node, boardContractOf(read.canvas, gate.node?.id ?? ""));
       if (unadmitted !== undefined) {
         return yield* Effect.fail(unadmitted);
       }
@@ -1811,11 +1808,7 @@ const dispatchOp = (
         if ("type" in gate) return yield* Effect.fail(gate);
         const node = gate.node!;
         const kind = nodeKind(node);
-        const list =
-          kind === "task"
-            ? node.ether?.tasks?.items ?? []
-            : node.ether?.requests?.items ?? [];
-        const task = list.find((t) => t.id === decoded.success.taskId);
+        const task = yield* work.readTask(caller.canvasName, targetId, decoded.success.taskId, kind === "task" ? "task" : "requests").pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
         if (!task) {
           return yield* Effect.fail({
             type: "UnknownTarget" as const,
@@ -2173,7 +2166,7 @@ const dispatchOp = (
       );
       const report = yield* Effect.promise(() =>
         regionEnvironmentService()
-          .seatReportFor(board, caller.nodeId)
+          .seatReportFor(read.canvas, caller.nodeId)
           .catch(() => undefined),
       );
       if (report === undefined) {

@@ -10,7 +10,7 @@ import { TASKS_ENABLED } from "../src/shared/features";
 import { formatWaitingOnLines } from "../src/shared/impact";
 import { regionAddress, rulesInForce } from "../src/shared/rules";
 import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { canvasFromDocument, nodesFromDocument } from "../src/shared/model/from-document";
 
 const doc = {
   nodes: [
@@ -42,7 +42,7 @@ const doc = {
 
 describe("an unnamed region on the operator's screen", () => {
   it.runIf(TASKS_ENABLED)("task rules name it, and the agent's line keeps its id", () => {
-    const [rule] = rulesInForce(doc, "board");
+    const [rule] = rulesInForce(nodesFromDocument(doc), "board");
     expect(rule?.provenance).toMatchObject({ kind: "region", regionId: "g-unnamed", label: "unnamed region" });
   });
 

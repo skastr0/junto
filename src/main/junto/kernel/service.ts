@@ -25,7 +25,7 @@ import { cutBeforeWake } from "../seat-sessions/operator-offboard";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { Node } from "@shared/model";
-import { nodeFromDocument } from "@shared/model/from-document";
+import { nodeFromDocument, nodesFromDocument } from "@shared/model/from-document";
 import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
@@ -863,7 +863,7 @@ const makeKernelService = (
           claimEligible: (task, actor, sink) =>
             taskAdmissionState(
               task,
-              boardContractOf(doc.nodes.find((node) => node.id === sink.id)),
+              boardContractOf(nodesFromDocument(doc), sink.id),
               Date.now(),
             ) === "claimable" &&
             claimEligibleAfterRelease(
@@ -1024,7 +1024,7 @@ const makeKernelService = (
               // approval, and every task on a board set to Me.
               taskAdmissionState(
                 task,
-                boardContractOf(doc.nodes.find((n) => n.id === sink.id)),
+                boardContractOf(nodesFromDocument(doc), sink.id),
                 Date.now(),
               ) === "claimable" &&
               claimEligibleAfterRelease(

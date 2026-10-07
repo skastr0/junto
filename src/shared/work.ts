@@ -1,8 +1,11 @@
-import type {
-  CanvasDoc,
-  CanvasNode,
-  TextNode,
-} from "./canvas";
+import { asNodeId, regionStack, type Canvas, type Node } from "./model";
+import type { WorkRead } from "./work-read";
+
+export type WorkPolicyRead = WorkRead & {
+  readonly requestItemsOf: (nodeId: string) => ReadonlyArray<Task>;
+  readonly artifactsOf: (nodeId: string) => ReadonlyArray<Artifact>;
+  readonly artifactsByNode: ReadonlyMap<string, ReadonlyArray<Artifact>>;
+};
 import type {
   WorkMetadata,
   Task,
@@ -26,9 +29,6 @@ import {
   makeAgentMessage,
   makeTaskReleaseMessage,
   makeUserMessage,
-  mirrorArtifactsText,
-  mirrorRequestsText,
-  mirrorTasksText,
   taskWithTransitionState,
   validateTaskMediaParts,
 } from "./task";
@@ -40,7 +40,6 @@ import {
   validateTaskDependsOn,
 } from "./task-deps";
 import {
-  artifactsByNodeFromDoc,
   evaluateFinishCriteria,
   normalizeCompletionEvidence,
   normalizeFinishCriteria,
@@ -61,8 +60,6 @@ import {
   type RuleFailure,
 } from "./rules";
 import { flowDestinations, reachableBoards } from "./flow-graph";
-import { wiresFromDocument } from "./model/from-document";
-import { groupMembers, isGroup } from "./graph";
 import {
   ACTOR_ACTOR_INBOX_PORTS,
   NodeSpec,
@@ -100,46 +97,35 @@ export type WorkIds = {
   readonly messageId: () => string;
 };
 
-const textNode = (node: CanvasNode): TextNode | undefined =>
-  node.type === "text" ? node : undefined;
-
-const regionContextId = (doc: CanvasDoc, nodeId: string, canvasName: string): string => {
-  const members = groupMembers(doc);
-  for (const [groupId, memberIds] of members) {
-    if (!memberIds.includes(nodeId)) continue;
-    const group = doc.nodes.find((n) => n.id === groupId);
-    if (!group || !isGroup(group)) continue;
-    const label = group.label?.trim();
-    if (label) return label;
-    return groupId;
-  }
-  return canvasName;
+const regionContextId = (canvas: Canvas, nodeId: string, canvasName: string): string => {
+  const region = regionStack(canvas, asNodeId(nodeId))[0];
+  return region?.label?.trim() || region?.id || canvasName;
 };
 
-const requireNode = (doc: CanvasDoc, nodeId: string): CanvasNode => {
-  const node = doc.nodes.find((n) => n.id === nodeId);
+const requireNode = (canvas: Canvas, nodeId: string): Node => {
+  const node = canvas.nodes.get(asNodeId(nodeId));
   if (!node) throw new WorkError("node_not_found", `node "${nodeId}" not found`);
   return node;
 };
 
-const illegalKind = (node: CanvasNode, expected: string): WorkError =>
+const illegalKind = (node: Node, expected: string): WorkError =>
   new WorkError(
     "illegal_kind",
-    `node "${node.id}" kind is ${node.ether?.entity?.kind ?? "none"}; expected ${expected}`,
+    `node "${node.id}" kind is ${node.kind ?? "none"}; expected ${expected}`,
   );
 
 /**
  * Group-ness is deliberately not consulted: these predicates read the authored
  * kind, exactly as the string lists they replace did.
  */
-const specOf = (node: CanvasNode) =>
-  resolveSpec({ isGroup: false, kind: node.ether?.entity?.kind });
+const specOf = (node: Node) =>
+  resolveSpec({ isGroup: false, kind: node.kind });
 
 const isActorSpec = NodeSpec.$is("Actor");
 const isSinkSpec = NodeSpec.$is("Sink");
 
 /** The node is an actor. Role first, through the one resolution site. */
-const requireActor = (node: CanvasNode, expected: string): ActorSpec => {
+const requireActor = (node: Node, expected: string): ActorSpec => {
   const spec = specOf(node);
   if (!isActorSpec(spec)) throw illegalKind(node, expected);
   return spec;
@@ -151,7 +137,7 @@ const requireActor = (node: CanvasNode, expected: string): ActorSpec => {
  * has already proved rather than on a loose string.
  */
 const requireSink = <K extends SinkKind>(
-  node: CanvasNode,
+  node: Node,
   kinds: ReadonlyArray<K>,
 ): K => {
   const spec = specOf(node);
@@ -168,7 +154,7 @@ const requireSink = <K extends SinkKind>(
  * (`ACTOR_ACTOR_INBOX_PORTS` → `KindSpecs`) used by capability admission,
  * not a second hand-kept copy of the kind list.
  */
-const requireMessageInbox = (node: CanvasNode): void => {
+const requireMessageInbox = (node: Node): void => {
   const actor = requireActor(node, "an actor inbox");
   // The required inbox is the enabled vocabulary: a gated port (verdict.post
   // without tasks) is absent from every actor's offers in this build.
@@ -177,91 +163,6 @@ const requireMessageInbox = (node: CanvasNode): void => {
     .every((port) => HashSet.has(actor.offers, port));
   if (!holdsInbox) throw illegalKind(node, "an actor inbox");
 };
-
-/**
- * Write a Tasks board projection. Items are the runtime Work rows; `name` and
- * `contract` are operator-authored document truth that projections must never
- * erase.
- */
-const withTasks = (
-  doc: CanvasDoc,
-  nodeId: string,
-  items: ReadonlyArray<Task>,
-): CanvasDoc => ({
-  ...doc,
-  nodes: doc.nodes.map((n) => {
-    if (n.id !== nodeId) return n;
-    const tn = textNode(n);
-    const base = tn ?? n;
-    return {
-      ...base,
-      ...(tn
-        ? { text: mirrorTasksText(items) }
-        : {}),
-      ether: {
-        ...(n.ether ?? {}),
-        entity: n.ether?.entity ?? { kind: "task" },
-        tasks: {
-          items: [...items],
-          ...(n.ether?.tasks?.name !== undefined
-            ? { name: n.ether.tasks.name }
-            : {}),
-          ...(n.ether?.tasks?.contract !== undefined
-            ? { contract: n.ether.tasks.contract }
-            : {}),
-        },
-      },
-    } as CanvasNode;
-  }),
-});
-
-const withRequests = (
-  doc: CanvasDoc,
-  nodeId: string,
-  items: ReadonlyArray<Task>,
-): CanvasDoc => ({
-  ...doc,
-  nodes: doc.nodes.map((n) => {
-    if (n.id !== nodeId) return n;
-    const tn = textNode(n);
-    // The authored name is operator document truth, like ether.tasks.name —
-    // the mirror (identity + count + briefs) regenerates beneath it.
-    const name = n.ether?.requests?.name;
-    return {
-      ...n,
-      ...(tn ? { text: mirrorRequestsText(items, name) } : {}),
-      ether: {
-        ...(n.ether ?? {}),
-        entity: n.ether?.entity ?? { kind: "requests" },
-        requests: {
-          items: [...items],
-          ...(name !== undefined ? { name } : {}),
-        },
-      },
-    } as CanvasNode;
-  }),
-});
-
-const withArtifacts = (
-  doc: CanvasDoc,
-  nodeId: string,
-  items: ReadonlyArray<Artifact>,
-): CanvasDoc => ({
-  ...doc,
-  nodes: doc.nodes.map((n) => {
-    if (n.id !== nodeId) return n;
-    const tn = textNode(n);
-    return {
-      ...n,
-      ...(tn ? { text: mirrorArtifactsText(items) } : {}),
-      ether: {
-        ...(n.ether ?? {}),
-        entity: n.ether?.entity ?? { kind: "artifacts" },
-        artifacts: { items: [...items] },
-      },
-    } as CanvasNode;
-  }),
-});
 
 const patchTaskInList = (
   items: ReadonlyArray<Task>,
@@ -348,13 +249,13 @@ export type WorkTaskCreateOptions = {
   readonly nowMs?: number;
 };
 
-export type WorkTaskCreateResult = { readonly doc: CanvasDoc; readonly task: Task };
-export type WorkTaskResult = { readonly doc: CanvasDoc; readonly task: Task };
+export type WorkTaskCreateResult = { readonly task: Task };
+export type WorkTaskResult = { readonly task: Task };
 export type WorkTaskClaimResult = WorkTaskResult & {
   readonly claimedBy: ActorRef;
 };
-export type WorkMessageResult = { readonly doc: CanvasDoc; readonly message: Message };
-export type WorkArtifactResult = { readonly doc: CanvasDoc; readonly artifact: Artifact };
+export type WorkMessageResult = { readonly message: Message };
+export type WorkArtifactResult = { readonly artifact: Artifact };
 
 /**
  * Authoring-input validation for board-addressed task rules: every rule id is
@@ -362,19 +263,19 @@ export type WorkArtifactResult = { readonly doc: CanvasDoc; readonly artifact: A
  * from the origin board on the current flow graph.
  */
 const validateTaskRules = (
-  doc: CanvasDoc,
+  doc: Canvas,
   originNodeId: string,
   rules: ReadonlyArray<TaskRule> | undefined,
 ): void => {
   if (rules === undefined || rules.length === 0) return;
   const seen = new Set<string>();
-  const reachable = reachableBoards(wiresFromDocument(doc), originNodeId);
+  const reachable = reachableBoards(doc, originNodeId);
   for (const rule of rules) {
     if (seen.has(rule.id)) {
       throw new WorkError("invalid", `task rule id "${rule.id}" is duplicated`);
     }
     seen.add(rule.id);
-    const target = doc.nodes.find((n) => n.id === rule.board);
+    const target = doc.nodes.get(asNodeId(rule.board));
     if (target === undefined) {
       throw new WorkError(
         "invalid",
@@ -392,7 +293,8 @@ const validateTaskRules = (
 };
 
 export const workTaskCreate = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   brief: string,
@@ -424,7 +326,7 @@ export const workTaskCreate = (
   const authoredDepError = validateAuthoredTaskDependsOn(dependsOn);
   if (authoredDepError) throw new WorkError("invalid", authoredDepError);
   validateTaskRules(doc, nodeId, rules);
-  const contract = boardContractOf(node);
+  const contract = boardContractOf(doc, nodeId);
   const clamped = clampRequestedAdmission({
     floor: resolveTaskAdmission(contract),
     requested: options?.admission,
@@ -437,11 +339,10 @@ export const workTaskCreate = (
     options?.waitForMs,
   );
   const taskId = ids.id();
-  const existing = node.ether?.tasks?.items ?? [];
   const depError = validateTaskDependsOn({
     taskId,
     dependsOn,
-    byId: dependencyScopeIndex(doc, nodeId),
+    byId: dependencyScopeIndex(doc, work, nodeId),
   });
   if (depError) throw new WorkError("invalid", depError);
   const normalizedDeps = normalizeDependsOn(dependsOn);
@@ -477,8 +378,7 @@ export const workTaskCreate = (
     ...(options?.raisedBy !== undefined ? { raisedBy: options.raisedBy } : {}),
     ...(waitUntil !== undefined ? { waitUntil } : {}),
   };
-  const items = [...existing, task];
-  return { doc: withTasks(doc, nodeId, items), task };
+  return { task };
 };
 
 /**
@@ -486,7 +386,8 @@ export const workTaskCreate = (
  * Terminal tasks cannot change criteria.
  */
 export const workTaskSetFinishCriteria = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   taskId: string,
@@ -494,7 +395,7 @@ export const workTaskSetFinishCriteria = (
 ): WorkTaskResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
-  const items = node.ether?.tasks?.items ?? [];
+  const items = work.itemsOf(nodeId);
   let criteria: FinishCriteria | undefined;
   try {
     criteria = normalizeFinishCriteria(finishCriteria);
@@ -504,7 +405,7 @@ export const workTaskSetFinishCriteria = (
       cause instanceof Error ? cause.message : String(cause),
     );
   }
-  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+  const { task } = patchTaskInList(items, taskId, (current) => {
     if (isTerminalTaskState(current.state)) {
       throw new WorkError(
         "illegal_transition",
@@ -518,11 +419,12 @@ export const workTaskSetFinishCriteria = (
     };
   });
   void canvasName;
-  return { doc: withTasks(doc, nodeId, nextItems), task };
+  return { task };
 };
 
 export const workTaskDescribe = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   taskId: string,
@@ -533,9 +435,9 @@ export const workTaskDescribe = (
   requireSink(node, ["task"]);
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
-  const items = node.ether?.tasks?.items ?? [];
+  const items = work.itemsOf(nodeId);
   const contextId = regionContextId(doc, nodeId, canvasName);
-  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+  const { task } = patchTaskInList(items, taskId, (current) => {
     if (isTerminalTaskState(current.state)) {
       throw new WorkError(
         "illegal_transition",
@@ -552,7 +454,7 @@ export const workTaskDescribe = (
     });
     return { ...current, history: [briefMessage, ...current.history.slice(1)] };
   });
-  return { doc: withTasks(doc, nodeId, nextItems), task };
+  return { task };
 };
 
 export type WorkTaskTransitionOptions = {
@@ -699,33 +601,21 @@ const rehomedTask = (
  * board rows.
  */
 const rehomedHistory = (
-  doc: CanvasDoc,
+  work: WorkRead,
   destination: string,
   task: Task,
   brief: Message,
   note: Message,
 ): ReadonlyArray<Message> => {
-  const existing = doc.nodes
-    .find((n) => n.id === destination)
-    ?.ether?.tasks?.items.find((item) => item.id === task.id);
+  const existing = work.taskAt(destination, task.id);
   return existing === undefined
     ? [brief, note]
     : [...existing.history, note];
 };
 
-const replaceOrAppendTask = (
-  items: ReadonlyArray<Task>,
-  task: Task,
-): Task[] => {
-  const index = items.findIndex((candidate) => candidate.id === task.id);
-  if (index < 0) return [...items, task];
-  const next = [...items];
-  next[index] = task;
-  return next;
-};
-
 export const workTaskTransition = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   taskId: string,
@@ -737,7 +627,7 @@ export const workTaskTransition = (
 ): WorkTaskTransitionResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
-  const items = node.ether?.tasks?.items ?? [];
+  const items = work.itemsOf(nodeId);
   const contextId = regionContextId(doc, nodeId, canvasName);
   const runFinishGate = options?.evaluateFinishCriteria !== false;
   const nowMs = options?.nowMs ?? Date.now();
@@ -753,7 +643,7 @@ export const workTaskTransition = (
         ? normalizeCompletionEvidence(completionEvidence)
         : undefined;
   const destinations =
-    state === "completed" ? flowDestinations(wiresFromDocument(doc), nodeId) : [];
+    state === "completed" ? flowDestinations(doc, nodeId) : [];
   const nextBoardId =
     destinations.length === 0
       ? undefined
@@ -777,7 +667,7 @@ export const workTaskTransition = (
   let sentOn: { readonly nodeId: string; readonly task: Task } | undefined;
   let sentBack: { readonly nodeId: string; readonly task: Task } | undefined;
 
-  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+  const { task } = patchTaskInList(items, taskId, (current) => {
     if (!canTransitionTaskState(current.state, state)) {
       throw new WorkError(
         "illegal_transition",
@@ -802,7 +692,7 @@ export const workTaskTransition = (
         taskNodeId: nodeId,
         canvasName,
         evidence,
-        artifactsByNode: artifactsByNodeFromDoc(doc.nodes),
+        artifactsByNode: work.artifactsByNode,
       });
       if (gate !== undefined) {
         throw new WorkError(
@@ -826,7 +716,8 @@ export const workTaskTransition = (
         });
         if (checksGate !== undefined) throw completionGateError(checksGate);
         const forkGate = evaluateForkWaivers({
-          doc,
+          canvas: doc,
+          work,
           boardId: nodeId,
           task: current,
           next: nextBoardId,
@@ -835,7 +726,7 @@ export const workTaskTransition = (
         if (forkGate !== undefined) throw completionGateError(forkGate);
       } else {
         const terminalGate = evaluateTerminalClose({
-          doc,
+          work,
           boardId: nodeId,
           task: current,
           evidence,
@@ -903,7 +794,7 @@ export const workTaskTransition = (
       requireSink(destinationNode, ["task"]);
       const waitUntil = computeWaitUntil(
         nowMs,
-        boardContractOf(destinationNode)?.incoming?.waitMs,
+        boardContractOf(doc, nextBoardId)?.incoming?.waitMs,
         options?.waitForMs,
       );
       const brief: Message = {
@@ -930,7 +821,7 @@ export const workTaskTransition = (
           taskEpoch(current),
           nowIso,
           waitUntil,
-          rehomedHistory(doc, nextBoardId, current, brief, sentOnNote),
+          rehomedHistory(work, nextBoardId, current, brief, sentOnNote),
         ),
       };
     } else if (state === "completed" && (current.visits?.length ?? 0) > 0) {
@@ -1008,7 +899,7 @@ export const workTaskTransition = (
         requireSink(targetNode, ["task"]);
         const waitUntil = computeWaitUntil(
           nowMs,
-          boardContractOf(targetNode)?.incoming?.waitMs,
+          boardContractOf(doc, target)?.incoming?.waitMs,
           undefined,
         );
         const brief: Message = {
@@ -1034,7 +925,7 @@ export const workTaskTransition = (
             bumpedEpoch,
             nowIso,
             waitUntil,
-            rehomedHistory(doc, target, current, brief, defectNote),
+            rehomedHistory(work, target, current, brief, defectNote),
           ),
         };
       }
@@ -1060,29 +951,7 @@ export const workTaskTransition = (
     return next;
   });
 
-  let nextDoc = withTasks(doc, nodeId, nextItems);
-  if (sentOn !== undefined) {
-    const destinationItems =
-      nextDoc.nodes.find((n) => n.id === sentOn!.nodeId)?.ether?.tasks
-        ?.items ?? [];
-    nextDoc = withTasks(
-      nextDoc,
-      sentOn.nodeId,
-      replaceOrAppendTask(destinationItems, sentOn.task),
-    );
-  }
-  if (sentBack !== undefined) {
-    const previousItems =
-      nextDoc.nodes.find((n) => n.id === sentBack!.nodeId)?.ether?.tasks
-        ?.items ?? [];
-    nextDoc = withTasks(
-      nextDoc,
-      sentBack.nodeId,
-      replaceOrAppendTask(previousItems, sentBack.task),
-    );
-  }
   return {
-    doc: nextDoc,
     task,
     ...(sentOn !== undefined ? { sentOn } : {}),
     ...(sentBack !== undefined ? { sentBack } : {}),
@@ -1096,7 +965,8 @@ export const workTaskTransition = (
  * durable context that claims the worker may resume.
  */
 export const workTaskRespond = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   taskId: string,
@@ -1108,9 +978,9 @@ export const workTaskRespond = (
   requireSink(node, ["task"]);
   const text = responseText.trim();
   if (!text) throw new WorkError("invalid", "response text must be non-empty");
-  const items = node.ether?.tasks?.items ?? [];
+  const items = work.itemsOf(nodeId);
   const contextId = regionContextId(doc, nodeId, canvasName);
-  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+  const { task } = patchTaskInList(items, taskId, (current) => {
     if (current.state !== "input-required" && current.state !== "auth-required") {
       throw new WorkError(
         "illegal_transition",
@@ -1135,11 +1005,12 @@ export const workTaskRespond = (
       history: [...current.history, response],
     };
   });
-  return { doc: withTasks(doc, nodeId, nextItems), task };
+  return { task };
 };
 
 export const workTaskClaim = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   taskId: string,
@@ -1148,9 +1019,9 @@ export const workTaskClaim = (
 ): WorkTaskClaimResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
-  const items = node.ether?.tasks?.items ?? [];
+  const items = work.itemsOf(nodeId);
   const contextId = regionContextId(doc, nodeId, canvasName);
-  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+  const { task } = patchTaskInList(items, taskId, (current) => {
     const existing = claimedByOf(current);
     if (existing && existing !== actor.seatId) {
       throw new WorkError(
@@ -1180,7 +1051,7 @@ export const workTaskClaim = (
       // boards are not claimable yet.
       const admission = taskAdmissionState(
         current,
-        boardContractOf(node),
+        boardContractOf(doc, nodeId),
         Date.now(),
       );
       if (admission === "operator") {
@@ -1201,7 +1072,7 @@ export const workTaskClaim = (
           `task "${taskId}" awaits operator approval at board "${nodeId}"`,
         );
       }
-      const byId = dependencyScopeIndex(doc, nodeId);
+      const byId = dependencyScopeIndex(doc, work, nodeId);
       if (!taskIsClaimReady(current, byId)) {
         throw new WorkError(
           "invalid",
@@ -1226,14 +1097,14 @@ export const workTaskClaim = (
     };
   });
   return {
-    doc: withTasks(doc, nodeId, nextItems),
     task,
     claimedBy: actor,
   };
 };
 
 export const workMessageAppend = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   taskId: string | null,
@@ -1250,28 +1121,29 @@ export const workMessageAppend = (
   if (taskId) {
     const kind = requireSink(node, ["task", "requests"] as const);
     if (kind === "task") {
-      const items = node.ether?.tasks?.items ?? [];
-      const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => ({
+      const items = work.itemsOf(nodeId);
+      const { task } = patchTaskInList(items, taskId, (current) => ({
         ...current,
         history: [...current.history, { ...stamped, taskId }],
       }));
       void task;
-      return { doc: withTasks(doc, nodeId, nextItems), message: { ...stamped, taskId } };
+      return { message: { ...stamped, taskId } };
     }
-    const items = node.ether?.requests?.items ?? [];
-    const { items: nextItems } = patchTaskInList(items, taskId, (current) => ({
+    const items = work.requestItemsOf(nodeId);
+    patchTaskInList(items, taskId, (current) => ({
       ...current,
       history: [...current.history, { ...stamped, taskId }],
     }));
-    return { doc: withRequests(doc, nodeId, nextItems), message: { ...stamped, taskId } };
+    return { message: { ...stamped, taskId } };
   }
 
   requireMessageInbox(node);
-  return { doc, message: stamped };
+  return { message: stamped };
 };
 
 export const workRequestCreate = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   brief: string,
@@ -1315,12 +1187,12 @@ export const workRequestCreate = (
     ...(metadata ? { metadata } : {}),
     ...(why ? { reason: why } : {}),
   };
-  const items = [...(node.ether?.requests?.items ?? []), task];
-  return { doc: withRequests(doc, nodeId, items), task };
+  return { task };
 };
 
 export const workRequestResolve = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   taskId: string,
@@ -1332,9 +1204,9 @@ export const workRequestResolve = (
   requireSink(node, ["requests"]);
   const text = responseText.trim();
   if (!text) throw new WorkError("invalid", "response text must be non-empty");
-  const items = node.ether?.requests?.items ?? [];
+  const items = work.requestItemsOf(nodeId);
   const contextId = regionContextId(doc, nodeId, canvasName);
-  const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
+  const { task } = patchTaskInList(items, taskId, (current) => {
     if (current.state !== "input-required") {
       throw new WorkError(
         "illegal_transition",
@@ -1361,11 +1233,12 @@ export const workRequestResolve = (
       response: text,
     };
   });
-  return { doc: withRequests(doc, nodeId, nextItems), task };
+  return { task };
 };
 
 export const workArtifactPublish = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
   artifact: Artifact,
@@ -1388,9 +1261,7 @@ export const workArtifactPublish = (
     }
     const taskNode = requireNode(doc, taskRef.sink.nodeId);
     requireSink(taskNode, ["task"]);
-    const task = taskNode.ether?.tasks?.items.find(
-      (candidate) => candidate.id === taskRef.itemId,
-    );
+    const task = work.taskAt(taskRef.sink.nodeId, taskRef.itemId);
     if (task === undefined) {
       throw new WorkError(
         "task_not_found",
@@ -1404,12 +1275,11 @@ export const workArtifactPublish = (
       );
     }
   }
-  const existing = node.ether?.artifacts?.items ?? [];
+  const existing = work.artifactsOf(nodeId);
   if (existing.some((a) => a.artifactId === artifact.artifactId)) {
     throw new WorkError("invalid", `artifact "${artifact.artifactId}" already exists`);
   }
-  const items = [...existing, artifact];
-  return { doc: withArtifacts(doc, nodeId, items), artifact };
+  return { artifact };
 };
 
 /** Soft-archive flag lives in metadata so decode admits history without schema migration. */
@@ -1435,7 +1305,8 @@ const withArtifactArchivedFlag = (
 
 /** Operator soft-archive / restore. Does not delete parts or content refs. */
 export const workArtifactArchive = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   nodeId: string,
   artifactId: string,
   archived: boolean,
@@ -1444,38 +1315,32 @@ export const workArtifactArchive = (
   requireSink(node, ["artifacts"]);
   const id = artifactId.trim();
   if (!id) throw new WorkError("invalid", "artifactId must be non-empty");
-  const items = node.ether?.artifacts?.items ?? [];
+  const items = work.artifactsOf(nodeId);
   const index = items.findIndex((item) => item.artifactId === id);
   if (index < 0) {
     throw new WorkError("task_not_found", `artifact "${id}" not found`);
   }
   const current = items[index]!;
   const artifact = withArtifactArchivedFlag(current, archived);
-  const next = [...items];
-  next[index] = artifact;
-  return { doc: withArtifacts(doc, nodeId, next), artifact };
+  return { artifact };
 };
 
 /** Hard-remove an artifact from the sink (operator). Content objects are retained. */
 export const workArtifactDelete = (
-  doc: CanvasDoc,
+  work: WorkPolicyRead,
+  doc: Canvas,
   nodeId: string,
   artifactId: string,
-): { readonly doc: CanvasDoc; readonly artifactId: string } => {
+): { readonly artifactId: string } => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["artifacts"]);
   const id = artifactId.trim();
   if (!id) throw new WorkError("invalid", "artifactId must be non-empty");
-  const items = node.ether?.artifacts?.items ?? [];
+  const items = work.artifactsOf(nodeId);
   if (!items.some((item) => item.artifactId === id)) {
     throw new WorkError("task_not_found", `artifact "${id}" not found`);
   }
   return {
-    doc: withArtifacts(
-      doc,
-      nodeId,
-      items.filter((item) => item.artifactId !== id),
-    ),
     artifactId: id,
   };
 };

@@ -84,7 +84,8 @@ import {
 import { rulesInForce } from "@shared/rules";
 import { defectTargetOptions } from "@shared/visit-integrity";
 import { reachableBoards } from "@shared/flow-graph";
-import { wiresFromDocument } from "@shared/model/from-document";
+import { nodesFromDocument, wiresFromDocument } from "@shared/model/from-document";
+import { workReadFromDocument } from "@shared/work-read";
 import {
   resolveTaskAdmission,
   type TaskAdmission,
@@ -2481,7 +2482,7 @@ export function TaskBoard({
   );
   /** Region-scoped tasks for dep glance (cross-sink prereqs in the same region). */
   const scopeTasks = useMemo(
-    () => dependencyScopeTasks(doc, node.id),
+    () => dependencyScopeTasks(nodesFromDocument(doc), workReadFromDocument(doc), node.id),
     [doc, node.id],
   );
 
@@ -3290,7 +3291,7 @@ export function TaskBoard({
                 operatorOwned &&
                 !TERMINAL_STATES.has(selectedTask.state) ? (
                   <TaskOperatorPanel
-                    rules={rulesInForce(doc, node.id, selectedTask)}
+                    rules={rulesInForce(nodesFromDocument(doc), node.id, selectedTask)}
                     nextBoards={shape.destinations.map((board) => ({
                       id: board,
                       label: boardName(board),
@@ -3310,7 +3311,7 @@ export function TaskBoard({
                     waivable={(ruleId, next) => {
                       if (next === undefined) return false;
                       const reachable = reachableBoards(wiresFromDocument(doc), next);
-                      return rulesInForce(doc, node.id, selectedTask).some(
+                      return rulesInForce(nodesFromDocument(doc), node.id, selectedTask).some(
                         (entry) =>
                           entry.rule.id === ruleId &&
                           entry.provenance.kind === "task" &&

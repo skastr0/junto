@@ -2,7 +2,6 @@ import { type Context, Effect } from "effect";
 import { actorDeliverySurfaceOf, type ManagedAgentSurface } from "@shared/actor-surface";
 import type { MailSenderStamp } from "@shared/crew";
 import { resolveSpec } from "@shared/physics";
-import { boardContractOf } from "@shared/rules";
 import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import type { IntentFactBasis } from "@shared/work-protocol";
@@ -118,7 +117,7 @@ export const makeCheckoutWatchComposition = (
       if (spec._tag !== "Sink" || spec.kind !== "task") continue;
       const context = claimContextFrom({
         canvasName,
-        boards: [{ nodeId: node.id, tasks: node.ether?.tasks?.items ?? [], contract: boardContractOf(node) }],
+        boards: [{ nodeId: node.id, tasks: node.ether?.tasks?.items ?? [], contract: node.ether?.tasks?.contract }],
         actorRefs: actors.filter((actor) => processes.has(actor.nodeId)),
         nodes: canvas.read.doc.nodes,
         checkoutKeyFor: (nodeId) => processes.get(nodeId)?.checkoutKey,

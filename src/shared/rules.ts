@@ -1,4 +1,3 @@
-import type { CanvasDoc, CanvasNode, EtherRegionContract, GroupNode } from "./canvas";
 import { TASKS_ENABLED } from "./features";
 import type {
   Check,
@@ -12,10 +11,13 @@ import type {
   Visit,
 } from "./work-model";
 import { resolveTaskAdmission } from "./work-model";
-import { regionDisplayName, regionStack, UNNAMED_REGION } from "./graph";
 import { reachableBoards } from "./flow-graph";
-import { wiresFromDocument } from "./model/from-document";
+import type { Canvas, Placed } from "./model/canvas";
+import { asNodeId } from "./model/base";
+import { nodeOf, regionName, regionStack, UNNAMED_REGION } from "./model/canvas";
+import type { Region, RegionContract } from "./model/region";
 import { WAIT_FOR_MAX_MS } from "./work-control";
+import type { WorkRead } from "./work-read";
 
 // Pure structural enforcement for task rules, claims, checks, and admission.
 // The work service validates presence and shape. It never judges whether an
@@ -39,12 +41,10 @@ export type RuleFailure = {
   readonly ruleId?: string;
 };
 
-const nodeById = (doc: CanvasDoc, nodeId: string): CanvasNode | undefined =>
-  doc.nodes.find((node) => node.id === nodeId);
-
 export const boardContractOf = (
-  node: CanvasNode | undefined,
-): TasksContract | undefined => node?.ether?.tasks?.contract;
+  canvas: Placed,
+  boardId: string,
+): TasksContract | undefined => nodeOf(canvas, asNodeId(boardId), "task")?.contract;
 
 /**
  * A rule's region as an agent is told it: the display name, with the node id
@@ -60,9 +60,8 @@ export const regionAddress = (provenance: { readonly regionId: string; readonly 
  * nothing reads it: no rule stacks onto a board and no ruling reaches a seat.
  */
 export const regionContractOf = (
-  group: CanvasNode,
-): EtherRegionContract | undefined =>
-  TASKS_ENABLED && group.type === "group" ? group.ether?.region?.contract : undefined;
+  region: Region,
+): RegionContract | undefined => (TASKS_ENABLED ? region.contract : undefined);
 
 /**
  * Rules in force at a board: enclosing regions outer to inner, board rules,
@@ -70,24 +69,24 @@ export const regionContractOf = (
  * there is no override, precedence, or deduplication.
  */
 export const rulesInForce = (
-  doc: CanvasDoc,
+  canvas: Placed,
   boardId: string,
   task?: Task,
 ): ReadonlyArray<RuleInForce> => {
   const out: RuleInForce[] = [];
-  for (const group of regionStack(doc, boardId)) {
-    for (const rule of regionContractOf(group)?.rules ?? []) {
+  for (const region of regionStack(canvas, asNodeId(boardId))) {
+    for (const rule of regionContractOf(region)?.rules ?? []) {
       out.push({
         rule,
         provenance: {
           kind: "region",
-          regionId: group.id,
-          label: regionDisplayName(group),
+          regionId: region.id,
+          label: regionName(region),
         },
       });
     }
   }
-  for (const rule of boardContractOf(nodeById(doc, boardId))?.rules ?? []) {
+  for (const rule of boardContractOf(canvas, boardId)?.rules ?? []) {
     out.push({ rule, provenance: { kind: "board", boardId } });
   }
   for (const rule of task?.rules ?? []) {
@@ -211,16 +210,14 @@ export type RecordedClaims = {
 
 /** Claims and waivers recorded by completed board visits. */
 export const claimsRecorded = (
-  doc: CanvasDoc,
+  work: WorkRead,
   task: Task,
 ): RecordedClaims => {
   const visits = task.visits ?? [];
   const claimed = new Map<string, Set<string>>();
   const waived = new Set<string>();
   for (const [board, visit] of latestCompletedVisits(visits)) {
-    const row = nodeById(doc, board)?.ether?.tasks?.items.find(
-      (item) => item.id === task.id,
-    );
+    const row = work.taskAt(board, task.id);
     if (row?.completionEvidence === undefined) continue;
     if (claimIsLive(task, visits, visit)) {
       for (const entry of row.completionEvidence.claims ?? []) {
@@ -249,7 +246,8 @@ export const claimedAtBoard = (
  * board. Review rules belong to the independent verdict gate, never a waiver.
  */
 export const evaluateForkWaivers = (params: {
-  readonly doc: CanvasDoc;
+  readonly canvas: Pick<Canvas, "wires">;
+  readonly work: WorkRead;
   readonly boardId: string;
   readonly task: Task;
   readonly next: string;
@@ -257,8 +255,8 @@ export const evaluateForkWaivers = (params: {
 }): RuleFailure | undefined => {
   const rules = params.task.rules ?? [];
   if (rules.length === 0) return undefined;
-  const reachable = reachableBoards(wiresFromDocument(params.doc), params.next);
-  const recorded = claimsRecorded(params.doc, params.task);
+  const reachable = reachableBoards(params.canvas, params.next);
+  const recorded = claimsRecorded(params.work, params.task);
   const localClaims = new Set(
     (params.evidence?.claims ?? []).map((entry) => entry.ruleId),
   );
@@ -285,14 +283,14 @@ export const evaluateForkWaivers = (params: {
 
 /** Every statement task rule needs a claim at its board or a live fork waiver. */
 export const evaluateTerminalClose = (params: {
-  readonly doc: CanvasDoc;
+  readonly work: WorkRead;
   readonly boardId: string;
   readonly task: Task;
   readonly evidence: CompletionEvidence | undefined;
 }): RuleFailure | undefined => {
   const rules = params.task.rules ?? [];
   if (rules.length === 0) return undefined;
-  const recorded = claimsRecorded(params.doc, params.task);
+  const recorded = claimsRecorded(params.work, params.task);
   const localClaims = new Set(
     (params.evidence?.claims ?? []).map((entry) => entry.ruleId),
   );
@@ -323,13 +321,12 @@ export type RequiredCheck = {
 
 /** Current board outgoing checks followed by the next board incoming checks. */
 export const requiredChecks = (
-  doc: CanvasDoc,
+  canvas: Placed,
   fromBoardId: string,
   next: string,
 ): ReadonlyArray<RequiredCheck> => {
-  const outgoing =
-    boardContractOf(nodeById(doc, fromBoardId))?.outgoing?.checks ?? [];
-  const incoming = boardContractOf(nodeById(doc, next))?.incoming?.checks ?? [];
+  const outgoing = boardContractOf(canvas, fromBoardId)?.outgoing?.checks ?? [];
+  const incoming = boardContractOf(canvas, next)?.incoming?.checks ?? [];
   return [
     ...outgoing.map((check) => ({ check, side: "outgoing" as const })),
     ...incoming.map((check) => ({ check, side: "incoming" as const })),

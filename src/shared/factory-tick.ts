@@ -1,9 +1,11 @@
 import { Result, HashSet } from "effect";
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { Task } from "./work-model";
+import { nodesFromDocument } from "./model/from-document";
 import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf } from "./task";
 import { dependencyScopeIndex } from "./task-dep-scope";
+import { workReadFromDocument } from "./work-read";
 import { taskIsClaimReady } from "./task-deps";
 import { resolveCompiledActorRef, type ActorRefResolver } from "./attention";
 import {
@@ -120,7 +122,7 @@ export const selectFactoryClaims = (
     for (const task of items) {
       counts.set(task.id, (counts.get(task.id) ?? 0) + 1);
     }
-    const byId = dependencyScopeIndex(doc, node.id);
+    const byId = dependencyScopeIndex(nodesFromDocument(doc), workReadFromDocument(doc), node.id);
     const open = items
       .filter(
         (task) =>

@@ -23,6 +23,7 @@ import {
   waiverIsLive,
   type RuleInForce,
 } from "@shared/rules";
+import { nodesFromDocument } from "@shared/model/from-document";
 import { tasksNodeName } from "@shared/tasks-node-identity";
 
 export type VisitReceipt = {
@@ -180,7 +181,7 @@ const receiptsAt = (
   if (!isLatestCompleted) return [];
   const evidence = row?.completionEvidence;
   const known = new Map(
-    rulesInForce(doc, visit.board, task).map((entry) => [entry.rule.id, entry]),
+    rulesInForce(nodesFromDocument(doc), visit.board, task).map((entry) => [entry.rule.id, entry]),
   );
   const decorate = (ruleId: string) => {
     const entry = known.get(ruleId);
@@ -242,7 +243,7 @@ const openRulesAt = (
   receipts: ReadonlyArray<VisitReceipt>,
 ): ReadonlyArray<VisitOpenRule> => {
   const answered = new Set(receipts.map((receipt) => receipt.ruleId));
-  return rulesInForce(doc, visit.board, task)
+  return rulesInForce(nodesFromDocument(doc), visit.board, task)
     .filter((entry) => !answered.has(entry.rule.id))
     .map((entry) => ({
       ruleId: entry.rule.id,

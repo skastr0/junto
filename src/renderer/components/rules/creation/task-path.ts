@@ -4,7 +4,7 @@ import type { TaskAdmission } from "@shared/work-model";
 import { rulesInForce } from "@shared/rules";
 import { resolveTaskAdmission } from "@shared/work-model";
 import { flowDestinations, isTaskSinkNode } from "@shared/flow-graph";
-import { wiresFromDocument } from "@shared/model/from-document";
+import { nodesFromDocument, wiresFromDocument } from "@shared/model/from-document";
 import { tasksNodeName } from "@shared/tasks-node-identity";
 import { nodeTitle } from "../../../lib/presentation";
 import { admissionLabel } from "../../../lib/admission-labels";
@@ -99,7 +99,7 @@ export const taskPath = (
       origin: index === 0,
       terminal: destinations.length === 0,
       destinations,
-      rules: rulesInForce(doc, entry.nodeId),
+      rules: rulesInForce(nodesFromDocument(doc), entry.nodeId),
       admission: resolveTaskAdmission(contract),
       ...(contract?.incoming?.waitMs
         ? { waitMs: contract.incoming.waitMs }

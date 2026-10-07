@@ -20,8 +20,9 @@ import {
   type RuleInForce,
 } from "./rules";
 import { flowDestinations } from "./flow-graph";
-import { wiresFromDocument } from "./model/from-document";
-import { regionStack } from "./graph";
+import { asNodeId } from "./model/base";
+import { regionStack } from "./model/canvas";
+import { nodesFromDocument, wiresFromDocument } from "./model/from-document";
 import { tasksNodeIdentity, tasksNodeName } from "./tasks-node-identity";
 
 export type FactoryClaimPromptInput = {
@@ -63,7 +64,8 @@ const boardSections = (
 
   const boardNode = nodeById(doc, boardId);
   const identity = tasksNodeIdentity(boardNode, boardId);
-  const contract = boardContractOf(boardNode);
+  const canvas = nodesFromDocument(doc);
+  const contract = boardContractOf(canvas, boardId);
   lines.push("", `Board: ${identity.name}`);
   if (identity.namingHint) lines.push(identity.namingHint);
   const instructions = contract?.instructions;
@@ -76,16 +78,16 @@ const boardSections = (
     lines.push("", "How work arriving here is handled:", handling.trim());
   }
 
-  const regions = regionStack(doc, boardId);
+  const regions = regionStack(canvas, asNodeId(boardId));
   const briefings = regions
-    .map((group) => group.ether?.region?.instruction)
+    .map((region) => region.instruction)
     .filter((text): text is string => typeof text === "string" && text.trim().length > 0);
   if (briefings.length > 0) {
     lines.push("", "Ambient region briefing (outer to inner):");
     for (const text of briefings) lines.push(`- ${text.trim()}`);
   }
 
-  const rules = rulesInForce(doc, boardId, task);
+  const rules = rulesInForce(canvas, boardId, task);
   if (rules.length > 0) {
     lines.push(
       "",
@@ -99,9 +101,9 @@ const boardSections = (
     );
   }
 
-  const rulings = regions.flatMap((group) =>
-    (regionContractOf(group)?.rulings ?? []).map(
-      (ruling) => `- ${ruling.text}  (pinned to ${group.label?.trim() || group.id})`,
+  const rulings = regions.flatMap((region) =>
+    (regionContractOf(region)?.rulings ?? []).map(
+      (ruling) => `- ${ruling.text}  (pinned to ${region.label?.trim() || region.id})`,
     ),
   );
   if (rulings.length > 0) {
@@ -127,7 +129,7 @@ const boardSections = (
       );
     }
     for (const destination of destinations) {
-      const checks = requiredChecks(doc, boardId, destination);
+      const checks = requiredChecks(canvas, boardId, destination);
       if (checks.length === 0) continue;
       const destinationName = tasksNodeName(nodeById(doc, destination), destination);
       lines.push(
@@ -136,7 +138,7 @@ const boardSections = (
       );
     }
     const anyChecks = destinations.some(
-      (destination) => requiredChecks(doc, boardId, destination).length > 0,
+      (destination) => requiredChecks(canvas, boardId, destination).length > 0,
     );
     if (anyChecks) {
       lines.push(
@@ -224,13 +226,16 @@ export const buildFactoryClaimPrompt = (
   }
 
   const board = doc === undefined ? [] : boardSections(doc, boardId, task);
-  const rules = doc === undefined ? [] : rulesInForce(doc, boardId, task);
+  const rules =
+    doc === undefined ? [] : rulesInForce(nodesFromDocument(doc), boardId, task);
 
   // Machine-readable mirror of the prose guidance: a seat that parses only the
   // JSON briefing must carry the same board guidance as the prose. Handoff only
   // travels when the board can send the task on.
   const contract =
-    doc === undefined ? undefined : boardContractOf(nodeById(doc, boardId));
+    doc === undefined
+      ? undefined
+      : boardContractOf(nodesFromDocument(doc), boardId);
   const identity =
     doc === undefined
       ? undefined
