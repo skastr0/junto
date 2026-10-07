@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { Canvas, Node } from "@shared/model";
 import type { AgentSignal } from "@shared/agent-signals";
 import { feedCanvasModelNeeds } from "@shared/canvas-needs";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import {
   buildOperatorFeed,
-  feedSeatsFromDoc,
+  feedSeatsFromCanvas,
   needsOperatorCount,
   type FeedCanvasNeed,
   type FeedItem,
@@ -14,22 +14,20 @@ import {
   type OperatorFeed,
 } from "@shared/operator-feed";
 import type { ThreadHealthReading } from "@shared/thread-health";
-import { agentSeat$, bindingIdForNode, seatEventForNode } from "./agent-seat-state";
+import { agentSeat$, seatEventForBinding } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
 import { chatCoarse$ } from "./chat-state";
 import { executionGraphForImpact } from "./impact-mode";
 import { kernel$ } from "./kernel-view";
-import { nodeTitle } from "./presentation";
 import { seatAwareness$ } from "./seat-awareness";
-import { attentionAgentKey } from "./seat-projections";
 import { state$ } from "./state";
 import { threadHealthView, useHealthClock } from "./thread-health";
-import { canvasFromDocument } from "@shared/model/from-document";
+import { useCanvas } from "./use-model";
 import { useCanvasWorkItems } from "./use-work-sink";
 
 /**
  * The desktop's reading of the operator feed: joins the live planes (declared
- * signals, seat control state, thread health) onto the document and hands
+ * signals, seat control state, thread health) onto the canvas and hands
  * them to the shared projection, with the needs only the canvas knows
  * (`feedCanvasNeeds`: stoppages, held nodes, sinks wanting input). Whether the feed is open is
  * the operator modal slot's to say (lib/operator-modal).
@@ -38,56 +36,56 @@ import { useCanvasWorkItems } from "./use-work-sink";
 /** Build the feed for one canvas from the live stores, read once at `nowMs`. */
 export const operatorFeedFor = (
   canvasName: string,
-  doc: CanvasDoc,
+  canvas: Canvas,
   signals: ReadonlyArray<AgentSignal>,
   nowMs: number,
   needs: ReadonlyArray<FeedCanvasNeed> = [],
 ): OperatorFeed => {
   const attentionByNodeId = new Map<string, { readonly reason: string; readonly at: number }>();
   const healthByNodeId = new Map<string, { readonly reading: ThreadHealthReading; readonly fresh: boolean }>();
-  for (const node of doc.nodes) {
-    if (node.ether?.entity?.kind !== "agent") continue;
-    const event = seatEventForNode(node);
+  for (const node of canvas.nodes.values()) {
+    if (node.kind !== "agent") continue;
+    const event = seatEventForBinding(node.bindingId);
     if (event?.state === "attention") attentionByNodeId.set(node.id, { reason: event.reason, at: event.at });
-    const view = threadHealthView(bindingIdForNode(node), nowMs);
+    const view = threadHealthView(node.bindingId, nowMs);
     if (view) healthByNodeId.set(node.id, { reading: view.reading, fresh: view.freshness === "current" });
   }
   return buildOperatorFeed({
     canvasName,
     nowMs,
-    seats: feedSeatsFromDoc(doc, { nameOf: nodeTitle, attentionByNodeId, healthByNodeId }),
+    seats: feedSeatsFromCanvas(canvas, { attentionByNodeId, healthByNodeId }),
     signals,
     canvasNeeds: needs,
   });
 };
 
 /**
- * Nodes that want input for a reason the document does not carry, and when
+ * Nodes that want input for a reason the canvas does not carry, and when
  * it began: a terminal that is not an agent seat whose screen wants input
  * (its seat event's time, which main stamps), and a seat with a permission
  * request pending in a live chat. A chat request has no time anyone
  * recorded: this window only knows when it heard of it, and would hear of
  * it again after a reload, so it carries none.
  */
-const liveWantsInput = (nodes: ReadonlyArray<CanvasNode>): ReadonlyMap<string, number | undefined> => {
+const liveWantsInput = (nodes: Iterable<Node>): ReadonlyMap<string, number | undefined> => {
   const out = new Map<string, number | undefined>();
   for (const node of nodes) {
-    const agentKey = attentionAgentKey(node);
-    if (!agentKey) {
+    if (node.kind !== "agent") {
       // Agent seats in attention are the feed's own items already.
-      const event = seatEventForNode(node);
+      const bindingId = node.kind === "terminal" ? node.bindingId : agentSeat$.bindingIdByNodeId[node.id].peek();
+      const event = seatEventForBinding(bindingId);
       if (event?.state === "attention") out.set(node.id, event.at);
       continue;
     }
-    if (chatCoarse$[agentKey].peek()?.pendingPermissionId) out.set(node.id, undefined);
+    if (chatCoarse$[node.agentKey].peek()?.pendingPermissionId) out.set(node.id, undefined);
   }
   return out;
 };
 
 /** The open canvas's needs that no seat declared, read from the live stores. */
 const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
-  const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
+  const canvas = useCanvas(canvasName);
   const itemsOf = useCanvasWorkItems(canvasName);
   const actorRefs = use$(state$.actorRefs);
   const execution = use$(kernel$.execution);
@@ -107,20 +105,20 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
     );
     return feedCanvasModelNeeds({
       canvasName,
-      canvas: canvasFromDocument(canvasName, doc),
+      canvas,
       itemsOf,
-      graph: executionGraphForImpact(canvasFromDocument(canvasName, doc), execution, context),
-      wantsInput: liveWantsInput(doc.nodes),
+      graph: executionGraphForImpact(canvas, execution, context),
+      wantsInput: liveWantsInput(canvas.nodes.values()),
     });
     // Kernel execution and seat state mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, canvasName, actorRefs, execution, executionRev, seatRev, permissionKey, itemsOf]);
+  }, [canvas, canvasName, actorRefs, execution, executionRev, seatRev, permissionKey, itemsOf]);
 };
 
 /** The live feed for the open canvas. */
 export const useOperatorFeed = (): OperatorFeed => {
   const canvasName = use$(state$.canvasName);
-  const doc = use$(state$.doc);
+  const canvas = useCanvas(canvasName);
   // The store mutates in place, so its identity never moves; key the list on
   // what can change about a signal (it arrives, then closes) and rebuild it
   // only then, not on every render.
@@ -136,10 +134,10 @@ export const useOperatorFeed = (): OperatorFeed => {
   const needs = useCanvasNeeds();
   const now = useHealthClock();
   return useMemo(
-    () => operatorFeedFor(canvasName, doc, signals, now, needs),
+    () => operatorFeedFor(canvasName, canvas, signals, now, needs),
     // Seat and awareness stores mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvasName, doc, signals, needs, seatRev, awarenessRev, now],
+    [canvasName, canvas, signals, needs, seatRev, awarenessRev, now],
   );
 };
 
