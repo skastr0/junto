@@ -91,9 +91,7 @@ beforeEach(() => {
   state$.settings.set(EMPTY_SETTINGS);
   state$.settings.station.role.set("command-center");
   state$.canvasName.set(canvas);
-  // There are no mirrored document nodes. All rendered facts must come from
-  // native rows or the separately paged work store.
-  state$.doc.set({ nodes: [], edges: [] });
+  // Rendered facts come from native rows or the separately paged work store.
   state$.actorRefs.set([]);
   state$.selectedNodeId.set(""); state$.selectedNodeIds.set([]);
   state$.selectedEdgeId.set("");
@@ -133,7 +131,6 @@ it("mounts task paths and settings from native rows, then follows a changed cont
   });
   expect(document.body.textContent).toContain("Release");
   expect(document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Instructions"]')?.value).toBe("Review the release");
-  expect(state$.doc.peek().nodes).toEqual([]);
 });
 
 it("enqueues under the native admission floor and artifact sink with no document mirror", async () => {
@@ -212,7 +209,6 @@ it("shows current board author names, follows native rename, and preserves histo
   expect(document.querySelector(".board-post strong")?.textContent).toBe("Reviewer");
   await act(async () => { modelStore.node$(canvas, "worker").delete(); await flush(); });
   expect(document.querySelector(".board-post strong")?.textContent).toBe("Original name");
-  expect(state$.doc.peek().nodes).toEqual([]);
 });
 
 it("resolves pad post authors from native nodes instead of a document node list", async () => {
@@ -253,7 +249,6 @@ it("opens the bar's fields by id and follows native folder changes without a doc
     publish("repo", { kind: "git", label: "Repository", cwd: "/after" }); await flush();
   });
   expect(document.querySelector<HTMLInputElement>('[aria-label="Git repository folder"]')?.value).toBe("/after");
-  expect(state$.doc.peek().nodes).toEqual([]);
 });
 
 it("reads note fields by id and updates the draft when native text changes", async () => {
