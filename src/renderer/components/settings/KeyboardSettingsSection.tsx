@@ -137,11 +137,7 @@ function ShortcutRow({
       <FieldRow
         group
         label={def.name}
-        hint={
-          recording
-            ? "Press the new keys. Backspace for none, Escape to cancel."
-            : (def.fixed ?? (def.does === def.name ? undefined : def.does))
-        }
+        hint={recording ? "Press the new keys. Backspace for none, Escape to cancel." : def.fixed}
       >
         <span className="flex items-center justify-end gap-1.5">
           {def.fixed !== undefined ? (

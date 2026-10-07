@@ -30,17 +30,9 @@ const entry = (section: string, name: string, description: string, words?: strin
 
 /** Settings whose names are written on their page. */
 export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
-  entry("appearance", "Theme", "Auto, dark or bright. Auto follows your system's light or dark setting"),
-  entry(
-    "appearance",
-    "Interface size",
-    "Makes text, buttons and spacing larger or smaller together",
-  ),
-  entry(
-    "appearance",
-    "Agent terminal colours",
-    "What an open agent terminal does when you switch between dark and bright",
-  ),
+  entry("appearance", "Theme", "Auto, dark or bright"),
+  entry("appearance", "Interface size", "Text, buttons and spacing, larger or smaller"),
+  entry("appearance", "Agent terminals", "Change colours with the theme, or keep their own", "colours terminal"),
 
   entry("terminal", "Font family", "The fonts terminals use, in order"),
   entry("terminal", "Font size", "Text size in pixels"),

@@ -79,7 +79,7 @@ test("reset section asks first, and Escape closes only the confirm", async () =>
     // A row that holds a menu is a named group: its text does not open the menu.
     await page.locator(".settings-nav__item", { hasText: "Terminal" }).click();
     const cursorRow = page.getByRole("group", { name: "Cursor style" });
-    await cursorRow.getByText("The cursor's shape.").click();
+    await cursorRow.getByText("Cursor style", { exact: true }).click();
     await expect(page.getByRole("listbox")).toHaveCount(0);
     await cursorRow.getByRole("button", { name: "Cursor style" }).click();
     await expect(page.getByRole("listbox")).toBeVisible();

@@ -133,7 +133,7 @@ function FontFamilyRow({
   };
 
   return (
-    <FieldRow label="Font family" hint="The fonts terminals use, in order; the first one installed wins. Keep to monospace fonts.">
+    <FieldRow label="Font family" hint="First installed font wins.">
       <input
         type="text"
         value={draft ?? value}
@@ -192,7 +192,7 @@ export function TerminalSettingsSection() {
         />
         <NumberRow
           label="Font size"
-          hint={`Text size in pixels, ${range(TERMINAL_BOUNDS.fontSize)}.`}
+          hint={`${range(TERMINAL_BOUNDS.fontSize)} px`}
           value={terminal.fontSize}
           bounds={TERMINAL_BOUNDS.fontSize}
           kind="integer"
@@ -201,7 +201,7 @@ export function TerminalSettingsSection() {
         />
         <NumberRow
           label="Line height"
-          hint={`Space between lines, as a multiple of the font size, ${range(TERMINAL_BOUNDS.lineHeight)}.`}
+          hint={`${range(TERMINAL_BOUNDS.lineHeight)} times the font size`}
           value={terminal.lineHeight}
           bounds={TERMINAL_BOUNDS.lineHeight}
           kind="fractional"
@@ -210,7 +210,7 @@ export function TerminalSettingsSection() {
         />
         <NumberRow
           label="Letter spacing"
-          hint={`Extra space between characters in pixels, ${range(TERMINAL_BOUNDS.letterSpacing)}.`}
+          hint={`${range(TERMINAL_BOUNDS.letterSpacing)} px`}
           value={terminal.letterSpacing}
           bounds={TERMINAL_BOUNDS.letterSpacing}
           kind="fractional"
@@ -219,7 +219,7 @@ export function TerminalSettingsSection() {
         />
         <NumberRow
           label="Minimum contrast"
-          hint={`Text too faint against its background is adjusted until it reaches this contrast. ${TERMINAL_BOUNDS.minimumContrastRatio.min} leaves every colour as the agent set it.`}
+          hint={`Faint text is lifted to this ratio. ${TERMINAL_BOUNDS.minimumContrastRatio.min} leaves colours alone.`}
           value={terminal.minimumContrastRatio}
           bounds={TERMINAL_BOUNDS.minimumContrastRatio}
           kind="fractional"
@@ -229,7 +229,7 @@ export function TerminalSettingsSection() {
       </SettingGroup>
 
       <SettingGroup title="Cursor">
-        <FieldRow group label="Cursor style" hint="The cursor's shape.">
+        <FieldRow group label="Cursor style">
           <Select
             dense
             value={terminal.cursorStyle}
@@ -244,7 +244,7 @@ export function TerminalSettingsSection() {
             }}
           />
         </FieldRow>
-        <FieldRow label="Cursor blink" hint="Off keeps the cursor steady.">
+        <FieldRow label="Cursor blink">
           <Switch
             checked={terminal.cursorBlink}
             aria-label="Cursor blink"
@@ -256,7 +256,7 @@ export function TerminalSettingsSection() {
       <SettingGroup title="Scrolling and copying">
         <FieldRow
           label="Scroll sensitivity"
-          hint={`Lines moved by one notch of the mouse wheel, ${range(TERMINAL_BOUNDS.scrollSensitivity)}.`}
+          hint="Lines per wheel notch"
         >
           <span className="settings-field__range">
             <input
@@ -277,7 +277,7 @@ export function TerminalSettingsSection() {
         </FieldRow>
         <NumberRow
           label="Scrollback"
-          hint={`Lines of earlier output you can scroll back to in each terminal, ${range(TERMINAL_BOUNDS.scrollback)}. More lines use more memory.`}
+          hint={`${range(TERMINAL_BOUNDS.scrollback)} lines`}
           value={terminal.scrollback}
           bounds={TERMINAL_BOUNDS.scrollback}
           kind="integer"
@@ -286,7 +286,7 @@ export function TerminalSettingsSection() {
         />
         <FieldRow
           label="Copy selection automatically"
-          hint="Selecting text in a terminal copies it at once, replacing what was on your clipboard."
+          hint="Replaces your clipboard."
         >
           <Switch
             checked={terminal.copyOnSelect === true}
@@ -297,7 +297,7 @@ export function TerminalSettingsSection() {
       </SettingGroup>
 
       <SettingGroup title="Bell and screen reader">
-        <FieldRow group label="Bell" hint="What happens when a program in a terminal rings the bell.">
+        <FieldRow group label="Bell">
           <Select
             dense
             value={terminal.bell}
@@ -312,10 +312,7 @@ export function TerminalSettingsSection() {
             }}
           />
         </FieldRow>
-        <FieldRow
-          label="Screen reader mode"
-          hint="Lets a screen reader read terminal output. Turn it on if you use one."
-        >
+        <FieldRow label="Screen reader mode">
           <Switch
             checked={terminal.screenReaderMode}
             aria-label="Screen reader mode"

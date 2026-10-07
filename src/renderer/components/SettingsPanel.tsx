@@ -74,11 +74,11 @@ type SectionItem = {
 };
 
 const SECTIONS: ReadonlyArray<SectionItem> = [
-  { key: "appearance", group: "You", label: "Appearance", blurb: "Light or dark, how large everything is, and how agent terminals take a theme change." },
-  { key: "terminal", group: "You", label: "Terminal", blurb: "How agent terminals look and behave: text, cursor, scrolling, the bell and accessibility. Changes apply to every terminal." },
-  { key: "keyboard", group: "You", label: "Keyboard shortcuts", blurb: "Every shortcut and where it works. Press a shortcut's keys to change them." },
+  { key: "appearance", group: "You", label: "Appearance", blurb: "" },
+  { key: "terminal", group: "You", label: "Terminal", blurb: "" },
+  { key: "keyboard", group: "You", label: "Keyboard shortcuts", blurb: "" },
   ...(AUDIO_ENABLED
-    ? [{ key: "audio", group: "You", label: "Sound", blurb: "How loud each kind of sound is. Press a sound's name to hear it." } as const]
+    ? [{ key: "audio", group: "You", label: "Sound", blurb: "" } as const]
     : []),
   {
     key: "notifications",
@@ -244,7 +244,7 @@ function AppearanceSection() {
   const interfaceScale = interfaceScaleOf({ appearance });
   return (
     <div className="settings-section settings-blocks">
-      <SettingBlock label="Theme" hint="Auto follows your system's light or dark setting.">
+      <SettingBlock label="Theme">
         {({ hintId }) => (
           <div
             className="settings-theme-modes"
@@ -267,10 +267,7 @@ function AppearanceSection() {
           </div>
         )}
       </SettingBlock>
-      <SettingBlock
-        label="Interface size"
-        hint="Makes text, buttons and spacing larger or smaller together. The canvas keeps its own zoom."
-      >
+      <SettingBlock label="Interface size">
         {({ hintId }) => (
           <div
             className="settings-choices"
@@ -301,30 +298,19 @@ function AppearanceSection() {
           </div>
         )}
       </SettingBlock>
-      <SettingBlock
-        label="Agent terminal colours"
-        hint="What an open agent terminal does when you switch between dark and bright. Applies to terminals you open from now on."
-      >
+      <SettingBlock label="Agent terminals" hint="When you change theme.">
         {({ hintId }) => (
           <div
-            className="settings-options"
+            className="settings-choices"
             role="radiogroup"
-            aria-label="Agent terminal colours"
+            aria-label="Agent terminals"
             aria-describedby={hintId}
             onKeyDown={radioGroupKeys(true)}
           >
             {(
               [
-                {
-                  key: "follow" as const,
-                  label: "Switch with Junto",
-                  hint: "The terminal changes to the new theme along with the rest of the app.",
-                },
-                {
-                  key: "agent" as const,
-                  label: "Keep the agent's colours",
-                  hint: "The terminal keeps the colours it has, so a palette the agent painted is not replaced.",
-                },
+                { key: "follow" as const, label: "Change with it" },
+                { key: "agent" as const, label: "Keep their colours" },
               ] as const
             ).map((opt) => {
               const active = agentAppearance === opt.key;
@@ -335,18 +321,14 @@ function AppearanceSection() {
                   role="radio"
                   aria-checked={active}
                   tabIndex={radioTabIndex(active)}
-                  className={`settings-option${active ? " is-active" : ""}`}
+                  className={`settings-choice${active ? " is-active" : ""}`}
                   onClick={() =>
                     void patchSettings({
                       appearance: { agentAppearance: opt.key },
                     })
                   }
                 >
-                  <span className="settings-option__mark" aria-hidden />
-                  <span className="settings-option__text">
-                    <span className="settings-option__label">{opt.label}</span>
-                    <span className="settings-option__hint">{opt.hint}</span>
-                  </span>
+                  {opt.label}
                 </button>
               );
             })}

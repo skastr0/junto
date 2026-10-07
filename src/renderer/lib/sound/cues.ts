@@ -278,9 +278,9 @@ export const cuesInCategory = (category: SoundCategory): ReadonlyArray<CueId> =>
 
 /** Families, in Settings order, with plain names. */
 export const CATEGORY_LABEL: Readonly<Record<SoundCategory, { readonly title: string; readonly hint: string }>> = {
-  attention: { title: "Needs you", hint: "An agent is blocked, is waiting on you, or has stopped with an error." },
-  review: { title: "Ready for you", hint: "Work is ready for review, an agent has finished, or one notification covers several agents." },
-  activity: { title: "Activity", hint: "An agent starts working, your answer reaches an agent, or you place a squad." },
-  traffic: { title: "Messages", hint: "Agents sending each other mail. Quiet by default." },
-  interface: { title: "Interface", hint: "Stepping to the next agent that needs you, and the terminal bell." },
+  attention: { title: "Needs you", hint: "Blocked, waiting on you, stopped." },
+  review: { title: "Ready for you", hint: "Ready for review, finished." },
+  activity: { title: "Activity", hint: "Started working, answered, squad placed." },
+  traffic: { title: "Messages", hint: "Mail between agents." },
+  interface: { title: "Interface", hint: "Next agent, terminal bell." },
 };

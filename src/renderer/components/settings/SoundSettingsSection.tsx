@@ -154,10 +154,6 @@ export function SoundSettingsSection() {
 
   return (
     <div className="settings-section" data-testid="settings-sound-section">
-      <p className="m-0 max-w-[62ch] text-body-lg leading-body text-dim">
-        A short sound plays when an agent changes state. Set how loud each kind is, or switch it off.
-        When many agents change at once you hear a few notes, not all of them.
-      </p>
       <div className="flex flex-col border-t border-stroke">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 border-b border-stroke py-4">
           <div className="flex min-w-0 flex-col gap-1">
@@ -165,7 +161,7 @@ export function SoundSettingsSection() {
               All sounds
             </label>
             <p className="m-0 text-body-lg leading-body text-dim">
-              {on ? "Scales every kind below together." : "No sound plays."}
+              {on ? "Every kind below." : "Off."}
             </p>
           </div>
           <div className="flex items-center gap-3">
