@@ -12,7 +12,7 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
-  AuthorialIntentFactBasis,
+  CanvasFactBasis,
   type ActorRef,
   type IntentFactBasis,
   type WorkRecord,
@@ -150,10 +150,8 @@ const openRepository = async (
       }),
     ),
   );
-  const basis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({
-    kind: "authorial-intent",
-    generation: "1",
-    contentSha256: intentSha256,
+  const basis = Schema.decodeUnknownSync(CanvasFactBasis)({
+    kind: "canvas", canvasName: "factory", seq: 1,
   });
   return { runtime, repository, basis };
 };
@@ -181,7 +179,7 @@ const appendMailboxMessage = (
       canvasName: input.canvas ?? canvasName,
       nodeId: "recipient",
     },
-    basis,
+    basis: basis.kind === "canvas" ? { ...basis, canvasName: input.canvas ?? canvasName } : basis,
     message: {
       ...message(input.id, input.text),
       contextId: input.canvas ?? canvasName,

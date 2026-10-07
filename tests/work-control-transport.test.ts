@@ -117,12 +117,11 @@ const authorialBasis = async (
   runtime: ReturnType<typeof makeWorkTestRuntime>,
 ): Promise<IntentFactBasisValue> => {
   const canvases = await runtime.runPromise(CanvasesService);
-  const witness = await runtime.runPromise(canvases.activeIntentWitness());
+  const { intentWitness: witness } = await runtime.runPromise(canvases.readWithIntentWitness("work-cli"));
   return Schema.decodeUnknownSync(IntentFactBasis, {
     onExcessProperty: "error",
   })({
-    kind: "authorial-intent",
-    ...witness,
+    kind: "canvas", canvasName: witness.canvasName, seq: witness.seq,
   });
 };
 
@@ -1401,7 +1400,7 @@ describe("work control transport", () => {
         ],
         edges: [
           ...current.doc.edges,
-          { id: "e-ab", fromNode: "agent", toNode: "bravo" },
+          { id: "e-ab", fromNode: "agent", toNode: "bravo", ether: { verb: "messages" } },
         ],
       }),
     );

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { ModelService } from "../src/main/junto/model/service";
 /**
  * Live acceptance for the work control plane + compiled `dist/junto`.
  *
@@ -46,7 +47,7 @@ import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository"
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
-  createAuthorialTaskDependencyScopeCapability,
+  createCanvasTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
@@ -504,16 +505,13 @@ export const runWorkCliAcceptance = async () => {
   const basis = Schema.decodeUnknownSync(IntentFactBasis, {
     onExcessProperty: "error",
   })({
-    kind: "authorial-intent",
-    generation: intentWitness.generation,
-    contentSha256: intentWitness.contentSha256,
+    kind: "canvas", canvasName: CANVAS, seq: (await runtime.runPromise((await runtime.runPromise(ModelService)).canvas(CANVAS))).seq,
   });
-  const authority = await runtime.runPromise(
-    canvasesSvc.authorityMaterialSnapshot(),
-  );
+  const model = await runtime.runPromise(ModelService);
+  const canvas = await runtime.runPromise(model.canvas(CANVAS));
   const taskSink = { canvasName: CANVAS, nodeId: TASKS };
-  const dependencyScope = createAuthorialTaskDependencyScopeCapability({
-    authority,
+  const dependencyScope = createCanvasTaskDependencyScopeCapability({
+    canvas,
     authoringSink: taskSink,
   });
   const repository = await runtime.runPromise(WorkRepository);

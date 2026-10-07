@@ -4,6 +4,7 @@ import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
 import { Changed, Command, type SheetChanged } from "../src/shared/model";
+import { nodeFromRow } from "../src/main/junto/model/rows";
 import { ModelService } from "../src/main/junto/model/service";
 import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
@@ -46,6 +47,11 @@ const run = (
           (db) => Effect.sync(() => db.close()),
         );
         db.exec(MODEL_STATE_SCHEMA_SQL);
+        db.exec(`CREATE TABLE station_installation(singleton INTEGER PRIMARY KEY,installation_id TEXT);
+          CREATE TABLE station_configuration(singleton INTEGER PRIMARY KEY,role TEXT,host_id TEXT);
+          CREATE TABLE station_fleet_targets(host_id TEXT,retired_at TEXT);
+          INSERT INTO station_installation VALUES(1,'local-installation');
+          INSERT INTO station_configuration VALUES(1,'command-center','local');`);
         db.prepare(
           "INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at) VALUES ('factory','c',?,?)",
         ).run(at, at);
@@ -495,3 +501,47 @@ it("skips unchanged edits and restacks only the selected nodes with sparse negat
       );
     }),
   ));
+
+
+it("grants every alias atomically and publishes one committed event per affected canvas", () =>
+  run((model, sql, db) => Effect.gen(function* () {
+    yield* model.command(decode({ _tag: "CreateCanvas", canvas: "alias" }), "operator");
+    yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [seat], wires: [] }), "operator");
+    yield* model.command(decode({ _tag: "Add", canvas: "alias", nodes: [{ ...seat, id: "alias-seat" }], wires: [] }), "operator");
+    const events: Changed[] = [];
+    const stop = model.subscribeChanges((event) => {
+      expect(db.isTransaction).toBe(false);
+      expect(db.prepare("SELECT overseer FROM seats").all()).toEqual([{ overseer: 1 }, { overseer: 1 }]);
+      events.push(event);
+    });
+    const grant = decode({ _tag: "GrantOverseer", canvas: "factory", id: "seat", overseer: true });
+    const aborted = yield* sql.withTransaction(Effect.gen(function* () {
+      yield* model.command(grant, "operator");
+      expect(events).toEqual([]);
+      return yield* Effect.fail("rollback");
+    })).pipe(Effect.result);
+    expect(aborted._tag).toBe("Failure");
+    expect(db.prepare("SELECT overseer FROM seats").all()).toEqual([{ overseer: 0 }, { overseer: 0 }]);
+    expect(events).toEqual([]);
+    yield* model.command(grant, "operator");
+    expect(events.map(({ canvas, seq, nodes }) => [canvas, seq, nodes.length])).toEqual([["alias", 2, 1], ["factory", 2, 1]]);
+    yield* model.command(grant, "operator");
+    expect(events).toHaveLength(2);
+    stop();
+  })),
+);
+
+
+it("keeps empty region settings identical in events, held reads and persisted reads", () =>
+  run((model, _sql, db) => Effect.gen(function* () {
+    yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [node("region", "region", { hold: false, defaults: { page: {} }, contract: {} })], wires: [] }), "operator");
+    const stored = db.prepare("SELECT * FROM regions WHERE id='region'").get()!;
+    const current = (yield* model.open("factory")).nodes[0];
+    expect(current).not.toHaveProperty("defaults");
+    expect(current).not.toHaveProperty("contract");
+    expect(nodeFromRow("region", stored)).toEqual(current);
+    const before = (yield* model.open("factory")).seq;
+    yield* model.command(decode({ _tag: "Edit", canvas: "factory", id: "region", change: { kind: "region", defaults: {}, contract: {} } }), "operator");
+    expect((yield* model.open("factory")).seq).toBe(before);
+  })),
+);

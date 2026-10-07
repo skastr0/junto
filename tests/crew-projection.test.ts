@@ -5,7 +5,6 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
-import { CanvasEntityRepositoryLive } from "../src/main/junto/entities/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { mailboxMessageDeliveryId, mailboxMessageReactId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -50,7 +49,7 @@ const openFixture = async () => {
   const runtime = ManagedRuntime.make(Layer.provideMerge(
     CanvasesLive,
     Layer.provideMerge(
-      Layer.mergeAll(WorkRepositoryLive, CanvasEntityRepositoryLive),
+      WorkRepositoryLive,
       makeStateEngineLive(join(root, "state", "junto.db")),
     ),
   ));
@@ -71,8 +70,8 @@ const openFixture = async () => {
   const recipient = initial.actorRefs.find((actor) => actor.nodeId === "recipient")!;
   expect(author).toBeDefined();
   expect(recipient).toBeDefined();
-  const witness = await runtime.runPromise(canvases.activeIntentWitness());
-  const basis = Schema.decodeUnknownSync(IntentFactBasis)({ kind: "authorial-intent", ...witness });
+  const {intentWitness: witness} = await runtime.runPromise(canvases.readWithIntentWitness(CANVAS));
+  const basis = Schema.decodeUnknownSync(IntentFactBasis)({ kind: "canvas", canvasName: witness.canvasName, seq: witness.seq });
   const read = async () => (await runtime.runPromise(canvases.read(CANVAS))).doc;
   const message = async (id: string) => {
     const found = await runtime.runPromise(work.mailMessage(CANVAS, mailSink.nodeId, id));

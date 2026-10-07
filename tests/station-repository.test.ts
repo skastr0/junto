@@ -28,11 +28,7 @@ import {
   makeSettingsLive,
   SettingsService,
 } from "../src/main/junto/settings/service";
-import { findHostById, hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
-import { HostRegistryRows } from "../src/main/junto/hosts/registry";
-import { CanvasRecords, CanvasRecordsLive } from "../src/main/junto/canvas/records";
-import { StationConfigurationRepository } from "../src/main/junto/station/configuration-state";
-import { KnownInstallations } from "../src/main/junto/station/known-installations";
+import { findHostById } from "../src/main/junto/hosts/snapshot";
 import {
   compileStationPortfolioBody,
   STATION_PORTFOLIO_PROTOCOL,
@@ -374,7 +370,8 @@ describe("StationRepository", () => {
     await remoteRuntime.dispose();
   });
 
-  it("keeps pairing exclusive and makes Remote configuration pairing-bound", async () => {
+  // Remote stations are switched off: a first Remote configuration refuses.
+  it.skip("keeps pairing exclusive and makes Remote configuration pairing-bound", async () => {
     const path = await testDatabase();
     const local = decodeInstallationId("station-a");
     const cc = decodeInstallationId("cc-a");
@@ -541,7 +538,8 @@ describe("StationRepository", () => {
     await runtime.dispose();
   });
 
-  it("keeps configured roles immutable in both directions without side effects", async () => {
+  // Remote stations are switched off: a first Remote configuration refuses.
+  it.skip("keeps configured roles immutable in both directions without side effects", async () => {
     const ccPath = await testDatabase();
     const ccLocal = decodeInstallationId("role-immutable-cc");
     const ccPeer = decodeInstallationId("role-immutable-cc-peer");
@@ -1006,7 +1004,8 @@ describe("StationRepository", () => {
     await runtime.dispose();
   });
 
-  it("commits canonical Remote configuration atomically with host registration", async () => {
+  // Remote stations are switched off: a first Remote configuration refuses.
+  it.skip("commits canonical Remote configuration atomically with host registration", async () => {
     const path = await testDatabase();
     const local = decodeInstallationId("station-config-integration");
     const cc = decodeInstallationId("cc-config-integration");
@@ -1113,63 +1112,28 @@ describe("StationRepository", () => {
     await runtime.dispose();
   });
 
-  it("rolls back canvas wipe and host registration when the final configuration write fails", async () => {
+  it("refuses a first Remote configuration while Remote stations are switched off", async () => {
     const path = await testDatabase();
-    const local = decodeInstallationId("configuration-rollback-local");
-    const cc = decodeInstallationId("configuration-rollback-command");
-    const runtime = ManagedRuntime.make(Layer.mergeAll(
-      CanvasRecordsLive, HostRegistryRows.layer,
-      StationConfigurationRepository.layer, KnownInstallations.layer,
-    ).pipe(Layer.provideMerge(makeStateEngineLive(path))));
-    const beforeSnapshot = hostsSnapshot();
-    try {
-      await runtime.runPromise(Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
-        const configurations = yield* StationConfigurationRepository;
-        const canvas = yield* CanvasRecords;
-        const hosts = yield* HostRegistryRows;
-        const options = { makeInstallationId: () => local, now: () => "2026-07-27T12:00:00.000Z" };
-        const repository = yield* makeStationRepository(options);
-        yield* repository.pair(pairRequest(local, cc));
-        const doc = canvasDocument("authority must survive a failed cutover");
-        const { canvasId } = yield* sql.withTransaction(canvas.persistCanvas({
-          canvasName: "rollback-draft", doc,
-          revisionSha256: stationProjectionContentSha256(serializeCanvas(doc)),
-          modifiedAt: "2026-07-27T12:00:00.000Z",
-        }));
-        const beforeHosts = yield* hosts.read;
-        const beforeInitialized = yield* hosts.initialized;
-        let attemptedWrite = false;
-        const failing = yield* makeStationRepository(options).pipe(
-          Effect.provideService(StationConfigurationRepository, {
-            read: configurations.read,
-            write: (configuration) => Effect.gen(function* () {
-              attemptedWrite = true;
-              expect(yield* canvas.readDocumentRows().pipe(Effect.orDie)).toEqual([]);
-              expect((yield* hosts.read.pipe(Effect.orDie)).hosts.some((host) => host.id === "studio")).toBe(true);
-              // Force the final write to fail on the production configured_at CHECK.
-              yield* configurations.write(configuration, "");
-            }),
-          }),
-        );
-        expect(yield* Effect.result(failing.configureRemote(remoteConfigurationRequest(local, cc))))
-          .toMatchObject({ _tag: "Failure", failure: { _tag: "StationPersistenceError", operation: "configure" } });
-        expect(attemptedWrite).toBe(true);
-        expect(yield* canvas.reconstructCanvasDoc(canvasId)).toEqual(doc);
-        expect(yield* hosts.read).toEqual(beforeHosts);
-        expect(yield* hosts.initialized).toBe(beforeInitialized);
-        expect(yield* configurations.read).toBeUndefined();
-        expect(hostsSnapshot()).toEqual(beforeSnapshot);
-
-        yield* repository.configureRemote(remoteConfigurationRequest(local, cc));
-        expect(yield* canvas.readDocumentRows()).toEqual([]);
-        expect((yield* configurations.read)?.configuration.role).toBe("remote");
-        expect(findHostById("studio")?.kind).toBe("remote");
-      }));
-    } finally {
-      setHostsSnapshot(beforeSnapshot);
-      await runtime.dispose();
-    }
+    const local = decodeInstallationId("station-switched-off");
+    const cc = decodeInstallationId("cc-switched-off");
+    const runtime = makeRuntime(path, local);
+    const repository = await runtime.runPromise(StationRepository);
+    await runtime.runPromise(repository.pair(pairRequest(local, cc)));
+    expect(
+      await runtime.runPromise(
+        Effect.result(
+          repository.configureRemote(remoteConfigurationRequest(local, cc)),
+        ),
+      ),
+    ).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "StationConfigurationError",
+        reason: "projection-switched-off",
+      },
+    });
+    expect(await runtime.runPromise(repository.configuration)).toBeUndefined();
+    await runtime.dispose();
   });
 
 });

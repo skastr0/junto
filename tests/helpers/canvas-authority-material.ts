@@ -8,44 +8,32 @@ import type {
   CanvasAuthorityMaterialSnapshot,
   CanvasAuthorityStoredDocument,
 } from "../../src/main/junto/canvases";
-import {
-  CanvasRecords,
-  CanvasRecordsLive,
-} from "../../src/main/junto/canvas/records";
+import { ModelRecords } from "../../src/main/junto/model/records";
+import { canvasFromDocument } from "../../src/shared/model/from-document";
+import { SqlClient } from "effect/unstable/sql";
 
-/**
- * Seed the relational canvas authority directly: portfolio head plus one
- * relational record set per canvas. The one seeding path for tests that used
- * to INSERT blob generation rows.
- */
+/** Seed current per-kind rows from a test topology, without old canvas tables. */
 export const seedCanvasAuthority = Effect.fn("test.seedCanvasAuthority")(
   function* (input: {
     readonly generation: string;
     readonly documents: ReadonlyMap<string, CanvasDoc>;
     readonly at?: string;
   }) {
-    const records = yield* CanvasRecords;
-    const at = input.at ?? new Date().toISOString();
+    const records = yield* ModelRecords;
+    const sql = yield* SqlClient.SqlClient;
     const revisions = new Map<string, { readonly revisionSha256: string }>();
     for (const [name, doc] of input.documents) {
-      const revisionSha256 = canvasBodySha256Of(serializeCanvas(doc));
-      yield* records.persistCanvas({
-        canvasName: name,
-        doc,
-        revisionSha256,
-        modifiedAt: at,
-      });
-      revisions.set(name, { revisionSha256 });
+      const current = canvasFromDocument(name, doc);
+      if (yield* records.getCanvas(name)) yield* records.removeCanvas(name);
+      yield* records.createCanvas(name, `test-${name}`);
+      for (const node of current.nodes.values()) yield* records.insertNode(name, node);
+      for (const wire of current.wires.values()) yield* records.insertWire(name, wire);
+      yield* sql`UPDATE canvases SET seq=${Number(input.generation)} WHERE canvas_name=${name}`;
+      revisions.set(name, { revisionSha256: canvasBodySha256Of(serializeCanvas(doc)) });
     }
-    const intentSha256 = intentSha256Of(revisions);
-    yield* records.writePortfolioHead({
-      generation: input.generation,
-      intentSha256,
-      at,
-    });
-    return { intentSha256 };
+    return { intentSha256: intentSha256Of(revisions) };
   },
-  Effect.provide(CanvasRecordsLive),
+  Effect.provide(ModelRecords.layer),
 );
 
 export const canvasAuthorityMaterialFixture = (

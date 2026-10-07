@@ -105,8 +105,8 @@ exports[`SQL journal preserves stored appliedDisposition rows exactly > work_eve
 exports[`SQL journal preserves stored appliedDisposition rows exactly > work_facts 1`] = `
 [
   {
-    "basis_authorial_content_sha256": null,
-    "basis_authorial_generation": null,
+    "basis_canvas_name": null,
+    "basis_canvas_seq": null,
     "basis_command_entity_home": "remote-inst-01",
     "basis_command_event_home": "cc-inst-01",
     "basis_command_seq": "1",
@@ -253,8 +253,8 @@ exports[`SQL journal preserves stored rejectedDisposition rows exactly > work_ev
 exports[`SQL journal preserves stored rejectedDisposition rows exactly > work_facts 1`] = `
 [
   {
-    "basis_authorial_content_sha256": null,
-    "basis_authorial_generation": null,
+    "basis_canvas_name": null,
+    "basis_canvas_seq": null,
     "basis_command_entity_home": "remote-inst-01",
     "basis_command_event_home": "cc-inst-01",
     "basis_command_seq": "1",

@@ -100,9 +100,7 @@ const intentSha256 = fixtureAuthority.intentSha256;
 const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: intentSha256,
+  kind: "canvas", canvasName: "factory", seq: 1,
 });
 const seatOf = (digit: string, nodeId: string) => ({
   seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${digit.repeat(64)}`),
@@ -127,7 +125,7 @@ const mail = (
   runtime.runPromise(
     repository.appendMessage({
       sink: { canvasName, nodeId },
-      basis,
+      basis: basis.kind === "canvas" ? { ...basis, canvasName } : basis,
       message: message(messageId, text),
       sentBy: actor,
       destination: { kind: "mailbox" },

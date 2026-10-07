@@ -1,4 +1,6 @@
-import { WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
+import { readWorkGlances } from "./glance";
+import type { WorkAttentionSnapshot } from "@shared/work-attention";
+import { WorkAttentionQuery, type WorkAttentionRow, WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
 import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/work-mail";
 import { Buffer } from "node:buffer";
 import { workProjectionChanges } from "./projection-changes";
@@ -8,15 +10,13 @@ import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import { withSqlRead } from "../state/sql-read";
 import { afterSqlCommit } from "../state/sql-commit";
 import {
-  CanvasDoc as CanvasDocSchema,
-  compileEdgeGrant,
-  decodeCanvasDoc,
   serializeCanvas,
   type CanvasDoc,
   type CanvasNode,
 } from "@shared/canvas";
-import { CanvasRecords, CanvasRecordsLive } from "../canvas/records";
-import { resolveSpec } from "@shared/physics";
+import { ModelRecords, ModelError } from "../model/records";
+import { deriveActorSeatId } from "../station/actor-seat-compiler";
+import { Node, Wire, asCanvasName, asNodeId, regionStack as modelRegionStack, wireKinds, wireGrant, type Canvas } from "@shared/model";
 import {
   ActorSeatId as ActorSeatIdSchema,
   type ActorSeatId,
@@ -128,11 +128,8 @@ import {
   taskIsClaimReady,
   validateTaskDependsOn,
 } from "@shared/task-deps";
-import { resolveNodeHostId } from "@shared/station";
-import type { CanvasAuthorityMaterialSnapshot } from "../canvases";
 import {
   canvasBodySha256Of,
-  verifyCanvasIntentMaterial,
 } from "../canvas-intent-identity";
 import { decodeStationPortfolioBody } from "../station/portfolio";
 import {
@@ -215,17 +212,14 @@ type WorkSqlFailure =
   | WorkReplicationError
   | CrewRepositoryError
   | ContentManifestError
-  | CanvasError;
+  | CanvasError
+  | ModelError;
 
 const LocalAuthorityRow = Schema.Struct({
   installation_id: Schema.String,
   role: Schema.String,
 });
 const ExistsRow = Schema.Struct({ "1": Schema.Number });
-const AuthorialCapabilityMaterialRowSchema = Schema.Struct({
-  canvas_id: Schema.String,
-  revision_sha256: Schema.String,
-});
 const ProjectedCapabilityMaterialRowSchema = Schema.Struct({
   body: Schema.String,
 });
@@ -246,10 +240,6 @@ const ScopedTaskRow = Schema.Struct({
   created_at: Schema.String,
   depends_on_task_id: Schema.Union([Schema.Null, Schema.String]),
   position: Schema.Union([Schema.Null, Schema.Number]),
-});
-const CanvasIdentityRow = Schema.Struct({
-  canvas_id: Schema.String,
-  revision_sha256: Schema.String,
 });
 const MessageRowSchema = Schema.Struct({
   message_id: Schema.String,
@@ -587,11 +577,12 @@ const FactVariantRowSchema = Schema.Struct({
   body_json: Schema.String,
   basis_kind: Schema.Union([
     Schema.Literal("command"),
-    Schema.Literal("authorial-intent"),
+    Schema.Literal("canvas"),
+    Schema.Literal("historical"),
     Schema.Literal("projected-intent"),
   ]),
-  basis_authorial_generation: Schema.Union([Schema.Null, Schema.String]),
-  basis_authorial_content_sha256: Schema.Union([Schema.Null, Schema.String]),
+  basis_canvas_name: Schema.Union([Schema.Null, Schema.String]),
+  basis_canvas_seq: Schema.NullOr(Schema.Number),
   basis_projected_generation: Schema.Union([Schema.Null, Schema.String]),
   basis_projected_content_sha256: Schema.Union([Schema.Null, Schema.String]),
   basis_command_event_home: Schema.Union([Schema.Null, Schema.String]),
@@ -749,7 +740,7 @@ export type TaskDependencyScopeCapability = {
 };
 
 type TaskTopologyAuthorityMode =
-  "authorial-current" | "projected-current" | "projected-retained";
+  "canvas-current" | "projected-current" | "projected-retained";
 
 type TaskActorGrant = {
   readonly actorNodeId: string;
@@ -794,6 +785,8 @@ const topologyTypeError = (message: string): never => {
   throw new TypeError(`Task topology authority is invalid: ${message}`);
 };
 
+const decodeTopologySink = (sink: SinkRefValue) => Schema.decodeUnknownSync(SinkRef, strictDecode)(sink);
+
 const asPlainRecord = (
   value: unknown,
 ): Readonly<Record<string, unknown>> | undefined =>
@@ -801,334 +794,45 @@ const asPlainRecord = (
     ? (value as Readonly<Record<string, unknown>>)
     : undefined;
 
-/**
- * Detach one authority snapshot before verification. A caller-controlled Map,
- * iterator, or property getter must not be able to present verified material
- * and then swap the document used to derive the capability.
- */
-const detachCanvasAuthorityMaterialSnapshot = (
-  authority: CanvasAuthorityMaterialSnapshot,
-): CanvasAuthorityMaterialSnapshot => {
-  const generation = authority.generation;
-  const intentSha256 = authority.intentSha256;
-  const sourceDocuments = authority.documents;
-  const sourceStoredDocuments = authority.storedDocuments;
-  const documents = new Map<string, CanvasDoc>();
-  for (const [name, document] of sourceDocuments) {
-    if (documents.has(name)) {
-      return topologyTypeError(
-        `authorial material contains duplicate document key ${JSON.stringify(name)}`,
-      );
-    }
-    documents.set(name, structuredClone(document));
-  }
-  const storedDocuments = new Map<
-    string,
-    {
-      readonly document: CanvasDoc;
-      readonly rawBody: string;
-      readonly revisionSha256: string;
-    }
-  >();
-  for (const [name, entry] of sourceStoredDocuments) {
-    if (storedDocuments.has(name)) {
-      return topologyTypeError(
-        `authorial material contains duplicate stored-document key ${JSON.stringify(name)}`,
-      );
-    }
-    const document = structuredClone(entry.document);
-    const rawBody = entry.rawBody;
-    const revisionSha256 = entry.revisionSha256;
-    storedDocuments.set(
-      name,
-      Object.freeze({ document, rawBody, revisionSha256 }),
-    );
-  }
-  return Object.freeze({
-    generation,
-    intentSha256,
-    documents,
-    storedDocuments,
+const canonicalTaskTopologyIndex = (canvas: Canvas, authoringSink: SinkRefValue) => {
+  if (canvas.name !== authoringSink.canvasName) return topologyTypeError("sink names a different canvas");
+  const nodes = new Map([...canvas.nodes].map(([id, input]) => {
+    const node = Schema.decodeUnknownSync(Node, strictDecode)(structuredClone(input));
+    if (id !== node.id) return topologyTypeError("node map key differs from its id");
+    return [id, node] as const;
+  }));
+  const wires = [...canvas.wires].map(([id, input]) => {
+    const wire = Schema.decodeUnknownSync(Wire, strictDecode)(structuredClone(input));
+    if (id !== wire.id || !nodes.has(wire.from) || !nodes.has(wire.to)) return topologyTypeError("wire identity or endpoint is missing");
+    return wire;
   });
-};
-
-const decodeTopologySink = (sink: SinkRefValue): SinkRefValue =>
-  freezeCapabilityInput(
-    Schema.decodeUnknownSync(
-      SinkRef,
-      strictDecode,
-    )({
-      canvasName: sink.canvasName,
-      nodeId: sink.nodeId,
-    }),
-  );
-
-/**
- * Validate identities before the legacy canvas scrub can discard an invalid
- * edge. The semantic index below is then built once from the detached decoded
- * document. Duplicate identities and dangling endpoints are never given a
- * first-wins interpretation at an authority boundary.
- */
-const rawCanvasGraphIdentity = (
-  rawBody: string,
-  canvasName: string,
-): {
-  readonly nodeIds: ReadonlySet<string>;
-  readonly edgeIds: ReadonlySet<string>;
-} => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawBody) as unknown;
-  } catch (error) {
-    return topologyTypeError(
-      `canvas ${JSON.stringify(canvasName)} raw body is not JSON: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+  const sink = nodes.get(asNodeId(authoringSink.nodeId));
+  if (sink?.kind !== "task") return topologyTypeError("authoring sink is not a task board");
+  const regions = modelRegionStack({ ...canvas, nodes }, sink.id);
+  const contains = (outer: { x: number; y: number; width: number; height: number }, inner: typeof outer) =>
+    inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+  for (let index = 1; index < regions.length; index++) if (!contains(regions[index - 1]!, regions[index]!) || contains(regions[index]!, regions[index - 1]!))
+    return topologyTypeError("task board is inside ambiguous overlapping regions");
+  const region = regions.at(-1);
+  const allowedTaskSinkNodeIds = [...nodes.values()].filter((node) => node.kind === "task" && (region === undefined || contains(region, node))).map((node) => node.id).sort(compareCodeUnits);
+  if (allowedTaskSinkNodeIds.length > MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS) throw new RangeError("Task topology contains too many task boards");
+  const kinds = wireKinds(nodes.values());
+  const grants = new Map<string, Set<"tasks.create" | "tasks.claim">>();
+  for (const wire of wires) {
+    const actor = wire.from === sink.id ? wire.to : wire.to === sink.id ? wire.from : undefined;
+    if (actor === undefined || nodes.get(actor)?.kind !== "agent") continue;
+    const grant = wireGrant(wire, kinds);
+    if (!grant) continue;
+    const held = grants.get(actor) ?? new Set<"tasks.create" | "tasks.claim">();
+    for (const port of ["tasks.create", "tasks.claim"] as const) if (grant.ports.includes(port)) held.add(port);
+    if (held.size) grants.set(actor, held);
   }
-  const record = asPlainRecord(parsed);
-  if (
-    record === undefined ||
-    !Array.isArray(record.nodes) ||
-    !Array.isArray(record.edges)
-  ) {
-    return topologyTypeError(
-      `canvas ${JSON.stringify(canvasName)} raw body has no node/edge graph`,
-    );
-  }
-  const nodeIds = new Set<string>();
-  for (const rawNode of record.nodes) {
-    const node = asPlainRecord(rawNode);
-    if (node === undefined || typeof node.id !== "string") {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(canvasName)} contains a node without a string id`,
-      );
-    }
-    if (nodeIds.has(node.id)) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(canvasName)} contains duplicate node id ${JSON.stringify(node.id)}`,
-      );
-    }
-    nodeIds.add(node.id);
-  }
-  const edgeIds = new Set<string>();
-  const endpoints: Array<{
-    readonly id: string;
-    readonly fromNode: string;
-    readonly toNode: string;
-  }> = [];
-  for (const rawEdge of record.edges) {
-    const edge = asPlainRecord(rawEdge);
-    if (
-      edge === undefined ||
-      typeof edge.id !== "string" ||
-      typeof edge.fromNode !== "string" ||
-      typeof edge.toNode !== "string"
-    ) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(canvasName)} contains an edge without exact string identity/endpoints`,
-      );
-    }
-    if (edgeIds.has(edge.id)) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(canvasName)} contains duplicate edge id ${JSON.stringify(edge.id)}`,
-      );
-    }
-    edgeIds.add(edge.id);
-    endpoints.push({
-      id: edge.id,
-      fromNode: edge.fromNode,
-      toNode: edge.toNode,
-    });
-  }
-  for (const edge of endpoints) {
-    if (!nodeIds.has(edge.fromNode) || !nodeIds.has(edge.toNode)) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(canvasName)} edge ${JSON.stringify(edge.id)} has a dangling endpoint`,
-      );
-    }
-  }
-  return { nodeIds, edgeIds };
-};
-
-const fullyContains = (
-  group: CanvasNode & { readonly type: "group" },
-  node: CanvasNode,
-): boolean =>
-  node.x >= group.x &&
-  node.y >= group.y &&
-  node.x + node.width <= group.x + group.width &&
-  node.y + node.height <= group.y + group.height;
-
-const isTaskSinkNode = (node: CanvasNode): boolean => {
-  const spec = resolveSpec({
-    isGroup: node.type === "group",
-    kind: node.ether?.entity?.kind,
-  });
-  return spec._tag === "Sink" && spec.kind === "task";
-};
-
-type CanonicalTaskTopologyIndex = {
-  readonly canvasBodySha256: string;
-  readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
-  readonly sinkAdmissionFloor: TaskAdmission;
-  readonly sinkHostId: string;
-  readonly actorGrants: ReadonlyArray<TaskActorGrant>;
-};
-
-/** Build every Task-authority fact from one duplicate-free graph index. */
-const canonicalTaskTopologyIndex = (input: {
-  readonly canvasName: string;
-  readonly rawBody: string;
-  readonly document: CanvasDoc;
-  readonly authoringSink: SinkRefValue;
-}): CanonicalTaskTopologyIndex => {
-  const rawIdentity = rawCanvasGraphIdentity(input.rawBody, input.canvasName);
-  const document = Schema.decodeUnknownSync(
-    CanvasDocSchema,
-    strictDecode,
-  )(structuredClone(input.document));
-  const nodeById = new Map<string, CanvasNode>();
-  for (const node of document.nodes) {
-    if (nodeById.has(node.id)) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(input.canvasName)} contains duplicate decoded node id ${JSON.stringify(node.id)}`,
-      );
-    }
-    nodeById.set(node.id, node);
-  }
-  const edgeIds = new Set<string>();
-  for (const edge of document.edges) {
-    if (edgeIds.has(edge.id)) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(input.canvasName)} contains duplicate decoded edge id ${JSON.stringify(edge.id)}`,
-      );
-    }
-    edgeIds.add(edge.id);
-    if (!nodeById.has(edge.fromNode) || !nodeById.has(edge.toNode)) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(input.canvasName)} edge ${JSON.stringify(edge.id)} has a dangling decoded endpoint`,
-      );
-    }
-  }
-  // A scrub may retire an invalid edge, but it may never invent a graph id.
-  for (const nodeId of nodeById.keys()) {
-    if (!rawIdentity.nodeIds.has(nodeId)) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(input.canvasName)} decoded an ambiguous node identity`,
-      );
-    }
-  }
-  for (const edgeId of edgeIds) {
-    if (!rawIdentity.edgeIds.has(edgeId)) {
-      return topologyTypeError(
-        `canvas ${JSON.stringify(input.canvasName)} decoded an ambiguous edge identity`,
-      );
-    }
-  }
-
-  const sinkNode = nodeById.get(input.authoringSink.nodeId);
-  if (sinkNode === undefined || !isTaskSinkNode(sinkNode)) {
-    return topologyTypeError(
-      `authoring sink ${JSON.stringify(input.authoringSink.nodeId)} is missing or is not an actual Task sink`,
-    );
-  }
-
-  const containingRegions = [...nodeById.values()]
-    .filter(
-      (node): node is CanvasNode & { readonly type: "group" } =>
-        node.type === "group" &&
-        node.id !== sinkNode.id &&
-        fullyContains(node, sinkNode),
-    )
-    .sort((left, right) => {
-      const leftArea = left.width * left.height;
-      const rightArea = right.width * right.height;
-      return rightArea < leftArea
-        ? -1
-        : rightArea > leftArea
-          ? 1
-          : compareCodeUnits(left.id, right.id);
-    });
-  for (let index = 1; index < containingRegions.length; index += 1) {
-    const outer = containingRegions[index - 1]!;
-    const inner = containingRegions[index]!;
-    if (!fullyContains(outer, inner) || fullyContains(inner, outer)) {
-      return topologyTypeError(
-        `authoring sink ${JSON.stringify(sinkNode.id)} is inside ambiguous regions ${JSON.stringify(outer.id)} and ${JSON.stringify(inner.id)}`,
-      );
-    }
-  }
-  const innermost = containingRegions[containingRegions.length - 1];
-  const inDependencyScope = (node: CanvasNode): boolean =>
-    innermost === undefined ||
-    (node.type !== "group" && fullyContains(innermost, node));
-  const allowedTaskSinkNodeIds = Object.freeze(
-    [...nodeById.values()]
-      .filter((node) => isTaskSinkNode(node) && inDependencyScope(node))
-      .map((node) => node.id)
-      .sort(compareCodeUnits),
-  );
-  if (!allowedTaskSinkNodeIds.includes(sinkNode.id)) {
-    return topologyTypeError(
-      `authoring sink ${JSON.stringify(sinkNode.id)} is absent from its derived Task scope`,
-    );
-  }
-  if (allowedTaskSinkNodeIds.length > MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS) {
-    throw new RangeError(
-      `Task topology authority contains ${allowedTaskSinkNodeIds.length} Task sinks; maximum is ${MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS}`,
-    );
-  }
-
-  const kindByNodeId = new Map<string, string>();
-  const actorNodeIds = new Set<string>();
-  for (const [nodeId, node] of nodeById) {
-    const kind = node.ether?.entity?.kind;
-    if (node.type !== "group" && kind !== undefined) {
-      kindByNodeId.set(nodeId, kind);
-    }
-    if (
-      resolveSpec({ isGroup: node.type === "group", kind })._tag === "Actor"
-    ) {
-      actorNodeIds.add(nodeId);
-    }
-  }
-  const grantsByActor = new Map<string, Set<"tasks.create" | "tasks.claim">>();
-  for (const edge of document.edges) {
-    const otherNodeId =
-      edge.fromNode === sinkNode.id
-        ? edge.toNode
-        : edge.toNode === sinkNode.id
-          ? edge.fromNode
-          : undefined;
-    if (otherNodeId === undefined || !actorNodeIds.has(otherNodeId)) {
-      continue;
-    }
-    const grant = compileEdgeGrant(edge, kindByNodeId);
-    if (grant === undefined) continue;
-    const actorGrants = grantsByActor.get(otherNodeId) ?? new Set();
-    if (grant.ports.includes("tasks.create")) actorGrants.add("tasks.create");
-    if (grant.ports.includes("tasks.claim")) actorGrants.add("tasks.claim");
-    if (actorGrants.size > 0) grantsByActor.set(otherNodeId, actorGrants);
-  }
-  const actorGrants = Object.freeze(
-    [...grantsByActor]
-      .sort(([left], [right]) => compareCodeUnits(left, right))
-      .map(([actorNodeId, grants]) =>
-        Object.freeze({
-          actorNodeId,
-          grants: Object.freeze([...grants].sort(compareCodeUnits)),
-        }),
-      ),
-  );
-
-  return Object.freeze({
-    canvasBodySha256: canvasBodySha256Of(input.rawBody),
-    allowedTaskSinkNodeIds,
-    sinkAdmissionFloor: resolveTaskAdmission(sinkNode.ether?.tasks?.contract),
-    sinkHostId: resolveNodeHostId(sinkNode),
-    actorGrants,
-  });
+  return {
+    allowedTaskSinkNodeIds: Object.freeze(allowedTaskSinkNodeIds),
+    sinkAdmissionFloor: resolveTaskAdmission(sink.contract),
+    sinkHostId: "local",
+    actorGrants: Object.freeze([...grants].sort(([a], [b]) => compareCodeUnits(a, b)).map(([actorNodeId, held]) => Object.freeze({ actorNodeId, grants: Object.freeze([...held].sort(compareCodeUnits)) }))),
+  };
 };
 
 const projectionCanvasRawBody = (
@@ -1170,8 +874,8 @@ const mintTaskDependencyScopeCapability = (input: {
   readonly mode: TaskTopologyAuthorityMode;
   readonly basis: IntentFactBasisValue;
   readonly authoringSink: SinkRefValue;
-  readonly document: CanvasDoc;
-  readonly rawCanvasBody: string;
+  readonly canvas: Canvas;
+  readonly rawCanvasBody?: string;
 }): TaskDependencyScopeCapability => {
   const basis = freezeCapabilityInput(
     Schema.decodeUnknownSync(
@@ -1185,12 +889,7 @@ const mintTaskDependencyScopeCapability = (input: {
       strictDecode,
     )(structuredClone(input.authoringSink)),
   );
-  const index = canonicalTaskTopologyIndex({
-    canvasName: authoringSink.canvasName,
-    rawBody: input.rawCanvasBody,
-    document: input.document,
-    authoringSink,
-  });
+  const index = canonicalTaskTopologyIndex(input.canvas, authoringSink);
   const capability = Object.freeze(
     Object.create(null) as object,
   ) as TaskDependencyScopeCapability;
@@ -1200,43 +899,23 @@ const mintTaskDependencyScopeCapability = (input: {
       mode: input.mode,
       basis,
       authoringSink,
+      canvasBodySha256: input.rawCanvasBody === undefined ? "" : canvasBodySha256Of(input.rawCanvasBody),
       ...index,
     }),
   );
   return capability;
 };
 
-/** Mint current authorial Task topology only from coherent stored material. */
-export const createAuthorialTaskDependencyScopeCapability = (input: {
-  readonly authority: CanvasAuthorityMaterialSnapshot;
+/** Mint task admission from the exact model sequence the policy read. */
+export const createCanvasTaskDependencyScopeCapability = (input: {
+  readonly canvas: Canvas;
   readonly authoringSink: SinkRefValue;
-}): TaskDependencyScopeCapability => {
-  const authority = detachCanvasAuthorityMaterialSnapshot(input.authority);
-  const authoringSink = decodeTopologySink(input.authoringSink);
-  verifyCanvasIntentMaterial(authority);
-  const document = authority.documents.get(authoringSink.canvasName);
-  const stored = authority.storedDocuments.get(authoringSink.canvasName);
-  if (document === undefined || stored === undefined) {
-    return topologyTypeError(
-      `canvas ${JSON.stringify(authoringSink.canvasName)} is absent from authorial material`,
-    );
-  }
-  const basis = Schema.decodeUnknownSync(
-    IntentFactBasis,
-    strictDecode,
-  )({
-    kind: "authorial-intent",
-    generation: authority.generation,
-    contentSha256: authority.intentSha256,
-  });
-  return mintTaskDependencyScopeCapability({
-    mode: "authorial-current",
-    basis,
-    authoringSink,
-    document,
-    rawCanvasBody: stored.rawBody,
-  });
-};
+}): TaskDependencyScopeCapability => mintTaskDependencyScopeCapability({
+  mode: "canvas-current",
+  basis: { kind: "canvas", canvasName: input.canvas.name, seq: input.canvas.seq },
+  authoringSink: input.authoringSink,
+  canvas: input.canvas,
+});
 
 type ProjectedTaskTopologyInput = {
   readonly rawBody: string;
@@ -1278,7 +957,7 @@ const createProjectedTaskDependencyScopeCapability = (
     mode,
     basis,
     authoringSink,
-    document,
+    canvas: { ...canvasFromDocument(authoringSink.canvasName, document), seq: Number(generation) },
     rawCanvasBody: projectionCanvasRawBody(rawBody, authoringSink.canvasName),
   });
 };
@@ -1349,7 +1028,12 @@ const sha256 = (value: string): WorkSha256Value =>
  */
 export const workRecordContentSha256 = (
   record: WorkRecordSemantic,
-): WorkSha256Value => sha256(canonicalJson(record));
+): WorkSha256Value => {
+  if (record.recordType === "fact" && record.basis.kind === "historical") {
+    throw new Error("historical Work hashes are retained provenance and cannot be recomputed");
+  }
+  return sha256(canonicalJson(record));
+};
 
 type WorkRecordSemantic =
   | Omit<WorkCommandValue, "contentSha256" | "originAt">
@@ -1830,8 +1514,8 @@ type VariantRow = {
 
 type FactVariantRow = VariantRow & {
   readonly basis_kind: FactBasisValue["kind"];
-  readonly basis_authorial_generation: string | null;
-  readonly basis_authorial_content_sha256: string | null;
+  readonly basis_canvas_name: string | null;
+  readonly basis_canvas_seq: number | null;
   readonly basis_projected_generation: string | null;
   readonly basis_projected_content_sha256: string | null;
   readonly basis_command_event_home: string | null;
@@ -1978,41 +1662,9 @@ const assertCurrentIntentBasis = Effect.fn("work.assertCurrentIntentBasis")(
     basis: IntentFactBasisValue,
   ): Effect.fn.Return<void, WorkSqlFailure> {
     if (authority.role === "command-center") {
-      if (basis.kind !== "authorial-intent") {
-        return yield* Effect.fail(
-          authorityError(
-            "authority-mismatch",
-            "Command Center local work requires an authorial intent basis",
-          ),
-        );
-      }
-      const current = yield* SqlSchema.findOneOption({
-        Request: WorkSqlBindings,
-        Result: ExistsRow,
-        execute: (bindings) =>
-          reader.unsafe(
-            `
-        SELECT 1
-        FROM canvas_portfolio_head AS head
-        JOIN canvas_documents AS document
-        WHERE head.singleton = 1
-          AND head.generation = ?
-          AND head.intent_sha256 = ?
-          AND document.canvas_name = ?
-      `,
-            bindings,
-          ),
-      })([basis.generation, basis.contentSha256, sink.canvasName]).pipe(
-        Effect.map(Option.getOrUndefined),
-      );
-      if (current === undefined) {
-        return yield* Effect.fail(
-          authorityError(
-            "causal-conflict",
-            "authorial intent changed before the local Work mutation committed",
-          ),
-        );
-      }
+      if (basis.kind !== "canvas" || basis.canvasName !== sink.canvasName) return yield* Effect.fail(authorityError("authority-mismatch", "local Work requires this canvas basis"));
+      const current = yield* reader.unsafe<{ seq: number }>("SELECT seq FROM canvases WHERE canvas_name = ?", [basis.canvasName]);
+      if (current[0]?.seq !== basis.seq) return yield* Effect.fail(authorityError("causal-conflict", "canvas changed before the Work mutation committed"));
       return;
     }
 
@@ -2057,13 +1709,9 @@ const assertCurrentIntentBasis = Effect.fn("work.assertCurrentIntentBasis")(
 
 const MAX_TASK_DEPENDENCY_IDS = 256;
 
-const sameIntentBasis = (
-  left: IntentFactBasisValue,
-  right: IntentFactBasisValue,
-): boolean =>
-  left.kind === right.kind &&
-  left.generation === right.generation &&
-  left.contentSha256 === right.contentSha256;
+const sameIntentBasis = (left: IntentFactBasisValue, right: IntentFactBasisValue): boolean =>
+  left.kind === "canvas" ? right.kind === "canvas" && left.canvasName === right.canvasName && left.seq === right.seq
+    : right.kind === "projected-intent" && left.generation === right.generation && left.contentSha256 === right.contentSha256;
 
 const assertCanonicalDependsOn = (
   dependsOn: ReadonlyArray<string> | undefined,
@@ -2125,72 +1773,16 @@ const requireDependencyCapability = (
   return inspected;
 };
 
-type AuthorialCapabilityMaterialRow = {
-  readonly canvas_id: string;
-  readonly body: string;
-  readonly revision_sha256: string;
-};
-
 type ProjectedCapabilityMaterialRow = {
   readonly body: string;
 };
 
-const assertAuthorialCapabilityCurrent = Effect.fn(
-  "work.assertAuthorialCapabilityCurrent",
-)(function* (
-  reader: SqlClient.SqlClient,
-  data: TaskDependencyScopeCapabilityData,
-): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
-  if (
-    data.mode !== "authorial-current" ||
-    data.basis.kind !== "authorial-intent"
-  ) {
-    return yield* Effect.fail(
-      authorityError(
-        "authority-mismatch",
-        "authorial Task topology capability has the wrong authority mode",
-      ),
-    );
-  }
-  const row = yield* SqlSchema.findOneOption({
-    Request: WorkSqlBindings,
-    Result: AuthorialCapabilityMaterialRowSchema,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-      SELECT
-        document.canvas_id,
-        document.revision_sha256
-      FROM canvas_portfolio_head AS head
-      JOIN canvas_documents AS document
-      WHERE head.singleton = 1
-        AND head.generation = ?
-        AND head.intent_sha256 = ?
-        AND document.canvas_name = ?
-    `,
-        bindings,
-      ),
-  })([
-    data.basis.generation,
-    data.basis.contentSha256,
-    data.authoringSink.canvasName,
-  ]).pipe(Effect.map(Option.getOrUndefined));
-  if (
-    row === undefined ||
-    row.revision_sha256 !== data.canvasBodySha256 ||
-    canvasBodySha256Of(
-      serializeCanvas(
-        yield* (yield* CanvasRecords).reconstructCanvasDoc(row.canvas_id),
-      ),
-    ) !== data.canvasBodySha256
-  ) {
-    return yield* Effect.fail(
-      authorityError(
-        "causal-conflict",
-        "authorial Task topology material is no longer the exact current stored canvas",
-      ),
-    );
-  }
+const assertCanvasCapabilityCurrent = Effect.fn("work.assertCanvasCapabilityCurrent")(function* (
+  reader: SqlClient.SqlClient, data: TaskDependencyScopeCapabilityData,
+): Effect.fn.Return<void, WorkSqlFailure> {
+  if (data.mode !== "canvas-current" || data.basis.kind !== "canvas") return yield* Effect.fail(authorityError("authority-mismatch", "task topology needs a current canvas"));
+  const current = yield* reader.unsafe<{ seq: number }>("SELECT seq FROM canvases WHERE canvas_name = ?", [data.authoringSink.canvasName]);
+  if (data.basis.canvasName !== data.authoringSink.canvasName || current[0]?.seq !== data.basis.seq) return yield* Effect.fail(authorityError("causal-conflict", "task topology changed before commit"));
 });
 
 const assertProjectedCapabilityStored = Effect.fn(
@@ -2264,9 +1856,9 @@ const assertCurrentCapabilityMaterial = Effect.fn(
   reader: SqlClient.SqlClient,
   authority: LocalWorkAuthority,
   data: TaskDependencyScopeCapabilityData,
-): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
+): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
   if (authority.role === "command-center") {
-    if (data.mode !== "authorial-current") {
+    if (data.mode !== "canvas-current") {
       return yield* Effect.fail(
         authorityError(
           "authority-mismatch",
@@ -2274,7 +1866,7 @@ const assertCurrentCapabilityMaterial = Effect.fn(
         ),
       );
     }
-    yield* assertAuthorialCapabilityCurrent(reader, data);
+    yield* assertCanvasCapabilityCurrent(reader, data);
     return;
   }
   if (data.mode !== "projected-current") {
@@ -2293,10 +1885,10 @@ const assertExplicitFactCapabilityMaterial = Effect.fn(
 )(function* (
   reader: SqlClient.SqlClient,
   data: TaskDependencyScopeCapabilityData,
-): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
+): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
   switch (data.mode) {
-    case "authorial-current":
-      yield* assertAuthorialCapabilityCurrent(reader, data);
+    case "canvas-current":
+      yield* assertCanvasCapabilityCurrent(reader, data);
       return;
     case "projected-current":
       yield* assertProjectedCapabilityStored(reader, data, true);
@@ -2317,7 +1909,7 @@ const localDependencyCapability = Effect.fn("work.localDependencyCapability")(
   ): Effect.fn.Return<
     TaskDependencyScopeCapabilityData,
     WorkSqlFailure,
-    CanvasRecords
+    ModelRecords
   > {
     yield* Effect.try(assertCanonicalDependsOn.bind(undefined, dependsOn));
     const authority = yield* canonicalLocalWorkAuthority(reader);
@@ -2349,7 +1941,7 @@ const authorizedDependencyCapability = Effect.fn(
 ): Effect.fn.Return<
   TaskDependencyScopeCapabilityData,
   WorkSqlFailure,
-  CanvasRecords
+  ModelRecords
 > {
   yield* Effect.try(assertCanonicalDependsOn.bind(undefined, dependsOn));
   const inspected = yield* Effect.try(
@@ -2470,7 +2062,7 @@ const assertTaskDependenciesInLocalScope = Effect.fn(
   taskId: string,
   dependsOn: ReadonlyArray<string> | undefined,
   capability: TaskDependencyScopeCapability | undefined,
-): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
+): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
   const inspected = yield* localDependencyCapability(
     reader,
     sink,
@@ -2501,7 +2093,7 @@ const assertDependenciesFromAuthorization = Effect.fn(
   dependsOn: ReadonlyArray<string> | undefined,
   capability: TaskDependencyScopeCapability | undefined,
   expectedBasis?: IntentFactBasisValue,
-): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
+): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
   const inspected = yield* authorizedDependencyCapability(
     reader,
     sink,
@@ -2529,7 +2121,7 @@ const assertTaskClaimReady = Effect.fn("work.assertTaskClaimReady")(function* (
   sink: SinkRefValue,
   basis: IntentFactBasisValue,
   capability: TaskDependencyScopeCapability,
-): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords | ContentManifest> {
+): Effect.fn.Return<void, WorkSqlFailure, ModelRecords | ContentManifest> {
   const inspected = yield* localDependencyCapability(
     reader,
     sink,
@@ -2651,120 +2243,39 @@ const PAD_GLANCE_PRINCIPAL_KEY = "operator";
  * and `doc` is retained so the second sink in the same document version is a
  * Map hit rather than a second decode.
  */
-type InboundActorIndex = {
-  readonly doc: CanvasDoc | undefined;
-  readonly byNode: Map<string, ReadonlySet<string>>;
-};
-
-/**
- * How many (canvas, document version) pairs keep a hot inbound-actor index.
- *
- * A pad edit only ever asks about the head generation of one canvas, so one
- * live entry is the working set; the slack absorbs a second canvas and the
- * one commit-straddling version change without evicting the operator's.
- */
-const INBOUND_ACTOR_INDEX_ENTRIES = 4;
-
-/**
- * Content-addressed memo of that roster.
- *
- * The key is the canvas name plus the sha256 of the exact body the index was
- * built from — not a generation, not a head pointer. That is what makes it
- * safe from inside a write transaction, where `canvases.ts`'s own memos are
- * explicitly forbidden: a rolled-back write cannot leave a wrong answer
- * behind, because an entry is only ever served to a body that hashes to the
- * same value, and a body that hashes the same IS the same body. The stored
- * `sha256` column is used only to probe; the key is rehashed from the bytes
- * actually read, so a stale or wrong column can only cost a rebuild, never
- * serve a stale roster.
- *
- * Module-level rather than per-service for the same reason: content addressing
- * makes a second StateEngine in this process (tests, recovery) unable to see a
- * wrong answer — a colliding key means an identical canvas name AND identical
- * document bytes, which resolve to the identical roster.
- */
-const inboundActorIndexes = new Map<string, InboundActorIndex>();
-
-const inboundActorIndexFor = Effect.fn("work.inboundActorIndexFor")(function* (
-  canvasName: string,
-  probeSha256: string,
-  loadBody: Effect.Effect<string | undefined, CanvasError>,
-): Effect.fn.Return<InboundActorIndex, CanvasError> {
-  const probeKey = `${canvasName}\u0000${probeSha256}`;
-  const hit = inboundActorIndexes.get(probeKey);
-  if (hit !== undefined) {
-    // Re-insert so Map iteration order is least-recent first.
-    inboundActorIndexes.delete(probeKey);
-    inboundActorIndexes.set(probeKey, hit);
-    return hit;
-  }
-  const body = yield* loadBody;
-  if (body === undefined) return { doc: undefined, byNode: new Map() };
-  let doc: CanvasDoc | undefined;
-  try {
-    const decoded = decodeCanvasDoc(JSON.parse(body) as unknown);
-    if (Result.isSuccess(decoded)) doc = decoded.success;
-  } catch {
-    doc = undefined;
-  }
-  const entry: InboundActorIndex = { doc, byNode: new Map() };
-  // Keyed on the hash of the bytes actually decoded, never on the column that
-  // claimed them. A wrong column can then only cost a rebuild: its probe key
-  // will not match the key this entry was filed under, so the miss repeats.
-  const key = `${canvasName}\u0000${createHash("sha256")
-    .update(body, "utf8")
-    .digest("hex")}`;
-  inboundActorIndexes.set(key, entry);
-  while (inboundActorIndexes.size > INBOUND_ACTOR_INDEX_ENTRIES) {
-    const oldest = inboundActorIndexes.keys().next();
-    if (oldest.done === true) break;
-    inboundActorIndexes.delete(oldest.value);
-  }
-  return entry;
+const readModelCanvas = Effect.fn("work.readModelCanvas")(function* (canvasName: string): Effect.fn.Return<Canvas | undefined, WorkSqlFailure, ModelRecords> {
+  const records = yield* ModelRecords;
+  const header = yield* records.getCanvas(canvasName);
+  if (!header) return undefined;
+  const nodes = yield* records.listNodes(canvasName);
+  const wires = yield* records.listWires(canvasName);
+  return { name: asCanvasName(canvasName), seq: header.seq, nodes: new Map(nodes.map((node) => [node.id, node])), wires: new Map(wires.map((wire) => [wire.id, wire])) };
 });
 
-/**
- * Which actors are wired INTO one sink.
- *
- * Answering this used to re-read, re-parse and re-decode the whole canvas
- * document on every single pad patch — a ~1.4ms whole-document decode to read
- * one node's inbound edges, paid again for every stroke. The document is now
- * decoded at most once per version and the answer is a keyed lookup;
- * `inboundActorNodeIds` stays the one definition of the roster so the memo
- * cannot drift from the direct path (`service.ts`, `station/api.ts`).
- */
+const readReviewCanvas = Effect.fn("work.readReviewCanvas")(function* (reader: SqlClient.SqlClient, canvasName: string): Effect.fn.Return<{ doc: Canvas | undefined; actorRefs: ReadonlyArray<ActorRef> }, WorkSqlFailure, ModelRecords> {
+  const doc = yield* readModelCanvas(canvasName);
+  if (!doc) return { doc, actorRefs: [] };
+  const authority = yield* canonicalLocalWorkAuthority(reader);
+  const local = yield* reader.unsafe<{ host_id: string }>("SELECT host_id FROM station_configuration WHERE singleton = 1");
+  const placements = yield* reader.unsafe<{ host_id: string; station_installation_id: string }>("SELECT host_id,station_installation_id FROM station_fleet_targets WHERE retired_at IS NULL");
+  const installations = new Map(placements.map((row) => [row.host_id, row.station_installation_id as InstallationId]));
+  installations.set("local", authority.installationId);
+  if (local[0]) installations.set(local[0].host_id, authority.installationId);
+  const actorRefs: ActorRef[] = [];
+  for (const node of doc.nodes.values()) {
+    if (node.kind !== "agent") continue;
+    const home = installations.get(node.host);
+    if (home === undefined) return yield* Effect.fail(authorityError("authority-mismatch", `seat host ${node.host} has no installation`));
+    actorRefs.push({ canvasName, nodeId: node.id, seatId: deriveActorSeatId(home, node.bindingId) });
+  }
+  return { doc, actorRefs };
+});
+
 const inboundActorsForPad = Effect.fn("work.inboundActorsForPad")(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-): Effect.fn.Return<ReadonlySet<string>, WorkSqlFailure, CanvasRecords> {
-  const head = yield* SqlSchema.findOneOption({
-    Request: WorkSqlBindings,
-    Result: CanvasIdentityRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-      SELECT canvas_id, revision_sha256
-      FROM canvas_documents
-      WHERE canvas_name = ?
-    `,
-        bindings,
-      ),
-  })([sink.canvasName]).pipe(Effect.map(Option.getOrUndefined));
-  if (head === undefined) return new Set();
-  const records = yield* CanvasRecords;
-  const index = yield* inboundActorIndexFor(
-    sink.canvasName,
-    head.revision_sha256,
-    records
-      .reconstructCanvasDoc(head.canvas_id)
-      .pipe(Effect.map(serializeCanvas)),
-  );
-  if (index.doc === undefined) return new Set();
-  const cached = index.byNode.get(sink.nodeId);
-  if (cached !== undefined) return cached;
-  const actors = inboundActorNodeIds(canvasFromDocument(sink.canvasName, index.doc), sink.nodeId);
-  index.byNode.set(sink.nodeId, actors);
-  return actors;
+  _reader: SqlClient.SqlClient, sink: SinkRefValue,
+): Effect.fn.Return<ReadonlySet<string>, WorkSqlFailure, ModelRecords> {
+  const canvas = yield* readModelCanvas(sink.canvasName);
+  return canvas === undefined ? new Set<string>() : inboundActorNodeIds(canvas, sink.nodeId);
 });
 
 const assertPadPatchRules = Effect.fn("work.assertPadPatchRules")(function* (
@@ -2773,7 +2284,7 @@ const assertPadPatchRules = Effect.fn("work.assertPadPatchRules")(function* (
   author: BoardAuthorValue,
   patches: ReadonlyArray<import("@shared/pad").PadPatch>,
   overseer?: boolean,
-): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
+): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
   const rule = padAuthorRuleError(
     author,
     patches,
@@ -4706,6 +4217,34 @@ const loadSnapshot = Effect.fn("work.loadSnapshot")(function* (
   };
 });
 
+/** Attention policy sees every claimant without loading threads or work contents. */
+export const readWorkAttention = Effect.fn("work.attention")(function* (
+  reader: SqlClient.SqlClient,
+  input: WorkAttentionQuery,
+): Effect.fn.Return<ReadonlyArray<WorkAttentionRow>, WorkSqlFailure> {
+  const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, strictDecode)(input);
+  const rows = yield* SqlSchema.findAll({
+    Request: WorkSqlBindings,
+    Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String,
+      state: Schema.Literals(["working", "input-required", "auth-required"]),
+      actor_seat_id: Schema.NullOr(ActorSeatIdSchema),
+      metadata_json: Schema.NullOr(Schema.String), origin_at: Schema.String }),
+    execute: (bindings) => reader.unsafe(["work_tasks", "work_requests"].map((table) => `
+      SELECT work.node_id, ${table === "work_tasks" ? "task_id" : "request_id"} AS item_id,
+        state, actor_seat_id, metadata_json, origin_at
+      FROM ${table} AS work JOIN ${table === "work_tasks" ? "task_boards" : "request_boards"} AS node
+        ON node.canvas_name = work.canvas_name AND node.id = work.node_id
+      WHERE work.canvas_name = ?
+        ${query.nodeId === undefined ? "" : "AND work.node_id = ?"}
+        AND (state IN ('input-required','auth-required') OR (state = 'working' AND actor_seat_id IS NOT NULL))`).join(" UNION ALL "), bindings),
+  })([0, 1].flatMap(() => [query.canvasName, ...(query.nodeId === undefined ? [] : [query.nodeId])]));
+  return rows.map((row) => ({ nodeId: row.node_id, item: {
+    id: row.item_id, state: row.state, history: [],
+    ...(row.actor_seat_id === null ? {} : { claimedBy: row.actor_seat_id }),
+    stateSince: rowStateSince(row),
+  }}));
+});
+
 /** Read one kind's page without assembling a canvas or unrelated work lanes. */
 export const readWorkSinkPage = Effect.fn("work.sink.page")(function* (
   reader: SqlClient.SqlClient,
@@ -5501,11 +5040,13 @@ const predecessorFromRow = (row: VariantRow): WorkRecordId | null =>
 
 const factBasisFromRow = (row: FactVariantRow): FactBasisValue => {
   const candidate =
-    row.basis_kind === "authorial-intent"
+    row.basis_kind === "historical"
+      ? { kind: "historical" as const }
+      : row.basis_kind === "canvas"
       ? {
-          kind: "authorial-intent" as const,
-          generation: row.basis_authorial_generation,
-          contentSha256: row.basis_authorial_content_sha256,
+          kind: "canvas" as const,
+          canvasName: row.basis_canvas_name,
+          seq: row.basis_canvas_seq,
         }
       : row.basis_kind === "projected-intent"
         ? {
@@ -5595,8 +5136,8 @@ const loadRecord = Effect.fn("work.loadRecord")(function* (
           predecessor_entity_home,
           predecessor_seq,
           basis_kind,
-          basis_authorial_generation,
-          basis_authorial_content_sha256,
+          basis_canvas_name,
+          basis_canvas_seq,
           basis_projected_generation,
           basis_projected_content_sha256,
           basis_command_event_home,
@@ -6858,7 +6399,7 @@ const resultForCommand = Effect.fn("work.resultForCommand")(function* (
     readonly body: WorkResult;
   },
   WorkSqlFailure,
-  CanvasRecords
+  ModelRecords
 > {
   const action = command.body;
   // Task create/claim geometry is mutable authority, even with no dependencies.
@@ -7536,6 +7077,9 @@ const validateIncomingHash = (
   sender: InstallationId,
   record: WorkRecordValue,
 ): void => {
+  if (record.recordType === "fact" && record.basis.kind === "historical") {
+    throw replicationError(sender, "integrity", "historical Work facts cannot be imported or verified", record.id.seq);
+  }
   const { contentSha256: _hash, originAt: _origin, ...semantic } = record;
   const expected = workRecordContentSha256(semantic as WorkRecordSemantic);
   if (record.contentSha256 !== expected) {
@@ -8021,7 +7565,8 @@ const validateIncomingFact = Effect.fn("work.validateIncomingFact")(function* (
   sender: InstallationId,
   fact: WorkFactValue,
   taskDependencyScope?: TaskDependencyScopeCapability,
-): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
+): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
+  if (fact.basis.kind === "historical") return yield* Effect.fail(authorityError("authority-mismatch", "historical facts cannot authorize incoming work"));
   const correlatedCommand =
     fact.basis.kind === "command"
       ? yield* exactPendingCommandForFact(writer, local, sender, fact)
@@ -8031,7 +7576,7 @@ const validateIncomingFact = Effect.fn("work.validateIncomingFact")(function* (
     function* (
       taskId: string,
       dependsOn: ReadonlyArray<string> | undefined,
-    ): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
+    ): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
       // An exact unresolved command is the durable proof that dependency scope
       // was admitted before execution. Rechecking mutable topology here would
       // strand an authentic response after an intent change.
@@ -8049,7 +7594,7 @@ const validateIncomingFact = Effect.fn("work.validateIncomingFact")(function* (
   const authorizeFactDependencies = Effect.fn("work.authorizeFactDependencies")(
     function* (
       dependsOn: ReadonlyArray<string> | undefined,
-    ): Effect.fn.Return<void, WorkSqlFailure, CanvasRecords> {
+    ): Effect.fn.Return<void, WorkSqlFailure, ModelRecords> {
       if (correlatedCommand !== undefined) return;
       yield* authorizedDependencyCapability(
         writer,
@@ -8826,7 +8371,7 @@ const applyCommand = Effect.fn("work.applyCommand")(function* (
 ): Effect.fn.Return<
   ReadonlyArray<WorkRecordValue>,
   WorkSqlFailure,
-  WorkJournal | CanvasRecords
+  WorkJournal | ModelRecords
 > {
   const result = yield* resultForCommand(writer, command, taskDependencyScope);
   const predecessor =
@@ -8889,6 +8434,8 @@ export type CurrentTaskClaim = {
 };
 
 export interface WorkRepositoryShape {
+  readonly attentionSnapshot: (query: WorkAttentionQuery) => Effect.Effect<WorkAttentionSnapshot, WorkRepositoryError>;
+  readonly attentionItems: (query: WorkAttentionQuery) => Effect.Effect<ReadonlyArray<WorkAttentionRow>, WorkRepositoryError>;
   readonly sinkPage: (query: WorkSinkQuery) => Effect.Effect<WorkSinkPage, WorkRepositoryError>;
   readonly mailPage: (query: WorkMailQuery) => Effect.Effect<WorkMailPage, WorkRepositoryError>;
   readonly mailbox: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<MessageValue>, WorkRepositoryError>;
@@ -9138,19 +8685,19 @@ export const WorkRepositoryLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const journal = yield* WorkJournal;
     const crew = yield* CrewRepository;
-    const records = yield* CanvasRecords;
+    const records = yield* ModelRecords;
     const manifest = yield* ContentManifest;
     const provideParticipants = <A, E>(
       body: Effect.Effect<
         A,
         E,
-        WorkJournal | CrewRepository | CanvasRecords | ContentManifest
+        WorkJournal | CrewRepository | ModelRecords | ContentManifest
       >,
     ) =>
       body.pipe(
         Effect.provideService(WorkJournal, journal),
         Effect.provideService(CrewRepository, crew),
-        Effect.provideService(CanvasRecords, records),
+        Effect.provideService(ModelRecords, records),
         Effect.provideService(ContentManifest, manifest),
       );
     const changes = workProjectionChanges(sql);
@@ -9443,7 +8990,7 @@ export const WorkRepositoryLive = Layer.effect(
       ) => Effect.Effect<
         A,
         WorkSqlFailure,
-        WorkJournal | CrewRepository | CanvasRecords | ContentManifest
+        WorkJournal | CrewRepository | ModelRecords | ContentManifest
       >,
       kind: "mail" | "work" = "work",
     ): Effect.Effect<A, RepositoryFailure> =>
@@ -10355,7 +9902,7 @@ export const WorkRepositoryLive = Layer.effect(
     ): Effect.fn.Return<
       ReadonlyArray<ReviewReceiptRecord>,
       WorkSqlFailure,
-      CanvasRecords | CrewRepository | WorkJournal
+      ModelRecords | CrewRepository | WorkJournal
     > {
       // The explicit author stamp must match the committed task's live author
       // seat. A claim flip between the caller's preflight and this commit is an
@@ -10370,15 +9917,8 @@ export const WorkRepositoryLive = Layer.effect(
           ),
         );
       }
-      const portfolio =
-        yield* (yield* CanvasRecords).readCommandCenterPortfolio();
-      const doc = portfolio.documents.get(canvasName)?.doc;
+      const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, canvasName);
       if (doc === undefined) return [];
-      // Stable seats span canvases; resolve the author's AGENT node in this
-      // canvas (reviews edges end at the agent, not the task board).
-      const refsHere = portfolio.actorRefs.filter(
-        (ref) => ref.canvasName === canvasName,
-      );
       const authorNode = agentNodeForSeat(refsHere, authorSeat);
       if (authorNode === undefined) return [];
       const reviewers = reviewersOfAuthor({
@@ -10507,7 +10047,7 @@ export const WorkRepositoryLive = Layer.effect(
         ): Effect.Effect<
           ReadonlyArray<ReviewReceiptRecord>,
           WorkSqlFailure,
-          CanvasRecords | CrewRepository | WorkJournal
+          ModelRecords | CrewRepository | WorkJournal
         > =>
           Effect.gen(function* () {
             const authority = yield* canonicalLocalWorkAuthority(writer);
@@ -10569,15 +10109,9 @@ export const WorkRepositoryLive = Layer.effect(
                 );
               }
             }
-            const portfolio =
-              yield* (yield* CanvasRecords).readCommandCenterPortfolio();
-            const doc = portfolio.documents.get(input.canvasName)?.doc;
-            if (doc === undefined) return [];
-            const refsHere = portfolio.actorRefs.filter(
-              (ref) => ref.canvasName === input.canvasName,
-            );
+            const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, input.canvasName);
             const authorNode = agentNodeForSeat(refsHere, authorSeat);
-            if (authorNode === undefined) return [];
+            if (doc === undefined || authorNode === undefined) return [];
             const reviewers = reviewersOfAuthor({
               doc,
               authorNodeId: authorNode.nodeId,
@@ -10707,7 +10241,7 @@ export const WorkRepositoryLive = Layer.effect(
           ): Effect.Effect<
             PostReviewVerdictResult,
             WorkSqlFailure,
-            CanvasRecords | CrewRepository
+            ModelRecords | CrewRepository
           > =>
             Effect.gen(function* () {
               const provenance = yield* SqlSchema.findOneOption({
@@ -10729,12 +10263,7 @@ export const WorkRepositoryLive = Layer.effect(
               if (verdict.reviewerSeatId === authorSeat) {
                 return { rejected: "reviewer-is-author" };
               }
-              const portfolio =
-                yield* (yield* CanvasRecords).readCommandCenterPortfolio();
-              const doc = portfolio.documents.get(opts.canvasName)?.doc;
-              const refsHere = portfolio.actorRefs.filter(
-                (ref) => ref.canvasName === opts.canvasName,
-              );
+              const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, opts.canvasName);
               const reviewerNode = agentNodeForSeat(
                 refsHere,
                 verdict.reviewerSeatId,
@@ -10771,7 +10300,7 @@ export const WorkRepositoryLive = Layer.effect(
         ): Effect.Effect<
           PostReviewVerdictResult,
           WorkSqlFailure,
-          CanvasRecords | CrewRepository
+          ModelRecords | CrewRepository
         > =>
           Effect.gen(function* () {
             const { installationId } =
@@ -10813,14 +10342,7 @@ export const WorkRepositoryLive = Layer.effect(
             }
             // A current directed reviews edge reviewer→author holding verdict.post
             // in this canvas, re-read in the same writer (mask respected).
-            const portfolio =
-              yield* (yield* CanvasRecords).readCommandCenterPortfolio();
-            const doc = portfolio.documents.get(opts.canvasName)?.doc;
-            // Stable seats span canvases; scope the actor refs to this canvas
-            // before resolving nodes, or the helper finds a ref in another one.
-            const refsHere = portfolio.actorRefs.filter(
-              (ref) => ref.canvasName === opts.canvasName,
-            );
+            const { doc, actorRefs: refsHere } = yield* readReviewCanvas(writer, opts.canvasName);
             const reviewerNode = agentNodeForSeat(
               refsHere,
               verdict.reviewerSeatId,
@@ -12166,6 +11688,9 @@ export const WorkRepositoryLive = Layer.effect(
                       new Error("work record disappeared during read"),
                     );
                   }
+                  if (loaded.recordType === "fact" && loaded.basis.kind === "historical") {
+                    return yield* Effect.fail(new Error("historical Work facts cannot be re-exported"));
+                  }
                   return loaded;
                 }),
             );
@@ -12609,6 +12134,20 @@ export const WorkRepositoryLive = Layer.effect(
     };
 
     return WorkRepository.of({
+      attentionSnapshot: Effect.fn("WorkRepository.attentionSnapshot")((query: WorkAttentionQuery) =>
+        withSqlRead(sql, Effect.gen(function* () {
+          const glances = yield* readWorkGlances(sql, query);
+          const items = yield* readWorkAttention(sql, query);
+          return { glances, items };
+        })).pipe(
+          Effect.provideService(StateTransactionOperation, "work.attention"),
+          Effect.mapError((error) => toRepositoryError("work.attention", error)),
+        )),
+      attentionItems: Effect.fn("WorkRepository.attentionItems")((query: WorkAttentionQuery) =>
+        withSqlRead(sql, readWorkAttention(sql, query)).pipe(
+          Effect.provideService(StateTransactionOperation, "work.attention"),
+          Effect.mapError((error) => toRepositoryError("work.attention", error)),
+        )),
       sinkPage: Effect.fn("WorkRepository.sinkPage")((query: WorkSinkQuery) =>
         withSqlRead(sql, readWorkSinkPage(sql, query)).pipe(
           Effect.provideService(StateTransactionOperation, "work.sink.page"),
@@ -12672,7 +12211,7 @@ export const WorkRepositoryLive = Layer.effect(
   Layer.provide([
     WorkJournalLive,
     CrewRepositoryLive,
-    CanvasRecordsLive,
+    ModelRecords.layer,
     ContentManifest.layer,
   ]),
 );

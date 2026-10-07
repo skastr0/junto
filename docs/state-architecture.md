@@ -217,6 +217,8 @@ that move with dual reads or dual writes.
 
 ## Canvases
 
+Facts older than the document cutover keep their original hash and are not re-verifiable.
+
 There is no canvas document. A canvas is a name and the rows on it: one table
 per kind of node (seats, regions, terminals, pages, task boards and the rest)
 and one for wires, each with real columns for exactly that kind's fields

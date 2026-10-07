@@ -54,6 +54,7 @@ describe("main authoring architecture", () => {
       "ipc.canvas.overseer-set",
       "ipc.canvas.portfolio",
       "ipc.canvas.write",
+      "ipc.model.command",
       // Artifact library operator actions (archive / hard-delete).
       "ipc.work.artifact-archive",
       "ipc.work.artifact-delete",

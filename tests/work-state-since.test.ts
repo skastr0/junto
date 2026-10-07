@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * The work repository projects when each task and request entered its
  * current state: the origin time of the fact that changed the state. A fact
@@ -18,11 +19,11 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
-  AuthorialIntentFactBasis,
+  CanvasFactBasis,
   type ActorRef,
 } from "../src/shared/work-protocol";
 import {
-  createAuthorialTaskDependencyScopeCapability,
+  createCanvasTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
@@ -179,10 +180,8 @@ const openRepository = async (
       }),
     ),
   );
-  const basis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({
-    kind: "authorial-intent",
-    generation: "1",
-    contentSha256: intentSha256,
+  const basis = Schema.decodeUnknownSync(CanvasFactBasis)({
+    kind: "canvas", canvasName: "factory", seq: 1,
   });
   return { runtime, repository, basis, root };
 };
@@ -200,8 +199,8 @@ describe("WorkRepository stateSince projection", () => {
   it("stamps the fact time of each state change and keeps it through facts that change nothing", async () => {
     const { runtime, repository, basis } = await openRepository(installation("cc-state-since"));
     const seat = actor("1", "recipient");
-    const dependencyScope = createAuthorialTaskDependencyScopeCapability({
-      authority: authorialMaterial,
+    const dependencyScope = createCanvasTaskDependencyScopeCapability({
+      canvas: { ...canvasFromDocument(canvasName, factoryTopology), seq: 1 },
       authoringSink: board,
     });
     const taskSince = async (): Promise<string | undefined> =>

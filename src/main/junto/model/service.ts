@@ -13,9 +13,11 @@ import {
   type Canvas,
   type Changed,
   type SheetChanged,
+  type SheetGrid,
   type CanvasesChanged,
   type Opened,
 } from "@shared/model";
+import { normalizeNode } from "@shared/model/normalize";
 import { compileVerb } from "@shared/physics/verbs";
 import {
   afterSqlCommit,
@@ -54,6 +56,35 @@ export class ModelService extends Context.Service<ModelService>()(
       const changes = yield* PubSub.sliding<Changed>(1024);
       const sheetChanges = yield* PubSub.sliding<SheetChanged>(256);
       const canvasChanges = yield* PubSub.sliding<CanvasesChanged>(64);
+      const listeners = new Set<(event: Changed, current: Canvas) => void>();
+      const canvasListeners = new Set<
+        (event: CanvasesChanged, current?: Canvas) => void
+      >();
+      const sheetListeners = new Set<
+        (event: SheetChanged, grid: SheetGrid) => void
+      >();
+      const notify = <A extends ReadonlyArray<unknown>>(
+        targets: ReadonlySet<(...args: A) => void>,
+        ...args: A
+      ) => {
+        for (const listener of [...targets]) {
+          try {
+            listener(...args);
+          } catch (cause) {
+            console.error("[model] change listener failed", cause);
+          }
+        }
+      };
+      const publishChange = (event: Changed, current: Canvas) =>
+        afterSqlCommit(sql, () => {
+          const applied = follow(held.get(event.canvas) ?? current, event);
+          if (applied._tag === "Applied") {
+            held.set(event.canvas, applied.canvas);
+            notify(listeners, event, applied.canvas);
+          } else held.delete(event.canvas);
+          PubSub.publishUnsafe(changes, event);
+        });
+
       const stage = (name: string, value: Canvas | null) =>
         Effect.gen(function* () {
           const drafts = yield* sqlTransactionLocal<Drafts>(sql, draftKey);
@@ -111,6 +142,7 @@ export class ModelService extends Context.Service<ModelService>()(
         const command = yield* Schema.decodeUnknownEffect(Command)(input, {
           onExcessProperty: "error",
         }).pipe(
+          Effect.map((command) => command._tag === "Add" ? { ...command, nodes: command.nodes.map(normalizeNode) } : command),
           Effect.mapError(() =>
             refused("Send a command that matches the model command schema."),
           ),
@@ -154,10 +186,12 @@ export class ModelService extends Context.Service<ModelService>()(
                 yield* stage(command.canvas, created);
                 yield* afterSqlCommit(sql, () => {
                   held.set(command.canvas, created);
-                  PubSub.publishUnsafe(canvasChanges, {
+                  const event: CanvasesChanged = {
                     _tag: "Created",
                     canvas: command.canvas,
-                  });
+                  };
+                  notify(canvasListeners, event, created);
+                  PubSub.publishUnsafe(canvasChanges, event);
                 });
                 return { seq: 0 };
               }
@@ -213,20 +247,67 @@ export class ModelService extends Context.Service<ModelService>()(
                   held.delete(command.canvas);
                   if (command._tag === "RenameCanvas")
                     held.set(command.to, { ...current, name: command.to });
-                  PubSub.publishUnsafe<CanvasesChanged>(
-                    canvasChanges,
+                  const event: CanvasesChanged =
                     command._tag === "RemoveCanvas"
                       ? { _tag: "Removed", canvas: command.canvas }
                       : {
                           _tag: "Renamed",
                           from: command.canvas,
                           to: command.to,
-                        },
+                        };
+                  notify(
+                    canvasListeners,
+                    event,
+                    command._tag === "RenameCanvas"
+                      ? { ...current, name: command.to }
+                      : undefined,
                   );
+                  PubSub.publishUnsafe(canvasChanges, event);
                 });
                 return {
                   seq: command._tag === "RemoveCanvas" ? 0 : current.seq,
                 };
+              }
+              if (command._tag === "GrantOverseer") {
+                const seat = yield* requireNode(command.id);
+                if (seat.kind !== "agent")
+                  return yield* refused("This command requires an agent seat.");
+                let replySeq = current.seq;
+                for (const name of yield* records.listCanvases()) {
+                  const aliasCanvas = yield* canvas(name);
+                  const updates: Node[] = [];
+                  for (const alias of aliasCanvas.nodes.values()) {
+                    if (
+                      alias.kind !== "agent" ||
+                      alias.bindingId !== seat.bindingId ||
+                      alias.host !== seat.host ||
+                      alias.overseer === command.overseer
+                    )
+                      continue;
+                    const next = { ...alias, overseer: command.overseer };
+                    yield* records.updateNode(name, next);
+                    updates.push(next);
+                  }
+                  if (!updates.length) continue;
+                  const seq = yield* records.advanceSeq(name);
+                  const event: Changed = {
+                    canvas: aliasCanvas.name,
+                    seq,
+                    nodes: updates,
+                    wires: [],
+                    removedNodes: [],
+                    removedWires: [],
+                  };
+                  const applied = follow(aliasCanvas, event);
+                  if (applied._tag !== "Applied")
+                    return yield* refused(
+                      "The canvas sequence changed unexpectedly.",
+                    );
+                  yield* stage(name, applied.canvas);
+                  yield* publishChange(event, aliasCanvas);
+                  if (name === command.canvas) replySeq = seq;
+                }
+                return { seq: replySeq };
               }
               const nodes: Node[] = [];
               const wires: Wire[] = [];
@@ -290,6 +371,7 @@ export class ModelService extends Context.Service<ModelService>()(
                 Schema.decodeUnknownEffect(Node)(value, {
                   onExcessProperty: "error",
                 }).pipe(
+                  Effect.map(normalizeNode),
                   Effect.mapError(() =>
                     refused("Use values allowed for this kind."),
                   ),
@@ -297,6 +379,7 @@ export class ModelService extends Context.Service<ModelService>()(
               switch (command._tag) {
                 case "Add":
                   for (const node of command.nodes) {
+                    if (node.kind === "agent") yield* records.requireSeatHost(node.host);
                     if (
                       node.kind === "agent" &&
                       node.overseer &&
@@ -401,12 +484,11 @@ export class ModelService extends Context.Service<ModelService>()(
                     return yield* refused(
                       "Edit fields must belong to the object's kind.",
                     );
-                  yield* saveNode(
-                    yield* decodeNode(patch(node, command.change)),
-                  );
+                  const edited = yield* decodeNode(patch(node, command.change));
+                  if (edited.kind === "agent" && node.kind === "agent" && edited.host !== node.host) yield* records.requireSeatHost(edited.host);
+                  yield* saveNode(edited);
                   break;
                 }
-                case "GrantOverseer":
                 case "RecordSession": {
                   const node = yield* requireNode(command.id);
                   if (node.kind !== "agent")
@@ -415,12 +497,7 @@ export class ModelService extends Context.Service<ModelService>()(
                     );
                   yield* saveNode(
                     yield* decodeNode(
-                      patch(
-                        node,
-                        command._tag === "GrantOverseer"
-                          ? { overseer: command.overseer }
-                          : { sessionId: command.sessionId },
-                      ),
+                      patch(node, { sessionId: command.sessionId }),
                     ),
                   );
                   break;
@@ -441,10 +518,12 @@ export class ModelService extends Context.Service<ModelService>()(
                     command.grid,
                   );
                   yield* afterSqlCommit(sql, () => {
-                    PubSub.publishUnsafe(sheetChanges, {
+                    const event: SheetChanged = {
                       canvas: command.canvas,
                       id: command.id,
-                    });
+                    };
+                    notify(sheetListeners, event, command.grid);
+                    PubSub.publishUnsafe(sheetChanges, event);
                   });
                   return { seq: current.seq };
                 }
@@ -488,16 +567,7 @@ export class ModelService extends Context.Service<ModelService>()(
                   "The canvas sequence changed unexpectedly.",
                 );
               yield* stage(command.canvas, followed.canvas);
-              yield* afterSqlCommit(sql, () => {
-                const applied = follow(
-                  held.get(command.canvas) ?? current,
-                  event,
-                );
-                if (applied._tag === "Applied")
-                  held.set(command.canvas, applied.canvas);
-                else held.delete(command.canvas);
-                PubSub.publishUnsafe(changes, event);
-              });
+              yield* publishChange(event, current);
               return { seq };
             }),
           )
@@ -510,6 +580,30 @@ export class ModelService extends Context.Service<ModelService>()(
           );
       });
       return {
+        subscribeChanges: (
+          listener: (event: Changed, current: Canvas) => void,
+        ) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+        subscribeCanvasesChanges: (
+          listener: (event: CanvasesChanged, current?: Canvas) => void,
+        ) => {
+          canvasListeners.add(listener);
+          return () => {
+            canvasListeners.delete(listener);
+          };
+        },
+        subscribeSheetChanges: (
+          listener: (event: SheetChanged, grid: SheetGrid) => void,
+        ) => {
+          sheetListeners.add(listener);
+          return () => {
+            sheetListeners.delete(listener);
+          };
+        },
         canvas,
         open,
         command,

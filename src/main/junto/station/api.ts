@@ -55,7 +55,7 @@ import {
 } from "../canvases";
 import {
   WorkRepository,
-  createAuthorialTaskDependencyScopeCapability,
+  createCanvasTaskDependencyScopeCapability,
   createCurrentProjectedTaskDependencyScopeCapability,
   createRetainedProjectedTaskDependencyScopeCapability,
   taskDependencyScopeCapabilityAllowsActor,
@@ -405,9 +405,32 @@ const sameIntentBasis = (
   left: IntentFactBasisValue,
   right: IntentFactBasisValue,
 ): boolean =>
-  left.kind === right.kind &&
-  left.generation === right.generation &&
-  left.contentSha256 === right.contentSha256;
+  left.kind === "canvas"
+    ? right.kind === "canvas" &&
+      left.canvasName === right.canvasName &&
+      left.seq === right.seq
+    : right.kind === "projected-intent" &&
+      left.generation === right.generation &&
+      left.contentSha256 === right.contentSha256;
+
+/**
+ * The basis a sink's work is judged against. A Remote holds one projection
+ * for the whole portfolio; a Command Center's basis is the sink's own canvas.
+ * The authority snapshot carries no canvas seq, so the canvas read from its
+ * document is at seq 0. The Station is not started, so nothing reaches this.
+ */
+const capturedBasisFor = (
+  topology: CapturedWorkTopology,
+  sink: SinkRef,
+): IntentFactBasisValue | undefined => {
+  if (topology.intentBasis !== undefined) return topology.intentBasis;
+  const material = topology.taskTopologyMaterial;
+  if (material?.kind !== "authorial-current") return undefined;
+  const document = material.authority.documents.get(sink.canvasName);
+  if (document === undefined) return undefined;
+  const canvas = canvasFromDocument(sink.canvasName, document);
+  return { kind: "canvas", canvasName: canvas.name, seq: canvas.seq };
+};
 
 /**
  * Decorate a geometry-admitted dependent record with its process-local scope.
@@ -430,19 +453,25 @@ const admitDependencyScope = (
     let capability: TaskDependencyScopeCapability;
     switch (material.kind) {
       case "authorial-current": {
-        const materialBasis = capturedIntentBasis(
-          "authorial-intent",
-          material.authority.generation,
-          material.authority.intentSha256,
-        );
-        if (!sameIntentBasis(materialBasis, basis)) {
+        const document = material.authority.documents.get(sink.canvasName);
+        const canvas =
+          document === undefined
+            ? undefined
+            : canvasFromDocument(sink.canvasName, document);
+        if (
+          canvas === undefined ||
+          !sameIntentBasis(
+            { kind: "canvas", canvasName: canvas.name, seq: canvas.seq },
+            basis,
+          )
+        ) {
           return rejected(
             "projection-conflict",
             "authorial Task topology material differs from its captured basis",
           );
         }
-        capability = createAuthorialTaskDependencyScopeCapability({
-          authority: material.authority,
+        capability = createCanvasTaskDependencyScopeCapability({
+          canvas,
           authoringSink: sink,
         });
         break;
@@ -498,7 +527,11 @@ const decorateCommandDependencyScope = (
 ): WorkCommandAuthorization =>
   authorization._tag === "rejected" || !commandRequiresTaskTopology(command)
     ? authorization
-    : admitDependencyScope(topology, command.item.sink, topology.intentBasis);
+    : admitDependencyScope(
+        topology,
+        command.item.sink,
+        capturedBasisFor(topology, command.item.sink),
+      );
 
 const decorateFactDependencyScope = (
   topology: CapturedWorkTopology,
@@ -513,16 +546,18 @@ const decorateFactDependencyScope = (
     // reservation. Mutable topology must not strand that correlated result.
     return authorization;
   }
+  const basis = capturedBasisFor(topology, fact.item.sink);
   if (
-    topology.intentBasis === undefined ||
-    !sameIntentBasis(topology.intentBasis, fact.basis)
+    basis === undefined ||
+    fact.basis.kind === "historical" ||
+    !sameIntentBasis(basis, fact.basis)
   ) {
     return rejected(
       "projection-conflict",
       "Task topology fact does not name the exact captured intent basis",
     );
   }
-  return admitDependencyScope(topology, fact.item.sink, topology.intentBasis);
+  return admitDependencyScope(topology, fact.item.sink, basis);
 };
 
 const findSink = (
@@ -1441,7 +1476,12 @@ const historicalFactAuthorization = (
       case "command":
         // Exact durable command correlation is the prior authorization.
         return admitted();
-      case "authorial-intent":
+      case "historical":
+        return rejected(
+          "authority-mismatch",
+          "facts from before the canvas basis are not replicated to a Station peer",
+        );
+      case "canvas":
         return rejected(
           "authority-mismatch",
           "authorial Command Center facts are not replicated to a Station peer",
@@ -1934,11 +1974,6 @@ const captureTopology = (
       peerInstallationId,
       localRole: "command-center" as const,
       localHostId: configuration.configuration.hostId,
-      intentBasis: capturedIntentBasis(
-        "authorial-intent",
-        authority.generation,
-        authority.intentSha256,
-      ),
       taskTopologyMaterial: {
         kind: "authorial-current",
         authority,

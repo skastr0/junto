@@ -4,7 +4,6 @@ import { isManagedAgentNode } from "@shared/actor-surface";
 import { serializeCanvas } from "@shared/canvas";
 import { resolveNodeHostId } from "@shared/station";
 import { CanvasesService } from "../../canvases";
-import { CanvasRecords } from "../../canvas/records";
 import { canvasBodySha256Of } from "../../canvas-intent-identity";
 import { getProcessIdentityMap } from "../../process-identity";
 import { SettingsService } from "../../settings/service";
@@ -17,14 +16,21 @@ import { buildLiveContext } from "./context";
 import { makeLiveRepository } from "./repository";
 import { createLiveSessionService } from "./service";
 
-type Services = CanvasesService | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | CanvasRecords | WorkProjectionReader;
+type Services = CanvasesService | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | WorkProjectionReader;
 export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
+
+/** The revision of one stored canvas, read from what the canvas service holds. */
+export const canvasRevisionOf = (canvases: CanvasesService["Service"]) => (canvasName: string) =>
+  canvases.liveDocuments().pipe(Effect.map((documents) => {
+    const held = documents.find((entry) => entry.canvasName === canvasName);
+    return held === undefined ? undefined : canvasBodySha256Of(serializeCanvas(held.doc));
+  }));
 
 /** Joins Live to the already running app owners; no process or database is opened here. */
 export const composeOverseerLive = async (run: LiveRun) => {
-  const { sql, settings, canvases, canvasRecords, workProjection } = await run(Effect.gen(function* () {
+  const { sql, settings, canvases, workProjection } = await run(Effect.gen(function* () {
     return { sql: yield* SqlClient.SqlClient, settings: yield* SettingsService, canvases: yield* CanvasesService,
-      canvasRecords: yield* CanvasRecords, workProjection: yield* WorkProjectionReader };
+      workProjection: yield* WorkProjectionReader };
   }));
   const processMap = getProcessIdentityMap();
   const revisions = new Map<string, string>();
@@ -52,7 +58,7 @@ export const composeOverseerLive = async (run: LiveRun) => {
   };
   const service = createLiveSessionService({
     repository: makeLiveRepository(sql),
-    canvasRecords,
+    canvasRevision: canvasRevisionOf(canvases),
     workProjection,
     run,
     settingsService: settings,

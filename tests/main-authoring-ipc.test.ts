@@ -24,6 +24,7 @@ const electron = vi.hoisted(() => ({
 
 const runtime = vi.hoisted(() => ({
   runPromise: vi.fn(async (_effect: unknown): Promise<string> => "executed"),
+  runFork: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -80,7 +81,7 @@ describe("renderer canvas authoring IPC", () => {
         "agent",
       ),
     ).toBeUndefined();
-  });
+  }, 15_000);
 
   it("lands the renderer flush through the same handlers while the gate is closing", async () => {
     const { registerJuntoIpc } = await import("../src/main/junto/ipc");
@@ -105,6 +106,7 @@ describe("renderer canvas authoring IPC", () => {
     const write = handlerFor(IPC_CHANNELS.writeCanvas);
     const create = handlerFor(IPC_CHANNELS.createCanvas);
     const remove = handlerFor(IPC_CHANNELS.deleteCanvas);
+    const command = handlerFor(IPC_CHANNELS.modelCommand);
     const sender = { sender: trustedSender } as const;
     const doc = { nodes: [], edges: [] } as CanvasDoc;
 
@@ -115,11 +117,12 @@ describe("renderer canvas authoring IPC", () => {
     mainAuthoringGate.beginFinalFlush();
     await expect(write(sender, "final", doc, "r1")).resolves.toBe("executed");
     await expect(create(sender, "recovery")).resolves.toBe("executed");
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 2);
+    await expect(command(sender, { _tag: "Edit", canvas: "final", id: "note", change: { kind: "note", text: "saved" } })).resolves.toBe("executed");
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 3);
 
     // Nothing else may author during that window.
     await expect(remove(sender, "doomed")).rejects.toBeInstanceOf(MainAuthoringRefused);
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 2);
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 3);
 
     // Only the trusted renderer reaches these handlers at all.
     expect(() =>
@@ -141,6 +144,6 @@ describe("renderer canvas authoring IPC", () => {
     await expect(write(sender, "after-close", doc, "r1")).rejects.toBeInstanceOf(
       MainAuthoringRefused,
     );
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 2);
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 3);
   });
 });

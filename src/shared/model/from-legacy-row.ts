@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { EtherNodeExtension } from "../canvas";
 import { Node } from "./kinds";
+import { normalizeNode } from "./normalize";
 import { SheetGrid } from "./sheet";
 import { Wire } from "./wire";
 
@@ -28,7 +29,8 @@ export interface LegacyNodeRow {
 const decodeExtension = Schema.decodeUnknownSync(
   Schema.fromJsonString(EtherNodeExtension),
 );
-const decodeNode = Schema.decodeUnknownSync(Node);
+const decodeNodeSchema = Schema.decodeUnknownSync(Node);
+const decodeNode = (input: unknown) => normalizeNode(decodeNodeSchema(input));
 const present = <T>(
   key: string,
   value: T | null | undefined,

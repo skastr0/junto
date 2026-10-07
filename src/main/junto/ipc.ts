@@ -1,7 +1,7 @@
-import { WorkSinkQuery } from "@shared/work-sinks";
+import { WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Result, Schema, Stream } from "effect";
 import {
   IPC_CHANNELS,
   type BindingHint,
@@ -17,7 +17,10 @@ import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { CanvasesService } from "./canvases";
-import { CanvasEntityRepository } from "./entities/repository";
+import { ModelService } from "./model/service";
+import { ModelActorRefs } from "./model/actor-refs";
+import { ModelNotFound } from "./model/records";
+import { Command, CanvasName, NodeId } from "@shared/model";
 import { BoxActivityPolicy } from "./box";
 
 import { registerChatIpc } from "./chat/ipc";
@@ -414,6 +417,39 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
 
 export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
+  const ModelOpenInput = Schema.Struct({ canvas: CanvasName });
+  const ModelSheetInput = Schema.Struct({ canvas: CanvasName, id: NodeId });
+  privilegedIpc.handle(IPC_CHANNELS.modelOpen, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(ModelOpenInput)(input, { onExcessProperty: "error" });
+      return yield* (yield* ModelService).open(query.canvas);
+    })),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.modelCommand, (_event, input: unknown) =>
+    runMainAuthoring("ipc.model.command", () => AppRuntime.runPromise(Effect.gen(function* () {
+      yield* denyUnlessCommandCenterAuthorial;
+      const command = yield* Schema.decodeUnknownEffect(Command)(input, { onExcessProperty: "error" });
+      return yield* (yield* ModelService).command(command, "operator");
+    }))),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.modelActorRefs, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(ModelOpenInput)(input, { onExcessProperty: "error" });
+      return yield* (yield* ModelActorRefs).read(query.canvas);
+    })),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.modelSheetRead, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(ModelSheetInput)(input, { onExcessProperty: "error" });
+      const model = yield* ModelService;
+      const node = (yield* model.canvas(query.canvas)).nodes.get(query.id);
+      if (node?.kind !== "sheet") return yield* new ModelNotFound({ what: "sheet", id: query.id });
+      const grid = yield* model.readSheet(query.canvas, query.id);
+      if (!grid) return yield* new ModelNotFound({ what: "sheet grid", id: query.id });
+      return grid;
+    })),
+  );
+
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
     ensureHostAvailable: ensureBoxHostAvailable,
@@ -538,22 +574,15 @@ export const registerJuntoIpc = (): void => {
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
             const canvases = yield* CanvasesService;
-            const entities = yield* CanvasEntityRepository;
             const snapshots = yield* SnapshotsService;
             // Fresh full-corpus pull (no hints = base project lists from each source).
             const state = yield* snapshots.refresh([]);
-            const suppressEntityIds = yield* entities.listSuppressedEntityIds(
-              name,
-            );
             // mergePortfolioInto is idempotent. Run it through the retrying
             // document mutation boundary so a direct-file edit during refresh
             // is merged into, never overwritten by a stale pre-refresh read.
-            // Suppress archived/soft_deleted entity ids so hermes cannot
-            // re-mint a deleted agent card via deterministic agent-${slug}.
             yield* canvases.mutate(name, (doc) =>
               mergePortfolioInto(doc, state, {
                 all: options?.all ?? false,
-                suppressEntityIds,
               }),
             );
             return yield* canvases.read(name, "ipc.mergePortfolio");
@@ -1476,6 +1505,13 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
+  privilegedIpc.handle(IPC_CHANNELS.workAttention, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, { onExcessProperty: "error" })(input);
+      return yield* (yield* WorkRepository).attentionSnapshot(query);
+    })),
+  );
+
   privilegedIpc.handle(IPC_CHANNELS.workSinkPage, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(WorkSinkQuery, { onExcessProperty: "error" })(input);
@@ -1737,6 +1773,19 @@ export const registerJuntoIpc = (): void => {
           ),
       ),
   );
+
+  AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.changes.pipe(
+    Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelChanged, event))),
+  )));
+  AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.canvasesChanges.pipe(
+    Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelCanvasesChanged, event))),
+  )));
+  AppRuntime.runFork(Effect.flatMap(ModelService, (model) => model.sheetChanges.pipe(
+    Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelSheetChanged, event))),
+  )));
+  AppRuntime.runFork(Effect.flatMap(ModelActorRefs, (refs) => refs.changes.pipe(
+    Stream.runForEach((event) => Effect.sync(() => broadcast(IPC_CHANNELS.modelActorRefsChanged, event))),
+  )));
 
   // Wire pushes and background loops once at startup.
   void AppRuntime.runPromise(

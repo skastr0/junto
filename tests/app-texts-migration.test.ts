@@ -21,7 +21,7 @@ import {
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V11_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V11_SQL, STATE_SCHEMA_V12_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url));
 
@@ -63,11 +63,18 @@ const versionElevenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 11),
 };
 
+const versionTwelvePlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 12,
+  currentSchemaSql: STATE_SCHEMA_V12_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 12),
+};
+
 describe("state migration 11 -> 12 (app texts)", () => {
   it("freezes the version-eleven witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V11_SQL)).toEqual(STATE_SCHEMA_V11_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V12_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toBe(STATE_SCHEMA_V12_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V12_SQL)).toEqual(STATE_SCHEMA_V12_IDENTITY);
+    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
   });
 
   it("adds the one table and leaves every row already held as it was", async () => {
@@ -79,7 +86,7 @@ describe("state migration 11 -> 12 (app texts)", () => {
       expect((before.work_events as unknown[]).length).toBeGreaterThan(0);
       expect(before).not.toHaveProperty("app_texts");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionTwelvePlan);
       expect(result).toMatchObject({ previousVersion: 11, schemaVersion: 12 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V12_IDENTITY);
 
@@ -95,7 +102,7 @@ describe("state migration 11 -> 12 (app texts)", () => {
   it("holds one briefing, app and region references of any length, and refuses a row that fits no scope", async () => {
     const database = await openCopy();
     try {
-      migrateStateSchema(database);
+      migrateStateSchema(database, versionTwelvePlan);
       const insert = database.prepare(
         `INSERT INTO app_texts(scope_kind, canvas_name, region_id, name, description, body, updated_at, updated_by)
          VALUES (?, ?, ?, ?, ?, ?, 1, 'operator')`,

@@ -196,7 +196,7 @@ describe("active ActorRef projection", () => {
           },
         ].sort((left, right) => left.seatId.localeCompare(right.seatId)),
       );
-      expect(await runtime.runPromise(canvases.activeActorRefs())).toEqual(
+      expect([...(await runtime.runPromise(canvases.activeActorRefs()))].sort((left, right) => left.seatId.localeCompare(right.seatId) || left.canvasName.localeCompare(right.canvasName))).toEqual(
         [
           {
             seatId: localSeatId,
@@ -220,7 +220,7 @@ describe("active ActorRef projection", () => {
         ),
       );
 
-      const beforeRefs = await runtime.runPromise(canvases.activeActorRefs());
+      const beforeRefs = [...(await runtime.runPromise(canvases.activeActorRefs()))].sort((left, right) => left.seatId.localeCompare(right.seatId) || left.canvasName.localeCompare(right.canvasName));
       await expect(
         runtime.runPromise(
           canvases.write(
@@ -235,106 +235,11 @@ describe("active ActorRef projection", () => {
         ),
       ).rejects.toThrow("unresolved host");
       expect(await runtime.runPromise(canvases.read("alpha"))).toEqual(alpha);
-      expect(await runtime.runPromise(canvases.activeActorRefs())).toEqual(beforeRefs);
+      expect([...(await runtime.runPromise(canvases.activeActorRefs()))].sort((left, right) => left.seatId.localeCompare(right.seatId) || left.canvasName.localeCompare(right.canvasName))).toEqual(beforeRefs);
     } finally {
       await runtime.dispose();
     }
   });
 
-  it("reads Remote refs only from the validated installed portfolio registry", async () => {
-    const runtime = await makeRuntime(
-      "junto-actor-ref-remote-",
-      "installation-remote",
-    );
-    const local = installation("installation-remote");
-    const commandCenter = installation("installation-command");
-    const remoteActor = actorDoc(
-      "remote-agent",
-      "remote-a",
-      "binding-remote",
-      "remote-a:codex",
-    );
 
-    try {
-      const { canvases, station } = await runtime.runPromise(
-        Effect.gen(function* () {
-          return {
-            canvases: yield* CanvasesService,
-            station: yield* StationRepository,
-          };
-        }),
-      );
-      await runtime.runPromise(
-        station.pair(
-          PairRequest.make({
-            protocol: STATION_API_PROTOCOL,
-            op: "pair",
-            commandCenterInstallationId: commandCenter,
-            stationInstallationId: local,
-            stationLabel: "Remote A",
-            appVersion: "0.1.0",
-          }),
-        ),
-      );
-      await runtime.runPromise(
-        station.configureRemote(
-          ConfigureRequest.make({
-            protocol: STATION_API_PROTOCOL,
-            op: "configure",
-            installationId: local,
-            configuration: {
-              role: "remote",
-              hostId: hostId("remote-a"),
-              agentHostId: hostId("remote-a"),
-              commandCenterInstallationId: commandCenter,
-              supervisedPreferred: true,
-            },
-            host: {
-              id: "remote-a",
-              label: "Remote A",
-              kind: "remote",
-              capabilities: ["terminal"],
-            },
-          }),
-        ),
-      );
-      const body = compileStationPortfolioBody(
-        new Map([["factory", remoteActor]]),
-        new Map([["remote-a", local]]),
-      );
-      await runtime.runPromise(
-        station.installProjection(
-          ProjectRequest.make({
-            protocol: STATION_API_PROTOCOL,
-            op: "project",
-            stationInstallationId: local,
-            projection: {
-              scope: "full",
-              generation: sequence("1"),
-              sourceCanvasGeneration: sequence("1"),
-              sourceIntentSha256:
-                stationProjectionContentSha256("remote actor source"),
-              body,
-              contentSha256: stationProjectionContentSha256(body),
-              createdAt: "2026-07-27T12:01:00.000Z",
-            },
-          }),
-        ),
-      );
-
-      const expected = [{
-        seatId: deriveActorSeatId(local, "binding-remote"),
-        canvasName: "factory",
-        nodeId: "remote-agent",
-      }];
-      expect(
-        (await runtime.runPromise(canvases.read("factory"))).actorRefs,
-      ).toEqual(expected);
-      expect(
-        await runtime.runPromise(canvases.activeActorRefs()),
-      ).toEqual(expected);
-    } finally {
-      await runtime.dispose();
-    }
-  });
 });

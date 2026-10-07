@@ -6,21 +6,46 @@ import { nodeFromLegacyRow, wireFromLegacyRow } from "./from-legacy-row";
 import type { Node } from "./kinds";
 import type { Wire } from "./wire";
 
-export const nodeFromDocument = (canvas: string, node: CanvasNode, z: number) =>
-  nodeFromLegacyRow({
-    canvas_name: canvas, node_id: node.id, type: node.type,
-    x: node.x, y: node.y, width: node.width, height: node.height, z_index: z,
-    color: node.color, ether_json: node.ether === undefined ? null : JSON.stringify(node.ether),
+export const nodeFromDocument = (
+  canvas: string,
+  node: CanvasNode,
+  z: number,
+): Node => {
+  const row = nodeFromLegacyRow({
+    canvas_name: canvas,
+    node_id: node.id,
+    type: node.type,
+    x: node.x,
+    y: node.y,
+    width: node.width,
+    height: node.height,
+    z_index: z,
+    color: node.color,
+    ether_json: node.ether === undefined ? null : JSON.stringify(node.ether),
     ...(node.type === "text" ? { text_content: node.text } : {}),
-    ...(node.type === "file" ? { file_path: node.file, file_subpath: node.subpath } : {}),
+    ...(node.type === "file"
+      ? { file_path: node.file, file_subpath: node.subpath }
+      : {}),
     ...(node.type === "link" ? { link_url: node.url } : {}),
-    ...(node.type === "group" ? { group_label: node.label, group_background: node.background, group_background_style: node.backgroundStyle } : {}),
+    ...(node.type === "group"
+      ? {
+          group_label: node.label,
+          group_background: node.background,
+          group_background_style: node.backgroundStyle,
+        }
+      : {}),
   });
+  return row;
+};
 
 export const wireFromDocument = (canvas: string, wire: CanvasEdge) =>
   wireFromLegacyRow({
-    canvas_name: canvas, edge_id: wire.id, from_node_id: wire.fromNode, to_node_id: wire.toNode,
-    from_side: wire.fromSide, to_side: wire.toSide,
+    canvas_name: canvas,
+    edge_id: wire.id,
+    from_node_id: wire.fromNode,
+    to_node_id: wire.toNode,
+    from_side: wire.fromSide,
+    to_side: wire.toSide,
     ether_json: wire.ether === undefined ? null : JSON.stringify(wire.ether),
   });
 
@@ -78,7 +103,9 @@ const heldWires = new WeakMap<object, Pick<Canvas, "wires">>();
  * no verb, or one the model does not know, is not a wire; of two with one id
  * the first is kept.
  */
-export const wiresFromDocument = (doc: Pick<Document, "edges">): Pick<Canvas, "wires"> => {
+export const wiresFromDocument = (
+  doc: Pick<Document, "edges">,
+): Pick<Canvas, "wires"> => {
   const known = heldWires.get(doc);
   if (known !== undefined) return known;
   const wires = new Map<Wire["id"], Wire>();
@@ -146,3 +173,158 @@ export const workItemsFromDocument = (
   heldItems.set(doc, itemsOf);
   return itemsOf;
 };
+
+/** Temporary facade output for callers being moved to model reads. No Work. */
+export const nodeToDocument = (node: Node): CanvasNode => {
+  const frame = {
+    id: node.id,
+    x: node.x,
+    y: node.y,
+    width: node.width,
+    height: node.height,
+    ...(node.color === undefined ? {} : { color: node.color }),
+  };
+  const entity = (kind: string, name?: string) => ({
+    entity: { kind, ...(name === undefined ? {} : { name }) },
+  });
+  const text = (body: string, ether?: CanvasNode["ether"]): CanvasNode => ({
+    ...frame,
+    type: "text",
+    text: body,
+    ...(ether === undefined ? {} : { ether }),
+  });
+  const labelled = "label" in node ? (node.label ?? "") : "";
+  switch (node.kind) {
+    case "agent":
+      return text(node.label, {
+        ...entity("agent", node.agentKey),
+        host: node.host,
+        ...(node.overseer ? { overseer: true } : {}),
+        terminal: {
+          bindingId: node.bindingId,
+          harness: node.harness,
+          onDelete: node.onRemove,
+          ...(node.launch === undefined ? {} : { launch: node.launch }),
+          ...(node.sessionId === undefined
+            ? {}
+            : { sessionId: node.sessionId }),
+        },
+      });
+    case "terminal":
+      return text(labelled, {
+        ...entity("terminal"),
+        host: node.host,
+        terminal: {
+          bindingId: node.bindingId,
+          onDelete: node.onRemove,
+          ...(node.launch === undefined ? {} : { launch: node.launch }),
+        },
+      });
+    case "page":
+      return {
+        ...frame,
+        type: "link",
+        url: node.url,
+        ether: {
+          ...entity("page"),
+          host: node.host,
+          browser: { profile: node.profile, onDelete: node.onRemove },
+        },
+      };
+    case "region":
+      return {
+        ...frame,
+        type: "group",
+        ...(node.label === undefined ? {} : { label: node.label }),
+        ...(node.background === undefined
+          ? {}
+          : { background: node.background }),
+        ...(node.backgroundStyle === undefined
+          ? {}
+          : { backgroundStyle: node.backgroundStyle }),
+        ether: {
+          region: {
+            hold: node.hold,
+            ...(node.instruction === undefined
+              ? {}
+              : { instruction: node.instruction }),
+            ...(node.defaults === undefined ? {} : { defaults: node.defaults }),
+            ...(node.contract === undefined ? {} : { contract: node.contract }),
+            ...(node.environment === undefined
+              ? {}
+              : { environment: node.environment }),
+          },
+        },
+      };
+    case "task":
+      return text(node.name ?? "", {
+        ...entity("task"),
+        tasks: {
+          items: [],
+          ...(node.name === undefined ? {} : { name: node.name }),
+          ...(node.contract === undefined ? {} : { contract: node.contract }),
+        },
+      });
+    case "requests":
+      return text(node.name ?? "", {
+        ...entity("requests"),
+        requests: {
+          items: [],
+          ...(node.name === undefined ? {} : { name: node.name }),
+        },
+      });
+    case "cron":
+      return text(labelled, {
+        ...entity("cron"),
+        timer: {
+          ...(node.expression === undefined
+            ? {}
+            : { expression: node.expression }),
+        },
+        host: node.host,
+      });
+    case "watcher":
+      return text(labelled, {
+        ...entity("watcher"),
+        host: node.host,
+        watch: {
+          source: "hermes",
+          kind: "stat_threshold",
+          ...(node.key === undefined ? {} : { key: node.key }),
+          ...(node.stat === undefined ? {} : { stat: node.stat }),
+          ...(node.op === undefined ? {} : { op: node.op }),
+          ...(node.value === undefined ? {} : { value: node.value }),
+        },
+      });
+    case "note":
+      return text(node.text);
+    case "label":
+      return text(node.text, entity("label"));
+    case "file":
+      return {
+        ...frame,
+        type: "file",
+        file: node.path,
+        ...(node.subpath === undefined ? {} : { subpath: node.subpath }),
+      };
+    case "link":
+      return { ...frame, type: "link", url: node.url };
+    case "git":
+      return text(labelled, { ...entity("git"), git: { cwd: node.cwd } });
+    case "relay":
+      return text(labelled, { ...entity("relay"), host: node.host });
+    default:
+      return text(labelled, entity(node.kind));
+  }
+};
+export const wireToDocument = (wire: Wire): CanvasEdge => ({
+  id: wire.id,
+  fromNode: wire.from,
+  toNode: wire.to,
+  ...(wire.fromSide === undefined ? {} : { fromSide: wire.fromSide }),
+  ...(wire.toSide === undefined ? {} : { toSide: wire.toSide }),
+  ether: {
+    verb: wire.verb,
+    ...(wire.mask === undefined ? {} : { mask: wire.mask }),
+  },
+});

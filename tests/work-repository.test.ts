@@ -76,19 +76,13 @@ const decodeIntentFactBasis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 });
 const authorialBasis = decodeIntentFactBasis({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: currentIntentSha256,
+  kind: "canvas", canvasName: "factory", seq: 1,
 });
 const staleAuthorialBasis = decodeIntentFactBasis({
-  kind: "authorial-intent",
-  generation: "0",
-  contentSha256: currentIntentSha256,
+  kind: "canvas", canvasName: "factory", seq: 0,
 });
 const wrongAuthorialBasis = decodeIntentFactBasis({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: "f".repeat(64),
+  kind: "canvas", canvasName: "wrong-factory", seq: 1,
 });
 const projectedBasis = decodeIntentFactBasis({
   kind: "projected-intent",
@@ -439,7 +433,7 @@ describe("WorkRepository v2 local authority", () => {
 
     for (const [messageId, basis, reason] of [
       ["stale-basis-mail", staleAuthorialBasis, "causal-conflict"],
-      ["wrong-hash-mail", wrongAuthorialBasis, "causal-conflict"],
+      ["wrong-canvas-mail", wrongAuthorialBasis, "authority-mismatch"],
       ["wrong-role-mail", projectedBasis, "authority-mismatch"],
     ] as const) {
       const result = await runtime.runPromise(

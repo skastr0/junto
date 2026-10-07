@@ -1,3 +1,6 @@
+import { useMemo } from "react";
+import { emptySinkGlance } from "@shared/work-attention";
+import { createWorkAttentionStore } from "./work-attention-store";
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { WorkSinkKind } from "@shared/work-sinks";
@@ -32,4 +35,28 @@ export const useArtifactItems = (canvasName: string, nodeId: string) => {
 export const useBoardTopics = (canvasName: string, nodeId: string) => {
   const sink = useWorkSink("board", canvasName, nodeId);
   return { ...sink, topics: sink.page.kind === "board" ? sink.page.items : emptyTopics };
+};
+
+export const workAttentionStore = createWorkAttentionStore(getJuntoApi);
+
+/** Complete card attention plus compact claim rows, independent of page depth. */
+export const useSinkAttention = (canvasName: string, nodeId: string, enabled = true) => {
+  const state = workAttentionStore.state(canvasName);
+  useEffect(() => {
+    if (enabled && canvasName) return workAttentionStore.retain(canvasName);
+  }, [canvasName, enabled]);
+  const fallback = useMemo(() => emptySinkGlance(nodeId), [nodeId]);
+  const glance = use$(state.byNodeId[nodeId]) ?? fallback;
+  const items = use$(state.itemsByNodeId[nodeId]) ?? emptyTasks;
+  return { ...glance, items };
+};
+
+/** The execution graph takes compact complete claim rows, never content pages. */
+export const useCanvasWorkItems = (canvasName: string) => {
+  const state = workAttentionStore.state(canvasName);
+  useEffect(() => {
+    if (canvasName) return workAttentionStore.retain(canvasName);
+  }, [canvasName]);
+  const items = use$(state.itemsByNodeId);
+  return useMemo(() => (nodeId: string) => items[nodeId] ?? emptyTasks, [items]);
 };

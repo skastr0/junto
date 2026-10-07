@@ -20,7 +20,8 @@ import { InstallationId } from "../../../src/shared/installation-id";
 import {
   WORK_PROTOCOL,
   WorkRecord,
-  type WorkRecord as WorkRecordValue,
+  type WorkRecord as CurrentWorkRecord,
+  type WorkFact as CurrentWorkFact,
 } from "../../../src/shared/work-protocol";
 import {
   STATE_SCHEMA_V1_IDENTITY,
@@ -47,7 +48,15 @@ const COMMAND_CENTER_ID = Schema.decodeUnknownSync(InstallationId)(
 );
 const REMOTE_ID = Schema.decodeUnknownSync(InstallationId)("remote-v1");
 const strictDecode = { onExcessProperty: "error" } as const;
-const decodeRecord = Schema.decodeUnknownSync(WorkRecord, strictDecode);
+// Schema-v1 remains an immutable audit codec, including its retired basis.
+type LegacyAuthorialBasis = { readonly kind: "authorial-intent"; readonly generation: string; readonly contentSha256: string };
+type WorkRecordValue = Exclude<CurrentWorkRecord, CurrentWorkFact> | (Omit<CurrentWorkFact, "basis"> & { readonly basis: Exclude<CurrentWorkFact["basis"], { readonly kind: "canvas" | "historical" }> | LegacyAuthorialBasis });
+const decodeRecord = (input: unknown): WorkRecordValue => {
+  const raw = input as WorkRecordValue;
+  const historical = raw.recordType === "fact" && raw.basis.kind === "authorial-intent";
+  const decoded = Schema.decodeUnknownSync(WorkRecord, strictDecode)(historical ? { ...raw, basis: { kind: "historical" } } : raw);
+  return (historical ? { ...decoded, basis: raw.basis } : decoded) as WorkRecordValue;
+};
 
 const sha256 = (value: string | Uint8Array): string =>
   createHash("sha256").update(value).digest("hex");

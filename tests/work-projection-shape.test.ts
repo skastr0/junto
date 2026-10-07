@@ -75,9 +75,7 @@ const currentIntentSha256 = authorityMaterial.intentSha256;
 const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: currentIntentSha256,
+  kind: "canvas", canvasName: "factory", seq: 1,
 });
 const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
 const actor = { seatId, canvasName: "factory", nodeId: "agent-1" };

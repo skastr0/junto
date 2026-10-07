@@ -1,8 +1,7 @@
 # Workspace storage
 
 Design sent to canvas-lead before migration implementation, 2026-10-07.
-Shared domain schemas are owned by canvas-lead; names below remain subject to
-that contract.
+Implemented against the shared Effect schemas owned by canvas-lead.
 
 ## Authority
 
@@ -16,20 +15,20 @@ its own STRICT SQLite table. There is no shared generic node payload table.
 
 | Kind | Domain columns beyond identity and geometry |
 | --- | --- |
-| Seat | Binding id, entity name, host, harness, session id, terminal label, overseer, launch kind/cwd/argv/env/extra arguments |
-| Terminal | Binding id, host, label, session id, deletion policy, launch fields |
+| Seat | Binding id, agent key, host, harness, session id, terminal label, overseer, launch kind/cwd/argv/env/extra arguments |
+| Terminal | Binding id, host, label, deletion policy, launch fields |
 | Region | Hold, instruction, page defaults, host paths, rules, rulings, environment sources and folders |
 | Page | URL, browser profile, host, deletion policy |
 | Task board | Name, contract |
 | Requests | Name |
 | Artifacts, board, pad | Identity and geometry; material contents remain in Work |
-| Sheet | Named grid columns and rows, sparse cell text |
-| Cron | Expression, interval, host |
+| Sheet | Label; grid columns and rows in a separate `sheet_grids` table |
+| Cron | Optional expression, host |
 | Relay | Host; predicates and actions remain derived from wires |
-| Gauge | Source, key, statistic, comparison, threshold, host |
+| Watcher | Key, statistic, comparison, threshold, host |
 | Note, label | Body or label text |
 | Git | Working directory |
-| Wire | Semantic source and target ids, verb, attachment sides, attenuation mask, order |
+| Wire | Semantic source and target ids, verb, attachment sides, attenuation mask |
 
 Structured values use codecs for their exact domain shape in purpose-named
 columns. They never form a catch-all object. Mail and all other Work material
@@ -51,7 +50,7 @@ Work mail.
 
 ## Migration proof
 
-Append a forward consolidation step from installed version 11. Copy existing
+Append an atomic 12 → 13 consolidation step after the app-text migration. Copy existing
 authority rows into the kind tables, verify replacement counts and identities,
 replace the Work authorial-basis trigger's document dependency, then drop the
 old node, edge, document and entity tables in that same atomic step. Historical
@@ -60,8 +59,15 @@ migration constants remain immutable.
 A coherent SQLite backup of the installed database was made through a read-only
 connection. It contains 153 factory objects: 84 seats, 44 regions, five terminals,
 17 notes, and one page, task board and artifact sink. It has 179 wires. Its 578
-archived registry entries lack geometry and executable descriptors; their
-retention needs an explicit decision before migration. Installed Work rows must
-compare byte-for-byte before and after migration. The copy must pass integrity
-and foreign-key checks, and the migrated schema must match a fresh installation.
-The live database is never migrated by a proof script.
+archived registry entries lack geometry and executable descriptors and are
+retired by the operator's explicit decision. Historical Work facts become
+`historical`, with basis columns cleared. Their original event hashes remain
+unchanged provenance and those facts cannot be reverified or exported. Every
+other durable row stays unchanged. The disposable copy passes integrity and
+foreign-key checks, and its schema matches a fresh installation. The live
+database is never migrated by a proof script.
+
+The temporary CanvasesService facade builds documents from model rows for
+callers still moving to the model API. Writes compare those domain rows and
+issue commands in one transaction. The facade and converters leave with the
+last document caller; storage has only the per-kind authority from v13 onward.

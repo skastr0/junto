@@ -39,7 +39,6 @@ import {
 } from "@shared/remote-hosts";
 import { HostRegistryRows } from "../hosts/registry";
 import { setHostsSnapshot } from "../hosts/snapshot";
-import { CanvasRecords, CanvasRecordsLive } from "../canvas/records";
 import { StateTransactionOperation } from "../state/service";
 import { withSqlRead } from "../state/sql-read";
 import { StationConfigurationRepository } from "./configuration-state";
@@ -97,7 +96,8 @@ export class StationConfigurationError extends Schema.TaggedError<StationConfigu
     "host-immutable",
     "host-registration-mismatch",
     "role-immutable",
-    "remote-only",]),
+    "remote-only",
+    "projection-switched-off",]),
     message: Schema.String,
   },
 ) {}
@@ -409,7 +409,6 @@ export const makeStationRepository = (
       const configurations = yield* StationConfigurationRepository;
       const installations = yield* KnownInstallations;
       const hostRows = yield* HostRegistryRows;
-      const canvas = yield* CanvasRecords;
       const clock = options.now ?? nowIso;
       const findInstallation = SqlSchema.findOneOption({
         Request: Schema.Void, Result: InstallationRow,
@@ -812,11 +811,14 @@ export const makeStationRepository = (
               }
 
               // Remote is a projection consumer, never a dormant Command
-              // Center. Fresh boot seeds an authorial canvas for local use;
-              // the first successful Remote configuration removes that
-              // history in this same transaction. Repeating configure also
-              // repairs any impossible authorial residue.
-              yield* canvas.wipeCanvasAuthority();
+              // Center. A first Remote configuration used to remove the
+              // seeded authorial canvas in this same transaction. Remote
+              // stations are switched off, so it is refused here and the
+              // canvas is left alone; an installation that is already a
+              // Remote keeps its configuration path.
+              if (current === undefined) {
+                return { _tag: "projection-switched-off" as const };
+              }
 
               const effectiveConfiguration = request.configuration;
               yield* hostRows.ensure(admittedConfiguredAt);
@@ -867,6 +869,13 @@ export const makeStationRepository = (
               Effect.mapError(configureStateError),
             );
 
+          if (decision._tag === "projection-switched-off") {
+            return yield* StationConfigurationError.make({
+              reason: "projection-switched-off",
+              message:
+                "Remote stations are switched off in this build; this installation cannot become a Remote",
+            });
+          }
           if (decision._tag === "pairing-required") {
             return yield* StationConfigurationError.make({
               reason: "pairing-required",
@@ -1101,7 +1110,6 @@ export const makeStationRepositoryLive = (
     StationConfigurationRepository.layer,
     KnownInstallations.layer,
     HostRegistryRows.layer,
-    CanvasRecordsLive,
   ]));
 
 export const StationRepositoryLive = makeStationRepositoryLive();

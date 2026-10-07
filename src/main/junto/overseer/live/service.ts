@@ -6,7 +6,6 @@ import { isOverseerMutation, type OverseerRequest, type OverseerResult } from "@
 import { formatNodeRef } from "@shared/node-ref";
 import { liveSettings, liveCallLimitSeconds, LIVE_INITIAL_BILLING_SECONDS, LIVE_VOICE_USD_PER_MINUTE } from "@shared/settings";
 import type { SettingsServiceApi } from "../../settings/service";
-import type { CanvasRecords } from "../../canvas/records";
 import type { WorkProjectionReader } from "../../work/repository";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "./execution";
 import { createOpenAiLiveConnection, type OpenAiLiveConnection, type OpenAiLiveConnectionOptions } from "./openai-connection";
@@ -18,7 +17,8 @@ import { quietLiveContext, meaningfulLiveChanges, coalesceLiveActivity, type Liv
 
 export interface LiveSessionServiceOptions {
   readonly repository: LiveRepositoryShape;
-  readonly canvasRecords: Pick<CanvasRecords["Service"], "readRevision">;
+  /** The revision of a canvas as stored now, or nothing when it is absent. */
+  readonly canvasRevision: (canvasName: string) => Effect.Effect<string | undefined, unknown>;
   readonly workProjection: Pick<WorkProjectionReader["Service"], "revision">;
   /** The existing warm app runtime, never a newly constructed runtime. */
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
@@ -557,7 +557,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
       yield* Effect.try({ try: assertIntentCurrent, catch: (error) => error });
       yield* repository.assertRequestCurrentWithin(correlation);
       if (mutation && expectedRevision !== undefined) {
-        const actual = yield* options.canvasRecords.readRevision(canvasName);
+        const actual = yield* options.canvasRevision(canvasName);
         if (actual !== undefined && actual !== expectedRevision) {
           return yield* Effect.fail(new Error("Canvas changed after this request was captured. Read current state and replan."));
         }
@@ -586,7 +586,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
       yield* Effect.try({ try: assertIntentCurrent, catch: (error) => error });
       // Only structural canvas operations have a single known owning transaction.
       // Native teardown and mixed Work effects retain a dispatch receipt until settlement.
-      const revisionAfter = yield* options.canvasRecords.readRevision(canvasName);
+      const revisionAfter = yield* options.canvasRevision(canvasName);
       if (typeof revisionAfter === "string") { committedRevision = revisionAfter; expectedRevision = revisionAfter; }
       committedWorkRevision = yield* options.workProjection.revision(canvasName);
       expectedWorkRevision = committedWorkRevision;
@@ -597,7 +597,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
       yield* repository.transitionOperationWithin({ operationId: live.operationId, from: "dispatched", to: "applied",
         outcome: { committed: true, operation: request.operation }, correlation }, at);
       // The owner commits this graph and receipt together; no stale full-document replacement.
-      const revision = yield* options.canvasRecords.readRevision(canvasName);
+      const revision = yield* options.canvasRevision(canvasName);
       if (typeof revision === "string") committedRevision = revision;
       receiptCommitted = true;
     });

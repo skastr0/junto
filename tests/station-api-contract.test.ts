@@ -198,11 +198,7 @@ const messageFact = (
     operation: "message.append",
     contentSha256: hashA,
     originAt: timestamp,
-    basis: {
-      kind: "authorial-intent",
-      generation: "1",
-      contentSha256: hashB,
-    },
+    basis: { kind: "canvas", canvasName: sink.canvasName, seq: 1 },
     predecessor: null,
     body: {
       operation: "message.append",

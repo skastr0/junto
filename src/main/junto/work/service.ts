@@ -1,3 +1,5 @@
+import { ModelRecords } from "../model/records";
+import { asCanvasName, type Canvas } from "@shared/model";
 // WorkService — one repository-native orchestration seam for the SQLite work
 // plane. Canvas documents are read-only topology plus runtime projections;
 // every durable mutation goes through a specific WorkRepository verb.
@@ -171,7 +173,7 @@ import {
   WorkAuthorityError,
   WorkRepository,
   WorkRepositoryError,
-  createAuthorialTaskDependencyScopeCapability,
+  createCanvasTaskDependencyScopeCapability,
   createCurrentProjectedTaskDependencyScopeCapability,
   type PendingCommand,
   type ReviewGateWithin,
@@ -758,6 +760,7 @@ export const WorkLive = Layer.effect(
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const repository = yield* WorkRepository;
+    const modelRecords = yield* ModelRecords;
     const crew = yield* CrewRepository;
     const stations = yield* StationRepository;
     const fleetTargets = yield* StationFleetTargetRepository;
@@ -814,29 +817,13 @@ export const WorkLive = Layer.effect(
     const readCanvas = (canvasName: string) =>
       canvases.readWithIntentWitness(canvasName, "work.service").pipe(
         Effect.mapError(toWorkServiceError),
-        Effect.map(({ read, intentWitness }) => ({
-          ...read,
-          intentWitness,
-        })),
+        Effect.map(({ read, intentWitness }) => ({ ...read, intentWitness })),
       );
 
-    const intentBasis = (
-      context: StationContext,
-      witness: {
-        readonly generation: string;
-        readonly contentSha256: string;
-      },
-    ): IntentFactBasisValue =>
-      Schema.decodeUnknownSync(IntentFactBasis, {
-        onExcessProperty: "error",
-      })({
-        kind:
-          context.configuration.role === "command-center"
-            ? "authorial-intent"
-            : "projected-intent",
-        generation: witness.generation,
-        contentSha256: witness.contentSha256,
-      });
+    const intentBasis = (context: StationContext, witness: { canvasName: string; seq: number; generation: string; contentSha256: string }): IntentFactBasisValue =>
+      Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })(context.configuration.role === "command-center"
+        ? { kind: "canvas", canvasName: witness.canvasName, seq: witness.seq }
+        : { kind: "projected-intent", generation: witness.generation, contentSha256: witness.contentSha256 });
 
     const taskDependencyScopeCapability = (
       context: StationContext,
@@ -847,33 +834,11 @@ export const WorkLive = Layer.effect(
       Effect.gen(function* () {
         let capability: TaskDependencyScopeCapability;
         if (context.configuration.role === "command-center") {
-          const authority: CanvasAuthorityMaterialSnapshot = yield* canvases
-            .authorityMaterialSnapshot()
-            .pipe(Effect.mapError(toWorkServiceError));
-          if (
-            basis.kind !== "authorial-intent" ||
-            basis.generation !== authority.generation ||
-            basis.contentSha256 !== authority.intentSha256
-          ) {
-            return yield* new WorkServiceError({
-              code: "invalid",
-              message:
-                "Task topology material changed after the authorial canvas read",
-            });
-          }
-          capability = yield* Effect.try({
-            try: () =>
-              createAuthorialTaskDependencyScopeCapability({
-                authority,
-                authoringSink: sinkRef(canvasName, nodeId),
-              }),
-            catch: (error) =>
-              new WorkServiceError({
-                code: "invalid",
-                message:
-                  `Task topology authority is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-              }),
-          });
+          const header = yield* modelRecords.getCanvas(canvasName).pipe(Effect.mapError(toWorkServiceError));
+          if (basis.kind !== "canvas" || basis.canvasName !== canvasName || basis.seq !== header?.seq) return yield* new WorkServiceError({ code: "invalid", message: "task topology changed after its canvas read" });
+          const [nodes, wires] = yield* Effect.all([modelRecords.listNodes(canvasName), modelRecords.listWires(canvasName)]).pipe(Effect.mapError(toWorkServiceError));
+          const canvas: Canvas = { name: asCanvasName(canvasName), seq: header!.seq, nodes: new Map(nodes.map((node) => [node.id, node])), wires: new Map(wires.map((wire) => [wire.id, wire])) };
+          capability = yield* Effect.try({ try: () => createCanvasTaskDependencyScopeCapability({ canvas, authoringSink: sinkRef(canvasName, nodeId) }), catch: toWorkServiceError });
         } else {
           const projection = yield* stations.projection.pipe(
             Effect.mapError(toWorkServiceError),
@@ -1050,7 +1015,7 @@ export const WorkLive = Layer.effect(
       }).pipe(Effect.mapError(toWorkServiceError));
       const author = read.actorRefs.find((actor) => actor.seatId === projection.authorSeatId);
       const reviewers = author === undefined ? [] : reviewersOfAuthor({
-        doc: read.doc,
+        doc: canvasFromDocument(canvas, read.doc),
         authorNodeId: author.nodeId,
         actorRefs: read.actorRefs,
       });
@@ -1539,7 +1504,7 @@ export const WorkLive = Layer.effect(
         kind: input.kind,
         findings: input.findings ?? [],
         refs: input.refs ?? [],
-        reviewsEdgeCurrent: authorNodeId !== undefined && reviewsEdgeExists(read.doc, reviewer.nodeId, authorNodeId),
+        reviewsEdgeCurrent: authorNodeId !== undefined && reviewsEdgeExists(canvasFromDocument(canvas, read.doc), reviewer.nodeId, authorNodeId),
         verdictId: ids.id(),
         postedAtMs: Date.now(),
       });

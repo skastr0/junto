@@ -198,7 +198,11 @@ const openStateEngine = (
             const operation = yield* StateTransactionOperation;
             const nested = yield* Effect.serviceOption(sql.transactionService);
             const parent = Option.isSome(nested) ? yield* WorkMutationContext : null;
-            const live = yield* Effect.serviceOption(OverseerLiveExecution);
+            // The Live fence and receipt join the owning transaction only. A
+            // transaction opened inside it is part of the same commit.
+            const live = Option.isSome(nested)
+              ? Option.none()
+              : yield* Effect.serviceOption(OverseerLiveExecution);
             const hookError = (cause: unknown) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
               cause, operation, message: cause instanceof Error ? cause.message : String(cause),
             }) });

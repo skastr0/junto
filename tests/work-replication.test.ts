@@ -12,7 +12,7 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
-  AuthorialIntentFactBasis,
+  CanvasFactBasis,
   ProjectedIntentFactBasis,
   RouteCursor,
   WorkRecord,
@@ -48,10 +48,8 @@ const projectedBody = compileStationPortfolioBody(
   new Map(),
 );
 const projectedContentSha256 = stationProjectionContentSha256(projectedBody);
-const authorialBasis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: authorialIntentSha256,
+const authorialBasis = Schema.decodeUnknownSync(CanvasFactBasis)({
+  kind: "canvas", canvasName: "factory", seq: 1,
 });
 const projectedBasis = Schema.decodeUnknownSync(ProjectedIntentFactBasis)({
   kind: "projected-intent",
@@ -150,7 +148,7 @@ const openInstallation = async (
             : [role, "remote", "remote", peers[0], observedAt],
         );
         yield* seedCanvasAuthority({
-          generation: authorialBasis.generation,
+          generation: "1",
           documents: new Map([["factory", fixtureTopology]]),
           at: observedAt,
         });
@@ -169,8 +167,8 @@ const openInstallation = async (
           [
             projectedBasis.generation,
             projectedBasis.contentSha256,
-            authorialBasis.generation,
-            authorialBasis.contentSha256,
+            "1",
+            authorialIntentSha256,
             projectedBody,
             observedAt,
             observedAt,

@@ -58,6 +58,9 @@ export const lowerOutboundWorkRecord = (
   record: WorkRecordValue,
   codec: StationProtocol1Codecs = STATION_PROTOCOL_1_CODECS,
 ): Result.Result<WorkLoweringResult, WorkLoweringError> => {
+  if (record.recordType === "fact" && record.basis.kind === "historical") return Result.fail({
+    _tag: "WorkLoweringError", reason: "semantic-mismatch", message: "historical facts cannot be exported", recordId: record.id,
+  });
   // Validate that the record contentSha256 matches the actual computed semantic digest
   const computedHash = computeWorkRecordContentSha256(record as unknown as Record<string, unknown>);
   if (record.contentSha256 !== computedHash) {
@@ -145,6 +148,9 @@ export const raiseInboundWorkRecord = (
   }
 
   const domainRecord = decodeResult.success;
+  if (domainRecord.recordType === "fact" && domainRecord.basis.kind === "historical") return Result.fail({
+    _tag: "WorkRaisingError", reason: "unsupported-semantics", message: "historical facts cannot be imported or verified",
+  });
 
   // Validate semantic hash
   const computedHash = computeWorkRecordContentSha256(domainRecord as unknown as Record<string, unknown>);

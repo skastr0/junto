@@ -71,9 +71,7 @@ const currentIntentSha256 = canvasAuthorityMaterialFixture(
 const authorialBasis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: currentIntentSha256,
+  kind: "canvas", canvasName: "factory", seq: 1,
 });
 
 const sender = {

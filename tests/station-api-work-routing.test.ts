@@ -223,11 +223,6 @@ const topology = (
       peerInstallationId: remote,
       localRole,
       localHostId: "local",
-      intentBasis: Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
-        kind: "authorial-intent",
-        generation: authority.generation,
-        contentSha256: authority.intentSha256,
-      }),
       taskTopologyMaterial: { kind: "authorial-current", authority },
       documents: authority.documents,
       actorSeats,
@@ -439,11 +434,7 @@ const commandCenterMailFact = (seq: number): WorkFactValue => {
       seq: String(seq),
     },
     recordType: "fact",
-    basis: {
-      kind: "authorial-intent",
-      generation: "1",
-      contentSha256,
-    },
+    basis: { kind: "canvas", canvasName: "factory", seq: 1 },
     item: {
       kind: "message",
       itemId: messageId,

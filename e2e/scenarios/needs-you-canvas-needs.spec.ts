@@ -1,3 +1,4 @@
+import { ModelService } from "../../src/main/junto/model/service";
 /**
  * Needs-you: what only the canvas knows reaches the feed.
  *   bun run test:e2e:fast e2e/scenarios/needs-you-canvas-needs.spec.ts
@@ -28,7 +29,7 @@ import { compileActorSeatRegistry } from "../../src/main/junto/station/actor-sea
 import { StationFleetTargetRepositoryLive } from "../../src/main/junto/station/fleet-target-repository";
 import { StationRepository, StationRepositoryLive } from "../../src/main/junto/station/repository";
 import {
-  createAuthorialTaskDependencyScopeCapability,
+  createCanvasTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../../src/main/junto/work/repository";
@@ -81,11 +82,10 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
         const canvases = yield* CanvasesService;
         const work = yield* WorkRepository;
         const installationId = yield* (yield* StationRepository).installationId;
-        const authority = yield* canvases.authorityMaterialSnapshot();
+        const model = yield* ModelService;
+        const canvas = yield* model.canvas(CANVAS);
         const basis = Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })({
-          kind: "authorial-intent",
-          generation: authority.generation,
-          contentSha256: authority.intentSha256,
+          kind: "canvas", canvasName: CANVAS, seq: canvas.seq,
         });
         const seat = compileActorSeatRegistry(new Map([[CANVAS, doc]]), new Map([["local", installationId]])).find(
           (candidate) => candidate.refs.some((ref) => ref.nodeId === atlas.id),
@@ -93,7 +93,7 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
         if (!seat) throw new Error("fixture: Atlas did not compile to an actor seat");
         const actor = { seatId: seat.seatId, canvasName: CANVAS, nodeId: atlas.id };
         const boardSink = { canvasName: CANVAS, nodeId: board.id };
-        const dependencyScope = createAuthorialTaskDependencyScopeCapability({ authority, authoringSink: boardSink });
+        const dependencyScope = createCanvasTaskDependencyScopeCapability({ canvas, authoringSink: boardSink });
         yield* work.createTask({
           sink: boardSink,
           basis,

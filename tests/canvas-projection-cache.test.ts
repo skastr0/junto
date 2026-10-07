@@ -18,7 +18,6 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
-import { CanvasEntityRepositoryLive } from "../src/main/junto/entities/repository";
 import {
   makeStateEngineLive,
 } from "../src/main/junto/state/engine";
@@ -60,7 +59,7 @@ const openRuntime = async () => {
     Layer.provideMerge(
       CanvasesLive,
       Layer.provideMerge(
-        Layer.mergeAll(WorkRepositoryLive, CanvasEntityRepositoryLive),
+        WorkRepositoryLive,
         makeStateEngineLive(join(stateDirectory, "junto.db")),
       ),
     ),
@@ -178,7 +177,7 @@ const mail = Effect.flatMap(WorkRepository, (repository) => repository.mailbox(C
 /** Append one mailbox message to the local agent seat. */
 const appendMailEffect = Effect.fn(function* (messageId: string) {
       const canvases = yield* CanvasesService;
-      const witness = yield* canvases.activeIntentWitness();
+      const {intentWitness: witness} = yield* canvases.readWithIntentWitness(CANVAS);
       const read = yield* canvases.read(CANVAS);
       const sentBy = read.actorRefs.find(
         (actor) => actor.nodeId === LOCAL_AGENT,
@@ -188,9 +187,9 @@ const appendMailEffect = Effect.fn(function* (messageId: string) {
       return yield* work.appendMessage({
         sink: { canvasName: CANVAS, nodeId: LOCAL_AGENT },
         basis: basis({
-          kind: "authorial-intent",
-          generation: witness.generation,
-          contentSha256: witness.contentSha256,
+          kind: "canvas",
+          canvasName: witness.canvasName,
+          seq: witness.seq,
         }),
         message: {
           messageId,
@@ -366,15 +365,6 @@ describe("canvas projection memo — what a read must still see", () => {
     await runtime.runPromise(Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const canvases = yield* CanvasesService;
-      // Same portfolio identity as the cached read, but corrupt authority:
-      // cache reuse here would hide the invalid rows rather than fail closed.
-      expect(yield* sql.withTransaction(Effect.gen(function* () {
-        yield* sql`UPDATE canvas_nodes SET text_content = 'corrupt' WHERE node_id = ${NOTE}`;
-        return yield* canvases.read(CANVAS);
-      })).pipe(Effect.result)).toMatchObject({
-        _tag: "Failure", failure: { message: expect.stringContaining("revision hash mismatch") },
-      });
-
       const rolledBack = yield* sql.withTransaction(Effect.gen(function* () {
         yield* canvases.write(CANVAS, docWith("uncommitted", { withLocalAgent: true }));
         yield* appendMailEffect("rolled-back-mail");

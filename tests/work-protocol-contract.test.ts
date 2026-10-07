@@ -156,9 +156,7 @@ describe("Work protocol v2 contract", () => {
         decodeWorkRecord({
           ...messageFact,
           basis: {
-            kind: "authorial-intent",
-            generation: "11",
-            contentSha256: "1".repeat(64),
+            kind: "canvas", canvasName: "factory", seq: 11,
           },
         }),
       ),

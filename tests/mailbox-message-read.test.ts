@@ -99,9 +99,9 @@ const agentDoc = (): CanvasDoc => ({
 
 const authorialBasis = (generation: string, contentSha256: string) =>
   Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })({
-    kind: "authorial-intent",
-    generation,
-    contentSha256,
+    kind: "canvas",
+    canvasName: "mail",
+    seq: Number(generation),
   });
 
 describe("mailbox message read receipts", () => {
@@ -123,7 +123,7 @@ describe("mailbox message read receipts", () => {
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("mail", agentDoc()));
     const repository = await runtime.runPromise(WorkRepository);
-    const witness = await runtime.runPromise(canvases.activeIntentWitness());
+    const { intentWitness: witness } = await runtime.runPromise(canvases.readWithIntentWitness("mail"));
     const basis = authorialBasis(witness.generation, witness.contentSha256);
     const read = await runtime.runPromise(canvases.read("mail"));
     const actor = read.actorRefs.find((a) => a.nodeId === "agent");
@@ -199,7 +199,7 @@ describe("mailbox message read receipts", () => {
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("mail", agentDoc()));
     const repository = await runtime.runPromise(WorkRepository);
-    const witness = await runtime.runPromise(canvases.activeIntentWitness());
+    const { intentWitness: witness } = await runtime.runPromise(canvases.readWithIntentWitness("mail"));
     const basis = authorialBasis(witness.generation, witness.contentSha256);
     const read = await runtime.runPromise(canvases.read("mail"));
     const actor = read.actorRefs.find((a) => a.nodeId === "agent");

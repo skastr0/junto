@@ -30,9 +30,25 @@ import {
 import { APP_TEXTS_STATE_SCHEMA_SQL } from "../../../src/main/junto/references/state-schema";
 import { withoutProposalStorage } from "../../../src/main/junto/work/state-schema";
 
+import { MODEL_STATE_SCHEMA_SQL } from "../../../src/main/junto/model/state-schema";
+import { WORK_STATE_SCHEMA_CANVAS_BASIS_SQL } from "../../../src/main/junto/model/work-basis-schema";
+import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "../../../src/main/junto/work/state-schema";
+import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../../../src/main/junto/canvas/state-schema";
+import { ENTITIES_STATE_SCHEMA_SQL } from "../domain-cutover/entities-schema";
+
+// Frozen pre-cutover composition: later kinds/basis DDL must never change
+// the historical witnesses these migration tests build their databases from.
+const LEGACY_STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_FRAGMENTS.map((fragment) => fragment === MODEL_STATE_SCHEMA_SQL
+    ? CANVAS_AUTHORITY_SCHEMA_SQL : fragment === WORK_STATE_SCHEMA_CANVAS_BASIS_SQL
+    ? WORK_STATE_SCHEMA_HEAD_BASIS_SQL : fragment),
+  ENTITIES_STATE_SCHEMA_SQL,
+];
+export const STATE_SCHEMA_V12_SQL = withoutProposalStorage(LEGACY_STATE_SCHEMA_FRAGMENTS.join("\n"));
+
 const composedWithout = (retired: ReadonlyArray<string>): string =>
   withoutProposalStorage(
-    STATE_SCHEMA_FRAGMENTS.filter((fragment) => !retired.includes(fragment)).join("\n"),
+    LEGACY_STATE_SCHEMA_FRAGMENTS.filter((fragment) => !retired.includes(fragment)).join("\n"),
   );
 
 // Version 12 added app texts (11 -> 12), so version 11 is the current composition without it.

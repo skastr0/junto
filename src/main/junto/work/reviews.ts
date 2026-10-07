@@ -32,7 +32,7 @@
 //    the same task fact or the same checkout observation can never mail the
 //    same reviewer twice for the same ref.
 
-import type { CanvasDoc } from "@shared/canvas";
+import type { Canvas, Wire } from "@shared/model";
 import {
   mailExtensionMetadata,
   type MailEvidenceRef,
@@ -568,10 +568,10 @@ export const evaluateReviewGate = (input: {
  * mask is no grant at all.
  */
 const edgeHoldsVerdictPost = (
-  edge: CanvasDoc["edges"][number],
+  edge: Wire,
 ): boolean =>
-  edge.ether?.verb === "reviews" &&
-  (edge.ether.mask === undefined || edge.ether.mask.includes("verdict.post"));
+  edge.verb === "reviews" &&
+  (edge.mask === undefined || edge.mask.includes("verdict.post"));
 
 /**
  * Reviewers currently holding a `verdict.post` grant toward `authorNodeId`:
@@ -583,7 +583,7 @@ const edgeHoldsVerdictPost = (
  * entry would double-send receipts.
  */
 export const reviewersOfAuthor = (input: {
-  readonly doc: CanvasDoc;
+  readonly doc: Canvas;
   readonly authorNodeId: string;
   readonly actorRefs: ReadonlyArray<ActorRef>;
 }): ReadonlyArray<{
@@ -593,12 +593,12 @@ export const reviewersOfAuthor = (input: {
   const { doc, authorNodeId, actorRefs } = input;
   const out: Array<{ nodeId: string; seatId: ActorSeatId }> = [];
   const seenSeats = new Set<ActorSeatId>();
-  for (const edge of doc.edges) {
-    if (!edgeHoldsVerdictPost(edge) || edge.toNode !== authorNodeId) continue;
-    const seat = actorRefs.find((actor) => actor.nodeId === edge.fromNode);
+  for (const edge of doc.wires.values()) {
+    if (!edgeHoldsVerdictPost(edge) || edge.to !== authorNodeId) continue;
+    const seat = actorRefs.find((actor) => actor.nodeId === edge.from);
     if (seat === undefined || seenSeats.has(seat.seatId)) continue;
     seenSeats.add(seat.seatId);
-    out.push({ nodeId: edge.fromNode, seatId: seat.seatId });
+    out.push({ nodeId: edge.from, seatId: seat.seatId });
   }
   return out;
 };
@@ -610,15 +610,15 @@ export const reviewersOfAuthor = (input: {
  * service-level calls honest when they did not pass through it.
  */
 export const reviewsEdgeExists = (
-  doc: CanvasDoc,
+  doc: Canvas,
   reviewerNodeId: string,
   authorNodeId: string,
 ): boolean =>
-  doc.edges.some(
+  [...doc.wires.values()].some(
     (edge) =>
       edgeHoldsVerdictPost(edge) &&
-      edge.fromNode === reviewerNodeId &&
-      edge.toNode === authorNodeId,
+      edge.from === reviewerNodeId &&
+      edge.to === authorNodeId,
   );
 
 /**

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { Seq } from "./model/events";
 import { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
 import { PadPatch } from "./pad";
@@ -119,13 +120,12 @@ export const FactBasisGeneration = Schema.String.pipe(
 );
 export type FactBasisGeneration = typeof FactBasisGeneration.Type;
 
-export const AuthorialIntentFactBasis = Schema.Struct({
-  kind: Schema.Literal("authorial-intent"),
-  generation: FactBasisGeneration,
-  contentSha256: WorkSha256,
+export const CanvasFactBasis = Schema.Struct({
+  kind: Schema.Literal("canvas"),
+  canvasName: WorkCanvasName,
+  seq: Seq,
 });
-export type AuthorialIntentFactBasis =
-  typeof AuthorialIntentFactBasis.Type;
+export type CanvasFactBasis = typeof CanvasFactBasis.Type;
 
 export const ProjectedIntentFactBasis = Schema.Struct({
   kind: Schema.Literal("projected-intent"),
@@ -145,17 +145,21 @@ export type CommandFactBasis = typeof CommandFactBasis.Type;
 /**
  * Immutable proof of the authority context under which a fact was emitted.
  *
- * Local operator/actor mutations name the exact authorial or projected intent
- * snapshot that admitted them. Applying a remote command names that exact
+ * Local operator/actor mutations name the canvas and sequence that admitted
+ * them. Projected intent belongs to the inactive Station path. Applying a remote command names that exact
  * command instead, so later topology changes cannot retroactively invalidate
  * its correlated result.
  */
-export const FactBasis = Schema.Union([AuthorialIntentFactBasis,
+/** Pre-cutover provenance; no authority claim and no reproducible hash. */
+export const HistoricalFactBasis = Schema.Struct({ kind: Schema.Literal("historical") });
+export type HistoricalFactBasis = typeof HistoricalFactBasis.Type;
+
+export const FactBasis = Schema.Union([HistoricalFactBasis, CanvasFactBasis,
 ProjectedIntentFactBasis,
 CommandFactBasis,]);
 export type FactBasis = typeof FactBasis.Type;
 
-export const IntentFactBasis = Schema.Union([AuthorialIntentFactBasis,
+export const IntentFactBasis = Schema.Union([CanvasFactBasis,
 ProjectedIntentFactBasis,]);
 export type IntentFactBasis = typeof IntentFactBasis.Type;
 

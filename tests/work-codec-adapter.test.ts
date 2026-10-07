@@ -1,3 +1,4 @@
+import { computeWorkRecordContentSha256 } from "../src/shared/work-canonical-json";
 import { readFileSync } from "node:fs";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -23,6 +24,16 @@ const corpus = JSON.parse(
     "utf8",
   ),
 );
+
+// Current local facts, derived from the pinned wire examples without editing
+// the unreleased Station codec corpus.
+for (const [key, value] of Object.entries(corpus.work)) {
+  const record = value as Record<string, any>;
+  if (record.recordType === "fact" && record.basis?.kind === "authorial-intent") {
+    const current = { ...record, basis: { kind: "canvas", canvasName: record.item.sink.canvasName, seq: Number(record.basis.generation) } };
+    corpus.work[key] = { ...current, contentSha256: computeWorkRecordContentSha256(current) };
+  }
+}
 
 const decodeRecord = Schema.decodeUnknownSync(WorkRecord, {
   onExcessProperty: "error",
@@ -54,6 +65,16 @@ describe("Work codec adapter — lowering, raising, and paging", () => {
         expect(raising.success.evaluation.status).toBe("exact");
       }
     }
+  });
+
+  it("keeps historical provenance out of verification and route export", () => {
+    const historical = decodeRecord({ ...corpus.work.messageAppendFact, basis: { kind: "historical" } });
+    expect(() => computeWorkRecordContentSha256(historical as unknown as Record<string, unknown>)).toThrow("historical Work hashes cannot be recomputed");
+    expect(lowerOutboundWorkRecord(historical, STATION_PROTOCOL_1_CODECS)).toMatchObject({ failure: { reason: "semantic-mismatch" } });
+    expect(raiseInboundWorkRecord(historical, STATION_PROTOCOL_1_CODECS)).toMatchObject({ failure: { reason: "unsupported-semantics" } });
+    const page = pageOutboundWorkRoute([historical], {}, STATION_PROTOCOL_1_CODECS);
+    expect(page.loweredRecords).toEqual([]);
+    expect(page.advancedThroughSeq).toBeNull();
   });
 
   it("rejects unrepresentable or corrupt inbound records without raising", () => {

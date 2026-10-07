@@ -4,6 +4,8 @@ import {
   type SQLOutputValue,
 } from "node:sqlite";
 import { STATE_SCHEMA_SQL } from "./schema";
+import { migrateCanvasKinds } from "../model/migrate";
+import { migrateWorkFactBasis } from "../model/migrate-work-basis";
 import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
 import {
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
@@ -80,6 +82,8 @@ export type StateSchemaMigration = {
    * restored after COMMIT/ROLLBACK; `PRAGMA foreign_key_check` still gates.
    */
   readonly replacesTables?: ReadonlyArray<string>;
+  /** Exact columns retired by an operator-authorized consolidation rebuild. */
+  readonly retiresColumns?: Readonly<Record<string, ReadonlyArray<string>>>;
   /**
    * Durable tables this consolidation step retires: their content is migrated
    * into the canonical replacement inside the same step, then the table is
@@ -222,7 +226,13 @@ export const STATE_SCHEMA_V12_IDENTITY = {
     "5c8983f4ed3a056986f61208625b9571903cfa2ae0ff989fd5afb60e95462502",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 12;
+/** Version 13 replaces document authority with kinds and a local canvas seq. */
+export const STATE_SCHEMA_V13_IDENTITY = {
+  actualSchemaSha256:
+    "5c7bc7241a4a81d1d0813ac85169b09a83e4c447dcf433670a273d9dc4c4720f",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 13;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -230,7 +240,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 12;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V12_IDENTITY;
+  STATE_SCHEMA_V13_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -356,6 +366,21 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V11_IDENTITY,
     migrate: (database) => {
       database.exec(APP_TEXTS_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 12,
+    toVersion: 13,
+    name: "replace document authority with domain kinds",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V12_IDENTITY,
+    removesTables: ["canvas_edges", "canvas_nodes", "canvas_entities", "canvas_documents", "canvas_portfolio_head"],
+    replacesTables: ["work_facts"],
+    retiresColumns: {work_facts: ["basis_authorial_generation", "basis_authorial_content_sha256"]},
+    replacesObjects: ["trigger:work_fact_authorial_basis_resolves"],
+    migrate: (database) => {
+      migrateCanvasKinds(database);
+      migrateWorkFactBasis(database);
     },
   },
 ];
@@ -529,6 +554,7 @@ const assertExpandSchemaPreserved = (
     readonly triggers: ReadonlySet<string>;
   } = { indexes: new Set(), triggers: new Set() },
   removedTables: ReadonlySet<string> = new Set(),
+  retiredColumns: Readonly<Record<string, ReadonlyArray<string>>> = {},
 ): void => {
   const after = expandSchemaSnapshot(database);
   for (const [tableName, beforeColumns] of before.tables) {
@@ -548,6 +574,10 @@ const assertExpandSchemaPreserved = (
     }
     for (const [columnName, beforeColumn] of beforeColumns) {
       const afterColumn = afterColumns.get(columnName);
+      if (retiredColumns[tableName]?.includes(columnName)) {
+        if (afterColumn !== undefined) throw new Error(`consolidation retained retired column ${tableName}.${columnName}`);
+        continue;
+      }
       if (
         afterColumn === undefined ||
         JSON.stringify(afterColumn) !== JSON.stringify(beforeColumn)
@@ -801,6 +831,7 @@ const runMigrationStep = (
       replacesObjects,
       sideObjects,
       removesTables,
+      migration.retiresColumns,
     );
   } finally {
     database.setAuthorizer(null);
@@ -861,7 +892,11 @@ export const validateStateSchemaMigrationPlan = (
       ((migration.removesTables?.length ?? 0) > 0) !==
         (migration.safety === STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
       ((migration.correctiveWriteTables?.length ?? 0) > 0 &&
-        migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY)
+        migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
+      (migration.retiresColumns !== undefined && (
+        migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY ||
+        Object.keys(migration.retiresColumns).some((table) => !migration.replacesTables?.includes(table))
+      ))
     ) {
       throw new Error(
         `invalid state schema migration ${migration.fromVersion} -> ${migration.toVersion}`,

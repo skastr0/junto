@@ -38,7 +38,6 @@ import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
 import { CanvasesLive, CanvasesService } from "./junto/canvases";
-import { CanvasRecordsLive } from "./junto/canvas/records";
 import { ChatServiceFromHermesLive, HermesPlaneLive } from "./junto/hermes/plane";
 import { HermesTransportLive } from "./junto/hermes/transport";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
@@ -116,7 +115,7 @@ import {
 import {
   StationLivePeerRegistryLive,
 } from "./junto/station/session-registry";
-import { CanvasEntityRepositoryLive } from "./junto/entities/repository";
+import { ModelLive } from "./junto/model/layer";
 import {
   deferredUpdateHostHooks,
   installUpdateProviderHandle,
@@ -141,7 +140,6 @@ const StateRepositoriesLive = Layer.provideMerge(
     CompanionDeviceRepositoryLive,
     WorkRepositoryLive,
     WorkProjectionReaderLive,
-    CanvasRecordsLive,
     CrewRepositoryLive,
     SquadRepositoryLive,
     SeatGuidanceRepositoryLive,
@@ -157,10 +155,9 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
     BoxOwnershipRepositoryLive,
-    CanvasEntityRepositoryLive,
     makeContentServiceLive(),
   ),
-  Layer.mergeAll(StateEngineLive, InstallOpsLive),
+  Layer.provideMerge(ModelLive, Layer.mergeAll(StateEngineLive, InstallOpsLive)),
 );
 
 // Canvases projects durable work rows on reads while keeping its authority

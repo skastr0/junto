@@ -52,6 +52,7 @@ import {
 import {
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
+import { ModelService } from "../src/main/junto/model/service";
 import { InstallationId } from "../src/shared/installation-id";
 
 const COMMAND_CENTER_ID = Schema.decodeUnknownSync(InstallationId)(
@@ -294,10 +295,13 @@ const assertCommandCenterRepositories = async (
   const targets = await runtime.runPromise(fleet.list);
 
   expect(authority).toMatchObject({
-    generation: "9",
+    generation: "0",
     documents: expect.any(Map),
   });
   expect(authority.documents.get("factory")?.nodes).toHaveLength(2);
+  expect(await runtime.runPromise(Effect.gen(function* () {
+    return yield* (yield* ModelService).open("factory");
+  }))).toMatchObject({ canvas: "factory", seq: 9, nodes: expect.any(Array) });
   expect(() => verifyCanvasIntentMaterial(authority)).not.toThrow();
   const storedFactory = authority.storedDocuments.get("factory");
   // Authority is relational at the v1 baseline: the derived body is canonical
@@ -349,7 +353,6 @@ const assertRemoteRepositories = async (
   );
   const status = await runtime.runPromise(station.statusFacts);
   const projection = await runtime.runPromise(station.projection);
-  const intent = await runtime.runPromise(canvases.activeIntentWitness());
   const durableRemoteWitness = await runtime.runPromise(
     withSqlRead(sql, Effect.gen(function* () {
       return {
@@ -364,12 +367,8 @@ const assertRemoteRepositories = async (
                 'canvas_head'
               )
           `)[0]?.count ?? -1),
-          documents: Number((yield* sql<{ count: number }>`
-            SELECT COUNT(*) AS count FROM canvas_documents
-          `)[0]?.count ?? -1),
-          heads: Number((yield* sql<{ count: number }>`
-            SELECT COUNT(*) AS count FROM canvas_portfolio_head
-          `)[0]?.count ?? -1),
+          retiredTables: Number((yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM sqlite_schema
+            WHERE name IN ('canvas_documents','canvas_portfolio_head','canvas_nodes','canvas_edges','canvas_entities')`)[0]?.count ?? -1),
         },
       };
     })),
@@ -422,15 +421,10 @@ const assertRemoteRepositories = async (
   expect(decoded.documents.get("factory")?.nodes.map(({ id }) => id)).toContain(
     "agent",
   );
-  expect(intent).toEqual({
-    generation: projection.generation,
-    contentSha256: projection.contentSha256,
-  });
   expect(durableRemoteWitness).toEqual({
     authorialRows: {
       blobTables: 0,
-      documents: 0,
-      heads: 0,
+      retiredTables: 0,
     },
   });
 };
@@ -473,7 +467,16 @@ describe("state schema v1 baseline fixtures", () => {
           expect(opened.prepare("PRAGMA user_version").get()).toEqual({
             user_version: CURRENT_STATE_SCHEMA_VERSION,
           });
-          expect(readPreservedColumns(opened, baseline)).toEqual(baseline);
+          const retired = new Set(["canvas_documents", "canvas_nodes", "canvas_edges", "canvas_portfolio_head"]);
+          const preserved = Object.fromEntries(Object.entries(baseline).filter(([table]) => !retired.has(table)));
+          const facts = preserved.work_facts;
+          if (facts) preserved.work_facts = {
+            ...facts, columns: facts.columns.filter((key) => !key.startsWith("basis_authorial_")), rows: facts.rows.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith("basis_authorial_")).map(([key, value]) =>
+              [key, key === "basis_kind" ? "historical" : key.startsWith("basis_") ? null : value],
+            ))),
+          };
+          expect(readPreservedColumns(opened, preserved)).toEqual(preserved);
+          for (const table of retired) expect(opened.prepare("SELECT name FROM sqlite_schema WHERE name=?").get(table)).toBeUndefined();
           expect(opened.prepare("PRAGMA quick_check").get()).toEqual({
             quick_check: "ok",
           });

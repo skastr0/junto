@@ -5,13 +5,13 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
-import { CanvasRecords, CanvasRecordsLive } from "../src/main/junto/canvas/records";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { executeOverseerCanvas } from "../src/main/junto/overseer/canvas";
 import { buildLiveContext } from "../src/main/junto/overseer/live/context";
 import { OverseerLiveExecution, type OverseerHostIdentity } from "../src/main/junto/overseer/live/execution";
 import { makeLiveRepository } from "../src/main/junto/overseer/live/repository";
+import { canvasRevisionOf } from "../src/main/junto/overseer/live/composition";
 import { createLiveSessionService } from "../src/main/junto/overseer/live/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -46,7 +46,7 @@ const boot = async () => {
   const root = await mkdtemp(join(tmpdir(), "command-live-poc-"));
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive, SettingsLive,
-    CanvasRecordsLive, WorkProjectionReaderLive,
+    WorkProjectionReaderLive,
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state.db")), makeInstallOpsLive(join(root, "install-ops.db"))));
   const runtime = ManagedRuntime.make(Layer.provideMerge(CanvasesLive, repositories));
@@ -66,7 +66,7 @@ const boot = async () => {
   const revisions = new Map<string, string>();
   const service = createLiveSessionService({
     repository, run: (effect) => runtime.runPromise(effect),
-    canvasRecords: await runtime.runPromise(CanvasRecords),
+    canvasRevision: canvasRevisionOf(canvases),
     workProjection: await runtime.runPromise(WorkProjectionReader),
     settingsService: { get: Effect.succeed(defaultSettings()), resolveProviders: Effect.succeed({ openai: { apiKey: "test-key" } }) },
     resolveOccupant: async () => currentIdentity,

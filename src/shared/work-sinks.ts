@@ -23,3 +23,12 @@ export const WorkSinkPage = Schema.Union([
 export type WorkSinkPage = typeof WorkSinkPage.Type;
 export const WorkSinkChanged = Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String });
 export type WorkSinkChanged = typeof WorkSinkChanged.Type;
+
+/** Compact human waits and active claims, independent of content-page depth. */
+export const WorkAttentionQuery = Schema.Struct({
+  canvasName: Schema.NonEmptyString,
+  nodeId: Schema.optionalKey(Schema.NonEmptyString),
+});
+export type WorkAttentionQuery = typeof WorkAttentionQuery.Type;
+export const WorkAttentionRow = Schema.Struct({ nodeId: Schema.String, item: Task });
+export type WorkAttentionRow = typeof WorkAttentionRow.Type;

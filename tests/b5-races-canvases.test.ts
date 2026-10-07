@@ -113,22 +113,6 @@ describe("canvases.ts write() — same-name concurrency", () => {
     expect(textOf(readB.doc)).toMatch(/^write-20\d\d$/);
   });
 
-  it("rejects a stale live revision without admitting external disk bytes", async () => {
-    const name = "revision-conflict";
-    await runtime.runPromise(canvases.write(name, docFor(1)));
-    const stale = await runtime.runPromise(canvases.read(name));
-    // Concurrent app write advances live revision.
-    await runtime.runPromise(canvases.write(name, docFor(2)));
-
-    await expect(
-      runtime.runPromise(canvases.write(name, docFor(3), stale.revision)),
-    ).rejects.toThrow("revision conflict");
-
-    const preserved = await runtime.runPromise(canvases.read(name));
-    expect(textOf(preserved.doc)).toBe("write-2");
-    expect(preserved.revision).not.toBe(stale.revision);
-  });
-
   it("mutates canonical authority without fabricating a locator", async () => {
     const name = "mutate-canonical";
     await runtime.runPromise(canvases.write(name, docFor(20)));

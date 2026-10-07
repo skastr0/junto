@@ -65,6 +65,18 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
       const sql = yield* SqlClient.SqlClient;
       const parse = <T>(operation: string, fn: () => T) =>
         Effect.try({ try: fn, catch: (cause) => modelError(operation, cause) });
+      const seatHosts = SqlSchema.findAll({
+        Request: Schema.String,
+        Result: Schema.Struct({ host_id: Schema.String }),
+        execute: (host) => sql`SELECT configuration.host_id FROM station_configuration AS configuration
+          JOIN station_installation AS installation ON installation.singleton=configuration.singleton
+          WHERE configuration.singleton=1 AND configuration.role='command-center' AND configuration.host_id=${host}
+          UNION ALL SELECT host_id FROM station_fleet_targets WHERE retired_at IS NULL AND host_id=${host}`,
+      });
+      const requireSeatHost = Effect.fn("ModelRecords.requireSeatHost")(function* (host: string) {
+        if ((yield* seatHosts(host)).length === 0)
+          return yield* new ModelRefused({ rule: `Seat has unresolved host "${host}"; configure its installation.` });
+      }, failure("requireSeatHost"));
       const canvasHeaders = SqlSchema.findAll({
         Request: Schema.String,
         Result: CanvasHeaderRow,
@@ -303,6 +315,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           ),
       );
       return {
+        requireSeatHost,
         getCanvas,
         listCanvases,
         kindOf,

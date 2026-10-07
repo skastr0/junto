@@ -1,18 +1,5 @@
-import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { Layer, ManagedRuntime } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
-import { SqlClient } from "effect/unstable/sql";
-import {
-  serializeCanvas,
-  type CanvasDoc,
-} from "../src/shared/canvas";
-import {
-  CanvasRecords,
-  CanvasRecordsLive,
-} from "../src/main/junto/canvas/records";
-import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import {
   canvasBodySha256Of,
   intentSha256Of,
@@ -166,56 +153,4 @@ describe("authorial canvas intent identity", () => {
     ).toThrow(/semantic document mismatch/);
   });
 
-  it("verifies the frozen v1 fixture intent material by scrubbed semantic equality", async () => {
-    const database = new DatabaseSync(
-      fileURLToPath(
-        new URL(
-          "./fixtures/state-v1/command-center-v1.db",
-          import.meta.url,
-        ),
-      ),
-      {
-        open: true,
-        readOnly: true,
-        allowExtension: false,
-        enableForeignKeyConstraints: true,
-      },
-    );
-    const runtime = ManagedRuntime.make(CanvasRecordsLive.pipe(
-      Layer.provide(Layer.effect(SqlClient.SqlClient, makeSqliteClient(database))),
-      Layer.provide(Reactivity.layer),
-    ));
-    try {
-      const records = await runtime.runPromise(CanvasRecords);
-      const head = await runtime.runPromise(records.readPortfolioHead());
-      if (head === undefined) {
-        throw new Error("fixture has no canvas portfolio head");
-      }
-      const documents = new Map<string, CanvasDoc>();
-      const storedDocuments = new Map<string, StoredCanvasIntentDocument>();
-      for (const row of await runtime.runPromise(records.readDocumentRows())) {
-        const document = await runtime.runPromise(records.reconstructCanvasDoc(row.canvas_id));
-        const rawBody = serializeCanvas(document);
-        documents.set(row.canvas_name, document);
-        storedDocuments.set(row.canvas_name, {
-          document,
-          rawBody,
-          revisionSha256: row.revision_sha256,
-        });
-      }
-      const material = {
-        intentSha256: head.intent_sha256,
-        documents,
-        storedDocuments,
-      };
-
-      expect(() => verifyCanvasIntentMaterial(material)).not.toThrow();
-      const factory = storedDocuments.get("factory")!;
-      expect(factory.rawBody).toBe(serializeCanvas(factory.document));
-      expect(factory.document.edges[0]?.ether).toEqual({ verb: "works" });
-    } finally {
-      await runtime.dispose();
-      database.close();
-    }
-  });
 });

@@ -284,7 +284,15 @@ describe("durable Live journal", () => {
       return Object.fromEntries(yield* Effect.forEach(Object.keys(before), (table) =>
         sql`SELECT * FROM ${sql(table)}`.pipe(Effect.map((rows) => [table, rows]))));
     })));
-    expect(after).toEqual(before);
+    // The canvas cut restates what a fact rests on: every stored fact is
+    // marked historical. Everything else in a kept row is untouched.
+    const withoutBasis = (tables: Record<string, unknown[]>) => ({
+      ...tables,
+      work_facts: tables.work_facts!.map((row) =>
+        Object.fromEntries(Object.entries(row as object).filter(([column]) => !column.startsWith("basis_")))),
+    });
+    expect(withoutBasis(after)).toEqual(withoutBasis(before));
+    expect(new Set(after.work_facts!.map((row: unknown) => (row as { basis_kind: string }).basis_kind))).toEqual(new Set(["historical"]));
     expect(await runtime.runPromise(sql`SELECT name FROM sqlite_schema WHERE type = 'table' AND (name LIKE 'overseer_live_%' OR name = 'openai_credential_bindings') ORDER BY name`))
       .toEqual(["openai_credential_bindings", "overseer_live_events", "overseer_live_operations", "overseer_live_requests", "overseer_live_sessions"].map((name) => ({ name })));
   });

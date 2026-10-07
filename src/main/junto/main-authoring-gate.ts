@@ -7,6 +7,7 @@ import type { WorkOpName } from "@shared/work-control";
  */
 export const MAIN_AUTHORING_LABELS = [
   "ipc.canvas.write",
+  "ipc.model.command",
   "ipc.canvas.create",
   "ipc.canvas.delete",
   "ipc.canvas.portfolio",
@@ -74,6 +75,7 @@ export type MainAuthoringPhase = "open" | "final-flush" | "closed";
  */
 const FINAL_FLUSH_LABELS: ReadonlySet<MainAuthoringLabel> = new Set([
   "ipc.canvas.write",
+  "ipc.model.command",
   "ipc.canvas.create",
 ]);
 
