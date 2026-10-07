@@ -268,6 +268,19 @@ describe("order, seats and batches", () => {
     });
   });
 
+  it("a reseat takes the overseer grant off the seat, and its way back does not return it", () => {
+    const before = canvasOf([seat("lead", { overseer: true })]);
+    const command = {
+      _tag: "Reseat", canvas: name, id: "lead" as Node["id"],
+      agentKey: "local:codex", bindingId: "binding-new", harness: "codex", host: "local", launch: null,
+    } as unknown as Command;
+    const after = canvasAfter(before, command);
+    expect(after.nodes.get("lead" as Node["id"])).toMatchObject({ overseer: false });
+    const step = back(before, command, { newBinding: () => "binding-fresh" });
+    expect(step.some((each) => each._tag === "GrantOverseer")).toBe(false);
+    expect(run(after, step).nodes.get("lead" as Node["id"])).toMatchObject({ agentKey: "local:lead", overseer: false });
+  });
+
   it("a batch goes back as one batch, last step first", () => {
     const before = canvasOf([note("a", { color: "3" }), note("b")]);
     const command: Command = {

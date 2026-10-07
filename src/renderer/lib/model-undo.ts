@@ -253,8 +253,10 @@ export const canvasAfter = (canvas: Canvas, command: Command): Canvas => {
       if (seat === undefined || seat.kind !== "agent") return canvas;
       const { sessionId: _ended, launch: _was, ...rest } = seat;
       const nodes = new Map(canvas.nodes);
+      // Another agent takes the seat, and takes no authority with it.
       nodes.set(seat.id, {
         ...rest,
+        overseer: false,
         agentKey: command.agentKey,
         bindingId: command.bindingId,
         harness: command.harness,
