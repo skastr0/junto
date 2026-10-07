@@ -7,6 +7,25 @@ const page = (id: string, position: number, nextBeforePosition?: number): WorkMa
 });
 const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
 describe("seat mailbox store", () => {
+  it("refreshes delivered metadata when an existing message receives its seat event", async () => {
+    let notify!: (event: WorkMailChanged) => void;
+    let deliveredAt: number | undefined;
+    const read = vi.fn(async (): Promise<WorkMailPage> => ({
+      items: [{ position: 1, message: { messageId: "same-message", role: "user", parts: [],
+        ...(deliveredAt === undefined ? {} : { metadata: { deliveredAt } }),
+      } }],
+    }));
+    const store = createWorkMailStore(() => ({ workMailPage: read, onWorkMailChanged: (listener) => { notify = listener; return () => {}; } }));
+    const release = store.retain("factory", "a");
+    await flush();
+    expect(store.state("factory", "a").items.peek()[0]?.message.metadata?.deliveredAt).toBeUndefined();
+    deliveredAt = 1234;
+    notify({ canvasName: "factory", nodeId: "a" });
+    await flush();
+    expect(store.state("factory", "a").items.peek()[0]?.message.metadata?.deliveredAt).toBe(1234);
+    expect(read).toHaveBeenCalledTimes(2);
+    release();
+  });
   it("rebases older pages when new mail moves the first page boundary", async () => {
     let notify!: (event: WorkMailChanged) => void;
     let positions = [6, 5, 4, 3, 2, 1];

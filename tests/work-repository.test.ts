@@ -22,6 +22,7 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
+import { mailboxMessageDeliveryId } from "../src/main/junto/work/mailbox-receipts";
 
 const root = join(tmpdir(), `junto-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -521,6 +522,41 @@ describe("WorkRepository v2 local authority", () => {
     expect(last.items.map((item) => item.message.messageId)).toEqual(["page-0"]);
     expect(last.nextBeforePosition).toBeUndefined();
     expect((await runtime.runPromise(repository.mailPage({ canvasName: "factory", nodeId: "missing", limit: 2 }))).items).toEqual([]);
+  });
+
+  it("commits delivered mail metadata and its seat event only with the current canvas basis", async () => {
+    const sink = { canvasName: "factory", nodeId: "notification-mailbox" };
+    const messageId = "delivery-basis-regression";
+    const deliveryId = mailboxMessageDeliveryId(sink.canvasName, sink.nodeId, messageId);
+    await runtime.runPromise(repository.appendMessage({
+      sink, basis: authorialBasis, message: message(messageId, "user", "deliver me"),
+      sentBy: actor, destination: { kind: "mailbox" },
+    }));
+    const page = () => runtime.runPromise(repository.mailPage(sink));
+    expect((await page()).items.find((item) => item.message.messageId === messageId)?.message.metadata?.deliveredAt).toBeUndefined();
+    const events: Array<string | undefined> = [];
+    const off = repository.subscribeChanges((canvas, node, kind) => {
+      if (canvas === sink.canvasName && node === sink.nodeId) events.push(kind);
+    });
+    try {
+      const receipt = {
+        deliveryId, deliveredItem: { kind: "message" as const, itemId: messageId, sink },
+        actor, acceptedAt: observedAt,
+      };
+      const refused = await runtime.runPromise(repository.acceptDelivery({
+        sink, basis: staleAuthorialBasis, receipt,
+      }).pipe(Effect.result));
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isFailure(refused)) expect(refused.failure).toMatchObject({ reason: "causal-conflict" });
+      expect(await runtime.runPromise(repository.hasAcceptedDelivery(sink, deliveryId))).toBe(false);
+      expect(events).toEqual([]);
+      await runtime.runPromise(repository.acceptDelivery({ sink, basis: authorialBasis, receipt }));
+      expect(await runtime.runPromise(repository.acceptedDeliveryAt(sink, deliveryId))).toBe(observedAt);
+      expect((await page()).items.find((item) => item.message.messageId === messageId)?.message.metadata?.deliveredAt).toBe(Date.parse(observedAt));
+      expect(events).toEqual(["mail"]);
+    } finally {
+      off();
+    }
   });
 
   it("normalizes inbox messages and their delivery receipts", async () => {
