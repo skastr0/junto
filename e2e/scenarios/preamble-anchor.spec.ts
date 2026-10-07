@@ -10,26 +10,24 @@
  */
 import { mkdir } from "node:fs/promises";
 import type { Page } from "@playwright/test";
-import type { GroupNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = process.env.PREAMBLE_SHOTS ?? "test-results/preamble-anchor";
 const CANVAS = "preamble-anchor";
 
-const region: GroupNode = {
+const region = modelRegion({
   id: "region",
-  type: "group",
   label: "build orbit",
   x: 0,
   y: 0,
   width: 980,
   height: 360,
-  ether: { region: { hold: true } },
-};
+  hold: true,
+});
 const seatIds = ["planner", "builder", "reviewer", "scout"] as const;
 const seats = seatIds.map((id, index) =>
-  agentTextNode({
+  modelSeat({
     id,
     key: `local:e2e-anchor-${id}`,
     label: id,
@@ -38,7 +36,7 @@ const seats = seatIds.map((id, index) =>
     y: 200,
   }),
 );
-const doc = canvasDoc([region, ...seats]);
+const doc = modelFixture([region, ...seats]);
 
 type Anchor = { readonly gap: number; readonly dx: number };
 
@@ -109,7 +107,7 @@ const seatBody = (page: Page, id: string) =>
 test("preamble bubbles stay on their rings under every selection", async () => {
   test.setTimeout(180_000);
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: doc } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: doc } });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

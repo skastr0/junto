@@ -12,46 +12,28 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import type { AgentSignal } from "../../src/shared/agent-signals";
-import type { CanvasNode, GroupNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import type { Node, Region } from "../../src/shared/model";
+import { modelFixture, modelNode, modelNote, modelRegion, modelSeat } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "command-bar-faces");
 const CANVAS = "faces";
 
-const region = (id: string, label: string, color: string | undefined, x: number, instruction?: string): GroupNode => ({
-  id,
-  type: "group",
-  label,
-  ...(color ? { color } : {}),
-  x,
-  y: 0,
-  width: 900,
-  height: 420,
-  ...(instruction ? { ether: { region: { instruction } } } : {}),
-});
+const region = (id: string, label: string, color: string | undefined, x: number, instruction?: string): Region =>
+  modelRegion({ id, label, ...(color ? { color } : {}), x, y: 0, width: 900, height: 420, ...(instruction ? { instruction } : {}) });
+const note = (id: string, text: string, x: number, y: number): Node => ({ ...modelNote(id, text, x, y), height: 96 });
 
-const note = (id: string, text: string, x: number, y: number): CanvasNode => ({
-  id,
-  type: "text",
-  text,
-  x,
-  y,
-  width: 240,
-  height: 96,
-});
-
-const nodes: ReadonlyArray<CanvasNode> = [
+const nodes: ReadonlyArray<Node> = [
   region("r-junto", "Junto", "5", 0),
   region("r-yakjev", "Yakjev", "2", 1000),
   region("r-research", "Research", undefined, 2000, "Read the papers the operator flags and write one page each."),
-  agentTextNode({ id: "yakjev-1", key: "local:e2e-faces-1", label: "yakjev-1", harness: "claude", x: 1040, y: 60 }),
-  agentTextNode({ id: "yakjev-2", key: "local:e2e-faces-2", label: "yakjev-2", harness: "codex", x: 1320, y: 60 }),
-  agentTextNode({ id: "junto-1", key: "local:e2e-faces-3", label: "junto-1", harness: "claude", x: 40, y: 60 }),
+  modelSeat({ id: "yakjev-1", key: "local:e2e-faces-1", label: "yakjev-1", harness: "claude", x: 1040, y: 60 }),
+  modelSeat({ id: "yakjev-2", key: "local:e2e-faces-2", label: "yakjev-2", harness: "codex", x: 1320, y: 60 }),
+  modelSeat({ id: "junto-1", key: "local:e2e-faces-3", label: "junto-1", harness: "claude", x: 40, y: 60 }),
   note("n-plan", "Production deploy plan\nKeep the staging fleet one build behind main.", 40, 240),
   note("n-sense", "Making sense of things\nAn assistant that knows all my stuff, across the board.", 2040, 60),
-  { id: "l-docs", type: "link", url: "https://example.com/handbook", x: 2040, y: 240, width: 240, height: 96 },
-  { id: "f-spec", type: "file", file: "docs/security-doctrine.md", x: 2320, y: 240, width: 240, height: 96 },
+  modelNode({ id: "l-docs", kind: "link", url: "https://example.com/handbook", x: 2040, y: 240, width: 240, height: 96, z: 0 }),
+  modelNode({ id: "f-spec", kind: "file", path: "docs/security-doctrine.md", x: 2320, y: 240, width: 240, height: 96, z: 0 }),
 ];
 
 const signals: ReadonlyArray<AgentSignal> = [
@@ -66,7 +48,7 @@ const signals: ReadonlyArray<AgentSignal> = [
   },
 ];
 
-test.use({ juntoOptions: { seedCanvases: { [CANVAS]: canvasDoc([...nodes], []) }, seedAgentSignals: signals } });
+test.use({ juntoOptions: { seedModels: { [CANVAS]: modelFixture([...nodes], []) }, seedAgentSignals: signals } });
 
 const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => {
   await page.evaluate((mode) => window.junto!.settingsPatch({ appearance: { theme: mode } }), theme);

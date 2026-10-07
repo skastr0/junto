@@ -13,7 +13,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { crewPlayFactory } from "../harness/crew-fixture";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelSeat } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = process.env.TOP_BAR_SHOTS;
@@ -25,12 +25,12 @@ test("the top bar's actions stay in the window with the sometimes-there controls
   test.setTimeout(180_000);
   if (SHOTS) await mkdir(SHOTS, { recursive: true });
   const nodes = [
-    agentTextNode({ id: "one", key: "local:tb-one", label: "one", x: 40, y: 40 }),
-    agentTextNode({ id: "two", key: "local:tb-two", label: "two", x: 360, y: 40 }),
+    modelSeat({ id: "one", key: "local:tb-one", label: "one", x: 40, y: 40 }),
+    modelSeat({ id: "two", key: "local:tb-two", label: "two", x: 360, y: 40 }),
   ];
   const junto = await launchJunto({
     windowContentSize: { width: 960, height: 680 },
-    seedCanvases: { "a-long-canvas-name": canvasDoc(nodes, []) },
+    seedModels: { "a-long-canvas-name": modelFixture(nodes, []) },
   });
   try {
     const { app, page } = junto;

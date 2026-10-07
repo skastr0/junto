@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { decodeCanvasDoc, type CanvasDoc } from "../../src/shared/canvas";
 import {
   Command, Node, Wire, Opened, asCanvasName,
-  Region, Seat, Note, type SheetGrid,
+  Region, Seat, Note, Terminal, type SheetGrid,
 } from "../../src/shared/model";
 import { canvasFromDocument, nodeToDocument, wireToDocument } from "../../src/shared/model/from-document";
 import { documentEdits } from "../../src/shared/model/document-edits";
@@ -21,6 +21,7 @@ export type ModelFixture = {
 };
 
 const decodeNode = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" });
+export const modelNode = decodeNode;
 const decodeCommand = Schema.decodeUnknownSync(Command, { onExcessProperty: "error" });
 
 export const modelSeat = (input: {
@@ -54,6 +55,16 @@ export const modelRegion = (input: Omit<Partial<Region>, "kind" | "id"> & { read
 
 export const modelNote = (id: string, text: string, x = 0, y = 0): Extract<Node, { kind: "note" }> =>
   Schema.decodeUnknownSync(Note, { onExcessProperty: "error" })({ kind: "note", id, text, x, y, width: 240, height: 120, z: 0 });
+
+export const modelTerminal = (input: {
+  readonly id: string; readonly bindingId: string; readonly label: string;
+  readonly host?: string; readonly launch?: Terminal["launch"];
+  readonly x?: number; readonly y?: number;
+}): Terminal => Schema.decodeUnknownSync(Terminal, { onExcessProperty: "error" })({
+  kind: "terminal", id: input.id, bindingId: input.bindingId, label: input.label,
+  host: input.host ?? "local", onRemove: "detach", launch: input.launch ?? { kind: "shell" },
+  x: input.x ?? 0, y: input.y ?? 0, width: 260, height: 110, z: 0,
+});
 
 export const modelWire = (
   id: string, from: string, to: string, verb: Verb, nodes: ReadonlyArray<Node>,

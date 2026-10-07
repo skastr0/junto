@@ -1,4 +1,4 @@
-import { installFixtureDocument } from "../harness/model";
+import { installModelFixture, modelFixture, modelRegion, type ModelFixture } from "../harness/model";
 /**
  * Region folder paths modal — design + a11y capture.
  *
@@ -10,47 +10,21 @@ import { installFixtureDocument } from "../harness/model";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { CanvasDoc, GroupNode } from "../../src/shared/canvas";
-import { canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
-const regionEmpty: GroupNode = {
-  id: "region-paths-1",
-  type: "group",
-  label: "forge orbit",
-  x: 40,
-  y: 40,
-  width: 640,
-  height: 360,
-  ether: { region: { hold: true } },
-};
+const regionEmpty = modelRegion({
+  id: "region-paths-1", label: "forge orbit", x: 40, y: 40, width: 640, height: 360, hold: true,
+});
+const regionFilled = modelRegion({
+  id: "region-paths-2", label: "beacon orbit", x: 40, y: 40, width: 640, height: 360, hold: true,
+  defaults: { paths: { local: "/Users/operator/Projects/junto", "remote-a": "/home/operator/junto" } },
+});
 
-const regionFilled: GroupNode = {
-  id: "region-paths-2",
-  type: "group",
-  label: "beacon orbit",
-  x: 40,
-  y: 40,
-  width: 640,
-  height: 360,
-  ether: {
-    region: {
-      hold: true,
-      defaults: {
-        paths: {
-          local: "/Users/operator/Projects/junto",
-          "remote-a": "/home/operator/junto",
-        },
-      },
-    },
-  },
-};
-
-const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
+const installBoard = async (page: Page, doc: ModelFixture): Promise<void> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  await installFixtureDocument(page, doc, "region-paths");
+  await installModelFixture(page, doc, "region-paths");
 };
 
 const openRegionPaths = async (page: Page, regionNodeId: string) => {
@@ -74,7 +48,7 @@ test.beforeAll(async () => {
 test("region folder paths — empty, save, escape", async ({ junto }) => {
   const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-  await installBoard(page, canvasDoc([regionEmpty]));
+  await installBoard(page, modelFixture([regionEmpty]));
   await expect(page.getByTestId(`rf__node-${regionEmpty.id}`)).toBeVisible({
     timeout: 30_000,
   });
@@ -115,7 +89,7 @@ test("region folder paths — empty, save, escape", async ({ junto }) => {
 test("region folder paths — multi-host seed + remove", async ({ junto }) => {
   const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-  await installBoard(page, canvasDoc([regionFilled]));
+  await installBoard(page, modelFixture([regionFilled]));
   await expect(page.getByTestId(`rf__node-${regionFilled.id}`)).toBeVisible({
     timeout: 30_000,
   });

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { expect, it, vi } from "vitest";
 import { createSandbox, destroySandbox, writeFixtureCanvas, writeFixtureModel } from "../e2e/harness/sandbox";
-import { installModelFixture, modelFixture, modelNote, modelRegion, modelSeat, modelWire, readFixtureDocument, writeFixtureDocument } from "../e2e/harness/model";
+import { installModelFixture, modelFixture, modelNote, modelRegion, modelSeat, modelTerminal, modelWire, readFixtureDocument, writeFixtureDocument } from "../e2e/harness/model";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -14,7 +14,8 @@ it("seeds native kinds and legacy fixtures into the same durable model, keeping 
   try {
     const rows = [modelRegion({ id: "region", label: "Lab", instruction: "Keep receipts" }),
       modelSeat({ id: "seat-a", key: "local:a", label: "A", sessionId: "named-session" }),
-      modelSeat({ id: "seat-b", key: "local:b", label: "B" })];
+      modelSeat({ id: "seat-b", key: "local:b", label: "B" }),
+      modelTerminal({ id: "shell", bindingId: "shell", label: "Shell" })];
     await writeFixtureModel(sandbox, "native", modelFixture(rows, [modelWire("mail", "seat-a", "seat-b", "messages", rows)]));
     const frame = { x: 0, y: 0, width: 240, height: 100 };
     const grid = { columns: [{ id: "c", name: "Value" }], rows: [{ id: "r", cells: { c: "123" } }] };
@@ -28,7 +29,7 @@ it("seeds native kinds and legacy fixtures into the same durable model, keeping 
       await runtime.runPromise(Effect.gen(function* () {
         const model = yield* ModelService;
         const native = yield* model.open("native");
-        expect(native.nodes.map((node) => node.kind)).toEqual(["region", "agent", "agent"]);
+        expect(native.nodes.map((node) => node.kind)).toEqual(["region", "agent", "agent", "terminal"]);
         expect(native.nodes[1]).toMatchObject({ label: "A", bindingId: "local:a", harness: "codex", sessionId: "named-session" });
         expect(native.wires).toMatchObject([{ from: "seat-a", to: "seat-b", verb: "messages" }]);
         const old = yield* model.open("old-seed");

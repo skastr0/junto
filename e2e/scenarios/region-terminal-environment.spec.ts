@@ -10,24 +10,22 @@
  * renderer puts no text in the DOM (TerminalSurface.tsx, __juntoTermScreenText).
  */
 import type { Page } from "@playwright/test";
-import type { GroupNode } from "../../src/shared/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelRegion, modelTerminal } from "../harness/model";
 
 const NAME = "REGION_WALK_VALUE";
 const VALUE = "from-the-region";
 const SURFACE = ".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface";
 
-const region: GroupNode = {
+const region = modelRegion({
   id: "region-env",
-  type: "group",
   label: "Team",
   x: 40,
   y: 40,
   width: 520,
   height: 360,
-  ether: { region: { hold: true, environment: { sources: [{ id: "src-walk", kind: "value", name: NAME, value: VALUE }] } } },
-};
+  hold: true, environment: { sources: [{ id: "src-walk", kind: "value", name: NAME, value: VALUE }] },
+});
 
 const screenOf = (page: Page, bindingId: string): Promise<string> =>
   page.evaluate((id) => {
@@ -57,11 +55,11 @@ const runIn = async (page: Page, nodeId: string, bindingId: string, mark: string
 
 test("a plain terminal inside a region has the region's variable, and one outside does not", async () => {
   const junto = await launchJunto({
-    seedCanvases: {
-      regionterm: canvasDoc([
+    seedModels: {
+      regionterm: modelFixture([
         region,
-        terminalTextNode({ id: "term-in", bindingId: "local:term-in", label: "inside", x: 120, y: 140 }),
-        terminalTextNode({ id: "term-out", bindingId: "local:term-out", label: "outside", x: 700, y: 140 }),
+        modelTerminal({ id: "term-in", bindingId: "local:term-in", label: "inside", x: 120, y: 140 }),
+        modelTerminal({ id: "term-out", bindingId: "local:term-out", label: "outside", x: 700, y: 140 }),
       ]),
     },
   });
