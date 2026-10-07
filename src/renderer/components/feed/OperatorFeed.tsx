@@ -62,7 +62,7 @@ import {
   withLeavingItems,
 } from "../../lib/operator-feed";
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
-import { closeOperatorModal, operatorModalPlace, type OperatorModalPlaces } from "../../lib/operator-modal";
+import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal";
 import { quickReplyForKey, useQuickReplies } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
@@ -319,10 +319,8 @@ export function OperatorFeed() {
   const doc = use$(state$.doc);
   const nodesById = useMemo(() => new Map(doc.nodes.map((node) => [node.id, node] as const)), [doc]);
   // Coming back from a review opened on a card: the same card, the same
-  // open details, the same scroll. Taken once, as the feed mounts.
-  const placeRef = useRef<OperatorModalPlaces["feed"] | null | undefined>(null);
-  if (placeRef.current === null) placeRef.current = operatorModalPlace("feed");
-  const place = placeRef.current;
+  // open details, the same scroll. Read as the feed mounts.
+  const [place] = useState(() => operatorModalPlace("feed"));
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (place && scrollRef.current) scrollRef.current.scrollTop = place.scrollTop;
