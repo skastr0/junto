@@ -1,3 +1,4 @@
+import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
 import { readModelCanvas, readModelSeat, grantOverseer } from "../harness/model";
 /**
  * PTY team checklist walk [fake-tui]: one test per checklist line, named by
@@ -36,23 +37,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { CanvasDoc, EnvSource, GroupNode, TextNode } from "../../src/shared/canvas";
+import type { EnvSource, Region, Seat } from "../../src/shared/model";
+import { modelRegion } from "../harness/model";
 import { buildOnboardNudge } from "../../src/shared/managed-terminal-injection";
 import { MAIL_ONBOARD_POINTER } from "../../src/shared/message-delivery";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
-import {
-  crewDoc,
-  crewMessagesEdge,
-  crewOccupySeat,
-  crewPlayFactory,
-  crewReceipts,
-  crewSeat,
-  crewSeatNode,
-  installCrewSeatHarness,
-  type CrewCliResult,
-  type CrewSeat,
-  type WorkEnvelope,
-} from "../harness/crew-fixture";
+import { crewOccupySeat, crewPlayFactory, crewReceipts, crewSeat, installCrewSeatHarness, type CrewCliResult, type CrewSeat, type WorkEnvelope } from "../harness/crew-fixture";
 import { expect, launchJunto, test, type JuntoHandle, type LaunchOptions } from "../harness/launch";
 import type { Sandbox } from "../harness/sandbox";
 
@@ -201,7 +191,7 @@ const expectSeatState = async (page: Page, nodeId: string, state: string | RegEx
 };
 
 /** Play the canvas, start the seat's fake, and wait until it reads idle. */
-const startSeat = async (junto: JuntoHandle, node: TextNode): Promise<CrewSeat> => {
+const startSeat = async (junto: JuntoHandle, node: Seat): Promise<CrewSeat> => {
   const seat = crewSeat(junto.sandbox, CANVAS, node.id);
   await crewOccupySeat(junto.page, CANVAS, node, seat);
   await expectSeatState(junto.page, node.id, "idle");
@@ -309,20 +299,10 @@ const regionNode = (input: {
   readonly width: number;
   readonly height: number;
   readonly sources?: ReadonlyArray<EnvSource>;
-}): GroupNode => ({
-  id: input.id,
-  type: "group",
-  label: input.label,
-  x: input.x,
-  y: input.y,
-  width: input.width,
-  height: input.height,
-  ether: {
-    region: {
-      hold: true,
-      ...(input.sources ? { environment: { sources: [...input.sources] } } : {}),
-    },
-  },
+}): Region => modelRegion({
+  id: input.id, label: input.label, x: input.x, y: input.y,
+  width: input.width, height: input.height, hold: true,
+  ...(input.sources ? { environment: { sources: [...input.sources] } } : {}),
 });
 
 const plainValue = (id: string, name: string, value: string): EnvSource => ({ id, kind: "value", name, value });
@@ -378,18 +358,18 @@ const tempDir = (): Promise<string> => mkdtemp(join(tmpdir(), "junto-pty-walk-")
 // A. Seats
 // ===========================================================================
 
-const ADA = crewSeatNode({ id: "seat-a", label: "Ada", x: 120, y: 220 });
-const BO = crewSeatNode({ id: "seat-b", label: "Bo", x: 480, y: 220 });
-const pairDoc = crewDoc([ADA, BO], [crewMessagesEdge("e-ab", ADA.id, BO.id, [ADA, BO])]);
+const ADA = modelSeat({ id: "seat-a", label: "Ada", x: 120, y: 220 });
+const BO = modelSeat({ id: "seat-b", label: "Bo", x: 480, y: 220 });
+const pairDoc = modelFixture([ADA, BO], [modelMessagesWire("e-ab", ADA.id, BO.id, [ADA, BO])]);
 
 test("A2 [fake-tui] the onboarding nudge follows a first message, at most twice, and stops once the seat runs junto onboard", async ({}, testInfo) => {
   test.setTimeout(480_000);
   const NUDGE = buildOnboardNudge();
   // Learner onboards after its first nudge; Stray never does.
-  const learner = crewSeatNode({ id: "learner", label: "Learner", x: 120, y: 220 });
-  const stray = crewSeatNode({ id: "stray", label: "Stray", x: 480, y: 220 });
+  const learner = modelSeat({ id: "learner", label: "Learner", x: 120, y: 220 });
+  const stray = modelSeat({ id: "stray", label: "Stray", x: 480, y: 220 });
 
-  await walk(testInfo, { seedCanvases: { [CANVAS]: crewDoc([learner, stray]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
+  await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([learner, stray]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
     const { page } = junto;
     await crewPlayFactory(page);
     const seats = { learner: await startSeat(junto, learner), stray: await startSeat(junto, stray) };
@@ -466,7 +446,7 @@ test("A2 [fake-tui] the onboarding nudge follows a first message, at most twice,
 
 test("A3 [fake-tui] mail to a seat that never onboarded carries the onboard pointer", async ({}, testInfo) => {
   test.setTimeout(300_000);
-  await walk(testInfo, { seedCanvases: { [CANVAS]: pairDoc }, afterSeed: installWalkSeatHarness }, async (junto) => {
+  await walk(testInfo, { seedModels: { [CANVAS]: pairDoc }, afterSeed: installWalkSeatHarness }, async (junto) => {
     const { page } = junto;
     await crewPlayFactory(page);
     const ada = await startSeat(junto, ADA);
@@ -513,7 +493,7 @@ test("A3 [fake-tui] mail to a seat that never onboarded carries the onboard poin
 
 test("A4 [fake-tui] mail waits for an operator draft, says so in amber, and delivers when the draft is gone", async ({}, testInfo) => {
   test.setTimeout(300_000);
-  await walk(testInfo, { seedCanvases: { [CANVAS]: pairDoc }, afterSeed: installWalkSeatHarness }, async (junto) => {
+  await walk(testInfo, { seedModels: { [CANVAS]: pairDoc }, afterSeed: installWalkSeatHarness }, async (junto) => {
     const { page } = junto;
     await crewPlayFactory(page);
     const ada = await startSeat(junto, ADA);
@@ -576,8 +556,8 @@ test("A4 [fake-tui] mail waits for an operator draft, says so in amber, and deli
 
 test("A5 [fake-tui] Ctrl+S in a seat does not freeze its output", async ({}, testInfo) => {
   test.setTimeout(240_000);
-  const seatNode = crewSeatNode({ id: "painter", label: "Painter", x: 160, y: 200 });
-  await walk(testInfo, { seedCanvases: { [CANVAS]: crewDoc([seatNode]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
+  const seatNode = modelSeat({ id: "painter", label: "Painter", x: 160, y: 200 });
+  await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([seatNode]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
     const { page } = junto;
     await crewPlayFactory(page);
     const seat = await startSeat(junto, seatNode);
@@ -621,7 +601,7 @@ test("B1 the Environment screen takes a plain value and an env file, and lists b
   const dir = await tempDir();
   try {
     const envFile = await writeEnvFile(dir);
-    await walk(testInfo, { seedCanvases: { [CANVAS]: crewDoc([regionNode(VAULT)]) } }, async (junto) => {
+    await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([regionNode(VAULT)]) } }, async (junto) => {
       const { page } = junto;
       const dialog = await openRegionEnvironment(page, VAULT.id);
       await shot(page, testInfo, "B1-empty-screen");
@@ -672,10 +652,10 @@ test("B2 [fake-tui] a seat inside the region gets FOO and reports its source; a 
       ...VAULT,
       sources: [plainValue("src-foo", "FOO", "bar"), { id: "src-file", kind: "envFile", path: envFile }],
     });
-    const inside = crewSeatNode({ id: "inside", label: "Inside", x: 100, y: 200 });
-    const outside = crewSeatNode({ id: "outside", label: "Outside", x: 760, y: 200 });
+    const inside = modelSeat({ id: "inside", label: "Inside", x: 100, y: 200 });
+    const outside = modelSeat({ id: "outside", label: "Outside", x: 760, y: 200 });
 
-    await walk(testInfo, { seedCanvases: { [CANVAS]: crewDoc([vault, inside, outside]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
+    await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([vault, inside, outside]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
       const { page, sandbox } = junto;
       await crewPlayFactory(page);
       const insideSeat = await startSeat(junto, inside);
@@ -730,10 +710,10 @@ test("B3 [fake-tui] a required Keychain source that does not exist shows red wit
   test.setTimeout(300_000);
   // Made up, and looked up only: nothing is created under this name.
   const service = `junto-e2e-no-such-service-${Math.random().toString(36).slice(2, 10)}`;
-  const boss = crewSeatNode({ id: "boss", label: "Boss", x: 760, y: 200 });
-  const kept = crewSeatNode({ id: "kept", label: "Kept", x: 100, y: 200 });
+  const boss = modelSeat({ id: "boss", label: "Boss", x: 760, y: 200 });
+  const kept = modelSeat({ id: "kept", label: "Kept", x: 100, y: 200 });
 
-  await walk(testInfo, { seedCanvases: { [CANVAS]: crewDoc([regionNode(VAULT), kept, boss]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
+  await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([regionNode(VAULT), kept, boss]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
     const { page, sandbox } = junto;
     await crewPlayFactory(page);
 
@@ -818,9 +798,9 @@ test("B4 [fake-tui] an inner region overrides FOO, and sealing it drops the oute
     height: 240,
     sources: [plainValue("src-foo-inner", "FOO", "inner-value")],
   });
-  const deep = crewSeatNode({ id: "deep", label: "Deep", x: 120, y: 230 });
+  const deep = modelSeat({ id: "deep", label: "Deep", x: 120, y: 230 });
 
-  await walk(testInfo, { seedCanvases: { [CANVAS]: crewDoc([outer, inner, deep]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
+  await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([outer, inner, deep]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
     const { page, sandbox } = junto;
     await crewPlayFactory(page);
     await startSeat(junto, deep);
@@ -868,14 +848,10 @@ test("B5 [fake-tui] editing a source while a seat runs offers Restart to apply, 
   test.setTimeout(360_000);
   const SESSION = "sess-walk-0001";
   const vault = regionNode({ ...VAULT, sources: [plainValue("src-foo", "FOO", "bar")] });
-  const base = crewSeatNode({ id: "runner", label: "Runner", x: 100, y: 200 });
-  // A seat with a session to keep, seeded the way seat-sessions.spec.ts does.
-  const runner: TextNode = {
-    ...base,
-    ether: { ...base.ether, terminal: { ...base.ether!.terminal!, sessionId: SESSION } },
-  };
+  // A seat with a named session to keep.
+  const runner = modelSeat({ id: "runner", label: "Runner", x: 100, y: 200, sessionId: SESSION });
 
-  await walk(testInfo, { seedCanvases: { [CANVAS]: crewDoc([vault, runner]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
+  await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([vault, runner]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
     const { page, sandbox } = junto;
     await crewPlayFactory(page);
     const seat = await startSeat(junto, runner);

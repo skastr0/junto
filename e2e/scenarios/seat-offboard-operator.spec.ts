@@ -1,3 +1,4 @@
+import { modelFixture, modelMessagesWire, modelNote, modelSeat } from "../harness/model";
 import { readModelSeat, grantOverseer } from "../harness/model";
 /**
  * Operator offboard [fake-tui]: the two engineers' walks, as probes.
@@ -64,7 +65,8 @@ import { join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { CanvasDoc, CanvasEdge, TextNode } from "../../src/shared/canvas";
+import type { Node, Seat, Wire } from "../../src/shared/model";
+import type { ModelFixture } from "../harness/model";
 import { templateFor, type HarnessId } from "../../src/shared/managed-terminal-templates";
 import {
   DEFAULT_OFFBOARD_RULES,
@@ -75,22 +77,9 @@ import {
 } from "../../src/shared/seat-offboard";
 import { composeOffboardAsk, type SeatOffboardProgress } from "../../src/shared/seat-sessions";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
-import {
-  crewDoc,
-  crewMessagesEdge,
-  crewOccupySeat,
-  crewPlayFactory,
-  crewReceipts,
-  crewSeat,
-  crewSeatDir,
-  crewSeatNode,
-  crewSeatsDir,
-  installCrewSeatHarness,
-  type CrewSeat,
-  type WorkEnvelope,
-} from "../harness/crew-fixture";
+import { crewOccupySeat, crewPlayFactory, crewReceipts, crewSeat, crewSeatDir, crewSeatsDir, installCrewSeatHarness, type CrewSeat, type WorkEnvelope } from "../harness/crew-fixture";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
-import { textNode, type Sandbox } from "../harness/sandbox";
+import { type Sandbox } from "../harness/sandbox";
 import { readSeatMailbox } from "../harness/work-mail";
 
 // Only [A-Za-z0-9._-] in the canvas name and node ids: the wrapper turns the
@@ -151,19 +140,16 @@ const bindingOf = (nodeId: string): string => `local:${nodeId}`;
 const sessionIdOf = (nodeId: string): string => `sess-operator-${nodeId}-0001`;
 
 /** A fake Codex seat. With `session`, its node names a session to close (seat-offboard.spec.ts:77-80). */
-const seatNode = (id: string, label: string, x: number, y: number, session = true): TextNode => {
-  const base = crewSeatNode({ id, label, x, y });
-  if (!session) return base;
-  return { ...base, ether: { ...base.ether, terminal: { ...base.ether!.terminal!, sessionId: sessionIdOf(id) } } };
-};
+const seatNode = (id: string, label: string, x: number, y: number, session = true): Seat =>
+  modelSeat({ id, label, x, y, ...(session ? { sessionId: sessionIdOf(id) } : {}) });
 
 /** Cards are 240 by 96 (harness/sandbox.ts:539-540): three to a row, clear of each other. */
 const COLUMN = [100, 400, 700] as const;
 const ROW = [220, 440] as const;
 
-const docOf = (nodes: ReadonlyArray<TextNode>, mail: ReadonlyArray<readonly [from: string, to: string]> = []): CanvasDoc => {
-  const edges: CanvasEdge[] = mail.map(([from, to]) => crewMessagesEdge(`e-${from}-${to}`, from, to, [...nodes]));
-  return crewDoc([...nodes], edges);
+const fixtureOf = (nodes: ReadonlyArray<Node>, mail: ReadonlyArray<readonly [from: string, to: string]> = []): ModelFixture => {
+  const edges: Wire[] = mail.map(([from, to]) => modelMessagesWire(`e-${from}-${to}`, from, to, [...nodes]));
+  return modelFixture([...nodes], edges);
 };
 
 /** Where this spec plants a session's transcript (see the header). */
@@ -313,7 +299,7 @@ type Walk = {
 };
 
 type WalkSetup = {
-  readonly doc: CanvasDoc;
+  readonly doc: ModelFixture;
   /** Harnesses planted as no-op binaries, so the app lists them as installed. */
   readonly harnessInstalls?: ReadonlyArray<HarnessId>;
   /** Session ids to plant a transcript for. */
@@ -328,7 +314,7 @@ const walk = async (testInfo: TestInfo, id: string, setup: WalkSetup, body: (wal
   await mkdir(dir, { recursive: true });
   const launchStartedAt = Date.now();
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: setup.doc },
+    seedModels: { [CANVAS]: setup.doc },
     // Planted before afterSeed (harness/launch.ts:480-487), so the fake codex below is not overwritten.
     ...(setup.harnessInstalls !== undefined ? { seedHarnessInstalls: setup.harnessInstalls } : {}),
     afterSeed: installSeatHarness(setup.transcripts ?? []),
@@ -447,7 +433,7 @@ const setRules = async (page: Page, patch: OffboardRulesPatch): Promise<Offboard
 };
 
 /** Start a seat's fake, wait until it reads idle, and have its agent onboard (so no onboarding nudge is typed later). */
-const startSeat = async (page: Page, sandbox: Sandbox, node: TextNode): Promise<CrewSeat> => {
+const startSeat = async (page: Page, sandbox: Sandbox, node: Seat): Promise<CrewSeat> => {
   const seat = crewSeat(sandbox, CANVAS, node.id);
   await crewOccupySeat(page, CANVAS, node, seat);
   await expectSeatState(page, node.id, "idle");
@@ -768,7 +754,7 @@ const until = (from: number, ms: number, floor = 30_000): number => Math.max(flo
 
 test("W0 S5a [fake-tui] Settings, Offboard: the defaults, what is refused and why, and the switch that stays off", async ({}, testInfo) => {
   test.setTimeout(240_000);
-  const doc = docOf([seatNode("ada", "Ada", COLUMN[0], ROW[0])]);
+  const doc = fixtureOf([seatNode("ada", "Ada", COLUMN[0], ROW[0])]);
   await walk(testInfo, "W0", { doc }, async ({ junto, shot, step }) => {
     const { page } = junto;
     let section = page.getByTestId("offboard-settings");
@@ -989,7 +975,7 @@ test("WA S1 S3 S4-1 [fake-tui] the popup above a card: preferred flips at the ca
   const ADA = seatNode("ada", "Ada", COLUMN[0], ROW[0]);
   const BO = seatNode("bo", "Bo", COLUMN[1], ROW[0]);
   const CY = seatNode("cy", "Cy", COLUMN[2], ROW[0]);
-  const doc = docOf([ADA, BO, CY], [["bo", "ada"]]);
+  const doc = fixtureOf([ADA, BO, CY], [["bo", "ada"]]);
   await walk(testInfo, "WA", { doc, transcripts: [sessionIdOf("ada")] }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
@@ -1298,7 +1284,7 @@ test("WB S2 [fake-tui] a working seat and a seat on a dialog: Offboard now is gr
   test.setTimeout(300_000);
   const WREN = seatNode("wren", "Wren", COLUMN[0], ROW[0]);
   const ROOK = seatNode("rook", "Rook", COLUMN[1], ROW[0]);
-  await walk(testInfo, "WB", { doc: docOf([WREN, ROOK]) }, async ({ junto, sandbox, shot, step, mark }) => {
+  await walk(testInfo, "WB", { doc: fixtureOf([WREN, ROOK]) }, async ({ junto, sandbox, shot, step, mark }) => {
     const { page } = junto;
     let wren!: CrewSeat;
     let rook!: CrewSeat;
@@ -1386,7 +1372,7 @@ test("WB S2 [fake-tui] a working seat and a seat on a dialog: Offboard now is gr
 test("WC1 [fake-tui] bottom bar, one agent: the row of keys ends with the offboard key, and it opens the same panel", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const ADA = seatNode("ada", "Ada", COLUMN[0], ROW[0]);
-  await walk(testInfo, "WC1", { doc: docOf([ADA]) }, async ({ junto, sandbox, shot, step }) => {
+  await walk(testInfo, "WC1", { doc: fixtureOf([ADA]) }, async ({ junto, sandbox, shot, step }) => {
     const { page } = junto;
 
     await step("C1-0", "setup: rules, one fake seat started, idle and onboarded", async () => {
@@ -1463,7 +1449,7 @@ test("WC2 S2 S4-2 [fake-tui] bottom bar, a selection: the strip above the compos
   const GUS = seatNode("gus", "Gus", X[2], ROW[1]);
   const HAL = seatNode("hal", "Hal", X[3], ROW[1]);
   const ALL = [ADA, BO, CY, DEE, EVE, FAY, GUS, HAL];
-  await walk(testInfo, "WC2", { doc: docOf(ALL) }, async (ctx) => {
+  await walk(testInfo, "WC2", { doc: fixtureOf(ALL) }, async (ctx) => {
     const { junto, sandbox, dir, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
     const seats: Record<string, CrewSeat> = {};
@@ -1733,7 +1719,7 @@ test("WC2 S2 S4-2 [fake-tui] bottom bar, a selection: the strip above the compos
 test("WD [fake-tui] the Sessions tab: no buttons, where to find Offboard, and the three steps of an ask with the first one done", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const BO = seatNode("bo", "Bo", COLUMN[0], ROW[0]);
-  await walk(testInfo, "WD", { doc: docOf([BO]) }, async ({ junto, sandbox, shot, step }) => {
+  await walk(testInfo, "WD", { doc: fixtureOf([BO]) }, async ({ junto, sandbox, shot, step }) => {
     const { page } = junto;
 
     await step("D0", "setup: one fake seat, asked to offboard and rest from its popup, as in A8", async () => {
@@ -1821,8 +1807,8 @@ test("WE [fake-tui] right-click on a selection: the two offboard rows, the two p
   // Low on the canvas: the seat the selection is right-clicked on.
   const CY = seatNode("cy", "Cy", COLUMN[1], 640);
   const SEATS = [ADA, BO, EVE, DEE, CY];
-  const NOTES = [textNode("note-one", "A note", COLUMN[2], ROW[1]), textNode("note-two", "Another note", COLUMN[2], 640)];
-  const doc = crewDoc([...SEATS, ...NOTES]);
+  const NOTES = [modelNote("note-one", "A note", COLUMN[2], ROW[1]), modelNote("note-two", "Another note", COLUMN[2], 640)];
+  const doc = modelFixture([...SEATS, ...NOTES]);
   await walk(testInfo, "WE", { doc }, async ({ junto, sandbox, dir, shot, step: walkStep, mark }) => {
     const { page } = junto;
     const seats: Record<string, CrewSeat> = {};
@@ -2029,7 +2015,7 @@ test("WF [fake-tui] right-click on one agent: a rule, then the two offboard rows
   test.setTimeout(300_000);
   const FIG = seatNode("fig", "Fig", COLUMN[0], ROW[0]);
   const WIL = seatNode("wil", "Wil", COLUMN[1], ROW[0]);
-  await walk(testInfo, "WF", { doc: docOf([FIG, WIL]) }, async ({ junto, sandbox, shot, step }) => {
+  await walk(testInfo, "WF", { doc: fixtureOf([FIG, WIL]) }, async ({ junto, sandbox, shot, step }) => {
     const { page } = junto;
     let wil!: CrewSeat;
     let figPid = 0;
@@ -2143,7 +2129,7 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
   const CID = seatNode("cid", "Cid", COLUMN[0], ROW[0], false);
   // Never renamed: its card reads the name it was created with, here the walk's own example.
   const DEF = seatNode("def", "Codex", COLUMN[1], ROW[0], false);
-  await walk(testInfo, "WG", { doc: docOf([CID, DEF]), harnessInstalls: [RESEAT_TO] }, async ({ junto, sandbox, shot, step, mark }) => {
+  await walk(testInfo, "WG", { doc: fixtureOf([CID, DEF]), harnessInstalls: [RESEAT_TO] }, async ({ junto, sandbox, shot, step, mark }) => {
     const { page } = junto;
     const target = templateFor(RESEAT_TO).displayName;
     /** rts/KindSurface.tsx:84-90: the bar's identity, the name and the harness under it. */
@@ -2469,7 +2455,7 @@ test("S6a [slow-rules] [fake-tui] mail to a running seat idle past the interval:
   test.setTimeout(11 * 60_000);
   const HAL = seatNode("hal", "Hal", COLUMN[0], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[1], ROW[0], false);
-  const doc = docOf([HAL, PAT], [["pat", "hal"]]);
+  const doc = fixtureOf([HAL, PAT], [["pat", "hal"]]);
   await walk(testInfo, "S6a", { doc, transcripts: [sessionIdOf("hal")] }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
@@ -2540,7 +2526,7 @@ test("S6b [slow-rules] [fake-tui] counter-cases on a playing canvas: mid-turn, a
   const LOW = seatNode("low", "Low", COLUMN[0], ROW[1]);
   const PAT = seatNode("pat", "Pat", COLUMN[1], ROW[1], false);
   const IDS = ["mid", "dia", "one", "low"] as const;
-  const doc = docOf([MID, DIA, ONE, LOW, PAT], IDS.map((id) => ["pat", id] as const));
+  const doc = fixtureOf([MID, DIA, ONE, LOW, PAT], IDS.map((id) => ["pat", id] as const));
   await walk(testInfo, "S6b", { doc }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
@@ -2692,7 +2678,7 @@ test("S6b-paused [slow-rules] [fake-tui] counter-case on a paused canvas: a seat
   test.setTimeout(11 * 60_000);
   const PIA = seatNode("pia", "Pia", COLUMN[0], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[1], ROW[0], false);
-  const doc = docOf([PIA, PAT], [["pat", "pia"]]);
+  const doc = fixtureOf([PIA, PAT], [["pat", "pia"]]);
   await walk(testInfo, "S6b-paused", { doc }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
@@ -2740,7 +2726,7 @@ test("S6c [slow-rules] [fake-tui] Ask to offboard on a running seat idle past th
   test.setTimeout(11 * 60_000);
   const KIT = seatNode("kit", "Kit", COLUMN[0], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[1], ROW[0], false);
-  const doc = docOf([KIT, PAT], [["pat", "kit"]]);
+  const doc = fixtureOf([KIT, PAT], [["pat", "kit"]]);
   await walk(testInfo, "S6c", { doc, transcripts: [sessionIdOf("kit")] }, async (ctx) => {
     const { junto, sandbox, shot, step, mark } = ctx;
     const { page } = junto;
@@ -2806,7 +2792,7 @@ test("S6d [slow-rules] [fake-tui] typing into the seat's terminal yourself: noth
   test.setTimeout(11 * 60_000);
   const HAL = seatNode("hal", "Hal", COLUMN[0], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[1], ROW[0], false);
-  const doc = docOf([HAL, PAT], [["pat", "hal"]]);
+  const doc = fixtureOf([HAL, PAT], [["pat", "hal"]]);
   await walk(testInfo, "S6d", { doc }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
@@ -2978,7 +2964,7 @@ test("S5r-3 [slow-rules] [fake-tui] auto offboard at wake: a resting seat that w
   test.setTimeout(11 * 60_000);
   const EVE = seatNode("eve", "Eve", COLUMN[0], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[1], ROW[0], false);
-  await walk(testInfo, "S5r-3", { doc: docOf([EVE, PAT], [["pat", "eve"]]), transcripts: [sessionIdOf("eve")] }, async (ctx) => {
+  await walk(testInfo, "S5r-3", { doc: fixtureOf([EVE, PAT], [["pat", "eve"]]), transcripts: [sessionIdOf("eve")] }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
     let eve!: CrewSeat;
@@ -3021,7 +3007,7 @@ test("S5r-4 [slow-rules] [fake-tui] the gate: a resting seat that worked under t
   test.setTimeout(10 * 60_000);
   const FAY = seatNode("fay", "Fay", COLUMN[0], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[1], ROW[0], false);
-  await walk(testInfo, "S5r-4", { doc: docOf([FAY, PAT], [["pat", "fay"]]), transcripts: [sessionIdOf("fay")] }, async (ctx) => {
+  await walk(testInfo, "S5r-4", { doc: fixtureOf([FAY, PAT], [["pat", "fay"]]), transcripts: [sessionIdOf("fay")] }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
     let fay!: CrewSeat;
@@ -3070,7 +3056,7 @@ test("S5r-5 [slow-rules] [fake-tui] one seat at a time: of three qualifying rest
   const IDS = ["rea", "reb", "rec"] as const;
   const NODES = IDS.map((id, index) => seatNode(id, id.toUpperCase(), COLUMN[index]!, ROW[0]));
   const PAT = seatNode("pat", "Pat", COLUMN[0], ROW[1], false);
-  const doc = docOf([...NODES, PAT], IDS.map((id) => ["pat", id] as const));
+  const doc = fixtureOf([...NODES, PAT], IDS.map((id) => ["pat", id] as const));
   await walk(testInfo, "S5r-5", { doc, transcripts: IDS.map(sessionIdOf) }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
@@ -3117,7 +3103,7 @@ test("S5r-6 [slow-rules] [fake-tui] restart: a qualifying resting seat is left a
   test.setTimeout(18 * 60_000);
   const GIA = seatNode("gia", "Gia", COLUMN[0], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[1], ROW[0], false);
-  await walk(testInfo, "S5r-6", { doc: docOf([GIA, PAT], [["pat", "gia"]]), transcripts: [sessionIdOf("gia")] }, async (ctx) => {
+  await walk(testInfo, "S5r-6", { doc: fixtureOf([GIA, PAT], [["pat", "gia"]]), transcripts: [sessionIdOf("gia")] }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, tap, offboardLines } = ctx;
     let second: ElectronApplication | undefined;
     let reopenedAt = 0;
@@ -3211,7 +3197,7 @@ test("S5r-7 [slow-rules] [fake-tui] the clock file: what it holds for a seat tha
   const WES = seatNode("wes", "Wes", COLUMN[0], ROW[0]);
   const CLO = seatNode("clo", "Clo", COLUMN[1], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[2], ROW[0], false);
-  await walk(testInfo, "S5r-7", { doc: docOf([WES, CLO, PAT], [["pat", "wes"]]), transcripts: [sessionIdOf("wes")] }, async (ctx) => {
+  await walk(testInfo, "S5r-7", { doc: fixtureOf([WES, CLO, PAT], [["pat", "wes"]]), transcripts: [sessionIdOf("wes")] }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, tap } = ctx;
     let second: ElectronApplication | undefined;
     type Entry = { readonly movedAt?: number; readonly workMs?: number; readonly sessionId?: string; readonly offboarded?: boolean };
@@ -3283,7 +3269,7 @@ test("S5r-8 [slow-rules] [fake-tui] the idle nudge: a seat that worked is asked 
   const NEL = seatNode("nel", "Nel", COLUMN[1], ROW[0]);
   const MOE = seatNode("moe", "Moe", COLUMN[2], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[0], ROW[1], false);
-  const doc = docOf([NAN, NEL, MOE, PAT], [["pat", "nan"], ["pat", "nel"]]);
+  const doc = fixtureOf([NAN, NEL, MOE, PAT], [["pat", "nan"], ["pat", "nel"]]);
   await walk(testInfo, "S5r-8", { doc }, async (ctx) => {
     const { junto, sandbox, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
@@ -3379,7 +3365,7 @@ test("S5r-cli [fake-tui] the overseer's CLI closes a resting seat that had a tur
   const BOSS = seatNode("boss", "Boss", COLUMN[0], ROW[0], false);
   const TIA = seatNode("tia", "Tia", COLUMN[1], ROW[0]);
   const PAT = seatNode("pat", "Pat", COLUMN[2], ROW[0], false);
-  await walk(testInfo, "S5r-cli", { doc: docOf([BOSS, TIA, PAT], [["pat", "tia"]]), transcripts: [sessionIdOf("tia")] }, async (ctx) => {
+  await walk(testInfo, "S5r-cli", { doc: fixtureOf([BOSS, TIA, PAT], [["pat", "tia"]]), transcripts: [sessionIdOf("tia")] }, async (ctx) => {
     const { junto, sandbox, dir, shot, step, mark, offboardLines } = ctx;
     const { page } = junto;
     let boss!: CrewSeat;

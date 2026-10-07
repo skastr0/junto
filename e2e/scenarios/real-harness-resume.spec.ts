@@ -1,4 +1,5 @@
-import { installFixtureDocument, readModelSeat } from "../harness/model";
+import { installModelFixture } from "../harness/model";
+import { readModelSeat } from "../harness/model";
 /**
  * Real-harness session resume [real-harness, opt-in, spends tokens].
  *   JUNTO_REAL_RESUME=1 bun run test:e2e:fast e2e/scenarios/real-harness-resume.spec.ts
@@ -23,9 +24,9 @@ import { cpSync, existsSync, mkdirSync, realpathSync, writeFileSync } from "node
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { CanvasDoc } from "../../src/shared/canvas";
+import { modelFixture, modelNode } from "../harness/model";
 import type { ManagedLaunchChoices } from "../../src/shared/managed-terminal-launch";
-import { buildManagedAgentSeat } from "../../src/renderer/lib/node-factories";
+import { seatParts } from "../../src/shared/model/seat-parts";
 import { templateFor, type HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
 import { juntoLogDirectory } from "../../src/shared/junto-logs";
@@ -221,7 +222,7 @@ for (const c of CASES) {
     const cwd = realpathSync(folder);
     const seatId = `resume-${c.harness}`;
     // The operator's authoring path: it mints the pin a pin harness needs.
-    const seat = buildManagedAgentSeat({
+    const seat = seatParts({
       harness: c.harness,
       host: "local",
       cwd,
@@ -229,8 +230,8 @@ for (const c of CASES) {
       ...(c.choices?.effort ? { effort: c.choices.effort } : {}),
       label: `${c.harness} resume proof`,
     });
-    const bindingId = seat.ether.terminal!.bindingId;
-    const launch = seat.ether.terminal!.launch!;
+    const bindingId = seat.bindingId;
+    const launch = seat.launch;
     verdict.firstArgv = launch.argv;
 
     const extraEnv: Record<string, string> = {
@@ -314,22 +315,11 @@ for (const c of CASES) {
 
     try {
       await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-      const seatDoc: CanvasDoc = {
-        nodes: [
-          {
-            id: seatId,
-            type: "text",
-            text: seat.text,
-            x: 360,
-            y: 40,
-            width: 240,
-            height: 96,
-            ether: seat.ether,
-          },
-        ],
-        edges: [],
-      };
-      canvas = await installFixtureDocument(page, seatDoc);
+      const fixture = modelFixture([modelNode({
+        kind: "agent", id: seatId, ...seat, overseer: false, onRemove: "detach",
+        x: 360, y: 40, width: 240, height: 96, z: 0,
+      })]);
+      canvas = await installModelFixture(page, fixture);
       await expect(page.locator(`.react-flow__node[data-id="${seatId}"]`)).toBeVisible({
         timeout: 20_000,
       });

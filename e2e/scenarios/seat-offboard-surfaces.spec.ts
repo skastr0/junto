@@ -1,3 +1,4 @@
+import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
 import { readModelSeat } from "../harness/model";
 /**
  * Seat offboard, wherever the operator is looking, and against everything
@@ -77,26 +78,16 @@ import { join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { CanvasDoc, CanvasEdge, TextNode } from "../../src/shared/canvas";
+import type { Seat, Wire } from "../../src/shared/model";
+import type { ModelFixture } from "../harness/model";
 import { buildOnboardNudge } from "../../src/shared/managed-terminal-injection";
 import { templateFor } from "../../src/shared/managed-terminal-templates";
 import { CONTINUATION_LINE, type SeatOffboardProgress } from "../../src/shared/seat-sessions";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
-import {
-  crewDoc,
-  crewMessagesEdge,
-  crewOccupySeat,
-  crewPlayFactory,
-  CrewSeat,
-  crewSeatDir,
-  crewSeatNode,
-  crewSeatsDir,
-  installCrewSeatHarness,
-  type WorkEnvelope,
-} from "../harness/crew-fixture";
+import { crewOccupySeat, crewPlayFactory, CrewSeat, crewSeatDir, crewSeatsDir, installCrewSeatHarness, type WorkEnvelope } from "../harness/crew-fixture";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
-import { agentTextNode, type Sandbox } from "../harness/sandbox";
+import { type Sandbox } from "../harness/sandbox";
 
 // Only [A-Za-z0-9._-] in the canvas name and node ids: the wrapper turns the
 // one ":" of JUNTO_NODE_REF into the "--" the fake names its folder with.
@@ -196,18 +187,16 @@ const soft = expect.configure({ soft: true });
 // ---------------------------------------------------------------------------
 
 /** A codex seat with a session to close, seeded the way seat-sessions.spec.ts does (line 36). */
-const codexSeat = (id: string, label: string, x: number, y: number): TextNode => {
-  const base = crewSeatNode({ id, label, x, y });
-  return { ...base, ether: { ...base.ether, terminal: { ...base.ether!.terminal!, sessionId: `${CODEX_SESSION}-${id}` } } };
-};
+const codexSeat = (id: string, label: string, x: number, y: number): Seat =>
+  modelSeat({ id, label, x, y, sessionId: `${CODEX_SESSION}-${id}` });
 
-const MAILER = crewSeatNode({ id: MAILER_ID, label: "Mailer", x: 480, y: 380 });
+const MAILER = modelSeat({ id: MAILER_ID, label: "Mailer", x: 480, y: 380 });
 
 /** The seats under test, a mailer, and a messages edge from the mailer to each. */
-const docOf = (seats: ReadonlyArray<TextNode>): CanvasDoc => {
+const fixtureOf = (seats: ReadonlyArray<Seat>): ModelFixture => {
   const nodes = [...seats, MAILER];
-  const edges: CanvasEdge[] = seats.map((seat) => crewMessagesEdge(`e-mailer-${seat.id}`, MAILER.id, seat.id, nodes));
-  return crewDoc(nodes, edges);
+  const edges: Wire[] = seats.map((seat) => modelMessagesWire(`e-mailer-${seat.id}`, MAILER.id, seat.id, nodes));
+  return modelFixture(nodes, edges);
 };
 
 // ---------------------------------------------------------------------------
@@ -316,12 +305,12 @@ const keepTrace = async (sandbox: Sandbox, id: string): Promise<void> => {
 const walk = async (
   testInfo: TestInfo,
   id: string,
-  doc: CanvasDoc,
+  doc: ModelFixture,
   body: (junto: JuntoHandle, evidence: Evidence) => Promise<void>,
 ): Promise<void> => {
   const evidence = evidenceFor(testInfo, id);
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: doc },
+    seedModels: { [CANVAS]: doc },
     afterSeed: installSurfaceSeatHarness,
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
@@ -518,7 +507,7 @@ const expectSeatState = async (page: Page, nodeId: string, state: string | RegEx
   else await poll.toMatch(state);
 };
 
-const startSeat = async (junto: JuntoHandle, node: TextNode): Promise<CrewSeat> => {
+const startSeat = async (junto: JuntoHandle, node: Seat): Promise<CrewSeat> => {
   const seat = genSeat(junto.sandbox, node.id, 1);
   await crewOccupySeat(junto.page, CANVAS, node, seat);
   await expectSeatState(junto.page, node.id, "idle");
@@ -536,7 +525,7 @@ const sessionOf = (page: Page, nodeId: string): Promise<TerminalSessionSummary |
 const isLive = (session: TerminalSessionSummary | undefined): boolean =>
   session?.status === "running" || session?.status === "starting";
 
-/** The session id the seat's node names (`ether.terminal.sessionId`). A codex seat's is cleared at the close (rotate.ts:83-84). */
+/** The session id the seat's node names (`sessionId`). A codex seat's is cleared at the close (rotate.ts:83-84). */
 const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
   return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
 };
@@ -763,7 +752,7 @@ type Running = {
 };
 
 /** Play the canvas, start the seat and the mailer, and leave the seat mid-turn on real mail. */
-const seatMidTurn = async (junto: JuntoHandle, node: TextNode, options: { readonly onboard: boolean }): Promise<Running> => {
+const seatMidTurn = async (junto: JuntoHandle, node: Seat, options: { readonly onboard: boolean }): Promise<Running> => {
   await crewPlayFactory(junto.page);
   const seat = await startSeat(junto, node);
   const mailer = await startSeat(junto, MAILER);
@@ -1098,7 +1087,7 @@ const focusViewFlow = (mode: "rest" | "continue"): void => {
   test(`${id} [fake-tui] the focus view stays open, and shows only the ${mode === "rest" ? "resting seat" : "fresh session"}, while its seat offboards mid-turn`, async ({}, testInfo) => {
     test.setTimeout(360_000);
     const SEAT = codexSeat("closer", "Closer", 120, 220);
-    await walk(testInfo, id, docOf([SEAT]), async (junto, evidence) => {
+    await walk(testInfo, id, fixtureOf([SEAT]), async (junto, evidence) => {
       const { page, sandbox } = junto;
       const { mark } = evidence;
       const running = await seatMidTurn(junto, SEAT, { onboard: true });
@@ -1199,7 +1188,7 @@ focusViewFlow("continue");
 test("SA3 [fake-tui] a view the operator stopped stays stopped when mail wakes the seat, until Reopen", async ({}, testInfo) => {
   test.setTimeout(300_000);
   const SEAT = codexSeat("closer", "Closer", 120, 220);
-  await walk(testInfo, "SA3", docOf([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SA3", fixtureOf([SEAT]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     await crewPlayFactory(page);
@@ -1258,7 +1247,7 @@ test("SB [fake-tui] four seats in the grid offboard in the same second, mid-turn
   const ids = ["g1", "g2", "g3", "g4"] as const;
   const RESTS = "g4";
   const seats = ids.map((id, index) => codexSeat(id, `Grid ${String(index + 1)}`, 40 + index * 300, 120));
-  await walk(testInfo, "SB", docOf(seats), async (junto, evidence) => {
+  await walk(testInfo, "SB", fixtureOf(seats), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     await crewPlayFactory(page);
@@ -1347,7 +1336,7 @@ test("SB5 [fake-tui] five seats continue in the same second, mid-turn, and the o
   const ids = ["f1", "f2", "f3", "f4", "f5"] as const;
   const STUBBORN = "f5";
   const seats = ids.map((id, index) => codexSeat(id, `Five ${String(index + 1)}`, 40 + (index % 4) * 300, 100 + Math.floor(index / 4) * 160));
-  await walk(testInfo, "SB5", docOf(seats), async (junto, evidence) => {
+  await walk(testInfo, "SB5", fixtureOf(seats), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     await crewPlayFactory(page);
@@ -1413,7 +1402,7 @@ test("SB5 [fake-tui] five seats continue in the same second, mid-turn, and the o
 test("SB-again-codex [fake-tui] a second offboard from a fresh Codex session, which has no session id yet, is refused and changes nothing (recorded)", async ({}, testInfo) => {
   test.setTimeout(360_000);
   const SEAT = codexSeat("closer", "Closer", 120, 220);
-  await walk(testInfo, "SB-again-codex", docOf([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SB-again-codex", fixtureOf([SEAT]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     const running = await seatMidTurn(junto, SEAT, { onboard: true });
@@ -1460,12 +1449,11 @@ test("SB-again-claude [fake-tui] a seat on a pin harness offboards again from it
   // The Claude-template fake of SF (see there for what it does not emulate):
   // a pin harness, so the fresh session has a session id from its launch.
   const OLD_SESSION = "22222222-2222-4222-8222-222222222222";
-  const base = agentTextNode({ id: "claudia", key: "local:claudia", label: "Claudia", harness: "claude", x: 120, y: 220 });
-  const SEAT: TextNode = { ...base, ether: { ...base.ether, terminal: { ...base.ether!.terminal!, sessionId: OLD_SESSION } } };
+  const SEAT = modelSeat({ id: "claudia", key: "local:claudia", label: "Claudia", harness: "claude", x: 120, y: 220, sessionId: OLD_SESSION });
   const claudeIdle = { mode: "attention", text: CLAUDE_IDLE } as const;
   const claudeWorking = { mode: "attention", text: CLAUDE_WORKING } as const;
 
-  await walk(testInfo, "SB-again-claude", crewDoc([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SB-again-claude", modelFixture([SEAT]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     /** Leave the next process an empty Claude prompt box to come up on. */
@@ -1546,7 +1534,7 @@ test("SB-again-claude [fake-tui] a seat on a pin harness offboards again from it
 test("SC [slow-cap] [fake-tui] an old process that never goes idle is stopped at ten minutes", async ({}, testInfo) => {
   test.setTimeout(13 * 60 * 1_000);
   const SEAT = codexSeat("closer", "Closer", 120, 220);
-  await walk(testInfo, "SC", docOf([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SC", fixtureOf([SEAT]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     const running = await seatMidTurn(junto, SEAT, { onboard: true });
@@ -1579,7 +1567,7 @@ test("SC [slow-cap] [fake-tui] an old process that never goes idle is stopped at
 test("SG [fake-tui] an old process that ignores SIGTERM is still gone a few seconds after its turn ends", async ({}, testInfo) => {
   test.setTimeout(300_000);
   const SEAT = codexSeat("stubborn", "Stubborn", 120, 220);
-  await walk(testInfo, "SG", docOf([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SG", fixtureOf([SEAT]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     await mkdir(seatDir(sandbox, SEAT.id), { recursive: true });
     await writeFile(join(seatDir(sandbox, SEAT.id), "ignore-term"), "", "utf8");
@@ -1611,7 +1599,7 @@ const draftFlow = (mode: "rest" | "continue"): void => {
     test.setTimeout(300_000);
     const SEAT = codexSeat("closer", "Closer", 120, 220);
     const DRAFT = "half a li";
-    await walk(testInfo, id, docOf([SEAT]), async (junto, evidence) => {
+    await walk(testInfo, id, fixtureOf([SEAT]), async (junto, evidence) => {
       const { page, sandbox } = junto;
       const { mark } = evidence;
       const running = await seatMidTurn(junto, SEAT, { onboard: true });
@@ -1695,7 +1683,7 @@ const hijackByMail = (mode: Mode): void => {
     test.setTimeout(360_000);
     const SEAT = codexSeat("closer", "Closer", 120, 220);
     const texts = ["hijack-mail-one", "hijack-mail-two"] as const;
-    await walk(testInfo, id, docOf([SEAT]), async (junto, evidence) => {
+    await walk(testInfo, id, fixtureOf([SEAT]), async (junto, evidence) => {
       const { page, sandbox } = junto;
       const running = await seatMidTurn(junto, SEAT, { onboard: true });
       const run = await offboardRun(junto, testInfo, SEAT.id, 1, running.oldEpoch, mode === "continue" ? NEXT : undefined, async () => {
@@ -1727,7 +1715,7 @@ const hijackByPrompt = (mode: Mode): void => {
     test.setTimeout(360_000);
     const SEAT = codexSeat("closer", "Closer", 120, 220);
     const texts = ["hijack-prompt-one", "hijack-prompt-two"] as const;
-    await walk(testInfo, id, docOf([SEAT]), async (junto, evidence) => {
+    await walk(testInfo, id, fixtureOf([SEAT]), async (junto, evidence) => {
       const { page, sandbox } = junto;
       const running = await seatMidTurn(junto, SEAT, { onboard: true });
       // The seat's message composer, open and filled before the offboard (seat-message.spec.ts:75-110).
@@ -1785,7 +1773,7 @@ const hijackByKeys = (mode: Mode): void => {
     test.setTimeout(360_000);
     const SEAT = codexSeat("closer", "Closer", 120, 220);
     const words = ["hijack-keys-one", "hijack-keys-two"] as const;
-    await walk(testInfo, id, docOf([SEAT]), async (junto, evidence) => {
+    await walk(testInfo, id, fixtureOf([SEAT]), async (junto, evidence) => {
       const { page, sandbox } = junto;
       const { mark } = evidence;
       const running = await seatMidTurn(junto, SEAT, { onboard: true });
@@ -1913,7 +1901,7 @@ const hijackByKeys = (mode: Mode): void => {
 test("SJ4-nudge [fake-tui] a seat that never onboarded offboards on the turn its second nudge is due: the old process is not nudged", async ({}, testInfo) => {
   test.setTimeout(480_000);
   const SEAT = codexSeat("closer", "Closer", 120, 220);
-  await walk(testInfo, "SJ4-nudge", docOf([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SJ4-nudge", fixtureOf([SEAT]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     // Turn one starts on real mail; the seat never runs junto onboard.
@@ -1981,7 +1969,7 @@ for (const mode of ["rest", "continue"] as const) {
 test("SK [fake-tui] junto run from the old process after the offboard is refused, and changes nothing", async ({}, testInfo) => {
   test.setTimeout(360_000);
   const SEAT = codexSeat("closer", "Closer", 120, 220);
-  await walk(testInfo, "SK", docOf([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SK", fixtureOf([SEAT]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     const running = await seatMidTurn(junto, SEAT, { onboard: true });
@@ -2095,7 +2083,7 @@ const quitFlow = (variant: "winding-down" | "fresh-held"): void => {
     const evidence = evidenceFor(testInfo, id);
     const { mark } = evidence;
     const junto = await launchJunto({
-      seedCanvases: { [CANVAS]: docOf([SEAT]) },
+      seedModels: { [CANVAS]: fixtureOf([SEAT]) },
       afterSeed: installSurfaceSeatHarness,
       extraEnv: { JUNTO_PTY_TRACE: "1" },
     });
@@ -2250,10 +2238,9 @@ test("SF [fake-tui] a Claude-template seat that offboards to continue launches o
   // (it ignores --session-id and --resume; the wrapper records them).
   const OLD_SESSION = "11111111-1111-4111-8111-111111111111";
   const template = templateFor("claude");
-  const base = agentTextNode({ id: "claudia", key: "local:claudia", label: "Claudia", harness: "claude", x: 120, y: 220 });
-  const SEAT: TextNode = { ...base, ether: { ...base.ether, terminal: { ...base.ether!.terminal!, sessionId: OLD_SESSION } } };
+  const SEAT = modelSeat({ id: "claudia", key: "local:claudia", label: "Claudia", harness: "claude", x: 120, y: 220, sessionId: OLD_SESSION });
 
-  await walk(testInfo, "SF", crewDoc([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SF", modelFixture([SEAT]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     await crewPlayFactory(page);

@@ -6,10 +6,10 @@ import { existsSync, symlinkSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CanvasDoc } from "../../src/shared/canvas";
+import { modelFixture, modelSeat, modelWire, type ModelFixture } from "./model";
 import { prepareIsolatedHarnessLaunch } from "../../src/main/junto/term/isolated-harness-launch";
 import { templateFor } from "../../src/shared/managed-terminal-templates";
-import { agentTextNode, verbEdge, type Sandbox } from "./sandbox";
+import type { Sandbox } from "./sandbox";
 import { seededHarnessBinDir } from "./agent-harness-fixture";
 import { installCrewSeatHarness } from "./crew-fixture";
 
@@ -46,7 +46,7 @@ export const seedIsolatedJuntoCli = async (
   return { executable };
 };
 
-export const isolatedDevinSenderNode = agentTextNode({
+export const isolatedDevinSenderNode = modelSeat({
   id: ISOLATED_DEVIN_SENDER_ID,
   key: "local:isolated-sender",
   label: "sender",
@@ -55,7 +55,7 @@ export const isolatedDevinSenderNode = agentTextNode({
   y: 40,
 });
 
-export const isolatedDevinReceiverNode = agentTextNode({
+export const isolatedDevinReceiverNode = modelSeat({
   id: ISOLATED_DEVIN_RECEIVER_ID,
   key: "local:isolated-devin",
   label: "devin",
@@ -64,20 +64,12 @@ export const isolatedDevinReceiverNode = agentTextNode({
   y: 40,
 });
 
-export const isolatedDevinMailDoc = (): CanvasDoc => {
+export const isolatedDevinMailFixture = (): ModelFixture => {
   const nodes = [isolatedDevinSenderNode, isolatedDevinReceiverNode];
-  return {
-    nodes,
-    edges: [
-      verbEdge(
-        "e-sender-devin",
-        ISOLATED_DEVIN_SENDER_ID,
-        ISOLATED_DEVIN_RECEIVER_ID,
-        "messages",
-        nodes,
-      ),
-    ],
-  };
+  return modelFixture(nodes, [modelWire(
+    "e-sender-devin", ISOLATED_DEVIN_SENDER_ID, ISOLATED_DEVIN_RECEIVER_ID,
+    "messages", nodes,
+  )]);
 };
 
 export const resolveOperatorDevinBinary = (pathEnv: string): string | undefined => {

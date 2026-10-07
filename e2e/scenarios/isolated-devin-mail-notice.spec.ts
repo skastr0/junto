@@ -32,7 +32,7 @@ import {
   ISOLATED_DEVIN_MAIL_CANVAS,
   ISOLATED_DEVIN_RECEIVER_ID,
   ISOLATED_DEVIN_SENDER_ID,
-  isolatedDevinMailDoc,
+  isolatedDevinMailFixture,
   isolatedDevinReceiverNode,
   isolatedDevinSenderNode,
   resolveOperatorDevinBinary,
@@ -211,7 +211,7 @@ test("isolated Devin [real-harness]: delivered mail reaches readAt", async () =>
   const json = (path: string, value: unknown) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
   json(HOLD_NOTE, { phase: "prelaunch", at: new Date().toISOString(), artifacts, ...provenance });
   const junto = await launchJunto({
-    seedCanvases: { [ISOLATED_DEVIN_MAIL_CANVAS]: isolatedDevinMailDoc() },
+    seedModels: { [ISOLATED_DEVIN_MAIL_CANVAS]: isolatedDevinMailFixture() },
     extraEnv: { JUNTO_PTY_TRACE: "1" },
     afterSeed: async (sandbox) => {
       const prepared = await seedIsolatedDevinAppHome(sandbox, operatorHome, process.env.PATH ?? "");
