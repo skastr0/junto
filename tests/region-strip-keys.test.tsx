@@ -8,9 +8,10 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { holdCanvas } from "./support/hold-canvas";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { region as regionNode } from "./support/model-nodes";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
+import { asCanvasName, type Region } from "../src/shared/model";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -34,31 +35,20 @@ vi.mock("../src/renderer/components/region-environment/RegionEnvironmentModal", 
 const { state$ } = await import("../src/renderer/lib/state");
 const { KindSurface } = await import("../src/renderer/components/rts/KindSurface");
 
-const region = (id: string, environment?: unknown): CanvasNode =>
-  ({
-    id,
-    type: "group",
-    label: "backend",
-    x: 0,
-    y: 0,
-    width: 600,
-    height: 400,
-    ether: { region: environment === undefined ? {} : { environment } },
-  }) as unknown as CanvasNode;
+const region = (id: string): Region => regionNode(id,
+  { x: 0, y: 0, width: 600, height: 400 }, { label: "backend" });
 
 let host: HTMLDivElement;
 let root: Root;
 
 let release: (() => void) | undefined;
 
-// The canvas as the app holds it: the region in the node store, which the
-// strip reads, and in the document for the parts that still take one.
-const select = async (node: CanvasNode) => {
+// The strip reads the region held in the node store.
+const select = async (node: Region) => {
   await act(async () => {
     release?.();
     state$.canvasName.set("factory");
-    release = holdCanvas("factory", [node]);
-    state$.doc.set({ nodes: [node], edges: [] });
+    release = modelStore.adopt({ canvas: asCanvasName("factory"), seq: 0, nodes: [node], wires: [] });
     state$.selectedNodeIds.set([node.id]);
     state$.selectedNodeId.set(node.id);
     state$.selectedEdgeId.set("");
@@ -102,15 +92,11 @@ describe("the region strip in the bottom bar", () => {
 
   it("a region with all three set says so on each key, and no key looks pressed for it", async () => {
     await select({
-      ...region("r2", { sources: [] }),
-      ether: {
-        region: {
-          instruction: "Own the login flow.",
-          defaults: { paths: { local: "/srv/app" } },
-          environment: { sources: [] },
-        },
-      },
-    } as unknown as CanvasNode);
+      ...region("r2"),
+      instruction: "Own the login flow.",
+      defaults: { paths: { local: "/srv/app" } },
+      environment: { sources: [] },
+    });
     for (const caption of ["Briefing", "Folder paths", "Environment"]) {
       expect(stateWord(caption)).toBe("set");
       expect(key(caption).getAttribute("data-state")).toBe("set");

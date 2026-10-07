@@ -1,22 +1,20 @@
 import { use$ } from "@legendapp/state/react";
 import type { SeatSignalRollup } from "@shared/agent-signals";
-import type { CanvasNode } from "@shared/canvas";
-import { isHarnessId, type HarnessId } from "@shared/managed-terminal-templates";
+import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { Seat } from "@shared/model";
 import type { ActivitySpec } from "../lib/activity";
 import { RING_HOLE_R } from "../lib/activity-rings";
-import { agentSeat$, bindingIdForNode } from "../lib/agent-seat-state";
+import { agentSeat$ } from "../lib/agent-seat-state";
 import type { AgentChatCoarse } from "../lib/chat-state";
 import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-state";
 import { kernel$ } from "../lib/kernel-view";
-import { attentionCoarse$, useNodeAttentionReasons, useSeatAttentionReasons } from "../lib/occupancy-feed";
+import { attentionCoarse$, useSeatAttentionReasons } from "../lib/occupancy-feed";
 import { attentionReasonsForNode, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
 import { seatUrgency, type SeatUrgency } from "../lib/seat-line";
 import { state$ } from "../lib/state";
 import { terminal$ } from "../lib/terminal-state";
 import { useThreadHealthMark, type ThreadHealthMark } from "../lib/thread-health";
 import { seatPortraitMood } from "../lib/portrait-mood";
-import { isOverseerSeat } from "../lib/overseer-set";
 import { ActivityMarkFromSpec } from "./ActivityMark";
 import { AgentPortrait } from "./AgentPortrait";
 
@@ -38,15 +36,6 @@ export type SeatGlance = {
 };
 
 type SeatReads = Omit<SeatFactsInput, "nodeId" | "managedSeat">;
-
-/** Control state and spawn failure from one read of the seat's stores. */
-const seatControl = (
-  node: CanvasNode,
-  reads: SeatReads,
-): Pick<SeatGlance, "activity" | "harness" | "failure"> => {
-  const raw = node.ether?.terminal?.harness;
-  return seatControlOf(node.id, typeof raw === "string" && isHarnessId(raw) ? raw : undefined, reads);
-};
 
 const seatControlOf = (
   nodeId: string,
@@ -74,29 +63,6 @@ const seatControlOf = (
     failure,
   };
 };
-
-/**
- * The same facts as the canvas seat (TextNode): control state, the seat's
- * attention reason, thread health, declared signal, spawn failure.
- */
-export function useSeatGlance(node: CanvasNode): SeatGlance {
-  const bindingId = bindingIdForNode(node);
-  const seatEvent = use$(() => (bindingId ? agentSeat$.byBindingId[bindingId].get() : undefined));
-  const needsLook = use$(() =>
-    bindingId ? agentSeat$.needsLookByBindingId[bindingId].get() === true : false,
-  );
-  const session = use$(() => (bindingId ? terminal$.sessionByBindingId[bindingId].get() : undefined));
-  const graphBlocked = use$(() => kernel$.execution.get()?.blocked.includes(node.id) === true);
-  const attentionReasons = useNodeAttentionReasons(node);
-  const canvasName = use$(state$.canvasName);
-  const signal = useSeatSignalRollup(canvasName, node.id);
-  const health = useThreadHealthMark(bindingId, signal?.kind);
-  return {
-    ...seatControl(node, { seatEvent, needsLook, session, graphBlocked, attentionReasons }),
-    health,
-    signal,
-  };
-}
 
 /** A native seat's live facts, subscribed by its binding and agent key. */
 export function useSeatGlanceOf(seat: Seat): SeatGlance {
@@ -128,22 +94,13 @@ export function seatUrgencyOf(seat: Seat): SeatUrgency {
   return seatUrgency({ ...control, signal: seatSignalRollups$.peek()[seat.id]?.kind });
 }
 
-/**
- * An agent's portrait held by its live ring, anywhere outside the canvas
- * seat (grid cells, focus headers, the kind surface, the inspector, cmd+K).
- * Same facts as the canvas seat: control state, thread health, declared signal.
- */
-export function SeatRing({ node, px }: { readonly node: CanvasNode; readonly px: number }) {
-  return <SeatRingView node={node} px={px} glance={useSeatGlance(node)} />;
-}
-
 /** The ring over facts a caller already read (a row that also prints the line). */
 export function SeatRingView({
   node,
   px,
   glance,
 }: {
-  readonly node: CanvasNode | Seat;
+  readonly node: Seat;
   readonly px: number;
   readonly glance: SeatGlance;
 }) {
@@ -160,7 +117,7 @@ export function SeatRingView({
       healthLabel={health.label}
       signal={signal?.kind}
       signalCount={signal?.openCount}
-      crest={"kind" in node ? node.overseer : isOverseerSeat(node)}
+      crest={node.overseer}
     >
       <AgentPortrait
         identity={node.id}
