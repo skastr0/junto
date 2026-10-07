@@ -48,9 +48,12 @@ export const follow = (canvas: Canvas, change: Changed): Followed => {
 
 // ── Reading nodes ───────────────────────────────────────────────────────────
 
+/** All a reader of nodes needs of a canvas. */
+export type Placed = Pick<Canvas, "nodes">;
+
 /** The node with this id when it is of this kind. */
 export const nodeOf = <K extends NodeKind>(
-  canvas: Canvas,
+  canvas: Placed,
   id: NodeId,
   kind: K,
 ): NodeOf<K> | undefined => {
@@ -58,7 +61,7 @@ export const nodeOf = <K extends NodeKind>(
   return node?.kind === kind ? (node as NodeOf<K>) : undefined;
 };
 
-export const nodesOf = <K extends NodeKind>(canvas: Canvas, kind: K): ReadonlyArray<NodeOf<K>> => {
+export const nodesOf = <K extends NodeKind>(canvas: Placed, kind: K): ReadonlyArray<NodeOf<K>> => {
   const found: Array<NodeOf<K>> = [];
   for (const node of canvas.nodes.values()) {
     if (node.kind === kind) found.push(node as NodeOf<K>);
@@ -67,7 +70,7 @@ export const nodesOf = <K extends NodeKind>(canvas: Canvas, kind: K): ReadonlyAr
 };
 
 /** Nodes in paint order, lowest first. */
-export const inPaintOrder = (canvas: Canvas): ReadonlyArray<Node> =>
+export const inPaintOrder = (canvas: Placed): ReadonlyArray<Node> =>
   [...canvas.nodes.values()].sort((a, b) => a.z - b.z || a.id.localeCompare(b.id));
 
 // ── Wires ───────────────────────────────────────────────────────────────────
@@ -102,7 +105,7 @@ export const regionName = (region: Region): string => region.label?.trim() || UN
  * (larger area first; equal areas by id). Regions may overlap, so this is all
  * containers, not a path. A region is never in its own stack.
  */
-export const regionStack = (canvas: Canvas, target: NodeId | Frame): ReadonlyArray<Region> => {
+export const regionStack = (canvas: Placed, target: NodeId | Frame): ReadonlyArray<Region> => {
   const self = typeof target === "string" ? target : undefined;
   const rect = typeof target === "string" ? canvas.nodes.get(target) : target;
   if (rect === undefined) return [];
@@ -112,7 +115,7 @@ export const regionStack = (canvas: Canvas, target: NodeId | Frame): ReadonlyArr
 };
 
 /** The things inside a region that are not themselves regions. */
-export const regionMembers = (canvas: Canvas, region: Region): ReadonlyArray<Node> => {
+export const regionMembers = (canvas: Placed, region: Region): ReadonlyArray<Node> => {
   const found: Array<Node> = [];
   for (const node of canvas.nodes.values()) {
     if (node.kind !== "region" && contains(region, node)) found.push(node);
@@ -121,7 +124,7 @@ export const regionMembers = (canvas: Canvas, region: Region): ReadonlyArray<Nod
 };
 
 /** Regions wholly inside this one, at any depth. */
-export const regionsInside = (canvas: Canvas, region: Region): ReadonlyArray<Region> =>
+export const regionsInside = (canvas: Placed, region: Region): ReadonlyArray<Region> =>
   nodesOf(canvas, "region").filter(
     (candidate) => candidate.id !== region.id && contains(region, candidate),
   );

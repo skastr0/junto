@@ -118,6 +118,28 @@ export const wiresFromDocument = (
   return made;
 };
 
+const heldNodes = new WeakMap<object, Pick<Canvas, "nodes">>();
+
+/**
+ * The nodes a document describes, for a caller that holds a document and not
+ * the name of its canvas. Worked out once per document object. A node the
+ * model refuses is left out; of two with one id the first is kept.
+ */
+export const nodesFromDocument = (
+  doc: Pick<Document, "nodes">,
+): Pick<Canvas, "nodes"> => {
+  const known = heldNodes.get(doc);
+  if (known !== undefined) return known;
+  const nodes = new Map<Node["id"], Node>();
+  doc.nodes.forEach((node, z) => {
+    const row = nodeOfDocument("", node, z);
+    if (row !== undefined && !nodes.has(row.id)) nodes.set(row.id, row);
+  });
+  const made = { nodes };
+  heldNodes.set(doc, made);
+  return made;
+};
+
 const held = new WeakMap<object, Canvas>();
 
 /**
@@ -129,15 +151,10 @@ const held = new WeakMap<object, Canvas>();
 export const canvasFromDocument = (name: string, doc: Document): Canvas => {
   const known = held.get(doc);
   if (known !== undefined && known.name === name) return known;
-  const nodes = new Map<Node["id"], Node>();
-  doc.nodes.forEach((node, z) => {
-    const row = nodeOfDocument(name, node, z);
-    if (row !== undefined && !nodes.has(row.id)) nodes.set(row.id, row);
-  });
   const canvas: Canvas = {
     name: asCanvasName(name),
     seq: 0,
-    nodes,
+    nodes: nodesFromDocument(doc).nodes,
     wires: wiresFromDocument(doc).wires,
   };
   held.set(doc, canvas);
