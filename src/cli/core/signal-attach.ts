@@ -1,12 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { open, stat } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import { admitLinkUrl, type AgentSignalAttachmentInput } from "../../shared/agent-signals";
 import { ATTACHMENT_HEAD_BYTES, attachmentMediaType, attachmentName, isTextHead } from "../../shared/preview-bytes";
-import { stageFile } from "./content-stage";
+import { stageBytes, stageFile } from "./content-stage";
 import { InputError } from "./errors";
 
 /**
@@ -402,18 +400,9 @@ export const stageAttachPlans = (
           const ref = yield* stageFile(item.path, input);
           return { sha256: ref.sha256, byteLength: ref.byteLength };
         }
-        // Text typed inline goes up the same way a file does, from a private file of the CLI's own.
-        return yield* Effect.acquireUseRelease(
-          Effect.promise(() => mkdtemp(join(tmpdir(), "junto-attach-"))),
-          (dir) =>
-            Effect.gen(function* () {
-              const path = join(dir, "text");
-              yield* Effect.promise(() => writeFile(path, item.text, { mode: 0o600 }));
-              const ref = yield* stageFile(path, input);
-              return { sha256: ref.sha256, byteLength: ref.byteLength };
-            }),
-          (dir) => Effect.promise(() => rm(dir, { recursive: true, force: true }).catch(() => undefined)),
-        );
+        // Text typed inline goes up from memory: no file is written for it.
+        const ref = yield* stageBytes(item.text, input);
+        return { sha256: ref.sha256, byteLength: ref.byteLength };
       });
 
     const out: AgentSignalAttachmentInput[] = [];
@@ -433,6 +422,3 @@ export const stageAttachPlans = (
     }
     return out;
   });
-
-/** Read one text source of the CLI's own (used for a file named by `@`). */
-export const readAttachFile = (path: string): Promise<string> => readFile(path, "utf8");
