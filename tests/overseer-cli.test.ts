@@ -587,6 +587,33 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
     expect(observed).toHaveLength(count);
   });
 
+  it("says what a seat is made from when a draft or a reseat carries what main works out", async () => {
+    const observed: Array<Record<string, unknown>> = [];
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed.push(request);
+      return overseerOk((request.args as { operation: string }).operation, {});
+    });
+    const count = observed.length;
+    for (const [args, fields] of [
+      [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","launch":{"kind":"harness","argv":["claude"]},"x":0,"y":0,"width":260,"height":120}}'], ["launch"]],
+      [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","overseer":true,"agentKey":"local:claude","x":0,"y":0,"width":260,"height":120}}'], ["agentKey", "overseer"]],
+      [["overseer", "agent", "reseat", '{"nodeId":"a1","harness":"codex","launch":{"kind":"harness","argv":["codex"]}}'], ["launch"]],
+      [["overseer", "canvas", "batch", '{"steps":[{"operation":"node.create","node":{"kind":"agent","harness":"claude","sessionId":"s","x":0,"y":0,"width":260,"height":120}}]}'], ["sessionId"]],
+    ] as const) {
+      const refused = await runCli(args, { workHome });
+      expect(refused.code).toBe(1);
+      const error = (JSON.parse(refused.stderr.trim()) as { error: { type: string; message: string } }).error;
+      expect(error.type).toBe("InputError");
+      expect(error.message).toContain("A seat is created from harness, profile, model, effort, mode, permissionMode and cwd");
+      expect(error.message).toContain("Junto builds its launch");
+      expect(error.message).toContain(`Remove: ${fields.join(", ")}`);
+    }
+    // A terminal keeps its command line: nothing of this applies to it.
+    const terminal = await runCli(["overseer", "node", "create", '{"node":{"kind":"terminal","launch":{"kind":"command","argv":["htop"]},"x":0,"y":0,"width":260,"height":120}}'], { workHome });
+    expect(terminal.stderr).not.toContain("A seat is created from");
+    expect(observed.length).toBeLessThanOrEqual(count + 1);
+  });
+
   it("says in one line that the edge family is now wire, and runs nothing", async () => {
     const observed: unknown[] = [];
     const { workHome } = await startFakeWorkSocket((request) => {

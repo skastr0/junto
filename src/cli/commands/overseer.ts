@@ -163,6 +163,30 @@ const callOverseer = (
     return yield* unwrapOverseerSocketData(data);
   });
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The fields of a seat only main works out, found on a seat being created or
+ * reseated. The schema refuses them as excess properties; an agent that sent
+ * a command line needs to be told what a seat is made from instead.
+ */
+export const seatFieldsMainWorksOut = (operation: OverseerOperation, args: unknown): ReadonlyArray<string> => {
+  if (!isRecord(args)) return [];
+  const seats: Array<Record<string, unknown>> = [];
+  const draft = (node: unknown) => {
+    if (isRecord(node) && node.kind === "agent") seats.push(node);
+  };
+  if (operation === "agent.reseat") seats.push(args);
+  if (operation === "node.create") draft(args.node);
+  if (operation === "canvas.batch" && Array.isArray(args.steps)) {
+    for (const step of args.steps) {
+      if (isRecord(step) && step.operation === "node.create") draft(step.node);
+    }
+  }
+  return SEAT_FIELDS_MAIN_WORKS_OUT.filter((field) => seats.some((seat) => field in seat));
+};
+
 const loadOverseerArgs = (operation: OverseerOperation, input: Option.Option<string>) =>
   Effect.gen(function* () {
     const raw = Option.match(input, {
@@ -172,9 +196,12 @@ const loadOverseerArgs = (operation: OverseerOperation, input: Option.Option<str
     const value = yield* loadJsonInput(Schema.Unknown, raw);
     const decoded = decodeOverseerArgs(operation, value);
     if (Result.isFailure(decoded)) {
+      const seatFields = seatFieldsMainWorksOut(operation, value);
       return yield* Effect.fail(
         new InputError({
-          message: decoded.failure.message,
+          message: seatFields.length > 0
+            ? `A seat is created from harness, profile, model, effort, mode, permissionMode and cwd; Junto builds its launch. Remove: ${seatFields.join(", ")}`
+            : decoded.failure.message,
           path: "args",
           expected: operation,
           // What was received is repeated to help fix it, except where it
