@@ -28,14 +28,17 @@ import { Kbd } from "../ui";
 import { claimFocus } from "../../lib/focus-ownership";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { keyIs } from "../../lib/key-match";
+import { isModalLayerOpen } from "../../lib/modal-stack";
 
 /**
  * cmd+K command bar — quick node navigation plus a quick-actions mode.
  *
  * A centered floating palette that fills most of the window height. Agents
  * lead the list, most urgent first (see filterCommandBarNodes). Typing
- * filters the LIST; the canvas never changes while searching. Node mode commits the existing focus path
- * (select + one-shot camera fit); cmd+Enter also opens the node surface.
+ * filters the LIST; the canvas never changes while searching. In node mode
+ * Enter carries on what the operator was doing: over the canvas it goes to
+ * the node (select + one-shot camera fit), over a working modal it opens the
+ * node there. cmd+Enter always opens.
  * ">" (or Tab) switches to actions mode: existing renderer commands only,
  * Enter runs.
  *
@@ -251,10 +254,13 @@ export function CommandBar() {
       ?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  const commit = (row: CommandBarRow, activate: boolean): void => {
+  // Read once per open: search sits over whatever the operator was in.
+  const overModal = useMemo(() => isModalLayerOpen("working"), []);
+
+  const commit = (row: CommandBarRow, open: boolean): void => {
     if (row.kind === "node") {
       focusCanvasNode(row.node.id);
-      if (activate) activateNodeSurface(row.node);
+      if (open || overModal) activateNodeSurface(row.node);
     } else {
       row.action.run();
     }
@@ -413,9 +419,15 @@ export function CommandBar() {
             ) : (
               <>
                 <Kbd>↵</Kbd>
-                <span className="command-bar__hint">focus</span>
-                <Kbd>⌘↵</Kbd>
-                <span className="command-bar__hint">focus + open</span>
+                <span className="command-bar__hint" data-testid="command-bar-enter-hint">
+                  {overModal ? "open" : "go to"}
+                </span>
+                {overModal ? null : (
+                  <>
+                    <Kbd>⌘↵</Kbd>
+                    <span className="command-bar__hint">open</span>
+                  </>
+                )}
                 <Kbd>tab</Kbd>
                 <span className="command-bar__hint">actions</span>
               </>
