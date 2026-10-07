@@ -61,6 +61,22 @@ export interface ProcessIdentityMap {
   ) => ProcessIdentityBinding | undefined;
   readonly unbind: (pid: number) => void;
   readonly unbindGeneration: (binding: ProcessIdentityBinding) => boolean;
+  /**
+   * Retire one generation because its seat moved on to a fresh session while
+   * the process is still running (a draining session). Same exactness as
+   * `unbindGeneration`, and it notifies the same way, so an op in flight from
+   * that process is revoked. In addition the process is remembered as
+   * offboarded until it exits or its pid is reused: it can then be refused in
+   * plain words instead of as an unknown process, and it can never resolve to
+   * a seat again.
+   */
+  readonly offboardGeneration: (binding: ProcessIdentityBinding) => boolean;
+  /**
+   * True when the nearest known process at or above `pid` is one that
+   * offboarded and is still running. A tool shell under a draining harness
+   * answers true.
+   */
+  readonly offboardedInTree: (pid: number, maxDepth?: number) => boolean;
   readonly unbindPrincipal: (match: ProcessPrincipal) => void;
   /** Drop every bind for this agentKey (before rebinding a new ACP child). */
   readonly unbindAgentKey: (agentKey: string) => void;
@@ -131,6 +147,8 @@ export const makeProcessIdentityMap = (
   options: ProcessIdentityMapOptions = {},
 ): ProcessIdentityMap => {
   const byPid = new Map<number, BoundRecord>();
+  /** pid to start key of processes whose seat moved on while they still run. */
+  const offboarded = new Map<number, string>();
   const bindings = new WeakMap<ProcessIdentityBinding, BoundRecord>();
   const listeners = new Set<(principal: ProcessPrincipal) => void>();
   const isAlive = options.processAlive ?? processAlive;
@@ -177,6 +195,9 @@ export const makeProcessIdentityMap = (
       principal: Object.freeze({ ...principal }),
       startKey,
     });
+    // Binding proves this pid is a live process Junto just started. If the
+    // number was remembered as offboarded, that process is gone.
+    offboarded.delete(pid);
     byPid.set(pid, record);
     return record;
   };
@@ -206,6 +227,28 @@ export const makeProcessIdentityMap = (
     if (record === undefined) return false;
     bindings.delete(binding);
     if (byPid.get(binding.pid) !== record) return false;
+    unbind(binding.pid);
+    return true;
+  };
+
+  /** Drop remembered processes that have exited or whose pid was reused. */
+  const isOffboardedLive = (pid: number): boolean => {
+    const startKey = offboarded.get(pid);
+    if (startKey === undefined) return false;
+    if (isAlive(pid) && startKeyOf(pid) === startKey) return true;
+    offboarded.delete(pid);
+    return false;
+  };
+
+  const offboardGeneration = (binding: ProcessIdentityBinding): boolean => {
+    const record = bindings.get(binding);
+    if (record === undefined) return false;
+    bindings.delete(binding);
+    if (byPid.get(binding.pid) !== record) return false;
+    // Remember before unbinding: the notification below makes waiting callers
+    // look this process up again, and they must find it offboarded.
+    for (const pid of [...offboarded.keys()]) isOffboardedLive(pid);
+    offboarded.set(binding.pid, record.startKey);
     unbind(binding.pid);
     return true;
   };
@@ -259,9 +302,28 @@ export const makeProcessIdentityMap = (
     ) {
       const hit = resolveLive(current);
       if (hit !== undefined) return hit;
+      // An offboarded process ends the walk: nothing under it may climb past
+      // it and come out as some other seat.
+      if (isOffboardedLive(current)) return undefined;
       current = parentOf(current);
     }
     return undefined;
+  };
+
+  const offboardedInTree = (pid: number, maxDepth = 8): boolean => {
+    let current: number | undefined = pid;
+    for (
+      let depth = 0;
+      depth < maxDepth && current !== undefined && current > 0;
+      depth += 1
+    ) {
+      // The nearest known process decides: a seat started from inside a
+      // draining session is its own seat, not an offboarded one.
+      if (resolveLive(current) !== undefined) return false;
+      if (isOffboardedLive(current)) return true;
+      current = parentOf(current);
+    }
+    return false;
   };
 
   return {
@@ -269,6 +331,8 @@ export const makeProcessIdentityMap = (
     bindGeneration,
     unbind,
     unbindGeneration,
+    offboardGeneration,
+    offboardedInTree,
     unbindPrincipal,
     unbindAgentKey,
     unbindTerminalBinding,
@@ -276,6 +340,7 @@ export const makeProcessIdentityMap = (
     resolveInTree,
     clear: () => {
       for (const pid of [...byPid.keys()]) unbind(pid);
+      offboarded.clear();
     },
     size: () => byPid.size,
     snapshot: () =>
@@ -428,7 +493,17 @@ export const readUnixPeerPid: PeerPidReader = (socket) => {
 };
 
 export type ProcessIdentityDenial =
-  "peer_pid_unavailable" | "process_unbound" | "wrong_kind";
+  | "peer_pid_unavailable"
+  | "process_unbound"
+  | "process_offboarded"
+  | "wrong_kind";
+
+/**
+ * What a process hears once its seat has moved on to a fresh session and it
+ * is only being allowed to finish its turn.
+ */
+export const OFFBOARDED_SESSION_MESSAGE =
+  "This session has offboarded. Its seat has moved on to a fresh session.";
 
 export type ProcessIdentityResult =
   | {
@@ -458,6 +533,13 @@ export const admitProcessIdentity = (
   }
   const principal = map.resolveInTree(peerPid);
   if (principal === undefined) {
+    if (map.offboardedInTree(peerPid)) {
+      return {
+        ok: false,
+        denial: "process_offboarded",
+        message: OFFBOARDED_SESSION_MESSAGE,
+      };
+    }
     return {
       ok: false,
       denial: "process_unbound",

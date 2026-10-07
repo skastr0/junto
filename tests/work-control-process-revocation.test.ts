@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -20,10 +20,12 @@ import {
 } from "../src/main/junto/work/service";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import {
+  OFFBOARDED_SESSION_MESSAGE,
   makeProcessIdentityMap,
   type ProcessIdentityMap,
   type ProcessPrincipal,
 } from "../src/main/junto/process-identity";
+import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor";
 import {
   startWorkControlServer,
   type WorkControlServer,
@@ -458,5 +460,169 @@ describe("work control process revocation", () => {
     expect(rig.mutations()).toBe(1);
     expect(gate.interruptions()).toBe(0);
     expect(rig.identities.activeSubscribers()).toBe(0);
+  });
+});
+
+describe("a draining session's process is refused in plain words", () => {
+  const FRESH_PID = 73_001;
+
+  const startDrained = async () => {
+    // PEER (a tool shell) is a child of the old harness process NEAR_ANCHOR.
+    const parents = new Map<number, number | undefined>([
+      [PEER_PID, NEAR_ANCHOR_PID],
+      [NEAR_ANCHOR_PID, undefined],
+      [FRESH_PID, undefined],
+    ]);
+    let old: ReturnType<ProcessIdentityMap["bindGeneration"]>;
+    const rig = await startRig({
+      parents,
+      bind: (map) => {
+        old = map.bindGeneration(NEAR_ANCHOR_PID, PRINCIPAL);
+        expect(old).toBeDefined();
+      },
+    });
+    const callOp = (op: string) =>
+      call(rig.server.socketPath, {
+        token: readFileSync(workControlTokenPath(join(rig.root, "work")), "utf8").trim(),
+        op,
+      }) as Promise<{
+        readonly ok: boolean;
+        readonly error?: {
+          readonly type: string;
+          readonly message: string;
+          readonly details?: { readonly retryable?: boolean; readonly next_step?: string };
+        };
+      }>;
+    return { rig, parents, callOp, offboard: () => rig.identities.map.offboardGeneration(old!) };
+  };
+
+  it("refuses every op from the old process with the offboarded sentence", async () => {
+    const { rig, callOp, offboard } = await startDrained();
+    expect((await callOp("doctor")).ok).toBe(true);
+    const before = rig.mutations();
+
+    expect(offboard()).toBe(true);
+
+    for (const op of ["doctor", "onboard", "capabilities", "msg.list", "signal.list", "env.report"]) {
+      const response = await callOp(op);
+      expect(response.ok, op).toBe(false);
+      expect(response.error, op).toMatchObject({
+        type: "AuthError",
+        message: OFFBOARDED_SESSION_MESSAGE,
+        details: { retryable: false },
+      });
+      expect(response.error?.details?.next_step, op).toContain("finish what you are doing");
+    }
+    expect(OFFBOARDED_SESSION_MESSAGE).toBe(
+      "This session has offboarded. Its seat has moved on to a fresh session.",
+    );
+    // Nothing reached the work service.
+    expect(rig.mutations()).toBe(before);
+  });
+
+  it("the fresh session's process resolves normally while the old one drains", async () => {
+    const { rig, parents, callOp, offboard } = await startDrained();
+    expect(offboard()).toBe(true);
+    expect(rig.identities.map.bindGeneration(FRESH_PID, PRINCIPAL)).toBeDefined();
+
+    // Still the old tree: refused.
+    expect((await callOp("doctor")).error?.message).toBe(OFFBOARDED_SESSION_MESSAGE);
+    // The same call from under the fresh process is the seat.
+    parents.set(PEER_PID, FRESH_PID);
+    expect((await callOp("doctor")).ok).toBe(true);
+  });
+
+  it("onboard from the old process does not mark the fresh session onboarded", async () => {
+    const noteOnboarded = vi.spyOn(injectionSupervisor, "noteOnboarded");
+    try {
+      const { rig, callOp, offboard } = await startDrained();
+      expect(offboard()).toBe(true);
+      expect(rig.identities.map.bindGeneration(FRESH_PID, PRINCIPAL)).toBeDefined();
+
+      const response = await callOp("onboard");
+      expect(response.ok).toBe(false);
+      expect(response.error?.message).toBe(OFFBOARDED_SESSION_MESSAGE);
+      expect(noteOnboarded).not.toHaveBeenCalled();
+    } finally {
+      noteOnboarded.mockRestore();
+    }
+  });
+});
+
+describe("the identity map remembers an offboarded process until it is gone", () => {
+  const make = () => {
+    const alive = new Set<number>([10, 11, 12, 20]);
+    const startKeys = new Map<number, string>([[10, "a"], [11, "a"], [12, "a"], [20, "a"]]);
+    const parents = new Map<number, number | undefined>([[11, 10], [12, 11], [21, 20]]);
+    const map = makeProcessIdentityMap({
+      processAlive: (pid) => alive.has(pid),
+      readProcessStartKey: (pid) => startKeys.get(pid),
+      readParentPid: (pid) => parents.get(pid),
+    });
+    return { map, alive, startKeys, parents };
+  };
+  const SEAT: ProcessPrincipal = { agentKey: "local:a", bindingId: "b", canvasName: "c", nodeId: "n" };
+
+  it("an offboarded process and everything under it stop resolving", () => {
+    const { map } = make();
+    const binding = map.bindGeneration(10, SEAT)!;
+    expect(map.resolveInTree(12)).toEqual(SEAT);
+    expect(map.offboardedInTree(12)).toBe(false);
+
+    expect(map.offboardGeneration(binding)).toBe(true);
+    expect(map.resolveInTree(10)).toBeUndefined();
+    expect(map.resolveInTree(12)).toBeUndefined();
+    expect(map.offboardedInTree(10)).toBe(true);
+    expect(map.offboardedInTree(12)).toBe(true);
+    // Exact generation only: a second call, or a stale handle, does nothing.
+    expect(map.offboardGeneration(binding)).toBe(false);
+    // An unrelated process is simply unknown.
+    expect(map.offboardedInTree(21)).toBe(false);
+  });
+
+  it("the walk never climbs past an offboarded process into another seat", () => {
+    const { map, parents } = make();
+    // 20 is another seat; put the draining harness underneath it.
+    parents.set(10, 20);
+    map.bind(20, { agentKey: "local:outer" });
+    const binding = map.bindGeneration(10, SEAT)!;
+    map.offboardGeneration(binding);
+    expect(map.resolveInTree(12)).toBeUndefined();
+    expect(map.offboardedInTree(12)).toBe(true);
+  });
+
+  it("a seat started from inside a draining session is its own seat", () => {
+    const { map } = make();
+    const binding = map.bindGeneration(10, SEAT)!;
+    map.offboardGeneration(binding);
+    const inner: ProcessPrincipal = { agentKey: "local:inner" };
+    expect(map.bind(11, inner)).toBe(true);
+    expect(map.resolveInTree(12)).toEqual(inner);
+    expect(map.offboardedInTree(12)).toBe(false);
+  });
+
+  it("notifies subscribers, so an op in flight from that process is revoked", () => {
+    const { map } = make();
+    const seen: ProcessPrincipal[] = [];
+    map.subscribe((principal) => seen.push(principal));
+    map.offboardGeneration(map.bindGeneration(10, SEAT)!);
+    expect(seen).toEqual([SEAT]);
+  });
+
+  it("forgets the process once it exits, and when its pid is reused", () => {
+    const { map, alive, startKeys } = make();
+    map.offboardGeneration(map.bindGeneration(10, SEAT)!);
+    alive.delete(10);
+    expect(map.offboardedInTree(12)).toBe(false);
+
+    // Reused pid: alive again, with another start key.
+    const again = make();
+    again.map.offboardGeneration(again.map.bindGeneration(10, SEAT)!);
+    again.startKeys.set(10, "b");
+    expect(again.map.offboardedInTree(10)).toBe(false);
+    // And a reused pid can be bound as a new seat without being refused.
+    expect(again.map.bind(10, { agentKey: "local:new" })).toBe(true);
+    expect(again.map.resolveInTree(10)).toEqual({ agentKey: "local:new" });
+    void startKeys;
   });
 });

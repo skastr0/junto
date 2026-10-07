@@ -329,7 +329,11 @@ export type WorkIdentityAdmission =
     }
   | {
       readonly ok: false;
-      readonly reason: "auth" | "process_unbound" | "peer_pid_unavailable";
+      readonly reason:
+        | "auth"
+        | "process_unbound"
+        | "process_offboarded"
+        | "peer_pid_unavailable";
       readonly message: string;
       readonly denial?: ProcessIdentityDenial;
     };
@@ -355,7 +359,9 @@ export const admitWorkIdentity = (input: {
         reason:
           identity.denial === "peer_pid_unavailable"
             ? "peer_pid_unavailable"
-            : "process_unbound",
+            : identity.denial === "process_offboarded"
+              ? "process_offboarded"
+              : "process_unbound",
         message: identity.message,
         denial: identity.denial,
       };
@@ -3149,9 +3155,11 @@ export const startWorkControlServer = async (
             {
               retryable: admission.reason === "peer_pid_unavailable",
               next_step:
-                admission.reason === "process_unbound"
-                  ? "this process was not launched by Junto; only agents started from the canvas can call work ops — ask the operator to start you from an agent node"
-                  : "run the CLI from inside your Junto terminal session, then retry",
+                admission.reason === "process_offboarded"
+                  ? "finish what you are doing and stop; nothing more reaches this session and its junto calls are refused"
+                  : admission.reason === "process_unbound"
+                    ? "this process was not launched by Junto; only agents started from the canvas can call work ops — ask the operator to start you from an agent node"
+                    : "run the CLI from inside your Junto terminal session, then retry",
               missing: "process identity",
             },
             req.op,
