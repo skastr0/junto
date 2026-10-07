@@ -39,7 +39,7 @@ describe("SeatCard", () => {
     state$.doc.set(EMPTY_DOC);
   });
 
-  it("shows the first line of the seat's label", () => {
+  it("shows the seat's label, which is one line", () => {
     state$.canvasName.set("factory");
     state$.doc.set(doc(seat("lead", "canvas-lead\nnotes under the name")));
     stop = followDocument();

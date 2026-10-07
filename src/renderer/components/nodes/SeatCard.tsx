@@ -14,14 +14,12 @@ import {
 } from "../../lib/terminal-session-refresh";
 import { terminal$ } from "../../lib/terminal-state";
 import { accentColor, INK } from "../../lib/theme";
-import { modelStore, useNodeFieldOf } from "../../lib/use-model";
+import { useNodeFieldOf } from "../../lib/use-model";
 import { AgentSeat, SeatName } from "./AgentSeat";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
 
 const NO_BINDING = "__junto-seat-card-no-binding__";
-
-const firstLine = (label: string): string => label.split("\n")[0] ?? "";
 
 /**
  * A seat on the canvas, read from the node store by canvas and id. Each field
@@ -42,7 +40,7 @@ export function SeatCard({
   readonly renaming?: boolean;
   readonly onRenameDone?: () => void;
 }) {
-  const name = useNodeFieldOf(canvas, id, "agent", (seat) => firstLine(seat.label));
+  const name = useNodeFieldOf(canvas, id, "agent", (seat) => seat.label);
   const color = useNodeFieldOf(canvas, id, "agent", (seat) => seat.color);
   const harness = useNodeFieldOf(canvas, id, "agent", (seat) => seat.harness);
   const bindingId = useNodeFieldOf(canvas, id, "agent", (seat) => seat.bindingId);
@@ -99,12 +97,7 @@ export function SeatCard({
   // Spawn failures surface as a context line so the mark + copy both land.
   const context = exitReason && exitMessage ? exitMessage : undefined;
   // Rename still edits the document; it becomes a command when main serves them.
-  const commitRename = (next: string) => {
-    const seat = modelStore.node$(canvas, id).peek();
-    if (seat?.kind !== "agent") return;
-    const rest = seat.label.split("\n").slice(1).join("\n");
-    editText(id, rest ? `${next}\n${rest}` : next);
-  };
+  const commitRename = (next: string) => editText(id, next);
 
   const complete = activity.mode === "pulse" && activity.tone === "green";
   const title =
