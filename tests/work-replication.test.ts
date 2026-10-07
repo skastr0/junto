@@ -30,7 +30,7 @@ import { stationProjectionContentSha256 } from "../src/main/junto/station/reposi
 import { compileStationPortfolioBody } from "../src/main/junto/station/portfolio";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { authorialMaterialForTest } from "./helpers/authorial-material";
-import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
+import { seedCanvasRows } from "./support/seed-canvas";
 
 const observedAt = "2026-07-27T18:00:00.000Z";
 // Mailboxes need no authored sink: the topology is empty and every inbox
@@ -147,11 +147,8 @@ const openInstallation = async (
             ? [role, "local", null, null, observedAt]
             : [role, "remote", "remote", peers[0], observedAt],
         );
-        yield* seedCanvasAuthority({
-          generation: "1",
-          documents: new Map([["factory", fixtureTopology]]),
-          at: observedAt,
-        });
+        // The command center's own rows; the projection fixture above is the Remote's.
+        yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: [] }]]) });
         yield* sql.unsafe(
           `
           INSERT INTO station_projection_versions(

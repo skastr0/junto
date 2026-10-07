@@ -7,7 +7,6 @@ import { SqlClient } from "effect/unstable/sql";
 import { withSqlRead } from "../src/main/junto/state/sql-read";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { ContentRef } from "../src/shared/content";
 import {
   InstallationId,
@@ -20,8 +19,8 @@ import {
 } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { authorialMaterialForTest } from "./helpers/authorial-material";
-import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
+import { seedCanvasRows } from "./support/seed-canvas";
+import { seat } from "./support/model-nodes";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { mailboxMessageDeliveryId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 
@@ -53,32 +52,10 @@ const fixtureSeatNodeIds: ReadonlyArray<string> = [
   "companion-peer",
   "companion-unrelated",
 ];
-const fixtureSeatNode = (
-  id: string,
-  index: number,
-): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  x: 0,
-  y: index * 120,
-  width: 240,
-  height: 100,
-  text: id,
-  ether: { entity: { kind: "agent", name: `local:${id}` },
-    ...(id.startsWith("companion-") ? { terminal: { bindingId: `binding-${id}`, harness: "claude" } } : {}),
-  },
-});
-const fixtureTopology: CanvasDoc = {
-  nodes: fixtureSeatNodeIds.map(fixtureSeatNode),
-  edges: [],
-};
-const fixtureTopologyBody = serializeCanvas(fixtureTopology);
-const currentIntentSha256 = authorialMaterialForTest({
-  generation: "1",
-  documents: new Map([
-    ["factory", { document: fixtureTopology, rawBody: fixtureTopologyBody }],
-  ]),
-}).intentSha256;
+const fixtureNodes = fixtureSeatNodeIds.map((id, index) =>
+  seat(id, { y: index * 120, width: 240, height: 100, bindingId: `binding-${id}` as never }));
+// A projection identity this command center never held: any 64 hex digits.
+const currentIntentSha256 = "c".repeat(64);
 const decodeIntentFactBasis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 });
@@ -156,11 +133,7 @@ const seedInstallations = (
       // The stale generation "0" survives solely as literal basis values whose
       // rejection ("causal-conflict") is asserted below — a stale basis is
       // unresolvable by construction in the head-only world.
-      yield* seedCanvasAuthority({
-        generation: "1",
-        documents: new Map([["factory", fixtureTopology]]),
-        at: observedAt,
-      });
+      yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: fixtureNodes }]]) });
     }),
   );
 
