@@ -23,6 +23,12 @@ const repeats = Number(arg("repeats", "5"));
 const profileFirst = process.argv.includes("--profile-first");
 const profileDrops = process.argv.includes("--profile-drops");
 const traceDrops = process.argv.includes("--trace-drops");
+// --throttle N slows the lab window's CPU N times, to show what a busy machine does.
+const throttle = Number(arg("throttle", "1"));
+// --watch-drops records, frame by frame for 1.5 s after each release, every
+// card whose box changed (place or size, in canvas units) and when the loom's
+// own counters moved, against the time of the release.
+const watchDrops = process.argv.includes("--watch-drops");
 const rendererPort = process.env.JUNTO_PERF_LAB_RENDERER_PORT ?? "9229";
 const outDir = resolve(arg("out", "."));
 mkdirSync(outDir, { recursive: true });
@@ -123,6 +129,10 @@ const world = () =>
   }))()`);
 const before = await world();
 console.log(JSON.stringify({ selected: before.selected, wanted: select, nodes: before.nodes, edges: before.edges, loadAverage: loadavg() }));
+if (throttle > 1) {
+  await send("Emulation.setCPUThrottlingRate", { rate: throttle });
+  console.log(JSON.stringify({ cpuThrottle: throttle }));
+}
 
 await evaluate(`(() => {
   window.__verifyDrag?.stop();
@@ -299,10 +309,52 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   const countersBeforeDrop = await counters();
   const surfacesBeforeDrop = await surfaces();
   const cardsBeforeDrop = await cardRenders();
+  if (watchDrops) {
+    await evaluate(`(() => {
+      const boxes = () => {
+        const out = {};
+        for (const card of document.querySelectorAll(".react-flow__node")) {
+          const at = /translate\\(([-0-9.]+)px,\\s*([-0-9.]+)px\\)/.exec(card.style.transform) ?? [];
+          out[card.getAttribute("data-id")] = [Number(at[1]), Number(at[2]), card.offsetWidth, card.offsetHeight, card.style.zIndex].join(",");
+        }
+        return out;
+      };
+      const loom = () => {
+        const snap = typeof juntoPerf === "object" ? juntoPerf.snapshot() : {};
+        return { replans: snap.loomReplans ?? 0, effects: snap.loomEffectExecutions ?? 0, obstacles: snap.loomObstaclePublications ?? 0, equalObstacles: snap.loomObstacleEqualPublications ?? 0, corridors: snap.loomCorridorPublications ?? 0, routed: snap.routeWireInvocations ?? 0 };
+      };
+      const watch = { start: performance.now(), release: null, frames: [], stopped: false };
+      let lastBoxes = boxes();
+      let lastLoom = loom();
+      const frame = (now) => {
+        if (watch.stopped) return;
+        const nextBoxes = boxes();
+        const nextLoom = loom();
+        const changed = {};
+        for (const id of Object.keys(nextBoxes)) if (nextBoxes[id] !== lastBoxes[id]) changed[id] = [lastBoxes[id] ?? null, nextBoxes[id]];
+        const loomDelta = {};
+        for (const key of Object.keys(nextLoom)) if (nextLoom[key] !== lastLoom[key]) loomDelta[key] = nextLoom[key] - lastLoom[key];
+        if (Object.keys(changed).length > 0 || Object.keys(loomDelta).length > 0) watch.frames.push({ at: Math.round((now - watch.start) * 10) / 10, boxes: changed, loom: loomDelta });
+        lastBoxes = nextBoxes;
+        lastLoom = nextLoom;
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+      window.__verifyWatch = watch;
+    })()`);
+    await sleep(120);
+    await evaluate(`(() => { window.__verifyWatch.release = Math.round((performance.now() - window.__verifyWatch.start) * 10) / 10; window.__verifyWatch.frames.length = 0; })()`);
+  }
   const released = Date.now();
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
   const dropMs = Date.now() - released;
+  if (watchDrops) {
+    await sleep(1_500 * Math.max(1, throttle / 2));
+    const watch = await evaluate<{ release: number; frames: Array<{ at: number; boxes: Record<string, [string | null, string]>; loom: Record<string, number> }> }>(`(() => { const w = window.__verifyWatch; w.stopped = true; return { release: w.release, frames: w.frames }; })()`);
+    // Each frame after the release in which a card's box or a loom counter moved; boxes read "x,y,width,height,z".
+    console.log(JSON.stringify({ dropWatch: watch.frames.map((frame) => ({ msAfterRelease: Math.round((frame.at - watch.release) * 10) / 10, cardsChanged: Object.keys(frame.boxes).length, boxes: frame.boxes, loom: frame.loom })), repeat }));
+  }
   const selectionAtRelease = lacking(await selectionOf());
   if (profileDrops) {
     await sleep(1_000);
@@ -405,6 +457,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   rows.push(summarize("3 s after the drop", after, { ...facts, dropMs, routeWire: routedDrag && routedDrop ? routedDrop.total - routedDrag.total : null, routeWireByTrigger: less(routedDrop?.byTrigger, routedDrag?.byTrigger) }));
   console.log(JSON.stringify(rows.at(-1)));
 }
+if (throttle > 1) await send("Emulation.setCPUThrottlingRate", { rate: 1 });
 const atEnd = await world();
 console.log(JSON.stringify({ selectedAtEnd: atEnd.selected, cardsMovedByTheFirstDrag: movedOnFirstDrag }));
 
