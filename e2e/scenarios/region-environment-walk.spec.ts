@@ -559,10 +559,10 @@ test("S4 and S12 secret: masked while typed, saved only to the sandbox file stor
     await soft(variable(dialog, "TEST_TOKEN"), "and the name leaves the resolved list").toHaveCount(0, { timeout: 30_000 });
     await soft
       .poll(async () => (await secretFiles(sandbox.homeDir)).filter((file) => /^[0-9a-f]{8}-/u.test(file.name)).map((file) => file.name), {
-        message: "the stored secret file is deleted from region-secrets",
+        message: "removing a source preserves the stored secret for other references",
         timeout: 15_000,
       })
-      .toEqual([]);
+      .toEqual(mine.map((file) => file.name));
     note(testInfo, "S12-files-after-remove", JSON.stringify(await secretFiles(sandbox.homeDir)));
     soft(await savedEnvironment(page, INNER.id), "the canvas has no environment left for the region").toBeUndefined();
     await settled(dialog);

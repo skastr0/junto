@@ -119,7 +119,7 @@ const fieldKeys = () =>
     input.getAttribute("data-testid")!.replace("region-env-field-", ""),
   );
 
-const keychain: EnvSource = { id: "k1", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op-service-account" };
+const keychain: EnvSource = { id: "k1", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "test-region-credential" };
 const envFile: EnvSource = { id: "f1", kind: "envFile", path: "~/work/.env" };
 const plain: EnvSource = { id: "v1", kind: "value", name: "AWS_REGION", value: "eu-west-1" };
 
@@ -128,7 +128,7 @@ const reported = (over: Partial<SourceReport>): SourceReport => ({
   regionLabel: "Payments",
   sourceId: "k1",
   kind: "keychain",
-  names: ["OP_SERVICE_ACCOUNT_TOKEN"],
+  names: ["EXAMPLE_AUTH_TOKEN"],
   status: "ok",
   required: false,
   ...over,
@@ -142,7 +142,7 @@ describe("adding a source", () => {
     // What the operator already has comes first.
     expect(q('[data-testid="region-env-form"]')?.getAttribute("data-kind")).toBe("keychain");
     expect(fieldKeys()).toEqual(["name", "service", "account"]);
-    expect(q<HTMLInputElement>('[data-testid="region-env-field-service"]')?.placeholder).toBe("op-service-account");
+    expect(q<HTMLInputElement>('[data-testid="region-env-field-service"]')?.placeholder).toBe("example-api");
 
     await click(q('[data-testid="region-env-kind-envFile"]'));
     expect(fieldKeys()).toEqual(["path"]);
@@ -156,11 +156,11 @@ describe("adding a source", () => {
   it("the simplest case: an existing Keychain item becomes a variable for the region", async () => {
     const { saved } = await mount(undefined);
     await click(q('[data-testid="region-env-add-source"]'));
-    await type("region-env-field-name", "OP_SERVICE_ACCOUNT_TOKEN");
-    await type("region-env-field-service", "op-service-account");
+    await type("region-env-field-name", "EXAMPLE_AUTH_TOKEN");
+    await type("region-env-field-service", "test-region-credential");
     await submitForm();
     expect(saved).toEqual([
-      { sources: [{ id: "new-1", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op-service-account" }] },
+      { sources: [{ id: "new-1", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "test-region-credential" }] },
     ]);
     expect(q('[data-testid="region-env-form"]')).toBeNull();
     expect(all('[data-testid="region-env-source"]')).toHaveLength(1);
@@ -191,13 +191,13 @@ describe("the fields people get wrong", () => {
     await mount(undefined);
     await click(q('[data-testid="region-env-add-source"]'));
     expect(q('[data-testid="region-env-lookup"]')).toBeNull();
-    await type("region-env-field-service", "op-service-account");
+    await type("region-env-field-service", "test-region-credential");
     expect(q('[data-testid="region-env-lookup"]')?.textContent).toBe(
-      'Looks for the Keychain item named "op-service-account", whatever its account.',
+      'Looks for the Keychain item named "test-region-credential", whatever its account.',
     );
     await type("region-env-field-account", "me@example.com");
     expect(q('[data-testid="region-env-lookup"]')?.textContent).toBe(
-      'Looks for the Keychain item named "op-service-account" with account "me@example.com".',
+      'Looks for the Keychain item named "test-region-credential" with account "me@example.com".',
     );
   });
 
@@ -205,7 +205,7 @@ describe("the fields people get wrong", () => {
     const { saved } = await mount(undefined);
     await click(q('[data-testid="region-env-add-source"]'));
     await click(q('[data-testid="region-env-kind-command"]'));
-    await type("region-env-field-name", "OP_SERVICE_ACCOUNT_TOKEN");
+    await type("region-env-field-name", "EXAMPLE_AUTH_TOKEN");
     await type("region-env-field-argv", 'security find-generic-password -s "My Item" -w');
     expect(all('[data-testid="region-env-arg"]').map((chip) => chip.textContent)).toEqual([
       "security",
@@ -236,7 +236,7 @@ describe("the fields people get wrong", () => {
   it("editing a source that carries a host leaves the host on it", async () => {
     const pinned = { ...keychain, host: "studio" } as EnvSource;
     const { saved } = await mount({ sources: [pinned] });
-    await click(q('[aria-label="Edit OP_SERVICE_ACCOUNT_TOKEN"]'));
+    await click(q('[aria-label="Edit EXAMPLE_AUTH_TOKEN"]'));
     await type("region-env-field-service", "another-item");
     await submitForm();
     expect(saved.at(-1)?.sources).toEqual([{ ...pinned, service: "another-item" }]);
@@ -247,7 +247,7 @@ describe("where a 1Password token comes from", () => {
   it("offers named sources in scope, the inherited ones labelled with their region", async () => {
     const fake = makeFakeRegionEnvironmentPort({
       report: [
-        reported({ regionId: "outer", regionLabel: "Company", sourceId: "o1", names: ["OP_SERVICE_ACCOUNT_TOKEN"] }),
+        reported({ regionId: "outer", regionLabel: "Company", sourceId: "o1", names: ["EXAMPLE_AUTH_TOKEN"] }),
       ],
     });
     await mount({ sources: [plain] }, fake);
@@ -259,7 +259,7 @@ describe("where a 1Password token comes from", () => {
     expect(options).toEqual([
       "What op is already signed in with",
       "AWS_REGION, this region",
-      "OP_SERVICE_ACCOUNT_TOKEN, from Company",
+      "EXAMPLE_AUTH_TOKEN, from Company",
     ]);
   });
 });
@@ -271,7 +271,7 @@ describe("a 1Password source above its token", () => {
     const { saved } = await mount({ sources: [ref, envFile, keychain] });
     const row = all('[data-testid="region-env-source"]')[0]!;
     expect(row.querySelector('[data-testid="region-env-token-problem"]')?.textContent).toBe(
-      "Its token comes from OP_SERVICE_ACCOUNT_TOKEN, which is listed below it. The token source must come first.",
+      "Its token comes from EXAMPLE_AUTH_TOKEN, which is listed below it. The token source must come first.",
     );
     expect(row.querySelector('[data-testid="region-env-token-problem"]')?.className).toContain("region-env__error");
     await click(q('[data-testid="region-env-token-fix"]'));
@@ -440,17 +440,26 @@ describe("a secret kept by Junto", () => {
     expect(q('[data-testid="region-env-form"]')).not.toBeNull();
   });
 
-  it("removing the source removes the stored secret with it", async () => {
+  it("removing the source leaves its stored secret available to other references", async () => {
     const { fake, saved } = await addSecret();
     await submitForm();
     await click(q('[aria-label="Remove GITHUB_TOKEN"]'));
     expect(saved.at(-1)).toBeUndefined();
-    expect(fake.calls.removeSecret).toEqual(["secret-1"]);
+    expect(fake.calls.removeSecret).toEqual([]);
+  });
+
+  it("removing one source preserves a stored secret referenced by another source", async () => {
+    const first: EnvSource = { id: "first", kind: "secret", name: "FIRST_KEY", secretId: "shared-secret" };
+    const second: EnvSource = { id: "second", kind: "secret", name: "SECOND_KEY", secretId: "shared-secret" };
+    const { fake, saved } = await mount({ sources: [first, second] });
+    await click(q('[aria-label="Remove FIRST_KEY"]'));
+    expect(saved.at(-1)?.sources).toEqual([second]);
+    expect(fake.calls.removeSecret).toEqual([]);
   });
 
   it("removing any other kind of source touches no store", async () => {
     const { fake } = await mount({ sources: [keychain] });
-    await click(q('[aria-label="Remove OP_SERVICE_ACCOUNT_TOKEN"]'));
+    await click(q('[aria-label="Remove EXAMPLE_AUTH_TOKEN"]'));
     expect(fake.calls.removeSecret).toEqual([]);
   });
 });
@@ -463,7 +472,7 @@ describe("the resolved list", () => {
     await mount({ sources: [keychain, plain] }, fake);
     expect(fake.calls.report).toEqual(["inner"]);
     const rows = all('[data-testid="region-env-variable"]');
-    expect(rows.map((row) => row.getAttribute("data-name"))).toEqual(["AWS_REGION", "OP_SERVICE_ACCOUNT_TOKEN"]);
+    expect(rows.map((row) => row.getAttribute("data-name"))).toEqual(["AWS_REGION", "EXAMPLE_AUTH_TOKEN"]);
     expect(rows[1]?.textContent).toContain("macOS Keychain item, this region");
     // The resolved list carries names only; a plain value is shown on its
     // own source row, where the operator typed it.
@@ -496,15 +505,15 @@ describe("the resolved list", () => {
 
   it("shows an error inline, in red, with the reason in plain words, on the variable and on its source", async () => {
     const fake = makeFakeRegionEnvironmentPort({
-      report: [reported({ status: "missing", reason: "No Keychain item named op-service-account." })],
+      report: [reported({ status: "missing", reason: "No Keychain item named test-region-credential." })],
     });
     await mount({ sources: [keychain] }, fake);
     const variable = q('[data-testid="region-env-variable"]')!;
     expect(variable.textContent).toContain("not set");
     const inline = [...variable.querySelectorAll(".region-env__error")].map((node) => node.textContent);
-    expect(inline.join(" ")).toContain("No Keychain item named op-service-account.");
+    expect(inline.join(" ")).toContain("No Keychain item named test-region-credential.");
     const source = q('[data-testid="region-env-source"]')!;
-    expect(source.querySelector(".region-env__error")?.textContent).toBe("No Keychain item named op-service-account.");
+    expect(source.querySelector(".region-env__error")?.textContent).toBe("No Keychain item named test-region-credential.");
     expect(source.textContent).toContain("Missing");
   });
 
@@ -576,7 +585,7 @@ describe("sealed, folders and order", () => {
 
   it("reorders with the arrows, for a keyboard", async () => {
     const { saved } = await mount({ sources: [keychain, envFile, plain] });
-    expect(q<HTMLButtonElement>('[aria-label="Move OP_SERVICE_ACCOUNT_TOKEN up"]')?.disabled).toBe(true);
+    expect(q<HTMLButtonElement>('[aria-label="Move EXAMPLE_AUTH_TOKEN up"]')?.disabled).toBe(true);
     expect(q<HTMLButtonElement>('[aria-label="Move AWS_REGION down"]')?.disabled).toBe(true);
     await click(q('[aria-label="Move AWS_REGION up"]'));
     expect(saved.at(-1)?.sources?.map((source) => source.id)).toEqual(["k1", "v1", "f1"]);
@@ -601,7 +610,7 @@ describe("sealed, folders and order", () => {
 
 describe("restart to apply", () => {
   const seats = [
-    { seatId: "seat-1", title: "planner", changed: ["OP_SERVICE_ACCOUNT_TOKEN"] },
+    { seatId: "seat-1", title: "planner", changed: ["EXAMPLE_AUTH_TOKEN"] },
     { seatId: "seat-2", title: "builder", changed: [] },
   ];
 
@@ -616,7 +625,7 @@ describe("restart to apply", () => {
     const section = q('[data-testid="region-env-stale"]')!;
     expect(section.textContent).toContain("Restart to apply");
     expect(section.textContent).toContain("planner");
-    expect(section.textContent).toContain("Changes on restart: OP_SERVICE_ACCOUNT_TOKEN");
+    expect(section.textContent).toContain("Changes on restart: EXAMPLE_AUTH_TOKEN");
     expect(section.textContent).toContain("Its environment changes on restart.");
 
     await click(all('[data-testid="region-env-restart"]')[0]);

@@ -372,8 +372,9 @@ export function RegionEnvironmentScreen({
   const removeSource = (source: EnvSource) => {
     withSources(sources.filter((existing) => existing.id !== source.id));
     if (draft?.id === source.id) setDraft(undefined);
-    // The stored secret has no other reference: it goes with its source.
-    if (source.kind === "secret" && source.secretId) void port.removeSecret(source.secretId);
+    // This screen cannot prove the id is unused by other regions or canvases.
+    // Removing a reference does not delete the stored secret. Explicit
+    // retirement belongs to the secret store's delete operation.
   };
 
   const move = (from: number, to: number) => {
