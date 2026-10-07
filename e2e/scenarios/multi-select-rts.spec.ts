@@ -65,8 +65,9 @@ test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page);
 
-  const alpha = page.locator(".react-flow__node", { hasText: "alpha" }).first();
-  const beta = page.locator(".react-flow__node", { hasText: "beta" }).first();
+  // By id: the first card whose text contains a name is not always that seat.
+  const alpha = page.locator('.react-flow__node[data-id="seat-a"]');
+  const beta = page.locator('.react-flow__node[data-id="seat-b"]');
   const note = page.locator('.react-flow__node[data-id="note"]');
   await expect(alpha).toBeVisible({ timeout: 30_000 });
   await expect(beta).toBeVisible({ timeout: 30_000 });
@@ -77,6 +78,15 @@ test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
   const shiftClick = async (locator: import("@playwright/test").Locator) => {
     await locator.click({ modifiers: ["Shift"] });
   };
+  // A second shift-click on the only selected card takes it out of the
+  // selection, in what is drawn and in what is said.
+  await shiftClick(alpha);
+  await expect(alpha).toHaveClass(/selected/);
+  await expect(alpha).toHaveAttribute("aria-label", "alpha, selected");
+  await shiftClick(alpha);
+  await expect(alpha).not.toHaveClass(/selected/);
+  await expect(alpha).toHaveAttribute("aria-label", "alpha");
+
   await shiftClick(alpha);
   await shiftClick(beta);
   await expect(alpha).toHaveClass(/selected/);
@@ -140,8 +150,9 @@ test("rubber-band marquee selects inside a region's interior", async ({ junto })
   await installBoard(page);
 
   const region = page.locator('.react-flow__node[data-id="rg-main"]');
-  const alpha = page.locator(".react-flow__node", { hasText: "alpha" }).first();
-  const beta = page.locator(".react-flow__node", { hasText: "beta" }).first();
+  // By id: the first card whose text contains a name is not always that seat.
+  const alpha = page.locator('.react-flow__node[data-id="seat-a"]');
+  const beta = page.locator('.react-flow__node[data-id="seat-b"]');
   await expect(region).toBeVisible({ timeout: 30_000 });
   await expect(alpha).toBeVisible();
   await expect(beta).toBeVisible();

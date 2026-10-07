@@ -9,6 +9,7 @@
 import { useCallback } from "react";
 import { useStoreApi } from "@xyflow/react";
 import { isOperatorTyping } from "./focus-ownership";
+import { clearSelection } from "./state";
 
 /** Junto multi-select modifier (matches ReactFlow multiSelectionKeyCode). */
 export function isMultiSelectGesture(
@@ -41,6 +42,32 @@ export function stopNodeGestureUnlessMultiSelect(
 }
 
 /**
+ * A shift-press on a card: put it in the selection, or take it out. Taking the
+ * last one out leaves nothing selected. React Flow says so with an empty
+ * selection, which the canvas ignores because it also sends one whenever the
+ * graph remounts; here it is the operator's own act, so the window's selection
+ * is cleared with it.
+ */
+export function toggleInSelection(store: ReturnType<typeof useStoreApi>, nodeId: string): void {
+  const state = store.getState();
+  // Key-tracking lag: force multi mode from the event itself.
+  if (!state.multiSelectionActive) {
+    store.setState({ multiSelectionActive: true });
+  }
+  const node = state.nodeLookup.get(nodeId);
+  if (!node) return;
+  if (!node.selected) {
+    state.addSelectedNodes([nodeId]);
+    return;
+  }
+  state.unselectNodesAndEdges({ nodes: [node], edges: [] });
+  const others =
+    [...state.nodeLookup.values()].some((other) => other.id !== nodeId && other.selected) ||
+    state.edges.some((edge) => edge.selected);
+  if (!others) clearSelection();
+}
+
+/**
  * Capture-phase handlers for a node shell: Shift+primary press toggles this
  * node in the multi-selection and prevents all child chrome from running.
  */
@@ -59,18 +86,7 @@ export function useShiftMultiSelectDominance(nodeId: string): {
       event.preventDefault();
       event.stopPropagation();
 
-      const state = store.getState();
-      // Key-tracking lag: force multi mode from the event itself.
-      if (!state.multiSelectionActive) {
-        store.setState({ multiSelectionActive: true });
-      }
-      const node = state.nodeLookup.get(nodeId);
-      if (!node) return;
-      if (!node.selected) {
-        state.addSelectedNodes([nodeId]);
-      } else {
-        state.unselectNodesAndEdges({ nodes: [node], edges: [] });
-      }
+      toggleInSelection(store, nodeId);
     },
     [store, nodeId],
   );

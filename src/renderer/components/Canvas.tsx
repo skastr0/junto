@@ -43,7 +43,7 @@ import { regionLabelDrag$ } from "../lib/region-label-drag";
 import { canvasZoomRequest$ } from "../lib/canvas-zoom";
 import { useMenuDismiss } from "../lib/menu-dismiss";
 import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
-import { isEditableEventTarget } from "../lib/multi-select-gesture";
+import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
@@ -1764,17 +1764,7 @@ function CanvasGraph() {
       }
       event.preventDefault();
       event.stopPropagation();
-      const state = rfStore.getState();
-      if (!state.multiSelectionActive) {
-        rfStore.setState({ multiSelectionActive: true });
-      }
-      const node = state.nodeLookup.get(nodeId);
-      if (node === undefined) return;
-      if (!node.selected) {
-        state.addSelectedNodes([nodeId]);
-      } else {
-        state.unselectNodesAndEdges({ nodes: [node], edges: [] });
-      }
+      toggleInSelection(rfStore, nodeId);
     };
     window.addEventListener("pointerdown", dominateShiftMultiSelect, {
       capture: true,
