@@ -1,6 +1,5 @@
 import { Result, Schema } from "effect";
 import { ONBOARD_PAST_NOTES_MAX } from "./seat-sessions";
-import { TaskState, WorkMetadata } from "./canvas";
 import {
   CheckSide,
   CompletionEvidence,
@@ -10,6 +9,8 @@ import {
   Rule,
   TaskAdmission,
   TaskRule,
+  TaskState,
+  WorkMetadata,
 } from "./work-model";
 import { ContentRef } from "./content";
 import { PadPatch } from "./pad";

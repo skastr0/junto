@@ -10,7 +10,7 @@
  * node or agent principal.
  */
 
-import type { Artifact } from "./canvas";
+import type { Artifact } from "./work-model";
 
 // ---------------------------------------------------------------------------
 // Shapes

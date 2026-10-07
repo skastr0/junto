@@ -1,7 +1,5 @@
-import type {
-  Task,
-  EdgePhase,
-} from "./canvas";
+import type { WirePhase } from "./model/wire";
+import type { Task } from "./work-model";
 import type { ActorSeatId } from "./actor-seat";
 import { claimedByOf, taskBrief } from "./task";
 import {
@@ -86,7 +84,7 @@ export type BlockedReason =
     };
 
 export type EdgeEval = {
-  readonly phase: EdgePhase;
+  readonly phase: WirePhase;
   readonly detail: string;
   /** True when this edge generates a block on toNode (phase === blocks). */
   readonly generates: boolean;
@@ -105,7 +103,7 @@ export const earliestStateSince = (items: ReadonlyArray<Pick<Task, "stateSince">
 };
 
 export type ExecutionGraph = {
-  readonly phaseByEdgeId: ReadonlyMap<string, EdgePhase>;
+  readonly phaseByEdgeId: ReadonlyMap<string, WirePhase>;
   readonly detailByEdgeId: ReadonlyMap<string, string>;
   readonly edgeEvalById: ReadonlyMap<string, EdgeEval>;
   readonly blocked: ReadonlySet<string>;
@@ -218,7 +216,7 @@ export const deriveExecutionGraph = (
 ): ExecutionGraph => {
   const byId = canvas.nodes;
 
-  const phaseByEdgeId = new Map<string, EdgePhase>();
+  const phaseByEdgeId = new Map<string, WirePhase>();
   const detailByEdgeId = new Map<string, string>();
   const edgeEvalById = new Map<string, EdgeEval>();
 
@@ -299,7 +297,7 @@ export const deriveExecutionGraph = (
 
 /** The kernel's live projection of a canvas's execution graph, as it travels. */
 export type ExecutionGraphSnapshot = {
-  readonly phaseByEdgeId: Readonly<Record<string, EdgePhase>>;
+  readonly phaseByEdgeId: Readonly<Record<string, WirePhase>>;
   readonly detailByEdgeId: Readonly<Record<string, string>>;
   readonly blocked: ReadonlyArray<string>;
   readonly blockedEdgeIds: ReadonlyArray<string>;
@@ -315,7 +313,7 @@ export const executionGraphFromSnapshot = (
   canvas: Pick<Canvas, "wires">,
   execution: ExecutionGraphSnapshot,
 ): ExecutionGraph => {
-  const phaseByEdgeId = new Map<string, EdgePhase>();
+  const phaseByEdgeId = new Map<string, WirePhase>();
   const detailByEdgeId = new Map<string, string>();
   const edgeEvalById = new Map<string, EdgeEval>();
   for (const edge of canvas.wires.values()) {
