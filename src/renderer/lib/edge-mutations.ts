@@ -65,27 +65,9 @@ export const verbsForDraw = (
   return flipped.length > 0 ? { verbs: flipped, reversed: true } : NO_DRAW_VERBS;
 };
 
-/** Cards that take no wire whatever their kinds say. */
-const wireableNode = (node: CanvasNode | undefined): boolean =>
-  node !== undefined &&
-  node.type !== "group" &&
-  !isLabelNode(node) &&
-  !isGitNode(node) &&
-  productNodeKindEnabled(kindOf(node));
-
-/** Live connect validation — the same grammar the commit below enforces. */
-export const connectAllowed = (
-  fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
-): boolean =>
-  wireableNode(fromNode) &&
-  wireableNode(toNode) &&
-  verbsForDraw(kindOf(fromNode), kindOf(toNode)).verbs.length > 0;
-
 /**
- * The same question of two nodes as the store holds them: could a wire be
- * drawn between these at all. connectAllowed above goes when its one caller
- * (the canvas's live connect check) asks this instead.
+ * Could a wire be drawn between these two at all: the canvas's live connect
+ * check, by the same grammar drawing the wire enforces.
  */
 export const canConnect = (from: Node | undefined, to: Node | undefined): boolean => {
   if (from === undefined || to === undefined) return false;
