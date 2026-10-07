@@ -15,7 +15,7 @@ import {
   SEAT_OFFBOARD_MAX_SEATS,
 } from "./seat-offboard";
 import { OFFBOARD_MODES } from "./seat-sessions";
-import { EtherSheet } from "./sheet";
+import { SheetGrid } from "./model/sheet";
 import {
   CompletionEvidence,
   FinishCriteria,
@@ -530,7 +530,7 @@ const PadGet = Schema.Struct({
 });
 const SheetConfigure = Schema.Struct({
   ...SinkTarget,
-  sheet: EtherSheet,
+  sheet: SheetGrid,
 });
 const ContentAccess = Schema.Struct({
   ...SinkTarget,
