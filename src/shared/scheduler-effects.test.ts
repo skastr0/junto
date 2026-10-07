@@ -12,6 +12,22 @@ import {
   schedulerSourceLabel,
   validateEffectTarget,
 } from "./scheduler-effects";
+import { watchReadFromDocument } from "./work-read";
+
+type DocNode = CanvasDoc["nodes"][number];
+
+/** A watch on a document node: the model's node, and the work the document holds. */
+const watch = (
+  source: DocNode | undefined,
+  when: Parameters<typeof evaluateWatchWhen>[1],
+  context?: Parameters<typeof evaluateWatchWhen>[3],
+) =>
+  evaluateWatchWhen(
+    source === undefined ? undefined : nodeFromDocument("factory", source, 0),
+    when,
+    watchReadFromDocument({ nodes: source === undefined ? [] : [source] }),
+    context,
+  );
 
 const doc = (partial: Partial<CanvasDoc> & Pick<CanvasDoc, "nodes" | "edges">): CanvasDoc =>
   ({
@@ -102,7 +118,7 @@ describe("scheduler-effects", () => {
       ether: { entity: { kind: "page" } },
     };
     expect(
-      evaluateWatchWhen(page, {
+      watch(page, {
         word: "any",
         any: [
           { word: "completes", equals: "ready" },
@@ -131,11 +147,11 @@ describe("scheduler-effects", () => {
       height: 1,
       ether: { entity: { kind: "page" } },
     };
-    const ready = evaluateWatchWhen(page, {
+    const ready = watch(page, {
       word: "completes",
       equals: "ready",
     });
-    const failed = evaluateWatchWhen(page, {
+    const failed = watch(page, {
       word: "completes",
       equals: "failed",
     });
@@ -159,14 +175,14 @@ describe("scheduler-effects", () => {
     };
     const loads = new Map([["p1", "ready" as const]]);
     expect(
-      evaluateWatchWhen(
+      watch(
         page,
         { word: "completes", equals: "ready" },
         { pageLoadByNodeId: loads },
       ).status,
     ).toBe("satisfied");
     expect(
-      evaluateWatchWhen(
+      watch(
         page,
         { word: "completes", equals: "failed" },
         { pageLoadByNodeId: loads },
@@ -175,14 +191,14 @@ describe("scheduler-effects", () => {
 
     const failedLoads = new Map([["p1", "failed" as const]]);
     expect(
-      evaluateWatchWhen(
+      watch(
         page,
         { word: "completes", equals: "failed" },
         { pageLoadByNodeId: failedLoads },
       ).status,
     ).toBe("satisfied");
     expect(
-      evaluateWatchWhen(
+      watch(
         page,
         { word: "completes", equals: "ready" },
         { pageLoadByNodeId: failedLoads },
@@ -202,14 +218,14 @@ describe("scheduler-effects", () => {
       ether: { entity: { kind: "page" } },
     };
     expect(
-      evaluateWatchWhen(
+      watch(
         page,
         { word: "completes", equals: "ready" },
         { pageLoadByNodeId: new Map([["p1", "loading"]]) },
       ).status,
     ).toBe("pending");
     expect(
-      evaluateWatchWhen(
+      watch(
         page,
         { word: "completes", equals: "ready" },
         { pageLoadByNodeId: new Map() },
@@ -236,12 +252,12 @@ describe("scheduler-effects", () => {
       ],
     };
     expect(
-      evaluateWatchWhen(page, when, {
+      watch(page, when, {
         pageLoadByNodeId: new Map([["p1", "ready"]]),
       }).status,
     ).toBe("satisfied");
     expect(
-      evaluateWatchWhen(page, when, {
+      watch(page, when, {
         pageLoadByNodeId: new Map([["p1", "failed"]]),
       }).status,
     ).toBe("satisfied");
@@ -270,7 +286,7 @@ describe("scheduler-effects", () => {
       },
     };
     expect(
-      evaluateWatchWhen(source, {
+      watch(source, {
         word: "completes",
         equals: "completed",
       }).status,
@@ -291,7 +307,7 @@ describe("scheduler-effects", () => {
       },
     };
     expect(
-      evaluateWatchWhen(done, {
+      watch(done, {
         word: "completes",
         equals: "completed",
       }).status,
@@ -334,7 +350,7 @@ describe("scheduler-effects", () => {
     const edges = collectWatchEdgesInto(canvasFromDocument("factory", canvas), "r1");
     expect(edges).toHaveLength(1);
     expect(edges[0]!.when).toEqual({ word: "completes" });
-    expect(evaluateWatchWhen(canvas.nodes[0], edges[0]!.when).status).toBe(
+    expect(watch(canvas.nodes[0], edges[0]!.when).status).toBe(
       "satisfied",
     );
   });
@@ -405,20 +421,20 @@ describe("scheduler-effects", () => {
       height: 1,
       ether: { entity: { kind: "agent", name: "local:planner" } },
     };
-    const raised = evaluateWatchWhen(agent, { word: "signals" }, {
+    const raised = watch(agent, { word: "signals" }, {
       raisedHandNodeIds: new Set(["a1"]),
     });
     expect(raised.status).toBe("satisfied");
     expect(raised.detail).toBe("Planner raised a hand");
 
-    const other = evaluateWatchWhen(agent, { word: "signals" }, {
+    const other = watch(agent, { word: "signals" }, {
       raisedHandNodeIds: new Set(["someone-else"]),
     });
     expect(other.status).toBe("pending");
     expect(other.detail).toBe("watching Planner for blocked or escalate");
 
     // No raised-hand map at all is quiet, never satisfied.
-    expect(evaluateWatchWhen(agent, { word: "signals" }).status).toBe("pending");
+    expect(watch(agent, { word: "signals" }).status).toBe("pending");
   });
 
   it("collectWatchEdgesInto keeps OR multi-input sinks", () => {
@@ -469,7 +485,7 @@ describe("scheduler-effects", () => {
   });
 
   it("missing watch source reports reconnect copy, not node-body path", () => {
-    expect(evaluateWatchWhen(undefined, { word: "completes" }).detail).toBe(
+    expect(watch(undefined, { word: "completes" }).detail).toBe(
       "watch source gone — reconnect a sink",
     );
     expect(NO_WATCH_YET_DETAIL).toMatch(/draw a sink/);

@@ -12,6 +12,16 @@ export type WorkRead = {
   readonly taskAt: (board: string, id: string) => Task | undefined;
 };
 
+/** The work a relay reads from the thing it watches. */
+export type WatchRead = Pick<WorkRead, "itemsOf"> & {
+  /** How many topics and posts a board holds; nothing when it holds none. */
+  readonly board: (
+    node: string,
+  ) => { readonly topics: number; readonly posts: number } | undefined;
+  /** How many artifacts an artifacts node holds. */
+  readonly artifacts: (node: string) => number;
+};
+
 const held = new WeakMap<object, WorkRead>();
 
 /**
@@ -29,5 +39,41 @@ export const workReadFromDocument = (doc: {
     taskAt: (board, id) => itemsOf(board).find((item) => item.id === id),
   };
   held.set(doc, made);
+  return made;
+};
+
+const heldWatch = new WeakMap<object, WatchRead>();
+
+/** The same, for what a relay watches. Worked out once per document object. */
+export const watchReadFromDocument = (doc: {
+  readonly nodes: ReadonlyArray<CanvasNode>;
+}): WatchRead => {
+  const known = heldWatch.get(doc);
+  if (known !== undefined) return known;
+  const boards = new Map<string, { readonly topics: number; readonly posts: number }>();
+  const artifacts = new Map<string, number>();
+  for (const node of doc.nodes) {
+    const topics = node.ether?.board?.topics;
+    if (topics !== undefined && !boards.has(node.id)) {
+      boards.set(node.id, {
+        topics: topics.length,
+        posts: topics.reduce(
+          (sum, topic) =>
+            sum + (typeof topic.postCount === "number" ? topic.postCount : 0),
+          0,
+        ),
+      });
+    }
+    const items = node.ether?.artifacts?.items;
+    if (items !== undefined && !artifacts.has(node.id)) {
+      artifacts.set(node.id, items.length);
+    }
+  }
+  const made: WatchRead = {
+    itemsOf: workItemsFromDocument(doc),
+    board: (node) => boards.get(node),
+    artifacts: (node) => artifacts.get(node) ?? 0,
+  };
+  heldWatch.set(doc, made);
   return made;
 };

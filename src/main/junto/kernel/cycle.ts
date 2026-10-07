@@ -46,6 +46,7 @@ import {
   schedulerFeatureEnabled,
 } from "@shared/features";
 import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
+import { watchReadFromDocument } from "@shared/work-read";
 
 // --- frozen interface --------------------------------------------------------
 
@@ -359,11 +360,10 @@ export const runEvaluationCycle = async (): Promise<void> => {
           watchEdges.length > 0
             ? combineWatchEvaluations(
                 watchEdges.map((w) =>
-                  // A canvas holds no work: the predicate still reads the
-                  // source's items off the document node.
                   evaluateWatchWhen(
-                    doc.nodes.find((held) => held.id === w.source.id),
+                    w.source,
                     w.when,
+                    watchReadFromDocument(doc),
                     watchContext,
                   ),
                 ),

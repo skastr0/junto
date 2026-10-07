@@ -13,11 +13,12 @@
  * tick.
  */
 
-import type { CanvasNode } from "./canvas";
 import type { Canvas } from "./model/canvas";
 import type { Node } from "./model/kinds";
+import { titleOf } from "./model/title";
 import { wireGrant, wireKinds, type Wire } from "./model/wire";
 import type { EdgeEffect, WatchWhen } from "./physics/verbs";
+import type { WatchRead } from "./work-read";
 
 export const SCHEDULER_ENTITY_KINDS = [
   "watcher",
@@ -216,20 +217,12 @@ export const mergePageLoadStatus = (
   return rank(next) >= rank(previous) ? next : previous;
 };
 
-/** First line of node text, else kind — for operator-facing watch copy. */
-const watchSourceLabel = (source: CanvasNode): string => {
-  if (source.type === "text" && source.text.trim().length > 0) {
-    return source.text.trim().split("\n")[0]!;
-  }
-  return source.ether?.entity?.kind ?? "source";
-};
-
 const evaluatePageLoad = (
-  source: CanvasNode,
+  source: Node,
   want: string,
   pageLoadByNodeId: ReadonlyMap<string, PageLoadStatus> | undefined,
 ): RelayEvaluation => {
-  const who = watchSourceLabel(source);
+  const who = titleOf(source);
   const load = pageLoadByNodeId?.get(source.id);
   if (load === undefined) {
     // Sensor absent — not pending (that would spin the card forever).
@@ -273,11 +266,12 @@ const evaluatePageLoad = (
 };
 
 const evaluateWatchAtom = (
-  source: CanvasNode,
+  source: Node,
   when: Extract<WatchWhen, { readonly word: "completes" | "signals" }>,
+  work: WatchRead,
   context?: WatchEvalContext,
 ): RelayEvaluation => {
-  const who = watchSourceLabel(source);
+  const who = titleOf(source);
 
   if (when.word === "signals") {
     const raised = context?.raisedHandNodeIds?.has(source.id) ?? false;
@@ -291,14 +285,11 @@ const evaluateWatchAtom = (
   }
 
   // completes — kind-specific. equals discriminates variants (ready vs failed).
-  const kind = source.ether?.entity?.kind;
+  const kind = source.kind;
   const want = when.equals ?? "completed";
 
   if (kind === "task" || kind === "requests") {
-    const items =
-      kind === "requests"
-        ? (source.ether?.requests?.items ?? [])
-        : (source.ether?.tasks?.items ?? []);
+    const items = work.itemsOf(source.id);
     const lane = kind === "requests" ? "request" : "task";
     if (items.length === 0) {
       return { status: "pending", detail: `${who} has no ${lane}s yet` };
@@ -337,18 +328,14 @@ const evaluateWatchAtom = (
   }
 
   if (kind === "board") {
-    const board = source.ether?.board;
+    const board = work.board(source.id);
     if (want === "topic") {
-      const n = board?.topics?.length ?? 0;
+      const n = board?.topics ?? 0;
       return n > 0
         ? { status: "satisfied", detail: `${who}: ${n} topic${n === 1 ? "" : "s"}` }
         : { status: "pending", detail: `${who}: waiting for a topic` };
     }
-    const posts =
-      board?.topics?.reduce(
-        (sum, t) => sum + (typeof t.postCount === "number" ? t.postCount : 0),
-        0,
-      ) ?? 0;
+    const posts = board?.posts ?? 0;
     return posts > 0
       ? {
           status: "satisfied",
@@ -358,7 +345,7 @@ const evaluateWatchAtom = (
   }
 
   if (kind === "artifacts") {
-    const n = source.ether?.artifacts?.items?.length ?? 0;
+    const n = work.artifacts(source.id);
     return n > 0
       ? {
           status: "satisfied",
@@ -373,10 +360,14 @@ const evaluateWatchAtom = (
   };
 };
 
-/** Evaluate a watch predicate against a concrete source node. */
+/**
+ * Evaluate a watch predicate against a concrete source node. A canvas holds
+ * no work, so what the source holds is asked of `work`.
+ */
 export const evaluateWatchWhen = (
-  source: CanvasNode | undefined,
+  source: Node | undefined,
   when: WatchWhen,
+  work: WatchRead,
   context?: WatchEvalContext,
 ): RelayEvaluation => {
   if (!source) {
@@ -387,10 +378,10 @@ export const evaluateWatchWhen = (
   }
   if (when.word === "any") {
     return combineWatchEvaluations(
-      when.any.map((atom) => evaluateWatchAtom(source, atom, context)),
+      when.any.map((atom) => evaluateWatchAtom(source, atom, work, context)),
     );
   }
-  return evaluateWatchAtom(source, when, context);
+  return evaluateWatchAtom(source, when, work, context);
 };
 
 /**
