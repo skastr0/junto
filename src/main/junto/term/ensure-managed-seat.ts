@@ -8,7 +8,7 @@ import type { Node } from "@shared/model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorRef } from "@shared/work-protocol";
 import { deriveActorSeatId } from "../station/actor-seat-compiler";
-import { ensureProvisionedSessionId } from "./amp-seat-thread";
+import { ensureSeatSessionId } from "./seat-session-before-start";
 import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
 import { seatStateRuntime } from "./agent-state";
@@ -204,9 +204,10 @@ export const ensureManagedSeatRunning = (
     // reason: a provisioned-session harness has no launch shape without its
     // thread id, and the id must be on the node before the PTY opens.
     const provisioned = yield* Effect.promise(() =>
-      ensureProvisionedSessionId({
+      ensureSeatSessionId({
         canvasName,
         nodeId: node.id,
+        bindingId: node.bindingId,
         harness: surface.harness,
         documentLaunch: surface.launch,
         ...(node.sessionId

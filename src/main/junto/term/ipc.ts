@@ -240,10 +240,11 @@ export const registerTerminalIpc = (
         // A provisioned-session harness (Amp) has its thread minted by its own
         // CLI and stored on the node before any PTY opens. Idempotent: a node
         // that already carries a thread never mints a second one.
-        const { ensureProvisionedSessionId } = await import("./amp-seat-thread");
-        const provisioned = await ensureProvisionedSessionId({
+        const { ensureSeatSessionId } = await import("./seat-session-before-start");
+        const provisioned = await ensureSeatSessionId({
           canvasName,
           nodeId: node.id,
+          bindingId: surface.bindingId,
           harness: surface.harness,
           documentLaunch: surface.launch,
           ...(node.ether?.terminal?.sessionId
@@ -390,8 +391,8 @@ export const registerTerminalIpc = (
         ...(node.label ? { label: node.label } : {}),
       });
     }
-    const { ensureProvisionedSessionId } = await import("./amp-seat-thread");
-    const provisioned = await ensureProvisionedSessionId({ canvasName: input.canvas, nodeId: node.id,
+    const { ensureSeatSessionId } = await import("./seat-session-before-start");
+    const provisioned = await ensureSeatSessionId({ canvasName: input.canvas, nodeId: node.id, bindingId: node.bindingId,
       harness: node.harness, documentLaunch: node.launch,
       ...(node.sessionId ? { storedSessionId: node.sessionId } : {}),
       ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}),
