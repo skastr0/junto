@@ -1244,13 +1244,12 @@ export function TerminalSurface({
     });
     observer.observe(host);
     if (root) observer.observe(root);
-    // Focus panel + workbench panes reflow on pin/split/stored focusSize.
+    // Focus panel + workbench panes reflow on split/stored focusSize.
     const ancestors = [
       root?.closest(".focus-surface__panel"),
       root?.closest(".workbench-pane"),
       root?.closest(".workbench-panes"),
       root?.closest(".work-focus-shell"),
-      root?.closest(".work-surface-dock"),
       root?.closest(".dock-slot"),
     ];
     for (const el of ancestors) {
