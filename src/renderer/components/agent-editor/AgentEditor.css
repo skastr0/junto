@@ -355,8 +355,10 @@
   transform: scale(1.04);
 }
 
+/* --color-focus-ring is a faint tint meant for a wide halo; as a 2px line it
+   cannot be seen, so the ring is the solid cyan other outlines use. */
 .customize-agent-button:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
+  outline: 2px solid var(--color-cyan);
   outline-offset: 2px;
 }
 
