@@ -124,6 +124,18 @@ test("Cmd+backtick brings up the agents, the ones that need the operator first",
     await page.keyboard.up("Meta");
     await expect(front.locator("header").first()).toContainText("Charlie");
     expect(await page.evaluate(() => document.activeElement?.closest(".native-terminal-surface") !== null)).toBe(true);
+
+    // Leaving the window closes it, nothing opened: Cmd let go in another app
+    // never arrives here. The test window is not the system's front window,
+    // so the page is told it lost focus the way the browser tells it.
+    await page.keyboard.down("Meta");
+    await page.keyboard.press("Backquote");
+    await expect(hud).toBeVisible({ timeout: 8_000 });
+    console.log(`page has system focus: ${await page.evaluate(() => document.hasFocus())}`);
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect(hud).toHaveCount(0);
+    await page.keyboard.up("Meta");
+    await expect(front.locator("header").first()).toContainText("Charlie");
   } finally {
     await junto.close();
   }
