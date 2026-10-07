@@ -1,11 +1,10 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   MsgPromptArgs, MsgSendArgs, decodeWorkRequest,
 } from "../src/shared/work-control";
 import { admitWorkTarget } from "../src/main/junto/work/authz";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { canvasOf, seat, wire } from "./support/model-nodes";
 
 describe("crew work wire contract", () => {
   it("takes a prompt as target and text, and rejects identity forgery", () => {
@@ -28,16 +27,11 @@ describe("crew work wire contract", () => {
   });
 
   it("admits peer read independently from prompt at work ingress", () => {
-    const doc: CanvasDoc = {
-      nodes: ["author", "peer"].map((id) => ({
-        id, type: "text", text: id, x: 0, y: 0, width: 200, height: 100,
-        ether: { entity: { kind: "agent", name: id }, terminal: { bindingId: `binding-${id}`, harness: "claude" as const } },
-      })),
-      edges: [
-        { id: "m", fromNode: "author", toNode: "peer", ether: { verb: "messages", mask: ["terminal.read"] } },
-      ],
-    };
-    expect(Result.isSuccess(admitWorkTarget(canvasFromDocument("factory", doc), "author", "peer", "seat.read"))).toBe(true);
-    expect(Result.isFailure(admitWorkTarget(canvasFromDocument("factory", doc), "author", "peer", "msg.prompt"))).toBe(true);
+    const canvas = canvasOf(
+      [seat("author"), seat("peer")],
+      [wire("m", "author", "peer", "messages", { mask: ["terminal.read"] })],
+    );
+    expect(Result.isSuccess(admitWorkTarget(canvas, "author", "peer", "seat.read"))).toBe(true);
+    expect(Result.isFailure(admitWorkTarget(canvas, "author", "peer", "msg.prompt"))).toBe(true);
   });
 });

@@ -3,59 +3,48 @@
  * sits, how large, how it stacks, and what it knows of its regions.
  */
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
-import { asCanvasName, type Node } from "../src/shared/model";
+import { asCanvasName, asNodeId, type Node } from "../src/shared/model";
 import { canvasFromOpened, inPaintOrder } from "../src/shared/model/canvas";
-import { nodeFromDocument } from "../src/shared/model/from-document";
+import { note, region, seat, terminal } from "./support/model-nodes";
 import { titleOf } from "../src/shared/model/title";
 import { flowNodesFromModel, type ModelFlowCache } from "../src/renderer/lib/flow-nodes";
 
 const at = (x: number, y: number, width = 216, height = 96) => ({ x, y, width, height });
 
-const text = (id: string, body: string, rect: ReturnType<typeof at>, ether?: unknown): CanvasNode =>
-  ({ id, type: "text", text: body, ...rect, ...(ether ? { ether } : {}) }) as CanvasNode;
+const seatAt = (id: string, x: number, y: number): Node => seat(id, at(x, y));
 
-const seat = (id: string, x: number, y: number): CanvasNode =>
-  text(id, id, at(x, y), {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId: `binding-${id}`, harness: "claude" },
+const place = (id: string, rect: ReturnType<typeof at>) => ({ id: asNodeId(id), ...rect, z: 0 });
+
+const nodes: ReadonlyArray<Node> = [
+  region("outer", at(0, 0, 2000, 1400), { label: "canvas" as never }),
+  region("inner", at(100, 100, 900, 600), { label: "window" as never }),
+  region("empty", at(3000, 0, 400, 300)),
+  seatAt("lead", 200, 220),
+  seatAt("nodes", 520, 220),
+  seatAt("alone", 2600, 900),
+  terminal("term", at(1200, 300, 320, 200)),
+  note("note", "# Plan\nsecond line", at(1200, 700, 220, 84)),
+  { kind: "label", ...place("label", at(60, 40, 120, 30)), text: "North" } as Node,
+  { kind: "git", ...place("git", at(1500, 900, 300, 200)), cwd: "/repo" } as Node,
+  { kind: "file", ...place("file", at(2600, 100, 300, 200)), path: "docs/readme.md" } as Node,
+  { kind: "link", ...place("link", at(2600, 400, 300, 200)), url: "https://example.com/a" } as Node,
+];
+
+const model = (source: ReadonlyArray<Node>) => {
+  const canvas = canvasFromOpened({
+    canvas: asCanvasName("factory"),
+    seq: 0,
+    nodes: source.map((node, z) => ({ ...node, z })),
+    wires: [],
   });
-
-const region = (id: string, label: string, rect: ReturnType<typeof at>): CanvasNode =>
-  ({ id, type: "group", label, ...rect }) as CanvasNode;
-
-const doc: CanvasDoc = {
-  nodes: [
-    region("outer", "canvas", at(0, 0, 2000, 1400)),
-    region("inner", "window", at(100, 100, 900, 600)),
-    region("empty", "", at(3000, 0, 400, 300)),
-    seat("lead", 200, 220),
-    seat("nodes", 520, 220),
-    seat("alone", 2600, 900),
-    text("term", "shell", at(1200, 300, 320, 200), {
-      entity: { kind: "terminal", name: "term" },
-      terminal: { bindingId: "binding-term" },
-    }),
-    text("note", "# Plan\nsecond line", at(1200, 700, 220, 84)),
-    text("label", "North", at(60, 40, 120, 30), { entity: { kind: "label", name: "label" } }),
-    text("git", "repo", at(1500, 900, 300, 200), { entity: { kind: "git", name: "git" }, git: { cwd: "/repo" } }),
-    { id: "file", type: "file", file: "docs/readme.md", ...at(2600, 100, 300, 200) } as CanvasNode,
-    { id: "link", type: "link", url: "https://example.com/a", ...at(2600, 400, 300, 200) } as CanvasNode,
-  ],
-  edges: [],
-};
-
-const model = (source: CanvasDoc) => {
-  const nodes: Node[] = source.nodes.map((node, z) => nodeFromDocument("factory", node, z));
-  const canvas = canvasFromOpened({ canvas: asCanvasName("factory"), seq: 0, nodes, wires: [] });
   return { canvas, nodes: inPaintOrder(canvas) };
 };
 
 describe("React Flow nodes from the model", () => {
   it("places, sizes and stacks each kind", () => {
-    const { canvas, nodes } = model(doc);
-    const flow = new Map(flowNodesFromModel(canvas, nodes, new Set(["nodes"])).map((node) => [node.id, node]));
-    expect([...flow.keys()]).toEqual(doc.nodes.map((node) => node.id));
+    const { canvas, nodes: placed } = model(nodes);
+    const flow = new Map(flowNodesFromModel(canvas, placed, new Set(["nodes"])).map((node) => [node.id, node]));
+    expect([...flow.keys()]).toEqual(nodes.map((node) => node.id));
     // A region: behind the wires at its nesting depth, never selected or dragged by React Flow.
     expect(flow.get("outer")).toMatchObject({
       type: "group", position: { x: 0, y: 0 }, zIndex: 0, selectable: false, draggable: false, connectable: false,
@@ -83,43 +72,40 @@ describe("React Flow nodes from the model", () => {
   });
 
   it("names each node as the model names it", () => {
-    const { canvas, nodes } = model(doc);
-    const names = new Map(flowNodesFromModel(canvas, nodes, new Set()).map((node) => [node.id, node.ariaLabel]));
-    for (const node of nodes) expect(names.get(node.id)).toBe(titleOf(node));
+    const { canvas, nodes: placed } = model(nodes);
+    const names = new Map(flowNodesFromModel(canvas, placed, new Set()).map((node) => [node.id, node.ariaLabel]));
+    for (const node of placed) expect(names.get(node.id)).toBe(titleOf(node));
     expect(names.get("lead")).toBe("lead");
     expect(names.get("outer")).toBe("canvas");
   });
 
   it("carries the canvas, id and kind, and no node", () => {
-    const { canvas, nodes } = model(doc);
-    const lead = flowNodesFromModel(canvas, nodes, new Set()).find((node) => node.id === "lead")!;
+    const { canvas, nodes: placed } = model(nodes);
+    const lead = flowNodesFromModel(canvas, placed, new Set()).find((node) => node.id === "lead")!;
     expect(lead.data).toMatchObject({ canvas: "factory", id: "lead", kind: "agent", seatRegion: "inner" });
     expect("node" in lead.data).toBe(false);
   });
 
   it("keeps a flow node across a change that is not its own", () => {
     const cache: ModelFlowCache = new Map();
-    const first = model(doc);
+    const first = model(nodes);
     const before = flowNodesFromModel(first.canvas, first.nodes, new Set(), cache);
     // The far seat moves and a note is recoloured: every other card is the same object.
-    const moved: CanvasDoc = {
-      ...doc,
-      nodes: doc.nodes.map((node) =>
-        node.id === "alone" ? { ...node, x: 2700 } : node.id === "note" ? { ...node, color: "3" } : node,
-      ),
-    };
+    const moved = nodes.map((node) =>
+      node.id === "alone" ? { ...node, x: 2700 } : node.id === "note" ? { ...node, color: "3" as never } : node,
+    );
     const second = model(moved);
     const after = flowNodesFromModel(second.canvas, second.nodes, new Set(), cache);
     const same = after.filter((node, index) => node === before[index]).map((node) => node.id);
-    expect(same).toEqual(doc.nodes.map((node) => node.id).filter((id) => id !== "alone"));
+    expect(same).toEqual(nodes.map((node) => node.id).filter((id) => id !== "alone"));
     expect(after.find((node) => node.id === "alone")!.position.x).toBe(2700);
   });
 
   it("drops a removed node from its cache", () => {
     const cache: ModelFlowCache = new Map();
-    const first = model(doc);
+    const first = model(nodes);
     flowNodesFromModel(first.canvas, first.nodes, new Set(), cache);
-    const second = model({ ...doc, nodes: doc.nodes.filter((node) => node.id !== "note") });
+    const second = model(nodes.filter((node) => node.id !== "note"));
     flowNodesFromModel(second.canvas, second.nodes, new Set(), cache);
     expect(cache.has("note")).toBe(false);
   });

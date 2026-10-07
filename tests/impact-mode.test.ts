@@ -1,54 +1,22 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import {
   connectionFocusSelection,
   edgeImpactClass,
   nodeImpactClass,
 } from "../src/renderer/lib/impact-mode";
-import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, seat, wire } from "./support/model-nodes";
 
-const agent = (id: string, label: string): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: label,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    host: "local",
-    terminal: { bindingId: `binding-${id}`, harness: "claude" },
-  },
-});
+const agent = (id: string, label: string) => seat(id, { label: label as never });
 
-const mailDoc = (): CanvasDoc => ({
-  nodes: [
-    agent("hub", "Lead"),
-    agent("a1", "Ship"),
-    agent("a2", "Release"),
-    agent("outsider", "Other"),
-  ],
-  edges: [
-    {
-      id: "e-a1",
-      fromNode: "a1",
-      toNode: "hub",
-      ether: { verb: "messages" },
-    },
-    {
-      id: "e-a2",
-      fromNode: "a2",
-      toNode: "hub",
-      ether: { verb: "messages" },
-    },
-  ],
-});
+const mailCanvas = () =>
+  canvasOf(
+    [agent("hub", "Lead"), agent("a1", "Ship"), agent("a2", "Release"), agent("outsider", "Other")],
+    [wire("e-a1", "a1", "hub", "messages"), wire("e-a2", "a2", "hub", "messages")],
+  );
 
 describe("connectionFocusSelection — direct neighborhood focus", () => {
   it("keeps the root, incident edges, and their neighboring nodes only", () => {
-    const doc = mailDoc();
-    const focus = connectionFocusSelection(canvasFromDocument("factory", doc), "a1");
+    const focus = connectionFocusSelection(mailCanvas(), "a1");
 
     expect(focus.active).toBe(true);
     expect(focus.cone.nodeIds).toEqual(new Set(["a1", "hub"]));
@@ -62,8 +30,7 @@ describe("connectionFocusSelection — direct neighborhood focus", () => {
   });
 
   it("still focuses an isolated node so the operator can dismiss the noise", () => {
-    const doc = mailDoc();
-    const focus = connectionFocusSelection(canvasFromDocument("factory", doc), "outsider");
+    const focus = connectionFocusSelection(mailCanvas(), "outsider");
 
     expect(focus.active).toBe(true);
     expect(focus.cone.nodeIds).toEqual(new Set(["outsider"]));
@@ -72,7 +39,7 @@ describe("connectionFocusSelection — direct neighborhood focus", () => {
   });
 
   it("stays inactive when the requested node no longer exists", () => {
-    const focus = connectionFocusSelection(canvasFromDocument("factory", mailDoc()), "missing");
+    const focus = connectionFocusSelection(mailCanvas(), "missing");
     expect(focus.active).toBe(false);
     expect(focus.cone.nodeIds.size).toBe(0);
   });
