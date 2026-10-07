@@ -62,7 +62,7 @@ function RegionToolbar({
       <IconButton
         className="nodrag nopan"
         aria-label={hasEnvironment ? "Region environment (set)" : "Region environment"}
-        title={hasEnvironment ? "Environment set" : "Environment"}
+        title={hasEnvironment ? "Environment and secrets (set)" : "Environment and secrets"}
         onPointerDown={stopDrag}
         onClick={(event) => { if (stopDrag(event)) return; onEnvironment(); }}
       >

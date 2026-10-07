@@ -16,6 +16,7 @@ import { use$ } from "@legendapp/state/react";
 import {
   FolderOpen,
   Globe,
+  KeyRound,
   Package,
   Pencil,
   RefreshCw,
@@ -52,6 +53,7 @@ import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
 import { WaitingOnSection } from "../WaitingOnSection";
 import { RegionPathsModal } from "../RegionPathsModal";
+import { RegionEnvironmentModal } from "../region-environment/RegionEnvironmentModal";
 import { ChatComposer } from "../chat/ChatComposer";
 import "../chat/chat.css";
 import {
@@ -239,6 +241,8 @@ function RegionFieldFocus({
 function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
   const [form, setForm] = useState<RegionFormKey | null>(null);
   const [pathsOpen, setPathsOpen] = useState(false);
+  const [environmentOpen, setEnvironmentOpen] = useState(false);
+  const hasEnvironment = node.ether?.region?.environment !== undefined;
   const instruction = Boolean(node.ether?.region?.instruction?.trim());
   const defaults = node.ether?.region?.defaults;
   const hasPage = Boolean(
@@ -252,10 +256,12 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
   useEffect(() => {
     setForm(null);
     setPathsOpen(false);
+    setEnvironmentOpen(false);
   }, [node.id]);
 
   const toggleForm = (key: RegionFormKey) => {
     setPathsOpen(false);
+    setEnvironmentOpen(false);
     setForm((current) => (current === key ? null : key));
   };
 
@@ -280,10 +286,25 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
             style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
             onClick={() => {
               setForm(null);
+              setEnvironmentOpen(false);
               setPathsOpen((open) => !open);
             }}
           >
             <FolderOpen size={ICON} />
+          </KindKey>
+          <KindKey
+            label={environmentOpen ? "Close environment and secrets" : "Environment and secrets"}
+            title="Environment and secrets"
+            testId="rts-region-environment"
+            active={environmentOpen || hasEnvironment}
+            style={environmentOpen || hasEnvironment ? { color: HUE.amber } : undefined}
+            onClick={() => {
+              setForm(null);
+              setPathsOpen(false);
+              setEnvironmentOpen((open) => !open);
+            }}
+          >
+            <KeyRound size={ICON} />
           </KindKey>
           {BROWSER_ENABLED ? (
             <KindKey
@@ -303,6 +324,9 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
         <RegionFieldFocus node={node} form={form} onClose={() => setForm(null)} />
       ) : null}
       {pathsOpen ? <RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /> : null}
+      {environmentOpen ? (
+        <RegionEnvironmentModal nodeId={node.id} onClose={() => setEnvironmentOpen(false)} />
+      ) : null}
     </div>
   );
 }
