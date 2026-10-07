@@ -158,6 +158,9 @@ import { harnessSessionExists } from "../term/session-existence";
 import {
   CONTINUATION_FRAMING,
   PREVIOUS_WITHOUT_NOTES_FRAMING,
+  describeSessionDrain,
+  sessionDrainCaution,
+  type SeatSession,
   gistOfNotes,
   ONBOARD_PAST_NOTES_DEFAULT,
   ONBOARD_PAST_SESSIONS_MAX,
@@ -951,6 +954,21 @@ const isoAt = (ms: number | undefined): string | undefined =>
  * the handoff, the continuation note the previous session left for this one.
  * Absent when this runtime keeps no seat sessions.
  */
+/**
+ * What became of a session's process after its seat moved on, for the session
+ * that follows it: one line, and a caution when the transcript's tail cannot
+ * be trusted (still being written, or cut mid-turn). Nothing for a session
+ * that was never detached.
+ */
+const windDownOf = (session: SeatSession) => {
+  if (session.drain === undefined) return {};
+  const caution = sessionDrainCaution(session.drain);
+  return {
+    wind_down: describeSessionDrain(session.drain),
+    ...(caution === undefined ? {} : { transcript_caution: caution }),
+  };
+};
+
 const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(SeatSessionRepository);
@@ -981,6 +999,7 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
             ...(handoffNotes === undefined ? {} : { notes: handoffNotes }),
             notes_path: previous.notesPath,
             transcript_path: previous.transcriptPath ?? null,
+            ...windDownOf(previous),
           }
         : undefined;
     // A session that follows one which ended with no notes at all (Junto or
@@ -1002,6 +1021,7 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
             // overseer, or the idle rule. Absent when nothing recorded it.
             ...(endedBy === undefined ? {} : { ended_by: endedBy }),
             transcript_path: previous.transcriptPath ?? null,
+            ...windDownOf(previous),
           }
         : undefined;
     let inline = 0;
@@ -1023,6 +1043,7 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
         transcript_path: session.transcriptPath ?? null,
         ...(notes === undefined ? {} : { notes }),
         ...(inHandoff ? { notes_in: "handoff" as const } : {}),
+        ...(session.drain === undefined ? {} : { wind_down: describeSessionDrain(session.drain) }),
       };
     });
     const sessions = {

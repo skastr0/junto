@@ -85,6 +85,26 @@ export const describeSessionDrain = (drain: SeatSessionDrain): string => {
   }
 };
 
+/**
+ * What the next session should know about its predecessor's transcript, when
+ * the way the process ended makes the transcript unreliable at its tail.
+ * Undefined when it finished its last turn: the transcript is whole.
+ */
+export const sessionDrainCaution = (drain: SeatSessionDrain): string | undefined => {
+  switch (drain.endedHow) {
+    case undefined:
+      return "That session's process is still finishing its last turn: its transcript may still be growing, and files it works on may still change.";
+    case "settled":
+      return undefined;
+    case "cap":
+      return "That session's process was stopped before its last turn finished, so its transcript ends mid-turn.";
+    case "crashed":
+      return "That session's process crashed after it offboarded, so its transcript may end mid-turn.";
+    case "quit":
+      return "Junto quit while that session's process was finishing its last turn, so its transcript may end mid-turn.";
+  }
+};
+
 /** The notes the seat's agent writes when it offboards, as markdown. */
 export const SEAT_SESSION_NOTES_MAX_CHARS = 16_000;
 /** The note a continuing session leaves for the next one, as markdown. */

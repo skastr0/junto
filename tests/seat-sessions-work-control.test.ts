@@ -487,3 +487,69 @@ describe("junto onboard after a session that ended without notes", () => {
     expect(third.data).not.toHaveProperty("previous_session_without_notes");
   });
 });
+
+describe("junto onboard when the previous session's process was detached to finish its turn", () => {
+  const drain = (how?: "settled" | "cap" | "crashed" | "quit") =>
+    runtime.runPromise(
+      Effect.flatMap(SeatSessionRepository, (r) =>
+        Effect.gen(function* () {
+          yield* r.beginDrain("agent", "s1", 1_800_000_000_000);
+          if (how) yield* r.endDrain("agent", "s1", how, 1_800_000_060_000);
+        }),
+      ),
+    );
+
+  const handOver = async (how?: "settled" | "cap" | "crashed" | "quit") => {
+    await op("offboard", { notes: "# Half done", continuation: "Finish the retry." });
+    await endAsOffboard("s1");
+    await drain(how);
+    await writeSession("s2");
+    return (await op("onboard", {})).data;
+  };
+
+  it("says the predecessor is still winding down, and that its transcript may still grow", async () => {
+    const data = await handOver();
+    expect(data.handoff.wind_down).toBe("Offboarded, winding down");
+    expect(data.handoff.transcript_caution).toMatch(/still/i);
+    expect(data.handoff.transcript_caution).toMatch(/transcript/i);
+    expect(data.sessions.past[0].wind_down).toBe("Offboarded, winding down");
+  });
+
+  it.each([
+    ["cap", "Offboarded, stopped at the 10 minute limit before its last turn finished"],
+    ["crashed", "Offboarded, then its process crashed"],
+    // Junto quitting stops the process wherever it is.
+    ["quit", "Offboarded, ended when Junto quit"],
+  ] as const)("warns that the transcript may end mid-turn when it ended as %s", async (how, line) => {
+    const data = await handOver(how);
+    expect(data.handoff.wind_down).toBe(line);
+    expect(data.handoff.transcript_caution).toMatch(/mid-turn|before/i);
+  });
+
+  it.each([
+    ["settled", "Offboarded, finished its last turn"],
+  ] as const)("states how it ended and adds no warning when it ended as %s", async (how, line) => {
+    const data = await handOver(how);
+    expect(data.handoff.wind_down).toBe(line);
+    expect(data.handoff).not.toHaveProperty("transcript_caution");
+  });
+
+  it("says nothing about winding down for a session that was never detached", async () => {
+    await op("offboard", { notes: "# Half done", continuation: "Finish the retry." });
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    const data = (await op("onboard", {})).data;
+    expect(data.handoff).not.toHaveProperty("wind_down");
+    expect(data.handoff).not.toHaveProperty("transcript_caution");
+    expect(data.sessions.past[0]).not.toHaveProperty("wind_down");
+  });
+
+  it("tells a session whose predecessor left no notes the same thing", async () => {
+    await endAsOffboard("s1");
+    await drain("cap");
+    await writeSession("s2");
+    const told = (await op("onboard", {})).data.previous_session_without_notes;
+    expect(told.wind_down).toBe("Offboarded, stopped at the 10 minute limit before its last turn finished");
+    expect(told.transcript_caution).toMatch(/mid-turn|before/i);
+  });
+});
