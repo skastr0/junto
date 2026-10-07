@@ -280,7 +280,10 @@ export class MessageDeliveryService {
     const flight = this.deliverOnce(canvas, nodeId, messageId, key)
       // An authority read failed: the message stays in the mailbox, where
       // a later seat-live event (once indexed) or the boot scan finds it.
-      .catch((): MailDeliveryState => "waiting")
+      .catch((error: unknown): MailDeliveryState => {
+        console.error(`[delivery] attempt failed for ${canvas}/${nodeId}/${messageId}: ${String(error)}`);
+        return "waiting";
+      })
       .finally(() => {
         if (this.flights.get(key) === flight) this.flights.delete(key);
       });
@@ -305,6 +308,10 @@ export class MessageDeliveryService {
     const target = node === undefined ? undefined : deliveryTargetOf(node);
     if (!node || !message || !target) {
       // No seat to write into: the node is gone or holds no agent seat.
+      // Said in the log: the mail starts no seat from here, and a silent
+      // return is a wake that never happens with no trace of why.
+      const missing = !node ? "node is not on the canvas" : !target ? "node holds no agent seat" : "message is not in the mailbox";
+      console.error(`[delivery] not attempted for ${canvas}/${nodeId}/${messageId}: ${missing}`);
       this.waiting.delete(key);
       return "waiting";
     }
@@ -449,7 +456,10 @@ export class MessageDeliveryService {
     this.waking.add(bindingId);
     void transport
       .wakeSeat(bindingId, canvas, nodeId)
-      .catch(() => false)
+      .catch((error: unknown) => {
+        console.error(`[wake] failed for ${canvas}/${nodeId}: ${String(error)}`);
+        return false;
+      })
       .finally(() => {
         if (this.active(generation)) this.waking.delete(bindingId);
       });

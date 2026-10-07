@@ -126,7 +126,7 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
     mainLog
       .join("")
       .split("\n")
-      .filter((line) => line.includes("[wake]") || line.includes("[delivery]"))
+      .filter((line) => ["[wake]", "[delivery]", "[offboard]"].some((tag) => line.includes(tag)))
       .join("\n");
 
   try {
