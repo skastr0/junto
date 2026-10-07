@@ -939,7 +939,15 @@ export const applyManagedAgentReseat = (next: TextNode): void => {
   if (!doc.nodes.some((n) => n.id === next.id)) return;
   commitDoc({
     ...doc,
-    nodes: doc.nodes.map((n) => (n.id === next.id ? next : n)),
+    // A re-seat changes who sits in the seat, never where the seat is. The
+    // node it was worked out from may be a view of the seat that carries no
+    // placement (the bottom bar's is one), so the place, the size and the
+    // colour are the document's own.
+    nodes: doc.nodes.map((n) =>
+      n.id === next.id
+        ? { ...next, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.color === undefined ? {} : { color: n.color }) }
+        : n,
+    ),
   });
 };
 
