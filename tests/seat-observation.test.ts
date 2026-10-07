@@ -1,8 +1,8 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 import { Cause, Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
+import type { Canvas, Node, Wire } from "../src/shared/model";
+import { canvasOf, note, seat, wire } from "./support/model-nodes";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import type {
   ObserverGridSnapshot,
@@ -17,32 +17,12 @@ import {
 // service's contract is about authority, ordering and bounds, none of which
 // needs a real PTY.
 
-const agentNode = (id: string, bindingId: string, host?: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId, harness: "claude" },
-    ...(host !== undefined ? { host } : {}),
-  },
-});
+const agentNode = (id: string, bindingId: string, host?: string): Node =>
+  seat(id, { bindingId: bindingId as never, width: 100, height: 80, ...(host !== undefined ? { host: host as never } : {}) });
 
-const edge = (verb: "messages", from: string, to: string): CanvasEdge => ({
-  id: `${verb}-${from}-${to}`,
-  fromNode: from,
-  toNode: to,
-  ether: { verb },
-});
+const edge = (verb: "messages", from: string, to: string): Wire => wire(`${verb}-${from}-${to}`, from, to, verb);
 
-const doc = (
-  nodes: ReadonlyArray<CanvasNode>,
-  edges: ReadonlyArray<CanvasEdge>,
-): CanvasDoc => ({ nodes: [...nodes], edges: [...edges] });
+const doc = (nodes: ReadonlyArray<Node>, edges: ReadonlyArray<Wire>): Canvas => canvasOf(nodes, edges);
 
 const seatEvent = (over: Partial<AgentSeatStateEvent> = {}): AgentSeatStateEvent => ({
   bindingId: "bind-peer",
@@ -86,7 +66,7 @@ const settle = (ms = 25): Promise<void> =>
 
 type Harness = {
   readonly service: ReturnType<typeof makeSeatObservation>;
-  readonly setDoc: (next: CanvasDoc) => void;
+  readonly setDoc: (next: Canvas) => void;
   readonly emitCanvas: (name: string) => void;
   readonly emitSeat: (event: AgentSeatStateEvent) => void;
   /**
@@ -107,7 +87,7 @@ type Harness = {
 };
 
 const makeHarness = (input: {
-  doc: CanvasDoc;
+  doc: Canvas;
   seatEvents?: ReadonlyArray<AgentSeatStateEvent>;
   sessionEpoch?: string;
   window?: ObserverGridWindow;
@@ -129,12 +109,9 @@ const makeHarness = (input: {
   >();
 
   const deps: SeatObservationDeps = {
-    readTask: (_canvas, nodeId, taskId, kind) => {
-      const node = currentDoc.nodes.find((node) => node.id === nodeId);
-      const items = kind === "task" ? node?.ether?.tasks?.items : node?.ether?.requests?.items;
-      return Effect.succeed(items?.find((item) => item.id === taskId));
-    },
-    readTopology: () => Effect.succeed(canvasFromDocument("factory", currentDoc)),
+    // No case here puts a task on a board: there is nothing to read.
+    readTask: () => Effect.succeed(undefined),
+    readTopology: () => Effect.succeed(currentDoc),
     subscribeCanvasChanges: (listener) => {
       canvasListeners.add(listener);
       return () => canvasListeners.delete(listener);
@@ -217,7 +194,7 @@ const makeHarness = (input: {
 
 const caller = { canvasName: "c", nodeId: "caller" };
 
-const peerDoc = (edges: ReadonlyArray<CanvasEdge> = [edge("messages", "caller", "peer")]) =>
+const peerDoc = (edges: ReadonlyArray<Wire> = [edge("messages", "caller", "peer")]) =>
   doc([agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")], edges);
 
 describe("seat.wait", () => {
@@ -303,7 +280,7 @@ describe("seat.wait", () => {
     let reads = 0;
     const service = makeSeatObservation({
       readTask: () => Effect.succeed(undefined),
-    readTopology: () => Effect.succeed(canvasFromDocument("factory", peerDoc())),
+    readTopology: () => Effect.succeed(peerDoc()),
       subscribeCanvasChanges: () => () => {},
       seatStates: {
         current: () => [],
@@ -338,7 +315,7 @@ describe("seat.wait", () => {
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
-        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
+        return Effect.succeed(reads === 1 ? authorized : revoked);
       },
       subscribeCanvasChanges: () => () => {},
       seatStates: {
@@ -410,7 +387,7 @@ describe("seat.wait", () => {
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
-        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? withA : withB));
+        return Effect.succeed(reads === 1 ? withA : withB);
       },
       subscribeCanvasChanges: () => () => {},
       seatStates: {
@@ -460,7 +437,7 @@ describe("seat.wait", () => {
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
-        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
+        return Effect.succeed(reads === 1 ? authorized : revoked);
       },
       subscribeCanvasChanges: () => () => {},
       seatStates: { current: () => [], subscribe: () => () => {} },
@@ -523,7 +500,7 @@ describe("seat.wait", () => {
       doc: doc(
         [
           agentNode("caller", "bind-caller"),
-          { id: "peer", type: "text", text: "peer", x: 0, y: 0, width: 10, height: 10 },
+          note("peer", "peer", { width: 10, height: 10 }),
         ],
         [edge("messages", "caller", "peer")],
       ),

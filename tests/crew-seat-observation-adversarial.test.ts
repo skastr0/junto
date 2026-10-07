@@ -1,7 +1,7 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 import { Cause, Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
+import type { Canvas, Node, Wire } from "../src/shared/model";
+import { canvasOf, seat, wire } from "./support/model-nodes";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type {
   ObserverGridSnapshot,
@@ -14,36 +14,16 @@ import { makeSeatObservation } from "../src/main/junto/work/seat-observation";
 // from a fresh live document before an event is accepted and before every
 // return; subscriptions register before the current value is checked.
 
-const agentNode = (id: string, bindingId: string, host?: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId, harness: "claude" },
-    ...(host !== undefined ? { host } : {}),
-  },
-});
+const agentNode = (id: string, bindingId: string, host?: string): Node =>
+  seat(id, { bindingId: bindingId as never, width: 100, height: 80, ...(host !== undefined ? { host: host as never } : {}) });
 
-const messagesEdge: CanvasEdge = {
-  id: "e-msg",
-  fromNode: "caller",
-  toNode: "peer",
-  ether: { verb: "messages" },
-};
+const messagesEdge: Wire = wire("e-msg", "caller", "peer", "messages");
 
-const docWith = (
-  nodes: ReadonlyArray<CanvasNode>,
-  edges: ReadonlyArray<CanvasEdge>,
-): CanvasDoc => ({ nodes: [...nodes], edges: [...edges] });
+const docWith = (nodes: ReadonlyArray<Node>, edges: ReadonlyArray<Wire>): Canvas => canvasOf(nodes, edges);
 
 type Harness = {
   readonly service: ReturnType<typeof makeSeatObservation>;
-  readonly setDoc: (doc: CanvasDoc) => void;
+  readonly setDoc: (doc: Canvas) => void;
   readonly emitCanvas: (name: string) => void;
   readonly emitSeat: (event: AgentSeatStateEvent) => void;
   readonly emitGrid: (snapshot: ObserverGridSnapshot) => void;
@@ -53,7 +33,7 @@ type Harness = {
 };
 
 const makeHarness = (input: {
-  doc: CanvasDoc;
+  doc: Canvas;
   seatEvents?: ReadonlyArray<AgentSeatStateEvent>;
   sessionEpoch?: string;
   window?: ObserverGridWindow;
@@ -72,7 +52,7 @@ const makeHarness = (input: {
 
   const service = makeSeatObservation({
     readTask: () => Effect.succeed(undefined),
-    readTopology: () => Effect.succeed(canvasFromDocument("factory", doc)),
+    readTopology: () => Effect.succeed(doc),
     subscribeCanvasChanges: (listener) => {
       canvasListeners.add(listener);
       return () => canvasListeners.delete(listener);
@@ -254,7 +234,7 @@ describe("crew seat observation — adversarial authority and ordering", () => {
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
-        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
+        return Effect.succeed(reads === 1 ? authorized : revoked);
       },
       subscribeCanvasChanges: () => {
         subscribed = true;
@@ -323,7 +303,7 @@ describe("crew seat observation — adversarial authority and ordering", () => {
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
-        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
+        return Effect.succeed(reads === 1 ? authorized : revoked);
       },
       subscribeCanvasChanges: () => () => {},
       seatStates: {
