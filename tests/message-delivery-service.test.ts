@@ -58,6 +58,8 @@ const rig = (
     wake?: () => boolean;
     /** The supervisor's answer to "did this seat run junto onboard". */
     onboarded?: (bindingId: string) => boolean;
+    /** Auto offboard at delivery: true when the seat's cold session was just ended. */
+    cut?: (bindingId: string, canvas: string, nodeId: string) => Promise<boolean>;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -88,6 +90,7 @@ const rig = (
     transport: {
       seatLive: (id) => id === bindingId && live,
       ...(options.onboarded ? { seatOnboarded: options.onboarded } : {}),
+      ...(options.cut ? { cutColdSession: options.cut } : {}),
       wakeSeat: async (id, wakeCanvas, wakeNode) => {
         wakes.push({ bindingId: id, canvas: wakeCanvas, nodeId: wakeNode });
         await new Promise((resolve) => setTimeout(resolve, 1));
@@ -130,6 +133,52 @@ const settle = async (): Promise<void> => {
 };
 
 describe("mail delivery", () => {
+  it("mail to a seat whose cold session was just ended is not typed into it: it wakes the fresh one", async () => {
+    let cold = true;
+    const cuts: Array<[string, string, string]> = [];
+    const seat = rig({
+      cut: async (id, cutCanvas, cutNode) => {
+        cuts.push([id, cutCanvas, cutNode]);
+        if (!cold) return false;
+        cold = false;
+        // The old session is gone: the seat is no longer up.
+        seat.setLive(false);
+        return true;
+      },
+      wake: () => true,
+    });
+    seat.append(mail("01A", "Please review the contract."));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    expect(cuts).toEqual([[bindingId, canvas, nodeId]]);
+    expect(seat.writes).toEqual([]);
+    await settle();
+    expect(seat.wakes).toEqual([{ bindingId, canvas, nodeId }]);
+    // The fresh session comes up: the same mail is written there, once.
+    seat.setLive(true);
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toContain("junto msg read 01A");
+    expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
+  });
+
+  it("a session that is not cold, or a check that fails, changes nothing: the mail is typed as usual", async () => {
+    const warm = rig({ cut: async () => false });
+    warm.append(mail("01A", "Please review the contract."));
+    expect(await warm.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+    expect(warm.writes).toHaveLength(1);
+    expect(warm.wakes).toEqual([]);
+
+    const broken = rig({
+      cut: async () => {
+        throw new Error("offboard gone");
+      },
+    });
+    broken.append(mail("01B", "Please review the contract."));
+    expect(await broken.service.deliver(canvas, nodeId, "01B")).toBe("delivered");
+    expect(broken.writes).toHaveLength(1);
+  });
+
   it("adds the onboard pointer to the line while the seat has not onboarded, and drops it after", async () => {
     let onboarded = false;
     const asked: string[] = [];

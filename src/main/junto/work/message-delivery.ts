@@ -79,6 +79,17 @@ export type MessageDeliveryTransport = {
     nodeId: string,
   ) => Promise<boolean>;
   /**
+   * Auto offboard at delivery: mail is about to give this seat a turn. True
+   * when the seat's session had gone cold and was ended just now; the seat
+   * then rests on a fresh session, and this mail wakes it there instead of
+   * being typed into the old one. Absent, false or failing: deliver as usual.
+   */
+  readonly cutColdSession?: (
+    bindingId: string,
+    canvas: string,
+    nodeId: string,
+  ) => Promise<boolean>;
+  /**
    * Type the text into the seat's input and submit it. A hold reason when
    * the input box was not available and nothing was typed; "lost" when the
    * seat had no live process to write into.
@@ -307,6 +318,19 @@ export class MessageDeliveryService {
         this.wake(transport, target.bindingId, canvas, nodeId, generation);
       }
       return "waiting";
+    }
+    // A message that opted out of waking a seat does not get to restart one.
+    if (transport.cutColdSession && !this.noWake.has(messageId)) {
+      const cut = await transport
+        .cutColdSession(target.bindingId, canvas, nodeId)
+        .catch(() => false);
+      if (!this.active(generation)) return "waiting";
+      if (cut) {
+        // The old session is gone and the seat rests on a fresh one: this
+        // mail is what wakes it, and is written when the seat is up.
+        this.wake(transport, target.bindingId, canvas, nodeId, generation);
+        return "waiting";
+      }
     }
     const payload = mailPayloadOf(message, {
       onboarded: onboardedOf(transport, target.bindingId),

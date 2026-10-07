@@ -384,6 +384,66 @@ describe("auto offboard (on by default, 2 hours): only as a seat is about to be 
   });
 });
 
+describe("auto offboard as mail is about to be typed into a running, idle seat", () => {
+  const mail = (w: ReturnType<typeof world>, seatId: string) =>
+    w.offboard.beforeMail({ canvasName: CANVAS, seatId });
+
+  it("a seat idle past the interval gets a fresh session first; the mail then wakes it there", async () => {
+    const w = world([seat("a")]);
+    w.clock.note("bind-a");
+    w.advance(119);
+    expect(await mail(w, "a")).toBe(false);
+    w.advance(1);
+    expect(await mail(w, "a")).toBe(true);
+    expect(w.closed).toEqual([{ seatId: "a", by: "automatic" }]);
+    expect(w.ended[0]).toMatchObject({ by: "automatic", sessionId: "session-a" });
+    // The seat rests on its fresh session; nothing was typed into the old one.
+    expect(w.seats.get("a")).toMatchObject({ running: false, sessionId: "fresh-a" });
+    expect(w.asked).toEqual([]);
+    // The wake that follows finds nothing more to cut.
+    expect(await w.offboard.beforeWake({ canvasName: CANVAS, seatId: "a" })).toBe(false);
+    expect(w.closed).toHaveLength(1);
+  });
+
+  it("never cuts a turn: a working seat, one waiting on the operator, or one Junto cannot read is left alone", async () => {
+    const w = world([seat("w", { state: "working" }), seat("d", { state: "attention" }), seat("u", { state: "unknown" })]);
+    w.advance(600);
+    for (const id of ["w", "d", "u"]) expect(await mail(w, id)).toBe(false);
+    expect(w.closed).toEqual([]);
+  });
+
+  it("is gated like every automatic cut: tiny sessions, paused canvases, the rule turned off", async () => {
+    const w = world([seat("tiny"), seat("paused", { paused: true })], { noWork: ["tiny"] });
+    w.work("tiny", 3);
+    w.advance(600);
+    expect(await mail(w, "tiny")).toBe(false);
+    expect(await mail(w, "paused")).toBe(false);
+    const off = world([seat("a")], { rules: applyOffboardRulesPatch(defaultOffboardRules(), { auto: { enabled: false } }) });
+    off.advance(600);
+    expect(await mail(off, "a")).toBe(false);
+  });
+
+  it("does not cut under the operator's own ask: that prompt is meant for this session", async () => {
+    const w = world([seat("a")]);
+    w.advance(300);
+    const asked = await w.offboard.run({ canvasName: CANVAS, seatIds: ["a"], action: "ask" }, "operator");
+    expect(asked).toMatchObject({ asked: 1 });
+    // The ask travels as mail; delivery checks before typing it.
+    expect(await mail(w, "a")).toBe(false);
+    expect(w.closed).toEqual([]);
+    // Much later, ordinary mail to the still-cold seat does cut.
+    w.advance(11);
+    expect(await mail(w, "a")).toBe(true);
+  });
+
+  it("a resting seat is the wake's business, not the mail's", async () => {
+    const w = world([resting("a")]);
+    w.advance(600);
+    expect(await mail(w, "a")).toBe(false);
+    expect(await w.offboard.beforeWake({ canvasName: CANVAS, seatId: "a" })).toBe(true);
+  });
+});
+
 describe("idle nudge (off by default, 40 minutes)", () => {
   const nudging = () => applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
 

@@ -17,7 +17,7 @@
  * for eight hours has been still for nine and a half when it opens: the
  * cache it would wake into is just as cold. Nothing is ever cut on a timer
  * or in a batch: auto offboard acts on one seat, at the moment that seat is
- * about to be woken into a cold session.
+ * about to be given a turn on a cold session (woken, or mailed while idle).
  *
  * Everything it touches comes in through ports, so it runs the same against
  * the app and a test.
@@ -322,8 +322,15 @@ const refusal = (
 const UNCONFIRMED_IDLE =
   "Junto cannot tell that this seat is idle. Offboard now only closes a seat that is idle, offline or resting.";
 
+/** How long an ask keeps its seat's session from being cut under it. */
+const ASK_EXEMPT_MS = 10 * 60_000;
+
+const keyOf = (seat: SeatAddress): string => `${seat.canvasName}\u0000${seat.seatId}`;
+
 export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMotionClock) => {
   const now = (): number => ports.now?.() ?? Date.now();
+  /** Seats just asked to offboard, and until when their session is left alone for it. */
+  const asking = new Map<string, number>();
 
   /** May this seat's session be ended without its agent, right now? */
   const mayCloseNow = (
@@ -467,10 +474,14 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
     if (!seat.local) {
       return { seatId: address.seatId, ...title, ok: false, code: "not-local", reason: OFFBOARD_REFUSAL_REASON["not-local"], pastWindow };
     }
+    // Before the prompt goes out: it travels as mail, and must reach this
+    // session rather than set off a cut of it.
+    asking.set(keyOf(address), now() + ASK_EXEMPT_MS);
     const sent = await ports
       .ask(seat, mode)
       .catch((error: unknown) => ({ ok: false as const, message: String(error) }));
     if (!sent.ok) {
+      asking.delete(keyOf(address));
       return {
         seatId: address.seatId,
         ...title,
@@ -500,24 +511,34 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
   };
 
   /**
-   * Auto offboard. A seat is about to be woken: if the session it would wake
-   * into has sat still past the interval and is worth cutting, end it first,
-   * so the seat wakes into a fresh one.
+   * Auto offboard. A seat is about to be given a turn on a session that has
+   * gone cold: end that session first, so the turn happens in a fresh one.
    *
-   * This is the only place a session is ever ended without someone asking.
+   * There are two such moments, and no others:
+   *   wake  a resting or offline seat is about to be started;
+   *   mail  mail is about to be typed into a seat whose agent is running and
+   *         idle. The seat then rests on its fresh session, and the mail
+   *         wakes it there.
+   *
+   * This is the only way a session is ever ended without someone asking.
    * Nothing is cut on a timer and nothing is cut in a batch: a cold session
-   * costs nothing while its seat rests, and it is dealt with at the moment
-   * it would start to cost, one seat at a time, as each is woken.
+   * costs nothing while its seat sits, and it is dealt with at the moment it
+   * would start to cost, one seat at a time. What the operator types into a
+   * terminal themselves is never intercepted.
    *
-   * Only for a seat with no process (offline or resting). Resolves true when
-   * the session was cut. Never throws: a wake is never held up by this.
+   * Resolves true when the session was cut. Never throws: neither a wake nor
+   * a delivery is ever held up by a failure here.
    */
-  const beforeWake = async (address: SeatAddress): Promise<boolean> => {
+  const cutIfCold = async (address: SeatAddress, moment: "wake" | "mail"): Promise<boolean> => {
     try {
       const seat = await ports.locate(address);
-      if (seat === undefined || !seat.local || seat.running || seat.sessionId === undefined) return false;
-      // A paused canvas refuses the wake; a session is not cut for a wake that will not happen.
+      if (seat === undefined || !seat.local || seat.sessionId === undefined) return false;
+      if (moment === "wake" ? seat.running : !(seat.running && seat.state === "idle")) return false;
+      // A paused canvas refuses the wake; a session is not cut for a turn that will not happen.
       if (seat.paused === true) return false;
+      // The operator just asked this seat's agent to offboard: that mail is
+      // meant for this session, and cutting under it would throw the ask away.
+      if (moment === "mail" && (asking.get(keyOf(address)) ?? 0) > now()) return false;
       const set = offboardRulesFor(ports.rules(), seat.harness);
       if (!set.auto.enabled) return false;
       const minutes = stillness(seat, now()).minutes;
@@ -527,13 +548,19 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
       // Never recycle an empty or tiny session.
       if (!worthOf(seat, false).worth) return false;
       const row = await closeOne(address, "automatic");
-      if (!row.ok) ports.log?.(`auto offboard before waking ${address.seatId} did not go through: ${row.reason}`);
+      if (!row.ok) ports.log?.(`auto offboard before ${moment} for ${address.seatId} did not go through: ${row.reason}`);
       return row.ok;
     } catch (error) {
-      ports.log?.(`auto offboard before waking ${address.seatId} failed: ${String(error)}`);
+      ports.log?.(`auto offboard before ${moment} for ${address.seatId} failed: ${String(error)}`);
       return false;
     }
   };
+
+  /** A resting or offline seat is about to be woken. */
+  const beforeWake = (address: SeatAddress): Promise<boolean> => cutIfCold(address, "wake");
+
+  /** Mail is about to be typed into a seat whose agent is running. */
+  const beforeMail = (address: SeatAddress): Promise<boolean> => cutIfCold(address, "mail");
 
   /**
    * The once-a-minute pass: save the clock, and run the idle nudge. The
@@ -596,7 +623,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
     return summarizeOffboardRun(rows);
   };
 
-  return { run, status, tick, beforeWake, clock };
+  return { run, status, tick, beforeWake, beforeMail, clock };
 };
 
 export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
@@ -641,6 +668,15 @@ export const runSeatOffboard = (
  */
 export const cutBeforeWake = (seat: SeatAddress): Promise<boolean> =>
   current ? current.beforeWake(seat) : Promise.resolve(false);
+
+/**
+ * Mail is about to be typed into a seat whose agent is running. Ends its
+ * session first when it has gone cold and is worth cutting; the caller then
+ * wakes the seat and the mail is delivered to the fresh session. It never
+ * throws; false means deliver as usual.
+ */
+export const cutBeforeMail = (seat: SeatAddress): Promise<boolean> =>
+  current ? current.beforeMail(seat) : Promise.resolve(false);
 
 export const seatOffboardStatus = (
   canvasName: string,
