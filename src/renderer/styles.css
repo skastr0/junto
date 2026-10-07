@@ -1702,7 +1702,6 @@ html[data-surface-motion="paused"] *::after {
 .junto-node__open { opacity: 0; }
 .junto-node:hover .junto-node__open,
 .react-flow__node.selected .junto-node__open { opacity: 1; }
-.junto-node__status-rail { display: flex; min-height: 14px; align-items: center; gap: 4px; margin: -2px 0 7px; padding-right: 34px; }
 
 .react-flow__handle:hover {
   background: color-mix(in oklab, var(--color-main) 35%, transparent);

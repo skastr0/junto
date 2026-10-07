@@ -29,6 +29,8 @@
   box-shadow: 0 8px 22px var(--color-shadow-2) !important;
 }
 .junto-node[data-node-kind="agent"][data-occupancy] { outline: none; }
+/* Nor does a blocked seat wear the old crimson frame: its ring is crimson. */
+.junto-node[data-node-kind="agent"].junto-blocker::after,
 .junto-node[data-node-kind="agent"][data-seat-attention="true"]::after,
 .junto-node[data-node-kind="agent"][data-attention="fire"]::after { display: none; }
 /* Terminal and git speak the seat's language (InstrumentSeat): a 40px ring

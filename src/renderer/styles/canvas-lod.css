@@ -59,9 +59,6 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   background: transparent !important;
   border-color: transparent !important;
 }
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node__status-rail {
-  display: none;
-}
 /* The enlarged ring and the name tag reach past the card's box. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]) :is(.junto-node__body, .junto-node__body > *, .factory-agent-card) {
   overflow: visible;

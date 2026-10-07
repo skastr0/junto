@@ -54,7 +54,7 @@ import {
   stopNodeGestureUnlessMultiSelect,
   useShiftMultiSelectDominance,
 } from "../../lib/multi-select-gesture";
-import { Chip, IconButton, ToolbarPill } from "../ui";
+import { IconButton, ToolbarPill } from "../ui";
 import { isOverseerSeat } from "../../lib/overseer-set";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
@@ -510,20 +510,8 @@ export function NodeShell({
           shellBlocked={shellBlocked}
         />
       )}
-      {!bare && (shellBlocked || liveSeatAttention) ? (
-        <div className="junto-node__status-rail">
-          {shellBlocked ? (
-            <Chip tone="crimson" title="Blocked, waiting on connected work">
-              blocked
-            </Chip>
-          ) : null}
-          {liveSeatAttention ? (
-            <Chip tone="amber" title="Needs your input">
-              needs input
-            </Chip>
-          ) : null}
-        </div>
-      ) : null}
+      {/* No status chips on the card: the ring and the line under the name
+          say blocked and needs input, once. */}
       <div className="junto-node__body min-h-0 flex-1 overflow-hidden">
         <div className="h-full min-h-0 overflow-hidden">{children}</div>
       </div>
