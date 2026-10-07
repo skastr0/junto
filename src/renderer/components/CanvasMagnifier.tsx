@@ -3,9 +3,8 @@ import { createPortal } from "react-dom";
 import { useOnViewportChange, useReactFlow } from "@xyflow/react";
 import type { MemberSeverity } from "@shared/region-rollup";
 import type { FlowEdge, FlowNode } from "../lib/convert";
-import { documentNodeAt } from "../lib/document-node";
-import { titleAt } from "../lib/use-model";
-import { signalMark, identityHue } from "../lib/signal-mark";
+import { nodeAt, titleAt } from "../lib/use-model";
+import { signalMark, identityHueOf } from "../lib/signal-mark";
 import { themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
 import { state$ } from "../lib/state";
@@ -183,8 +182,7 @@ const drawNode = (
 ) => {
   const { flow, severity } = visible;
   const t = paintTokens();
-  // The hue helpers still read the document's node; the rest comes from the store.
-  const source = documentNodeAt(flow.id);
+  const source = nodeAt(flow.data.canvas, flow.id);
   const title = titleAt(flow.data.canvas, flow.id);
   const x = LENS_RADIUS + (visible.x - center.x) * INSPECTION_SCALE;
   const y = LENS_RADIUS + (visible.y - center.y) * INSPECTION_SCALE;
@@ -193,7 +191,7 @@ const drawNode = (
   const isGroup = flow.data.kind === "region";
   const mark = signalMark(severity);
   const elevated = severity !== "idle";
-  const accent = elevated ? mark.hue : identityHue(source);
+  const accent = elevated ? mark.hue : identityHueOf(source);
 
   roundedRect(context, x, y, width, height, isGroup ? 4 : 7);
   context.fillStyle = isGroup ? withAlpha(t.steel!, 0.025) : t.raise!;
@@ -203,7 +201,7 @@ const drawNode = (
   context.stroke();
 
   if (isGroup) {
-    context.fillStyle = withAlpha(identityHue(source), 0.75);
+    context.fillStyle = withAlpha(identityHueOf(source), 0.75);
     context.font = "600 9px ui-monospace, SFMono-Regular, Menlo, monospace";
     context.fillText(fitText(context, title, Math.max(width - 14, 8)), x + 7, y + 14);
     return;

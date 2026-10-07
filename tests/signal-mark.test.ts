@@ -1,3 +1,6 @@
+import { identityHueOf } from "../src/renderer/lib/signal-mark";
+import { nodeToDocument } from "../src/shared/model/from-document";
+import { note, region, seat } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import { identityHue, minimapFill, signalMark, signalMarkForMember } from "../src/renderer/lib/signal-mark";
@@ -58,5 +61,18 @@ describe("minimapFill", () => {
     // active theme mode (dark/bright) rather than being frozen to dark hexes.
     expect(identityHue(colored)).toBe("var(--color-cyan)");
     expect(minimapFill(colored, "idle")).toBe("var(--color-cyan)");
+  });
+});
+
+describe("identity hue of a model node", () => {
+  it("is the node's own colour first, then its kind's, a quiet steel for a region, amber otherwise", () => {
+    const seatNode = seat("a");
+    expect(identityHueOf({ ...seatNode, color: "5" as never })).toBe("var(--color-cyan)");
+    // The same answer the document form gives for the same seat.
+    expect(identityHueOf(seatNode)).toBe(identityHue(nodeToDocument(seatNode)));
+    expect(identityHueOf(note("n"))).toBe(identityHue(nodeToDocument(note("n"))));
+    const zone = region("r", { x: 0, y: 0, width: 400, height: 300 });
+    expect(identityHueOf(zone)).toBe(identityHue(nodeToDocument(zone)));
+    expect(identityHueOf(undefined)).toBe(identityHue(undefined));
   });
 });

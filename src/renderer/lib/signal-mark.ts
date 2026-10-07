@@ -13,6 +13,7 @@
  * activity.ts so card spinners, chips, and minimap never disagree.
  */
 
+import type { Node } from "@shared/model";
 import type { MemberSeverity, MemberStatus } from "@shared/region-rollup";
 import type { CanvasNode } from "@shared/canvas";
 import type { ActivityMode, ActivityTone } from "./activity";
@@ -116,6 +117,15 @@ export const identityHue = (node: CanvasNode | undefined): string => {
   const entity = node.ether?.entity;
   if (entity?.kind && KIND_HUE[entity.kind]) return KIND_HUE[entity.kind]!;
   if (node.type === "group") return withAlpha(HUE.steel, 0.45);
+  return HUE.amber;
+};
+
+/** The same identity colour for a node as the store holds it. */
+export const identityHueOf = (node: Pick<Node, "kind" | "color"> | undefined): string => {
+  if (!node) return HUE.steel;
+  if (node.color) return accentColor(node.color);
+  if (KIND_HUE[node.kind]) return KIND_HUE[node.kind]!;
+  if (node.kind === "region") return withAlpha(HUE.steel, 0.45);
   return HUE.amber;
 };
 
