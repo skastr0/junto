@@ -21,9 +21,20 @@ const record = (id: string, ms: number): void => {
 export const surfaceCommitsSnapshot = (): Record<string, SurfaceCommits> =>
   Object.fromEntries(Object.entries(counts).map(([id, entry]) => [id, { ...entry }]));
 
+/** Renders of each card, by the name it is counted under and then by its id. */
+const byCard: Record<string, Record<string, number>> = {};
+
+/** A copy of the per-card render counts so far. Subtract two to see one act. */
+export const cardRendersSnapshot = (): Record<string, Record<string, number>> =>
+  Object.fromEntries(Object.entries(byCard).map(([name, cards]) => [name, { ...cards }]));
+
 if (PERF_ENABLED && typeof window !== "undefined") {
-  (window as unknown as { juntoSurfaceCommits?: () => Record<string, SurfaceCommits> }).juntoSurfaceCommits =
-    surfaceCommitsSnapshot;
+  const lab = window as unknown as {
+    juntoSurfaceCommits?: () => Record<string, SurfaceCommits>;
+    juntoCardRenders?: () => Record<string, Record<string, number>>;
+  };
+  lab.juntoSurfaceCommits = surfaceCommitsSnapshot;
+  lab.juntoCardRenders = cardRendersSnapshot;
 }
 
 /** Count the commits of everything inside, under one name. */
@@ -38,8 +49,14 @@ export function CountedSurface({ id, children }: { readonly id: string; readonly
 
 /**
  * Count one render of a component that is mounted many times, such as a card,
- * under one name for all of them. Call it in the component's body.
+ * under one name for all of them, and under its own id when one is given, so
+ * a run can tell ten cards rendered twice from twenty rendered once. Call it
+ * in the component's body.
  */
-export const countRender = (id: string): void => {
-  if (PERF_ENABLED) record(id, 0);
+export const countRender = (id: string, card?: string): void => {
+  if (!PERF_ENABLED) return;
+  record(id, 0);
+  if (card === undefined) return;
+  const cards = (byCard[id] ??= {});
+  cards[card] = (cards[card] ?? 0) + 1;
 };

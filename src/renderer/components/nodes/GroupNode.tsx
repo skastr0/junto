@@ -141,7 +141,7 @@ function RegionLabel({
 }
 
 export function GroupNode({ id, data, selected }: NodeProps<FlowNode>) {
-  countRender("region-card");
+  countRender("region-card", id);
   // The region is read from the node store one field at a time, so a move or
   // a resize of the region does not re-render its chrome.
   const canvasName = use$(state$.canvasName);

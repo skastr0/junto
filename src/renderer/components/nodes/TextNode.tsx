@@ -267,7 +267,7 @@ function WithDocumentNode({
 }
 
 export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
-  countRender("text-card");
+  countRender("text-card", id);
   const canvasName = use$(state$.canvasName);
   // What the card is and what it says, from the node store, one field each.
   const kind = useNodeValue(canvasName, id, (node) => node?.kind);
