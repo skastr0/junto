@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ulid } from "ulid";
-import type { CanvasNode } from "@shared/canvas";
+import { use$ } from "@legendapp/state/react";
+import { state$ } from "../../lib/state";
+import { useNodeOf } from "../../lib/use-model";
 import type { Check, Rule, TaskAdmission, TasksContract } from "@shared/work-model";
 import { resolveTaskAdmission } from "@shared/work-model";
 import { setBoardSettings } from "../../lib/mutations";
@@ -41,23 +43,24 @@ function TextField({
 }
 
 export function BoardSettings({
-  node,
+  nodeId,
   focusSide,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly focusSide?: "incoming" | "outgoing";
 }) {
-  if (node.ether?.entity?.kind !== "task") return null;
-  const contract = node.ether.tasks?.contract;
+  const node = useNodeOf(use$(state$.canvasName), nodeId, "task");
+  const contract = node?.contract;
   const write = (next: TasksContract) =>
-    setBoardSettings(node.id, normalizeBoardSettings(next));
+    setBoardSettings(nodeId, normalizeBoardSettings(next));
   const [wait, setWait] = useState(formatWait(contract?.incoming?.waitMs));
   useEffect(
     () => setWait(formatWait(contract?.incoming?.waitMs)),
-    [contract?.incoming?.waitMs, node.id],
+    [contract?.incoming?.waitMs, nodeId],
   );
   const incoming = contract?.incoming;
   const outgoing = contract?.outgoing;
+  if (!node) return null;
   return (
     <>
       <TextField

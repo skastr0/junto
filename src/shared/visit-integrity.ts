@@ -14,11 +14,10 @@
  * Everything here is a pure projection of the document — computed, not stored.
  */
 
-import type { CanvasDoc } from "./canvas";
 import type { Task } from "./work-model";
 import { isTerminalTaskState } from "./task";
-import { flowDestinations, isTaskSinkNode } from "./flow-graph";
-import { nodesOf, type Canvas } from "./model";
+import { flowDestinations } from "./flow-graph";
+import { asNodeId, nodesOf, type Canvas } from "./model";
 import type { WorkRead } from "./work-read";
 import { taskDefects } from "./rules";
 
@@ -178,7 +177,7 @@ export type DefectTargetOption = {
  * of hiding them — the visit happened either way.
  */
 export const defectTargetOptions = (
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "nodes">,
   task: Task,
   currentBoard: string,
 ): ReadonlyArray<DefectTargetOption> => {
@@ -190,9 +189,7 @@ export const defectTargetOptions = (
     seen.add(visit.board);
     out.push({
       board: visit.board,
-      present: isTaskSinkNode(
-        doc.nodes.find((node) => node.id === visit.board),
-      ),
+      present: canvas.nodes.get(asNodeId(visit.board))?.kind === "task",
     });
   }
   return out;

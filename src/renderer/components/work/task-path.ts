@@ -5,10 +5,10 @@
  * a node with no flow edges keeps the plain board.
  */
 
-import type { CanvasDoc, Task } from "@shared/canvas";
+import type { Task } from "@shared/canvas";
 import type { TasksContract, Visit } from "@shared/work-model";
 import { flowDestinations, flowSources } from "@shared/flow-graph";
-import { wiresFromDocument } from "@shared/model/from-document";
+import type { Canvas } from "@shared/model";
 import { taskAdmissionState, type TaskAdmissionState } from "@shared/rules";
 
 export type TaskPathShape = {
@@ -18,9 +18,9 @@ export type TaskPathShape = {
   readonly hasOutgoing: boolean;
 };
 
-export const taskPathShape = (doc: CanvasDoc, nodeId: string): TaskPathShape => {
-  const sources = flowSources(wiresFromDocument(doc), nodeId);
-  const destinations = flowDestinations(wiresFromDocument(doc), nodeId);
+export const taskPathShape = (canvas: Pick<Canvas, "wires">, nodeId: string): TaskPathShape => {
+  const sources = flowSources(canvas, nodeId);
+  const destinations = flowDestinations(canvas, nodeId);
   return { sources, destinations, hasIncoming: sources.length > 0, hasOutgoing: destinations.length > 0 };
 };
 

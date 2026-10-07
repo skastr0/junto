@@ -440,7 +440,7 @@ export function TasksDetail({
   /** Pre-select this task when opening (jump-to-blocker-cause). */
   readonly initialItemId?: string;
 }) {
-  return <TaskBoard node={node} onClose={onClose} initialItemId={initialItemId} />;
+  return <TaskBoard nodeId={node.id} onClose={onClose} initialItemId={initialItemId} />;
 }
 
 export function RequestsDetail({
@@ -453,7 +453,7 @@ export function RequestsDetail({
   /** Pre-select this request when opening (jump-to-blocker-cause). */
   readonly initialItemId?: string;
 }) {
-  return <RequestInbox node={node} onClose={onClose} initialItemId={initialItemId} />;
+  return <RequestInbox nodeId={node.id} onClose={onClose} initialItemId={initialItemId} />;
 }
 
 export function ArtifactsDetail({
@@ -463,7 +463,7 @@ export function ArtifactsDetail({
   readonly node: CanvasNode;
   readonly onClose: () => void;
 }) {
-  return <ArtifactLibrary node={node} onClose={onClose} />;
+  return <ArtifactLibrary nodeId={node.id} onClose={onClose} />;
 }
 
 /** Operator bulletin: full topics + posts from workBoardList (not ether glance). */

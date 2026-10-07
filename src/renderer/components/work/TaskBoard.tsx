@@ -44,13 +44,11 @@ import {
 } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import type {
-  CanvasDoc,
-  CanvasNode,
   CompletionEvidence,
   Part,
   TaskState,
   WorkMetadata,
-} from "@shared/canvas";
+} from "@shared/work-model";
 import type { TaskCreateOptions, WorkOpResult } from "@shared/ipc";
 import { sinkGlance } from "@shared/attention";
 import {
@@ -69,7 +67,6 @@ import { RequiresReviewControl } from "./RequiresReviewControl";
 import { VerdictChain } from "./VerdictChain";
 import {
   reviewGateOf,
-  reviewsEdgeHoldsVerdictPost,
   verdictsOnTask,
 } from "../../lib/crew-review-view";
 import { ApprovalMark, OutgoingGroupHeader } from "./TaskPathMarks";
@@ -84,7 +81,9 @@ import {
 import { rulesInForce } from "@shared/rules";
 import { defectTargetOptions } from "@shared/visit-integrity";
 import { reachableBoards } from "@shared/flow-graph";
-import { nodesFromDocument, wiresFromDocument } from "@shared/model/from-document";
+import { asNodeId, type Canvas } from "@shared/model";
+import { taskBoardTitle, titleOf } from "@shared/model/title";
+import { useCanvas, useNodeOf } from "../../lib/use-model";
 import { useCanvasTaskPolicy } from "../../lib/use-work-task-policy";
 import {
   resolveTaskAdmission,
@@ -111,7 +110,6 @@ import {
   type TaskDepStatus,
 } from "@shared/task-deps";
 import { FocusSurface } from "../FocusSurface";
-import { nodeTitle } from "../../lib/presentation";
 import { Button } from "../ui/Button";
 import { Chip, type ChipTone } from "../ui/Chip";
 import { Dropdown } from "../ui/Dropdown";
@@ -119,7 +117,6 @@ import { IconButton } from "../ui/IconButton";
 import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
-import { tasksNodeIdentity, tasksNodeName } from "@shared/tasks-node-identity";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
   extractClipboardImage,
@@ -140,16 +137,16 @@ import { keyAria, keyIs } from "../../lib/key-match";
 /** Prefer Artifacts nodes edge-linked to the Tasks node; else first on canvas. */
 const resolveArtifactsNodeId = (
   taskNodeId: string,
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "nodes" | "wires">,
 ): string | undefined => {
-  const artifacts = doc.nodes.filter(
-    (entry) => entry.ether?.entity?.kind === "artifacts",
-  );
+  const artifacts = [...canvas.nodes.values()]
+    .filter((entry) => entry.kind === "artifacts")
+    .sort((left, right) => left.z - right.z);
   if (artifacts.length === 0) return undefined;
   const linked = new Set<string>();
-  for (const edge of doc.edges) {
-    if (edge.fromNode === taskNodeId) linked.add(edge.toNode);
-    if (edge.toNode === taskNodeId) linked.add(edge.fromNode);
+  for (const wire of canvas.wires.values()) {
+    if (wire.from === taskNodeId) linked.add(wire.to);
+    if (wire.to === taskNodeId) linked.add(wire.from);
   }
   return (artifacts.find((entry) => linked.has(entry.id)) ?? artifacts[0])?.id;
 };
@@ -232,8 +229,7 @@ const mediaPartsFromDrafts = (
     mediaType: draft.mediaType,
   }));
 
-type Ether = NonNullable<CanvasNode["ether"]>;
-type WorkTask = NonNullable<Ether["tasks"]>["items"][number];
+type WorkTask = import("@shared/work-model").Task;
 
 type LaneId =
   | "queue"
@@ -700,12 +696,12 @@ function TaskLane({
 }
 
 function TaskContractPanel({
-  node,
+  nodeId,
   side,
   board,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly side: "incoming" | "outgoing";
   readonly board: string;
   readonly onClose: () => void;
@@ -735,7 +731,7 @@ function TaskContractPanel({
         }
       />
       <div className="task-board-contract-panel__body">
-        <BoardSettings node={node} focusSide={side} />
+        <BoardSettings nodeId={nodeId} focusSide={side} />
       </div>
     </aside>
   );
@@ -1802,7 +1798,7 @@ function TaskDetailPanel({
   nodeName,
   contract,
   actorRefs,
-  doc,
+  canvas,
   operatorPanel,
   onClose,
   onSaveTitle,
@@ -1824,7 +1820,7 @@ function TaskDetailPanel({
   readonly nodeName: (nodeId: string) => string | undefined;
   readonly contract: TasksContract | undefined;
   readonly actorRefs: ReadonlyArray<{ readonly seatId: string; readonly nodeId: string }>;
-  readonly doc: CanvasDoc;
+  readonly canvas: Pick<Canvas, "wires">;
   /** Operator panel for an operator-admission board; absent elsewhere. */
   readonly operatorPanel?: ReactNode;
   readonly onClose: () => void;
@@ -1893,11 +1889,8 @@ function TaskDetailPanel({
       if (authorNodeId === undefined) return false;
       const reviewerNodeId = actorRefs.find((actor) => actor.seatId === reviewerSeatId)?.nodeId;
       if (reviewerNodeId === undefined) return false;
-      return doc.edges.some(
-        (edge) =>
-          reviewsEdgeHoldsVerdictPost(edge) &&
-          edge.fromNode === reviewerNodeId &&
-          edge.toNode === authorNodeId,
+      return [...canvas.wires.values()].some(
+        (wire) => wire.verb === "reviews" && wire.from === reviewerNodeId && wire.to === authorNodeId,
       );
     },
   });
@@ -2281,19 +2274,22 @@ function TaskDetailPanel({
 }
 
 export function TaskBoard({
-  node,
+  nodeId,
   onClose,
   initialItemId,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
   /** Pre-select this task when opened from jump-to-cause. */
   readonly initialItemId?: string;
 }) {
-  const work = useTaskItems(use$(state$.canvasName) || "", node.id);
+  const canvasId = use$(state$.canvasName);
+  const node = useNodeOf(canvasId, nodeId, "task");
+  const canvas = useCanvas(canvasId);
+  const work = useTaskItems(canvasId, nodeId);
   const taskPolicy = useCanvasTaskPolicy(use$(state$.canvasName) || "");
   const items = work.items;
-  const boardSettings = node.ether?.tasks?.contract;
+  const boardSettings = node?.contract;
   const [nowMs, setNowMs] = useState(() => Date.now());
   const glance = sinkGlance(items, boardSettings, nowMs);
   // "Open" = unfinished work the fleet can act on: claimable/submitted +
@@ -2318,7 +2314,7 @@ export function TaskBoard({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(initialItemId ?? null);
   const detailRows = useWorkItems(selectedTaskId ? [{
-    canvasName: canvasName(), nodeId: node.id, kind: "task", itemId: selectedTaskId,
+    canvasName: canvasName(), nodeId: nodeId, kind: "task", itemId: selectedTaskId,
   }] : []);
   /** Multi-select for column bulk actions (independent of detail focus). */
   const [selectedTaskIds, setSelectedTaskIds] = useState<ReadonlySet<string>>(
@@ -2334,45 +2330,23 @@ export function TaskBoard({
     () => new Set<string>(actorRefs.map((actor) => actor.seatId)),
     [actorRefs],
   );
-  const doc = use$(state$.doc);
   // Columns follow the flow edges: incoming flow turns Queue into Incoming,
   // outgoing flow turns Closed into Sent on.
-  const shape = useMemo(() => taskPathShape(doc, node.id), [doc, node.id]);
+  const shape = useMemo(() => taskPathShape(canvas, nodeId), [canvas, nodeId]);
   // An operator-admission board never hands work to a seat: the operator
   // answers the rules and completes or sends on from the detail panel.
   const operatorOwned = resolveTaskAdmission(boardSettings) === "operator";
   const boardName = useMemo(() => {
-    const names = new Map(
-      doc.nodes.map((entry) => [
-        entry.id,
-        tasksNodeName(entry),
-      ]),
-    );
-    return (nodeId: string): string =>
-      names.get(nodeId) ?? tasksNodeName(undefined, nodeId);
-  }, [doc]);
-  const currentBoard = useMemo(
-    () => tasksNodeIdentity(doc.nodes.find((entry) => entry.id === node.id), node.id),
-    [doc, node.id],
-  );
-  // Kind-aware display names for ACTORS (agent seats) and generic nodes.
-  // tasksNodeName is the Tasks-board identity helper — applying it to agent
-  // nodes mangled owner chips into "Tasks <id-fragment>"; agents read their
-  // node title instead. Missing nodes fall back to the caller's raw id.
+    const names = new Map([...canvas.nodes.values()].flatMap((entry) =>
+      entry.kind === "task" ? [[entry.id, taskBoardTitle(entry).name] as const] : [],
+    ));
+    return (id: string): string => names.get(asNodeId(id)) ?? taskBoardTitle(undefined, id).name;
+  }, [canvas]);
+  const currentBoard = taskBoardTitle(node, nodeId);
   const nodeName = useMemo(() => {
-    const names = new Map(
-      doc.nodes.flatMap((entry) => {
-        const name =
-          entry.ether?.entity?.kind === "task"
-            ? tasksNodeName(entry)
-            : nodeTitle(entry);
-        // "untitled" is nodeTitle's empty-text placeholder; the caller's raw
-        // id fallback reads better than a placeholder for an anonymous node.
-        return name && name !== "untitled" ? [[entry.id, name] as const] : [];
-      }),
-    );
-    return (nodeId: string): string | undefined => names.get(nodeId);
-  }, [doc]);
+    const names = new Map([...canvas.nodes.values()].map((entry) => [entry.id, titleOf(entry)]));
+    return (id: string): string | undefined => names.get(asNodeId(id));
+  }, [canvas]);
   const seatName = useMemo(() => {
     const names = new Map<string, string>(
       actorRefs.map((actor) => [actor.seatId, nodeName(actor.nodeId) ?? actor.nodeId]),
@@ -2434,7 +2408,7 @@ export function TaskBoard({
     if (!shape.hasOutgoing) return undefined;
     return groupOutgoingVisits(
       tasksByLane.outgoing,
-      node.id,
+      nodeId,
       shape.destinations,
     ).map((group) => ({
       key: group.key,
@@ -2444,7 +2418,7 @@ export function TaskBoard({
         : {}),
       tasks: group.tasks,
     }));
-  }, [node.id, shape, boardName, tasksByLane]);
+  }, [nodeId, shape, boardName, tasksByLane]);
 
   const activeTask = activeTaskId ? items.find((task) => task.id === activeTaskId) : undefined;
   const selectedTask = selectedTaskId
@@ -2475,8 +2449,8 @@ export function TaskBoard({
   );
   /** Region-scoped tasks for dep glance (cross-sink prereqs in the same region). */
   const scopeTasks = useMemo(
-    () => dependencyScopeTasks(nodesFromDocument(doc), taskPolicy, node.id),
-    [doc, node.id, taskPolicy],
+    () => dependencyScopeTasks(canvas, taskPolicy, nodeId),
+    [canvas, nodeId, taskPolicy],
   );
 
   // Wait countdowns tick only while some Queue or Incoming task is still waiting.
@@ -2511,7 +2485,7 @@ export function TaskBoard({
       const result = await runWorkMutation( () =>
         api.workTaskCreate(
           name,
-          node.id,
+          nodeId,
           title.trim(),
           metadata,
           undefined,
@@ -2563,7 +2537,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkMutation( () =>
-        api.workTaskTransition(name, node.id, task.id, state, note),
+        api.workTaskTransition(name, nodeId, task.id, state, note),
       );
       if (result === undefined) return false;
       if (!result.ok) {
@@ -2659,7 +2633,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkMutation( () =>
-        api.workTaskPromote(name, node.id, task.id, note?.trim() || undefined),
+        api.workTaskPromote(name, nodeId, task.id, note?.trim() || undefined),
       );
       if (result === undefined) return;
       if (!result.ok) {
@@ -2711,7 +2685,7 @@ export function TaskBoard({
       const result = await runWorkMutation( () =>
         api.workTaskTransition(
           name,
-          node.id,
+          nodeId,
           task.id,
           "completed",
           submission.note,
@@ -2771,7 +2745,7 @@ export function TaskBoard({
       const result = await runWorkMutation( () =>
         api.workTaskTransition(
           name,
-          node.id,
+          nodeId,
           task.id,
           "rejected",
           defectNote.trim() ? defectNote.trim() : undefined,
@@ -2813,7 +2787,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkMutation( () =>
-        api.workTaskPromote(name, node.id, task.id, undefined),
+        api.workTaskPromote(name, nodeId, task.id, undefined),
       );
       if (result === undefined) return;
       if (!result.ok) {
@@ -2841,7 +2815,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkMutation( () =>
-        describe(name, node.id, task.id, nextBrief.trim()),
+        describe(name, nodeId, task.id, nextBrief.trim()),
       );
       if (result === undefined) return;
       if (!result.ok) {
@@ -2867,7 +2841,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkMutation( () =>
-        api.workTaskRespond(name, node.id, task.id, responseText.trim(), disposition),
+        api.workTaskRespond(name, nodeId, task.id, responseText.trim(), disposition),
       );
       if (result === undefined) return false;
       if (!result.ok) {
@@ -2900,7 +2874,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkMutation( () =>
-        api.workTaskComment(name, node.id, task.id, text.trim()),
+        api.workTaskComment(name, nodeId, task.id, text.trim()),
       );
       if (result === undefined) return false;
       if (!result.ok) {
@@ -2959,6 +2933,8 @@ export function TaskBoard({
   const shownLanes = hideClosed
     ? boardLanes.filter((lane) => lane.id !== "closed" && lane.id !== "outgoing")
     : boardLanes;
+
+  if (!node) return null;
 
   return (
     <FocusSurface
@@ -3077,11 +3053,11 @@ export function TaskBoard({
           <TaskCreateDialog
             mode="task"
             pending={creatingPending}
-            artifactsNodeId={resolveArtifactsNodeId(node.id, doc)}
+            artifactsNodeId={resolveArtifactsNodeId(nodeId, canvas)}
             admissionFloor={resolveTaskAdmission(boardSettings)}
             preamble={
               <TaskCreationPath
-                nodeId={node.id}
+                nodeId={nodeId}
                 rules={creationRules}
                 onRulesChange={setCreationRules}
               />
@@ -3265,7 +3241,7 @@ export function TaskBoard({
             <TaskDetailPanel
               key={selectedTask.id}
               task={selectedTask}
-              nodeId={node.id}
+              nodeId={nodeId}
               lanes={boardLanes}
               pending={pendingTaskId === selectedTask.id}
               needsApproval={needsApprovalFor(selectedTask)}
@@ -3277,22 +3253,22 @@ export function TaskBoard({
               ownerLabel={ownerFor(selectedTask)}
               seatName={seatName}
               nodeName={nodeName}
-              contract={node.ether?.tasks?.contract}
+              contract={node?.contract}
               actorRefs={actorRefs}
-              doc={doc}
+              canvas={canvas}
               operatorPanel={
                 operatorOwned &&
                 !TERMINAL_STATES.has(selectedTask.state) ? (
                   <TaskOperatorPanel
-                    rules={rulesInForce(nodesFromDocument(doc), node.id, selectedTask)}
+                    rules={rulesInForce(canvas, nodeId, selectedTask)}
                     nextBoards={shape.destinations.map((board) => ({
                       id: board,
                       label: boardName(board),
                     }))}
                     defectTargets={defectTargetOptions(
-                      doc,
+                      canvas,
                       selectedTask,
-                      node.id,
+                      nodeId,
                     ).map((target) => ({
                       id: target.board,
                       label: boardName(target.board),
@@ -3303,12 +3279,12 @@ export function TaskBoard({
                     pending={pendingTaskId === selectedTask.id}
                     waivable={(ruleId, next) => {
                       if (next === undefined) return false;
-                      const reachable = reachableBoards(wiresFromDocument(doc), next);
-                      return rulesInForce(nodesFromDocument(doc), node.id, selectedTask).some(
+                      const reachable = reachableBoards(canvas, next);
+                      return rulesInForce(canvas, nodeId, selectedTask).some(
                         (entry) =>
                           entry.rule.id === ruleId &&
                           entry.provenance.kind === "task" &&
-                          entry.provenance.board !== node.id &&
+                          entry.provenance.board !== nodeId &&
                           !reachable.has(entry.provenance.board),
                       );
                     }}
@@ -3338,9 +3314,9 @@ export function TaskBoard({
           ) : null}
           {contractSide ? (
             <TaskContractPanel
-              node={node}
+              nodeId={nodeId}
               side={contractSide}
-              board={boardName(node.id)}
+              board={boardName(nodeId)}
               onClose={() => setContractSide(null)}
             />
           ) : null}

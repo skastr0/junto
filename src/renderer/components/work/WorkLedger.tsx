@@ -22,12 +22,11 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Artifact, CanvasNode, Part, Task, TaskState, WorkMetadata } from "@shared/canvas";
+import type { Artifact, Part, Task, TaskState, WorkMetadata } from "@shared/work-model";
 import type { WorkOpResult } from "@shared/ipc";
 import { isArtifactArchived } from "@shared/work";
 import { isAttentionTaskState, isTerminalTaskState, taskBrief } from "@shared/task";
 import { needsHuman } from "@shared/attention";
-import { requestsNodeName } from "@shared/requests-node-identity";
 import { TASKS_ENABLED } from "@shared/features";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
@@ -39,6 +38,8 @@ import { StatusDot, type StatusTone } from "../ui/StatusDot";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { state$ } from "../../lib/state";
+import { nodeAt, useNodeValue } from "../../lib/use-model";
+import { titleOf } from "@shared/model/title";
 import { getJuntoApi } from "../../lib/junto-api";
 import { modKeyGlyph } from "../../lib/platform";
 import {
@@ -435,19 +436,20 @@ function RequestDetail({
 }
 
 export function RequestInbox({
-  node,
+  nodeId,
   onClose,
   initialItemId,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
   /** Pre-select this request when opened from jump-to-cause. */
   readonly initialItemId?: string;
 }) {
-  const work = useRequestItems(use$(state$.canvasName) || "", node.id);
+  const title = useNodeValue(use$(state$.canvasName), nodeId, (node) => node ? titleOf(node) : "requests");
+  const work = useRequestItems(use$(state$.canvasName) || "", nodeId);
   const [selectedId, setSelectedId] = useState<string | null>(initialItemId ?? null);
   const detailRows = useWorkItems(selectedId ? [{
-    canvasName: canvasName(), nodeId: node.id, kind: "requests", itemId: selectedId,
+    canvasName: canvasName(), nodeId: nodeId, kind: "requests", itemId: selectedId,
   }] : []);
   const selectedRow = detailRows[0]?.item;
   const items = useMemo(() => {
@@ -497,7 +499,7 @@ export function RequestInbox({
     setError("");
     try {
       const result = await runWorkMutation(() =>
-        api.workRequestResolve(name, node.id, request.id, response, disposition),
+        api.workRequestResolve(name, nodeId, request.id, response, disposition),
       );
       if (result === undefined) return;
       if (!result.ok) setError(result.message);
@@ -518,7 +520,7 @@ export function RequestInbox({
     >
       <OverlayHeader
         eyebrow="requests"
-        title={requestsNodeName(node)}
+        title={title}
         status={`${attentionItems.length} need attention - ${resolvedItems.length} resolved`}
         actions={
           <>
@@ -603,7 +605,7 @@ export function RequestInbox({
           <RequestDetail
             key={selected.id}
             request={selected}
-            nodeId={node.id}
+            nodeId={nodeId}
             pending={pendingId === selected.id}
             onClose={() => setSelectedId(null)}
             onResolve={(request, response, disposition) =>
@@ -812,13 +814,13 @@ function ArtifactSideDetail({
 }
 
 export function ArtifactLibrary({
-  node,
+  nodeId,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
 }) {
-  const work = useArtifactItems(use$(state$.canvasName) || "", node.id);
+  const work = useArtifactItems(use$(state$.canvasName) || "", nodeId);
   const items = work.items;
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -832,7 +834,6 @@ export function ArtifactLibrary({
   const [error, setError] = useState("");
   const api = getJuntoApi();
   const name = canvasName();
-  const doc = use$(state$.doc);
   const normalized = query.trim().toLowerCase();
   const archivedCount = items.filter(isArtifactArchived).length;
   const liveCount = items.length - archivedCount;
@@ -889,7 +890,7 @@ export function ArtifactLibrary({
   const archiveArtifact = (artifact: Artifact, archived: boolean): void => {
     if (!api) return;
     void runArtifactMutation(artifact.artifactId, () =>
-      api.workArtifactArchive(name, node.id, artifact.artifactId, archived),
+      api.workArtifactArchive(name, nodeId, artifact.artifactId, archived),
     );
   };
 
@@ -903,7 +904,7 @@ export function ArtifactLibrary({
     const sourceTask = source === undefined || source.sink.canvasName !== name ? undefined
       : await api.workItem({ ...source.sink, kind: "task", itemId: source.itemId });
     const warning = artifactDeletionWarning({
-      artifact, sinkNodeId: node.id,
+      artifact, sinkNodeId: nodeId,
       resolveTask: (ref) => ref.itemId === source?.itemId && ref.sink.nodeId === source.sink.nodeId ? sourceTask : undefined,
     });
     void askConfirm({
@@ -915,9 +916,9 @@ export function ArtifactLibrary({
     }).then((confirmed) => {
       if (!confirmed) return;
       // Selection/expanded cleanup happens through the invalidation effects
-      // once the deletion lands in the doc — never eagerly.
+      // once the deletion reaches the work store — never eagerly.
       void runArtifactMutation(artifact.artifactId, () =>
-        api.workArtifactDelete(name, node.id, artifact.artifactId),
+        api.workArtifactDelete(name, nodeId, artifact.artifactId),
       );
     });
   };
@@ -932,8 +933,8 @@ export function ArtifactLibrary({
       );
       return;
     }
-    const sinkNode = doc.nodes.find((entry) => entry.id === ref.sink.nodeId);
-    if (sinkNode === undefined) {
+    const sinkNode = nodeAt(name, ref.sink.nodeId);
+    if (sinkNode?.kind !== "task") {
       setError(
         `Source task ${ref.itemId} is no longer on ${ref.sink.canvasName}/${ref.sink.nodeId}.`,
       );

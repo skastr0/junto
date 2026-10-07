@@ -2,7 +2,7 @@ import { useState } from "react";
 import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
 import { Pin, PinOff, X } from "lucide-react";
-import type { Part, WorkMetadata } from "@shared/canvas";
+import type { Part, WorkMetadata } from "@shared/work-model";
 import type { TaskCreateOptions, WorkOpResult } from "@shared/ipc";
 import { resolveTaskAdmission } from "@shared/work-model";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
@@ -15,6 +15,7 @@ import {
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
+import { useCanvas, useNodeOf } from "../../lib/use-model";
 import { getJuntoApi } from "../../lib/junto-api";
 import { IconButton } from "../ui";
 import {
@@ -22,8 +23,6 @@ import {
   TaskCreateDialog,
 } from "./TaskBoard";
 import "./task-board.css";
-
-const canvasName = (): string => state$.canvasName.peek() || "";
 
 const runWorkMutation = <T,>(
   operation: () => Promise<WorkOpResult<T>>,
@@ -48,29 +47,17 @@ export function TaskEnqueueSurface({
 }) {
   const payload = use$(dock$.taskCreateById[surface.id]);
   const nodeId = payload?.nodeId;
-  const nodeExists = use$(() =>
-    nodeId ? state$.doc.nodes.get().some((entry) => entry.id === nodeId) : false,
-  );
-  const artifactsNodeId = use$(() => {
-    if (!nodeId) return undefined;
-    return resolveArtifactsNodeId(nodeId, {
-      nodes: state$.doc.nodes.get(),
-      edges: state$.doc.edges.get(),
-    });
-  });
-  const admissionFloor = use$(() => {
-    const node = nodeId
-      ? state$.doc.nodes.get().find((entry) => entry.id === nodeId)
-      : undefined;
-    return resolveTaskAdmission(node?.ether?.tasks?.contract);
-  });
+  const name = use$(state$.canvasName);
+  const node = useNodeOf(name, nodeId ?? "", "task");
+  const canvas = useCanvas(name);
+  const artifactsNodeId = nodeId ? resolveArtifactsNodeId(nodeId, canvas) : undefined;
+  const admissionFloor = resolveTaskAdmission(node?.contract);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [resetToken, setResetToken] = useState(0);
   const api = getJuntoApi();
-  const name = canvasName();
 
-  if (!payload || !nodeExists) {
+  if (!payload || !node) {
     return (
       <section className="dock-slot workbench-surface">
         <div className="workbench-surface__placeholder">task enqueue - unbound</div>
