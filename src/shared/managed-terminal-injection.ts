@@ -13,6 +13,7 @@
  * Never writes ~/.claude, ~/.codex, ~/.grok, ~/.hermes.
  */
 
+import { wireOfDocument } from "./model/from-document";
 import type { CanvasDoc } from "./canvas";
 import type { Port } from "./physics/schema";
 import type { CommandFamily } from "./seat-onboarding";
@@ -125,7 +126,7 @@ const sameEdgeMapInput = (a: CanvasDoc, b: CanvasDoc): boolean => {
     if (x.fromNode !== y.fromNode || x.toNode !== y.toNode) return false;
     // A verb swap moves the compiled grant without moving any endpoint, so
     // the seat's edge map must be revised for it like any rewiring.
-    if (x.ether?.verb !== y.ether?.verb) return false;
+    if (wireOfDocument(x)?.verb !== wireOfDocument(y)?.verb) return false;
   }
   for (let i = 0; i < a.nodes.length; i += 1) {
     const x = a.nodes[i];

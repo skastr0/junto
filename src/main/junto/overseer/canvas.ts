@@ -62,7 +62,7 @@ import {
   canvasNameFrom,
   type CanvasPortfolioView,
 } from "../canvases";
-import { workItemsFromDocument } from "@shared/model/from-document";
+import { wireOfDocument, workItemsFromDocument } from "@shared/model/from-document";
 
 const CANVAS_OPS = new Set<OverseerOperation>([
   "canvas.list",
@@ -1044,7 +1044,7 @@ const handleEdgeConfigure = (
         ),
       };
     }
-    if (changes.verb !== existing.ether?.verb && gatedVerbOf(changes.verb) !== undefined) {
+    if (changes.verb !== wireOfDocument(existing)?.verb && gatedVerbOf(changes.verb) !== undefined) {
       return {
         ok: false,
         error: fail(

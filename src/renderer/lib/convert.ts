@@ -14,7 +14,7 @@ import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name
 import { evenRingCaps, seatRingCaps, type RoomNode } from "./seat-ring-room";
 import { isGitNode, isLabelNode, nodeTitle, searchText } from "./presentation";
 import { wireSides, type WireSideRect } from "./wire-sides";
-import { canvasFromDocument } from "@shared/model/from-document";
+import { canvasFromDocument, wireOfDocument } from "@shared/model/from-document";
 
 // Z bands. Groups render at GROUP_Z_BASE + nesting depth so a nested region
 // paints above the region containing it (depth is authoring-warned at
@@ -85,7 +85,7 @@ export function edgePresentationFacts(
 ): Pick<EdgeData, "verb" | "colorToken" | "fromKind" | "toKind"> {
   const fromKind = fromNode?.ether?.entity?.kind;
   const toKind = toNode?.ether?.entity?.kind;
-  const verb = edge.ether?.verb;
+  const verb = wireOfDocument(edge)?.verb;
   if (verb === undefined) return { fromKind, toKind };
   return { verb, colorToken: VERB_COLOR_TOKEN[verb], fromKind, toKind };
 }

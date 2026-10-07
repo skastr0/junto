@@ -9,7 +9,7 @@ import { requestsNodeName } from "./requests-node-identity";
 import { boardNodeName } from "./board-node-identity";
 import { themeRuntime, type ThemeMode } from "./theme";
 import { hexAtAlpha } from "./theme/oklch";
-import { canvasFromDocument } from "./model/from-document";
+import { canvasFromDocument, wireOfDocument } from "./model/from-document";
 
 // Headless render of a canvas to SVG — the "screenshot for agents" half of
 // the agent surface (the text half is digest.ts). Pure and deterministic:
@@ -130,7 +130,7 @@ export const renderCanvasSvg = (
       fromKind === "agent" &&
       toKind === "agent" &&
       // The only verb an agent pair can hold, and it opens the mailbox.
-      edge.ether?.verb === "messages";
+      wireOfDocument(edge)?.verb === "messages";
     const color = kind === "blocks" ? pal.crimson : agentMsg ? pal.amber : kind ? pal.edgeColor[kind] : pal.steel;
     const active = activeEdges.has(edge.id);
     const strokeW = active ? 2 : agentMsg ? 1.6 : 1;

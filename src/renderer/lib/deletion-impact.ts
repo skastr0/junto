@@ -1,6 +1,6 @@
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import { flowDestinations, isTaskSinkNode } from "@shared/flow-graph";
-import { wiresFromDocument } from "@shared/model/from-document";
+import { wireOfDocument, wiresFromDocument } from "@shared/model/from-document";
 import {
   boardDeletionImpact,
   flowEdgeRemovalImpact,
@@ -71,7 +71,7 @@ export const flowEdgeRemovalWarnings = (
   for (const edge of removedEdges) {
     // A `feeds` edge is stored in its own direction: fromNode is the earlier
     // board and toNode is its Next board.
-    if (edge.ether?.verb !== "feeds") continue;
+    if (wireOfDocument(edge)?.verb !== "feeds") continue;
     const source = edge.fromNode;
     if (removedNodeIds.has(source)) continue;
     const nextBoard = edge.toNode;

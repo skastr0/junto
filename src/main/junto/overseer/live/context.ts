@@ -1,3 +1,4 @@
+import { wireOfDocument } from "@shared/model/from-document";
 import type { CanvasNode } from "@shared/canvas";
 import type { CanvasReadResult } from "@shared/ipc";
 import type { LiveAttention } from "@shared/overseer-live";
@@ -192,7 +193,7 @@ export const buildLiveContext = (read: CanvasReadResult, attention: LiveAttentio
   for (const edge of [...read.doc.edges].sort((left, right) => left.id.localeCompare(right.id))) {
     if (edges.length >= LIVE_CONTEXT_LIMITS.edges) break;
     if (!included.has(edge.fromNode) || !included.has(edge.toNode)) continue;
-    edges.push({ id: edge.id, fromNode: edge.fromNode, toNode: edge.toNode, verb: edge.ether?.verb ?? null });
+    edges.push({ id: edge.id, fromNode: edge.fromNode, toNode: edge.toNode, verb: wireOfDocument(edge)?.verb ?? null });
     if (!fits()) edges.pop();
   }
   context.authoritative.omittedNodes -= nodes.length;

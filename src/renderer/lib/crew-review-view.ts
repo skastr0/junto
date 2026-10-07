@@ -6,6 +6,7 @@
  * Those are schema fields on Task, never metadata.reviewSubject,
  * metadata.verdicts, or a WorkTaskShow overlay.
  */
+import { wireOfDocument } from "@shared/model/from-document";
 import type { CanvasDoc } from "@shared/canvas";
 import {
   readReviewVerdict,
@@ -255,9 +256,13 @@ const latestByReviewer = (
 /** reviews edge holds verdict.post: omitted mask is full compile, [] is none. */
 export const reviewsEdgeHoldsVerdictPost = (
   edge: CanvasDoc["edges"][number],
-): boolean =>
-  edge.ether?.verb === "reviews" &&
-  (edge.ether.mask === undefined || edge.ether.mask.includes("verdict.post"));
+): boolean => {
+  const wire = wireOfDocument(edge);
+  return (
+    wire?.verb === "reviews" &&
+    (wire.mask === undefined || wire.mask.includes("verdict.post"))
+  );
+};
 
 /**
  * Green must come from a distinct seat on the current epoch and subject hash,

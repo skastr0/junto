@@ -1,3 +1,4 @@
+import { wireOfDocument } from "@shared/model/from-document";
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -156,7 +157,7 @@ const edgeVerbView = (doc: CanvasDoc, edge: CanvasEdge): EdgeVerbView => {
   const toNode = doc.nodes.find((n) => n.id === edge.toNode);
   const fromLabel = endLabel(fromNode, edge.fromNode);
   const toLabel = endLabel(toNode, edge.toNode);
-  const verb = edge.ether?.verb;
+  const verb = wireOfDocument(edge)?.verb;
   const sibling =
     verb === undefined
       ? undefined
