@@ -11,10 +11,10 @@ import {
   TaskAdmission,
   TaskRule,
 } from "./work-model";
-import { ContentIdentity, ContentRef } from "./content";
+import { ContentRef } from "./content";
 import { PadPatch } from "./pad";
 import { MailEvidenceRef } from "./crew";
-import { AgentSignalKind } from "./agent-signals";
+import { AgentSignalAttachmentInput, AgentSignalKind } from "./agent-signals";
 export {
   SeatWaitArgs, SeatReadArgs, TaskWaitArgs,
   SeatWaitResult, SeatReadResult, TaskWaitResult,
@@ -638,53 +638,21 @@ export type PreambleArgs = typeof PreambleArgs.Type;
  * process-bound caller, so a seat can only raise, clear, or read its own.
  */
 /**
- * One file on a signal. The seat put it into the content store first, in
- * pieces (`content.stage`), and names it here by what came back: no bytes
- * and no path ride in the signal's own request, so a file of any size can be
- * attached. Main is the authority on what is admitted, and takes the file's
- * name and type from what it recorded, not from here.
+ * `attach` is what the signal carries beside its words (`AgentSignalAttachmentInput`):
+ * files and texts the seat uploaded first (`content.stage`) and names by
+ * reference, a commit by its id, a video by its address. No bytes and no
+ * path ride in this request. What an agent writes to the CLI is another
+ * shape (`SignalRaiseCliInput` in the CLI).
  */
-export const SignalAttachmentInput = Schema.Struct({
-  ref: ContentIdentity,
-  caption: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type SignalAttachmentInput = typeof SignalAttachmentInput.Type;
-
 export const SignalRaiseArgs = Schema.Struct({
   kind: AgentSignalKind,
   text: Schema.String,
   detail: Schema.optionalKey(Schema.String),
-  attach: Schema.optionalKey(Schema.Array(SignalAttachmentInput)),
+  attach: Schema.optionalKey(Schema.Array(AgentSignalAttachmentInput)),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type SignalRaiseArgs = typeof SignalRaiseArgs.Type;
-
-/** One file as an agent names it to the CLI: a path the CLI reads, never sent on. */
-export const SignalAttachCliInput = Schema.Struct({
-  path: Schema.String,
-  caption: Schema.optionalKey(Schema.String),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type SignalAttachCliInput = typeof SignalAttachCliInput.Type;
-
-/**
- * What `junto escalate|blocked|feedback` takes as its JSON input: the one
- * schema the CLI both shows and decodes with. The command name is the kind,
- * so there is none here. The CLI uploads each `attach` path and sends its
- * reference (`SignalRaiseArgs.attach`) in the call.
- */
-export const SignalRaiseCliArgs = Schema.Struct({
-  text: Schema.String,
-  detail: Schema.optionalKey(Schema.String),
-  attach: Schema.optionalKey(Schema.Array(SignalAttachCliInput)),
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-});
-export type SignalRaiseCliArgs = typeof SignalRaiseCliArgs.Type;
 
 /** Withdraw one open signal by id, or every open signal of the seat. */
 export const SignalClearArgs = Schema.Struct({

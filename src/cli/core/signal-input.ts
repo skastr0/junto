@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { Effect, Schema } from "effect";
-import type { AgentSignalAttachmentInput, AgentSignalKind } from "../../shared/agent-signals";
+import type { AgentSignalKind } from "../../shared/agent-signals";
 import type { SignalRaiseArgs } from "../../shared/work-control";
 import {
   type AttachFlags,
@@ -129,11 +129,6 @@ export const SignalRaiseCliInput = Schema.Struct({
 });
 export type SignalRaiseCliInput = typeof SignalRaiseCliInput.Type;
 
-/** `signal.raise` as this CLI sends it: the sentence, the detail, and what is attached, by reference. */
-export type SignalRaiseRequest = Omit<SignalRaiseArgs, "attach"> & {
-  readonly attach?: ReadonlyArray<AgentSignalAttachmentInput>;
-};
-
 const ATTACH_FLAG_NAMES = ["attach", "code", "diff", "compare", "commit", "video"] as const;
 
 export const loadSignalRaiseArgs = (
@@ -196,7 +191,7 @@ export const loadSignalRaiseArgs = (
             ...(timeoutMs === undefined ? {} : { timeoutMs }),
           })
         : [];
-    const args: SignalRaiseRequest = {
+    const args: SignalRaiseArgs = {
       kind,
       text: payload.text,
       ...(resolvedDetail === undefined ? {} : { detail: resolvedDetail }),
