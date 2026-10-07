@@ -14,6 +14,7 @@ import {
 } from "@shared/model";
 import { nodeOf, wiresAt, type Canvas } from "@shared/model/canvas";
 import { defaultVerbForPair, verbsForPair, type Port, type Verb } from "@shared/physics";
+import { physicsKind } from "./model-kind";
 
 // Everything the operator can do to what is on a canvas, as the commands that
 // do it. Each function reads the canvas as the window holds it and returns the
@@ -235,8 +236,7 @@ export const removed = (canvas: Canvas, nodeIds: ReadonlyArray<string>, wireIds:
 // ── Wires ───────────────────────────────────────────────────────────────────
 
 /** The kind word the verb table knows a node by; nothing for a card that only sits there. */
-const verbKind = (node: Node): string | undefined =>
-  node.kind === "note" || node.kind === "file" || node.kind === "link" ? undefined : node.kind;
+const verbKind = (node: Node): string | undefined => physicsKind(node.kind);
 
 export type DrawVerbs = {
   /** Verbs the pair admits, in table order. Empty means the two cannot be joined. */

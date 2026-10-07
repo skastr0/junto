@@ -1,5 +1,6 @@
 import { batch, observable, type Observable } from "@legendapp/state";
-import type { Changed, Command, Node, Opened, Wire } from "@shared/model";
+import { asCanvasName, type Changed, type Command, type Node, type Opened, type Wire } from "@shared/model";
+import type { Canvas } from "@shared/model/canvas";
 
 // What is on each open canvas, as the window holds it: nodes and wires by id.
 // Filled once by `Opened` and kept current by `Changed`, which carries only
@@ -152,6 +153,17 @@ export const rowsAfterCommand = (state: ModelCanvasState, command: Command): Row
       return undefined;
   }
 };
+
+/**
+ * A canvas as shared logic reads it, from what the window holds of it. Built
+ * when asked for: an edit, an undo step or a blocker walk, never per frame.
+ */
+export const canvasOfState = (name: string, state: Pick<ModelCanvasState, "seq" | "nodes" | "wires">): Canvas => ({
+  name: asCanvasName(name),
+  seq: state.seq,
+  nodes: new Map(Object.values(state.nodes).map((node) => [node.id, node])),
+  wires: new Map(Object.values(state.wires).map((wire) => [wire.id, wire])),
+});
 
 export const createModelStore = (getApi: () => ModelApi | undefined) => {
   const canvases$ = observable<Record<string, ModelCanvasState>>({});
@@ -315,6 +327,9 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
         }
       };
     },
+
+    /** The canvas as it stands now, for working out an edit or its way back. Not tracked. */
+    canvasOf: (canvas: string): Canvas => canvasOfState(canvas, canvas$(canvas).peek()),
 
     /** Resolves when the canvas has been read, or the read has failed. */
     ready: (canvas: string): Promise<void> => opening.get(canvas) ?? Promise.resolve(),

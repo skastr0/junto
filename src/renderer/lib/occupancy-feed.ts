@@ -135,6 +135,17 @@ export function useNodeOccupancyClue(node: MinimalNode): OccupancyClue | undefin
   const nativeBinding = resolveTerminalBinding(node as CanvasNode);
   const bindingId =
     nativeBinding?.kind === "native" ? nativeBinding.bindingId : undefined;
+  return useSeatOccupancyClue(agentKey, bindingId);
+}
+
+/**
+ * The same clue for a caller that holds the seat and not a document node: its
+ * agent key, when it is an agent, and the binding of its terminal session.
+ */
+export function useSeatOccupancyClue(
+  agentKey: string | undefined,
+  bindingId: string | undefined,
+): OccupancyClue | undefined {
   const coarse = use$(chatCoarse$[agentKey ?? NO_AGENT_KEY]) as AgentChatCoarse | undefined;
   const seatEvent = use$(agentSeat$.byBindingId[bindingId ?? NO_BINDING]);
   return useMemo(() => {
