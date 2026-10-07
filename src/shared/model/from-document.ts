@@ -29,6 +29,47 @@ type Document = {
   readonly edges: ReadonlyArray<CanvasEdge>;
 };
 
+type Held<Row> = { readonly z: number; readonly row: Row | undefined };
+const heldNodeRows = new WeakMap<CanvasNode, Held<Node>>();
+const heldWireRows = new WeakMap<CanvasEdge, Held<Wire>>();
+
+/**
+ * The node a document node describes, or nothing when the model refuses it.
+ * Worked out once per node object and place in the stack: a document is a new
+ * object on every change but keeps the objects of the nodes the change did
+ * not touch. A node does not carry the name of its canvas.
+ */
+export const nodeOfDocument = (
+  canvas: string,
+  node: CanvasNode,
+  z: number,
+): Node | undefined => {
+  const known = heldNodeRows.get(node);
+  if (known !== undefined && known.z === z) return known.row;
+  let row: Node | undefined;
+  try {
+    row = nodeFromDocument(canvas, node, z);
+  } catch {
+    // Not a kind the model knows.
+  }
+  heldNodeRows.set(node, { z, row });
+  return row;
+};
+
+/** The wire a document edge describes, or nothing; once per edge object. */
+export const wireOfDocument = (edge: CanvasEdge): Wire | undefined => {
+  const known = heldWireRows.get(edge);
+  if (known !== undefined) return known.row;
+  let row: Wire | undefined;
+  try {
+    row = wireFromDocument("", edge);
+  } catch {
+    // Not a wire.
+  }
+  heldWireRows.set(edge, { z: 0, row });
+  return row;
+};
+
 const heldWires = new WeakMap<object, Pick<Canvas, "wires">>();
 
 /**
@@ -42,12 +83,8 @@ export const wiresFromDocument = (doc: Pick<Document, "edges">): Pick<Canvas, "w
   if (known !== undefined) return known;
   const wires = new Map<Wire["id"], Wire>();
   for (const edge of doc.edges) {
-    try {
-      const row = wireFromDocument("", edge);
-      if (!wires.has(row.id)) wires.set(row.id, row);
-    } catch {
-      // Not a wire.
-    }
+    const row = wireOfDocument(edge);
+    if (row !== undefined && !wires.has(row.id)) wires.set(row.id, row);
   }
   const made = { wires };
   heldWires.set(doc, made);
@@ -67,12 +104,8 @@ export const canvasFromDocument = (name: string, doc: Document): Canvas => {
   if (known !== undefined && known.name === name) return known;
   const nodes = new Map<Node["id"], Node>();
   doc.nodes.forEach((node, z) => {
-    try {
-      const row = nodeFromDocument(name, node, z);
-      if (!nodes.has(row.id)) nodes.set(row.id, row);
-    } catch {
-      // Not a kind the model knows.
-    }
+    const row = nodeOfDocument(name, node, z);
+    if (row !== undefined && !nodes.has(row.id)) nodes.set(row.id, row);
   });
   const canvas: Canvas = {
     name: asCanvasName(name),
