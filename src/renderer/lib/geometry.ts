@@ -1,7 +1,6 @@
-import type { CanvasDoc } from "@shared/canvas";
-import type { CanvasNode, GroupNode } from "@shared/canvas";
-import { commitDoc } from "./mutations";
-import { state$ } from "./state";
+import type { CanvasNode } from "@shared/canvas";
+import { moved, resized } from "./model-edits";
+import { commitCommands } from "./mutations";
 
 type Point = { readonly x: number; readonly y: number };
 type Size = { readonly width: number; readonly height: number };
@@ -32,59 +31,17 @@ export const findOpenPosition = (nodes: ReadonlyArray<CanvasNode>, center: Point
   return { x: Math.round(center.x - size.width / 2), y: Math.round(center.y - size.height / 2) };
 };
 
+/** Resize a node, as the resize ends: one Move carrying the new size. */
 export const resizeNode = (id: string, params: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((node) => node.id === id ? {
-      ...node,
-      x: Math.round(params.x),
-      y: Math.round(params.y),
-      width: Math.round(params.width),
-      height: Math.round(params.height),
-    } : node),
-  }, false, true);
+  commitCommands((canvas) => resized(canvas, id, params));
 };
 
-// Drag-hold interaction ONLY — not membership truth. Every node — including
-// nested regions — whose CENTER lies within the region's rect, the region
-// itself always excluded. Pure and re-derived at drag time; never persisted
-// (the product's derived-state law). The shared membership authority
-// (groupMembers / regionStack in shared/graph.ts) is full-rect containment
-// and is itself nesting-aware; this helper stays center-point on purpose so a
-// straddling node still rides along when an operator drags a hold region.
-// Consistent with the authority: a region fully inside another is both a
-// regionStack member of it and a drag-hold rider.
-export const dragHoldMemberIds = (doc: CanvasDoc, regionNode: GroupNode): string[] =>
-  doc.nodes
-    .filter((node) => node.id !== regionNode.id)
-    .filter((node) => {
-      const cx = node.x + node.width / 2;
-      const cy = node.y + node.height / 2;
-      return (
-        cx >= regionNode.x &&
-        cx <= regionNode.x + regionNode.width &&
-        cy >= regionNode.y &&
-        cy <= regionNode.y + regionNode.height
-      );
-    })
-    .map((node) => node.id);
-
+/**
+ * Take the positions a drag ended on: one Move naming every node that landed
+ * somewhere new, and nothing for one that landed where it was. What rides
+ * along with a region that holds its contents is worked out by `heldBy`
+ * (model-edits.ts) when the drag starts.
+ */
 export const syncPositions = (positions: ReadonlyMap<string, { x: number; y: number }>): void => {
-  if (state$.settings.station.role.peek() === "remote") return;
-  const doc: CanvasDoc = state$.doc.peek();
-  // Preserve CanvasNode identity when rounded coords are unchanged so the
-  // FlowIdentityCache (convert.toFlow) keeps reminting only moved nodes.
-  let changed = false;
-  const nodes = doc.nodes.map((node) => {
-    const pos = positions.get(node.id);
-    if (!pos) return node;
-    const x = Math.round(pos.x);
-    const y = Math.round(pos.y);
-    if (x === node.x && y === node.y) return node;
-    changed = true;
-    return { ...node, x, y };
-  });
-  if (!changed) return;
-  commitDoc({ ...doc, nodes }, false, true);
+  commitCommands((canvas) => moved(canvas, positions));
 };

@@ -3,7 +3,7 @@ import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, planConnectToTarget } from "../src/renderer/lib/edge-mutations";
-import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
+import { findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$ } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import { dock$, openAgentChatSurface } from "../src/renderer/lib/dock-state";
@@ -1135,35 +1135,6 @@ describe("renderer graph mutations", () => {
       },
     });
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
-  });
-
-  it("includes a node whose center lies inside the region and excludes one merely overlapping its edge", () => {
-    const region: GroupNode = { id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300 };
-    // Center (140, 120) — squarely inside the 400x300 rect.
-    const centered: CanvasDoc["nodes"][number] = { id: "centered", type: "text", text: "in", x: 100, y: 100, width: 80, height: 40 };
-    // Spans x 380-460, overlapping the region's right edge (x=400), but its
-    // center (420, 120) sits outside — geometric overlap is not membership.
-    const edgeOverlap: CanvasDoc["nodes"][number] = { id: "edge-overlap", type: "text", text: "edge", x: 380, y: 100, width: 80, height: 40 };
-    const doc: CanvasDoc = { nodes: [region, centered, edgeOverlap], edges: [] };
-
-    const ids = dragHoldMemberIds(doc, region);
-
-    expect(ids).toEqual(["centered"]);
-  });
-
-  it("includes a nested region whose center lies inside the outer region", () => {
-    const outer: GroupNode = { id: "outer", type: "group", label: "Outer", x: 0, y: 0, width: 600, height: 600 };
-    const inner: GroupNode = { id: "inner", type: "group", label: "Inner", x: 100, y: 100, width: 200, height: 200 };
-    const doc: CanvasDoc = { nodes: [outer, inner], edges: [] };
-
-    expect(dragHoldMemberIds(doc, outer)).toEqual(["inner"]);
-  });
-
-  it("never includes the region itself", () => {
-    const region: GroupNode = { id: "self", type: "group", label: "Self", x: 0, y: 0, width: 200, height: 200 };
-    const doc: CanvasDoc = { nodes: [region], edges: [] };
-
-    expect(dragHoldMemberIds(doc, region)).toEqual([]);
   });
 
   it("turns a region's hold on and off, and off leaves nothing saying it holds", () => {

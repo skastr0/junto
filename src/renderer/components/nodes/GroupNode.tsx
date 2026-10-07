@@ -8,12 +8,13 @@ import type { FlowNode } from "../../lib/convert";
 import { MAX_REGION_DEPTH, UNNAMED_REGION } from "@shared/graph";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { claimFocus } from "../../lib/focus-ownership";
-import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
+import { resizeNode, syncPositions } from "../../lib/geometry";
+import { heldBy } from "../../lib/model-edits";
 import { state$ } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
 import { regionLabelDrag$ } from "../../lib/region-label-drag";
 import { regionUrgency$ } from "../../lib/region-urgency";
-import { useNodeFieldOf } from "../../lib/use-model";
+import { modelStore, useNodeFieldOf } from "../../lib/use-model";
 import {
   isMultiSelectGesture,
   stopNodeGestureUnlessMultiSelect,
@@ -238,14 +239,11 @@ export function GroupNode({ id, data, selected }: NodeProps<FlowNode>) {
     });
     const startPos = { ...flowNode.position };
     const members = new Map<string, { readonly x: number; readonly y: number }>();
-    if (hold) {
-      const doc = state$.doc.peek();
-      const regionDoc = doc.nodes.find((candidate) => candidate.id === id);
-      if (regionDoc === undefined || regionDoc.type !== "group") return;
-      for (const memberId of dragHoldMemberIds(doc, regionDoc)) {
-        const member = rf.getNode(memberId);
-        if (member !== undefined) members.set(memberId, { ...member.position });
-      }
+    // What rides along, worked out once as the drag starts and never stored:
+    // nothing for a region that does not hold its contents.
+    for (const memberId of heldBy(modelStore.canvasOf(canvasName), id)) {
+      const member = rf.getNode(memberId);
+      if (member !== undefined) members.set(memberId, { ...member.position });
     }
     regionDragRef.current = { startFlow, startPos, members };
     regionLabelDrag$.set(true);
