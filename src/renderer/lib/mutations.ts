@@ -306,6 +306,11 @@ export const commitDoc = (next: CanvasDoc, structural = true, remember = structu
     if (commands !== undefined) sendAct(name, commands, remember);
     return;
   }
+  // No store to follow: the document is written here. It is checked first all
+  // the same, with or without a main to send to: an edit the canvas cannot
+  // hold is refused before anything shows it.
+  const commands = editsOrRefusal(name, before, next);
+  if (commands === undefined) return;
   state$.doc.set(next);
   if (structural) state$.docVersion.set(state$.docVersion.peek() + 1);
   // Position-only writes still change geometric region membership — the RTS
@@ -321,13 +326,6 @@ export const commitDoc = (next: CanvasDoc, structural = true, remember = structu
     return;
   }
   if (!name || abandonedNames.has(name)) return;
-  const commands = editsOrRefusal(name, before, next);
-  if (commands === undefined) {
-    // Shown above, before it was known to be unholdable: put back.
-    state$.doc.set(before);
-    state$.docEpoch.set(state$.docEpoch.peek() + 1);
-    return;
-  }
   if (commands.length === 0) return;
   if (remember) {
     shownBefore.push(before);
