@@ -89,7 +89,8 @@ describe("buildFocusSwitcherCatalog", () => {
   const nodes = [
     agent("alpha", "Alpha hub"),
     agent("bravo", "Bravo"),
-    tasks("sink"),
+    // An agent in a hotbar slot: task nodes are behind an unsupported flag.
+    agent("sink", "Sink"),
     note("memo", "Field notes"),
     region("lane"),
   ];
