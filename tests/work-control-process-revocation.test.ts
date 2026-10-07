@@ -1,4 +1,4 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, seat } from "./support/model-nodes";
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -6,12 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import type { CanvasDoc } from "../src/shared/canvas";
 import { encodeWorkFrame } from "../src/shared/work-control";
-import {
-  CanvasError,
-  CanvasesService,
-} from "../src/main/junto/canvases";
 import {
   WorkService,
   type WorkServiceShape,
@@ -33,9 +28,6 @@ import {
   type WorkControlServer,
 } from "../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
-import {
-  canvasAuthorityMaterialFixture,
-} from "./helpers/canvas-authority-material";
 
 const PEER_PID = 71_003;
 
@@ -46,28 +38,18 @@ const PRINCIPAL: ProcessPrincipal = Object.freeze({
   nodeId: "agent",
 });
 
-const doc: CanvasDoc = {
-  nodes: [
-    {
-      id: "agent",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 180,
-      height: 60,
-      text: "revocation agent",
-      ether: {
-        entity: { kind: "agent", name: PRINCIPAL.agentKey },
-        terminal: {
-          bindingId: PRINCIPAL.bindingId!,
-          harness: "claude",
-          launch: { kind: "harness", argv: ["claude"] },
-        },
-      },
-    },
-  ],
-  edges: [],
-};
+const canvas = canvasOf(
+  [seat("agent", {
+    width: 180,
+    height: 60,
+    label: "revocation agent",
+    agentKey: PRINCIPAL.agentKey!,
+    bindingId: PRINCIPAL.bindingId! as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  })],
+  [],
+  "revocation",
+);
 
 const deferred = <A>() => {
   let resolve!: (value: A | PromiseLike<A>) => void;
@@ -141,65 +123,12 @@ const makeTrackedRegistry = (): TrackedRegistry => {
   };
 };
 
-const canvasesService = CanvasesService.of({
-  doctor: Effect.succeed({
-    id: "canvases",
-    label: "Canvases",
-    status: "ok",
-    detail: "revocation test",
-  }),
-  list: Effect.succeed([]),
-  read: (name) =>
-    Effect.succeed({
-      name,
-      revision: "a".repeat(64),
-      doc,
-      actorRefs: [],
-      workRevision: "0",
-    }),
-  readWithIntentWitness: () =>
-    Effect.fail(new CanvasError({ message: "not used" })),
-  readNodeStructure: () =>
-    Effect.fail(new CanvasError({ message: "not used" })),
-  write: () => Effect.fail(new CanvasError({ message: "not used" })),
-  mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
-  mutatePortfolio: () =>
-    Effect.fail(new CanvasError({ message: "not used" })),
-  canvasOverseerSet: () =>
-    Effect.fail(new CanvasError({ message: "not used" })),
-  create: () => Effect.fail(new CanvasError({ message: "not used" })),
-  remove: () => Effect.fail(new CanvasError({ message: "not used" })),
-  ensureSeed: Effect.void,
-  start: () => undefined,
-  subscribeChanges: () => () => undefined,
-  announceInstalledProjection: () => {},
-  liveDocuments: () =>
-    Effect.succeed([{ canvasName: "revocation", doc }]),
-  liveAuthorityGeneration: () => Effect.succeed("1"),
-  authoritySnapshot: () =>
-    Effect.succeed({
-      generation: "1",
-      intentSha256: "a".repeat(64),
-      documents: new Map([["revocation", doc]]),
-    }),
-  authorityMaterialSnapshot: () =>
-    Effect.sync(() =>
-      canvasAuthorityMaterialFixture("1", new Map([["revocation", doc]])),
-    ),
-  activeIntentWitness: () =>
-    Effect.succeed({
-      generation: "1",
-      contentSha256: "a".repeat(64),
-    }),
-  activeActorRefs: () => Effect.succeed([]),
-});
-
 const makeWorkService = (
   gate: DispatchGate | undefined,
   onMutation: () => void,
 ): WorkServiceShape => ({
-  readCanvases: () => Effect.succeed([canvasFromDocument("revocation", doc)]),
-  readTopology: () => Effect.succeed({ canvas: canvasFromDocument("revocation", doc), actorRefs: [] }),
+  readCanvases: () => Effect.succeed([canvas]),
+  readTopology: () => Effect.succeed({ canvas: canvas, actorRefs: [] }),
   commandStatus: Effect.gen(function* () {
     if (gate !== undefined) yield* gate.wait;
     yield* Effect.sync(onMutation);
@@ -269,7 +198,6 @@ const startRig = async (options: {
   let mutations = 0;
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
-      Layer.succeed(CanvasesService, canvasesService),
       Layer.succeed(
         WorkService,
         makeWorkService(options.gate, () => {

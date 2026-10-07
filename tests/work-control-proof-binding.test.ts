@@ -5,14 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import type { CanvasDoc } from "../src/shared/canvas";
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, seat } from "./support/model-nodes";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
-import {
-  CanvasError,
-  CanvasesService,
-} from "../src/main/junto/canvases";
 import {
   WorkService,
   type WorkServiceShape,
@@ -28,7 +23,6 @@ import {
 } from "../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor";
-import { canvasAuthorityMaterialFixture } from "./helpers/canvas-authority-material";
 
 // Regression: managed seats bind their PTY process by agent key with no
 // bindingId (term/local-host.ts processPrincipal). The onboarding proof has
@@ -47,62 +41,18 @@ const PRINCIPAL: ProcessPrincipal = Object.freeze({
   nodeId: "agent",
 });
 
-const doc: CanvasDoc = {
-  nodes: [
-    {
-      id: "agent",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 180,
-      height: 60,
-      text: "proof agent",
-      ether: {
-        entity: { kind: "agent", name: PRINCIPAL.agentKey },
-        terminal: {
-          bindingId: SEAT_BINDING,
-          harness: "claude",
-          launch: { kind: "harness", argv: ["claude"] },
-        },
-      },
-    },
-  ],
-  edges: [],
-};
-
-const canvasesService = CanvasesService.of({
-  doctor: Effect.succeed({ id: "canvases", label: "Canvases", status: "ok", detail: "proof test" }),
-  list: Effect.succeed([]),
-  read: (name) =>
-    Effect.succeed({ name, revision: "a".repeat(64), doc, actorRefs: [], workRevision: "0" }),
-  readWithIntentWitness: () => Effect.fail(new CanvasError({ message: "not used" })),
-  readNodeStructure: () => Effect.fail(new CanvasError({ message: "not used" })),
-  write: () => Effect.fail(new CanvasError({ message: "not used" })),
-  mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
-  mutatePortfolio: () => Effect.fail(new CanvasError({ message: "not used" })),
-  canvasOverseerSet: () => Effect.fail(new CanvasError({ message: "not used" })),
-  create: () => Effect.fail(new CanvasError({ message: "not used" })),
-  remove: () => Effect.fail(new CanvasError({ message: "not used" })),
-  ensureSeed: Effect.void,
-  start: () => undefined,
-  subscribeChanges: () => () => undefined,
-  announceInstalledProjection: () => {},
-  liveDocuments: () => Effect.succeed([{ canvasName: "proof", doc }]),
-  liveAuthorityGeneration: () => Effect.succeed("1"),
-  authoritySnapshot: () =>
-    Effect.succeed({
-      generation: "1",
-      intentSha256: "a".repeat(64),
-      documents: new Map([["proof", doc]]),
-    }),
-  authorityMaterialSnapshot: () =>
-    Effect.sync(() => canvasAuthorityMaterialFixture("1", new Map([["proof", doc]]))),
-  activeIntentWitness: () =>
-    Effect.succeed({ generation: "1", contentSha256: "a".repeat(64) }),
-  activeActorRefs: () => Effect.succeed([]),
-});
-
-const canvas = canvasFromDocument("proof", doc);
+const canvas = canvasOf(
+  [seat("agent", {
+    width: 180,
+    height: 60,
+    label: "proof agent",
+    agentKey: PRINCIPAL.agentKey!,
+    bindingId: SEAT_BINDING as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  })],
+  [],
+  "proof",
+);
 const workService = {
   readCanvases: () => Effect.succeed([canvas]),
   readTopology: () => Effect.succeed({ canvas, actorRefs: [] }),
@@ -157,7 +107,6 @@ const startRig = async (): Promise<Rig> => {
   expect(map.bind(ANCHOR_PID, PRINCIPAL)).toBe(true);
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
-      Layer.succeed(CanvasesService, canvasesService),
       Layer.succeed(WorkService, workService),
       PausePlaneAllPlaying,
     ),
