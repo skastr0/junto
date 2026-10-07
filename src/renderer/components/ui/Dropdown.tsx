@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { claimFocus } from "../../lib/focus-ownership";
+import { FOCUS_RING_INSET } from "./focus";
 
 export type DropdownOption = {
   readonly value: string;
@@ -336,7 +337,7 @@ export function Dropdown({
         title={title}
         className={[
           "inline-flex h-full min-w-0 items-center gap-1.5 text-left text-ink outline-none",
-          "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan/60",
+          FOCUS_RING_INSET,
           "disabled:cursor-wait disabled:opacity-60",
           triggerClassName ?? "",
         ]

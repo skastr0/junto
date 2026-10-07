@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { FOCUS_RING_INSET } from "./focus";
 
 /**
  * Square icon-only button (lucide glyph). The single affordance for
@@ -39,7 +40,7 @@ export function IconButton({
       className={[
         "grid place-items-center rounded outline-none transition-colors select-none",
         // Inset, so it reads on a 16px control and survives a clipping parent.
-        "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan/60",
+        FOCUS_RING_INSET,
         "disabled:opacity-40 disabled:pointer-events-none",
         tones[tone],
         sizes[size],

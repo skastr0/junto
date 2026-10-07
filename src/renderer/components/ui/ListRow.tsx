@@ -1,4 +1,5 @@
 import type { ComponentPropsWithRef, ReactNode } from "react";
+import { FOCUS_RING_INSET } from "./focus";
 
 /**
  * ListRow: one clickable line of a dense list (a plain connection in the
@@ -71,7 +72,7 @@ export function ListRow({
         "outline-none transition-colors select-none",
         "hover:bg-overlay-1 data-[selected=true]:bg-overlay-2",
         // Inset, so a scrolling list that clips its edges still shows it.
-        "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan/60",
+        FOCUS_RING_INSET,
         "disabled:pointer-events-none disabled:opacity-40",
       ].join(" ")}
     >

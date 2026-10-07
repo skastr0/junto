@@ -58,7 +58,7 @@ export function Slider({
         "[&::-webkit-slider-thumb]:bg-amber [&::-webkit-slider-thumb]:transition-transform",
         "hover:[&::-webkit-slider-thumb]:scale-110",
         "focus-visible:[&::-webkit-slider-thumb]:outline-2 focus-visible:[&::-webkit-slider-thumb]:outline-offset-2",
-        "focus-visible:[&::-webkit-slider-thumb]:outline-amber",
+        "focus-visible:[&::-webkit-slider-thumb]:outline-cyan",
         "motion-reduce:[&::-webkit-slider-thumb]:transition-none",
         className ?? "",
       ]

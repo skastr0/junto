@@ -1,4 +1,5 @@
 import type { ComponentPropsWithRef } from "react";
+import { FOCUS_OUTLINE } from "./focus";
 
 /**
  * An on/off switch, drawn on the native checkbox so it keeps keyboard,
@@ -31,7 +32,7 @@ export function Switch({
         "after:transition-[transform,background-color] after:duration-[180ms] after:ease-[cubic-bezier(0.22,1,0.36,1)]",
         "hover:border-amber/45 checked:border-amber checked:bg-amber/[0.28]",
         "checked:after:translate-x-[14px] checked:after:bg-amber",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber",
+        FOCUS_OUTLINE,
         "disabled:cursor-default disabled:opacity-40",
         "motion-reduce:transition-none motion-reduce:after:transition-none",
         className ?? "",

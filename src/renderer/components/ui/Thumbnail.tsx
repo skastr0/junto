@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { AlertTriangle, File, Play } from "lucide-react";
+import { FOCUS_RING_INSET } from "./focus";
 
 export type ThumbnailSize = "sm" | "md" | "lg";
 /** What the tile draws. Required: an empty box is never an accident. */
@@ -13,7 +14,7 @@ const SIZES: Readonly<Record<ThumbnailSize, string>> = {
 
 const TILE =
   "relative grid flex-none place-items-center overflow-hidden rounded-md border outline-none transition-colors select-none " +
-  "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan/60";
+  FOCUS_RING_INSET;
 
 /** The corner mark of one side of a comparison. One definition, either top corner. */
 export function CompareTag({ side, corner = "left" }: { readonly side: "A" | "B"; readonly corner?: "left" | "right" }) {
