@@ -15,7 +15,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import type { EnvSource } from "@shared/canvas";
+import type { EnvSource } from "@shared/model/region";
 import type {
   EnvSourceResolver,
   SourceContext,

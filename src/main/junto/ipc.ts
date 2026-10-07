@@ -182,7 +182,7 @@ import { termPlane } from "./term/plane";
 import { bindManagedTerminalDriveForOverseer } from "./term/managed-drive-holder";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
-import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
+import type { WorkMetadata, Part, TaskState } from "@shared/work-model";
 import { makeUserMessage } from "@shared/task";
 import {
   collaborationRequestMetadata,
