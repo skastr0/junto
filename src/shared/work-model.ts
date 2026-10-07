@@ -215,7 +215,7 @@ export const TasksOutgoing = Schema.Struct({
 export type TasksOutgoing = typeof TasksOutgoing.Type;
 
 /**
- * Operator-authored board contract (`ether.tasks.contract`). Agents have no
+ * Operator-authored task-board contract. Agents have no
  * authorial write path to it.
  */
 export const TasksContract = Schema.Struct({
@@ -462,40 +462,6 @@ export const Artifact = Schema.Struct({
 export type Artifact = typeof Artifact.Type;
 
 /**
- * Tasks node contents. `name` and `contract` are operator-authored document
- * truth; items are the runtime Work projection.
- */
-export const WorkTasks = Schema.Struct({
-  items: Schema.Array(Task),
-  name: Schema.optionalKey(Schema.String),
-  contract: Schema.optionalKey(TasksContract),
-});
-export type WorkTasks = typeof WorkTasks.Type;
-
-/**
- * Requests sink contents. Requests share the Task state machine. `name` is
- * operator-authored document truth (the sink's stable identity, surviving
- * work ops); items are the runtime Work projection.
- */
-export const WorkRequests = Schema.Struct({
-  items: Schema.Array(Task),
-  name: Schema.optionalKey(Schema.String),
-});
-export type WorkRequests = typeof WorkRequests.Type;
-
-/** Artifact sink contents. */
-export const WorkArtifacts = Schema.Struct({
-  items: Schema.Array(Artifact),
-});
-export type WorkArtifacts = typeof WorkArtifacts.Type;
-
-/** Per-actor mailbox contents. */
-export const WorkMessages = Schema.Struct({
-  items: Schema.Array(Message),
-});
-export type WorkMessages = typeof WorkMessages.Type;
-
-/**
  * Bulletin-board author. Operator is the Command Center human; actor is a
  * process-bound seat. Never Message.role and never client-supplied freeform.
  */
@@ -562,7 +528,7 @@ export const BoardTopicView = Schema.Struct({
 });
 export type BoardTopicView = typeof BoardTopicView.Type;
 
-/** Board sink contents (full lane at snapshot; ether may strip to glance). */
+/** Board sink contents, read separately from the board node. */
 export const WorkBoard = Schema.Struct({
   topics: Schema.Array(BoardTopicView),
 });
@@ -583,14 +549,7 @@ export const BoardGlanceTopic = Schema.Struct({
 });
 export type BoardGlanceTopic = typeof BoardGlanceTopic.Type;
 
-export const EtherBoard = Schema.Struct({
-  topics: Schema.Array(BoardGlanceTopic),
-  /** Operator-local unread post count when known (sum over topics). */
-  unread: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
-});
-export type EtherBoard = typeof EtherBoard.Type;
-
-/** Canvas glance strip — title lives on the text node; counts from SQLite. */
+/** Pad glance counts queried from SQLite; the title lives on its native node. */
 export const PadGlance = Schema.Struct({
   revision: Schema.Number.pipe(
     Schema.check(Schema.isInt()),
@@ -606,17 +565,3 @@ export const PadGlance = Schema.Struct({
   ),
 });
 export type PadGlance = typeof PadGlance.Type;
-
-/**
- * Canonical work-lane values exposed at the runtime projection boundary.
- * These names identify projected lane contents; they are not document
- * durability or a second persistence model.
- */
-export const EtherTasks = WorkTasks;
-export type EtherTasks = WorkTasks;
-
-export const EtherRequests = WorkRequests;
-export type EtherRequests = WorkRequests;
-
-export const EtherArtifacts = WorkArtifacts;
-export type EtherArtifacts = WorkArtifacts;

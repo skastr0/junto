@@ -12,15 +12,11 @@ import {
   type VerbGrant,
 } from "./physics/verbs";
 import {
-  EtherArtifacts,
-  EtherBoard,
+  Artifact, BoardGlanceTopic, Task, TasksContract,
   PadGlance,
-  EtherRequests,
-  EtherTasks,
   Rule,
   Ruling,
 } from "./work-model";
-
 
 export {
   Artifact,
@@ -52,11 +48,7 @@ export {
   decodeContentPart,
   CompletionEvidence,
   DataPart,
-  EtherArtifacts,
-  EtherBoard,
   PadGlance,
-  EtherRequests,
-  EtherTasks,
   FinishCriteria,
   Message,
   MessageRole,
@@ -78,13 +70,36 @@ export {
   VisitExit,
   Waiver,
   isContentPart,
-  WorkArtifacts,
   WorkBoard,
-  WorkMessages,
   WorkMetadata,
-  WorkRequests,
-  WorkTasks,
 } from "./work-model";
+
+const EtherTasks = Schema.Struct({
+  items: Schema.Array(Task),
+  name: Schema.optionalKey(Schema.String),
+  contract: Schema.optionalKey(TasksContract),
+});
+
+/**
+ * Requests sink contents. Requests share the Task state machine. `name` is
+ * operator-authored document truth (the sink's stable identity, surviving
+ * work ops); items are the runtime Work projection.
+ */
+const EtherRequests = Schema.Struct({
+  items: Schema.Array(Task),
+  name: Schema.optionalKey(Schema.String),
+});
+
+/** Artifact sink contents. */
+const EtherArtifacts = Schema.Struct({
+  items: Schema.Array(Artifact),
+});
+
+const EtherBoard = Schema.Struct({
+  topics: Schema.Array(BoardGlanceTopic),
+  /** Operator-local unread post count when known (sum over topics). */
+  unread: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
+});
 
 // JSON Canvas 1.0 (https://jsoncanvas.org/spec/1.0/) plus the namespaced
 // `ether` extension. Invariant: a document stripped of every `ether` key must
@@ -866,7 +881,6 @@ export const decodeCanvasDoc = (
   input: unknown,
 ): ReturnType<typeof decodeCanvasDocStrict> =>
   decodeCanvasDocStrict(scrubCanvasDocInput(input));
-
 
 const NODE_KEY_ORDER = [
   "id",
