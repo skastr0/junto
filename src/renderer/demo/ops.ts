@@ -3,7 +3,7 @@ import type { CanvasDoc } from "@shared/canvas";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 import { beatMs } from "@shared/demo";
 import { formatNodeRef } from "@shared/node-ref";
-import { cycleAlertFocus } from "../lib/alert-attention";
+import { stepToNextAgent } from "../lib/urgency-step";
 import { commitDoc } from "../lib/mutations";
 import { selectNodes, state$ } from "../lib/state";
 import { playDemoCue } from "../lib/sound";
@@ -91,7 +91,7 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
         );
         break;
       case "alert-cycle":
-        cycleAlertFocus();
+        stepToNextAgent();
         break;
       case "page-open": {
         try {

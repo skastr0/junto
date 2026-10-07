@@ -1,130 +1,63 @@
+/**
+ * Rising edges for the attention sounds: what rises, what does not.
+ */
 import { describe, expect, it } from "vitest";
-import {
-  alertId,
-  cycleNext,
-  emptyAlertQueue,
-  observeSignals,
-  resolveFocusNodeId,
-  type AlertQueue,
-  type AlertSignal,
-} from "../src/renderer/lib/alert-queue";
+import { alertId, emptyAlertQueue, observeSignals, type AlertKind, type AlertSignal } from "../src/renderer/lib/alert-queue";
+import { ALERT_URGENCY } from "../src/renderer/lib/alert-attention";
 
-const sig = (partial: AlertSignal): AlertSignal => partial;
-const attention = (nodeId: string): AlertSignal => sig({
-  id: alertId.node(nodeId), kind: "attention", subjectKey: nodeId, nodeId, level: 1,
-});
-const blocked = (nodeId: string): AlertSignal => sig({
-  id: alertId.node(nodeId), kind: "blocked", subjectKey: nodeId, nodeId, level: 2,
+const signal = (nodeId: string, kind: AlertKind): AlertSignal => ({
+  id: alertId.node(nodeId),
+  kind,
+  subjectKey: nodeId,
+  urgency: ALERT_URGENCY[kind],
 });
 
-describe("alert-queue", () => {
-  describe("observeSignals — baseline and escalation", () => {
-    it("baselines the first frame without an alert", () => {
-      const { queue, risen } = observeSignals(emptyAlertQueue(), [attention("n1"), blocked("n2")], 1000);
-      expect(risen).toEqual([]);
-      expect(queue.baselined).toBe(true);
-      expect(queue.items).toEqual([]);
-      expect(queue.known).toEqual({ [alertId.node("n1")]: "1", [alertId.node("n2")]: "2" });
-    });
+const baselined = (signals: ReadonlyArray<AlertSignal> = []) => observeSignals(emptyAlertQueue(), signals).queue;
 
-    it("rises when an idle node enters attention or blocked", () => {
-      const q = observeSignals(emptyAlertQueue(), [], 1).queue;
-      const result = observeSignals(q, [attention("n1"), blocked("n2")], 2);
-      expect(result.risen.map((item) => [item.id, item.kind, item.level])).toEqual([
-        [alertId.node("n1"), "attention", 1],
-        [alertId.node("n2"), "blocked", 2],
-      ]);
-    });
-
-    it("rises again only when attention escalates to blocked", () => {
-      let q = observeSignals(emptyAlertQueue(), [attention("n1")], 1).queue;
-      const escalation = observeSignals(q, [blocked("n1")], 2);
-      expect(escalation.risen).toEqual([
-        expect.objectContaining({ id: alertId.node("n1"), kind: "blocked", level: 2, at: 2 }),
-      ]);
-
-      q = escalation.queue;
-      const deescalation = observeSignals(q, [attention("n1")], 3);
-      expect(deescalation.risen).toEqual([]);
-      expect(deescalation.queue.items).toEqual([
-        expect.objectContaining({ id: alertId.node("n1"), kind: "attention", level: 1, at: 2 }),
-      ]);
-
-      const reescalation = observeSignals(deescalation.queue, [blocked("n1")], 4);
-      expect(reescalation.risen).toEqual([
-        expect.objectContaining({ id: alertId.node("n1"), kind: "blocked", level: 2, at: 4 }),
-      ]);
-    });
-
-    it("clears a node when it returns to idle", () => {
-      let q = observeSignals(emptyAlertQueue(), [], 1).queue;
-      q = observeSignals(q, [blocked("n1")], 2).queue;
-      const cleared = observeSignals(q, [], 3);
-      expect(cleared.risen).toEqual([]);
-      expect(cleared.queue.items).toEqual([]);
-      expect(cleared.queue.known[alertId.node("n1")]).toBeUndefined();
-    });
+describe("alert rises", () => {
+  it("the first observe is the baseline: nothing has risen", () => {
+    const first = observeSignals(emptyAlertQueue(), [signal("a", "blocked")]);
+    expect(first.risen).toEqual([]);
+    expect(first.queue.baselined).toBe(true);
+    // What was there at the baseline is not news on the next look either.
+    expect(observeSignals(first.queue, [signal("a", "blocked")]).risen).toEqual([]);
   });
 
-  describe("priority and cycling", () => {
-    it("orders blocked before attention before ready before working", () => {
-      let q = observeSignals(emptyAlertQueue(), [], 1).queue;
-      const ready = (nodeId: string): AlertSignal => sig({
-        id: alertId.node(nodeId), kind: "ready", subjectKey: nodeId, nodeId, level: 2,
-      });
-      const working = (nodeId: string): AlertSignal => sig({
-        id: alertId.node(nodeId), kind: "working", subjectKey: nodeId, nodeId, level: 1,
-      });
-      q = observeSignals(q, [working("w"), attention("a"), ready("r"), blocked("b")], 2).queue;
-      expect(q.items.map((item) => item.kind)).toEqual([
-        "blocked",
-        "attention",
-        "ready",
-        "working",
-      ]);
-    });
-
-    it("cycleNext skips unfocusable items", () => {
-      let q = observeSignals(emptyAlertQueue(), [], 1).queue;
-      q = observeSignals(q, [
-        sig({ id: alertId.node("ghost"), kind: "blocked", subjectKey: "ghost", level: 2 }),
-        blocked("real"),
-      ], 2).queue;
-      expect(cycleNext(q).item?.nodeId).toBe("real");
-    });
-
-    const seeded = (): AlertQueue => {
-      let q = observeSignals(emptyAlertQueue(), [], 1).queue;
-      return observeSignals(q, [blocked("a"), blocked("b"), blocked("c")], 2).queue;
-    };
-
-    it("advances and wraps", () => {
-      let q = seeded();
-      q = cycleNext(q).queue;
-      q = cycleNext(q).queue;
-      const third = cycleNext(q);
-      expect(third.item?.nodeId).toBe("c");
-      expect(cycleNext(third.queue).item?.nodeId).toBe("a");
-    });
-
-    it("clamps cycleIndex when items shrink past it", () => {
-      let q = seeded();
-      q = cycleNext(q).queue;
-      q = cycleNext(q).queue;
-      q = cycleNext(q).queue;
-      const shrunk = observeSignals(q, [blocked("a")], 9).queue;
-      expect(shrunk.cycleIndex).toBe(0);
-    });
+  it("a subject that appears after the baseline rises", () => {
+    const next = observeSignals(baselined(), [signal("a", "attention"), signal("b", "working")]);
+    expect(next.risen.map((entry) => [entry.subjectKey, entry.kind])).toEqual([
+      ["a", "attention"],
+      ["b", "working"],
+    ]);
   });
 
-  describe("helpers", () => {
-    it("builds a stable node alert id", () => {
-      expect(alertId.node("n")).toBe("node:n");
-    });
+  it("a subject rises again when it becomes more urgent, by the shared urgency table", () => {
+    let queue = baselined([signal("a", "working")]);
+    const toReady = observeSignals(queue, [signal("a", "ready")]);
+    expect(toReady.risen.map((entry) => entry.kind)).toEqual(["ready"]);
+    queue = toReady.queue;
+    const toBlocked = observeSignals(queue, [signal("a", "blocked")]);
+    expect(toBlocked.risen.map((entry) => entry.kind)).toEqual(["blocked"]);
+  });
 
-    it("resolves focus targets only when present", () => {
-      expect(resolveFocusNodeId({ id: "x", kind: "blocked", subjectKey: "x", nodeId: "node-1", at: 1 })).toBe("node-1");
-      expect(resolveFocusNodeId({ id: "x", kind: "attention", subjectKey: "x", nodeId: "  ", at: 1 })).toBeUndefined();
-    });
+  it("a subject that calms down, or is re-sent unchanged, does not rise", () => {
+    const queue = baselined([signal("a", "blocked")]);
+    expect(observeSignals(queue, [signal("a", "blocked")]).risen).toEqual([]);
+    const calmer = observeSignals(queue, [signal("a", "working")]);
+    expect(calmer.risen).toEqual([]);
+    // From the calmer state, getting urgent again is a rise.
+    expect(observeSignals(calmer.queue, [signal("a", "attention")]).risen).toHaveLength(1);
+  });
+
+  it("a subject that left and comes back rises, unless it was held", () => {
+    const queue = baselined([signal("a", "attention")]);
+    const gone = observeSignals(queue, []);
+    expect(observeSignals(gone.queue, [signal("a", "attention")]).risen).toHaveLength(1);
+
+    // Held: its state was unknown for a moment; back where it was is not news.
+    const held = observeSignals(queue, [], new Set([alertId.node("a")]));
+    expect(observeSignals(held.queue, [signal("a", "attention")]).risen).toEqual([]);
+    // Back and more urgent than before the gap: that is news.
+    expect(observeSignals(held.queue, [signal("a", "blocked")]).risen).toHaveLength(1);
   });
 });

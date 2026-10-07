@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ALERT_URGENCY,
   collectAlertSignals,
   collectReadyWorkingSignals,
-  cycleAlertFocus,
   mergeCycleSignals,
   observeAlertSignals,
   resetAlertQueue,
 } from "../src/renderer/lib/alert-attention";
-import { alertId, cycleNext, emptyAlertQueue, observeSignals } from "../src/renderer/lib/alert-queue";
+import { alertId, type AlertKind, type AlertSignal } from "../src/renderer/lib/alert-queue";
+import { SEAT_URGENCY } from "../src/renderer/lib/seat-line";
 import * as sound from "../src/renderer/lib/sound";
-import { state$ } from "../src/renderer/lib/state";
 import type { RegionRollup } from "../src/shared/region-rollup";
 import type { CanvasNode } from "../src/shared/canvas";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
@@ -22,8 +22,26 @@ const rollup = (members: RegionRollup["members"]): RegionRollup => ({
   members,
 });
 
+const signal = (nodeId: string, kind: AlertKind): AlertSignal => ({
+  id: alertId.node(nodeId),
+  kind,
+  subjectKey: nodeId,
+  urgency: ALERT_URGENCY[kind],
+});
+
+describe("how urgent each kind is", () => {
+  it("reads the one urgency table", () => {
+    expect(ALERT_URGENCY).toEqual({
+      blocked: SEAT_URGENCY.blocked,
+      attention: SEAT_URGENCY.waiting,
+      ready: SEAT_URGENCY.review,
+      working: SEAT_URGENCY.working,
+    });
+  });
+});
+
 describe("collectAlertSignals", () => {
-  it("builds stable node signals for blocked, attention, and working members", () => {
+  it("builds one signal per member that is blocked, wants input, or is working", () => {
     const signals = collectAlertSignals([
       rollup([
         { nodeId: "n-attention", label: "review", kind: "agent", severity: "attention", reasons: [] },
@@ -32,116 +50,71 @@ describe("collectAlertSignals", () => {
         { nodeId: "n-idle", label: "idle", kind: "agent", severity: "idle", reasons: [] },
       ]),
     ]);
-
-    expect(signals).toEqual([
-      {
-        id: alertId.node("n-attention"),
-        kind: "attention",
-        subjectKey: "n-attention",
-        nodeId: "n-attention",
-        label: "review",
-        level: 3,
-      },
-      {
-        id: alertId.node("n-blocked"),
-        kind: "blocked",
-        subjectKey: "n-blocked",
-        nodeId: "n-blocked",
-        label: "deploy",
-        level: 4,
-      },
-      {
-        id: alertId.node("n-working"),
-        kind: "working",
-        subjectKey: "n-working",
-        nodeId: "n-working",
-        label: "build",
-        level: 1,
-      },
-    ]);
+    expect(signals).toEqual([signal("n-attention", "attention"), signal("n-blocked", "blocked"), signal("n-working", "working")]);
   });
 
-  it("dedupes overlapping members and retains the highest severity", () => {
+  it("a node in overlapping regions keeps its most urgent state", () => {
     const signals = collectAlertSignals([
       rollup([{ nodeId: "shared", label: "first", kind: "agent", severity: "attention", reasons: [] }]),
       rollup([{ nodeId: "shared", label: "second", kind: "agent", severity: "blocked", reasons: [] }]),
+      rollup([{ nodeId: "shared", label: "third", kind: "agent", severity: "working", reasons: [] }]),
     ]);
-
-    expect(signals).toEqual([
-      expect.objectContaining({ id: alertId.node("shared"), kind: "blocked", level: 4, label: "second" }),
-    ]);
+    expect(signals).toEqual([signal("shared", "blocked")]);
   });
 });
 
-describe("observeAlertSignals + cycleAlertFocus", () => {
+describe("observeAlertSignals", () => {
   afterEach(() => {
     resetAlertQueue();
     vi.restoreAllMocks();
-    state$.doc.set({ nodes: [], edges: [] });
-    state$.selectedNodeId.set("");
-    state$.selectedNodeIds.set([]);
-    state$.selectedEdgeId.set("");
-    state$.focusNodeId.set("");
   });
 
-  it("baselines then rises with the matching cue, cycles with the navigate cue + focus", () => {
+  it("baselines, then sounds a rise with the cue of its kind", () => {
     const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
-    const nodeId = "focus-me";
-    state$.doc.set({
-      nodes: [{ id: nodeId, type: "text", x: 0, y: 0, width: 80, height: 40, text: "blocked" }],
-      edges: [],
-    });
-    const signal = {
-      id: alertId.node(nodeId), kind: "blocked" as const, subjectKey: nodeId, nodeId, label: "blocked", level: 2,
-    };
-
-    observeAlertSignals([signal]);
+    observeAlertSignals([signal("n", "blocked")]);
     expect(play).not.toHaveBeenCalled();
-    expect(cycleAlertFocus()).toBe(false);
-
     observeAlertSignals([]);
-    observeAlertSignals([signal]);
-    expect(play).toHaveBeenCalledWith("blocked", { subject: nodeId });
-
-    play.mockClear();
-    expect(cycleAlertFocus()).toBe(true);
-    expect(play).toHaveBeenCalledWith("navigate");
-    expect(state$.focusNodeId.peek()).toBe(nodeId);
-    expect(state$.selectedNodeId.peek()).toBe(nodeId);
-    expect(state$.selectedNodeIds.peek()).toEqual([nodeId]);
+    observeAlertSignals([signal("n", "blocked")]);
+    expect(play).toHaveBeenCalledWith("blocked", { subject: "n" });
   });
 
   it("sounds waiting on you for an attention rise", () => {
     const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
-    const signal = { id: alertId.node("n1"), kind: "attention" as const, subjectKey: "n1", nodeId: "n1", level: 1 };
     observeAlertSignals([]);
-    observeAlertSignals([signal]);
+    observeAlertSignals([signal("n1", "attention")]);
     expect(play).toHaveBeenCalledWith("waiting", { subject: "n1" });
   });
 
   it("sounds done and started working, each for its own seat", () => {
     const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
     observeAlertSignals([]);
-    observeAlertSignals([
-      { id: alertId.node("r"), kind: "ready", subjectKey: "r", nodeId: "r", level: 2 },
-      { id: alertId.node("w"), kind: "working", subjectKey: "w", nodeId: "w", level: 1 },
-    ]);
+    observeAlertSignals([signal("r", "ready"), signal("w", "working")]);
     expect(play).toHaveBeenCalledWith("done", { subject: "r" });
     expect(play).toHaveBeenCalledWith("working", { subject: "w" });
   });
 
-  it("stays quiet when a seat calms down (done back to working)", () => {
+  it("stays quiet when a seat calms down (done back to working), and sounds when it gets urgent again", () => {
     const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
-    const at = (kind: "ready" | "working", level: number) =>
-      [{ id: alertId.node("s"), kind, subjectKey: "s", nodeId: "s", level }];
-    observeAlertSignals(at("ready", 2));
-    observeAlertSignals(at("working", 1));
+    observeAlertSignals([signal("s", "ready")]);
+    observeAlertSignals([signal("s", "working")]);
+    expect(play).not.toHaveBeenCalled();
+    observeAlertSignals([signal("s", "attention")]);
+    expect(play).toHaveBeenCalledWith("waiting", { subject: "s" });
+  });
+
+  it("another canvas's seats are not news, and nothing sounds before the seats have loaded", () => {
+    const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
+    observeAlertSignals([], { scope: "one" });
+    observeAlertSignals([signal("x", "blocked")], { scope: "two" });
+    expect(play).not.toHaveBeenCalled();
+    observeAlertSignals([signal("y", "blocked")], { scope: "two", settled: false });
+    observeAlertSignals([signal("y", "blocked")], { scope: "two", settled: true });
     expect(play).not.toHaveBeenCalled();
   });
 });
 
-describe("ready/working cycle order", () => {
-  it("collectReadyWorkingSignals maps seat done→ready, attention, and working", async () => {
+describe("seats anywhere on the canvas", () => {
+  it("collectReadyWorkingSignals maps a seat's done to ready, and its attention and working", async () => {
     const { agentSeat$, resetAgentSeatState } = await import(
       "../src/renderer/lib/agent-seat-state"
     );
@@ -152,105 +125,35 @@ describe("ready/working cycle order", () => {
       "agent-3": "bind-3",
     });
     try {
-      const nodes = [
-        {
-          id: "agent-1",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 80,
-          height: 40,
-          text: "coder",
-        },
-        {
-          id: "agent-2",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 80,
-          height: 40,
-          text: "reviewer",
-        },
-        {
-          id: "agent-3",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 80,
-          height: 40,
-          text: "blocked-writer",
-        },
-      ] as unknown as ReadonlyArray<CanvasNode>;
+      const nodes = ["agent-1", "agent-2", "agent-3"].map((id) => ({ id, type: "text", x: 0, y: 0, width: 80, height: 40, text: id })) as unknown as ReadonlyArray<CanvasNode>;
+      const at = (bindingId: string, state: AgentSeatStateEvent["state"]): AgentSeatStateEvent => ({
+        bindingId,
+        epoch: "e",
+        state,
+        reason: "r",
+        confidence: "high",
+        at: 1,
+      });
       const seats: Record<string, AgentSeatStateEvent> = {
-        "bind-1": {
-          bindingId: "bind-1",
-          epoch: "e1",
-          state: "idle",
-          reason: "turn-end",
-          confidence: "high",
-          at: 1,
-        },
-        "bind-2": {
-          bindingId: "bind-2",
-          epoch: "e2",
-          state: "working",
-          reason: "turn",
-          confidence: "high",
-          at: 1,
-        },
-        "bind-3": {
-          bindingId: "bind-3",
-          epoch: "e3",
-          state: "attention",
-          reason: "needs-input",
-          confidence: "high",
-          at: 1,
-        },
+        "bind-1": at("bind-1", "idle"),
+        "bind-2": at("bind-2", "working"),
+        "bind-3": at("bind-3", "attention"),
       };
       const signals = collectReadyWorkingSignals(nodes, seats, {
         "bind-1": true,
       });
-      expect(signals).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ nodeId: "agent-1", kind: "ready" }),
-          expect.objectContaining({ nodeId: "agent-2", kind: "working" }),
-          // freestanding attention must enter Space cycle (not only region members)
-          expect.objectContaining({ nodeId: "agent-3", kind: "attention" }),
-        ]),
-      );
+      // A freestanding seat is heard too, not only region members.
+      expect(signals).toEqual([signal("agent-1", "ready"), signal("agent-2", "working"), signal("agent-3", "attention")]);
     } finally {
       resetAgentSeatState();
     }
   });
 
-  it("cycle walks notifications then ready then working", () => {
-    let q = observeSignals(emptyAlertQueue(), [], 1).queue;
+  it("a seat that is both a region member and freestanding keeps its most urgent state", () => {
     const merged = mergeCycleSignals(
-      collectAlertSignals([
-        rollup([
-          { nodeId: "b", label: "b", kind: "agent", severity: "blocked", reasons: [] },
-          { nodeId: "a", label: "a", kind: "agent", severity: "attention", reasons: [] },
-          { nodeId: "w", label: "w", kind: "agent", severity: "working", reasons: [] },
-        ]),
-      ]),
-      [
-        {
-          id: alertId.node("r"),
-          kind: "ready",
-          subjectKey: "r",
-          nodeId: "r",
-          label: "r",
-          level: 2,
-        },
-      ],
+      collectAlertSignals([rollup([{ nodeId: "a", label: "a", kind: "agent", severity: "working", reasons: [] }])]),
+      [signal("a", "ready"), signal("b", "working")],
     );
-    q = observeSignals(q, merged, 2).queue;
-    const order: string[] = [];
-    for (let i = 0; i < 4; i += 1) {
-      const step = cycleNext(q);
-      q = step.queue;
-      if (step.item?.nodeId) order.push(step.item.nodeId);
-    }
-    expect(order).toEqual(["b", "a", "r", "w"]);
+    expect(merged).toEqual([signal("a", "ready"), signal("b", "working")]);
   });
 });

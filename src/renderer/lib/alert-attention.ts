@@ -1,9 +1,10 @@
 /**
- * Wire: rising-edge alert queue → SFX + the alert cycle → focusNodeId.
+ * Wire: live seat and region states → rising edges → the attention sounds.
  *
- * Pure model lives in alert-queue.ts. This module collects cycle targets
- * (notifications → ready/complete → working), observes the queue, sounds
- * each rise (a seat getting more urgent), and cycles focus.
+ * Pure model lives in alert-queue.ts. This module collects what is present
+ * (blocked, wanting input, finished and unread, working), observes it, and
+ * sounds each rise: a subject getting more urgent than it was. Stepping to
+ * the next agent is the shared urgency order's (lib/urgency-step.ts).
  */
 
 import { use$ } from "@legendapp/state/react";
@@ -18,27 +19,41 @@ import {
 } from "./agent-seat-state";
 import {
   alertId,
-  cycleNext,
   emptyAlertQueue,
   observeSignals,
-  resolveFocusNodeId,
-  type AlertItem,
   type AlertKind,
   type AlertQueue,
   type AlertSignal,
 } from "./alert-queue";
-import { nodeTitle } from "./presentation";
+import { SEAT_URGENCY, type SeatUrgency } from "./seat-line";
 import { playCue } from "./sound";
 import { ALERT_CUE } from "./sound/director";
-import { selectNode, state$ } from "./state";
+import { state$ } from "./state";
 
-/** Severity ladder for cycle kinds — higher wins when the same node appears twice. */
-const KIND_LEVEL: Readonly<Record<AlertKind, number>> = {
-  blocked: 4,
-  attention: 3,
-  ready: 2,
-  working: 1,
+/**
+ * How urgent each kind is, on the one table every surface reads: the rise
+ * test and "which of two states wins for one node" both come from it.
+ */
+export const ALERT_URGENCY: Readonly<Record<AlertKind, SeatUrgency>> = {
+  blocked: SEAT_URGENCY.blocked,
+  attention: SEAT_URGENCY.waiting,
+  ready: SEAT_URGENCY.review,
+  working: SEAT_URGENCY.working,
 };
+
+/** Keep the more urgent of two signals for one subject. */
+const keepMoreUrgent = (byId: Map<string, AlertSignal>, signal: AlertSignal): void => {
+  const previous = byId.get(signal.id);
+  if (previous !== undefined && previous.urgency <= signal.urgency) return;
+  byId.set(signal.id, signal);
+};
+
+const signalFor = (nodeId: string, kind: AlertKind): AlertSignal => ({
+  id: alertId.node(nodeId),
+  kind,
+  subjectKey: nodeId,
+  urgency: ALERT_URGENCY[kind],
+});
 
 const severityToCycleKind = (
   severity: RegionRollup["members"][number]["severity"],
@@ -52,44 +67,24 @@ const severityToCycleKind = (
   return undefined;
 };
 
-/** Build one stable, actionable signal per cycle-worthy region member. */
+/** One signal per region member that is blocked, wants input, is finished and unread, or is working. */
 export const collectAlertSignals = (
   rollups: ReadonlyArray<RegionRollup>,
 ): ReadonlyArray<AlertSignal> => {
   const byId = new Map<string, AlertSignal>();
-
-  const push = (signal: AlertSignal): void => {
-    const previous = byId.get(signal.id);
-    if (previous !== undefined && (previous.level ?? 0) >= (signal.level ?? 0)) return;
-    byId.set(signal.id, signal);
-  };
-
-  // A node can be a member of overlapping regions. Its highest severity wins.
+  // A node can be a member of overlapping regions: its most urgent state wins.
   for (const rollup of rollups) {
     for (const member of rollup.members) {
       const kind = severityToCycleKind(member.severity);
-      if (!kind) continue;
-      push({
-        id: alertId.node(member.nodeId),
-        kind,
-        subjectKey: member.nodeId,
-        nodeId: member.nodeId,
-        label: member.label,
-        level: KIND_LEVEL[kind],
-      });
+      if (kind) keepMoreUrgent(byId, signalFor(member.nodeId, kind));
     }
   }
-
   return [...byId.values()];
 };
 
 /**
- * Canvas-wide cycle targets from managed seats.
- *
- * Region rollups only cover group members — freestanding agents outside every
- * region still need Space/` to land on them (parity with the notify strip).
- * Emits ready / working / attention (not graph-blocked; that stays on rollups
- * + notify freestanding).
+ * The same for managed seats anywhere on the canvas: region rollups only
+ * cover region members, and a freestanding agent is heard too.
  */
 export const collectReadyWorkingSignals = (
   nodes: ReadonlyArray<CanvasNode>,
@@ -97,69 +92,23 @@ export const collectReadyWorkingSignals = (
   needsLookByBindingId: Readonly<Record<string, boolean | undefined>>,
 ): ReadonlyArray<AlertSignal> => {
   const byId = new Map<string, AlertSignal>();
-  const push = (signal: AlertSignal): void => {
-    const previous = byId.get(signal.id);
-    if (previous !== undefined && (previous.level ?? 0) >= (signal.level ?? 0)) return;
-    byId.set(signal.id, signal);
-  };
-
   for (const node of nodes) {
-    const label = nodeTitle(node);
     const bindingId = bindingIdForNode(node);
-    if (bindingId) {
-      const event = seats[bindingId];
-      const presentation = presentationForSeat(
-        event?.state,
-        needsLookByBindingId[bindingId] === true,
-      );
-      if (presentation === "done") {
-        push({
-          id: alertId.node(node.id),
-          kind: "ready",
-          subjectKey: node.id,
-          nodeId: node.id,
-          label,
-          level: KIND_LEVEL.ready,
-        });
-      } else if (presentation === "attention") {
-        // Needs-input freestanding seats — not only region members.
-        push({
-          id: alertId.node(node.id),
-          kind: "attention",
-          subjectKey: node.id,
-          nodeId: node.id,
-          label,
-          level: KIND_LEVEL.attention,
-        });
-      } else if (presentation === "working") {
-        push({
-          id: alertId.node(node.id),
-          kind: "working",
-          subjectKey: node.id,
-          nodeId: node.id,
-          label,
-          level: KIND_LEVEL.working,
-        });
-      }
-    }
-
+    if (!bindingId) continue;
+    const presentation = presentationForSeat(seats[bindingId]?.state, needsLookByBindingId[bindingId] === true);
+    const kind: AlertKind | undefined =
+      presentation === "done" ? "ready" : presentation === "attention" ? "attention" : presentation === "working" ? "working" : undefined;
+    if (kind) keepMoreUrgent(byId, signalFor(node.id, kind));
   }
-
   return [...byId.values()];
 };
 
-/** Merge rollup + ready/working signals; worst kind wins per node. */
+/** Merge signal groups; the most urgent state wins per node. */
 export const mergeCycleSignals = (
   ...groups: ReadonlyArray<ReadonlyArray<AlertSignal>>
 ): ReadonlyArray<AlertSignal> => {
   const byId = new Map<string, AlertSignal>();
-  for (const group of groups) {
-    for (const signal of group) {
-      const previous = byId.get(signal.id);
-      if (previous !== undefined && (previous.level ?? 0) >= (signal.level ?? 0)) continue;
-      byId.set(signal.id, signal);
-    }
-  }
+  for (const group of groups) for (const signal of group) keepMoreUrgent(byId, signal);
   return [...byId.values()];
 };
 
@@ -167,18 +116,10 @@ let queue: AlertQueue = emptyAlertQueue();
 /** The canvas the queue's baseline was taken on. */
 let queueScope: string | undefined;
 
-/** Clear baseline + items (unmount / tests). Next observe re-baselines. */
+/** Clear the baseline (unmount, tests). The next observe re-baselines. */
 export const resetAlertQueue = (): void => {
   queue = emptyAlertQueue();
   queueScope = undefined;
-};
-
-const focusAlertItem = (item: AlertItem | undefined): void => {
-  const nodeId = resolveFocusNodeId(item);
-  if (!nodeId) return;
-  if (!state$.doc.peek().nodes.some((n) => n.id === nodeId)) return;
-  selectNode(nodeId);
-  state$.focusNodeId.set(nodeId);
 };
 
 export type AlertObserveContext = {
@@ -212,21 +153,11 @@ export const observeAlertSignals = (
     queue = emptyAlertQueue();
     return;
   }
-  const result = observeSignals(queue, signals, Date.now(), context.held);
+  const result = observeSignals(queue, signals, context.held);
   queue = result.queue;
   for (const item of result.risen) {
     playCue(ALERT_CUE[item.kind], { subject: item.subjectKey });
   }
-};
-
-/** Next alert → focus + the navigate cue. False when no alert is waiting. Its keys are in the key table. */
-export const cycleAlertFocus = (): boolean => {
-  const result = cycleNext(queue);
-  queue = result.queue;
-  if (!result.item) return false;
-  playCue("navigate");
-  focusAlertItem(result.item);
-  return true;
 };
 
 /**
@@ -281,9 +212,9 @@ const collectLiveCycleSignals = (
 };
 
 /**
- * Mount in RTS chrome: subscribe live planes, observe queue, bind Space / `.
- * Rollups come from the parent (already computed for chips). Ready/working
- * seats come from live stores so completes enter the tour.
+ * Mount in RTS chrome: follow the live planes and sound each rise. Rollups
+ * come from the parent (already computed for chips); seat states come from
+ * the live stores, so a freestanding seat is heard too.
  */
 export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   const rollupsRef = useRef(rollups);
@@ -302,8 +233,8 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
 
     return () => {
       // Full unmount of RTS chrome only. Must NOT run when `rollups` identity
-      // changes — parent re-creates the array every fuse and a wipe re-baselines
-      // the queue so Space goes dead after the rise you just heard.
+      // changes: the parent re-creates the array every fuse, and a wipe would
+      // re-baseline, so the next real rise would go unheard.
       resetAlertQueue();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rollups via ref; see comment above
