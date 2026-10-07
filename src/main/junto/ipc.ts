@@ -52,6 +52,7 @@ import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
+import { contentObjectUrl } from "@shared/content-url";
 import type { AgentSignal } from "@shared/agent-signals";
 import { messageDelivery } from "./work/message-delivery";
 import { AgentSignalRepository } from "./signals/repository";
@@ -815,6 +816,7 @@ export const registerJuntoIpc = (): void => {
         objectPath: opened.path,
         byteLength: opened.byteLength,
         name: attachment.ref.displayName ?? "file",
+        streamUrl: contentObjectUrl(attachment.ref),
         ...render,
       });
     }

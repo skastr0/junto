@@ -20,6 +20,26 @@ export const sniffRasterType = (bytes: Uint8Array): string | undefined => {
   return undefined;
 };
 
+const ascii = (bytes: Uint8Array, from: number, to: number): string =>
+  String.fromCharCode(...bytes.subarray(from, to));
+
+/**
+ * Video type by signature; the extension only tells the two Matroska
+ * flavours apart. MP4 and QuickTime share one box layout (`ftyp` at 4), told
+ * apart by the brand after it; an audio-only brand is not a video.
+ */
+export const sniffVideoType = (bytes: Uint8Array, name = ""): string | undefined => {
+  if (startsWith(bytes, [0x66, 0x74, 0x79, 0x70], 4) && bytes.length >= 12) {
+    const brand = ascii(bytes, 8, 12);
+    if (brand.startsWith("M4A") || brand.startsWith("M4B")) return undefined;
+    return brand === "qt  " ? "video/quicktime" : "video/mp4";
+  }
+  if (startsWith(bytes, [0x1a, 0x45, 0xdf, 0xa3])) {
+    return previewExtension(`/${name}`) === "mkv" ? "video/x-matroska" : "video/webm";
+  }
+  return undefined;
+};
+
 const SVG_ROOT = /^﻿?\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+svg[^>[]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/iu;
 
 const SVG_ACTIVE = [
@@ -73,13 +93,16 @@ export const ATTACHMENT_OTHER_MEDIA_TYPE = "application/octet-stream";
  * What an attached file is recorded as. Any file may ride on a signal, of
  * any kind and any size: nothing is refused here. This only says how the
  * card will first offer it: a raster image by its bytes (PNG, JPEG, GIF,
- * WebP), a drawing by its svg name, text by its name (txt, md, markdown,
+ * WebP), a video by its bytes (MP4, QuickTime, WebM, Matroska), a drawing by
+ * its svg name, text by its name (txt, md, markdown,
  * json, diff, patch, log) with no NUL byte at its start, anything else as a
  * file. The preview read is what decides, from the bytes, what is drawn.
  */
 export const attachmentMediaType = (name: string, head: Uint8Array): string => {
   const raster = sniffRasterType(head);
   if (raster !== undefined) return raster;
+  const video = sniffVideoType(head, name);
+  if (video !== undefined) return video;
   const extension = previewExtension(`/${name}`);
   if (extension === "svg") return "image/svg+xml";
   const text = TEXT_MEDIA_TYPES[extension];

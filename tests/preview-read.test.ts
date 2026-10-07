@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { attachmentMediaType, isInertSvg, sniffRasterType } from "@shared/preview-bytes";
-import { locatePreviewForReveal, readPreview, resolvePreviewPath } from "../src/main/junto/preview/read";
+import { attachmentMediaType, isInertSvg, sniffRasterType, sniffVideoType } from "@shared/preview-bytes";
+import { locatePreviewForReveal, readAttachmentPreview, readPreview, resolvePreviewPath } from "../src/main/junto/preview/read";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -185,5 +185,39 @@ describe("attachmentMediaType", () => {
     expect(attachmentMediaType("binary.txt", new Uint8Array([97, 0, 98]))).toBe("application/octet-stream");
     expect(attachmentMediaType("empty.txt", new Uint8Array())).toBe("text/plain");
     expect(attachmentMediaType("id_rsa", text("PRIVATE"))).toBe("application/octet-stream");
+  });
+});
+
+describe("video", () => {
+  const box = (brand: string): Uint8Array =>
+    new Uint8Array([0, 0, 0, 20, ...Buffer.from("ftyp"), ...Buffer.from(brand), 0, 0, 2, 0]);
+  const EBML = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 0, 0, 0, 0, 0, 0, 31]);
+
+  it("is told by its bytes, whatever it is named", () => {
+    expect(sniffVideoType(box("isom"))).toBe("video/mp4");
+    expect(sniffVideoType(box("mp42"), "clip.bin")).toBe("video/mp4");
+    expect(sniffVideoType(box("qt  "))).toBe("video/quicktime");
+    expect(sniffVideoType(EBML)).toBe("video/webm");
+    expect(sniffVideoType(EBML, "clip.mkv")).toBe("video/x-matroska");
+    // Sound only, a picture, text named as a film: not a video.
+    expect(sniffVideoType(box("M4A "))).toBeUndefined();
+    expect(sniffVideoType(PNG)).toBeUndefined();
+    expect(sniffVideoType(new TextEncoder().encode("not a film"), "fake.mp4")).toBeUndefined();
+    expect(attachmentMediaType("walkthrough.bin", box("isom"))).toBe("video/mp4");
+    expect(attachmentMediaType("fake.mp4", new TextEncoder().encode("not a film"))).toBe("application/octet-stream");
+  });
+
+  it("is played from the app's own address when the app holds it, and is only a file when named by a path", async () => {
+    await writeFile(at("clip.mp4"), Buffer.concat([box("isom"), Buffer.alloc(64)]));
+    const held = await readAttachmentPreview({
+      objectPath: at("clip.mp4"),
+      byteLength: 84,
+      name: "clip.mp4",
+      streamUrl: "junto-content://object/abc",
+      variant: "full",
+      thumbEdge: 64,
+    });
+    expect(held).toEqual({ ok: true, kind: "video", name: "clip.mp4", byteLength: 84, mediaType: "video/mp4", url: "junto-content://object/abc" });
+    expect(await read(at("clip.mp4"), at("clip.mp4"))).toMatchObject({ ok: true, kind: "file" });
   });
 });

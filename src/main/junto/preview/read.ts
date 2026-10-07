@@ -2,7 +2,7 @@ import { open, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isInertSvg, sniffRasterType } from "@shared/preview-bytes";
+import { isInertSvg, sniffRasterType, sniffVideoType } from "@shared/preview-bytes";
 import {
   PREVIEW_TEXT_EXCERPT_BYTES,
   previewExtension,
@@ -30,6 +30,9 @@ import {
  * - text when the resolved file's extension is txt, md, markdown, json, diff,
  *   patch or log and the bytes hold no NUL: the whole file, or its first
  *   PREVIEW_TEXT_EXCERPT_BYTES for the small variant;
+ * - a video when its bytes say so (MP4, QuickTime, WebM, Matroska) and the
+ *   app holds it in its own store (an attachment): the store's address for
+ *   it, which main streams. A video only named by a path is a file;
  * - for any other file: its name, extension and size. No bytes.
  *
  * It never writes, never lists a directory, and returns no path the caller
@@ -122,7 +125,13 @@ type PreviewRender = {
  * image at all.
  */
 const previewLocated = async (
-  file: { readonly path: string; readonly byteLength: number; readonly name: string },
+  file: {
+    readonly path: string;
+    readonly byteLength: number;
+    readonly name: string;
+    /** The app's own address for these bytes, when it holds them in its store. */
+    readonly streamUrl?: string;
+  },
   judgedAs: string,
   tryImage: boolean,
   render: PreviewRender,
@@ -149,6 +158,10 @@ const previewLocated = async (
     if (!tryImage) return plain;
 
     const signature = await readHead(path, 16);
+    const video = file.streamUrl === undefined ? undefined : sniffVideoType(signature, name);
+    if (video !== undefined && file.streamUrl !== undefined) {
+      return { ok: true, kind: "video", name, byteLength, mediaType: video, url: file.streamUrl };
+    }
     const raster = sniffRasterType(signature);
     if (raster !== undefined) {
       const bytes = await readHead(path, byteLength);
@@ -202,10 +215,12 @@ export const readAttachmentPreview = async (
     readonly byteLength: number;
     /** The attachment's display name: what it is called and how text is told. */
     readonly name: string;
+    /** The content store's address for the attachment: what a video is played from. */
+    readonly streamUrl?: string;
   } & PreviewRender,
 ): Promise<PreviewResult> =>
   previewLocated(
-    { path: input.objectPath, byteLength: input.byteLength, name: input.name },
+    { path: input.objectPath, byteLength: input.byteLength, name: input.name, streamUrl: input.streamUrl },
     `/${input.name}`,
     true,
     input,

@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { FileText } from "lucide-react";
+import { FileText, Film } from "lucide-react";
 import {
   previewBeforeAfter,
   previewLinkedMarkdown,
@@ -121,7 +121,8 @@ export function PreviewedMarkdown({
                     state={tile.state}
                     src={tile.src}
                     extension={tile.extension}
-                    glyph={tile.text ? <FileText size={16} aria-hidden /> : undefined}
+                    glyph={tile.text ? <FileText size={16} aria-hidden /> : tile.video ? <Film size={16} aria-hidden /> : undefined}
+                    playable={tile.video}
                     // An attachment's caption is all that tells two files apart by ear.
                     label={ref.attachment !== undefined && ref.caption ? `${ref.caption}, ${ref.name}` : ref.name}
                     tag={pair?.[0] === ref ? "A" : pair?.[1] === ref ? "B" : undefined}

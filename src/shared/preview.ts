@@ -10,7 +10,7 @@
  *   file (see `src/main/junto/preview/read.ts`).
  */
 
-export type PreviewKind = "image" | "text" | "file";
+export type PreviewKind = "image" | "video" | "text" | "file";
 
 /** One local file named in a piece of agent text. */
 export type PreviewRef = {
@@ -231,7 +231,11 @@ export const previewRefsOfAttachments = (
     return {
       path: `attachment:${index}`,
       name,
-      kind: attachment.ref.mediaType.startsWith("image/") ? "image" : "text",
+      kind: attachment.ref.mediaType.startsWith("image/")
+        ? "image"
+        : attachment.ref.mediaType.startsWith("video/")
+          ? "video"
+          : "text",
       attachment: index,
       ...(attachment.caption ? { caption: attachment.caption } : {}),
     };
@@ -282,6 +286,16 @@ export type PreviewResult =
       readonly mediaType: string;
       /** The image itself: the renderer never gets a file path to load. */
       readonly dataUrl: string;
+    }
+  | {
+      /** A video the app holds: played from the app's own store, never from a path. */
+      readonly ok: true;
+      readonly kind: "video";
+      readonly name: string;
+      readonly byteLength: number;
+      readonly mediaType: string;
+      /** The app's own address for the bytes; main streams them, with seeking. */
+      readonly url: string;
     }
   | {
       readonly ok: true;

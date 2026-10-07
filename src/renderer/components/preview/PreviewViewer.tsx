@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { ChevronLeft, ChevronRight, Columns2, FolderOpen, Pause, Play, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Columns2, Film, FolderOpen, Pause, Play, X } from "lucide-react";
 import {
   previewComparePair,
   previewMarkdownText,
@@ -31,7 +31,7 @@ import {
   type MediaSize,
 } from "../ui";
 import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
-import { formatPreviewBytes, previewTile, usePreviews, type PreviewLoad } from "./use-previews";
+import { formatPreviewBytes, previewTile, usePreviews, type PreviewLoad, type PreviewTileResult } from "./use-previews";
 
 const SLIDE_MS = 4000;
 /** MediaStage's padding, both sides: what the image cannot use. */
@@ -90,7 +90,7 @@ export function PreviewViewer({
 }: {
   /** What can be shown, in the order written. */
   readonly items: ReadonlyArray<PreviewRef>;
-  readonly thumbs: ReadonlyMap<string, PreviewResult>;
+  readonly thumbs: ReadonlyMap<string, PreviewTileResult>;
   readonly load: PreviewLoad;
   readonly source: PreviewSource;
   /** Path of the item to open on. */
@@ -142,7 +142,8 @@ export function PreviewViewer({
   // on the stage, ended by the last image, any key, or the window going away.
   useEffect(() => {
     if (!playing || hovered || compare) return;
-    if (index >= items.length - 1) {
+    // A video is watched at its own pace: the slideshow ends on it.
+    if (index >= items.length - 1 || current.kind === "video") {
       setPlaying(false);
       return;
     }
@@ -166,6 +167,8 @@ export function PreviewViewer({
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     if (event.key === "Escape" || event.key === "Tab" || event.key === "Shift") return;
     setPlaying(false);
+    // The player's own keys (Space, arrows to seek) stay the player's while it has focus.
+    if (event.target instanceof HTMLVideoElement) return;
     if (isOperatorTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       if (compare) return;
@@ -292,6 +295,11 @@ export function PreviewViewer({
               <pre>{result.text}</pre>
             )}
           </div>
+        ) : result?.ok && result.kind === "video" ? (
+          <div key={current.path} className="preview-viewer__video" data-testid="preview-video">
+            {/* The app's own stream: main serves the bytes and answers seeks. */}
+            <video src={result.url} controls preload="metadata" playsInline aria-label={current.caption ?? current.name} />
+          </div>
         ) : result?.ok && result.kind === "file" ? (
           <div className="preview-viewer__file" data-testid="preview-file">
             <p className="preview-viewer__file-name">{result.name}</p>
@@ -405,6 +413,8 @@ export function PreviewViewer({
                 state={tile.state}
                 src={tile.src}
                 extension={tile.extension}
+                glyph={tile.video ? <Film size={16} aria-hidden /> : undefined}
+                playable={tile.video}
                 label={ref.caption ? `${ref.caption}, ${ref.name}` : ref.name}
                 current={ref.path === current.path}
                 onClick={() => {

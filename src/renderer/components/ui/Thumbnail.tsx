@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { AlertTriangle, File } from "lucide-react";
+import { AlertTriangle, File, Play } from "lucide-react";
 
 export type ThumbnailSize = "sm" | "md" | "lg";
 /** What the tile draws. Required: an empty box is never an accident. */
@@ -32,7 +32,7 @@ export function CompareTag({ side, corner = "left" }: { readonly side: "A" | "B"
 /**
  * Thumbnail: one small square that stands for a file and opens it. An image
  * is cropped to fill the square; anything else is a glyph over its
- * extension. It only draws: the caller hands it the pixels (a data or
+ * extension. A video is its poster under a play mark. It only draws: the caller hands it the pixels (a data or
  * content URL) and says which state it is in.
  *
  * `failed` is for an image that was found and would not draw. A file that is
@@ -49,6 +49,7 @@ export function Thumbnail({
   extension,
   glyph,
   tag,
+  playable = false,
   current = false,
   ...rest
 }: {
@@ -62,6 +63,8 @@ export function Thumbnail({
   /** A 16px lucide glyph for a file tile. Default: a plain file. */
   readonly glyph?: ReactNode;
   readonly tag?: "A" | "B";
+  /** A video: a play mark sits over its poster. Without a poster, hand it a film glyph. */
+  readonly playable?: boolean;
   /** The one being shown, in a filmstrip. */
   readonly current?: boolean;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "children" | "title" | "aria-label" | "type">) {
@@ -91,6 +94,13 @@ export function Thumbnail({
           ) : null}
         </span>
       )}
+      {playable && state === "ready" && src !== undefined ? (
+        <span className="pointer-events-none absolute inset-0 grid place-items-center">
+          <span className="grid size-6 place-items-center rounded-full bg-ground/80 text-ink">
+            <Play size={12} aria-hidden />
+          </span>
+        </span>
+      ) : null}
       {tag ? <CompareTag side={tag} /> : null}
     </button>
   );
