@@ -28,7 +28,7 @@ import { createHash } from "node:crypto";
 import type { Page } from "@playwright/test";
 import type { Message } from "../../src/shared/canvas";
 import { readMailExtension } from "../../src/shared/crew";
-import { composeImmediatePromptPayload } from "../../src/shared/message-delivery";
+import { MAIL_ONBOARD_POINTER, composeImmediatePromptPayload } from "../../src/shared/message-delivery";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewOccupySeat,
@@ -138,8 +138,9 @@ const promptDelivered = async (
 
   const message = await projectedMessage(page, messageId);
   expect(readMailExtension(message.metadata)?.mailKind).toBe("prompt");
-  const payload = composeImmediatePromptPayload(message);
-  expect(payload.startsWith(`mail from ${A}\n`)).toBe(true);
+  // Seat B has never run `junto onboard`, so the first line points at it.
+  const payload = composeImmediatePromptPayload(message, { onboarded: false });
+  expect(payload.startsWith(`mail from ${A} — ${MAIL_ONBOARD_POINTER}\n`)).toBe(true);
   expect(payload.endsWith(text)).toBe(true);
 
   await expect

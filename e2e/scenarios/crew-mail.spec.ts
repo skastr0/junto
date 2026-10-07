@@ -28,7 +28,7 @@
 import type { Page } from "@playwright/test";
 import type { Message } from "../../src/shared/canvas";
 import { readMailExtension } from "../../src/shared/crew";
-import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
+import { composeMessageDeliveryPayload, MAIL_ONBOARD_POINTER } from "../../src/shared/message-delivery";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewMessageCount,
@@ -175,13 +175,14 @@ test("mail [fake-tui]: sent mail is delivered at once with one PTY paste", async
         );
       });
 
-    // The notice line: sender, preview, and the pointer to the full body.
+    // The notice line: sender, preview, the pointer to the full body, and,
+    // because seat B has never run `junto onboard`, the pointer to that.
     const message = await projectedMessage(page, messageId);
     expect(readMailExtension(message.metadata)?.mailKind).toBe("notice");
-    const payload = composeMessageDeliveryPayload(message);
+    const payload = composeMessageDeliveryPayload(message, { onboarded: false });
     expect(payload.startsWith(`mail from ${A}`)).toBe(true);
     expect(payload).toContain("peer mail: checksum 42");
-    expect(payload.endsWith(`junto msg read ${messageId}`)).toBe(true);
+    expect(payload.endsWith(`junto msg read ${messageId} — ${MAIL_ONBOARD_POINTER}`)).toBe(true);
 
     // Physical truth: the fake's input took exactly one paste of that line.
     // B has never run `junto onboard`, so its mail carries the pointer.
