@@ -1,6 +1,8 @@
 import { Effect, Layer } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { asCanvasName, asNodeId, type Node, type Wire } from "../../src/shared/model";
 import { ModelLive } from "../../src/main/junto/model/layer";
+import { ModelRecords } from "../../src/main/junto/model/records";
 import { ModelService } from "../../src/main/junto/model/service";
 import { WorkModelDependentsLive } from "../../src/main/junto/work/model-dependents";
 
@@ -52,3 +54,29 @@ export const grantOverseer = (name: string, nodeId: string, overseer: boolean) =
 /** A canvas as the model holds it now. */
 export const readSeeded = (name: string) =>
   Effect.flatMap(ModelService, (model) => model.canvas(name));
+
+/**
+ * Put canvases straight into the model's rows at a sequence the test names,
+ * for a rig that holds the state engine and no model service. A canvas of the
+ * same name is replaced.
+ */
+export const seedCanvasRows = Effect.fn("test.seedCanvasRows")(
+  function* (input: {
+    readonly seq: number;
+    readonly canvases: ReadonlyMap<
+      string,
+      { readonly nodes: ReadonlyArray<Node>; readonly wires?: ReadonlyArray<Wire> }
+    >;
+  }) {
+    const records = yield* ModelRecords;
+    const sql = yield* SqlClient.SqlClient;
+    for (const [name, held] of input.canvases) {
+      if (yield* records.getCanvas(name)) yield* records.removeCanvas(name);
+      yield* records.createCanvas(name, `test-${name}`);
+      for (const [z, node] of held.nodes.entries()) yield* records.insertNode(name, { ...node, z });
+      for (const wire of held.wires ?? []) yield* records.insertWire(name, wire);
+      yield* sql`UPDATE canvases SET seq=${input.seq} WHERE canvas_name=${name}`;
+    }
+  },
+  Effect.provide(ModelRecords.layer),
+);

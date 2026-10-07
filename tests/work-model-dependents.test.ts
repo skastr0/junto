@@ -10,7 +10,8 @@ import { WorkModelDependentsLive } from "../src/main/junto/work/model-dependents
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ActorRef, IntentFactBasis } from "../src/shared/work-protocol";
-import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
+import { seedCanvasRows } from "./support/seed-canvas";
+import { seat } from "./support/model-nodes";
 
 it("removes mailbox rows in the owning transaction and preserves immutable records", async () => {
   const root = join(tmpdir(), `junto-work-removal-${randomUUID()}`);
@@ -23,9 +24,8 @@ it("removes mailbox rows in the owning transaction and preserves immutable recor
         yield* sql`INSERT INTO station_known_installations VALUES ('local-installation','2026-10-07')`;
         yield* sql`INSERT INTO station_installation VALUES (1,'local-installation','2026-10-07')`;
         yield* sql`INSERT INTO station_configuration(singleton,role,host_id,agent_host_id,command_center_installation_id,supervised_preferred,configured_at) VALUES (1,'command-center','local',NULL,NULL,1,'2026-10-07')`;
-        yield* seedCanvasAuthority({ generation: "1", at: "2026-10-07", documents: new Map([["factory", {
-          nodes: ["sender","inbox","other"].map((id) => ({ id, type: "text" as const, x: 0, y: 0, width: 200, height: 100, text: id, ether: { entity: { kind: "agent", name: `local:${id}` } } })),
-          edges: [],
+        yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", {
+          nodes: ["sender", "inbox", "other"].map((id) => seat(id)),
         }]]) });
       }));
       const sentBy = Schema.decodeUnknownSync(ActorRef)({ seatId: `seat_${"a".repeat(64)}`, canvasName: "factory", nodeId: "sender" });

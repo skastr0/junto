@@ -17,9 +17,8 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { Message } from "../src/shared/work-model";
 import { ContentRef } from "../src/shared/content";
-import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
-import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
-import { authorialMaterialForTest } from "./helpers/authorial-material";
+import { seedCanvasRows } from "./support/seed-canvas";
+import { seat } from "./support/model-nodes";
 
 const root = join(tmpdir(), `junto-mail-read-schema-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -34,29 +33,7 @@ let sql: SqlClient.SqlClient;
 
 const observedAt = "2026-08-18T09:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-mail-read-schema");
-const authorityTopology: CanvasDoc = {
-  nodes: [
-    {
-      id: "agent-1",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 180,
-      height: 80,
-      text: "Planner",
-      ether: { entity: { kind: "agent", name: "local:planner" } },
-    },
-  ],
-  edges: [],
-};
-const authorityRawBody = serializeCanvas(authorityTopology);
-const authorityMaterial = authorialMaterialForTest({
-  generation: "1",
-  documents: new Map([
-    ["factory", { document: authorityTopology, rawBody: authorityRawBody }],
-  ]),
-});
-const currentIntentSha256 = authorityMaterial.intentSha256;
+const factoryNodes = [seat("agent-1", { width: 180, height: 80, label: "Planner", agentKey: "local:planner" })];
 const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
@@ -96,11 +73,7 @@ const seed = () =>
        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
         [observedAt],
       );
-      yield* seedCanvasAuthority({
-        generation: "1",
-        documents: new Map([["factory", authorityTopology]]),
-        at: observedAt,
-      });
+      yield* seedCanvasRows({ seq: 1, canvases: new Map([["factory", { nodes: factoryNodes }]]) });
     }),
   );
 
