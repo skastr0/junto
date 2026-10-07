@@ -523,7 +523,7 @@ describe("seat.wait", () => {
       doc: doc(
         [
           agentNode("caller", "bind-caller"),
-          { id: "peer", type: "text", text: "peer", x: 0, y: 0, width: 10, height: 10, ether: { entity: { kind: "agent", name: "peer" } } },
+          { id: "peer", type: "text", text: "peer", x: 0, y: 0, width: 10, height: 10 },
         ],
         [edge("messages", "caller", "peer")],
       ),
@@ -531,7 +531,7 @@ describe("seat.wait", () => {
     const exit = await Effect.runPromiseExit(
       harness.service.waitSeat({ target: "peer", until: "idle", timeoutMs: 1_000 }, caller),
     );
-    // An agent with no binding is not a seat, so no wire to it grants anything.
+    // A note is not a seat, so no wire to it grants anything.
     expect(failure(exit)?.type).toBe("ScopeError");
   });
 

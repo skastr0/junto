@@ -15,7 +15,11 @@ const agent = (id: string, label: string): CanvasDoc["nodes"][number] => ({
   y: 0,
   width: 200,
   height: 80,
-  ether: { entity: { kind: "agent", name: `local:${id}` } },
+  ether: {
+    entity: { kind: "agent", name: `local:${id}` },
+    host: "local",
+    terminal: { bindingId: `binding-${id}`, harness: "claude" },
+  },
 });
 
 const mailDoc = (): CanvasDoc => ({
