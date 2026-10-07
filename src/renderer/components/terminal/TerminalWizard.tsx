@@ -6,8 +6,8 @@ import { addNode } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { getJuntoApi } from "../../lib/junto-api";
-import { FocusSurface } from "../FocusSurface";
-import { Button, Eyebrow, FieldLabel, Select } from "../ui";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { Button, Dialog, FieldLabel, Select } from "../ui";
 
 type HostOpt = { readonly id: string; readonly label: string };
 
@@ -113,36 +113,32 @@ export function TerminalWizard({
     });
   };
 
+  // The shared dialog, like New canvas. Create holds the keyboard on open, so
+  // Enter makes the terminal on the default host at once.
   return (
-    <FocusSurface measure="form" height="fit" label="New terminal" onClose={onClose}>
-      <div
-        className="grid gap-4 p-5"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") create();
-        }}
-      >
-        <div>
-          <Eyebrow tone="steel">terminal - create</Eyebrow>
-          <div className="mt-1 font-mono text-title font-semibold text-ink">New terminal</div>
-        </div>
-        <FieldLabel>
-          Host
-          <Select
-            aria-label="Host"
-            value={hostId}
-            options={hostOptions.map((h) => ({ value: h.id, label: h.label }))}
-            onChange={setHostId}
-          />
-        </FieldLabel>
-        <div className="flex justify-end gap-2">
-          <Button size="sm" variant="subtle" onClick={onClose} disabled={busy}>
-            cancel
+    <Dialog
+      title="New terminal"
+      onClose={onClose}
+      actions={
+        <>
+          <Button size="md" variant="chrome" onClick={onClose} disabled={busy}>
+            Cancel
           </Button>
-          <Button size="sm" variant="primary" onClick={create} disabled={busy}>
+          <Button ref={claimFocusOnMount} size="md" variant="primary" onClick={create} disabled={busy}>
             {busy ? "Creating…" : "Create terminal"}
           </Button>
-        </div>
-      </div>
-    </FocusSurface>
+        </>
+      }
+    >
+      <FieldLabel>
+        Host
+        <Select
+          aria-label="Host"
+          value={hostId}
+          options={hostOptions.map((h) => ({ value: h.id, label: h.label }))}
+          onChange={setHostId}
+        />
+      </FieldLabel>
+    </Dialog>
   );
 }
