@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
+import { seat } from "./support/model-nodes";
+import { asNodeId, type Node } from "../src/shared/model";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
@@ -11,9 +13,7 @@ import { StationFleetTargetRepository, StationFleetTargetRepositoryLive } from "
 import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { type CanvasDoc } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
-import { managedAgentEther } from "./helpers/managed-agent-ether";
 
 // Keep the public writer's app-runtime boundary while executing its actual
 // Effect against a disposable, fully composed canvas authority store.
@@ -24,22 +24,26 @@ import { writeSeatSessionId } from "../src/main/junto/term/seat-session-id";
 const SESSION = "1787761861883-1787761861883720000-7afaf80c8f5acd35";
 const OTHER_SESSION = "1787761862883-1787761862883720000-97d25f70d04d6c5e";
 
+/** One seat, named `agent`, on the session the test gives it. */
 const agentDoc = (
   bindingId: string,
   options: { readonly harness?: "fx" | "muse"; readonly host?: string; readonly sessionId?: string } = {},
-): CanvasDoc => {
-  const ether = managedAgentEther(`command:${bindingId}`, { bindingId, harness: options.harness ?? "fx", host: options.host ?? "command" });
-  return {
-    nodes: [{
-      id: "agent", type: "text", text: "Agent", x: 0, y: 0, width: 240, height: 120,
-      ether: { ...ether, terminal: { ...ether.terminal, ...(options.sessionId ? { sessionId: options.sessionId } : {}) } },
-    }],
-    edges: [],
-  };
-};
+): ReadonlyArray<Node> => [
+  seat("agent", {
+    width: 240,
+    height: 120,
+    label: "Agent",
+    agentKey: `command:${bindingId}`,
+    host: options.host ?? "command",
+    bindingId: bindingId as never,
+    harness: (options.harness ?? "fx") as never,
+    launch: { kind: "harness", argv: [options.harness ?? "fx"] },
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+  }),
+];
 
 const makeRuntime = (root: string) => ManagedRuntime.make(Layer.provideMerge(
-  CanvasesLive,
+  ModelStoresLive,
   Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
@@ -59,14 +63,12 @@ const fixture = async () => {
   app.runPromise.mockImplementation((effect) => live.runPromise(effect));
   const settings = await live.runPromise(SettingsService);
   await live.runPromise(settings.setStationTopology({ role: "command-center", hostId: "command", supervisedPreferred: true }));
-  const canvases = await live.runPromise(CanvasesService);
   return {
     runtime: live,
-    canvases,
-    write: (name: string, doc: CanvasDoc) => live.runPromise(canvases.write(name, doc)),
+    write: (name: string, nodes: ReadonlyArray<Node>) => live.runPromise(seedCanvas(name, nodes)),
     sessionId: async (name: string) => {
-      const snapshot = await live.runPromise(canvases.authoritySnapshot());
-      return snapshot.documents.get(name)?.nodes[0]?.ether?.terminal?.sessionId;
+      const held = (await live.runPromise(readSeeded(name))).nodes.get(asNodeId("agent"));
+      return held?.kind === "agent" ? held.sessionId : undefined;
     },
   };
 };
