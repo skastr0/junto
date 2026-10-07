@@ -39,12 +39,8 @@
  */
 
 import { Effect, Result } from "effect";
-import {
-  actorDeliverySurfaceOf,
-  isManagedAgentNode,
-  type ManagedAgentNode,
-} from "@shared/actor-surface";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { Canvas, Node, Seat } from "@shared/model";
+import type { Task } from "@shared/work-model";
 import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import type { AgentSeatState, AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
@@ -88,7 +84,8 @@ export type SeatObservationDeps = {
    * return: an authorization decision is only as good as the document it was
    * made against.
    */
-  readonly readDoc: (canvasName: string) => Effect.Effect<CanvasDoc, WorkErrorBody>;
+  readonly readTask: (canvasName: string, nodeId: string, taskId: string, kind: "task" | "requests") => Effect.Effect<Task | undefined, WorkErrorBody>;
+  readonly readCanvas: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   /** Canvas commit subscription — a grant change re-derives authority. */
   readonly subscribeCanvasChanges: (listener: (canvasName: string) => void) => () => void;
   /** Seat state stream. `current` is the live projection for registration races. */
@@ -286,9 +283,9 @@ type SeatTarget = {
   readonly bindingId: string;
 };
 
-const seatTargetOf = (node: ManagedAgentNode): SeatTarget => ({
+const seatTargetOf = (node: Seat): SeatTarget => ({
   nodeId: node.id,
-  bindingId: node.ether.terminal.bindingId,
+  bindingId: node.bindingId,
 });
 
 /**
@@ -298,12 +295,12 @@ const seatTargetOf = (node: ManagedAgentNode): SeatTarget => ({
  * the delivery path uses to decide which machine owns the PTY. A seat on
  * another host has no grid and no live state here, so it is not observable.
  */
-const isLocalSeat = (node: ManagedAgentNode): boolean =>
-  actorDeliverySurfaceOf(node)?.hostId === DEFAULT_STATION_HOST_ID;
+const isLocalSeat = (node: Seat): boolean =>
+  node.host === DEFAULT_STATION_HOST_ID;
 
 /** The host a managed seat's canonical surface names, for the refusal message. */
-const seatHostOf = (node: CanvasNode): string =>
-  actorDeliverySurfaceOf(node)?.hostId ?? DEFAULT_STATION_HOST_ID;
+const seatHostOf = (node: Node): string =>
+  ("host" in node ? node.host : DEFAULT_STATION_HOST_ID);
 
 /**
  * Resolve the seats a wait may address under current authority.
@@ -314,7 +311,7 @@ const seatHostOf = (node: CanvasNode): string =>
  * would always succeed.
  */
 const resolveSeatTargets = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   args: Pick<SeatWaitArgs, "target" | "any">,
 ): Result.Result<ReadonlyArray<SeatTarget>, WorkErrorBody> => {
@@ -322,7 +319,7 @@ const resolveSeatTargets = (
     const admitted = admitWorkTarget(doc, callerId, args.target, "seat.wait");
     if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     const node = admitted.success.node;
-    if (!isManagedAgentNode(node)) {
+    if (node.kind !== "agent") {
       return Result.fail(notASeat(args.target, nodeKind(node)));
     }
     if (!isLocalSeat(node)) {
@@ -333,7 +330,7 @@ const resolveSeatTargets = (
   const authorized = connectedCapabilities(doc, callerId)
     .filter((peer) => peer.role === "actor" && peer.grants.includes("seat.wait"))
     .map((peer) => findNode(doc, peer.id))
-    .filter((node): node is ManagedAgentNode => node !== undefined && isManagedAgentNode(node));
+    .filter((node): node is Seat => node?.kind === "agent");
   if (authorized.length === 0) return Result.fail(noAuthorizedPeer(callerId));
   const local = authorized.filter(isLocalSeat).map(seatTargetOf);
   if (local.length === 0) {
@@ -344,14 +341,14 @@ const resolveSeatTargets = (
 
 /** One explicit read target: same authority and locality rule, port `terminal.read`. */
 const resolveReadTarget = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   targetId: string,
 ): Result.Result<SeatTarget, WorkErrorBody> => {
   const admitted = admitWorkTarget(doc, callerId, targetId, "seat.read");
   if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
   const node = admitted.success.node;
-  if (!isManagedAgentNode(node)) {
+  if (node.kind !== "agent") {
     return Result.fail(notASeat(targetId, nodeKind(node)));
   }
   if (!isLocalSeat(node)) {
@@ -489,7 +486,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       ): Effect.Effect<Signal, WorkErrorBody> =>
         Effect.suspend(() =>
           Effect.gen(function* () {
-            const fresh = yield* deps.readDoc(caller.canvasName);
+            const fresh = yield* deps.readCanvas(caller.canvasName);
             const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args);
             if (Result.isFailure(freshTargets)) return yield* Effect.fail(freshTargets.failure);
             if (sameSeatTargets(captured, freshTargets.success)) {
@@ -504,7 +501,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       // Only a canvas grant change re-enters the loop: every other signal
       // either answers, fails, or expires.
       for (;;) {
-        const doc = yield* deps.readDoc(caller.canvasName);
+        const doc = yield* deps.readCanvas(caller.canvasName);
         const targets = resolveSeatTargets(doc, caller.nodeId, args);
         if (Result.isFailure(targets)) return yield* Effect.fail(targets.failure);
         const byBinding = new Map(
@@ -571,7 +568,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
 
         // Revalidate against a fresh document before answering: the event may
         // have been produced under an edge the operator has already removed.
-        const fresh = yield* deps.readDoc(caller.canvasName);
+        const fresh = yield* deps.readCanvas(caller.canvasName);
         const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args);
         if (Result.isFailure(freshTargets)) return yield* Effect.fail(freshTargets.failure);
         const stillAuthorized = freshTargets.success.find(
@@ -608,7 +605,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       /** Re-derive authority from the live document, or fail ScopeError. */
       const authorize = (): Effect.Effect<SeatTarget, WorkErrorBody> =>
         Effect.gen(function* () {
-          const doc = yield* deps.readDoc(caller.canvasName);
+          const doc = yield* deps.readCanvas(caller.canvasName);
           const resolved = resolveReadTarget(doc, caller.nodeId, args.target);
           if (Result.isFailure(resolved)) return yield* Effect.fail(resolved.failure);
           return resolved.success;
@@ -747,7 +744,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           // out its whole duration before the return-path check noticed.
           Effect.suspend(() =>
             Effect.gen(function* () {
-              const fresh = yield* deps.readDoc(caller.canvasName);
+              const fresh = yield* deps.readCanvas(caller.canvasName);
               const reauthorized = resolveReadTarget(fresh, caller.nodeId, args.target);
               if (Result.isFailure(reauthorized)) {
                 return yield* Effect.fail(reauthorized.failure);
@@ -840,12 +837,11 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
 
       const observe = (): Effect.Effect<TaskWaitResult, WorkErrorBody> =>
         Effect.gen(function* () {
-          const doc = yield* deps.readDoc(caller.canvasName);
+          const doc = yield* deps.readCanvas(caller.canvasName);
           const admitted = admitWorkTarget(doc, caller.nodeId, args.target, "tasks.wait");
           if (Result.isFailure(admitted)) return yield* Effect.fail(admitted.failure);
           const node = admitted.success.node;
-          const items = node.ether?.tasks?.items ?? node.ether?.requests?.items ?? [];
-          const task = items.find((candidate) => candidate.id === args.taskId);
+          const task = yield* deps.readTask(caller.canvasName, args.target, args.taskId, node.kind === "requests" ? "requests" : "task");
           if (task === undefined) {
             return yield* Effect.fail<WorkErrorBody>({
               type: "UnknownTarget",

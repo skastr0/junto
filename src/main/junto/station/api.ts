@@ -68,10 +68,7 @@ import {
   type WorkRepositoryError,
   type WorkReplicationError,
 } from "../work/repository";
-import {
-  admitWorkTarget,
-  nodeKind,
-} from "../work/authz";
+import { admitWorkTarget } from "../work/authz";
 import {
   StationFleetTargetRepository,
   type StationFleetTargetRepositoryError,
@@ -580,7 +577,7 @@ const findSink = (
     );
   }
   const expected = expectedSinkKind(itemKind);
-  if (expected !== undefined && nodeKind(node) !== expected) {
+  if (expected !== undefined && node.ether?.entity?.kind !== expected) {
     return rejected(
       "capability-denied",
       `node ${JSON.stringify(`${sink.canvasName}/${sink.nodeId}`)} is not a ${expected} sink`,
@@ -593,7 +590,7 @@ const authorizeMessageDestination = (
   sink: CanvasNode,
   destination: MessageAppendDestination,
 ): WorkCommandAuthorization => {
-  const actual = nodeKind(sink);
+  const actual = sink.ether?.entity?.kind;
   const expected =
     destination.kind === "mailbox"
       ? "agent"
@@ -690,7 +687,7 @@ const authorizeActor = (
     );
   }
   const decision = admitWorkTarget(
-    document,
+    canvasFromDocument(sink.canvasName, document),
     actor.nodeId,
     sink.nodeId,
     operation,

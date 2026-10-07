@@ -9,7 +9,7 @@
 
 import { Effect } from "effect";
 import type { WorkErrorBody } from "@shared/work-control";
-import { CanvasesService } from "../canvases";
+import { WorkService } from "./service";
 import { seatStateRuntime } from "../term/agent-state";
 import { terminalObserverPlane } from "../term/observer";
 import { termPlane } from "../term/plane";
@@ -17,20 +17,19 @@ import { onWorkMutation } from "./mutation-seam";
 import { makeSeatObservation, type SeatObservation } from "./seat-observation";
 
 /**
- * The live seat observation service. Requires only `CanvasesService`, which the
- * work-control dispatcher already has in scope.
+ * The live seat observation service reads topology and selected Work rows
+ * through WorkService, already in the work-control dispatcher's scope.
  */
 export const liveSeatObservation = (): Effect.Effect<
   SeatObservation,
   never,
-  CanvasesService
+  WorkService
 > =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
+    const work = yield* WorkService;
     return makeSeatObservation({
-      readDoc: (canvasName) =>
-        canvases.read(canvasName, "work.seatObservation").pipe(
-          Effect.map((read) => read.doc),
+      readCanvas: (canvasName) =>
+        work.readTopology(canvasName).pipe(Effect.map((read) => read.canvas),
           Effect.mapError(
             (error): WorkErrorBody => ({
               type: "StaleNodeRef",
@@ -43,8 +42,11 @@ export const liveSeatObservation = (): Effect.Effect<
             }),
           ),
         ),
+      readTask: (canvasName, nodeId, taskId, kind) => work.readTask(canvasName, nodeId, taskId, kind).pipe(
+        Effect.mapError((error): WorkErrorBody => ({ type: "InternalError", message: error.message, details: { retryable: true } })),
+      ),
       subscribeCanvasChanges: (listener) =>
-        canvases.subscribeChanges((name) => listener(name)),
+        work.subscribeTopologyChanges(listener),
       seatStates: {
         // Live bindings first, then the last published event of each retired
         // generation: a seat that exited before the wait started is absent from

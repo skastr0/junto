@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { Cause, Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
@@ -128,7 +129,12 @@ const makeHarness = (input: {
   >();
 
   const deps: SeatObservationDeps = {
-    readDoc: () => Effect.succeed(currentDoc),
+    readTask: (_canvas, nodeId, taskId, kind) => {
+      const node = currentDoc.nodes.find((node) => node.id === nodeId);
+      const items = kind === "task" ? node?.ether?.tasks?.items : node?.ether?.requests?.items;
+      return Effect.succeed(items?.find((item) => item.id === taskId));
+    },
+    readCanvas: () => Effect.succeed(canvasFromDocument("factory", currentDoc)),
     subscribeCanvasChanges: (listener) => {
       canvasListeners.add(listener);
       return () => canvasListeners.delete(listener);
@@ -296,7 +302,8 @@ describe("seat.wait", () => {
   it("does not lose a transition delivered synchronously at registration", async () => {
     let reads = 0;
     const service = makeSeatObservation({
-      readDoc: () => Effect.succeed(peerDoc()),
+      readTask: () => Effect.succeed(undefined),
+    readCanvas: () => Effect.succeed(canvasFromDocument("factory", peerDoc())),
       subscribeCanvasChanges: () => () => {},
       seatStates: {
         current: () => [],
@@ -328,9 +335,10 @@ describe("seat.wait", () => {
     const revoked = peerDoc([]);
     let reads = 0;
     const service = makeSeatObservation({
-      readDoc: () => {
+      readTask: () => Effect.succeed(undefined),
+    readCanvas: () => {
         reads += 1;
-        return Effect.succeed(reads === 1 ? authorized : revoked);
+        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
       },
       subscribeCanvasChanges: () => () => {},
       seatStates: {
@@ -399,9 +407,10 @@ describe("seat.wait", () => {
     );
     let reads = 0;
     const service = makeSeatObservation({
-      readDoc: () => {
+      readTask: () => Effect.succeed(undefined),
+    readCanvas: () => {
         reads += 1;
-        return Effect.succeed(reads === 1 ? withA : withB);
+        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? withA : withB));
       },
       subscribeCanvasChanges: () => () => {},
       seatStates: {
@@ -448,9 +457,10 @@ describe("seat.wait", () => {
     const revoked = peerDoc([]);
     let reads = 0;
     const service = makeSeatObservation({
-      readDoc: () => {
+      readTask: () => Effect.succeed(undefined),
+    readCanvas: () => {
         reads += 1;
-        return Effect.succeed(reads === 1 ? authorized : revoked);
+        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
       },
       subscribeCanvasChanges: () => () => {},
       seatStates: { current: () => [], subscribe: () => () => {} },

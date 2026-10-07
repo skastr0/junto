@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
@@ -193,9 +194,9 @@ describe("overseer work authz", () => {
           : node,
       ),
     };
-    const overseer = admitOverseerWorkTarget(doc, "worker", "msg.send");
+    const overseer = admitOverseerWorkTarget(canvasFromDocument("factory", doc), "worker", "msg.send");
     expect(Result.isSuccess(overseer)).toBe(true);
-    const ordinary = admitWorkTarget(doc, "worker", "boss", "msg.send");
+    const ordinary = admitWorkTarget(canvasFromDocument("factory", doc), "worker", "boss", "msg.send");
     expect(Result.isFailure(ordinary)).toBe(true);
     if (Result.isFailure(ordinary)) {
       expect(ordinary.failure.type).toBe("ScopeError");
@@ -218,8 +219,7 @@ describe("overseer work authz", () => {
       canvasName: "floor",
       nodeId: "boss",
     };
-    const forged = admitLiveOverseer(
-      doc,
+    const forged = admitLiveOverseer(canvasFromDocument("factory", doc),
       [live],
       { canvasName: "floor", nodeId: "boss" },
       {
@@ -230,8 +230,7 @@ describe("overseer work authz", () => {
     expect(Result.isFailure(forged)).toBe(true);
 
     const revokedDoc = factoryDoc("pure");
-    const revoked = admitLiveOverseer(
-      revokedDoc,
+    const revoked = admitLiveOverseer(canvasFromDocument("factory", revokedDoc),
       [live],
       { canvasName: "floor", nodeId: "boss" },
       overseerWorkAdmin(live),

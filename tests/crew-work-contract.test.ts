@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -36,7 +37,7 @@ describe("crew work wire contract", () => {
         { id: "m", fromNode: "author", toNode: "peer", ether: { verb: "messages", mask: ["terminal.read"] } },
       ],
     };
-    expect(Result.isSuccess(admitWorkTarget(doc, "author", "peer", "seat.read"))).toBe(true);
-    expect(Result.isFailure(admitWorkTarget(doc, "author", "peer", "msg.prompt"))).toBe(true);
+    expect(Result.isSuccess(admitWorkTarget(canvasFromDocument("factory", doc), "author", "peer", "seat.read"))).toBe(true);
+    expect(Result.isFailure(admitWorkTarget(canvasFromDocument("factory", doc), "author", "peer", "msg.prompt"))).toBe(true);
   });
 });

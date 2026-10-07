@@ -2,14 +2,15 @@
  * Operator-equivalent work-plane dispatch for a live overseer seat.
  *
  * Parent admits the process-bound caller and passes a main-derived
- * OverseerWorkAdmin. This module re-checks the live ether.overseer flag and
+ * OverseerWorkAdmin. This module re-checks the live overseer flag and
  * compiled ActorRef at every use, never impersonates OPERATOR_SEAT_ID, and
  * never treats WorkOpResult `{ ok: false }` as success.
  */
 import { Buffer } from "node:buffer";
 import { Effect, Result } from "effect";
 import { ulid } from "ulid";
-import type { Artifact, CanvasDoc, Part } from "@shared/canvas";
+import type { Artifact, Part } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
 import { resolveMailboxTarget } from "@shared/mailbox-target";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
 import { padLookHere, padToFocused } from "@shared/pad-project";
@@ -28,12 +29,12 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import type { ActorRef } from "@shared/work-protocol";
 import type { BoardAuthor } from "@shared/work-model";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
-import { CanvasesService } from "../canvases";
 import { ContentService } from "../content/service";
 import {
   materializeContentObject,
   taskContentRef,
 } from "../content/agent-access";
+import type { CanvasesService } from "../canvases";
 import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
 import {
@@ -185,8 +186,8 @@ const namedCanvas = (raw: unknown): string | undefined => {
   return undefined;
 };
 
-const actorAuthor = (doc: CanvasDoc, actor: ActorRef): BoardAuthor => {
-  const node = findNode(doc, actor.nodeId);
+const actorAuthor = (canvas: Canvas, actor: ActorRef): BoardAuthor => {
+  const node = findNode(canvas, actor.nodeId);
   return {
     kind: "actor",
     seatId: actor.seatId,
@@ -196,23 +197,23 @@ const actorAuthor = (doc: CanvasDoc, actor: ActorRef): BoardAuthor => {
 };
 
 const requireTarget = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   targetId: string,
   op: WorkOpName,
 ): Effect.Effect<void, WorkErrorBody> => {
-  const admitted = admitOverseerWorkTarget(doc, targetId, op);
+  const admitted = admitOverseerWorkTarget(canvas, targetId, op);
   if (Result.isFailure(admitted)) return failBody(admitted.failure);
   return Effect.void;
 };
 
 /** Request administration targets a Requests node, admitted like its thread. */
 const requireRequestsTarget = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   targetId: string,
 ): Effect.Effect<void, WorkErrorBody> =>
   Effect.gen(function* () {
-    yield* requireTarget(doc, targetId, "msg.list");
-    const kind = nodeKind(findNode(doc, targetId));
+    yield* requireTarget(canvas, targetId, "msg.list");
+    const kind = nodeKind(findNode(canvas, targetId));
     if (kind !== "requests") {
       return yield* failBody(
         scopeError("overseer", targetId, "wrong_kind", { kind, op: "msg.list" }),
@@ -251,8 +252,8 @@ const decodeArgs = <Operation extends OverseerOperation>(
 
 const readCanvas = (canvasName: string) =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    return yield* canvases.read(canvasName).pipe(
+    const work = yield* WorkService;
+    return yield* work.readTopology(canvasName).pipe(
       Effect.mapError((error): WorkErrorBody => ({
         type: "UnknownTarget",
         message: error.message,
@@ -320,25 +321,25 @@ export const executeOverseerWork = (
 
     const origin = yield* readCanvas(caller.canvasName);
     const actor = yield* Effect.fromResult(
-      admitLiveOverseer(origin.doc, origin.actorRefs, caller, admin),
+      admitLiveOverseer(origin.canvas, origin.actorRefs, caller, admin),
     );
     const canvas = canvasOf(caller, namedCanvas(decoded.args));
     const read = canvas === caller.canvasName ? origin : yield* readCanvas(canvas);
     const work = yield* WorkService;
-    const author = actorAuthor(origin.doc, actor);
+    const author = actorAuthor(origin.canvas, actor);
     const raw = decoded.args;
     const op = decoded.operation;
 
     if (op === "tasks.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.list");
+      yield* requireTarget(read.canvas, target, "tasks.list");
       return { target, items: yield* catchWork(work.readTasks(canvas, target, "task")) };
     }
     if (op === "tasks.create") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.create");
+      yield* requireTarget(read.canvas, target, "tasks.create");
       const result = yield* work.workTaskCreate(
         canvas,
         target,
@@ -362,7 +363,7 @@ export const executeOverseerWork = (
     if (op === "tasks.claim") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.claim");
+      yield* requireTarget(read.canvas, target, "tasks.claim");
       const assignee =
         args.actor === undefined
           ? actor
@@ -386,14 +387,14 @@ export const executeOverseerWork = (
     if (op === "tasks.describe") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "tasks.update");
       const result = yield* work.workTaskDescribe(canvas, target, args.task, args.brief);
       return exposeMutation(yield* fromWorkResult(result));
     }
     if (op === "tasks.update") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "tasks.update");
       const result = yield* work.workTaskTransition(
         canvas,
         target,
@@ -413,19 +414,19 @@ export const executeOverseerWork = (
     if (op === "tasks.show") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.show");
+      yield* requireTarget(read.canvas, target, "tasks.show");
       return yield* catchWork(work.workTaskShow(canvas, target, args.task, "operator"));
     }
     if (op === "tasks.rules") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.rules");
+      yield* requireTarget(read.canvas, target, "tasks.rules");
       return yield* catchWork(work.workTaskRules(canvas, target, args.task));
     }
     if (op === "tasks.check") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.check");
+      yield* requireTarget(read.canvas, target, "tasks.check");
       const result = yield* work.workTaskCheck(
         canvas,
         target,
@@ -438,14 +439,14 @@ export const executeOverseerWork = (
     if (op === "tasks.promote") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "tasks.update");
       const result = yield* work.workTaskPromote(canvas, target, args.task, args.note, admin);
       return exposeMutation(yield* fromWorkResult(result));
     }
     if (op === "tasks.comment") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "tasks.update");
       const result = yield* work.workTaskComment(
         canvas,
         target,
@@ -468,7 +469,7 @@ export const executeOverseerWork = (
     if (op === "tasks.respond") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "tasks.update");
+      yield* requireTarget(read.canvas, target, "tasks.update");
       const result = yield* work.workTaskRespond(
         canvas,
         target,
@@ -482,13 +483,13 @@ export const executeOverseerWork = (
     if (op === "request.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireRequestsTarget(read.doc, target);
+      yield* requireRequestsTarget(read.canvas, target);
       return { target, items: yield* catchWork(work.readTasks(canvas, target, "requests")) };
     }
     if (op === "request.get") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireRequestsTarget(read.doc, target);
+      yield* requireRequestsTarget(read.canvas, target);
       const item = yield* catchWork(
         work.readTask(canvas, target, args.request, "requests"),
       );
@@ -504,7 +505,7 @@ export const executeOverseerWork = (
     if (op === "request.create") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireRequestsTarget(read.doc, target);
+      yield* requireRequestsTarget(read.canvas, target);
       const result = yield* work.workRequestCreate(
         canvas,
         target,
@@ -519,7 +520,7 @@ export const executeOverseerWork = (
     if (op === "request.resolve") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireRequestsTarget(read.doc, target);
+      yield* requireRequestsTarget(read.canvas, target);
       const result = yield* work.workRequestResolve(
         canvas,
         target,
@@ -532,7 +533,7 @@ export const executeOverseerWork = (
     if (op === "request.comment") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "msg.send");
+      yield* requireTarget(read.canvas, target, "msg.send");
       const result = yield* work.workMessageAppend(
         canvas,
         target,
@@ -552,15 +553,15 @@ export const executeOverseerWork = (
     if (op === "artifact.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "artifact.publish");
-      return { target, items: findNode(read.doc, target)?.ether?.artifacts?.items ?? [] };
+      yield* requireTarget(read.canvas, target, "artifact.publish");
+      return { target, items: yield* catchWork(work.readArtifacts(canvas, target)) };
     }
     if (op === "artifact.get") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "artifact.publish");
-      const item = (findNode(read.doc, target)?.ether?.artifacts?.items ?? []).find(
-        (candidate) => candidate.artifactId === args.artifact,
+      yield* requireTarget(read.canvas, target, "artifact.publish");
+      const item = yield* catchWork(
+        work.readArtifact(canvas, target, args.artifact),
       );
       if (item === undefined) {
         return yield* failBody({
@@ -574,7 +575,7 @@ export const executeOverseerWork = (
     if (op === "artifact.publish") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "artifact.publish");
+      yield* requireTarget(read.canvas, target, "artifact.publish");
       const artifact: Artifact = {
         artifactId: args.artifactId?.trim() || ulid(),
         parts: args.parts as Part[],
@@ -596,7 +597,7 @@ export const executeOverseerWork = (
     if (op === "artifact.archive") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "artifact.publish");
+      yield* requireTarget(read.canvas, target, "artifact.publish");
       const result = yield* work.workArtifactArchive(
         canvas,
         target,
@@ -608,7 +609,7 @@ export const executeOverseerWork = (
     if (op === "artifact.delete") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "artifact.publish");
+      yield* requireTarget(read.canvas, target, "artifact.publish");
       const result = yield* work.workArtifactDelete(canvas, target, args.artifact);
       return exposeMutation(yield* fromWorkResult(result));
     }
@@ -616,13 +617,13 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const targetId = resolveMailboxTarget(args.target, caller);
       if (args.taskId) {
-        yield* requireTarget(read.doc, targetId, "msg.list");
+        yield* requireTarget(read.canvas, targetId, "msg.list");
         const task = yield* catchWork(
           work.readTask(
             canvas,
             targetId,
             args.taskId,
-            nodeKind(findNode(read.doc, targetId)) === "task" ? "task" : "requests",
+            nodeKind(findNode(read.canvas, targetId)) === "task" ? "task" : "requests",
           ),
         );
         if (!task) {
@@ -638,7 +639,7 @@ export const executeOverseerWork = (
         const items = yield* catchWork(work.readMailbox(caller.canvasName, caller.nodeId));
         return { target: caller.nodeId, items: sortMessagesNewestFirst(items) };
       }
-      yield* requireTarget(read.doc, targetId, "msg.list");
+      yield* requireTarget(read.canvas, targetId, "msg.list");
       return {
         target: targetId,
         items: sortMessagesNewestFirst(
@@ -649,7 +650,7 @@ export const executeOverseerWork = (
     if (op === "msg.send") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "msg.send");
+      yield* requireTarget(read.canvas, target, "msg.send");
       const result = yield* work.workMessageAppend(
         canvas,
         target,
@@ -681,7 +682,7 @@ export const executeOverseerWork = (
     if (op === "msg.reply") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "msg.send");
+      yield* requireTarget(read.canvas, target, "msg.send");
       const sent = yield* work.workMessageAppend(
         canvas,
         target,
@@ -726,7 +727,7 @@ export const executeOverseerWork = (
     if (op === "board.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "board.list");
+      yield* requireTarget(read.canvas, target, "board.list");
       const result = yield* work.workBoardList(canvas, target, args.topicId);
       const mapped = yield* fromWorkResult(result);
       return { topics: mapped.value.topics };
@@ -734,7 +735,7 @@ export const executeOverseerWork = (
     if (op === "board.create-topic") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "board.create_topic");
+      yield* requireTarget(read.canvas, target, "board.create_topic");
       const result = yield* work.workBoardCreateTopic(
         canvas,
         target,
@@ -759,7 +760,7 @@ export const executeOverseerWork = (
     if (op === "board.post") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "board.post");
+      yield* requireTarget(read.canvas, target, "board.post");
       const result = yield* work.workBoardPost(
         canvas,
         target,
@@ -773,7 +774,7 @@ export const executeOverseerWork = (
     if (op === "board.mark-read") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "board.mark_read");
+      yield* requireTarget(read.canvas, target, "board.mark_read");
       const result = yield* work.workBoardMarkRead(
         canvas,
         target,
@@ -786,7 +787,7 @@ export const executeOverseerWork = (
     if (op === "board.tags") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "board.tags");
+      yield* requireTarget(read.canvas, target, "board.tags");
       const result = yield* work.workBoardList(canvas, target, args.topicId);
       const mapped = yield* fromWorkResult(result);
       const me = actor.nodeId;
@@ -804,7 +805,7 @@ export const executeOverseerWork = (
     if (op === "board.notify") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "board.list");
+      yield* requireTarget(read.canvas, target, "board.list");
       const wakeCount = yield* deliverBoardWake({
         canvas,
         boardNodeId: target,
@@ -817,14 +818,14 @@ export const executeOverseerWork = (
     if (op === "pad.read") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "pad.read");
+      yield* requireTarget(read.canvas, target, "pad.read");
       const result = yield* work.workPadRead(canvas, target, args.pinId);
       return (yield* fromWorkResult(result)).value;
     }
     if (op === "pad.digest") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "pad.read");
+      yield* requireTarget(read.canvas, target, "pad.read");
       const result = yield* work.workPadRead(canvas, target);
       const value = (yield* fromWorkResult(result)).value;
       return { revision: value.revision, digest: value.digest };
@@ -832,7 +833,7 @@ export const executeOverseerWork = (
     if (op === "pad.render") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "pad.read");
+      yield* requireTarget(read.canvas, target, "pad.read");
       const result = yield* work.workPadRead(canvas, target);
       const value = (yield* fromWorkResult(result)).value;
       return { revision: value.revision, svg: value.svg };
@@ -840,7 +841,7 @@ export const executeOverseerWork = (
     if (op === "pad.look-here") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "pad.read");
+      yield* requireTarget(read.canvas, target, "pad.read");
       const result = yield* work.workPadRead(canvas, target, args.pinId);
       const value = (yield* fromWorkResult(result)).value;
       const focused =
@@ -861,7 +862,7 @@ export const executeOverseerWork = (
     if (op === "pad.get") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "pad.read");
+      yield* requireTarget(read.canvas, target, "pad.read");
       const result = yield* work.workPadRead(canvas, target);
       const value = (yield* fromWorkResult(result)).value;
       const items = padToFocused(value.pad);
@@ -879,7 +880,7 @@ export const executeOverseerWork = (
     if (op === "pad.tagged") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "pad.read");
+      yield* requireTarget(read.canvas, target, "pad.read");
       const result = yield* work.workPadRead(canvas, target);
       const value = (yield* fromWorkResult(result)).value;
       return {
@@ -890,7 +891,7 @@ export const executeOverseerWork = (
     if (op === "pad.patch") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "pad.patch");
+      yield* requireTarget(read.canvas, target, "pad.patch");
       const result = yield* work.workPadPatch(canvas, target, args.patches, author, admin);
       return exposeMutation(yield* fromWorkResult(result));
     }
@@ -935,7 +936,7 @@ export const executeOverseerWork = (
     if (op === "content.path" || op === "content.stat") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "content.path");
+      yield* requireTarget(read.canvas, target, "content.path");
       const task = yield* catchWork(
         work.readTask(canvas, target, args.task, "task"),
       );
@@ -978,7 +979,7 @@ export const executeOverseerWork = (
     if (op === "content.materialize") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "content.materialize");
+      yield* requireTarget(read.canvas, target, "content.materialize");
       const task = yield* catchWork(
         work.readTask(canvas, target, args.task, "task"),
       );

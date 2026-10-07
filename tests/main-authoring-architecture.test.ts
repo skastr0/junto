@@ -123,6 +123,8 @@ describe("main authoring architecture", () => {
       // notice per seat; this is the classified authoring listener, not a
       // renderer/control ingress.
       "src/main/junto/work/edge-map-notify.ts",
+      // Seat waits re-read topology and the selected task; they never mutate.
+      "src/main/junto/work/seat-observation-live.ts",
     ]);
 
     const companion = source("src/main/junto/companion/operator-actions.ts");

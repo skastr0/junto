@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -170,7 +171,8 @@ describe("canvases.ts write() — same-name concurrency", () => {
     let callbacks = 0;
     const observation = makeSeatObservation({
       // A warm authority read can settle synchronously inside the callback.
-      readDoc: () => Effect.succeed(document),
+      readTask: () => Effect.succeed(undefined),
+      readCanvas: () => Effect.succeed(canvasFromDocument("factory", document)),
       subscribeCanvasChanges: (listener) => {
         registrations += 1;
         const off = canvases.subscribeChanges((changed) => {

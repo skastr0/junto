@@ -13,8 +13,7 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
-import type { Artifact, CanvasDoc, CanvasNode, Message, Part } from "@shared/canvas";
-import { actorDeliverySurfaceOf, isManagedAgentNode } from "@shared/actor-surface";
+import type { Artifact, Message, Part } from "@shared/work-model";
 import {
   decodeOverseerArgs,
   decodeOverseerRequest,
@@ -132,7 +131,6 @@ import {
 import {
   materializeContentObject,
   taskContentRef,
-  taskItemsForNode,
 } from "../content/agent-access";
 import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
@@ -224,14 +222,9 @@ import {
 import { regionStack } from "@shared/model/canvas";
 import { sheetToMarkdown } from "@shared/sheet";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
-import { canvasFromDocument, nodesFromDocument, nodeFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
-import { asNodeId, inPaintOrder } from "@shared/model";
-import { wiresFromDocument } from "@shared/model/from-document";
+import { asNodeId, taskBoardTitle, type Canvas, type Node } from "@shared/model";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
-import {
-  tasksNodeIdentity,
-  tasksNodeName,
-} from "@shared/tasks-node-identity";
+
 import { closingFence } from "../term/closing-fence";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import {
@@ -527,7 +520,7 @@ const mapWorkCode = (
  */
 const refuseUnadmittedSubmitted = (
   task: Task | undefined,
-  node: CanvasNode | undefined,
+  node: Node | undefined,
   contract: import("@shared/work-model").TasksContract | undefined,
 ): WorkErrorBody | undefined => {
   if (task === undefined || task.state !== "submitted") return undefined;
@@ -609,6 +602,12 @@ const decodeArgs = <S extends Schema.Top>(
   return Result.succeed(decoded.success as never);
 };
 
+const taskIdentity = (node: Node | undefined, id: string) => {
+  const identity = taskBoardTitle(node?.kind === "task" ? node : undefined, id);
+  return { ...identity, ...(identity.source === "id" ? { namingHint: "Name this node to name the board." } : {}) };
+};
+const taskName = (node: Node | undefined, id: string) => taskIdentity(node, id).name;
+
 /**
  * Standing rules per board a task raised here can still reach, with
  * provenance, and how incoming tasks are admitted. Pure projection of the document
@@ -620,7 +619,7 @@ const decodeArgs = <S extends Schema.Top>(
  * normalizes).
  */
 const boardGuidance = (
-  doc: CanvasDoc,
+  doc: Canvas,
   board: string,
 ): {
   instructions?: string;
@@ -629,12 +628,12 @@ const boardGuidance = (
   outgoingHandoff?: string;
   outgoingDescription?: string;
 } => {
-  const contract = boardContractOf(nodesFromDocument(doc), board);
+  const contract = boardContractOf(doc, board);
   const instructions = contract?.instructions?.trim();
   const incomingHandling = contract?.incoming?.handling?.trim();
   const incomingDescription = contract?.incoming?.description?.trim();
   // Handoff prose only surfaces when the board can send the task on.
-  const hasNext = flowDestinations(wiresFromDocument(doc), board).length > 0;
+  const hasNext = flowDestinations(doc, board).length > 0;
   const outgoingHandoff = hasNext ? contract?.outgoing?.handoff?.trim() : undefined;
   const outgoingDescription = hasNext
     ? contract?.outgoing?.description?.trim()
@@ -649,16 +648,16 @@ const boardGuidance = (
 };
 
 /** Rules in force per reachable board, with the board's admission posture. */
-const boardRulesMap = (doc: CanvasDoc, fromNodeId: string) =>
-  [...reachableBoards(wiresFromDocument(doc), fromNodeId)].map((board) => {
-    const node = doc.nodes.find((candidate) => candidate.id === board);
-    const identity = tasksNodeIdentity(node, board);
-    const contract = boardContractOf(nodesFromDocument(doc), node?.id ?? "");
+const boardRulesMap = (doc: Canvas, fromNodeId: string) =>
+  [...reachableBoards(doc, fromNodeId)].map((board) => {
+    const node = doc.nodes.get(asNodeId(board));
+    const identity = taskIdentity(node, board);
+    const contract = boardContractOf(doc, node?.id ?? "");
     const incoming = contract?.incoming;
     return {
       board,
       name: identity.name,
-      rules: rulesInForce(canvasFromDocument("", doc), board).map((entry) => ({
+      rules: rulesInForce(doc, board).map((entry) => ({
         id: entry.rule.id,
         text: entry.rule.text,
         provenance: entry.provenance,
@@ -676,24 +675,22 @@ const boardRulesMap = (doc: CanvasDoc, fromNodeId: string) =>
  * it carries, and where work goes next. Undefined for nodes that carry no
  * board contract and no flow edges, so plain nodes stay quiet.
  */
-const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
+const boardBriefing = (doc: Canvas, nodeId: string) => {
   // Tasks are a product surface: a tasks-off build carries no board summary.
   if (!TASKS_ENABLED) return undefined;
-  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-  const identity = tasksNodeIdentity(node, nodeId);
-  const contract = boardContractOf(nodesFromDocument(doc), node?.id ?? "");
-  const next = flowDestinations(wiresFromDocument(doc), nodeId).map((destination) => {
-    const destinationNode = doc.nodes.find(
-      (candidate) => candidate.id === destination,
-    );
-    const incoming = boardContractOf(nodesFromDocument(doc), destination)?.incoming;
+  const node = doc.nodes.get(asNodeId(nodeId));
+  const identity = taskIdentity(node, nodeId);
+  const contract = boardContractOf(doc, node?.id ?? "");
+  const next = flowDestinations(doc, nodeId).map((destination) => {
+    const destinationNode = doc.nodes.get(asNodeId(destination));
+    const incoming = boardContractOf(doc, destination)?.incoming;
     return {
       board: destination,
-      name: tasksNodeName(destinationNode, destination),
+      name: taskName(destinationNode, destination),
       ...(incoming?.description !== undefined
         ? { description: incoming.description }
         : {}),
-      admission: resolveTaskAdmission(boardContractOf(nodesFromDocument(doc), destination)),
+      admission: resolveTaskAdmission(boardContractOf(doc, destination)),
     };
   });
   if (contract === undefined && next.length === 0) return undefined;
@@ -704,15 +701,15 @@ const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
     },
     contract: {
       ...boardGuidance(doc, nodeId),
-      rules: rulesInForce(canvasFromDocument("", doc), nodeId).length,
+      rules: rulesInForce(doc, nodeId).length,
       admission: resolveTaskAdmission(contract),
     },
     next,
   };
 };
 
-const rulingsForRegionStack = (doc: CanvasDoc, nodeId: string) =>
-  regionStack(nodesFromDocument(doc), asNodeId(nodeId)).flatMap((group) => {
+const rulingsForRegionStack = (doc: Canvas, nodeId: string) =>
+  regionStack(doc, asNodeId(nodeId)).flatMap((group) => {
     const rulings = regionContractOf(group)?.rulings ?? [];
     if (rulings.length === 0) return [];
     return [{
@@ -779,8 +776,7 @@ const OVERSEER_TOOL = Object.freeze({
 });
 
 const ensureCaller = (
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  doc: any,
+  doc: Canvas,
   nodeId: string,
 ): WorkErrorBody | undefined => {
   const node = findNode(doc, nodeId);
@@ -800,8 +796,7 @@ const ensureCaller = (
 };
 
 const requireTarget = (
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  doc: any,
+  doc: Canvas,
   callerId: string,
   targetId: string,
   op: WorkOp,
@@ -824,12 +819,12 @@ type WorkCaller = {
 };
 
 const mailSenderStamp = (
-  board: CanvasDoc,
+  board: Canvas,
   caller: WorkCaller,
   actor: ActorRef,
 ): MailSenderStamp => {
   const node = findNode(board, caller.nodeId);
-  const terminal = node?.ether?.terminal;
+  const terminal = node?.kind === "agent" ? node : undefined;
   const epoch = terminal?.bindingId === undefined
     ? undefined
     : seatStateRuntime.machine.getSlot(terminal.bindingId)?.epoch;
@@ -873,7 +868,7 @@ export const resolveProcessBoundActorRef = (
 };
 
 /** Bind board display metadata to the authored title, not the opaque node id. */
-const boardAuthorForActor = (doc: CanvasDoc, actor: ActorRef): BoardAuthor => {
+const boardAuthorForActor = (doc: Canvas, actor: ActorRef): BoardAuthor => {
   const node = findNode(doc, actor.nodeId);
   return {
     kind: "actor",
@@ -888,13 +883,13 @@ const boardAuthorForActor = (doc: CanvasDoc, actor: ActorRef): BoardAuthor => {
  * instructions, and look come from their stores when this runtime has them;
  * a store that cannot answer leaves its field out rather than failing onboard.
  */
-const seatConfigurationOf = (node: CanvasNode) =>
+const seatConfigurationOf = (node: Node) =>
   Effect.gen(function* () {
-    const terminal = node.type === "text" ? node.ether?.terminal : undefined;
+    const terminal = node.kind === "agent" ? node : undefined;
     const harness = terminal?.harness;
     if (!harness) return undefined;
     const choices = isHarnessId(harness) ? recoverDocumentLaunchChoices(harness, terminal.launch) : {};
-    const name = (terminal.label ?? (node.type === "text" ? node.text.split("\n")[0] : "") ?? "").trim();
+    const name = terminal.label.trim();
     const guidanceStore = yield* Effect.serviceOption(SeatGuidanceRepository);
     const guidance = Option.isSome(guidanceStore)
       ? yield* guidanceStore.value.get(node.id).pipe(Effect.orElseSucceed(() => null))
@@ -920,14 +915,13 @@ const seatConfigurationOf = (node: CanvasNode) =>
  * The caller seat's current harness session: the id its node names, or an id
  * the seat announced that the harness's own files already prove.
  */
-const currentSeatSession = (node: CanvasNode): SeatSessionObservation | undefined => {
-  const modelNode = nodeFromDocument("", node, 0);
-  const named = modelNode === undefined ? undefined : seatSessionOnNode(modelNode);
+const currentSeatSession = (node: Node): SeatSessionObservation | undefined => {
+  const named = seatSessionOnNode(node);
   if (named) return named;
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface?._tag !== "managedAgent") return undefined;
+  const surface = node.kind === "agent" ? node : undefined;
+  if (surface === undefined) return undefined;
   const captured = getCapturedSessionId(surface.bindingId);
-  const cwd = node.ether?.terminal?.launch?.cwd?.trim();
+  const cwd = surface?.launch?.cwd?.trim();
   if (!captured || !harnessSessionExists({ harness: surface.harness, sessionId: captured, ...(cwd ? { cwd } : {}) })) {
     return undefined;
   }
@@ -950,11 +944,11 @@ export const setSeatSessionLookup = (
 };
 
 /** The session found by looking once, or undefined (never a failure). */
-const lookForSeatSession = (node: CanvasNode): Effect.Effect<SeatSessionObservation | undefined> => {
-  const surface = actorDeliverySurfaceOf(node);
+const lookForSeatSession = (node: Node): Effect.Effect<SeatSessionObservation | undefined> => {
+  const surface = node.kind === "agent" ? node : undefined;
   const lookup = seatSessionLookup;
-  if (surface?._tag !== "managedAgent" || lookup === undefined) return Effect.succeed(undefined);
-  const cwd = node.ether?.terminal?.launch?.cwd?.trim();
+  if (surface === undefined || lookup === undefined) return Effect.succeed(undefined);
+  const cwd = surface?.launch?.cwd?.trim();
   return Effect.promise(() => lookup(surface.bindingId).catch(() => undefined)).pipe(
     Effect.map((sessionId) =>
       sessionId?.trim()
@@ -989,7 +983,7 @@ const windDownOf = (session: SeatSession) => {
   };
 };
 
-const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
+const pastSessionsOf = (node: Node, pastNotes: number) =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(SeatSessionRepository);
     if (Option.isNone(store)) return undefined;
@@ -1148,7 +1142,7 @@ const dispatchOp = (
         }),
       ),
     );
-    const board: CanvasDoc = { nodes: inPaintOrder(read.canvas).map(nodeToDocument), edges: [...read.canvas.wires.values()].map(wireToDocument) };
+    const board = read.canvas;
     const callerErr = ensureCaller(board, caller.nodeId);
     if (callerErr) return yield* Effect.fail(callerErr);
 
@@ -1173,7 +1167,7 @@ const dispatchOp = (
     if (op === "capabilities") {
       const self = findNode(board, caller.nodeId)!;
       const connected = connectedCapabilities(board, caller.nodeId);
-      const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
+      const overseer = self.kind === "agent" && self.overseer === true;
       return {
         node: summarizeNode(self),
         harnesses: probeManagedHarnessInstalls(),
@@ -1203,7 +1197,7 @@ const dispatchOp = (
       const history = yield* pastSessionsOf(self, decodedOnboard.success.past_notes ?? ONBOARD_PAST_NOTES_DEFAULT);
       const region = containingRegion(board, caller.nodeId);
       const connected = connectedCapabilities(board, caller.nodeId);
-      const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
+      const overseer = self.kind === "agent" && self.overseer === true;
       const tools = overseer
         ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL]
         : [PREAMBLE_TOOL, ...SIGNAL_TOOLS];
@@ -1430,8 +1424,8 @@ const dispatchOp = (
       const taskId = decoded.success.task;
       const gate = requireTarget(board, caller.nodeId, target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const task = taskItemsForNode(gate.node!).find(
-        (candidate) => candidate.id === taskId,
+      const task = yield* work.readTask(caller.canvasName, target, taskId, nodeKind(gate.node) === "requests" ? "requests" : "task").pipe(
+        Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)),
       );
       if (task === undefined) {
         return yield* Effect.fail<WorkErrorBody>({
@@ -1860,7 +1854,7 @@ const dispatchOp = (
           });
         }
         const sent: Array<Message & { readonly toNodeId: string }> = [];
-        for (const node of board.nodes) {
+        for (const node of board.nodes.values()) {
           if (node.id === caller.nodeId) continue;
           for (const message of yield* work.readMailbox(caller.canvasName, node.id).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))) {
             if (message.metadata?.fromSeat !== reader.success.seatId &&
@@ -1944,7 +1938,7 @@ const dispatchOp = (
       const sender = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sender)) return yield* Effect.fail(sender.failure);
       const items: Array<Message & { readonly toNodeId: string }> = [];
-      for (const node of board.nodes) {
+      for (const node of board.nodes.values()) {
         if (decoded.success.target !== undefined && node.id !== decoded.success.target) continue;
         for (const message of yield* work.readMailbox(caller.canvasName, node.id).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))) {
           if (message.metadata?.fromSeat !== sender.success.seatId &&
@@ -2378,7 +2372,7 @@ const dispatchOp = (
         () => import("@shared/board-actors"),
       );
       const actors = resolveBoardConnectedActors(
-        canvasFromDocument(caller.canvasName, board),
+        board,
         decoded.success.target,
       );
       return {
@@ -2459,7 +2453,7 @@ const dispatchOp = (
         () => import("@shared/board-wake"),
       );
       const actors = resolveBoardConnectedActors(
-        canvasFromDocument(caller.canvasName, board),
+        board,
         decoded.success.target,
       );
       const tags = filterTagsToConnected(
@@ -2484,7 +2478,7 @@ const dispatchOp = (
         );
         if (notifyIds.size > 0) {
           const seats = resolveBoardWakeSet(
-            canvasFromDocument(caller.canvasName, board),
+            board,
             decoded.success.target,
           ).filter(
             (s) => notifyIds.has(s.nodeId),
@@ -2574,9 +2568,7 @@ const dispatchOp = (
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      // The sheet is authored on the canvas, so the document IS the read — no
-      // work row to project, and nothing here can write back.
-      const sheet = gate.node?.ether?.sheet;
+      const sheet = yield* work.readSheet(caller.canvasName, decoded.success.target).pipe(Effect.mapError((error): WorkErrorBody => ({ type: "InternalError", message: error.message, details: { retryable: true } })));
       const grid = sheet ?? { columns: [], rows: [] };
       return {
         target: decoded.success.target,

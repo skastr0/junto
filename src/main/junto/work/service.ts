@@ -1,7 +1,7 @@
-import { ModelRecords } from "../model/records";
-import { asCanvasName, asNodeId, inPaintOrder, type Canvas } from "@shared/model";
+import { ModelNotFound, ModelRecords } from "../model/records";
+import { asCanvasName, asNodeId, taskBoardTitle, type Canvas, type Node, type SheetGrid } from "@shared/model";
 // WorkService — one repository-native orchestration seam for the SQLite work
-// plane. Canvas documents are read-only topology plus runtime projections;
+// plane. Typed canvas rows supply topology;
 // every durable mutation goes through a specific WorkRepository verb.
 // Canonical Tasks vocabulary: boards, rules, claims, checks, visits, defects,
 // admission (auto/approval/operator), and wait.
@@ -16,14 +16,12 @@ import {
 } from "effect";
 import type {
   Artifact,
-  CanvasDoc,
-  CanvasNode,
   Message,
   Part,
   Task,
   TaskState,
   WorkMetadata,
-} from "@shared/canvas";
+} from "@shared/work-model";
 import { type Pad, type PadPatch } from "@shared/pad";
 import { padLookHere, padToDigest, padToSvg } from "@shared/pad-project";
 import {
@@ -31,7 +29,6 @@ import {
   tagNotifyNodeIds,
 } from "@shared/board-actors";
 import { resolveBoardWakeSet } from "@shared/board-wake";
-import { canvasFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
 import { ModelService } from "../model/service";
 import { ModelActorRefs } from "../model/actor-refs";
 import { SqlClient } from "effect/unstable/sql";
@@ -56,15 +53,11 @@ import { CHECK_OUTPUT_TAIL_MAX_BYTES } from "@shared/work-model";
 import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
 import type { ContentPart } from "@shared/content";
 import type {
-  CanvasReadResult,
-} from "@shared/ipc";
-import type {
   InstallationId as InstallationIdValue,
 } from "@shared/installation-id";
 import type {
   StationConfiguration as StationConfigurationValue,
 } from "@shared/station-api";
-import { resolveNodeHostId } from "@shared/station";
 import { resolveSpec } from "@shared/physics";
 import {
   WorkError,
@@ -130,11 +123,6 @@ import type {
 import { IntentFactBasis } from "@shared/work-protocol";
 import { ulid } from "ulid";
 import {
-  CanvasesService,
-  CanvasError,
-  type CanvasAuthorityMaterialSnapshot,
-} from "../canvases";
-import {
   StationFleetTargetRepository,
 } from "../station/fleet-target-repository";
 import { StationRepository } from "../station/repository";
@@ -170,7 +158,7 @@ import {
   type ReviewSubjectProjection,
   type ResolvedReviewSubject,
 } from "./reviews";
-import { tasksNodeIdentity, tasksNodeName } from "@shared/tasks-node-identity";
+
 import {
   WorkAuthorityError,
   WorkRepository,
@@ -289,18 +277,13 @@ const toWorkServiceError = (error: unknown): WorkServiceError => {
       message: error.message,
     });
   }
-  if (error instanceof CanvasError) {
-    const message = error.message;
+  if (error instanceof ModelNotFound) {
     return new WorkServiceError({
-      code:
-        message.includes("ENOENT") ||
-        message.includes("no such file") ||
-        message.includes("does not exist")
-          ? "canvas_not_found"
-          : "invalid",
-      message,
+      code: error.what === "canvas" ? "canvas_not_found" : "node_not_found",
+      message: `${error.what} "${error.id}" not found`,
     });
   }
+
   return new WorkServiceError({
     code: "invalid",
     message: error instanceof Error ? error.message : String(error),
@@ -453,10 +436,13 @@ const sameActor = (left: ActorRef, right: ActorRef): boolean =>
   left.nodeId === right.nodeId;
 
 const nodeById = (
-  doc: CanvasDoc,
+  doc: Canvas,
   nodeId: string,
-): CanvasNode | undefined =>
-  doc.nodes.find((node) => node.id === nodeId);
+): Node | undefined =>
+  doc.nodes.get(asNodeId(nodeId));
+
+const taskIdentity = (node: Node | undefined, id: string) => taskBoardTitle(node?.kind === "task" ? node : undefined, id);
+const taskName = (node: Node | undefined, id: string) => taskIdentity(node, id).name;
 
 /**
  * Work-plane service contract (effect v4).
@@ -579,6 +565,10 @@ export interface WorkServiceShape {
       admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Message>>;
     readonly readCanvases: (canvasName?: string) => Effect.Effect<ReadonlyArray<Canvas>, WorkServiceError>;
+    readonly subscribeTopologyChanges: (listener: (canvasName: string) => void) => () => void;
+    readonly readArtifacts: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Artifact>, WorkServiceError>;
+    readonly readArtifact: (canvas: string, nodeId: string, id: string) => Effect.Effect<Artifact | undefined, WorkServiceError>;
+    readonly readSheet: (canvas: string, nodeId: string) => Effect.Effect<SheetGrid | undefined, WorkServiceError>;
     readonly readTopology: (canvas: string) => Effect.Effect<{ readonly canvas: Canvas; readonly actorRefs: ReadonlyArray<ActorRef> }, WorkServiceError>;
     readonly readTask: (canvas: string, nodeId: string, id: string, kind?: "task" | "requests") => Effect.Effect<Task | undefined, WorkServiceError>;
     readonly readTasks: (canvas: string, nodeId: string, kind?: "task" | "requests") => Effect.Effect<ReadonlyArray<Task>, WorkServiceError>;
@@ -815,20 +805,11 @@ export const WorkLive = Layer.effect(
       })),
     );
 
-    const spatialDocuments = new WeakMap<Canvas, CanvasDoc>();
     const readCanvas = Effect.fn("WorkService.readTopology")(function* (canvasName: string) {
       return yield* withSqlRead(sql, Effect.gen(function* () {
         const topology = yield* model.canvas(canvasName);
-        let doc = spatialDocuments.get(topology);
-        if (doc === undefined) {
-          // Remaining authorization callers are converted next. This contains
-          // spatial kinds only; Work is never copied into the topology.
-          doc = { nodes: inPaintOrder(topology).map(nodeToDocument), edges: [...topology.wires.values()].map(wireToDocument) };
-          spatialDocuments.set(topology, doc);
-        }
         const projection = yield* stations.projection;
-        return { name: canvasName, topology, doc, actorRefs: yield* modelActors.read(canvasName),
-          revision: String(topology.seq), workRevision: "0",
+        return { topology, actorRefs: yield* modelActors.read(canvasName),
           intentWitness: { canvasName, seq: topology.seq, generation: projection?.generation ?? String(topology.seq), contentSha256: projection?.contentSha256 ?? "" } };
       })).pipe(Effect.mapError(toWorkServiceError));
     });
@@ -1015,7 +996,7 @@ export const WorkLive = Layer.effect(
     const complete = <T>(outcome: WorkMutationOutcome<T>): Effect.Effect<WorkApplyOk<T>> => Effect.succeed(outcome);
 
     const reviewForTask = (
-      read: CanvasReadResult & { readonly topology: Canvas },
+      read: { readonly topology: Canvas; readonly actorRefs: ReadonlyArray<ActorRef> },
       canvas: string,
       nodeId: string,
       task: Task,
@@ -1060,9 +1041,9 @@ export const WorkLive = Layer.effect(
     });
 
     const requireNode = (
-      doc: CanvasDoc,
+      doc: Canvas,
       nodeId: string,
-    ): Effect.Effect<CanvasNode, WorkServiceError> => {
+    ): Effect.Effect<Node, WorkServiceError> => {
       const node = nodeById(doc, nodeId);
       return node === undefined
         ? Effect.fail(
@@ -1080,7 +1061,7 @@ export const WorkLive = Layer.effect(
       readCanvas(admin.actor.canvasName).pipe(
         Effect.flatMap((origin) => {
           const admitted = admitLiveOverseer(
-            origin.doc,
+            origin.topology,
             origin.actorRefs,
             { canvasName: admin.actor.canvasName, nodeId: admin.actor.nodeId },
             admin,
@@ -1100,7 +1081,7 @@ export const WorkLive = Layer.effect(
 
     const requireExactActorNode = (
       actor: ActorRef,
-    ): Effect.Effect<CanvasNode, WorkServiceError> =>
+    ): Effect.Effect<Node, WorkServiceError> =>
       readCanvas(actor.canvasName).pipe(
         Effect.flatMap((origin) => {
           const exact = origin.actorRefs.filter((candidate) =>
@@ -1116,7 +1097,7 @@ export const WorkLive = Layer.effect(
               }),
             );
           }
-          const actorNode = nodeById(origin.doc, actor.nodeId);
+          const actorNode = nodeById(origin.topology, actor.nodeId);
           return actorNode === undefined
             ? Effect.fail(
               new WorkServiceError({
@@ -1129,7 +1110,7 @@ export const WorkLive = Layer.effect(
       );
 
     const requireActor = (
-      read: CanvasReadResult & { readonly topology: Canvas },
+      read: { readonly topology: Canvas; readonly actorRefs: ReadonlyArray<ActorRef> },
       actor: ActorRef,
       targetNodeId: string,
       op:
@@ -1141,12 +1122,12 @@ export const WorkLive = Layer.effect(
         | "msg.react"
         | "artifact.publish",
       admin?: OverseerWorkAdmin,
-    ): Effect.Effect<CanvasNode, WorkServiceError> => {
+    ): Effect.Effect<Node, WorkServiceError> => {
       if (admin !== undefined) {
         return requireLiveOverseer(admin).pipe(
           Effect.flatMap((live) => {
             const overseerTarget = admitOverseerWorkTarget(
-              read.doc,
+              read.topology,
               targetNodeId,
               op,
             );
@@ -1196,7 +1177,7 @@ export const WorkLive = Layer.effect(
         (op === "msg.read" || op === "msg.react") &&
         actor.nodeId === targetNodeId
       ) {
-        const actorNode = nodeById(read.doc, actor.nodeId);
+        const actorNode = nodeById(read.topology, actor.nodeId);
         return actorNode === undefined
           ? Effect.fail(
             new WorkServiceError({
@@ -1207,7 +1188,7 @@ export const WorkLive = Layer.effect(
           : Effect.succeed(actorNode);
       }
       const admitted = admitWorkTarget(
-        read.doc,
+        read.topology,
         actor.nodeId,
         targetNodeId,
         op,
@@ -1223,7 +1204,7 @@ export const WorkLive = Layer.effect(
           }),
         );
       }
-      const actorNode = nodeById(read.doc, actor.nodeId);
+      const actorNode = nodeById(read.topology, actor.nodeId);
       return actorNode === undefined
         ? Effect.fail(
           new WorkServiceError({
@@ -1235,10 +1216,10 @@ export const WorkLive = Layer.effect(
     };
 
     const homeForNode = (
-      node: CanvasNode,
+      node: Node,
       context: StationContext,
     ): Effect.Effect<InstallationIdValue, WorkServiceError> => {
-      const hostId = resolveNodeHostId(node);
+      const hostId = ("host" in node ? node.host : "local");
       if (hostId === context.configuration.hostId) {
         return Effect.succeed(context.localInstallationId);
       }
@@ -1271,7 +1252,7 @@ export const WorkLive = Layer.effect(
      */
     const requireTaskAdmissionHomeSupport = (
       topology: Canvas,
-      node: CanvasNode,
+      node: Node,
       task: Task,
       home: InstallationIdValue,
       context: StationContext,
@@ -1302,7 +1283,7 @@ export const WorkLive = Layer.effect(
     };
 
     const requireLocalActor = (
-      read: CanvasReadResult & { readonly topology: Canvas },
+      read: { readonly topology: Canvas; readonly actorRefs: ReadonlyArray<ActorRef> },
       actor: ActorRef,
       targetNodeId: string,
       op:
@@ -1314,7 +1295,7 @@ export const WorkLive = Layer.effect(
         | "artifact.publish",
       context: StationContext,
       admin?: OverseerWorkAdmin,
-    ): Effect.Effect<CanvasNode, WorkServiceError> =>
+    ): Effect.Effect<Node, WorkServiceError> =>
       requireActor(read, actor, targetNodeId, op, admin).pipe(
         Effect.flatMap((actorNode) =>
           admin !== undefined
@@ -1486,7 +1467,7 @@ export const WorkLive = Layer.effect(
       let authorNodeId: string | undefined;
       if (input.subject.kind === "task") {
         const expected = input.subject;
-        const node = yield* requireNode(read.doc, target);
+        const node = yield* requireNode(read.topology, target);
         const task = yield* readItem(canvas, target, expected.taskId);
         if (task === undefined) {
           return yield* new WorkServiceError({
@@ -1576,6 +1557,14 @@ export const WorkLive = Layer.effect(
         const names = canvasName === undefined ? yield* model.listCanvases() : [canvasName];
         return yield* Effect.forEach(names, (name) => model.canvas(name));
       })).pipe(Effect.mapError(toWorkServiceError)),
+      subscribeTopologyChanges: (listener) => {
+        const offChanges = model.subscribeChanges((event) => listener(event.canvas));
+        const offCanvases = model.subscribeCanvasesChanges((event) => listener(event.canvas));
+        return () => { offChanges(); offCanvases(); };
+      },
+      readArtifacts: (canvas, nodeId) => repository.artifactLane(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
+      readArtifact: (canvas, nodeId, id) => repository.artifactItem(canvas, nodeId, id).pipe(Effect.mapError(toWorkServiceError)),
+      readSheet: (canvas, nodeId) => model.readSheet(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
       readTopology: (canvas) => readCanvas(canvas).pipe(Effect.map((read) => ({ canvas: read.topology, actorRefs: read.actorRefs }))),
       readTask: readItem,
       readTasks: (canvas, nodeId, kind = "task") => repository.taskLane(canvas, nodeId, kind).pipe(Effect.mapError(toWorkServiceError)),
@@ -1662,7 +1651,7 @@ export const WorkLive = Layer.effect(
               readCanvas(canvas),
             ]);
             if (admin !== undefined) yield* requireLiveOverseer(admin);
-            const node = yield* requireNode(read.doc, nodeId);
+            const node = yield* requireNode(read.topology, nodeId);
             const policyWork = yield* policyRows(canvas, nodeId, dependsOn ?? []);
             const policy = yield* runPolicy(() =>
               workTaskCreate(policyWork, read.topology,
@@ -2004,7 +1993,7 @@ export const WorkLive = Layer.effect(
                 },
               });
             }
-            const node = yield* requireNode(read.doc, nodeId);
+            const node = yield* requireNode(read.topology, nodeId);
             const task = yield* readItem(canvas, nodeId, taskId);
             if (task === undefined) {
               return yield* new WorkServiceError({
@@ -2078,7 +2067,7 @@ export const WorkLive = Layer.effect(
       workTaskShow: (canvas, nodeId, taskId, view) =>
         Effect.gen(function* () {
           const read = yield* readCanvas(canvas);
-          const node = yield* requireNode(read.doc, nodeId);
+          const node = yield* requireNode(read.topology, nodeId);
           const task = yield* readItem(canvas, nodeId, taskId);
           if (task === undefined) {
             return yield* new WorkServiceError({
@@ -2105,8 +2094,8 @@ export const WorkLive = Layer.effect(
             ];
             return {
               boardId: visit.board,
-              board: tasksNodeName(
-                nodeById(read.doc, visit.board),
+              board: taskName(
+                nodeById(read.topology, visit.board),
                 visit.board,
               ),
               enteredAt: visit.enteredAt,
@@ -2121,8 +2110,8 @@ export const WorkLive = Layer.effect(
               ...(visit.next !== undefined
                 ? {
                     next: visit.next,
-                    nextBoard: tasksNodeName(
-                      nodeById(read.doc, visit.next),
+                    nextBoard: taskName(
+                      nodeById(read.topology, visit.next),
                       visit.next,
                     ),
                   }
@@ -2137,7 +2126,7 @@ export const WorkLive = Layer.effect(
             };
           });
           const contract = boardContractOf(read.topology, node.id);
-          const identity = tasksNodeIdentity(node, nodeId);
+          const identity = taskIdentity(node, nodeId);
           const boardInstructions = contract?.instructions?.trim();
           const incomingHandling = contract?.incoming?.handling?.trim();
           const incomingDescription = contract?.incoming?.description?.trim();
@@ -2160,7 +2149,7 @@ export const WorkLive = Layer.effect(
             visits,
             rules: review.rules,
             ambient: {
-              regions: regionStackFor(read.doc, nodeId),
+              regions: regionStackFor(read.topology, nodeId),
               ...(boardInstructions ? { boardInstructions } : {}),
               ...(incomingHandling || incomingDescription
                 ? {
@@ -2189,7 +2178,7 @@ export const WorkLive = Layer.effect(
       workTaskRules: (canvas, nodeId, taskId) =>
         Effect.gen(function* () {
           const read = yield* readCanvas(canvas);
-          const node = yield* requireNode(read.doc, nodeId);
+          const node = yield* requireNode(read.topology, nodeId);
           const task = taskId === undefined
             ? undefined
             : yield* readItem(canvas, nodeId, taskId);
@@ -2267,7 +2256,7 @@ export const WorkLive = Layer.effect(
       workRulingsList: (canvas, nodeId) =>
         Effect.gen(function* () {
           const read = yield* readCanvas(canvas);
-          yield* requireNode(read.doc, nodeId);
+          yield* requireNode(read.topology, nodeId);
           return {
             regions: regionStack(read.topology, asNodeId(nodeId)).map((group) => ({
               id: group.id,
@@ -2300,7 +2289,7 @@ export const WorkLive = Layer.effect(
                 },
               });
             }
-            const node = yield* requireNode(read.doc, nodeId);
+            const node = yield* requireNode(read.topology, nodeId);
             const task = yield* readItem(canvas, nodeId, taskId);
             if (task === undefined) {
               return yield* new WorkServiceError({
@@ -2658,7 +2647,7 @@ export const WorkLive = Layer.effect(
                     "a Remote cannot relay a task claim to another installation",
                 });
               }
-              const hostId = resolveNodeHostId(actorNode);
+              const hostId = ("host" in actorNode ? actorNode.host : "local");
               const target = yield* fleetTargets.get(hostId).pipe(
                 Effect.mapError(toWorkServiceError),
               );
@@ -2724,10 +2713,10 @@ export const WorkLive = Layer.effect(
                   "only the Command Center operator may comment on a task",
               });
             }
-            const targetNode = yield* requireNode(read.doc, nodeId);
+            const targetNode = yield* requireNode(read.topology, nodeId);
             const targetSpec = resolveSpec({
               isGroup: false,
-              kind: targetNode.ether?.entity?.kind,
+              kind: targetNode.kind,
             });
             const isTaskSink = Match.value(targetSpec).pipe(
               Match.when({ _tag: "Sink", kind: "task" }, () => true),
@@ -2856,7 +2845,7 @@ export const WorkLive = Layer.effect(
               context,
               admin,
             );
-            const targetNode = yield* requireNode(read.doc, nodeId);
+            const targetNode = yield* requireNode(read.topology, nodeId);
             const policyWork = yield* policyRows(canvas, nodeId, taskId === null ? [] : [taskId], [], read.topology.nodes.get(asNodeId(nodeId))?.kind === "requests" ? "requests" : "task");
             const policy = yield* runPolicy(() =>
               workMessageAppend(policyWork, read.topology,
@@ -2874,7 +2863,7 @@ export const WorkLive = Layer.effect(
             });
             const targetSpec = resolveSpec({
               isGroup: false,
-              kind: targetNode.ether?.entity?.kind,
+              kind: targetNode.kind,
             });
             const isRequestSink = Match.value(targetSpec).pipe(
               Match.when({ _tag: "Sink", kind: "requests" }, () => true),
@@ -3019,10 +3008,10 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
-            const targetNode = yield* requireNode(read.doc, nodeId);
+            const targetNode = yield* requireNode(read.topology, nodeId);
             const targetSpec = resolveSpec({
               isGroup: false,
-              kind: targetNode.ether?.entity?.kind,
+              kind: targetNode.kind,
             });
             const isActor = Match.value(targetSpec).pipe(
               Match.when({ _tag: "Actor" }, () => true),
@@ -3033,7 +3022,7 @@ export const WorkLive = Layer.effect(
                 new WorkServiceError({
                   code: "illegal_kind",
                   message: `system mailbox notify requires an actor inbox; got kind ${
-                    targetNode.ether?.entity?.kind ?? "none"
+                    targetNode.kind ?? "none"
                   }`,
                 }),
               );
@@ -3383,7 +3372,7 @@ export const WorkLive = Layer.effect(
               // overlay or actor ledger) may still offer Send while its doc
               // write is in flight. Absorb the duplicate as an idempotent
               // settle: the current doc is truth and the surfaces refresh
-              // from it via applyWorkCanvasWrite, so no error banner.
+              // from it via scoped Work store refresh, so no error banner.
               return yield* complete({
                 value: before,
                 disposition: "applied",
@@ -3496,7 +3485,7 @@ export const WorkLive = Layer.effect(
                 });
               }
               const sink = admitOverseerWorkTarget(
-                read.doc,
+                read.topology,
                 nodeId,
                 "artifact.publish",
               );
@@ -3530,7 +3519,7 @@ export const WorkLive = Layer.effect(
               Effect.map((parts) => ({ ...policy.artifact, parts })),
             );
             const origin = yield* readCanvas(publishedBy.canvasName);
-            const publisherNode = yield* requireNode(origin.doc, publishedBy.nodeId);
+            const publisherNode = yield* requireNode(origin.topology, publishedBy.nodeId);
             const publisherHome = yield* homeForNode(publisherNode, context);
             const action = {
               operation: "artifact.publish" as const,
@@ -3653,8 +3642,8 @@ export const WorkLive = Layer.effect(
               stationContext,
               readCanvas(canvas),
             ]);
-            const node = read.doc.nodes.find((n) => n.id === nodeId);
-            if (node?.ether?.entity?.kind !== "board") {
+            const node = read.topology.nodes.get(asNodeId(nodeId));
+            if (node?.kind !== "board") {
               return yield* Effect.fail(
                 new WorkServiceError({
                   code: "illegal_kind",
@@ -3746,8 +3735,7 @@ export const WorkLive = Layer.effect(
               readCanvas(canvas),
             ]);
             if (
-              read.doc.nodes.find((n) => n.id === nodeId)?.ether?.entity
-                ?.kind !== "board"
+              read.topology.nodes.get(asNodeId(nodeId))?.kind !== "board"
             ) {
               return yield* Effect.fail(
                 new WorkServiceError({
@@ -3868,8 +3856,8 @@ export const WorkLive = Layer.effect(
         asResult(
           Effect.gen(function* () {
             const read = yield* readCanvas(canvas);
-            const node = read.doc.nodes.find((n) => n.id === nodeId);
-            if (node?.ether?.entity?.kind !== "pad") {
+            const node = read.topology.nodes.get(asNodeId(nodeId));
+            if (node?.kind !== "pad") {
               return yield* Effect.fail(
                 new WorkServiceError({
                   code: "illegal_kind",
@@ -3928,8 +3916,7 @@ export const WorkLive = Layer.effect(
                 ? undefined
                 : yield* requireLiveOverseer(admin);
             if (
-              read.doc.nodes.find((n) => n.id === nodeId)?.ether?.entity
-                ?.kind !== "pad"
+              read.topology.nodes.get(asNodeId(nodeId))?.kind !== "pad"
             ) {
               return yield* Effect.fail(
                 new WorkServiceError({

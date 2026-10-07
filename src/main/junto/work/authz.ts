@@ -1,10 +1,8 @@
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { groupMembers, isGroup, regionStack } from "@shared/graph";
+import { regionMembers, regionStack, titleOf, type Canvas, type Node } from "@shared/model";
 import {
   ALL_PORTS,
   admitPure,
   asNodeId,
-  canvasDocToCapabilityView,
   isTargetWorkOp,
   opsForSink,
   portForWorkOp,
@@ -16,6 +14,7 @@ import {
   type ScopeDenial,
   type TargetWorkOpName,
 } from "@shared/physics";
+import { canvasToCapabilityView } from "@shared/physics/view";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
@@ -25,7 +24,6 @@ import {
   RELAY_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
-import { tasksNodeName } from "@shared/tasks-node-identity";
 
 // Edges are the capability system. Kernel-enforced per call via factory physics
 // (admitPure + ports). Region co-members: {id, kind, title} visibility only.
@@ -33,31 +31,20 @@ import { tasksNodeName } from "@shared/tasks-node-identity";
 
 export type AuthzVisibility = "connected" | "region" | "none";
 
-export const nodeKind = (node: CanvasNode | undefined): string | undefined =>
-  node?.ether?.entity?.kind;
+export const nodeKind = (node: Node | undefined): string | undefined => node?.kind;
 
-export const nodeTitle = (node: CanvasNode): string => {
-  if (nodeKind(node) === "task") return tasksNodeName(node, node.id);
-  if (node.type === "text") {
-    const first = node.text?.split("\n")[0]?.trim();
-    if (first) return first;
-  }
-  if (node.type === "group" && node.label?.trim()) return node.label.trim();
-  if (node.type === "link" && node.url) return node.url;
-  if (node.type === "file" && node.file) return node.file;
-  return node.ether?.entity?.name ?? node.id;
-};
+export const nodeTitle = titleOf;
 
-export const findNode = (doc: CanvasDoc, nodeId: string): CanvasNode | undefined =>
-  doc.nodes.find((n) => n.id === nodeId);
+export const findNode = (canvas: Canvas, nodeId: string): Node | undefined =>
+  canvas.nodes.get(asNodeId(nodeId));
 
-/** Undirected: any edge between a and b counts as connected. */
-export const areConnected = (doc: CanvasDoc, a: string, b: string): boolean => {
+/** Undirected: any wire between a and b counts as connected. */
+export const areConnected = (canvas: Canvas, a: string, b: string): boolean => {
   if (a === b) return true;
-  return doc.edges.some(
-    (e) =>
-      (e.fromNode === a && e.toNode === b) || (e.fromNode === b && e.toNode === a),
-  );
+  for (const wire of canvas.wires.values()) {
+    if ((wire.from === a && wire.to === b) || (wire.from === b && wire.to === a)) return true;
+  }
+  return false;
 };
 
 /**
@@ -66,15 +53,15 @@ export const areConnected = (doc: CanvasDoc, a: string, b: string): boolean => {
  * co-members already span the whole region stack.
  */
 export const regionCoMemberIds = (
-  doc: CanvasDoc,
+  doc: Canvas,
   nodeId: string,
 ): ReadonlyArray<string> => {
-  const members = groupMembers(doc);
   const out = new Set<string>();
-  for (const [, ids] of members) {
-    if (!ids.includes(nodeId)) continue;
-    for (const id of ids) {
-      if (id !== nodeId) out.add(id);
+  // Regions are geography, not peers. A region itself has no co-member view.
+  if (findNode(doc, nodeId)?.kind === "region") return [];
+  for (const region of regionStack(doc, asNodeId(nodeId))) {
+    for (const member of regionMembers(doc, region)) {
+      if (member.id !== nodeId) out.add(member.id);
     }
   }
   return [...out];
@@ -92,11 +79,11 @@ export type RegionBriefing = {
  * instructions outer → inner so nested seats inherit every layer's law.
  */
 export const regionStackFor = (
-  doc: CanvasDoc,
+  doc: Canvas,
   nodeId: string,
 ): ReadonlyArray<RegionBriefing> =>
-  regionStack(doc, nodeId).map((group) => {
-    const instruction = group.ether?.region?.instruction?.trim();
+  regionStack(doc, asNodeId(nodeId)).map((group) => {
+    const instruction = group.instruction?.trim();
     return {
       id: group.id,
       label: group.label?.trim() || group.id,
@@ -114,7 +101,7 @@ export const regionStackFor = (
  * inherit ambient law from all containers.
  */
 export const containingRegion = (
-  doc: CanvasDoc,
+  doc: Canvas,
   nodeId: string,
 ): RegionBriefing | undefined => {
   const stack = regionStackFor(doc, nodeId);
@@ -131,7 +118,7 @@ export const containingRegion = (
 };
 
 export const visibilityOf = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   targetId: string,
 ): AuthzVisibility => {
@@ -143,7 +130,7 @@ export const visibilityOf = (
 
 /**
  * Main-derived overseer authority. Never user-supplied as a principal, never
- * `OPERATOR_SEAT_ID`. The live `ether.overseer` flag is re-checked at use.
+ * `OPERATOR_SEAT_ID`. The live overseer flag is re-checked at use.
  */
 export type OverseerWorkAdmin = {
   readonly kind: "overseer";
@@ -166,22 +153,22 @@ const overseerAuthError = (
     caller: callerId,
     retryable: false,
     missing,
-    next_step: "ask the operator to grant ether.overseer on this agent seat",
+    next_step: "ask the operator to grant overseer on this agent seat",
   },
 });
 
 /** True when the node is a managed agent seat with a live human overseer grant. */
-export const isLiveOverseerNode = (node: CanvasNode | undefined): boolean =>
+export const isLiveOverseerNode = (node: Node | undefined): boolean =>
   node !== undefined &&
   nodeKind(node) === "agent" &&
-  node.ether?.overseer === true;
+  node.kind === "agent" && node.overseer === true;
 
 /**
- * Admit a claimed overseer admin against the live document. Callers cannot
+ * Admit a claimed overseer admin against the live canvas. Callers cannot
  * forge `kind: "overseer"` without a matching compiled ActorRef and flag.
  */
 export const admitLiveOverseer = (
-  doc: CanvasDoc,
+  doc: Canvas,
   actorRefs: ReadonlyArray<ActorRef>,
   caller: { readonly canvasName: string; readonly nodeId: string },
   claimed: OverseerWorkAdmin,
@@ -270,7 +257,7 @@ const featureDisabledError = (
 
 /** True when a live connected target is a product kind this build disabled. */
 export const targetFeatureDisabled = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   targetId: string,
 ): boolean => {
@@ -287,10 +274,10 @@ export const targetFeatureDisabled = (
  * Ordinary agents still go through {@link admitWorkTarget}.
  */
 export const admitOverseerWorkTarget = (
-  doc: CanvasDoc,
+  doc: Canvas,
   targetId: string,
   op: WorkOpName,
-): Result.Result<{ readonly node: CanvasNode }, WorkErrorBody> => {
+): Result.Result<{ readonly node: Node }, WorkErrorBody> => {
   const target = findNode(doc, targetId);
   if (!target) {
     return Result.fail({
@@ -509,11 +496,11 @@ export const scopeDenialToWorkError = (
  * Missing target still uses visibility-aware UnknownTarget / invisible.
  */
 export const admitWorkTarget = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   targetId: string,
   op: WorkOpName,
-): Result.Result<{ readonly node: CanvasNode }, WorkErrorBody> => {
+): Result.Result<{ readonly node: Node }, WorkErrorBody> => {
   const target = findNode(doc, targetId);
   if (!target) {
     const vis = visibilityOf(doc, callerId, targetId);
@@ -541,7 +528,7 @@ export const admitWorkTarget = (
     );
   }
 
-  const view = canvasDocToCapabilityView(doc);
+  const view = canvasToCapabilityView(doc);
   const result = admitPure(
     view,
     asNodeId(callerId),
@@ -565,22 +552,22 @@ export type VisibleNode = {
   readonly title: string;
 };
 
-export const summarizeNode = (node: CanvasNode): VisibleNode => ({
+export const summarizeNode = (node: Node): VisibleNode => ({
   id: node.id,
   kind: nodeKind(node),
   title: nodeTitle(node),
 });
 
-export const factoryRoleOfNode = (node: CanvasNode): FactoryRole =>
-  roleOf(resolveSpec({ kind: nodeKind(node), isGroup: isGroup(node) }));
+export const factoryRoleOfNode = (node: Node): FactoryRole =>
+  roleOf(resolveSpec({ kind: nodeKind(node), isGroup: node.kind === "region" }));
 
 /** Ports the caller holds on the undirected edge to target (physics admit). */
 export const heldGrantsOnEdge = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   targetId: string,
 ): ReadonlyArray<Port> => {
-  const view = canvasDocToCapabilityView(doc);
+  const view = canvasToCapabilityView(doc);
   const caller = asNodeId(callerId);
   const target = asNodeId(targetId);
   return ALL_PORTS.filter((port) =>
@@ -597,17 +584,17 @@ export type ConnectedCapability = VisibleNode & {
 };
 
 export const connectedCapabilities = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
 ): ReadonlyArray<ConnectedCapability> => {
   const seen = new Set<string>();
   const out: ConnectedCapability[] = [];
-  for (const edge of doc.edges) {
+  for (const edge of doc.wires.values()) {
     const other =
-      edge.fromNode === callerId
-        ? edge.toNode
-        : edge.toNode === callerId
-          ? edge.fromNode
+      edge.from === callerId
+        ? edge.to
+        : edge.to === callerId
+          ? edge.from
           : undefined;
     if (!other || seen.has(other)) continue;
     seen.add(other);
@@ -629,20 +616,20 @@ export const connectedCapabilities = (
 };
 
 export const regionVisibility = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
 ): ReadonlyArray<VisibleNode> => {
-  const connected = new Set(
-    doc.edges.flatMap((e) => {
-      if (e.fromNode === callerId) return [e.toNode];
-      if (e.toNode === callerId) return [e.fromNode];
+  const connected = new Set<string>(
+    [...doc.wires.values()].flatMap((e) => {
+      if (e.from === callerId) return [e.to];
+      if (e.to === callerId) return [e.from];
       return [];
     }),
   );
   return regionCoMemberIds(doc, callerId)
     .filter((id) => !connected.has(id))
     .map((id) => findNode(doc, id))
-    .filter((n): n is CanvasNode => n !== undefined)
+    .filter((n): n is Node => n !== undefined)
     .map(summarizeNode)
     .sort((a, b) => a.id.localeCompare(b.id));
 };

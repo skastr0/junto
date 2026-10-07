@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { Cause, Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
@@ -70,7 +71,8 @@ const makeHarness = (input: {
   let seatSubscribed = false;
 
   const service = makeSeatObservation({
-    readDoc: () => Effect.succeed(doc),
+    readTask: () => Effect.succeed(undefined),
+    readCanvas: () => Effect.succeed(canvasFromDocument("factory", doc)),
     subscribeCanvasChanges: (listener) => {
       canvasListeners.add(listener);
       return () => canvasListeners.delete(listener);
@@ -249,9 +251,10 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     let reads = 0;
     let subscribed = false;
     const service = makeSeatObservation({
-      readDoc: () => {
+      readTask: () => Effect.succeed(undefined),
+    readCanvas: () => {
         reads += 1;
-        return Effect.succeed(reads === 1 ? authorized : revoked);
+        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
       },
       subscribeCanvasChanges: () => {
         subscribed = true;
@@ -317,9 +320,10 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     const service = makeSeatObservation({
       // First read resolves targets; by the post-event revalidation the
       // edge is gone — the answer must be ScopeError, not the stale match.
-      readDoc: () => {
+      readTask: () => Effect.succeed(undefined),
+    readCanvas: () => {
         reads += 1;
-        return Effect.succeed(reads === 1 ? authorized : revoked);
+        return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
       },
       subscribeCanvasChanges: () => () => {},
       seatStates: {

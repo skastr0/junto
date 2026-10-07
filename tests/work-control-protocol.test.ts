@@ -1,3 +1,5 @@
+import { asNodeId } from "../src/shared/model";
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
 import { Result, Schema } from "effect";
 import {
@@ -162,29 +164,29 @@ describe("work authz — edges as capability", () => {
   );
 
   it("detects undirected edges", () => {
-    expect(areConnected(board, "agent", "peer")).toBe(true);
-    expect(areConnected(board, "peer", "agent")).toBe(true);
-    expect(areConnected(board, "agent", "neighbor")).toBe(false);
-    expect(areConnected(board, "agent", "agent")).toBe(true);
+    expect(areConnected(canvasFromDocument("factory", board), "agent", "peer")).toBe(true);
+    expect(areConnected(canvasFromDocument("factory", board), "peer", "agent")).toBe(true);
+    expect(areConnected(canvasFromDocument("factory", board), "agent", "neighbor")).toBe(false);
+    expect(areConnected(canvasFromDocument("factory", board), "agent", "agent")).toBe(true);
   });
 
   it("classifies region co-members vs invisible", () => {
     // agent, peer, neighbor are fully inside the group rect; stranger is not
-    expect(regionCoMemberIds(board, "agent")).toEqual(
+    expect(regionCoMemberIds(canvasFromDocument("factory", board), "agent")).toEqual(
       expect.arrayContaining(["peer", "neighbor"]),
     );
-    expect(visibilityOf(board, "agent", "peer")).toBe("connected");
-    expect(visibilityOf(board, "agent", "neighbor")).toBe("region");
-    expect(visibilityOf(board, "agent", "stranger")).toBe("none");
+    expect(visibilityOf(canvasFromDocument("factory", board), "agent", "peer")).toBe("connected");
+    expect(visibilityOf(canvasFromDocument("factory", board), "agent", "neighbor")).toBe("region");
+    expect(visibilityOf(canvasFromDocument("factory", board), "agent", "stranger")).toBe("none");
   });
 
   it("containingRegion returns onboard briefing instruction", () => {
-    expect(containingRegion(board, "agent")).toEqual({
+    expect(containingRegion(canvasFromDocument("factory", board), "agent")).toEqual({
       id: "region",
       label: "Forge",
       instruction: "ship work",
     });
-    expect(containingRegion(board, "stranger")).toBeUndefined();
+    expect(containingRegion(canvasFromDocument("factory", board), "stranger")).toBeUndefined();
   });
 
   it("kindAllowsOp gates by entity kind", () => {
@@ -194,7 +196,7 @@ describe("work authz — edges as capability", () => {
   });
 
   it("connectedCapabilities lists the mail grants on edge targets only", () => {
-    const caps = connectedCapabilities(board, "agent");
+    const caps = connectedCapabilities(canvasFromDocument("factory", board), "agent");
     expect(caps).toHaveLength(1);
     expect(caps[0]?.id).toBe("peer");
     expect(caps[0]?.role).toBe("actor");
@@ -205,17 +207,17 @@ describe("work authz — edges as capability", () => {
   });
 
   it("admitWorkTarget uses physics for edge + port", () => {
-    const ok = admitWorkTarget(board, "agent", "peer", "msg.send");
+    const ok = admitWorkTarget(canvasFromDocument("factory", board), "agent", "peer", "msg.send");
     expect(Result.isSuccess(ok)).toBe(true);
 
-    const regionOnly = admitWorkTarget(board, "agent", "neighbor", "msg.send");
+    const regionOnly = admitWorkTarget(canvasFromDocument("factory", board), "agent", "neighbor", "msg.send");
     expect(Result.isFailure(regionOnly)).toBe(true);
     if (Result.isFailure(regionOnly)) {
       expect(regionOnly.failure.type).toBe("ScopeError");
       expect(regionOnly.failure.message).toContain("missing edge");
     }
 
-    const invisible = admitWorkTarget(board, "agent", "stranger", "msg.send");
+    const invisible = admitWorkTarget(canvasFromDocument("factory", board), "agent", "stranger", "msg.send");
     expect(Result.isFailure(invisible)).toBe(true);
     if (Result.isFailure(invisible)) {
       expect(invisible.failure.type).toBe("ScopeError");
@@ -241,7 +243,7 @@ describe("work authz — edges as capability", () => {
 
   it("factoryRoleOfNode derives actor for agent seats", () => {
     const seat = board.nodes.find((n) => n.id === "agent")!;
-    expect(factoryRoleOfNode(seat)).toBe("actor");
+    expect(factoryRoleOfNode(canvasFromDocument("factory", board).nodes.get(asNodeId(seat.id))!)).toBe("actor");
   });
 
   it("scopeError names the missing edge", () => {

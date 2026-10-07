@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -197,6 +198,8 @@ const makeWorkService = (
   gate: DispatchGate | undefined,
   onMutation: () => void,
 ): WorkServiceShape => ({
+  readCanvases: () => Effect.succeed([canvasFromDocument("revocation", doc)]),
+  readTopology: () => Effect.succeed({ canvas: canvasFromDocument("revocation", doc), actorRefs: [] }),
   commandStatus: Effect.gen(function* () {
     if (gate !== undefined) yield* gate.wait;
     yield* Effect.sync(onMutation);

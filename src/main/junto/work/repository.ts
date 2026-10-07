@@ -8492,6 +8492,7 @@ export interface WorkRepositoryShape {
   readonly taskRowsByIds: (canvasName: string, ids: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly item: TaskValue }>, WorkRepositoryError>;
   /** Explicit full lane read for agent list commands. */
   readonly taskLane: (canvasName: string, nodeId: string, kind: "task" | "requests") => Effect.Effect<ReadonlyArray<TaskValue>, WorkRepositoryError>;
+  readonly artifactLane: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<ArtifactValue>, WorkRepositoryError>;
   readonly artifactItem: (canvasName: string, nodeId: string, id: string) => Effect.Effect<ArtifactValue | undefined, WorkRepositoryError>;
   readonly taskItem: (query: WorkItemQuery) => Effect.Effect<TaskValue | undefined, WorkRepositoryError>;
   readonly actorPage: (query: WorkActorQuery) => Effect.Effect<WorkActorPage, WorkRepositoryError>;
@@ -12222,6 +12223,10 @@ export const WorkRepositoryLive = Layer.effect(
       taskLane: Effect.fn("WorkRepository.taskLane")((canvasName: string, nodeId: string, kind: "task" | "requests") =>
         withSqlRead(sql, loadLaneTasks(sql, { canvasName, nodeId }, kind === "task" ? "task" : "request")).pipe(
           Effect.mapError((error) => toRepositoryError("work.tasks.list", error)),
+        )),
+      artifactLane: Effect.fn("WorkRepository.artifactLane")((canvasName: string, nodeId: string) =>
+        withSqlRead(sql, loadArtifacts(sql, { canvasName, nodeId })).pipe(
+          Effect.mapError((error) => toRepositoryError("work.artifacts.list", error)),
         )),
       artifactItem: Effect.fn("WorkRepository.artifactItem")((canvasName: string, nodeId: string, id: string) =>
         withSqlRead(sql, loadArtifacts(sql, { canvasName, nodeId }, [id])).pipe(
