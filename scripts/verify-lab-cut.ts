@@ -152,14 +152,30 @@ if (phase === "change") {
     const wrapped = [];
     for (const [channel, handler] of handlers) {
       if (!String(channel).startsWith("junto:") || handler.__verifyCounted) continue;
-      const counting = (...args) => { globalThis.__verifyInvokes[channel] = (globalThis.__verifyInvokes[channel] ?? 0) + 1; return handler(...args); };
+      // Per channel: how many calls, how long main took to answer them, and how much it sent back.
+      const counting = async (...args) => {
+        const started = performance.now();
+        try {
+          const value = await handler(...args);
+          const slot = (globalThis.__verifyInvokes[channel] ??= { calls: 0, ms: 0, bytes: 0 });
+          slot.calls += 1;
+          slot.ms += performance.now() - started;
+          try { slot.bytes += JSON.stringify(value ?? null).length; } catch { slot.bytes += -1; }
+          return value;
+        } catch (error) {
+          const slot = (globalThis.__verifyInvokes[channel] ??= { calls: 0, ms: 0, bytes: 0 });
+          slot.calls += 1;
+          slot.ms += performance.now() - started;
+          throw error;
+        }
+      };
       counting.__verifyCounted = true;
       handlers.set(channel, counting);
       wrapped.push(channel);
     }
     return wrapped;
   })()`);
-  const takeInvokes = () => mainEvaluate<Record<string, number>>(`(() => { const out = globalThis.__verifyInvokes; globalThis.__verifyInvokes = {}; return out; })()`);
+  const takeInvokes = () => mainEvaluate<Record<string, { calls: number; ms: number; bytes: number }>>(`(() => { const out = globalThis.__verifyInvokes; globalThis.__verifyInvokes = {}; for (const slot of Object.values(out)) slot.ms = Math.round(slot.ms * 100) / 100; return out; })()`);
   console.log(JSON.stringify({ mainChannelsCounted: counted.length }));
   const wireId = `verify-new-wire-${String(Date.now())}`;
   const commands: Array<[string, object]> = [
