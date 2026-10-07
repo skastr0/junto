@@ -5,7 +5,7 @@
  * a node with no flow edges keeps the plain board.
  */
 
-import type { Task } from "@shared/canvas";
+import type { Task } from "@shared/work-model";
 import type { TasksContract, Visit } from "@shared/work-model";
 import { flowDestinations, flowSources } from "@shared/flow-graph";
 import type { Canvas } from "@shared/model";

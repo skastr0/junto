@@ -7,7 +7,7 @@
  * the request/task that is holding the seat — preferably the exact item.
  */
 
-import type { Task } from "@shared/canvas";
+import type { Task } from "@shared/work-model";
 import type { ExecutionGraph, WorkItemsOf } from "@shared/execution-graph";
 import { formatWaitingOnLines, waitingOnPath } from "@shared/impact";
 import type { NodeId } from "@shared/model/base";

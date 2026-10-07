@@ -3,7 +3,7 @@
  * Column select-all and bulk actions must not depend on React state shape.
  */
 
-import type { TaskState } from "@shared/canvas";
+import type { TaskState } from "@shared/work-model";
 import { canTransitionTaskState } from "@shared/task";
 
 export type TaskBoardSelectMode = "replace" | "toggle" | "add";

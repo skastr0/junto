@@ -1,4 +1,4 @@
-import type { Artifact, Task } from "@shared/canvas";
+import type { Artifact, Task } from "@shared/work-model";
 import type { TaskRef } from "@shared/work-reference";
 import { isTerminalTaskState, taskBrief } from "@shared/task";
 
