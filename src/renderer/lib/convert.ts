@@ -29,8 +29,6 @@ export type EdgeData = ModelEdgeData;
 export type FlowNode = ModelFlowNode;
 export type FlowEdge = ModelFlowEdge;
 
-export { searchText } from "./presentation";
-
 // Live overlay from the kernel cycle (derived phases + blocked closure).
 // When absent, the projection falls back to deriveExecutionGraph(canvas,
 // context), resolving task ownership only through compiled actor refs.
