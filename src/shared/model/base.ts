@@ -39,7 +39,8 @@ const Length = Schema.Finite.pipe(Schema.check(Schema.isGreaterThan(0)));
 
 /**
  * Where a thing sits and how it stacks. `z` is the paint order within its
- * canvas, lowest first.
+ * canvas, lowest first. Only the order matters, so it may be any integer and
+ * need not be dense: bringing one node to the front changes that node alone.
  */
 export const placement = {
   id: NodeId,
@@ -47,7 +48,7 @@ export const placement = {
   y: Schema.Finite,
   width: Length,
   height: Length,
-  z: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  z: Schema.Int,
   color: Schema.optionalKey(Color),
 } as const;
 
