@@ -2,13 +2,18 @@ import { HashMap, HashSet, Option } from "effect";
 import type { CanvasDoc, CanvasNode } from "../canvas";
 import { productNodeKindEnabled } from "../features";
 import { groupMembers, isGroup } from "../graph";
+import { LOCAL_HOST } from "../model/base";
+import type { Canvas } from "../model/canvas";
+import { nodesOf, regionMembers } from "../model/canvas";
 import { nodeOfDocument, wireOfDocument } from "../model/from-document";
-import { wireGrant } from "../model/wire";
+import type { Node } from "../model/kinds";
+import { wireGrant, type Wire } from "../model/wire";
 import type { CapabilityView, NodeMeta } from "./admit";
 import { directedEdgeKey, undirectedEdgeKey } from "./admit";
 import {
   DEFAULT_PLACEMENT_TOPOLOGY,
   placementMapFromDoc,
+  resolveHostPlacement,
   type NodePlacement,
   type PlacementTopology,
 } from "./placement";
@@ -68,6 +73,93 @@ export const canvasDocToCapabilityView = (
   for (const node of doc.nodes) {
     nodeMeta = HashMap.set(nodeMeta, asNodeId(node.id), nodeMetaOf(node));
   }
+  // A region is geography and holds no end of a grant; of two nodes with
+  // one id the first is the one a wire reaches.
+  const kinds = new Map<string, string>();
+  doc.nodes.forEach((node, z) => {
+    if (isGroup(node) || kinds.has(node.id)) return;
+    const kind = nodeOfDocument("", node, z)?.kind;
+    if (kind !== undefined) kinds.set(node.id, kind);
+  });
+  return viewOf({
+    nodeMeta,
+    kinds,
+    joins: doc.edges.map((edge) => ({
+      from: edge.fromNode,
+      to: edge.toNode,
+      wire: wireOfDocument(edge),
+    })),
+    regions: groupMembers(doc).values(),
+    placement:
+      options?.placement ??
+      placementMapFromDoc(doc, options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY),
+  });
+};
+
+/** A note, a file and a link are plain things: they have no kind to offer. */
+const metaOfNode = (node: Node): NodeMeta =>
+  node.kind === "region"
+    ? { kind: undefined, isGroup: true }
+    : {
+        kind:
+          node.kind === "note" || node.kind === "file" || node.kind === "link"
+            ? undefined
+            : node.kind,
+        isGroup: false,
+      };
+
+/**
+ * The same view from a canvas. A thing that names no host is on this one.
+ */
+export const canvasToCapabilityView = (
+  canvas: Pick<Canvas, "nodes" | "wires">,
+  options?: CapabilityViewOptions,
+): VerbCapabilityView => {
+  const topology = options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY;
+  let nodeMeta = HashMap.empty<NodeId, NodeMeta>();
+  let placement = HashMap.empty<NodeId, NodePlacement>();
+  const kinds = new Map<string, string>();
+  for (const node of canvas.nodes.values()) {
+    nodeMeta = HashMap.set(nodeMeta, node.id, metaOfNode(node));
+    if (node.kind !== "region") kinds.set(node.id, node.kind);
+    placement = HashMap.set(
+      placement,
+      node.id,
+      resolveHostPlacement("host" in node ? node.host : LOCAL_HOST, topology),
+    );
+  }
+  const joins: Array<Join> = [];
+  for (const wire of canvas.wires.values()) {
+    joins.push({ from: wire.from, to: wire.to, wire });
+  }
+  return viewOf({
+    nodeMeta,
+    kinds,
+    joins,
+    regions: nodesOf(canvas, "region").map((region) =>
+      regionMembers(canvas, region).map((node) => node.id),
+    ),
+    placement: options?.placement ?? placement,
+  });
+};
+
+type Join = {
+  readonly from: string;
+  readonly to: string;
+  /** Nothing when the join is not a wire: it still makes its ends adjacent. */
+  readonly wire: Wire | undefined;
+};
+
+const viewOf = (input: {
+  readonly nodeMeta: HashMap.HashMap<NodeId, NodeMeta>;
+  /** The kind at each end a grant can reach. */
+  readonly kinds: ReadonlyMap<string, string>;
+  readonly joins: Iterable<Join>;
+  /** The members of each region, regions themselves left out. */
+  readonly regions: Iterable<ReadonlyArray<string>>;
+  readonly placement: HashMap.HashMap<NodeId, NodePlacement>;
+}): VerbCapabilityView => {
+  const { nodeMeta, kinds, placement } = input;
 
   // Claimability is a capability: an endpoint kind a product gate turned off
   // takes no factory handoff, even when a historical `works` edge survives.
@@ -89,32 +181,23 @@ export const canvasDocToCapabilityView = (
   // independent capability; possession is additive, ocap-style). `allows()`
   // in admit.ts still intersects the resulting grant with target offers, so
   // the union can never smuggle a port the target does not offer.
-  // A region is geography and holds no end of a grant; of two nodes with
-  // one id the first is the one a wire reaches.
-  const kinds = new Map<string, string>();
-  doc.nodes.forEach((node, z) => {
-    if (isGroup(node) || kinds.has(node.id)) return;
-    const kind = nodeOfDocument("", node, z)?.kind;
-    if (kind !== undefined) kinds.set(node.id, kind);
-  });
   const pairPorts = new Map<string, HashSet.HashSet<Port>>();
   let directedEdgePortMask = HashMap.empty<string, HashSet.HashSet<Port>>();
   let claimable = HashSet.empty<string>();
 
-  for (const edge of doc.edges) {
-    const a = asNodeId(edge.fromNode);
-    const b = asNodeId(edge.toNode);
+  for (const { from, to, wire } of input.joins) {
+    const a = asNodeId(from);
+    const b = asNodeId(to);
     addAdj(a, b);
     addAdj(b, a);
 
-    const key = undirectedEdgeKey(edge.fromNode, edge.toNode);
-    const wire = wireOfDocument(edge);
+    const key = undirectedEdgeKey(from, to);
     const grant = wire === undefined ? undefined : wireGrant(wire, kinds);
     const ports = HashSet.fromIterable(
       (grant?.ports ?? []).filter((port) => port !== "verdict.post"),
     );
     if (wire?.verb === "reviews" && grant?.ports.includes("verdict.post")) {
-      const directedKey = directedEdgeKey(edge.fromNode, edge.toNode);
+      const directedKey = directedEdgeKey(from, to);
       const prior = HashMap.get(directedEdgePortMask, directedKey);
       directedEdgePortMask = HashMap.set(
         directedEdgePortMask,
@@ -138,7 +221,7 @@ export const canvasDocToCapabilityView = (
   // Nesting-correct as-is: a node inside an inner region is a member of every
   // container, so peers already span the whole region stack; groups stay out
   // (geography holds no seat, so a region is never a peer).
-  for (const [, ids] of groupMembers(doc)) {
+  for (const ids of input.regions) {
     for (const id of ids) {
       const nid = asNodeId(id);
       let peerSet = HashSet.empty<NodeId>();
@@ -152,10 +235,6 @@ export const canvasDocToCapabilityView = (
       regionPeers = HashMap.set(regionPeers, nid, peerSet);
     }
   }
-
-  const placement =
-    options?.placement ??
-    placementMapFromDoc(doc, options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY);
 
   return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, claimable, placement };
 };

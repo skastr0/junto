@@ -68,8 +68,13 @@ export const DEFAULT_PLACEMENT_TOPOLOGY: PlacementTopology = {
 export const resolveNodePlacement = (
   node: CanvasNode,
   topology: PlacementTopology = DEFAULT_PLACEMENT_TOPOLOGY,
+): NodePlacement => resolveHostPlacement(resolveNodeHostId(node), topology);
+
+/** Placement of whatever runs on this host. */
+export const resolveHostPlacement = (
+  hostId: string,
+  topology: PlacementTopology = DEFAULT_PLACEMENT_TOPOLOGY,
 ): NodePlacement => {
-  const hostId = resolveNodeHostId(node);
   if (hostId === topology.commandCenterHostId) {
     return { runtime: RuntimePlacement.Cc(), assignment: hostId };
   }
