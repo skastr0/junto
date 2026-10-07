@@ -173,7 +173,7 @@ export const documentEdits = (canvasName: string, before: CanvasDoc, after: Canv
 
   // The order of the nodes both documents hold, when it changed. Ids alone
   // are read, and only when the two lists are not the same list.
-  let restack: Array<Command> = [];
+  let reorder: Array<Command> = [];
   if (before.nodes !== after.nodes) {
     const idsWas = new Set(before.nodes.map((node) => node.id));
     const idsNow = new Set(after.nodes.map((node) => node.id));
@@ -183,7 +183,10 @@ export const documentEdits = (canvasName: string, before: CanvasDoc, after: Canv
     const order = kept(after.nodes, idsWas);
     const orderWas = kept(before.nodes, idsNow);
     if (order.length !== orderWas.length || order.some((id, index) => id !== orderWas[index])) {
-      restack = [{ _tag: "Restack", canvas, nodes: order as Array<Node["id"]>, to: "front" }];
+      // Restack preserves relative order. A document reorder authors each z.
+      reorder = [{ _tag: "Move", canvas, moves: after.nodes.map((node, z) => ({
+        id: node.id as Node["id"], x: node.x, y: node.y, z,
+      })) }];
     }
   }
 
@@ -200,6 +203,6 @@ export const documentEdits = (canvasName: string, before: CanvasDoc, after: Canv
     ...edits,
     ...sheets,
     ...rewires,
-    ...restack,
+    ...reorder,
   ];
 };

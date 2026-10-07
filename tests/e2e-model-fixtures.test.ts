@@ -76,9 +76,10 @@ it("converts a live fixture edit into one batch and refuses renderer session sta
       const page = { evaluate: (fn: (input: unknown) => unknown, input: unknown) => Promise.resolve(fn(input)) } as unknown as Page;
       try {
         const before = await readFixtureDocument(page, "proof");
-        const seq = await writeFixtureDocument(page, "proof", { ...before, nodes: before.nodes.map((node) => node.id === "note" && node.type === "text" ? { ...node, x: 80, color: "4", text: "after" } : node) });
+        const seq = await writeFixtureDocument(page, "proof", { ...before, nodes: [...before.nodes].reverse().map((node) => node.id === "note" && node.type === "text" ? { ...node, x: 80, color: "4", text: "after" } : node) });
         expect(events).toHaveLength(1);
-        expect(events[0]).toMatchObject({ seq, nodes: [{ id: "note", x: 80, color: "4", text: "after" }] });
+        expect(events[0]).toMatchObject({ seq, nodes: expect.arrayContaining([{ ...modelNote("note", "after", 80, 0), color: "4", z: 1 }]) });
+        expect((await runtime.runPromise(model.open("proof"))).nodes.map((node) => node.id)).toEqual(["seat", "note"]);
         const edited = await readFixtureDocument(page, "proof");
         await expect(writeFixtureDocument(page, "proof", { ...edited, nodes: edited.nodes.map((node) => node.id === "seat" ? { ...node, ether: { ...node.ether, terminal: { ...node.ether!.terminal!, sessionId: "invented" } } } : node) })).rejects.toThrow("runtime session");
         expect(events).toHaveLength(1);

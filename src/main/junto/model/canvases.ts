@@ -243,6 +243,10 @@ export const makeModelCanvases = Effect.gen(function* () {
   ) {
     name = yield* canonicalName(name);
     const current = yield* model.canvas(name);
+    const steps: unknown[] = [];
+    const sessionStamps: unknown[] = [];
+    const queue = (input: unknown, source: "operator" | "runtime" = "operator") =>
+      Effect.sync(() => { (source === "runtime" ? sessionStamps : steps).push(input); });
     const before = yield* document(name);
     if (
       expected !== undefined &&
@@ -294,7 +298,7 @@ export const makeModelCanvases = Effect.gen(function* () {
       )
       .map((wire) => wire.id);
     if (removals.length || removedWires.length)
-      yield* send({
+      yield* queue({
         _tag: "Remove",
         canvas: name,
         nodes: removals,
@@ -304,7 +308,7 @@ export const makeModelCanvases = Effect.gen(function* () {
       (node) => !current.nodes.has(node.id) || replaces.has(node.id),
     );
     if (added.length)
-      yield* send({ _tag: "Add", canvas: name, nodes: added, wires: [] });
+      yield* queue({ _tag: "Add", canvas: name, nodes: added, wires: [] });
     for (const node of nextNodes) {
       const old = current.nodes.get(node.id);
       if (!old || replaces.has(node.id)) continue;
@@ -314,7 +318,7 @@ export const makeModelCanvases = Effect.gen(function* () {
         old.width !== node.width ||
         old.height !== node.height
       ) {
-        yield* send({
+        yield* queue({
           _tag: "Move",
           canvas: name,
           moves: [
@@ -328,7 +332,7 @@ export const makeModelCanvases = Effect.gen(function* () {
         });
       }
       if (old.color !== node.color)
-        yield* send({
+        yield* queue({
           _tag: "Recolor",
           canvas: name,
           nodes: [node.id],
@@ -364,13 +368,13 @@ export const makeModelCanvases = Effect.gen(function* () {
           change[key] = value ?? null;
       }
       if (Object.keys(change).length > 1)
-        yield* send({ _tag: "Edit", canvas: name, id: node.id, change });
+        yield* queue({ _tag: "Edit", canvas: name, id: node.id, change });
       if (
         old.kind === "agent" &&
         node.kind === "agent" &&
         old.sessionId !== node.sessionId
       ) {
-        yield* send(
+        yield* queue(
           {
             _tag: "RecordSession",
             canvas: name,
@@ -388,19 +392,22 @@ export const makeModelCanvases = Effect.gen(function* () {
       .map((node) => node.id)
       .filter((id) => current.nodes.has(id));
     if (!isDeepStrictEqual(previousOrder, proposedOrder))
-      yield* send({
-        _tag: "Restack",
-        canvas: name,
-        nodes: nextNodes.map((node) => node.id),
-        to: "front",
+      yield* queue({
+        _tag: "Move", canvas: name,
+        moves: nextNodes.map((node) => ({ id: node.id, x: node.x, y: node.y, z: node.z })),
       });
-    const afterNodes = yield* model.canvas(name);
+    // Removing a node also removes its attached wires within the pending batch.
+    const removedNodeIds = new Set(removals);
+    const removedWireIds = new Set(removedWires);
+    const survivingWires = new Map([...current.wires].filter(([id, wire]) =>
+      !removedWireIds.has(id) && !removedNodeIds.has(wire.from) && !removedNodeIds.has(wire.to),
+    ));
     for (const wire of nextWires) {
-      const old = afterNodes.wires.get(wire.id);
+      const old = survivingWires.get(wire.id);
       if (!old)
-        yield* send({ _tag: "Add", canvas: name, nodes: [], wires: [wire] });
+        yield* queue({ _tag: "Add", canvas: name, nodes: [], wires: [wire] });
       else if (!isDeepStrictEqual(old, wire))
-        yield* send({
+        yield* queue({
           _tag: "Rewire",
           canvas: name,
           id: wire.id,
@@ -414,13 +421,16 @@ export const makeModelCanvases = Effect.gen(function* () {
     }
     for (const node of decoded.nodes) {
       if (node.ether?.entity?.kind === "sheet")
-        yield* send({
+        yield* queue({
           _tag: "WriteSheet",
           canvas: name,
           id: node.id,
           grid: node.ether.sheet ?? { columns: [], rows: [] },
         });
     }
+    if (steps.length) yield* send({ _tag: "Batch", canvas: name, steps });
+    // Capture remains a runtime operation, outside the operator's edit batch.
+    for (const stamp of sessionStamps) yield* send(stamp, "runtime");
     // Session drafts are read before commit, so the facade reports the result
     // that was actually written, never a revision supplied by its caller.
     documents.delete(yield* model.canvas(name));

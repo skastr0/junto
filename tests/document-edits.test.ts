@@ -7,7 +7,7 @@ import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
 import { decodeCommand, type Command, type Node } from "../src/shared/model";
-import type { Canvas } from "../src/shared/model/canvas";
+import { inPaintOrder, type Canvas } from "../src/shared/model/canvas";
 import { canvasFromDocument } from "../src/shared/model/from-document";
 import { documentEdits } from "../src/shared/model/document-edits";
 import { canvasAfter } from "../src/renderer/lib/model-undo";
@@ -157,11 +157,14 @@ describe("the difference between two documents", () => {
     expect(documentEdits("factory", doc([sheet(empty)]), doc([sheet({ columns: [], rows: [] })]), 0)).toEqual([]);
   });
 
-  it("restacks when the order of the nodes both hold changed, and not when one was only added or removed", () => {
+  it("authors paint order when existing nodes reorder, and leaves it alone for addition or removal", () => {
     const swapped = doc([base.nodes[0]!, base.nodes[2]!, base.nodes[1]!, base.nodes[3]!, base.nodes[4]!], [...base.edges]);
-    expect(sent(base, swapped)).toEqual([
-      { _tag: "Restack", canvas: "factory", nodes: ["room", "nodes", "lead", "plan", "tasks"], to: "front" },
-    ]);
+    const commands = sent(base, swapped);
+    const reached = commands.reduce(canvasAfter, canvasFromDocument("factory", base));
+    expect(inPaintOrder(reached).map((node) => node.id)).toEqual(swapped.nodes.map((node) => node.id));
+    const reopened = doc([...swapped.nodes, note("extra", "new")], [...swapped.edges]);
+    const reachedWithAdd = sent(base, reopened).reduce(canvasAfter, canvasFromDocument("factory", base));
+    expect(inPaintOrder(reachedWithAdd).map((node) => node.id)).toEqual(reopened.nodes.map((node) => node.id));
     const without = doc(base.nodes.filter((node) => node.id !== "plan"), [...base.edges]);
     expect(sent(base, without).map((command) => command._tag)).toEqual(["Remove"]);
   });
