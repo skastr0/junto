@@ -96,6 +96,14 @@ if (cards.length < Math.min(3, select)) {
 }
 // Fewer on screen than asked for is reported, not fatal.
 const chosen = cards.slice(0, select);
+// The first card's wrapper size before it is selected and after, since a card
+// that changes size when selected is measured again by React Flow.
+const wrapperSize = () =>
+  evaluate<{ w: number; h: number } | null>(`(() => {
+    const card = document.querySelector('.react-flow__node[data-id="${chosen[0]!.id}"]');
+    return card ? { w: card.offsetWidth, h: card.offsetHeight } : null;
+  })()`);
+const sizeBeforeSelecting = await wrapperSize();
 // 8 is the Shift modifier: the app extends a selection with shift-click.
 await mouse("mousePressed", chosen[0]!.x, chosen[0]!.y);
 await mouse("mouseReleased", chosen[0]!.x, chosen[0]!.y);
@@ -105,6 +113,7 @@ for (const card of chosen.slice(1)) {
   await sleep(60);
 }
 await sleep(500);
+console.log(JSON.stringify({ firstCardWrapper: { beforeSelecting: sizeBeforeSelecting, afterSelecting: await wrapperSize() } }));
 const world = () =>
   evaluate<{ selected: number; nodes: number; edges: number; positions: Record<string, string> }>(`(() => ({
     selected: document.querySelectorAll(".react-flow__node.selected").length,
