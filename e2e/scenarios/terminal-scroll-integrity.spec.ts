@@ -20,7 +20,7 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
-import { terminalRows, waitForTerminalPaint } from "../harness/term-ready";
+import { terminalRows, waitForTerminalPaint, waitForTerminalQuiet } from "../harness/term-ready";
 
 const LABEL = "e2e geometry truth";
 const BINDING_ID = "e2e-geom-binding-1";
@@ -178,6 +178,7 @@ test("reopening a session with scrollback renders it intact", async ({ junto }) 
     await node.dblclick();
     await expect(surface).toBeVisible({ timeout: 30_000 });
     await waitForTerminalPaint(page);
+    await waitForTerminalQuiet(page);
 
     for (const problem of integrityViolations(await rowTexts(page))) {
       found.push(`reopen ${cycle}: ${problem}`);

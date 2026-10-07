@@ -30,20 +30,50 @@ export const terminalRows = (
     return rows.map((row) => row.replace(/\u00a0/g, " "));
   }, bindingId ?? null);
 
-const rowCount = async (page: Page): Promise<number> =>
-  (await terminalRows(page)).length;
-
 const rowBlob = async (page: Page): Promise<string> =>
   (await terminalRows(page)).join("\n");
 
-/** Wait until xterm has painted enough rows to be a real surface, not an empty attach. */
+/**
+ * Wait until the screen shows at least `minRows` rows with text on them.
+ *
+ * Blank rows do not count: the screen text always spans the whole grid, so a
+ * count of all rows is true before a single byte has arrived. The default of
+ * one row is a surface that has shown anything at all, a shell prompt included.
+ */
 export const waitForTerminalPaint = async (
   page: Page,
-  minRows = 8,
+  minRows = 1,
 ): Promise<void> => {
   await expect
-    .poll(async () => rowCount(page), { timeout: 15_000 })
+    .poll(
+      async () =>
+        (await terminalRows(page)).filter((row) => row.trim().length > 0).length,
+      { timeout: 15_000 },
+    )
     .toBeGreaterThanOrEqual(minRows);
+};
+
+/**
+ * Wait until the screen text has stopped changing: two reads in a row, 400 ms
+ * apart, that agree. For output that ends (a replayed capture, a restored
+ * screen), read after this; a stream that never ends never goes quiet.
+ */
+export const waitForTerminalQuiet = async (
+  page: Page,
+  timeout = 15_000,
+): Promise<void> => {
+  let previous: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        const now = await rowBlob(page);
+        const quiet = now === previous && now.trim().length > 0;
+        previous = now;
+        return quiet;
+      },
+      { timeout, intervals: [400] },
+    )
+    .toBe(true);
 };
 
 /** Wait until the visible screen contains `needle` (payload, marker, prompt). */

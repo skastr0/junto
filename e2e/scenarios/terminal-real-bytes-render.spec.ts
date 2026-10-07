@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
-import { terminalRows, waitForTerminalPaint } from "../harness/term-ready";
+import { terminalRows, waitForTerminalPaint, waitForTerminalQuiet } from "../harness/term-ready";
 
 const REPO = process.cwd();
 const REPLAY_DIR = "/tmp/junto-real-bytes";
@@ -99,7 +99,10 @@ for (const { harness, scenario } of CASES) {
     await surface.locator(".xterm-screen").click();
     await page.keyboard.type(`cat ${raw}`);
     await page.keyboard.press("Enter");
+    // The capture has arrived when the screen stops changing; reading sooner
+    // sees the prompt and none of the payload.
     await waitForTerminalPaint(page, 12);
+    await waitForTerminalQuiet(page);
 
     const onScreen = await renderedRows(page);
     await page.screenshot({ path: `/tmp/junto-real-bytes-${harness}-${scenario}.png` });
@@ -156,6 +159,7 @@ for (const { harness, scenario } of CASES) {
       await node.dblclick();
       await expect(surface).toBeVisible({ timeout: 30_000 });
       await waitForTerminalPaint(page);
+      await waitForTerminalQuiet(page);
 
       const restored = (await renderedRows(page)).join("\n");
       await page.screenshot({ path: `/tmp/junto-reopen-${harness}-${cycle}.png` });
