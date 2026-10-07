@@ -333,7 +333,7 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.doc, target, "tasks.list");
-      return { target, items: findNode(read.doc, target)?.ether?.tasks?.items ?? [] };
+      return { target, items: yield* catchWork(work.readTasks(canvas, target, "task")) };
     }
     if (op === "tasks.create") {
       const args = yield* decodeArgs(op, raw);
@@ -483,14 +483,14 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireRequestsTarget(read.doc, target);
-      return { target, items: findNode(read.doc, target)?.ether?.requests?.items ?? [] };
+      return { target, items: yield* catchWork(work.readTasks(canvas, target, "requests")) };
     }
     if (op === "request.get") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireRequestsTarget(read.doc, target);
-      const item = (findNode(read.doc, target)?.ether?.requests?.items ?? []).find(
-        (candidate) => candidate.id === args.request,
+      const item = yield* catchWork(
+        work.readTask(canvas, target, args.request, "requests"),
       );
       if (item === undefined) {
         return yield* failBody({
@@ -617,13 +617,14 @@ export const executeOverseerWork = (
       const targetId = resolveMailboxTarget(args.target, caller);
       if (args.taskId) {
         yield* requireTarget(read.doc, targetId, "msg.list");
-        const node = findNode(read.doc, targetId);
-        const kind = nodeKind(node);
-        const list =
-          kind === "task"
-            ? node?.ether?.tasks?.items ?? []
-            : node?.ether?.requests?.items ?? [];
-        const task = list.find((item) => item.id === args.taskId);
+        const task = yield* catchWork(
+          work.readTask(
+            canvas,
+            targetId,
+            args.taskId,
+            nodeKind(findNode(read.doc, targetId)) === "task" ? "task" : "requests",
+          ),
+        );
         if (!task) {
           return yield* failBody({
             type: "UnknownTarget",
@@ -935,9 +936,8 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.doc, target, "content.path");
-      const node = findNode(read.doc, target);
-      const task = (node?.ether?.tasks?.items ?? []).find(
-        (candidate) => candidate.id === args.task,
+      const task = yield* catchWork(
+        work.readTask(canvas, target, args.task, "task"),
       );
       if (task === undefined) {
         return yield* failBody({
@@ -979,9 +979,8 @@ export const executeOverseerWork = (
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
       yield* requireTarget(read.doc, target, "content.materialize");
-      const node = findNode(read.doc, target);
-      const task = (node?.ether?.tasks?.items ?? []).find(
-        (candidate) => candidate.id === args.task,
+      const task = yield* catchWork(
+        work.readTask(canvas, target, args.task, "task"),
       );
       if (task === undefined) {
         return yield* failBody({

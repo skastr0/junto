@@ -374,4 +374,53 @@ describe("executeOverseerWork", () => {
       /^[a-f0-9]{64}$/,
     );
   });
+  it("lists tasks and requests, and reads a task thread, from their rows", async () => {
+    const sink = (id: string, kind: "task" | "requests"): CanvasDoc["nodes"][number] => ({
+      id,
+      type: "text",
+      text: id,
+      x: 300,
+      y: kind === "task" ? 0 : 200,
+      width: 200,
+      height: 100,
+      ether: { entity: { kind }, host: "local", [kind === "task" ? "tasks" : "requests"]: { items: [] } },
+    });
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(
+      canvases.write("rows", {
+        nodes: [...factoryDoc("rows").nodes, sink("todo", "task"), sink("asks", "requests")],
+        edges: [],
+      }),
+    );
+    await grantOverseer("rows", "boss", true);
+    const { actor } = await actorOn("rows", "boss");
+    const call = (operation: string, args: Record<string, unknown>) =>
+      run(
+        executeOverseerWork(
+          { canvasName: "rows", nodeId: "boss" },
+          { operation: operation as never, args },
+          overseerWorkAdmin(actor),
+        ),
+      ) as Promise<Record<string, unknown>>;
+
+    expect(await call("tasks.list", { target: "todo" })).toEqual({ target: "todo", items: [] });
+    await call("tasks.create", {
+      target: "todo",
+      brief: "write the report",
+      metadata: { details: "the quarterly one" },
+    });
+    const listed = (await call("tasks.list", { target: "todo" })) as {
+      readonly items: ReadonlyArray<{ readonly id: string; readonly history: ReadonlyArray<unknown> }>;
+    };
+    expect(listed.items).toHaveLength(1);
+    const taskId = listed.items[0]!.id;
+
+    const thread = await call("msg.list", { target: "todo", taskId });
+    expect(thread).toMatchObject({ target: "todo", taskId });
+    expect(thread["items"]).toEqual(listed.items[0]!.history);
+    await expect(call("msg.list", { target: "todo", taskId: "missing" })).rejects.toBeDefined();
+
+    expect(await call("request.list", { target: "asks" })).toEqual({ target: "asks", items: [] });
+    await expect(call("request.get", { target: "asks", request: "missing" })).rejects.toBeDefined();
+  });
 });
