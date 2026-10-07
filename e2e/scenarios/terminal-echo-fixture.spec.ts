@@ -17,7 +17,6 @@ import { expect, launchJunto, test } from "../harness/launch";
 import { waitForTerminalInput } from "../harness/term-ready";
 
 test("a line typed into a focused echo terminal reaches its PTY", async () => {
-  test.skip(true, "Not yet run on a quiet machine: its only runs ended in app close timeouts at load 190; unskip in the next app-run slot");
   const transcript = join(await mkdtemp(join(tmpdir(), "junto-echo-")), "transcript.log");
   const junto = await launchJunto({
     seedCanvases: {
