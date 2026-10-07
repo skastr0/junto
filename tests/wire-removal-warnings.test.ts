@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { removalPolicy, wireRemovalWarnings } from "../src/renderer/lib/deletion-impact";
+import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "../src/renderer/lib/deletion-impact";
 import { taskPolicyRead } from "../src/renderer/lib/work-task-policy-store";
 import { canvasOf, seat, taskBoard, wire } from "./support/model-nodes";
 
@@ -28,6 +28,11 @@ describe("removing wires from the model canvas", () => {
   it("says nothing for a wire that carries no task path, or whose board goes too", () => {
     expect(wireRemovalWarnings(canvas, [mail], noWork)).toEqual([]);
     expect(wireRemovalWarnings(canvas, [ab, ac], noWork, new Set(["a"]))).toEqual([]);
+  });
+
+  it("says nothing of a board that holds no live task and no visit names", () => {
+    expect(boardRemovalWarnings(canvas, new Set(["a", "worker"]), noWork)).toEqual([]);
+    expect(boardRemovalWarnings(canvas, new Set(["worker"]), noWork)).toEqual([]);
   });
 
   it("reads the task policy only when a task path or a task board is going", () => {

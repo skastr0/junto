@@ -156,6 +156,34 @@ const boardNamed = (canvas: Pick<Canvas, "nodes">, nodeId: string): string => {
 };
 
 /**
+ * What removing these nodes does to the tasks a board among them holds or is
+ * named by. Empty means the ordinary confirmation is enough.
+ */
+export const boardRemovalWarnings = (
+  canvas: Canvas,
+  removedNodeIds: ReadonlySet<string>,
+  work: WorkRead,
+): ReadonlyArray<string> => {
+  const warnings: string[] = [];
+  for (const node of canvas.nodes.values()) {
+    if (!removedNodeIds.has(node.id) || node.kind !== "task") continue;
+    const impact = boardDeletionImpact(canvas, work, node.id);
+    const liveRows = impact.strandedTasks.filter((task) => task.kinds.includes("home-row")).length;
+    const visitReferences = impact.strandedTasks.filter((task) =>
+      task.kinds.some((kind) => kind === "visit" || kind === "defect-target"),
+    ).length;
+    const name = boardNamed(canvas, node.id);
+    if (liveRows > 0) warnings.push(`${name} holds ${count(liveRows, "live task")}.`);
+    if (visitReferences > 0) {
+      warnings.push(
+        `${count(visitReferences, "live visit")} reference${visitReferences === 1 ? "s" : ""} ${name} as a board or send-back target.`,
+      );
+    }
+  }
+  return warnings;
+};
+
+/**
  * What removing these wires does to tasks on their way. The caller names
  * every wire that will go, so several removed at once are reported together.
  * Empty means the ordinary confirmation is enough.
