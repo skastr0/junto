@@ -609,12 +609,12 @@ const taskName = (node: Node | undefined, id: string) => taskIdentity(node, id).
 
 /**
  * Standing rules per board a task raised here can still reach, with
- * provenance, and how incoming tasks are admitted. Pure projection of the document
+ * provenance, and how incoming tasks are admitted. Pure projection of the model
  * — no work rows involved.
  */
 /**
  * Trimmed contract guidance for one board. Blank or whitespace-only authored
- * values never surface (JSON Canvas can hold them even though the editor
+ * values never surface (authored fields can hold them even though the editor
  * normalizes).
  */
 const boardGuidance = (

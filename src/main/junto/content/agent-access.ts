@@ -10,7 +10,7 @@ import { lstat, open, realpath, rm } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { ContentRef } from "@shared/content";
 import { isContentPart } from "@shared/content";
-import type { CanvasNode, Task } from "@shared/canvas";
+import type { Task } from "@shared/work-model";
 import { contentObjectPath } from "./paths";
 import { ContentStoreError } from "./store";
 
@@ -69,14 +69,6 @@ export const taskContentRefs = (task: Task): ReadonlyArray<ContentRef> => {
     }
   }
   return refs;
-};
-
-/** Extract task items from either a task or requests sink. */
-export const taskItemsForNode = (node: CanvasNode): ReadonlyArray<Task> => {
-  const kind = node.ether?.entity?.kind;
-  if (kind === "task") return node.ether?.tasks?.items ?? [];
-  if (kind === "requests") return node.ether?.requests?.items ?? [];
-  return [];
 };
 
 /** Encode user-controlled scope identifiers into path-safe, non-ambiguous names. */

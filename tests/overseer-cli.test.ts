@@ -647,7 +647,7 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
     ];
     expect(listed.filter((id) => id.startsWith("overseer.edge."))).toEqual([]);
     expect(JSON.stringify(overseerExamples)).not.toMatch(/fromNode|toNode|edgeId|"ether"|expectedRevision|"type":"text"/u);
-    expect(OVERSEER_SKILL_MARKDOWN).toContain("The family once called `edge` is `wire`");
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("The connection family is `wire`");
     expect(OVERSEER_SKILL_MARKDOWN).toContain("A seat is created by naming what it runs, never by a command line");
     // No example sends a seat a command line, an identity or the grant.
     const seatInputs = overseerExamples

@@ -57,7 +57,7 @@ Input is a JSON object: inline, \`@path\`, or \`-\` / \`@-\` for stdin. Omit inp
 
 ## Nodes and wires
 
-The canvas speaks the model's own types. Nothing is a document node, and nothing is named \`ether\`.
+The canvas speaks the model's own types, with flat fields for each kind.
 
 - A **node** is told by its \`kind\`: \`agent\` (a seat), \`terminal\`, \`page\`, \`task\`, \`requests\`, \`artifacts\`, \`board\`, \`pad\`, \`sheet\`, \`cron\`, \`relay\`, \`watcher\`, \`note\`, \`label\`, \`file\`, \`link\`, \`git\`, \`region\`. Each kind has its own flat fields beside \`id\`, \`x\`, \`y\`, \`width\`, \`height\`, \`z\` and an optional \`color\`. A seat has \`agentKey\`, \`label\`, \`host\`, \`overseer\`, \`bindingId\`, \`harness\`, \`launch\`, \`onRemove\`; a cron has \`expression\`; a region has \`label\`, \`hold\`, \`instruction\`, \`defaults\`, \`contract\`, \`environment\`. \`junto overseer schema show node.create\` prints every kind.
 - A **wire** is \`{id, from, to, verb, mask?, fromSide?, toSide?}\`. \`from\` is the end that acts.
@@ -80,7 +80,7 @@ Writes:
 
 \`canvas batch {canvas?, expectedSeq?, steps}\` takes 1–100 \`steps\` on one canvas, for mixed edits: \`node.create\`, \`node.configure\`, \`node.move\`, \`node.resize\`, \`node.recolor\`, \`wire.connect\`, \`wire.configure\` and \`wire.disconnect\`. Each step is \`{operation, ...}\` with the fields of the write of that name, without a nested args object or canvas. Give a new node an \`id\` when a later step names it. The whole batch is validated and committed once: it all lands or none of it does. Pass \`expectedSeq\`, the \`seq\` that \`canvas read\` answered, to refuse a stale edit: a canvas that has moved since answers \`Conflict\`. Deleting nodes, reseating, grants, credentials, nested batches and worker execution are not batch steps.
 
-The family once called \`edge\` is \`wire\`. No old shape is accepted: a document node (\`type\`, \`text\`, \`ether\`), \`fromNode\` / \`toNode\`, \`edgeId\`, \`changes\`, \`operations\` or \`expectedRevision\` is \`InvalidArguments\`. When an argument is refused, read its shape: \`junto overseer schema show <operation>\`.
+The connection family is \`wire\`. Arguments must match the operation's schema; otherwise the answer is \`InvalidArguments\`. When an argument is refused, read its shape: \`junto overseer schema show <operation>\`.
 
 Success (stdout): \`{ok:true, command, data}\` — \`data\` is the inner operation payload.
 Failure (stderr, exit 1): \`{ok:false, command, error:{type,message,details?}}\`.

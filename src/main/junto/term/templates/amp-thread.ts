@@ -5,7 +5,7 @@
  * it. `amp threads new --visibility private` prints one thread receipt and
  * exits. On 0.0.1789113641 that receipt is a sole
  * `https://ampcode.com/threads/T-<uuid>` line; older binaries print a bare
- * `T-<uuid>` line. Either form becomes the seat's `ether.terminal.sessionId`
+ * `T-<uuid>` line. Either form becomes the seat's `sessionId`
  * before the PTY is opened, so a cold wake can resume the same thread by id.
  *
  * Boundaries this module keeps:
