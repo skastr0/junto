@@ -37,6 +37,12 @@ const ALLOWED = new Set([
   "src/main/junto/state/migrations.ts",
 ]);
 
+/**
+ * Old databases written out for the migration tests. They are history and stay
+ * exactly as they were written, old table names included.
+ */
+const ALLOWED_DIRS = ["tests/fixtures/state-v1/", "tests/fixtures/state-v3/", "tests/fixtures/state-v5/"];
+
 const TEXT = /\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|css|sh|sql|yml|yaml|html)$/;
 
 const areaOf = (file: string): string => {
@@ -53,7 +59,10 @@ const areaOf = (file: string): string => {
 const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: ROOT })
   .stdout.toString()
   .split("\n")
-  .filter((file) => TEXT.test(file) && !ALLOWED.has(file));
+  .filter(
+    (file) =>
+      TEXT.test(file) && !ALLOWED.has(file) && !ALLOWED_DIRS.some((dir) => file.startsWith(dir)),
+  );
 
 const hits = new Map<string, Map<string, Array<string>>>();
 let total = 0;
