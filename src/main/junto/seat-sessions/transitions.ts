@@ -1,5 +1,4 @@
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import type { Canvas, Node } from "@shared/model";
 import type { SeatSessionEndReason } from "@shared/seat-sessions";
 import type { SeatSessionObservation } from "./repository";
 
@@ -12,23 +11,22 @@ type SeatOnNode = {
   readonly cwd?: string;
 };
 
-const seatOnNode = (node: CanvasNode): SeatOnNode | undefined => {
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface?._tag !== "managedAgent") return undefined;
-  const sessionId = node.ether?.terminal?.sessionId?.trim();
-  const cwd = node.ether?.terminal?.launch?.cwd?.trim();
+const seatOnNode = (node: Node): SeatOnNode | undefined => {
+  if (node.kind !== "agent") return undefined;
+  const sessionId = node.sessionId?.trim();
+  const cwd = node.launch?.cwd?.trim();
   return {
     seatId: node.id,
-    harness: surface.harness,
-    bindingId: surface.bindingId,
+    harness: node.harness,
+    bindingId: node.bindingId,
     ...(sessionId ? { sessionId } : {}),
     ...(cwd ? { cwd } : {}),
   };
 };
 
-const seatsOf = (doc: CanvasDoc | undefined): Map<string, SeatOnNode> => {
+const seatsOf = (doc: Canvas | undefined): Map<string, SeatOnNode> => {
   const seats = new Map<string, SeatOnNode>();
-  for (const node of doc?.nodes ?? []) {
+  for (const node of doc?.nodes.values() ?? []) {
     const seat = seatOnNode(node);
     if (seat) seats.set(seat.seatId, seat);
   }
@@ -52,8 +50,8 @@ const endReasonBetween = (before: SeatOnNode | undefined, after: SeatOnNode): Se
  * removed from the canvas keeps its history untouched.
  */
 export const seatSessionTransitions = (
-  previous: CanvasDoc | undefined,
-  next: CanvasDoc | undefined,
+  previous: Canvas | undefined,
+  next: Canvas | undefined,
 ): SeatSessionTransition[] => {
   const before = seatsOf(previous);
   const transitions: SeatSessionTransition[] = [];
@@ -84,7 +82,7 @@ export const seatSessionTransitions = (
 };
 
 /** Every seat on a canvas that names a session: what boot records. */
-export const seatSessionsOnCanvas = (doc: CanvasDoc): SeatSessionObservation[] =>
+export const seatSessionsOnCanvas = (doc: Canvas): SeatSessionObservation[] =>
   [...seatsOf(doc).values()].flatMap((seat) =>
     seat.sessionId === undefined
       ? []
@@ -92,7 +90,7 @@ export const seatSessionsOnCanvas = (doc: CanvasDoc): SeatSessionObservation[] =
   );
 
 /** The session one seat names on its node, if it is a managed agent seat. */
-export const seatSessionOnNode = (node: CanvasNode): SeatSessionObservation | undefined => {
+export const seatSessionOnNode = (node: Node): SeatSessionObservation | undefined => {
   const seat = seatOnNode(node);
   if (seat?.sessionId === undefined) return undefined;
   return { seatId: seat.seatId, sessionId: seat.sessionId, harness: seat.harness, ...(seat.cwd ? { cwd: seat.cwd } : {}) };

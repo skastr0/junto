@@ -22,6 +22,8 @@ import {
   encodeClaudeProjectCwd,
 } from "../src/main/junto/term/session-existence";
 import { gistOfNotes } from "../src/shared/seat-sessions";
+import { canvasFromDocument } from "../src/shared/model/from-document";
+import type { Canvas } from "../src/shared/model";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
 
@@ -67,7 +69,7 @@ const seat = (id: string, terminal: { harness?: HarnessId; bindingId?: string; s
   },
 });
 
-const doc = (...nodes: CanvasNode[]): CanvasDoc => ({ nodes, edges: [] });
+const doc = (...nodes: CanvasNode[]): Canvas => canvasFromDocument("factory", { nodes, edges: [] });
 
 describe("seat session transitions", () => {
   it("starts a session when a seat's id appears or changes, and names why the old one ended", () => {

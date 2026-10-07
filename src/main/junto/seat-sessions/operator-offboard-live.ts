@@ -10,8 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { Canvas, Node } from "@shared/model";
 import type { OffboardBy, OffboardRules, OffboardRulesPatch } from "@shared/seat-offboard";
 import { defaultOffboardRules } from "@shared/seat-offboard";
 import {
@@ -22,7 +21,7 @@ import {
 } from "@shared/seat-sessions";
 import { offboardRules } from "@shared/settings";
 import { AppRuntime } from "../../runtime";
-import { CanvasesService } from "../canvases";
+import { ModelService } from "../model/service";
 import { PausePlane } from "../pause-plane";
 import { SettingsService } from "../settings/service";
 import { seatStateRuntime } from "../term/agent-state/runtime";
@@ -85,23 +84,20 @@ const writeClock = (path: string, record: SeatMotionRecord): void => {
   renameSync(temporary, path);
 };
 
-const titleOf = (node: CanvasNode): string | undefined => {
-  const label = node.ether?.terminal?.label?.trim();
-  if (label) return label;
-  const first = node.type === "text" ? node.text.split("\n")[0]?.trim() : undefined;
-  return first || undefined;
+const titleOf = (node: Node): string | undefined => {
+  return "label" in node ? node.label?.trim() || undefined : undefined;
 };
 
 const seatOf = (
   canvasName: string,
-  node: CanvasNode,
+  node: Node,
   paused: boolean,
 ): OffboardSeat | undefined => {
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface?._tag !== "managedAgent") return undefined;
+  if (node.kind !== "agent") return undefined;
+  const surface = { ...node, hostId: node.host };
   const live = termPlane.host.get(surface.bindingId);
   const running = live !== undefined && live.status !== "exited";
-  const sessionId = node.ether?.terminal?.sessionId?.trim();
+  const sessionId = node.sessionId?.trim();
   const title = titleOf(node);
   const state = !running
     ? undefined
@@ -130,8 +126,10 @@ const pausedOn = (canvasName: string): Promise<boolean> =>
     Effect.map(PausePlane, (plane) => !plane.stateFor(canvasName).playing),
   ).catch(() => false);
 
-const cwdOf = (doc: CanvasDoc, seatId: string): string | undefined =>
-  doc.nodes.find((node) => node.id === seatId)?.ether?.terminal?.launch?.cwd?.trim() || undefined;
+const cwdOf = (doc: Canvas, seatId: string): string | undefined => {
+  const node = doc.nodes.get(seatId as never);
+  return node?.kind === "agent" ? node.launch?.cwd?.trim() || undefined : undefined;
+};
 
 /** The rules in force, read from installation settings. */
 export const readOffboardRules = (): Promise<OffboardRules> =>
@@ -178,18 +176,20 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
   /** cwd per seat, noted when a seat is read, for the session-history check. */
   const cwds = new Map<string, string | undefined>();
 
-  const documents = (): Promise<ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>> =>
+  const documents = (): Promise<ReadonlyArray<{ readonly canvasName: string; readonly doc: Canvas }>> =>
     AppRuntime.runPromise(
-      Effect.flatMap(CanvasesService, (canvases) =>
-        canvases.liveDocuments().pipe(Effect.orElseSucceed(() => [])),
-      ),
+      Effect.flatMap(ModelService, (model) => Effect.gen(function* () {
+        const rows = [];
+        for (const canvasName of yield* model.listCanvases()) rows.push({ canvasName, doc: yield* model.canvas(canvasName) });
+        return rows;
+      }).pipe(Effect.orElseSucceed(() => []))),
     ).catch(() => []);
 
   const offboard = makeOperatorOffboard(
     {
       locate: async ({ canvasName, seatId }) => {
         const found = (await documents()).find((entry) => entry.canvasName === canvasName);
-        const node = found?.doc.nodes.find((candidate) => candidate.id === seatId);
+        const node = found?.doc.nodes.get(seatId as never);
         if (!found || !node) return undefined;
         const seat = seatOf(canvasName, node, await pausedOn(canvasName));
         if (seat) cwds.set(seat.bindingId, cwdOf(found.doc, seatId));
@@ -199,7 +199,7 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
         const out: OffboardSeat[] = [];
         for (const { canvasName, doc } of await documents()) {
           const paused = await pausedOn(canvasName);
-          for (const node of doc.nodes) {
+          for (const node of doc.nodes.values()) {
             const seat = seatOf(canvasName, node, paused);
             if (!seat) continue;
             cwds.set(seat.bindingId, cwdOf(doc, node.id));

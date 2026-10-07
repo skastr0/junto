@@ -15,9 +15,9 @@
  * Offboard notes are the agent's to write; rotating never writes them.
  */
 import { randomUUID } from "node:crypto";
-import { Effect } from "effect";
-import type { CanvasDoc } from "@shared/canvas";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import { Effect, Schema } from "effect";
+import { Command } from "@shared/model";
+import { SqlClient } from "effect/unstable/sql";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 
 export type SeatRotateResult =
@@ -148,10 +148,10 @@ export const offboardAndRotate = async (
 ): Promise<SeatRotateResult> => {
   // Imported at call time: this module is reached from app composition, and
   // the runtime graph imports the terminal plane and canvases in turn.
-  const [{ AppRuntime }, { CanvasesService }, { StationRepository }, { SeatSessionRepository }, { mainAuthoringGate }] =
+  const [{ AppRuntime }, { ModelService }, { StationRepository }, { SeatSessionRepository }, { mainAuthoringGate }] =
     await Promise.all([
       import("../../runtime"),
-      import("../canvases"),
+      import("../model/service"),
       import("../station/repository"),
       import("./repository"),
       import("../main-authoring-gate"),
@@ -168,24 +168,22 @@ export const offboardAndRotate = async (
       locate: (id, canvasName) =>
         AppRuntime.runPromise(
           Effect.gen(function* () {
-            const canvases = yield* CanvasesService;
-            const documents = yield* canvases.liveDocuments().pipe(Effect.orElseSucceed(() => []));
-            for (const { canvasName: name, doc } of documents) {
+            const model = yield* ModelService;
+            for (const name of yield* model.listCanvases()) {
               if (canvasName !== undefined && name !== canvasName) continue;
-              const node = doc.nodes.find((candidate) => candidate.id === id);
-              const surface = node === undefined ? undefined : actorDeliverySurfaceOf(node);
-              if (node === undefined || surface?._tag !== "managedAgent") continue;
+              const node = (yield* model.canvas(name)).nodes.get(id as never);
+              if (node?.kind !== "agent") continue;
               const stations = yield* StationRepository;
               const configuration = yield* stations.configuration.pipe(Effect.orElseSucceed(() => undefined));
-              const sessionId = node.ether?.terminal?.sessionId?.trim();
+              const sessionId = node.sessionId?.trim();
               return {
                 canvasName: name,
-                bindingId: surface.bindingId,
-                harness: surface.harness,
+                bindingId: node.bindingId,
+                harness: node.harness,
                 ...(sessionId ? { sessionId } : {}),
                 local:
                   configuration?.configuration.role === "command-center" &&
-                  configuration.configuration.hostId === surface.hostId,
+                  configuration.configuration.hostId === node.host,
               } satisfies RotatingSeat;
             }
             return undefined;
@@ -207,23 +205,15 @@ export const offboardAndRotate = async (
         mainAuthoringGate.run("seat-sessions.rotate", () =>
           AppRuntime.runPromise(
             Effect.gen(function* () {
-              const canvases = yield* CanvasesService;
-              let changed = false;
-              yield* canvases.mutate(seat.canvasName, (doc: CanvasDoc) => ({
-                ...doc,
-                nodes: doc.nodes.map((candidate) => {
-                  const terminal = candidate.ether?.terminal;
-                  // The seat changed hands since it was read: leave it alone.
-                  if (candidate.id !== id || terminal?.bindingId !== seat.bindingId) return candidate;
-                  changed = true;
-                  const { sessionId: _previous, ...rest } = terminal;
-                  return {
-                    ...candidate,
-                    ether: { ...candidate.ether, terminal: next ? { ...rest, sessionId: next } : rest },
-                  };
-                }),
+              const model = yield* ModelService;
+              const sql = yield* SqlClient.SqlClient;
+              return yield* sql.withTransaction(Effect.gen(function* () {
+                const candidate = (yield* model.canvas(seat.canvasName)).nodes.get(id as never);
+                if (candidate?.kind !== "agent" || candidate.bindingId !== seat.bindingId) return false;
+                yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RecordSession", canvas: seat.canvasName,
+                  id, sessionId: next ?? null }), "runtime");
+                return true;
               }));
-              return changed;
             }),
           ),
         ),

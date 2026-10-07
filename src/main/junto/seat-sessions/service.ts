@@ -5,8 +5,8 @@
  */
 import { Effect } from "effect";
 import type { OffboardMode, SeatSession } from "@shared/seat-sessions";
-import type { CanvasChangeDetail } from "../canvases";
-import { CanvasesService } from "../canvases";
+import type { Canvas } from "@shared/model";
+import { ModelService } from "../model/service";
 import { harnessSessionLocation } from "../term/session-existence";
 import { SeatSessionRepository, type SeatSessionObservation } from "./repository";
 import { seatSessionsOnCanvas, seatSessionTransitions } from "./transitions";
@@ -52,7 +52,7 @@ const recordAll = (
 
 /** Apply one canvas commit's session changes. Never fails: history is best effort. */
 export const recordCanvasChange = (
-  detail: CanvasChangeDetail | undefined,
+  detail: { readonly previous?: Canvas; readonly next?: Canvas } | undefined,
 ): Effect.Effect<void, never, SeatSessionRepository> =>
   Effect.gen(function* () {
     if (detail === undefined) return;
@@ -73,15 +73,30 @@ export const recordCanvasChange = (
  */
 export const startSeatSessionRecorder = (
   run: (effect: Effect.Effect<void, never, SeatSessionRepository>) => void,
-): Effect.Effect<() => void, never, CanvasesService | SeatSessionRepository> =>
+): Effect.Effect<() => void, never, ModelService | SeatSessionRepository> =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
+    const model = yield* ModelService;
     const repository = yield* SeatSessionRepository;
-    const documents = yield* canvases.liveDocuments().pipe(Effect.orElseSucceed(() => []));
-    yield* recordAll(repository, documents.flatMap(({ doc }) => seatSessionsOnCanvas(doc)));
-    return canvases.subscribeChanges((_name, detail) => {
-      run(recordCanvasChange(detail));
+    const previous = new Map<string, Canvas>();
+    for (const name of yield* model.listCanvases().pipe(Effect.orElseSucceed(() => []))) {
+      const canvas = yield* model.canvas(name).pipe(Effect.orElseSucceed(() => undefined));
+      if (!canvas) continue;
+      previous.set(name, canvas);
+      yield* recordAll(repository, seatSessionsOnCanvas(canvas));
+    }
+    const changed = model.subscribeChanges((event, next) => {
+      const before = previous.get(event.canvas);
+      previous.set(event.canvas, next);
+      run(recordCanvasChange({ previous: before, next }));
     });
+    const canvasesChanged = model.subscribeCanvasesChanges((event, next) => {
+      if (event._tag === "Removed") previous.delete(event.canvas);
+      else if (next) {
+        previous.set(event.canvas, next);
+        run(recordCanvasChange({ next }));
+      }
+    });
+    return () => { changed(); canvasesChanged(); };
   });
 
 // ── Offboard events ─────────────────────────────────────────────────────────
