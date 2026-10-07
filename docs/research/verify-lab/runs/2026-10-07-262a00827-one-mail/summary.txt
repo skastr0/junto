@@ -1,0 +1,22 @@
+run-1 {'name': 'verify-base-080857', 'nodes': 46, 'cards': 46, 'docBytes': 19281, 'firstAgent': 'verify-seat-01-se080857'} load [57.9, 46.1, 35.3]
+run-2 {'name': 'verify-base-080951', 'nodes': 46, 'cards': 46, 'docBytes': 19281, 'firstAgent': 'verify-seat-01-se080951'} load [36.9, 42.1, 34.4]
+run-3 {'name': 'verify-base-081044', 'nodes': 46, 'cards': 46, 'docBytes': 19281, 'firstAgent': 'verify-seat-01-se081044'} load [28.4, 38.9, 33.7]
+
+quiet 3 s, no work change  n=3
+   frame gap ms 9-17 (med 10) | canvasChanged 0-0 (med 0) | reads 0-0 (med 0)
+   per read ms: readCanvas 0.0-0.0 (med 0.0) compare 0.0-0.0 (med 0.0) apply 0.0-0.0 (med 0.0) | rebuilds 0-0 (med 0) commits 0-0 (med 0) remounts 0
+mail to a seat that stays down  n=30
+   frame gap ms 9-15 (med 10) | canvasChanged 0-0 (med 0) | reads 0-0 (med 0)
+   per read ms: readCanvas 0.0-0.0 (med 0.0) compare 0.0-0.0 (med 0.0) apply 0.0-0.0 (med 0.0) | rebuilds 0-0 (med 0) commits 0-3 (med 0) remounts 0
+mail, after 250 more mails of 1000 bytes doc=0.02MB  n=15
+   frame gap ms 9-16 (med 14) | canvasChanged 0-0 (med 0) | reads 0-0 (med 0)
+   per read ms: readCanvas 0.0-0.0 (med 0.0) compare 0.0-0.0 (med 0.0) apply 0.0-0.0 (med 0.0) | rebuilds 0-0 (med 0) commits 0-2 (med 0) remounts 0
+mail, after 1000 more mails of 1000 bytes doc=0.02MB  n=15
+   frame gap ms 9-16 (med 11) | canvasChanged 0-0 (med 0) | reads 0-0 (med 0)
+   per read ms: readCanvas 0.0-0.0 (med 0.0) compare 0.0-0.0 (med 0.0) apply 0.0-0.0 (med 0.0) | rebuilds 0-0 (med 0) commits 0-0 (med 0) remounts 0
+mail, after 3000 more mails of 1000 bytes doc=0.02MB  n=15
+   frame gap ms 9-16 (med 10) | canvasChanged 0-0 (med 0) | reads 0-0 (med 0)
+   per read ms: readCanvas 0.0-0.0 (med 0.0) compare 0.0-0.0 (med 0.0) apply 0.0-0.0 (med 0.0) | rebuilds 0-0 (med 0) commits 0-0 (med 0) remounts 0
+burst: 10 mails in one tick  n=3
+   frame gap ms 9-10 (med 10) | canvasChanged 0-0 (med 0) | reads 0-0 (med 0)
+   per read ms: readCanvas 0.0-0.0 (med 0.0) compare 0.0-0.0 (med 0.0) apply 0.0-0.0 (med 0.0) | rebuilds 0-0 (med 0) commits 0-0 (med 0) remounts 0

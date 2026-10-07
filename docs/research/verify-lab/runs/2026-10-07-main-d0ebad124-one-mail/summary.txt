@@ -1,0 +1,22 @@
+run-1 {'name': 'verify-base-075700', 'nodes': 46, 'cards': 46, 'docBytes': 19281, 'firstAgent': 'verify-seat-01-se075700'} load [50.3, 29.1, 18.4]
+run-2 {'name': 'verify-base-075843', 'nodes': 46, 'cards': 46, 'docBytes': 19281, 'firstAgent': 'verify-seat-01-se075843'} load [45.5, 31.3, 20.2]
+run-3 {'name': 'verify-base-080016', 'nodes': 46, 'cards': 46, 'docBytes': 19281, 'firstAgent': 'verify-seat-01-se080016'} load [84.0, 46.0, 26.9]
+
+quiet 3 s, no work change  n=3
+   frame gap ms 10-14 (med 10) | canvasChanged 0-0 (med 0) | reads 0-0 (med 0)
+   per read ms: readCanvas 0.0-0.0 (med 0.0) compare 0.0-0.0 (med 0.0) apply 0.0-0.0 (med 0.0) | rebuilds 0-0 (med 0) commits 0-0 (med 0) remounts 0
+mail to a seat that stays down  n=30
+   frame gap ms 30-87 (med 45) | canvasChanged 1-1 (med 1) | reads 1-1 (med 1)
+   per read ms: readCanvas 1.3-5.6 (med 2.8) compare 0.0-0.2 (med 0.1) apply 0.8-2.3 (med 1.3) | rebuilds 2-2 (med 2) commits 14-16 (med 14) remounts 0
+mail, after 250 more mails of 1000 bytes doc=0.37MB  n=15
+   frame gap ms 33-196 (med 50) | canvasChanged 1-1 (med 1) | reads 1-1 (med 1)
+   per read ms: readCanvas 3.1-25.6 (med 3.6) compare 0.2-0.5 (med 0.4) apply 1.9-3.3 (med 2.4) | rebuilds 2-2 (med 2) commits 14-15 (med 14) remounts 0
+mail, after 1000 more mails of 1000 bytes doc=1.39MB  n=15
+   frame gap ms 38-84 (med 54) | canvasChanged 1-1 (med 1) | reads 1-1 (med 1)
+   per read ms: readCanvas 7.1-12.3 (med 9.0) compare 0.7-1.5 (med 1.2) apply 4.6-9.2 (med 5.8) | rebuilds 2-2 (med 2) commits 14-14 (med 14) remounts 0
+mail, after 3000 more mails of 1000 bytes doc=4.13MB  n=15
+   frame gap ms 64-113 (med 83) | canvasChanged 1-1 (med 1) | reads 1-1 (med 1)
+   per read ms: readCanvas 16.6-31.3 (med 24.1) compare 2.5-5.1 (med 3.4) apply 16.3-21.7 (med 17.7) | rebuilds 2-2 (med 2) commits 14-14 (med 14) remounts 0
+burst: 10 mails in one tick  n=3
+   frame gap ms 131-150 (med 150) | canvasChanged 10-10 (med 10) | reads 10-10 (med 10)
+   per read ms: readCanvas 65.0-109.7 (med 83.6) compare 2.2-3.3 (med 3.2) apply 17.6-23.3 (med 21.4) | rebuilds 4-4 (med 4) commits 26-26 (med 26) remounts 0
