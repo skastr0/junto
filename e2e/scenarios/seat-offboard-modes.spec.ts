@@ -107,7 +107,7 @@ test("the seat popup's Ask to offboard and Ask, then rest send the agent the pro
   expect(restMail).toContain("The operator asks you to offboard this session.");
   expect(restMail).toContain('junto offboard "<notes>"');
   expect(restMail).not.toContain("--continue");
-  expect(restMail).toContain("the seat rests");
+  expect(restMail).toContain("The seat then rests");
   expect(restMail).not.toContain("·");
   await page.keyboard.press("Escape");
   await expect(rest).toBeHidden({ timeout: 5_000 });
