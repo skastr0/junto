@@ -16,7 +16,15 @@ test("a shortcut is listed, recorded, refused on a clash, and then answered", as
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
     const overrides = () =>
       page.evaluate(async () => (await window.junto?.settingsGet())?.settings?.keyboard?.overrides ?? {});
-    const shot = (name: string) => page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+    // The pointer rests off the page for a frame, so no tooltip covers a row.
+    const shot = async (name: string) => {
+      await page.mouse.move(2, 2);
+      await page.screenshot({ path: testInfo.outputPath(`${name}.png`) });
+    };
+    // The saved theme is "system": name the one the first frames are taken in.
+    const theme = () => page.evaluate(() => document.documentElement.dataset.theme ?? "dark");
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+    await expect.poll(theme).toBe("dark");
 
     await page.getByRole("button", { name: "Open settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
@@ -64,7 +72,7 @@ test("a shortcut is listed, recorded, refused on a clash, and then answered", as
     await shot("changed-dark");
 
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
-    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme ?? "")).toContain("bright");
+    await expect.poll(theme).toBe("bright");
     await shot("changed-bright");
     await feedRow().click();
     await shot("recording-bright");
