@@ -1,22 +1,23 @@
+import { modelFixture, modelSeat, modelWire } from "../harness/model";
 /**
  * A wire is ground at rest: faint and deaf to the pointer, so a press on it
  * lands on the pane and never selects it. Holding the loupe (Alt) is the
  * canvas's alt mode: the wires show in full and can be picked.
  */
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const nodes = [
-  agentTextNode({ id: "source", key: "local:quiet-wires", label: "Source node", x: 0, y: 0 }),
-  agentTextNode({ id: "target", key: "local:quiet-wires-target", label: "Target node", x: 520, y: 0 }),
+  modelSeat({ id: "source", key: "local:quiet-wires", label: "Source node", x: 0, y: 0 }),
+  modelSeat({ id: "target", key: "local:quiet-wires-target", label: "Target node", x: 520, y: 0 }),
 ];
 
-const edge = verbEdge("e-quiet", "source", "target", "messages", nodes);
+const edge = modelWire("e-quiet", "source", "target", "messages", nodes);
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      "quiet-wires": canvasDoc(nodes, [edge]),
+    seedModels: {
+      "quiet-wires": modelFixture(nodes, [edge]),
     },
   },
 });

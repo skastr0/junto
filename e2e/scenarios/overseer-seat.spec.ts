@@ -1,4 +1,5 @@
-import { installFixtureDocument, grantOverseer } from "../harness/model";
+import { installModelFixture, modelFixture, modelSeat } from "../harness/model";
+import { grantOverseer } from "../harness/model";
 /**
  * Overseer seat identity + human toggle.
  *
@@ -11,14 +12,14 @@ import { installFixtureDocument, grantOverseer } from "../harness/model";
 import { copyFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "overseer-seat");
 const ARTIFACT = join(process.cwd(), ".amp/in/artifacts/overseer-seat.png");
 
-const fixtureDoc = canvasDoc([
-  agentTextNode({
+const fixtureDoc = modelFixture([
+  modelSeat({
     id: "overseer-seat",
     key: "local:overseer",
     label: "overseer worker",
@@ -26,7 +27,7 @@ const fixtureDoc = canvasDoc([
     y: 40,
   }),
   {
-    ...agentTextNode({
+    ...modelSeat({
       id: "ordinary-seat",
       key: "local:ordinary",
       label: "ordinary worker",
@@ -34,7 +35,7 @@ const fixtureDoc = canvasDoc([
       y: 40,
     }),
   },
-  agentTextNode({
+  modelSeat({
     id: "paused-overseer",
     key: "local:paused",
     label: "paused overseer",
@@ -48,7 +49,7 @@ const installBoard = async (
   document: typeof fixtureDoc,
 ): Promise<string> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  const name = await installFixtureDocument(page, document, "overseer");
+  const name = await installModelFixture(page, document, "overseer");
   for (const id of ["overseer-seat", "paused-overseer"]) await grantOverseer(page, name, id);
   return name;
 };

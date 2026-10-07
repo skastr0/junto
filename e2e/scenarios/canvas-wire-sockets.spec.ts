@@ -1,27 +1,28 @@
+import { modelFixture, modelSeat, modelWire } from "../harness/model";
 /**
  * A wire leaves and enters by the sockets that face each other, read off where
  * the two cards sit, whatever sides the edge happens to store.
  */
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const nodes = [
-  agentTextNode({ id: "hub", key: "local:wire-sockets", label: "Hub", x: 0, y: 0 }),
-  agentTextNode({ id: "below", key: "local:wire-sockets-below", label: "Below", x: 0, y: 260 }),
-  agentTextNode({ id: "left", key: "local:wire-sockets-left", label: "Left", x: -520, y: 0 }),
-  agentTextNode({ id: "diagonal", key: "local:wire-sockets-diagonal", label: "Diagonal", x: 620, y: -420 }),
+  modelSeat({ id: "hub", key: "local:wire-sockets", label: "Hub", x: 0, y: 0 }),
+  modelSeat({ id: "below", key: "local:wire-sockets-below", label: "Below", x: 0, y: 260 }),
+  modelSeat({ id: "left", key: "local:wire-sockets-left", label: "Left", x: -520, y: 0 }),
+  modelSeat({ id: "diagonal", key: "local:wire-sockets-diagonal", label: "Diagonal", x: 620, y: -420 }),
 ];
 
 const edges = [
-  verbEdge("e-below", "hub", "below", "messages", nodes),
-  verbEdge("e-left", "hub", "left", "messages", nodes),
-  verbEdge("e-diagonal", "hub", "diagonal", "messages", nodes),
+  modelWire("e-below", "hub", "below", "messages", nodes),
+  modelWire("e-left", "hub", "left", "messages", nodes),
+  modelWire("e-diagonal", "hub", "diagonal", "messages", nodes),
 ];
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      "wire-sockets": canvasDoc(nodes, edges),
+    seedModels: {
+      "wire-sockets": modelFixture(nodes, edges),
     },
   },
 });

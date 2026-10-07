@@ -1,4 +1,5 @@
-import { installFixtureDocument, grantOverseer, readModelCanvas } from "../harness/model";
+import { installModelFixture, modelFixture, modelSeat } from "../harness/model";
+import { grantOverseer, readModelCanvas } from "../harness/model";
 /**
  * Overseer acceptance: human toggle persists authority; viewport is unchanged.
  *
@@ -11,7 +12,7 @@ import { installFixtureDocument, grantOverseer, readModelCanvas } from "../harne
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "overseer-acceptance");
@@ -24,15 +25,15 @@ const ORDINARY_ID = "ordinary-seat";
 
 type Viewport = { readonly x: number; readonly y: number; readonly zoom: number };
 
-const fixtureDoc = canvasDoc([
-  agentTextNode({
+const fixtureDoc = modelFixture([
+  modelSeat({
     id: SEAT_ID,
     key: "local:overseer",
     label: "overseer worker",
     x: 40,
     y: 40,
   }),
-  agentTextNode({
+  modelSeat({
     id: ORDINARY_ID,
     key: "local:ordinary",
     label: "ordinary worker",
@@ -49,7 +50,7 @@ const viewportOf = async (page: Page): Promise<Viewport> =>
 
 const installBoard = async (page: Page): Promise<string> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  const name = await installFixtureDocument(page, fixtureDoc, "overseer-acceptance");
+  const name = await installModelFixture(page, fixtureDoc, "overseer-acceptance");
   return name;
 };
 

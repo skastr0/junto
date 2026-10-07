@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Offboard from the seat — asking the agent, in the running product.
  *
@@ -17,7 +18,7 @@ import { mkdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 import { composeOffboardAsk } from "../../src/shared/seat-sessions";
 
@@ -27,10 +28,10 @@ const SHOTS = join(process.cwd(), "test-results", "seat-offboard-modes");
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      offboard: canvasDoc([
-        agentTextNode({ id: RESTER, key: "e2e-offboard-rest-binding", label: "Rester", harness: "claude", x: 80, y: 40 }),
-        agentTextNode({
+    seedModels: {
+      offboard: modelFixture([
+        modelSeat({ id: RESTER, key: "e2e-offboard-rest-binding", label: "Rester", harness: "claude", x: 80, y: 40 }),
+        modelSeat({
           id: CONTINUER,
           key: "e2e-offboard-continue-binding",
           label: "Continuer",

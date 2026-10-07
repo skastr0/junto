@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * The seat git line and the keyboard, in the agent modal's header.
  *   bun run test:e2e:fast e2e/scenarios/seat-git-line-keyboard.spec.ts
@@ -14,7 +15,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const makeRepository = (repo: string): void => {
@@ -39,8 +40,8 @@ test("[fake-tui] closing the git detail gives the keyboard back to the terminal 
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "junto-e2e-git-keys-")));
   makeRepository(repo);
   const CANVAS = "git-keys";
-  const node = agentTextNode({ id: "atlas", key: "local:atlas", label: "atlas", harness: "codex", cwd: repo, x: 40, y: 40 });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: canvasDoc([node]) }, afterSeed: installCrewSeatHarness });
+  const node = modelSeat({ id: "atlas", key: "local:atlas", label: "atlas", harness: "codex", cwd: repo, x: 40, y: 40 });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([node]) }, afterSeed: installCrewSeatHarness });
   try {
     const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Git at a glance in the agent modal header.
  *   bun run test:e2e:fast e2e/scenarios/seat-git-line.spec.ts
@@ -16,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const HOUR = 3_600_000;
@@ -56,10 +57,10 @@ test("the agent modal header shows the seat's repository on one line and opens i
   execFileSync("mkdir", ["-p", repo, plain]);
   makeRepository(repo);
   const junto = await launchJunto({
-    seedCanvases: {
-      "git-line": canvasDoc([
-        agentTextNode({ id: "in-repo", key: "local:e2e-git-in-repo", label: "Atlas", harness: "claude", cwd: repo, x: 0, y: 0 }),
-        agentTextNode({ id: "no-repo", key: "local:e2e-git-no-repo", label: "Brook", harness: "claude", cwd: plain, x: 320, y: 0 }),
+    seedModels: {
+      "git-line": modelFixture([
+        modelSeat({ id: "in-repo", key: "local:e2e-git-in-repo", label: "Atlas", harness: "claude", cwd: repo, x: 0, y: 0 }),
+        modelSeat({ id: "no-repo", key: "local:e2e-git-no-repo", label: "Brook", harness: "claude", cwd: plain, x: 320, y: 0 }),
       ]),
     },
   });

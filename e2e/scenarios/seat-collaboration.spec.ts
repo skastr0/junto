@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Seat collaboration — one seat asks a peer for help, in the running product.
  *
@@ -19,7 +20,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const BUILDER = "e2e-collab-builder";
@@ -27,16 +28,16 @@ const IRIS = "e2e-collab-iris";
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      collab: canvasDoc([
-        agentTextNode({
+    seedModels: {
+      collab: modelFixture([
+        modelSeat({
           id: BUILDER,
           key: "e2e-collab-builder-binding",
           label: "Builder",
           x: 80,
           y: 40,
         }),
-        agentTextNode({
+        modelSeat({
           id: IRIS,
           key: "e2e-collab-iris-binding",
           label: "Iris",
@@ -46,7 +47,7 @@ test.use({
         // A third seat further down the canvas: the fit-to-view centring then
         // leaves the two top cards high enough for the overlay to be captured
         // whole, and the ranking has more than one peer to order.
-        agentTextNode({
+        modelSeat({
           id: "e2e-collab-muse",
           key: "e2e-collab-muse-binding",
           label: "Muse",
