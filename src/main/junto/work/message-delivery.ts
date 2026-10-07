@@ -300,9 +300,15 @@ export class MessageDeliveryService {
     const generation = this.lifecycleGeneration;
     const transport = this.transport;
     const store = this.store;
-    if (!this.active(generation) || !transport || !store) return "waiting";
+    const waiting = (reason: string): MailDeliveryState => {
+      console.info(`[delivery] waiting for ${canvas}/${nodeId}/${messageId}: ${reason}`);
+      return "waiting";
+    };
+    if (!this.active(generation)) return waiting("delivery generation ended");
+    if (!transport || !store) return waiting("delivery not configured: store or transport missing");
     const doc = await store.readModel(canvas, "attempt");
-    if (!this.active(generation)) return "waiting";
+    if (!this.active(generation)) return waiting("delivery generation ended during model read");
+    if (!doc) return waiting("model unavailable");
     const node = doc?.nodes.get(asNodeId(nodeId));
     const message = await store.readMessage(canvas, nodeId, messageId);
     const target = node === undefined ? undefined : deliveryTargetOf(node);
@@ -316,34 +322,31 @@ export class MessageDeliveryService {
       return "waiting";
     }
     if (!isPendingDelivery(message)) {
+      console.info(`[delivery] not pending for ${canvas}/${nodeId}/${messageId}: role=${message.role}, readAt=${String(message.metadata?.readAt)}, deliveredAt=${String(message.metadata?.deliveredAt)}`);
       this.waiting.delete(key);
       return "delivered";
     }
     this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId });
     if (!transport.seatLive(target.bindingId)) {
-      if (!this.noWake.has(messageId)) {
-        this.wake(transport, target.bindingId, canvas, nodeId, generation);
-      }
-      return "waiting";
+      if (this.noWake.has(messageId)) return waiting("no-wake message, seat is not ready");
+      return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
     }
     // A message that opted out of waking a seat does not get to restart one.
     if (transport.cutColdSession && !this.noWake.has(messageId)) {
       const cut = await transport
         .cutColdSession(target.bindingId, canvas, nodeId)
         .catch(() => false);
-      if (!this.active(generation)) return "waiting";
+      if (!this.active(generation)) return waiting("delivery generation ended during session cut");
       if (cut) {
         // The old session is gone and the seat rests on a fresh one: this
         // mail is what wakes it, and is written when the seat is up.
-        this.wake(transport, target.bindingId, canvas, nodeId, generation);
-        return "waiting";
+        return waiting(`session cut, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
       }
       // Another message for this seat may have cut its session while this
       // one was asking. Look again before typing: a seat that is down, or a
       // fresh generation not yet ready, takes this mail when it is up.
       if (!transport.seatLive(target.bindingId)) {
-        this.wake(transport, target.bindingId, canvas, nodeId, generation);
-        return "waiting";
+        return waiting(`seat became unavailable during session cut, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
       }
     }
     const payload = mailPayloadOf(message, {
@@ -352,14 +355,14 @@ export class MessageDeliveryService {
     const written = await this.inSeatOrder(target.bindingId, () =>
       transport.writeMail(target.bindingId, payload),
     );
-    if (!this.active(generation)) return "waiting";
+    if (!this.active(generation)) return waiting("delivery generation ended during mail write");
     // The seat's input box was not available. Nothing was typed and nothing
     // failed: the transport says when it is available again, and a retry
     // every minute does not depend on that signal.
     if (written !== "written" && written !== "lost") {
       this.tellHeld(canvas, nodeId, message, key, written);
       this.retryHeld(canvas, nodeId, messageId, key, generation);
-      return "waiting";
+      return waiting(`composer held: ${written}`);
     }
     if (written !== "written") {
       // The seat was live but the text did not land (it restarted or
@@ -372,7 +375,7 @@ export class MessageDeliveryService {
           failed: true,
         });
       }
-      return "waiting";
+      return waiting("seat lost during mail write");
     }
     this.failedTold.delete(key);
     this.heldTold.delete(key);
@@ -385,14 +388,15 @@ export class MessageDeliveryService {
     this.emitDelivered(
       wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: Date.now() }),
     );
-    await store.acceptMessageDelivery(canvas, nodeId, messageId).catch(() => {
+    const accepted = await store.acceptMessageDelivery(canvas, nodeId, messageId).catch((cause: unknown) => {
       // The text is on the seat. A lost receipt only leaves the document
       // showing it waiting; this process will not type it twice.
       console.error(
-        `[delivery] receipt stamp failed for ${canvas}/${nodeId}/${messageId}`,
+        `[delivery] receipt stamp failed for ${canvas}/${nodeId}/${messageId}: ${String(cause)}`,
       );
-      return false;
+      return undefined;
     });
+    if (accepted === false) console.error(`[delivery] receipt refused for ${canvas}/${nodeId}/${messageId}`);
     return "delivered";
   }
 
@@ -451,18 +455,22 @@ export class MessageDeliveryService {
     canvas: string,
     nodeId: string,
     generation: number,
-  ): void {
-    if (transport.wakeSeat === undefined || this.waking.has(bindingId)) return;
+    messageId: string,
+  ): string {
+    if (transport.wakeSeat === undefined || this.waking.has(bindingId)) {
+      return transport.wakeSeat === undefined ? "wake transport missing" : "wake already in flight";
+    }
     this.waking.add(bindingId);
     void transport
       .wakeSeat(bindingId, canvas, nodeId)
       .catch((error: unknown) => {
-        console.error(`[wake] failed for ${canvas}/${nodeId}: ${String(error)}`);
+        console.error(`[delivery] wake failed for ${canvas}/${nodeId}/${messageId} (${bindingId}): ${String(error)}`);
         return false;
       })
       .finally(() => {
         if (this.active(generation)) this.waking.delete(bindingId);
       });
+    return "wake requested";
   }
 
   /**
