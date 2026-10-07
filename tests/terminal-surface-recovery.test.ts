@@ -63,6 +63,8 @@ const STATUS = 0;
 const ATTACH_KEY = 4;
 const KILL_PHASE = 5;
 const LOAD_PHASE = 8;
+/** useRef order in TerminalSurface: `operatorStopped`. */
+const OPERATOR_STOPPED = 23;
 
 const REASON = "Codex could not start: the folder ~/gone does not exist";
 const EXIT_REASON = "Claude Code exited with code 1: Error: Session ID 421f87b3 is already in use.";
@@ -273,6 +275,95 @@ describe("TerminalSurface on a seat that fails to start", () => {
 
     expect(hooks.states[ATTACH_KEY]).toBe(key + 1);
     expect(hooks.states[KILL_PHASE]).toBe("idle");
+  });
+});
+
+describe("TerminalSurface when Junto replaces the seat's process", () => {
+  // An offboard rotation (and any wake) stops the generation this surface is
+  // attached to and starts a fresh one on the same binding a moment later.
+  // The replacement does not exist yet at the instant the old one exits.
+  const rotation = () => {
+    let head: { status: "running" | "exited"; epoch: string } = { status: "running", epoch: "gen-1" };
+    const surface = seatRig({
+      node: pinnedNode,
+      get: () => ({ bindingId: "seat", ...head }),
+      attach: () => ({ status: head.status, epoch: head.epoch }),
+    });
+    return {
+      surface,
+      exit: () => {
+        head = { status: "exited", epoch: "gen-1" };
+        surface.emit({ type: "exit", bindingId: "seat", epoch: "gen-1", seq: 9n, code: 0 });
+      },
+      start: (epoch: string) => {
+        head = { status: "running", epoch };
+        surface.emit({ type: "session", bindingId: "seat", epoch, status: "running" });
+      },
+    };
+  };
+
+  it("follows the fresh process when it starts, without a click", async () => {
+    const { surface, exit, start } = rotation();
+    surface.render();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(hooks.states[STATUS]).toBe("control");
+    const key = hooks.states[ATTACH_KEY] as number;
+
+    exit();
+    await vi.advanceTimersByTimeAsync(0);
+    // Nothing has replaced it yet: it reads as stopped, for now.
+    expect(hooks.states[KILL_PHASE]).toBe("stopped");
+    expect(hooks.states[ATTACH_KEY]).toBe(key);
+
+    // 200 ms later the rotation's wake starts the fresh session.
+    await vi.advanceTimersByTimeAsync(200);
+    start("gen-2");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hooks.states[KILL_PHASE]).toBe("idle");
+    expect(hooks.states[ATTACH_KEY]).toBe(key + 1);
+  });
+
+  it("stays stopped when the operator stopped it, whatever starts later", async () => {
+    const { surface, exit, start } = rotation();
+    surface.render();
+    await vi.advanceTimersByTimeAsync(50);
+    const key = hooks.states[ATTACH_KEY];
+    // The operator's stop: the surface marks it before the process exits.
+    // Guards the index against a ref being added above it in the component:
+    // the ref just before the epoch ref's neighbours must be the lease epoch.
+    expect(hooks.refs[OPERATOR_STOPPED - 9]?.current).toBe("gen-1");
+    expect(hooks.refs[OPERATOR_STOPPED]?.current).toBe(false);
+    hooks.refs[OPERATOR_STOPPED]!.current = true;
+    exit();
+    await vi.advanceTimersByTimeAsync(0);
+    start("gen-2");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hooks.states[ATTACH_KEY]).toBe(key);
+  });
+
+  it("ignores another generation's events while its own is alive", async () => {
+    const { surface } = rotation();
+    surface.render();
+    await vi.advanceTimersByTimeAsync(50);
+    const key = hooks.states[ATTACH_KEY];
+    surface.emit({ type: "session", bindingId: "seat", epoch: "gen-0", status: "exited" });
+    surface.emit({ type: "session", bindingId: "other-seat", epoch: "gen-9", status: "running" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hooks.states[STATUS]).toBe("control");
+    expect(hooks.states[ATTACH_KEY]).toBe(key);
+  });
+
+  it("does not follow a later event that brings no live process", async () => {
+    const { surface, exit } = rotation();
+    surface.render();
+    await vi.advanceTimersByTimeAsync(50);
+    const key = hooks.states[ATTACH_KEY];
+    exit();
+    await vi.advanceTimersByTimeAsync(0);
+    surface.emit({ type: "session", bindingId: "seat", epoch: "gen-2", status: "exited" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hooks.states[KILL_PHASE]).toBe("stopped");
+    expect(hooks.states[ATTACH_KEY]).toBe(key);
   });
 });
 

@@ -1516,20 +1516,33 @@ export function TerminalSurface({
      * live replacement the host already started; otherwise settle into the
      * stopped state with the host's reason.
      */
+    /**
+     * The generation this surface settled as ended on. While it is set, the
+     * binding may get a fresh process that Junto starts by itself a moment
+     * later (an offboard that continues, a wake by mail): it is not there yet
+     * when the old one exits, so the one read below misses it.
+     */
+    let settledOn: { readonly epoch: string | undefined } | undefined;
+    let following = false;
     const followOrSettle = async (deadEpoch: string | undefined): Promise<void> => {
+      if (following) return;
+      following = true;
       const live = await api
         .terminalGet?.(bindingId, hostId)
         .catch(() => undefined);
+      following = false;
       if (!alive) return;
       const replaced =
         (live?.status === "running" || live?.status === "starting") &&
         live.epoch !== undefined &&
         live.epoch !== deadEpoch;
       if (replaced) {
+        settledOn = undefined;
         setKillPhase("idle");
         setAttachKey((key) => key + 1);
         return;
       }
+      settledOn = { epoch: deadEpoch };
       setStatus(live?.exitMessage?.trim() || "could not start");
       setKillPhase("stopped");
       setLoadPhase(null);
@@ -1545,7 +1558,16 @@ export function TerminalSurface({
         pending.push(event);
         return;
       }
-      if (event.epoch !== epochRef.current) return;
+      if (event.epoch !== epochRef.current) {
+        // Another generation of this binding is talking while this surface
+        // sits on one that ended: Junto replaced the process. Follow it, on
+        // the host's word that it is live. Starting nothing: a stop the
+        // operator asked for stays stopped, and Reopen stays their retry.
+        if (settledOn !== undefined && agentSeat && !operatorStopped.current) {
+          void followOrSettle(settledOn.epoch);
+        }
+        return;
+      }
       if (event.type === "output") writeOutput(event);
       if (event.type === "exit") {
         if (agentSeat && !operatorStopped.current) {
