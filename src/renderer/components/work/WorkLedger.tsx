@@ -1,3 +1,5 @@
+import { WorkPageControls } from "./WorkPageControls";
+import { useArtifactItems, useRequestItems } from "../../lib/use-work-sink";
 import { useEffect, useMemo, useState } from "react";
 import { askConfirm } from "../../lib/confirm";
 import { use$ } from "@legendapp/state/react";
@@ -449,10 +451,8 @@ export function RequestInbox({
   /** Pre-select this request when opened from jump-to-cause. */
   readonly initialItemId?: string;
 }) {
-  const items = useMemo(
-    () => [...(node.ether?.requests?.items ?? [])].sort(compareRequestsNewestFirst),
-    [node.ether?.requests?.items],
-  );
+  const work = useRequestItems(use$(state$.canvasName) || "", node.id);
+  const items = useMemo(() => [...work.items].sort(compareRequestsNewestFirst), [work.items]);
   // Honest accounting: attention = input-required + auth-required (anything
   // that still waits on the operator); resolved = terminal states only.
   // Intermediate states (submitted / working) get their own section so
@@ -526,6 +526,7 @@ export function RequestInbox({
         status={`${attentionItems.length} need attention - ${resolvedItems.length} resolved`}
         actions={
           <>
+              <WorkPageControls {...work} />
             <div className="work-ledger-search">
               <Search size={13} aria-hidden />
               <Input
@@ -821,7 +822,8 @@ export function ArtifactLibrary({
   readonly node: CanvasNode;
   readonly onClose: () => void;
 }) {
-  const items = node.ether?.artifacts?.items ?? [];
+  const work = useArtifactItems(use$(state$.canvasName) || "", node.id);
+  const items = work.items;
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   /** Selected for the side pane (not the expand modal). First live artifact. */
@@ -967,6 +969,7 @@ export function ArtifactLibrary({
           status={`${liveCount} active${archivedCount > 0 ? ` - ${archivedCount} archived` : ""}`}
           actions={
             <>
+              <WorkPageControls {...work} />
               <Button
                 size="xs"
                 variant={showArchived ? "primary" : "subtle"}

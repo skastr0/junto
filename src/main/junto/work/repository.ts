@@ -1,3 +1,4 @@
+import { WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
 import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/work-mail";
 import { Buffer } from "node:buffer";
 import { workProjectionChanges } from "./projection-changes";
@@ -45,7 +46,7 @@ import {
   type BoardTopicView as BoardTopicViewValue,
   type BoardPost as BoardPostValue,
   type BoardAuthor as BoardAuthorValue,
-  type EtherPad as EtherPadValue,
+  type PadGlance as PadGlanceValue,
   BoardTopic,
   BoardPost,
 } from "@shared/work-model";
@@ -2633,7 +2634,7 @@ const textNode = (node: CanvasNode): CanvasNode => node;
  * durability; this function never converts projected work back into authorial
  * canvas input.
  */
-const emptyPadGlance = (): EtherPadValue => ({
+const emptyPadGlance = (): PadGlanceValue => ({
   revision: 0,
   shapeCount: 0,
   unreadPinCount: 0,
@@ -3003,6 +3004,7 @@ const loadThreadsByItem = Effect.fn("work.loadThreadsByItem")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
   lane: "task" | "request",
+  itemIds?: ReadonlyArray<string>,
 ): Effect.fn.Return<
   ReadonlyMap<string, ReadonlyArray<MessageValue>>,
   WorkSqlFailure
@@ -3026,11 +3028,12 @@ const loadThreadsByItem = Effect.fn("work.loadThreadsByItem")(function* (
       WHERE canvas_name = ?
         AND node_id = ?
         AND parent_lane = ?
+        ${itemIds === undefined ? "" : `AND item_id IN (${itemIds.map(() => "?").join(",")})`}
       ORDER BY item_id, position
     `,
         bindings,
       ),
-  })([sink.canvasName, sink.nodeId, lane]);
+  })([sink.canvasName, sink.nodeId, lane, ...(itemIds ?? [])]);
   const byItem = new Map<string, MessageValue[]>();
   for (const row of rows) {
     const message = yield* Effect.try(
@@ -3046,6 +3049,7 @@ const loadThreadsByItem = Effect.fn("work.loadThreadsByItem")(function* (
 const loadTaskDependsOnMap = Effect.fn("work.loadTaskDependsOnMap")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
+  itemIds?: ReadonlyArray<string>,
 ): Effect.fn.Return<Map<string, string[]>, WorkSqlFailure> {
   const map = new Map<string, string[]>();
   const rows = yield* SqlSchema.findAll({
@@ -3057,11 +3061,12 @@ const loadTaskDependsOnMap = Effect.fn("work.loadTaskDependsOnMap")(function* (
       SELECT task_id, depends_on_task_id
       FROM work_task_dependencies
       WHERE canvas_name = ? AND node_id = ?
+        ${itemIds === undefined ? "" : `AND task_id IN (${itemIds.map(() => "?").join(",")})`}
       ORDER BY task_id, position, depends_on_task_id
     `,
         bindings,
       ),
-  })([sink.canvasName, sink.nodeId]);
+  })([sink.canvasName, sink.nodeId, ...(itemIds ?? [])]);
   for (const row of rows) {
     const list = map.get(row.task_id);
     if (list === undefined) map.set(row.task_id, [row.depends_on_task_id]);
@@ -3144,6 +3149,7 @@ const loadTaskFinish = Effect.fn("work.loadTaskFinish")(function* (
 const loadTaskFinishMap = Effect.fn("work.loadTaskFinishMap")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
+  itemIds?: ReadonlyArray<string>,
 ): Effect.fn.Return<
   Map<
     string,
@@ -3163,10 +3169,11 @@ const loadTaskFinishMap = Effect.fn("work.loadTaskFinishMap")(function* (
       SELECT task_id, finish_criteria_json, completion_evidence_json
       FROM work_task_finish
       WHERE canvas_name = ? AND node_id = ?
+        ${itemIds === undefined ? "" : `AND task_id IN (${itemIds.map(() => "?").join(",")})`}
     `,
         bindings,
       ),
-  })([sink.canvasName, sink.nodeId]);
+  })([sink.canvasName, sink.nodeId, ...(itemIds ?? [])]);
   const map = new Map<
     string,
     {
@@ -3630,6 +3637,7 @@ const taskFromRow = Effect.fn("work.taskFromRow")(function* (
 const loadTaskVerdictsMap = Effect.fn("work.loadTaskVerdictsMap")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
+  itemIds?: ReadonlyArray<string>,
 ): Effect.fn.Return<
   ReadonlyMap<string, ReadonlyArray<ReviewVerdict>>,
   WorkSqlFailure
@@ -3648,10 +3656,11 @@ const loadTaskVerdictsMap = Effect.fn("work.loadTaskVerdictsMap")(function* (
       AND task.entity_home = verdict.subject_task_installation
      WHERE verdict.subject_kind = 'task'
        AND verdict.subject_task_canvas = ? AND verdict.subject_task_node = ?
+        ${itemIds === undefined ? "" : `AND verdict.subject_task_item IN (${itemIds.map(() => "?").join(",")})`}
      ORDER BY verdict.subject_task_item, verdict.posted_at_ms, verdict.verdict_id`,
         bindings,
       ),
-  })([sink.canvasName, sink.nodeId]);
+  })([sink.canvasName, sink.nodeId, ...(itemIds ?? [])]);
   const map = new Map<string, ReviewVerdict[]>();
   for (const row of rows) {
     // Like the other lane loaders, construct the projection from rows whose
@@ -3694,16 +3703,17 @@ const loadLaneTasks = Effect.fn("work.loadLaneTasks")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
   lane: "task" | "request",
+  itemIds?: ReadonlyArray<string>,
 ): Effect.fn.Return<ReadonlyArray<TaskValue>, WorkSqlFailure> {
   const table = lane === "task" ? "work_tasks" : "work_requests";
   const id = lane === "task" ? "task_id" : "request_id";
   const dependsMap =
-    lane === "task" ? yield* loadTaskDependsOnMap(reader, sink) : undefined;
+    lane === "task" ? yield* loadTaskDependsOnMap(reader, sink, itemIds) : undefined;
   const finishMap =
-    lane === "task" ? yield* loadTaskFinishMap(reader, sink) : undefined;
+    lane === "task" ? yield* loadTaskFinishMap(reader, sink, itemIds) : undefined;
   const verdictsMap =
-    lane === "task" ? yield* loadTaskVerdictsMap(reader, sink) : undefined;
-  const threads = yield* loadThreadsByItem(reader, sink, lane);
+    lane === "task" ? yield* loadTaskVerdictsMap(reader, sink, itemIds) : undefined;
+  const threads = yield* loadThreadsByItem(reader, sink, lane, itemIds);
   // Requests: newest first (operator triage). Tasks keep oldest-first claim order.
   const orderBy =
     lane === "request"
@@ -3734,11 +3744,12 @@ const loadLaneTasks = Effect.fn("work.loadLaneTasks")(function* (
           origin_at
         FROM ${table}
         WHERE canvas_name = ? AND node_id = ?
+        ${itemIds === undefined ? "" : `AND ${id} IN (${itemIds.map(() => "?").join(",")})`}
         ${orderBy}
       `,
           bindings,
         ),
-    })([sink.canvasName, sink.nodeId]),
+    })([sink.canvasName, sink.nodeId, ...(itemIds ?? [])]),
     (row) =>
       Effect.gen(function* () {
         const task: TaskValue = {
@@ -3886,7 +3897,7 @@ export const readWorkMailPage = Effect.fn("work.mail.page")(function* (
   input: WorkMailQuery,
   messageId?: string,
 ): Effect.fn.Return<WorkMailPage, WorkSqlFailure> {
-  const query = yield* Schema.decodeUnknownEffect(WorkMailQuery)(input);
+  const query = yield* Schema.decodeUnknownEffect(WorkMailQuery, strictDecode)(input);
   const limit = query.limit ?? WORK_MAIL_PAGE_SIZE;
   const rows = yield* SqlSchema.findAll({
     Request: WorkSqlBindings,
@@ -4108,6 +4119,7 @@ const loadBoardTopics = Effect.fn("work.loadBoardTopics")(
 const loadArtifacts = Effect.fn("work.loadArtifacts")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
+  itemIds?: ReadonlyArray<string>,
 ): Effect.fn.Return<ReadonlyArray<ArtifactValue>, WorkSqlFailure> {
   const rows = yield* SqlSchema.findAll({
     Request: WorkSqlBindings,
@@ -4127,11 +4139,12 @@ const loadArtifacts = Effect.fn("work.loadArtifacts")(function* (
           metadata_json
         FROM work_artifacts
         WHERE canvas_name = ? AND node_id = ?
+        ${itemIds === undefined ? "" : `AND artifact_id IN (${itemIds.map(() => "?").join(",")})`}
         ORDER BY origin_at DESC, artifact_id ASC
       `,
         bindings,
       ),
-  })([sink.canvasName, sink.nodeId]);
+  })([sink.canvasName, sink.nodeId, ...(itemIds ?? [])]);
   return yield* Effect.try(() =>
     rows.map((row) =>
       stampPublishedBySeat(
@@ -4368,7 +4381,7 @@ const loadPad = Effect.fn("work.loadPad")(function* (
 const loadPadGlance = Effect.fn("work.loadPadGlance")(function* (
   reader: SqlClient.SqlClient,
   sink: SinkRefValue,
-): Effect.fn.Return<EtherPadValue | undefined, WorkSqlFailure> {
+): Effect.fn.Return<PadGlanceValue | undefined, WorkSqlFailure> {
   const meta = yield* SqlSchema.findOneOption({
     Request: WorkSqlBindings,
     Result: PadRevisionRow,
@@ -4690,6 +4703,59 @@ const loadSnapshot = Effect.fn("work.loadSnapshot")(function* (
     board: { topics: yield* loadBoardTopics(reader, sink) },
     ...(pad === undefined ? {} : { pad }),
   };
+});
+
+/** Read one kind's page without assembling a canvas or unrelated work lanes. */
+export const readWorkSinkPage = Effect.fn("work.sink.page")(function* (
+  reader: SqlClient.SqlClient,
+  input: WorkSinkQuery,
+): Effect.fn.Return<WorkSinkPage, WorkSqlFailure> {
+  const query = yield* Schema.decodeUnknownEffect(WorkSinkQuery, strictDecode)(input);
+  const sink = { canvasName: query.canvasName, nodeId: query.nodeId };
+  if (query.kind === "pad") {
+    const glance = yield* loadPadGlance(reader, sink);
+    return { kind: "pad", ...(glance === undefined ? {} : { glance }) };
+  }
+  const [table, id] = query.kind === "task" ? ["work_tasks", "task_id"]
+    : query.kind === "requests" ? ["work_requests", "request_id"]
+    : query.kind === "artifacts" ? ["work_artifacts", "artifact_id"]
+    : ["work_board_topics", "topic_id"];
+  const limit = query.limit ?? WORK_SINK_PAGE_SIZE;
+  const rows = yield* SqlSchema.findAll({
+    Request: WorkSqlBindings, Result: Schema.Struct({ id: Schema.String }),
+    execute: (bindings) => reader.unsafe(`SELECT ${id} AS id FROM ${table}
+      WHERE canvas_name = ? AND node_id = ?
+      ${query.kind === "task" ? "AND state != 'archived'" : ""}
+      ${query.beforeId === undefined ? "" : `AND ${id} < ?`}
+      ORDER BY ${id} DESC LIMIT ?`, bindings),
+  })([sink.canvasName, sink.nodeId, ...(query.beforeId === undefined ? [] : [query.beforeId]), limit + 1]);
+  const ids = rows.slice(0, limit).map((row) => row.id);
+  const next = rows.length > limit ? { nextBeforeId: ids.at(-1)! } : {};
+  const byIdDescending = (a: string, b: string) => a < b ? 1 : a > b ? -1 : 0;
+  if (query.kind === "task" || query.kind === "requests") return {
+    kind: query.kind, items: ids.length === 0 ? [] : [...(yield* loadLaneTasks(reader, sink, query.kind === "task" ? "task" : "request", ids))].sort((a, b) => byIdDescending(a.id, b.id)), ...next,
+  };
+  if (query.kind === "artifacts") return {
+    kind: "artifacts", items: ids.length === 0 ? [] : [...(yield* loadArtifacts(reader, sink, ids))].sort((a, b) => byIdDescending(a.artifactId, b.artifactId)), ...next,
+  };
+  const topics = ids.length === 0 ? [] : yield* reader.unsafe<{
+    topic_id: string; title: string; state: "open" | "archived"; post_count: number;
+    last_activity_at: string; author_label: string | null; unread: number;
+  }>(`SELECT topic_id,title,state,post_count,last_activity_at,author_label,
+    (SELECT count(*) FROM work_board_posts AS post
+      LEFT JOIN work_board_read_cursors AS cursor
+      ON cursor.canvas_name = post.canvas_name AND cursor.node_id = post.node_id
+        AND cursor.topic_id = post.topic_id AND cursor.principal_key = 'operator'
+      WHERE post.canvas_name = topic.canvas_name AND post.node_id = topic.node_id
+        AND post.topic_id = topic.topic_id AND post.author_kind != 'operator'
+        AND post.position > coalesce(cursor.last_read_position,-1)) AS unread
+    FROM work_board_topics AS topic WHERE canvas_name = ? AND node_id = ?
+      AND topic_id IN (${ids.map(() => "?").join(",")})`, [sink.canvasName, sink.nodeId, ...ids]);
+  return { kind: "board", items: topics.map((row) => ({
+    topicId: row.topic_id, title: row.title, state: row.state,
+    postCount: row.post_count, lastActivityAt: row.last_activity_at,
+    unreadPostCount: row.unread, ...(row.author_label === null ? {} : { authorLabel: row.author_label }),
+  })), ...next };
 });
 
 export type CanvasWorkProjection = {
@@ -8822,6 +8888,7 @@ export type CurrentTaskClaim = {
 };
 
 export interface WorkRepositoryShape {
+  readonly sinkPage: (query: WorkSinkQuery) => Effect.Effect<WorkSinkPage, WorkRepositoryError>;
   readonly mailPage: (query: WorkMailQuery) => Effect.Effect<WorkMailPage, WorkRepositoryError>;
   readonly mailbox: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<MessageValue>, WorkRepositoryError>;
   readonly mailMessage: (canvasName: string, nodeId: string, messageId: string) => Effect.Effect<MessageValue | undefined, WorkRepositoryError>;
@@ -12541,6 +12608,11 @@ export const WorkRepositoryLive = Layer.effect(
     };
 
     return WorkRepository.of({
+      sinkPage: Effect.fn("WorkRepository.sinkPage")((query: WorkSinkQuery) =>
+        withSqlRead(sql, readWorkSinkPage(sql, query)).pipe(
+          Effect.provideService(StateTransactionOperation, "work.sink.page"),
+          Effect.mapError((error) => toRepositoryError("work.sink.page", error)),
+        )),
       mailbox: Effect.fn("WorkRepository.mailbox")((canvasName: string, nodeId: string) =>
         withSqlRead(sql, loadInbox(sql, { canvasName, nodeId })).pipe(
           Effect.provideService(StateTransactionOperation, "work.mailbox"),

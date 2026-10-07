@@ -1,3 +1,4 @@
+import { WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Result, Schema } from "effect";
@@ -1473,9 +1474,16 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
+  privilegedIpc.handle(IPC_CHANNELS.workSinkPage, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(WorkSinkQuery, { onExcessProperty: "error" })(input);
+      return yield* (yield* WorkRepository).sinkPage(query);
+    })),
+  );
+
   privilegedIpc.handle(IPC_CHANNELS.workMailPage, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
-      const query = yield* Schema.decodeUnknownEffect(WorkMailQuery)(input);
+      const query = yield* Schema.decodeUnknownEffect(WorkMailQuery, { onExcessProperty: "error" })(input);
       const repository = yield* WorkRepository;
       return yield* repository.mailPage(query);
     })),
@@ -1754,6 +1762,7 @@ export const registerJuntoIpc = (): void => {
       const mailRepository = yield* WorkRepository;
       mailRepository.subscribeChanges((canvasName, nodeId, kind) => {
         if (kind === "mail") broadcast(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
+        else broadcast(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
       });
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       // ONE edge-notification theory: canvas edge changes produce exactly one

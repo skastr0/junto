@@ -25,7 +25,7 @@ import {
   EtherArtifacts,
   EtherBoard,
   WorkMessages,
-  EtherPad,
+  PadGlance,
   EtherRequests,
   EtherTasks,
 } from "./work-model";
@@ -138,7 +138,7 @@ const ETHER_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
   requests: EtherRequests,
   artifacts: EtherArtifacts,
   board: EtherBoard,
-  pad: EtherPad,
+  pad: PadGlance,
   sheet: EtherSheet,
   agent: WorkMessages,
   page: EtherBrowser,

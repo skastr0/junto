@@ -1,3 +1,4 @@
+import type { WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type {
@@ -254,6 +255,8 @@ export const IPC_CHANNELS = {
   workArtifactDelete: "junto:work-artifact-delete",
   workSeatRecentOps: "junto:work-seat-recent-ops",
   workMailPage: "junto:work-mail-page",
+  workSinkPage: "junto:work-sink-page",
+  workSinkChanged: "junto:work-sink-changed",
   workMailChanged: "junto:work-mail-changed",
   workBoardList: "junto:work-board-list",
   workBoardCreateTopic: "junto:work-board-create-topic",
@@ -1013,6 +1016,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     nodeId: string,
     artifactId: string,
   ) => Promise<WorkOpResult<{ readonly artifactId: string }>>;
+  readonly workSinkPage: (query: WorkSinkQuery) => Promise<WorkSinkPage>;
+  readonly onWorkSinkChanged: (listener: (event: WorkSinkChanged) => void) => () => void;
   readonly workMailPage: (query: WorkMailQuery) => Promise<WorkMailPage>;
   readonly onWorkMailChanged: (listener: (event: WorkMailChanged) => void) => () => void;
   readonly workSeatRecentOps: (

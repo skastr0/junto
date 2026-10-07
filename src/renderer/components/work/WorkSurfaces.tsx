@@ -1,3 +1,4 @@
+import { useTaskItems, useRequestItems, useArtifactItems, useBoardTopics } from "../../lib/use-work-sink";
 import { useWorkMail } from "../../lib/use-work-mail";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -183,7 +184,7 @@ export function TasksCard({
 }: {
   readonly node: CanvasNode;
 } & SinkRenameProps) {
-  const items = node.ether?.tasks?.items ?? [];
+  const { items } = useTaskItems(use$(state$.canvasName) || "", node.id);
   const contract = node.ether?.tasks?.contract;
   const { needsInput } = sinkGlance(items, contract);
   const { completed: completedCount } = taskScanCounts(items, contract);
@@ -307,7 +308,8 @@ export function RequestsCard({
   // Attention first (input-required / auth-required — the states that wait on
   // the operator), then the rest — newest first (ULID birth order) within each
   // group, matching requests lane SQL + RequestInbox.
-  const allItems = [...(node.ether?.requests?.items ?? [])].sort((a, b) =>
+  const { items: requestItems } = useRequestItems(use$(state$.canvasName) || "", node.id);
+  const allItems = [...requestItems].sort((a, b) =>
     b.id.localeCompare(a.id),
   );
   const items = [
@@ -355,8 +357,8 @@ export function BoardCard({
 }: {
   readonly node: CanvasNode;
 } & SinkRenameProps) {
-  const topics = node.ether?.board?.topics ?? [];
-  const unread = node.ether?.board?.unread ?? 0;
+  const { topics } = useBoardTopics(use$(state$.canvasName) || "", node.id);
+  const unread = topics.reduce((sum, topic) => sum + (topic.unreadPostCount ?? 0), 0);
   return (
     <div className="factory-glance factory-glance--board flex h-full w-full flex-col overflow-hidden" data-testid="board-card">
       <SinkGlanceHead
@@ -398,7 +400,8 @@ export function BoardCard({
 }
 
 export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
-  const items = (node.ether?.artifacts?.items ?? []).filter(
+  const { items: artifactItems } = useArtifactItems(use$(state$.canvasName) || "", node.id);
+  const items = artifactItems.filter(
     (item) => item.metadata?.archived !== true,
   );
   return (
@@ -534,15 +537,15 @@ export function BoardDetail({
   }, [api, canvas, node.id]);
 
   const refreshQueued = useRef(false);
-  // Live board: work-fact commits broadcast canvasChanged even when the write
+  // Live board: scoped work events refresh this board when the write
   // came from an agent. Coalesce bursts into one trailing refresh; keep the
   // operator's selection and draft. Refreshing is a read — it must not run
   // through applyWorkCanvasWrite.
   useEffect(() => {
     if (!api) return;
     let cancelled = false;
-    const off = api.onCanvasChanged((name) => {
-      if (cancelled || name !== canvas) return;
+    const off = api.onWorkSinkChanged((event) => {
+      if (cancelled || event.canvasName !== canvas || event.nodeId !== node.id) return;
       if (refreshQueued.current) return;
       refreshQueued.current = true;
       window.setTimeout(() => {
@@ -578,7 +581,7 @@ export function BoardDetail({
   };
 
   const posts: ReadonlyArray<BoardPost> = selected?.posts ?? [];
-  const unread = node.ether?.board?.unread ?? 0;
+  const unread = (detailTopics ?? []).reduce((sum, topic) => sum + topic.unreadPostCount, 0);
 
   // Open a topic at its latest post. While reading, follow incoming posts
   // only when the operator is already near the bottom; never yank them back

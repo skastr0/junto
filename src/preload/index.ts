@@ -1,3 +1,4 @@
+import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
 import type { CanvasesChanged, Changed } from "@shared/model";
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
@@ -507,6 +508,8 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   contentPutImage: (input) =>
     invoke(IPC_CHANNELS.contentPutImage, IPC_TIMEOUT_MS, input),
+  workSinkPage: (query) => invoke(IPC_CHANNELS.workSinkPage, IPC_TIMEOUT_MS, query),
+  onWorkSinkChanged: (listener) => subscribe<WorkSinkChanged>(IPC_CHANNELS.workSinkChanged, listener),
   workMailPage: (query) => invoke(IPC_CHANNELS.workMailPage, IPC_TIMEOUT_MS, query),
   onWorkMailChanged: (listener) => subscribe<WorkMailChanged>(IPC_CHANNELS.workMailChanged, listener),
   workSeatRecentOps: (canvas, nodeId, limit) =>

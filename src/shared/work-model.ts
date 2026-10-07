@@ -591,7 +591,7 @@ export const EtherBoard = Schema.Struct({
 export type EtherBoard = typeof EtherBoard.Type;
 
 /** Canvas glance strip — title lives on the text node; counts from SQLite. */
-export const EtherPad = Schema.Struct({
+export const PadGlance = Schema.Struct({
   revision: Schema.Number.pipe(
     Schema.check(Schema.isInt()),
     Schema.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -605,7 +605,7 @@ export const EtherPad = Schema.Struct({
     Schema.check(Schema.isGreaterThanOrEqualTo(0)),
   ),
 });
-export type EtherPad = typeof EtherPad.Type;
+export type PadGlance = typeof PadGlance.Type;
 
 /**
  * Canonical work-lane values exposed at the runtime projection boundary.
@@ -634,6 +634,6 @@ export const WorkSnapshot = Schema.Struct({
   requests: WorkRequests,
   artifacts: WorkArtifacts,
   board: WorkBoard,
-  pad: Schema.optionalKey(EtherPad),
+  pad: Schema.optionalKey(PadGlance),
 });
 export type WorkSnapshot = typeof WorkSnapshot.Type;

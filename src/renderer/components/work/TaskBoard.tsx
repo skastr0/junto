@@ -1,3 +1,5 @@
+import { WorkPageControls } from "./WorkPageControls";
+import { useTaskItems } from "../../lib/use-work-sink";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -2294,7 +2296,8 @@ export function TaskBoard({
   /** Pre-select this task when opened from jump-to-cause. */
   readonly initialItemId?: string;
 }) {
-  const items = node.ether?.tasks?.items ?? [];
+  const work = useTaskItems(use$(state$.canvasName) || "", node.id);
+  const items = work.items;
   const boardSettings = node.ether?.tasks?.contract;
   const [nowMs, setNowMs] = useState(() => Date.now());
   const glance = sinkGlance(items, boardSettings, nowMs);
@@ -3003,6 +3006,7 @@ export function TaskBoard({
           }
           actions={
             <>
+              <WorkPageControls {...work} />
               <IconButton
                 tone={contractSide ? "accent" : "default"}
                 aria-label="Edit board settings"

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { use$ } from "@legendapp/state/react";
 import { X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { Pad, PadPatch } from "@shared/pad";
@@ -92,17 +91,14 @@ export function PadDetail({
     void readPad();
   }, [readPad]);
 
-  // Live refresh: every work-plane patch advances this node's pad glance
-  // revision in the pad doc. Refresh while the surface is open so agent
-  // patches appear without reopening. Own commits reach acceptance through
-  // `onCommit`; the read here only confirms or clears the undo baseline.
-  const docNodes = use$(state$.doc.nodes);
-  const glanceRevision = docNodes.find((candidate) => candidate.id === node.id)?.ether?.pad
-    ?.revision;
+  // A committed patch names this pad; it never invalidates canvas geometry.
   useEffect(() => {
-    if (glanceRevision === undefined || glanceRevision <= acceptedRevisionRef.current) return;
-    void readPad();
-  }, [glanceRevision, readPad]);
+    const api = getJuntoApi();
+    if (!api) return;
+    return api.onWorkSinkChanged((event) => {
+      if (event.canvasName === canvasName() && event.nodeId === node.id) void readPad();
+    });
+  }, [node.id, readPad]);
 
   const onCommit = useCallback(
     async (patches: ReadonlyArray<PadPatch>): Promise<PadCommitOutcome> => {

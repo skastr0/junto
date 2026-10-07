@@ -14,7 +14,7 @@ import {
 import {
   EtherArtifacts,
   EtherBoard,
-  EtherPad,
+  PadGlance,
   EtherRequests,
   EtherTasks,
   Rule,
@@ -55,7 +55,7 @@ export {
   DataPart,
   EtherArtifacts,
   EtherBoard,
-  EtherPad,
+  PadGlance,
   EtherRequests,
   EtherTasks,
   FinishCriteria,
@@ -446,7 +446,7 @@ export const EtherNodeExtension = Schema.Struct({
   /** Runtime overlay for entity.kind === "board" (glance only; SQLite owns truth). */
   board: Schema.optionalKey(EtherBoard),
   /** Runtime overlay for entity.kind === "pad" (glance only; SQLite owns truth). */
-  pad: Schema.optionalKey(EtherPad),
+  pad: Schema.optionalKey(PadGlance),
   /**
    * Authored grid for entity.kind === "sheet". Unlike board/pad this is not a
    * projection: the operator types it, the document owns it, and agents read
