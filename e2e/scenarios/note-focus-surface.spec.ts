@@ -1,31 +1,19 @@
-import { commandModel, readModelNode } from "../harness/model";
+import { commandModel, modelFixture, modelNote, readModelNode } from "../harness/model";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { CanvasDoc } from "../../src/shared/canvas";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "note-focus-surface";
 const SHOTS = join(process.cwd(), "test-results", "note-focus-surface");
 
-const document: CanvasDoc = {
-  nodes: [
-    {
-      id: "note-1",
-      type: "text",
-      text: "# Field notes\n\nThe operator draft stays put.",
-      x: 0,
-      y: 0,
-      width: 320,
-      height: 220,
-    },
-  ],
-  edges: [],
-};
+const fixture = modelFixture([
+  { ...modelNote("note-1", "# Field notes\n\nThe operator draft stays put."), width: 320, height: 220 },
+]);
 
 test("Note focus survives canvas updates", async () => {
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: document },
+    seedModels: { [CANVAS]: fixture },
   });
   try {
     const { page } = junto;

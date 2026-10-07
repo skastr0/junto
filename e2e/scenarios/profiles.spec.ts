@@ -1,4 +1,4 @@
-import { installFixtureDocument } from "../harness/model";
+import { installModelFixture, modelFixture, modelSeat, modelRegion } from "../harness/model";
 /**
  * Profiles in the real app: from the seat's selection panel give it a soul
  * and instructions, save it as a profile (a taken name asks before it
@@ -10,28 +10,26 @@ import { installFixtureDocument } from "../harness/model";
  *
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/profiles.spec.ts`
  */
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const shots = process.env.JUNTO_SHOTS_DIR ?? "test-results/profiles";
 
-const fixtureDoc = canvasDoc([
-  agentTextNode({ id: "seat-ada", key: "local:ada", label: "Ada", x: 0, y: 0 }),
-  {
+const fixture = modelFixture([
+  modelSeat({ id: "seat-ada", key: "local:ada", label: "Ada", x: 0, y: 0 }),
+  modelRegion({
     id: "rg-lab",
-    type: "group",
     label: "lab",
     x: 700,
     y: -80,
     width: 760,
     height: 480,
-    ether: { region: { defaults: { paths: { local: "/tmp" } } } },
-  },
+    defaults: { paths: { local: "/tmp" } },
+  }),
 ]);
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  await installFixtureDocument(page, fixtureDoc, "profiles");
+  await installModelFixture(page, fixture, "profiles");
 };
 
 /** A node's box once it has stopped moving (the camera settles after load). */

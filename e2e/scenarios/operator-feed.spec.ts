@@ -19,8 +19,8 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import type { AgentSignal } from "../../src/shared/agent-signals";
-import type { CanvasDoc, GroupNode, TextNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import type { Region, Seat as ModelSeat } from "../../src/shared/model";
+import { modelFixture, modelRegion, modelSeat, type ModelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "operator-feed");
@@ -35,7 +35,7 @@ const region = (
   y: number,
   width: number,
   height: number,
-): GroupNode => ({ id, type: "group", label, ...(color ? { color } : {}), x, y, width, height });
+): Region => modelRegion({ id, label, ...(color ? { color } : {}), x, y, width, height });
 
 type Seat = { readonly id: string; readonly label: string; readonly x: number; readonly y: number };
 
@@ -48,8 +48,8 @@ const OPS = row(["Kestrel", "Lumen", "Moss"], 1340, 680);
 const FIELD = row(["Nova", "Onyx"], 2400, 80);
 const SEATS = [...BUILD, ...DOCS, ...OPS, ...FIELD];
 
-const seatNode = (seat: Seat, index: number): TextNode =>
-  agentTextNode({
+const seatNode = (seat: Seat, index: number): ModelSeat =>
+  modelSeat({
     id: seat.id,
     key: `local:e2e-feed-${seat.id}`,
     label: seat.label,
@@ -58,8 +58,8 @@ const seatNode = (seat: Seat, index: number): TextNode =>
     y: seat.y,
   });
 
-const doc = (seats: ReadonlyArray<Seat>): CanvasDoc =>
-  canvasDoc(
+const fixture = (seats: ReadonlyArray<Seat>): ModelFixture =>
+  modelFixture(
     [
       region("build", "Build", "4", 0, 0, 1700, 460),
       region("docs", "Docs", "6", 0, 600, 1160, 360),
@@ -119,7 +119,7 @@ const shot = async (page: Page, name: string): Promise<void> => {
 
 test("the operator feed at thirty: regions in colour, quick replies, real answers", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: doc(SEATS) }, seedAgentSignals: signals(SEATS, 2) });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture(SEATS) }, seedAgentSignals: signals(SEATS, 2) });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow__node", { hasText: "Atlas" })).toBeVisible({ timeout: 30_000 });
@@ -239,7 +239,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
 test("the operator feed with one waiting, then none", async () => {
   await mkdir(SHOTS, { recursive: true });
   const one = [DOCS[0]!];
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: doc(one) }, seedAgentSignals: signals(one, 1) });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture(one) }, seedAgentSignals: signals(one, 1) });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow__node", { hasText: "Grove" })).toBeVisible({ timeout: 30_000 });

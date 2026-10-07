@@ -1,51 +1,32 @@
-import { readModelSeat } from "../harness/model";
+import { modelFixture, modelSeat, readModelSeat } from "../harness/model";
 /** Amp's creation choices and same-thread client options, in the isolated app. */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { TextNode } from "../../src/shared/canvas";
+import type { Seat } from "../../src/shared/model";
 import { planSeatLaunch } from "../../src/shared/seat-launch-params";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import { expect, test } from "../harness/launch";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? "test-results/amp-params";
 const THREAD = "T-00000000-0000-7000-8000-000000000001";
 
-const ampSeat = (id: string, existing: boolean): TextNode => {
-  const node = agentTextNode({
-    id,
-    key: `local:${id}`,
-    label: existing ? "Existing Amp thread" : "New Amp seat",
-    harness: "amp",
-    cwd: "/tmp",
-    x: existing ? 380 : 0,
-  });
-  const launch = planSeatLaunch({
+const ampSeat = (id: string, existing: boolean): Seat => modelSeat({
+  id, key: `local:${id}`, label: existing ? "Existing Amp thread" : "New Amp seat",
+  harness: "amp", cwd: "/tmp", x: existing ? 380 : 0,
+  launch: planSeatLaunch({
     harness: "amp",
     params: { mode: "low", extraArgs: existing ? ["--features", "plaid"] : [] },
     base: { cwd: "/tmp" },
-  }).launch;
-  return {
-    ...node,
-    ether: {
-      ...node.ether,
-      terminal: {
-        ...node.ether?.terminal,
-        bindingId: `local:${id}`,
-        harness: "amp",
-        launch,
-        ...(existing ? { sessionId: THREAD } : {}),
-      },
-    },
-  };
-};
+  }).launch,
+  ...(existing ? { sessionId: THREAD } : {}),
+});
 
 test.use({
   juntoOptions: {
     windowContentSize: { width: 1320, height: 1000 },
     seedHarnessInstalls: ["amp"],
-    seedCanvases: { "amp-params": canvasDoc([ampSeat("amp-new", false), ampSeat("amp-existing", true)]) },
+    seedModels: { "amp-params": modelFixture([ampSeat("amp-new", false), ampSeat("amp-existing", true)]) },
     afterSeed: async (sandbox) => {
       // Only the public native output format is faked. No live Amp account,
       // thread, plugin, settings file, or inference is involved in this fixture.

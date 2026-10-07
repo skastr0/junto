@@ -6,26 +6,20 @@
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { CanvasNode, GroupNode, TextNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, terminalTextNode, verbEdge } from "../harness/sandbox";
+import type { Node } from "../../src/shared/model";
+import { modelFixture, modelNode, modelNote, modelRegion, modelSeat, modelTerminal, modelWire } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "card-language");
 
-const region: GroupNode = {
-  id: "region-build",
-  type: "group",
-  label: "build lane",
-  x: 0,
-  y: 0,
-  width: 900,
-  height: 380,
-};
+const region = modelRegion({
+  id: "region-build", label: "build lane", x: 0, y: 0, width: 900, height: 380,
+});
 
-const planner = agentTextNode({ id: "planner", key: "local:e2e-card-planner", label: "planner", harness: "claude", x: 40, y: 60 });
-const builder = agentTextNode({ id: "builder", key: "local:e2e-card-builder", label: "builder", harness: "codex", x: 40, y: 200 });
+const planner = modelSeat({ id: "planner", key: "local:e2e-card-planner", label: "planner", harness: "claude", x: 40, y: 60 });
+const builder = modelSeat({ id: "builder", key: "local:e2e-card-builder", label: "builder", harness: "codex", x: 40, y: 200 });
 
-const terminal = terminalTextNode({
+const terminal = modelTerminal({
   id: "dev-server",
   bindingId: "local:e2e-card-dev",
   label: "dev server",
@@ -34,41 +28,17 @@ const terminal = terminalTextNode({
   y: 60,
 });
 
-// Stored sizes as the old factories wrote them: existing canvases must load.
-const git: TextNode = {
-  id: "repo",
-  type: "text",
-  text: "junto",
-  x: 340,
-  y: 200,
-  width: 280,
-  height: 128,
-  ether: { entity: { kind: "git" }, git: { cwd: process.cwd() } },
-};
-
-const note: TextNode = {
-  id: "note",
-  type: "text",
-  text: "# Release notes\nShip the seat rings first, then the card pass.\n- rings move\n- crest for overseers",
-  x: 1000,
-  y: 60,
-  width: 240,
-  height: 100,
-};
-
-const label: TextNode = {
-  id: "label",
-  type: "text",
-  text: "Staging",
-  x: 1000,
-  y: 260,
-  width: 160,
-  height: 40,
-  ether: { entity: { kind: "label" } },
-};
-
-const nodes: CanvasNode[] = [region, planner, builder, terminal, git, note, label];
-const fixture = canvasDoc(nodes, [verbEdge("e-planner-builder", "planner", "builder", "messages", nodes)]);
+// Exercise saved geometry rather than only the current factory defaults.
+const git = modelNode({
+  kind: "git", id: "repo", label: "junto", cwd: process.cwd(),
+  x: 340, y: 200, width: 280, height: 128, z: 0,
+});
+const note = { ...modelNote("note", "# Release notes\nShip the seat rings first, then the card pass.\n- rings move\n- crest for overseers", 1000, 60), height: 100 };
+const label = modelNode({
+  kind: "label", id: "label", text: "Staging", x: 1000, y: 260, width: 160, height: 40, z: 0,
+});
+const nodes: Node[] = [region, planner, builder, terminal, git, note, label];
+const fixture = modelFixture(nodes, [modelWire("e-planner-builder", "planner", "builder", "messages", nodes)]);
 
 const seatEvents = (at: number) =>
   [
@@ -86,7 +56,7 @@ const seatEvents = (at: number) =>
 
 test("cards speak the seat's language beside the seats, in both themes", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { "card-language": fixture } });
+  const junto = await launchJunto({ seedModels: { "card-language": fixture } });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

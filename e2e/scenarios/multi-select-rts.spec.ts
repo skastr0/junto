@@ -1,4 +1,4 @@
-import { commandModel, installFixtureDocument } from "../harness/model";
+import { commandModel, installModelFixture, modelFixture, modelNote, modelRegion, modelSeat } from "../harness/model";
 /**
  * Multi-select → RTS chrome glue.
  *
@@ -6,35 +6,33 @@ import { commandModel, installFixtureDocument } from "../harness/model";
  * Shift-add selection surfaces the multi command card + multi-prompt input.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/multi-select-rts.spec.ts`
  */
-import { agentTextNode, canvasDoc, textNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const fixtureDoc = canvasDoc([
-  textNode("note", "field notes", 40, 40),
-  agentTextNode({
+const fixture = modelFixture([
+  modelNote("note", "field notes", 40, 40),
+  modelSeat({
     id: "seat-a",
     key: "local:alpha",
     label: "alpha",
     x: 320,
     y: 40,
   }),
-  agentTextNode({
+  modelSeat({
     id: "seat-b",
     key: "local:beta",
     label: "beta",
     x: 560,
     y: 40,
   }),
-  {
+  modelRegion({
     id: "rg-main",
-    type: "group",
     label: "main",
     x: 280,
     y: 0,
     width: 560,
     height: 200,
-    ether: { region: { hold: true } },
-  },
+    hold: true,
+  }),
 ]);
 
 const stableBox = async (page: import("@playwright/test").Page, locator: import("@playwright/test").Locator) => {
@@ -57,7 +55,7 @@ const stableBox = async (page: import("@playwright/test").Page, locator: import(
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  await installFixtureDocument(page, fixtureDoc, "multi");
+  await installModelFixture(page, fixture, "multi");
 };
 
 test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
