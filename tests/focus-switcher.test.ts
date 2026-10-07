@@ -130,7 +130,6 @@ describe("openingIndex", () => {
   const entry = (nodeId: string, current = false) => ({
     nodeId,
     title: nodeId,
-    kindLabel: "Agent",
     hotbarSlot: null,
     current,
   });

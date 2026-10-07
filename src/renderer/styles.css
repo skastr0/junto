@@ -610,7 +610,8 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 @keyframes station-pulse { 50% { opacity: .45; } }
 
 /* =============================================================================
-   Focus switcher — hold-Control HUD over the live focus modal
+   Agent switcher: an operator modal, up while Cmd is held. The dim and the
+   card chrome come from styles/layers.css.
    ============================================================================= */
 .focus-switcher {
   position: fixed;
@@ -618,33 +619,16 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   z-index: var(--layer-operator);
   display: grid;
   place-items: center;
-  pointer-events: none;
+  box-sizing: border-box;
+  padding: 24px;
 }
-.focus-switcher__backdrop {
-  position: absolute;
-  inset: 0;
-  pointer-events: auto;
-  border: 0;
-  background: color-mix(in oklab, var(--color-ground) 28%, transparent);
-}
-.focus-switcher__panel {
-  position: relative;
-  pointer-events: auto;
+.focus-switcher__frame {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: fit-content;
-  max-width: min(920px, calc(100vw - 48px));
+  min-width: 0;
+  max-width: min(920px, 100%);
   padding: 10px 10px 8px;
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-xl);
-  background: linear-gradient(
-    160deg,
-    color-mix(in oklab, var(--color-raise) 96%, transparent),
-    color-mix(in oklab, var(--color-ground) 98%, transparent)
-  );
-  box-shadow: 0 24px 80px var(--color-shadow-1), 0 0 0 1px var(--color-overlay-1);
-  backdrop-filter: blur(18px);
 }
 .focus-switcher__strip {
   display: flex;
@@ -652,8 +636,10 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   overflow-x: auto;
   padding: 2px 0 4px;
   scrollbar-width: thin;
+  /* The list holds the keyboard; the chosen card shows where it is. */
+  outline: 0;
 }
-/* One card: the seat's ring and portrait, its name, its line. */
+/* One card: the seat's ring and portrait, its name, its line, its region. */
 .focus-switcher__card {
   position: relative;
   display: flex;
@@ -684,12 +670,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   place-items: center;
   margin-bottom: 6px;
 }
-.focus-switcher__mark--kind {
-  border: 1px solid color-mix(in oklab, var(--mark-hue) 30%, transparent);
-  border-radius: var(--radius-xl);
-  background: color-mix(in oklab, var(--mark-hue) 12%, transparent);
-  color: var(--mark-hue);
-}
 .focus-switcher__slot {
   position: absolute;
   top: 6px;
@@ -715,6 +695,11 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   color: var(--color-faint);
   font-family: var(--font-mono);
   font-size: var(--text-label);
+}
+.focus-switcher__card .focus-switcher__crumb {
+  max-width: 100%;
+  margin-top: 2px;
+  text-align: center;
 }
 .focus-switcher__footer {
   display: flex;

@@ -21,7 +21,7 @@ import {
   parseTerminalSurfaceId,
 } from "./dock-state";
 import { slotIndexOf, type HotbarSlot } from "./hotbar-slots";
-import { nodeTitle, nodeTypeLabel } from "./presentation";
+import { nodeTitle } from "./presentation";
 import type { SeatUrgency } from "./seat-line";
 import { seatUrgencyNow } from "../components/SeatRing";
 import { state$ } from "./state";
@@ -31,7 +31,6 @@ import { urgencyOrder } from "./urgency-order";
 export type FocusSwitcherEntry = {
   readonly nodeId: string;
   readonly title: string;
-  readonly kindLabel: string;
   /** 1–9 when the node occupies a hotbar slot, else null. */
   readonly hotbarSlot: number | null;
   /** The agent in front when the snapshot was taken. */
@@ -106,7 +105,6 @@ export const buildFocusSwitcherCatalog = (
     return {
       nodeId: node.id,
       title: nodeTitle(node),
-      kindLabel: nodeTypeLabel(node),
       hotbarSlot: slot === null ? null : slot + 1,
       current: node.id === currentId,
     };
