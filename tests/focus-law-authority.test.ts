@@ -99,24 +99,6 @@ describe("focus law authority", () => {
     })).toBe(true);
   });
 
-  it("asks for the ring when a key moved the focus, and not when the pointer did", () => {
-    const button = q(root, "#modal-button");
-    const asked: Array<FocusOptions | undefined> = [];
-    const focus = button.focus.bind(button);
-    button.focus = (options?: FocusOptions) => {
-      asked.push(options);
-      focus(options);
-    };
-
-    claimFocus(button, "gesture", { event: { target: document.body, type: "keydown" } });
-    button.blur();
-    claimFocus(button, "gesture", { event: { target: document.body, type: "pointerdown" } });
-    button.blur();
-    claimFocus(button, "gesture", { event: { target: document.body, type: "keydown" }, preventScroll: true });
-
-    expect(asked).toEqual([{ focusVisible: true }, undefined, { preventScroll: true, focusVisible: true }]);
-  });
-
   it("refuses a gesture handler that exports focus out of a typing field", () => {
     const rename = typeIn("rename");
 

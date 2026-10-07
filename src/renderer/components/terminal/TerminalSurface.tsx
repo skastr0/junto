@@ -1070,10 +1070,6 @@ export function TerminalSurface({
     // for the life of this terminal.
     const openRect = host.getBoundingClientRect();
     term.open(host);
-    // Tab never walks into the terminal: once there the key is the program's,
-    // and nothing after it (the connections) could be reached by Tab. Cmd+Down
-    // and a click are the ways in.
-    if (term.textarea) term.textarea.tabIndex = -1;
     termRef.current = term;
     fitRef.current = fit;
     // GPU paint. Measured: renderer paint, not the PTY backend, is what costs

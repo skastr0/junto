@@ -19,7 +19,6 @@ import type { KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { state$ } from "./state";
-import { focusFrontTerminal, focusTerminalChrome } from "./terminal-chrome-focus";
 import { spacePressesControl, stepToNextAgent } from "./urgency-step";
 
 // The node whose surface is in front, when one is open.
@@ -95,9 +94,6 @@ export const KEY_ACTIONS: KeyActions = {
     setActorRailExpanded(!actorRailExpanded());
     return true;
   },
-  // With no terminal in front the key passes.
-  "focus.toChrome": (_hit, event) => focusTerminalChrome(event),
-  "focus.toTerminal": (_hit, event) => focusFrontTerminal(event),
   // Nothing selected, or nothing it can open: the key passes.
   "canvas.open": () => activateSelectedNodeSurface().opened,
   // Always ours: a press held back by the overshoot guard must not fall

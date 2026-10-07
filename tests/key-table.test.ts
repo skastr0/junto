@@ -371,21 +371,6 @@ describe("the agent view and the canvas", () => {
     expect(resolveKey(key({ key: "b", ctrlKey: true }), at("terminal"))).toBeNull();
   });
 
-  it("lets the keyboard out of a terminal with Cmd+Up and back with Cmd+Down", () => {
-    expect(resolveKey(key({ key: "ArrowUp", metaKey: true }), at("terminal"))).toEqual({ id: "focus.toChrome" });
-    expect(resolveKey(key({ key: "ArrowDown", metaKey: true }), at("working"))).toEqual({ id: "focus.toTerminal" });
-    // The header is inside the terminal's surface, so the way back is live there too.
-    expect(resolveKey(key({ key: "ArrowDown", metaKey: true }), at("terminal"))).toEqual({ id: "focus.toTerminal" });
-    // In a text field both keep moving the caret; on the canvas they are not ours.
-    for (const name of ["ArrowUp", "ArrowDown"]) {
-      expect(resolveKey(key({ key: name, metaKey: true }), at("field"))).toBeNull();
-      expect(resolveKey(key({ key: name, metaKey: true }), at("canvas"))).toBeNull();
-      expect(resolveKey(key({ key: name, metaKey: true }), at("dialog"))).toBeNull();
-    }
-    // While the switcher is up the arrows are the switcher's.
-    expect(resolveKey(key({ key: "ArrowUp", metaKey: true }), at("switcher"))).toEqual({ id: "switcher.previous" });
-  });
-
   it("opens the selected agent from the canvas with Cmd+Enter, and nowhere else", () => {
     expect(resolveKey(key({ key: "Enter", metaKey: true }), at("canvas"))).toEqual({ id: "canvas.open" });
     for (const context of ["terminal", "field", "working", "operator", "dialog"] as const) {

@@ -104,8 +104,6 @@ export type ShortcutId =
   | "canvas.zoomReset"
   | "front.close"
   | "rail.toggle"
-  | "focus.toChrome"
-  | "focus.toTerminal"
   | "canvas.open"
   | SurfaceKeyId;
 
@@ -386,28 +384,6 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     does: "Widen or narrow the list of connected agents beside the agent in front",
     mac: ["Cmd+B"],
     other: [],
-    where: ["terminal", "working"],
-  },
-  // A terminal keeps Tab and Escape for its program: these two are the
-  // keyboard's way out of it and back.
-  {
-    id: "focus.toChrome",
-    area: "Agent and terminal",
-    name: "Leave the terminal for its header",
-    does: "Move the keyboard from the terminal to the buttons above it; Tab then reaches the connected agents",
-    mac: ["Cmd+ArrowUp"],
-    other: [],
-    where: ["terminal"],
-  },
-  {
-    id: "focus.toTerminal",
-    area: "Agent and terminal",
-    name: "Back to the terminal",
-    does: "Move the keyboard from the header or the connected agents back into the terminal",
-    mac: ["Cmd+ArrowDown"],
-    other: [],
-    // The header and the connections sit inside the terminal's surface, so
-    // the keyboard is still in the terminal context there.
     where: ["terminal", "working"],
   },
   {
