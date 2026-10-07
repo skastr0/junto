@@ -176,7 +176,8 @@ export function AgentLaunchContext({
           anchor={anchorRef.current}
           label="Choose starting folder"
           sides={FOLDER_PICKER_SIDES}
-          width={420}
+          // Ends at the folder field's right edge and stays inside the Add item frame.
+          width={400}
           onClose={() => onFolderOpenChange(false)}
         >
           <div data-canvas-menu-surface>
