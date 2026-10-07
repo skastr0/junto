@@ -1,10 +1,10 @@
 import type { CanvasNode } from "@shared/canvas";
 import { activateSelectedNodeSurface } from "./activate-node-surface";
-import { actorRailExpanded, setActorRailExpanded } from "./actor-rail";
+import { actorRailExpanded, actorRailMode, setActorRailExpanded } from "./actor-rail";
 import { cycleActorMirror } from "./actor-mirrors";
 import { resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "./canvas-zoom";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
-import { dock$ } from "./dock-state";
+import { dock$, parseTerminalSurfaceId } from "./dock-state";
 import {
   cancelFocusSwitcher,
   commitFocusSwitcher,
@@ -19,6 +19,7 @@ import type { KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { state$ } from "./state";
+import { focusFrontTerminal, focusTerminalChrome } from "./terminal-chrome-focus";
 import { stepToNextAgent } from "./urgency-step";
 
 // The node whose surface is in front, when one is open.
@@ -28,11 +29,13 @@ const frontNode = (): CanvasNode | undefined => {
   return nodeId === undefined ? undefined : state$.doc.peek().nodes.find((node) => node.id === nodeId);
 };
 
-// An agent's terminal is the surface in front.
-const agentTerminalInFront = (): boolean => {
+// The terminal in front shows a list of connections. A raw shell, or an
+// agent connected to nothing, has none.
+const railInFront = (): boolean => {
   const registry = dock$.registry.peek();
   const front = registry.surfaces.find((surface) => surface.id === registry.focusMru[0]);
-  return front?.kind === "terminal" && front.zone === "focus";
+  const nodeId = front?.kind === "terminal" && front.zone === "focus" ? parseTerminalSurfaceId(front.id) : null;
+  return nodeId !== null && actorRailMode(state$.doc.peek(), nodeId, actorRailExpanded()) !== "none";
 };
 
 // The first tap brings the switcher up one step along; later taps move it.
@@ -84,12 +87,16 @@ export const KEY_ACTIONS: KeyActions = {
   "canvas.zoomIn": () => zoomCanvasIn(),
   "canvas.zoomOut": () => zoomCanvasOut(),
   "canvas.zoomReset": () => resetCanvasZoom(),
-  // With no agent in front there is no rail: the key passes.
+  // With no connections list in front the key passes, and the choice it
+  // would have flipped for every other agent is left alone.
   "rail.toggle": () => {
-    if (!agentTerminalInFront()) return false;
+    if (!railInFront()) return false;
     setActorRailExpanded(!actorRailExpanded());
     return true;
   },
+  // With no terminal in front the key passes.
+  "focus.toChrome": (_hit, event) => focusTerminalChrome(event),
+  "focus.toTerminal": (_hit, event) => focusFrontTerminal(event),
   // Nothing selected, or nothing it can open: the key passes.
   "canvas.open": () => activateSelectedNodeSurface().opened,
   // Always ours: a press held back by the overshoot guard must not fall
