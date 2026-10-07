@@ -41,8 +41,8 @@
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 6px 10px 14px;
+  gap: 16px;
+  padding: 4px 10px 16px;
   overflow: auto;
 }
 .settings-nav__group {
@@ -65,6 +65,7 @@
   border: 0;
   background: transparent;
   color: var(--color-steel);
+  font-weight: 500;
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -79,10 +80,10 @@
 .settings-nav__item.is-active {
   background: color-mix(in oklab, var(--color-main) 12%, transparent);
   color: var(--color-ink);
+  font-weight: 600;
 }
 .settings-nav__label {
   font-size: var(--text-body-lg);
-  font-weight: 560;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -97,13 +98,13 @@
   width: 100%;
   max-width: 720px;
   margin: 0 auto;
-  padding: 26px 32px 40px;
+  padding: 24px 32px 40px;
 }
 .settings-page[hidden] {
   display: none;
 }
 .settings-content__head {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 .settings-content__head h2 {
   margin: 0;
@@ -153,7 +154,7 @@
 }
 .settings-result__name {
   font-size: var(--text-body-lg);
-  font-weight: 560;
+  font-weight: 600;
 }
 .settings-result__page {
   font-size: var(--text-body);
