@@ -1,4 +1,3 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 import { mkdtemp, rm } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -7,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ManagedRuntime, Schema } from "effect";
 import { BindingId } from "../src/shared/model/kinds";
 import { SqlClient } from "effect/unstable/sql";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { Canvas } from "../src/shared/model";
+import { canvasOf, page as pageNode, seat, wire } from "./support/model-nodes";
 import {
   dispatchControlRequest,
   makeControlHandlers,
@@ -89,40 +89,24 @@ const makeSpyAdapter = (): BrowserViewAdapter => {
   return adapter;
 };
 
-const canvasDoc = (withEdge: boolean): CanvasDoc => ({
-  nodes: [
-    {
-      id: "agent",
-      type: "text",
-      text: "agent",
-      x: 0,
-      y: 0,
-      width: 120,
-      height: 48,
-      ether: {
-        entity: { kind: "agent", name: "local:default" },
-        terminal: {
-          bindingId: "bind-local-default",
-          harness: "claude",
-          launch: { kind: "harness", argv: ["claude"] },
-        },
-      },
-    },
-    {
-      id: "p1",
-      type: "link",
-      url: "https://example.com/",
-      x: 200,
-      y: 0,
-      width: 120,
-      height: 48,
-      ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-    },
-  ],
-  edges: withEdge
-    ? [{ id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } }]
-    : [],
-});
+const frame = { y: 0, width: 120, height: 48 };
+
+/** An agent and a page; `hosts` puts each on a machine other than local. */
+const canvasDoc = (withEdge: boolean, hosts: { agent?: string; page?: string } = {}): Canvas =>
+  canvasOf(
+    [
+      seat("agent", {
+        ...frame, x: 0,
+        agentKey: "local:default",
+        host: hosts.agent ?? "local",
+        bindingId: "bind-local-default" as never,
+        launch: { kind: "harness", argv: ["claude"] },
+      }),
+      pageNode("p1", { ...frame, x: 200, profile: "personal", host: hosts.page ?? "local" }),
+    ],
+    withEdge ? [wire("e1", "agent", "p1", "navigates")] : [],
+    "work",
+  );
 
 const stationAuthority = (hostId: string): BrowserHostCapabilityAuthority => ({
   findHost: (id) =>
@@ -141,36 +125,15 @@ const stationAuthority = (hostId: string): BrowserHostCapabilityAuthority => ({
   }),
 });
 
-const terminalCanvasDoc = (): CanvasDoc => ({
-  nodes: [
-    {
-      id: "terminal",
-      type: "text",
-      text: "terminal",
-      x: 0,
-      y: 0,
-      width: 120,
-      height: 48,
-      ether: {
-        entity: { kind: "agent", name: "local:terminal" },
-        terminal: { bindingId: "terminal-binding", harness: "claude" },
-      },
-    },
-    {
-      id: "p1",
-      type: "link",
-      url: "https://example.com/",
-      x: 200,
-      y: 0,
-      width: 120,
-      height: 48,
-      ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-    },
-  ],
-  edges: [
-    { id: "e1", fromNode: "terminal", toNode: "p1", ether: { verb: "navigates" } },
-  ],
-});
+const terminalCanvas = (): Canvas =>
+  canvasOf(
+    [
+      seat("terminal", { ...frame, x: 0, agentKey: "local:terminal", bindingId: "terminal-binding" as never }),
+      pageNode("p1", { ...frame, x: 200, profile: "personal" }),
+    ],
+    [wire("e1", "terminal", "p1", "navigates")],
+    "work",
+  );
 
 describe("browser edge-grant process-bind dual admit", () => {
   let root: string;
@@ -194,7 +157,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   const makeStack = (
-    doc: CanvasDoc,
+    doc: Canvas,
     resolvePageTargetOverride?: PageTargetResolver,
     identity?: {
       readonly processMap: ProcessIdentityMap;
@@ -225,7 +188,7 @@ describe("browser edge-grant process-bind dual admit", () => {
         if (candidate === REF_PAGE) return { ok: true, data: TARGET };
         return { ok: false, code: "not_found", message: "missing" };
       });
-    const listCanvasModels = async () => [{ name: "work", doc: canvasFromDocument("work", doc) }];
+    const listCanvasModels = async () => [{ name: "work", doc: doc }];
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       resolvePageTarget,
@@ -416,23 +379,13 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("refuses a cross-host page edge before minting browser authority", async () => {
-    const base = canvasDoc(true);
-    const doc: CanvasDoc = {
-      ...base,
-      nodes: base.nodes.map((node) => ({
-        ...node,
-        ether: {
-          ...node.ether,
-          host: node.id === "agent" ? "studio" : "render",
-        },
-      })),
-    };
+    const doc = canvasDoc(true, { agent: "studio", page: "render" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      listCanvasModels: async () => [{ name: "work", doc: canvasFromDocument("work", doc) }],
+      listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async (candidate) =>
         candidate === REF_PAGE
           ? { ok: true, data: { ...TARGET, hostId: "render" } }
@@ -465,20 +418,13 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("mints only when the Remote caller, document page, and resolved target share its host", async () => {
-    const base = canvasDoc(true);
-    const doc: CanvasDoc = {
-      ...base,
-      nodes: base.nodes.map((node) => ({
-        ...node,
-        ether: { ...node.ether, host: "studio" },
-      })),
-    };
+    const doc = canvasDoc(true, { agent: "studio", page: "studio" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      listCanvasModels: async () => [{ name: "work", doc: canvasFromDocument("work", doc) }],
+      listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async (candidate) =>
         candidate === REF_PAGE
           ? { ok: true, data: { ...TARGET, hostId: "studio" } }
@@ -505,20 +451,13 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("refuses a resolver result that disagrees with its same-host page node", async () => {
-    const base = canvasDoc(true);
-    const doc: CanvasDoc = {
-      ...base,
-      nodes: base.nodes.map((node) => ({
-        ...node,
-        ether: { ...node.ether, host: "studio" },
-      })),
-    };
+    const doc = canvasDoc(true, { agent: "studio", page: "studio" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      listCanvasModels: async () => [{ name: "work", doc: canvasFromDocument("work", doc) }],
+      listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async () => ({ ok: true, data: { ...TARGET, hostId: "render" } }),
       station: authority.station,
       admitBrowserHost: (hostId) => {
@@ -541,7 +480,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("admits a registered agent seat on protected routes via its human page edge", async () => {
-    const doc = terminalCanvasDoc();
+    const doc = terminalCanvas();
 
     const terminalPrincipal: ProcessPrincipal = {
       agentKey: "local:terminal",
@@ -784,7 +723,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       requestId: "00000000-0000-4000-8000-000000000001",
       expectedPrincipal: admission.expectedPrincipal,
     });
-    const next = canvasFromDocument("work", doc);
+    const next = doc;
     const nodes = new Map(next.nodes);
     for (const node of nodes.values()) {
       if (node.kind === "agent") nodes.set(node.id, {
