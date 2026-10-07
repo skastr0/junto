@@ -1,67 +1,46 @@
-import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { Canvas } from "../src/shared/model";
 import type { SnapshotState } from "../src/shared/entities";
 import {
   digestCanvas as digestCanvasWithActorRefs,
   type DigestLiveViews,
 } from "../src/shared/digest";
-import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
+import { executionContextForCanvas } from "./helpers/actor-ref-fixtures";
+import { canvasOf, note, page, region, seat } from "./support/model-nodes";
 
 type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef" | "itemsOf">;
 
 const digestCanvas = (
   name: string,
-  doc: CanvasDoc,
+  canvas: Canvas,
   snapshots: SnapshotState,
   live: DigestFixtureViews = {},
 ): string =>
-  digestCanvasWithActorRefs(canvasFromDocument(name, doc), snapshots, {
+  digestCanvasWithActorRefs(canvas, snapshots, {
     ...live,
-    itemsOf: workItemsFromDocument(doc),
-    resolveActorRef: executionContextForDoc(doc, name).resolveActorRef,
+    itemsOf: () => [],
+    resolveActorRef: executionContextForCanvas(canvas, name).resolveActorRef,
   });
 
-const doc: CanvasDoc = {
-  nodes: [
-    { id: "grp1", type: "group", label: "team", x: 0, y: 0, width: 400, height: 200 },
-    {
-      id: "m1",
-      type: "text",
-      text: "Foo\nFoo does things",
-      x: 20,
-      y: 20,
-      width: 100,
-      height: 50,
-    },
-    {
-      id: "m2",
-      type: "text",
-      text: "Bar\nBar orbit",
-      x: 200,
-      y: 20,
-      width: 100,
-      height: 50,
-    },
-    {
-      id: "m3",
-      type: "text",
-      text: "Baz\nOutside group",
+const doc = canvasOf(
+  [
+    region("grp1", { x: 0, y: 0, width: 400, height: 200 }, { label: "team" as never }),
+    note("m1", "Foo\nFoo does things", { x: 20, y: 20, width: 100, height: 50 }),
+    note("m2", "Bar\nBar orbit", { x: 200, y: 20, width: 100, height: 50 }),
+    seat("m3", {
+      label: "Baz" as never,
+      agentKey: "local:worker" as never,
+      bindingId: "m3" as never,
+      harness: "codex",
       x: 20,
       y: 300,
       width: 100,
       height: 50,
-      ether: {
-        entity: { kind: "agent", name: "local:worker" }, terminal: { bindingId: "m3", harness: "codex" },
-      },
-    },
+    }),
   ],
-  edges: [
-    { id: "e1", fromNode: "m1", toNode: "m2" },
-    { id: "e3", fromNode: "m3", toNode: "m1", label: "refs" },
-    { id: "e4", fromNode: "m1", toNode: "m3" },
-  ],
-};
+  [],
+  "fixture",
+);
 
 const snapshots: SnapshotState = {
   bundles: [
@@ -128,27 +107,20 @@ describe("digestCanvas", () => {
 // Formatting pins for the region rollups section: singular member counts and
 // an empty region. The empty group also pins the "unnamed region" fallback in
 // BOTH sections.
-const doc2: CanvasDoc = {
-  nodes: [
-    { id: "g-ops", type: "group", label: "ops", x: 0, y: 0, width: 500, height: 350 },
-    { id: "b1", type: "text", text: "B1", x: 10, y: 10, width: 100, height: 40 },
-    { id: "a1", type: "text", text: "A1", x: 120, y: 10, width: 100, height: 40 },
-    { id: "a2", type: "text", text: "A2", x: 230, y: 10, width: 100, height: 40 },
-    {
-      id: "w1",
-      type: "text",
-      text: "W1",
-      x: 10,
-      y: 60,
-      width: 100,
-      height: 40,
-    },
-    { id: "g-solo", type: "group", label: "  solo  ", x: 0, y: 400, width: 300, height: 300 },
-    { id: "solo1", type: "text", text: "Lone", x: 10, y: 410, width: 100, height: 40 },
-    { id: "g-empty", type: "group", x: 600, y: 400, width: 200, height: 200 },
+const doc2 = canvasOf(
+  [
+    region("g-ops", { x: 0, y: 0, width: 500, height: 350 }, { label: "ops" as never }),
+    note("b1", "B1", { x: 10, y: 10, width: 100, height: 40 }),
+    note("a1", "A1", { x: 120, y: 10, width: 100, height: 40 }),
+    note("a2", "A2", { x: 230, y: 10, width: 100, height: 40 }),
+    note("w1", "W1", { x: 10, y: 60, width: 100, height: 40 }),
+    region("g-solo", { x: 0, y: 400, width: 300, height: 300 }, { label: "  solo  " as never }),
+    note("solo1", "Lone", { x: 10, y: 410, width: 100, height: 40 }),
+    region("g-empty", { x: 600, y: 400, width: 200, height: 200 }),
   ],
-  edges: [],
-};
+  [],
+  "fixture2",
+);
 
 // Array-of-lines (not a template literal) so the trailing separator space on
 // the memberless regions line stays visible.
@@ -191,46 +163,15 @@ describe("digestCanvas — region rollups formatting", () => {
 
 // I13: empty seats live under design only.
 describe("digestCanvas — design (I13)", () => {
-  const trustDoc: CanvasDoc = {
-    nodes: [
-      {
-        id: "agent1",
-        type: "text",
-        text: "worker",
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 40,
-        ether: { entity: { kind: "agent", name: "local:worker" }, terminal: { bindingId: "agent1", harness: "codex" } },
-      },
-      {
-        id: "page1",
-        type: "link",
-        url: "https://docs.example.test",
-        x: 200,
-        y: 0,
-        width: 100,
-        height: 40,
-        ether: { entity: { kind: "page" } },
-      },
-      {
-        id: "down1",
-        type: "text",
-        text: "ship",
-        x: 400,
-        y: 0,
-        width: 100,
-        height: 40,
-      },
+  const trustDoc = canvasOf(
+    [
+      seat("agent1", { label: "worker" as never, agentKey: "local:worker" as never, bindingId: "agent1" as never, harness: "codex", x: 0, y: 0, width: 100, height: 40 }),
+      page("page1", { url: "https://docs.example.test", x: 200, y: 0, width: 100, height: 40 }),
+      note("down1", "ship", { x: 400, y: 0, width: 100, height: 40 }),
     ],
-    edges: [
-      {
-        id: "e-soft",
-        fromNode: "page1",
-        toNode: "down1",
-      },
-    ],
-  };
+    [],
+    "trust",
+  );
 
   it("empty-seat fixture appears under design", () => {
     const out = digestCanvas("trust", trustDoc, { bundles: [] }, {
