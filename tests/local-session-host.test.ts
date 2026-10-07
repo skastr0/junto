@@ -2459,6 +2459,27 @@ describe("LocalSessionHost", () => {
       expect(fake.controllers[0]?.signals).toEqual([]);
     });
 
+    it("from the instant the offboard is accepted, the operator's keystrokes do not reach it either", async () => {
+      const { fake, host, input } = seated();
+      const view = await host.attach({ bindingId: input.bindingId, mode: "control" });
+      expect(view.ok).toBe(true);
+      if (!view.ok) return;
+      expect(host.write(view.lease, "before")).toBe(true);
+      // The seat is sealed where the offboard is answered, before the detach.
+      const sealed = new Set([input.bindingId]);
+      host.setInputSealed((bindingId) => sealed.has(bindingId));
+      expect(host.write(view.lease, "typed after the offboard")).toBe(false);
+      expect(fake.controllers[0]?.writes).toEqual(["before"]);
+      // The seal lifts for the fresh session; the operator types into that.
+      host.drain(input.bindingId);
+      host.createAgentSeat(input);
+      sealed.clear();
+      const fresh = await host.attach({ bindingId: input.bindingId, mode: "control" });
+      if (fresh.ok) expect(host.write(fresh.lease, "hello")).toBe(true);
+      expect(fake.controllers[0]?.writes).toEqual(["before"]);
+      expect(fake.controllers[1]?.writes).toEqual(["hello"]);
+    });
+
     it("is still read, under its own key, and nothing of it reaches the seat", async () => {
       const { plane, fake, host, events, input, first } = seated();
       fake.controllers[0]?.emitData("turn output before the offboard\r\n");

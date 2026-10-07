@@ -1820,6 +1820,8 @@ export const registerJuntoIpc = (): void => {
         const live = termPlane.host.get(bindingId);
         return live !== undefined && live.status !== "exited" ? live.epoch : undefined;
       });
+      // The operator's own keystrokes ask the same fence.
+      termPlane.host.setInputSealed((bindingId) => closingFence.sealed(bindingId));
       const managedDrive = createManagedTerminalDrive({
         // Every byte Junto types into a seat goes through here: a sealed
         // seat takes none, whichever path asked.

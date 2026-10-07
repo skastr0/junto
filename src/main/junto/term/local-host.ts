@@ -875,6 +875,7 @@ export class LocalSessionHost extends EventEmitter {
   private readonly allExitedWaiters = new Set<AllExitedWaiter>();
   /** Exact-generation deletion waiters; unrelated seats never hold these open. */
   private readonly recordExitWaiters = new Set<RecordExitWaiter>();
+  private inputSealed: ((bindingId: string) => boolean) | undefined;
   private readonly drainEndedListeners = new Set<(drainKey: string, code: number | undefined) => void>();
   private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
   private shuttingDown = false;
@@ -1597,6 +1598,9 @@ export class LocalSessionHost extends EventEmitter {
     // keystroke before the screen could possibly repaint it. Stamped even on
     // refused writes — operator presence is the signal, not delivery.
     this.operatorInterlock.noteInput(lease.bindingId);
+    // The seat's session has offboarded: nothing more goes into it, the
+    // operator's keystrokes included, in the moment before it is detached.
+    if (this.inputSealed?.(lease.bindingId) === true) return false;
     const rec = this.sessions.get(lease.bindingId);
     if (!rec || rec.killed || !rec.lease || !sessionPhaseAllowsWrite(rec.phase)) return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
@@ -2020,6 +2024,14 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   // ── Draining: a session that offboarded, detached from its seat ──────────
+
+  /**
+   * How the host learns that a seat's session has offboarded and takes no
+   * more input (the closing fence). Asked on every operator write.
+   */
+  setInputSealed(sealed: ((bindingId: string) => boolean) | undefined): void {
+    this.inputSealed = sealed;
+  }
 
   /**
    * Detach the binding's running generation from its seat, without stopping
