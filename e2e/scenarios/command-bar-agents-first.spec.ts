@@ -1,3 +1,5 @@
+import { modelRegion, modelNode } from "../harness/model";
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * cmd+K is an agent switcher first.
  *
@@ -16,17 +18,16 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import type { AgentSignal, AgentSignalKind } from "../../src/shared/agent-signals";
-import type { CanvasNode, GroupNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import type { Node, Region } from "../../src/shared/model";
+
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "command-bar-agents-first");
 const CANVAS = "agents-first";
 const CREW = 24;
 
-const region = (id: string, label: string, color: string, x: number): GroupNode => ({
+const region = (id: string, label: string, color: string, x: number): Region => modelRegion({
   id,
-  type: "group",
   label,
   color,
   x,
@@ -35,16 +36,16 @@ const region = (id: string, label: string, color: string, x: number): GroupNode 
   height: 900,
 });
 
-const seat = (id: string, x: number, y: number): CanvasNode =>
-  agentTextNode({ id, key: `local:e2e-first-${id}`, label: id, harness: "claude", x, y });
+const seat = (id: string, x: number, y: number): Node =>
+  modelSeat({ id, key: `local:e2e-first-${id}`, label: id, harness: "claude", x, y });
 
 const crew = Array.from({ length: CREW }, (_, i) => `crew-${String(i + 1).padStart(2, "0")}`);
 
-// Document order buries the agents under other kinds and puts the most urgent
+// Row order buries the agents under other kinds and puts the most urgent
 // seat last, so every rank in the list is the ranking's doing.
-const nodes: ReadonlyArray<CanvasNode> = [
-  { id: "l-docs", type: "link", url: "https://example.com/handbook", x: 2240, y: 400, width: 240, height: 96 },
-  { id: "n-runbook", type: "text", text: "Ops runbook\nRestart order for the staging fleet.", x: 2240, y: 60, width: 240, height: 96 },
+const nodes: ReadonlyArray<Node> = [
+  modelNode({ id: "l-docs", kind: "link", z: 0, url: "https://example.com/handbook", x: 2240, y: 400, width: 240, height: 96 }),
+  modelNode({ id: "n-runbook", kind: "note", z: 0, text: "Ops runbook\nRestart order for the staging fleet.", x: 2240, y: 60, width: 240, height: 96 }),
   region("r-ops", "Ops", "5", 0),
   region("r-research", "Research", "2", 2200),
   seat("ops-idle", 40, 60),
@@ -71,7 +72,7 @@ const signals: ReadonlyArray<AgentSignal> = [
   ...crew.map((id) => signal(id, "feedback", "Done, ready for a look.")),
 ];
 
-test.use({ juntoOptions: { seedCanvases: { [CANVAS]: canvasDoc([...nodes], []) }, seedAgentSignals: signals } });
+test.use({ juntoOptions: { seedModels: { [CANVAS]: modelFixture([...nodes], []) }, seedAgentSignals: signals } });
 
 /** Pull the camera back with ctrl+wheel until the viewport scale is near `goal`. */
 const zoomTo = async (page: Page, goal: number): Promise<void> => {

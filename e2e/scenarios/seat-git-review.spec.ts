@@ -1,3 +1,5 @@
+import { modelRegion } from "../harness/model";
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Review a session's changes and send comments to agents as mail [fake-tui].
  *   bun run test:e2e:fast e2e/scenarios/seat-git-review.spec.ts
@@ -23,9 +25,9 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { GroupNode } from "../../src/shared/canvas";
+import type { Region } from "../../src/shared/model";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const env = {
@@ -85,10 +87,10 @@ test("[fake-tui] a review's comments reach each agent as exactly one mail", asyn
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "junto-e2e-review-")));
   const head = makeRepository(repo);
   const CANVAS = "review";
-  const team: GroupNode = { id: "team", type: "group", label: "Team", x: 0, y: 0, width: 900, height: 400 };
-  const atlas = agentTextNode({ id: "atlas", key: "local:atlas", label: "Atlas", harness: "codex", cwd: repo, x: 60, y: 80 });
-  const brook = agentTextNode({ id: "brook", key: "local:brook", label: "Brook", harness: "codex", cwd: repo, x: 420, y: 80 });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: canvasDoc([team, atlas, brook]) }, afterSeed: installCrewSeatHarness });
+  const team = modelRegion({ id: "team", label: "Team", x: 0, y: 0, width: 900, height: 400 });
+  const atlas = modelSeat({ id: "atlas", key: "local:atlas", label: "Atlas", harness: "codex", cwd: repo, x: 60, y: 80 });
+  const brook = modelSeat({ id: "brook", key: "local:brook", label: "Brook", harness: "codex", cwd: repo, x: 420, y: 80 });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([team, atlas, brook]) }, afterSeed: installCrewSeatHarness });
   try {
     const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

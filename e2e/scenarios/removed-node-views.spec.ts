@@ -1,3 +1,5 @@
+import { modelNode } from "../harness/model";
+import { modelFixture, modelSeat } from "../harness/model";
 import { commandModel } from "../harness/model";
 /**
  * A view never outlives its node.
@@ -11,21 +13,21 @@ import { commandModel } from "../harness/model";
  *   - one cell of the terminal grid, then the grid's last cells
  */
 import type { Page } from "@playwright/test";
-import type { CanvasNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import type { Node } from "../../src/shared/model";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "removed-node-views";
 
-const seat = (id: string, label: string, x: number): CanvasNode =>
-  agentTextNode({ id, key: `local:e2e-removed-${id}`, label, x, y: 40 });
+const seat = (id: string, label: string, x: number): Node =>
+  modelSeat({ id, key: `local:e2e-removed-${id}`, label, x, y: 40 });
 
-const nodes: ReadonlyArray<CanvasNode> = [
+const nodes: ReadonlyArray<Node> = [
   seat("alpha", "Alpha", 40),
   seat("bravo", "Bravo", 340),
   seat("charlie", "Charlie", 640),
   seat("delta", "Delta", 940),
-  { id: "memo", type: "text", text: "Field notes", x: 40, y: 260, width: 240, height: 96 },
+  modelNode({ id: "memo", kind: "note", z: 0, text: "Field notes", x: 40, y: 260, width: 240, height: 96 }),
 ];
 
 /** Remove nodes through the canvas store, not through the renderer's own delete. */
@@ -45,7 +47,7 @@ const keyboardInAView = (page: Page): Promise<boolean> =>
   );
 
 test("a node removed by a canvas write takes its open view with it", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: canvasDoc([...nodes], []) } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([...nodes], []) } });
 
   try {
     const { page } = junto;

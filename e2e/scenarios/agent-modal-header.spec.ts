@@ -1,8 +1,10 @@
+import { modelRegion } from "../harness/model";
+import { modelFixture, modelSeat } from "../harness/model";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 /**
@@ -44,12 +46,12 @@ test("the header is one line and the git line gives way before the seat's own wo
   const base = realpathSync(mkdtempSync(join(tmpdir(), "junto-e2e-header-")));
   makeRepository(base);
   const junto = await launchJunto({
-    seedCanvases: {
-      [CANVAS]: canvasDoc([
-        { id: "outer", type: "group", label: "Junto", x: -60, y: -60, width: 900, height: 500 },
-        { id: "inner", type: "group", label: "Product", x: -20, y: -20, width: 700, height: 360 },
-        agentTextNode({ id: "lead", key: "local:e2e-header-lead", label: "product-lead", harness: "claude", cwd: base, x: 40, y: 40 }),
-        agentTextNode({ id: "loose", key: "local:e2e-header-loose", label: "loose", harness: "claude", cwd: base, x: 1400, y: 40 }),
+    seedModels: {
+      [CANVAS]: modelFixture([
+        modelRegion({ id: "outer", label: "Junto", x: -60, y: -60, width: 900, height: 500 }),
+        modelRegion({ id: "inner", label: "Product", x: -20, y: -20, width: 700, height: 360 }),
+        modelSeat({ id: "lead", key: "local:e2e-header-lead", label: "product-lead", harness: "claude", cwd: base, x: 40, y: 40 }),
+        modelSeat({ id: "loose", key: "local:e2e-header-loose", label: "loose", harness: "claude", cwd: base, x: 1400, y: 40 }),
       ]),
     },
   });

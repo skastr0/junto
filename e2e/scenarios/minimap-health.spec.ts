@@ -1,3 +1,5 @@
+import { modelRegion } from "../harness/model";
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Minimap colored by seat health — seats painted by the same rollup their
  * ring and name line use, in dark and bright. Frames land in
@@ -12,7 +14,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ThreadHealthValue } from "../../src/shared/thread-health";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "minimap-health");
@@ -28,7 +30,7 @@ const seats: ReadonlyArray<readonly [id: string, label: string, health: ThreadHe
 ];
 
 const nodes = seats.map(([id, label], index) =>
-  agentTextNode({
+  modelSeat({
     id,
     key: `local:e2e-minimap-${id}`,
     label,
@@ -39,7 +41,7 @@ const nodes = seats.map(([id, label], index) =>
 );
 
 /** A region around the first column: a thrashing seat and a going-well one, so its tint is amber. */
-const region = { id: "zone", type: "group" as const, label: "first column", x: 0, y: 0, width: 320, height: 380 };
+const region = modelRegion({ id: "zone", label: "first column", x: 0, y: 0, width: 320, height: 380 });
 
 const awarenessEvent = (id: string, value: ThreadHealthValue, at: number) => {
   const bindingId = `local:e2e-minimap-${id}`;
@@ -75,7 +77,7 @@ const awarenessEvent = (id: string, value: ThreadHealthValue, at: number) => {
 test("the minimap paints agent seats by their health rollup", async () => {
   test.setTimeout(240_000);
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: canvasDoc([region, ...nodes]) } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([region, ...nodes]) } });
   try {
     const { app, page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });

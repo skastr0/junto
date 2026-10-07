@@ -1,3 +1,5 @@
+import { modelRegion } from "../harness/model";
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * The agent switcher: hold Cmd and tap the backtick, anywhere.
  *   bun run test:e2e:fast e2e/scenarios/focus-switcher.spec.ts
@@ -13,8 +15,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentSignal } from "../../src/shared/agent-signals";
-import type { CanvasNode, GroupNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import type { Node, Region } from "../../src/shared/model";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "focus-switcher");
@@ -25,12 +27,12 @@ const region = (
   label: string,
   color: string,
   box: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
-): GroupNode => ({ id, type: "group", label, color, ...box });
+): Region => modelRegion({ id, label, color, ...box });
 
-const seat = (id: string, label: string, x: number, y: number): CanvasNode =>
-  agentTextNode({ id, key: `local:e2e-switch-${id}`, label, x, y });
+const seat = (id: string, label: string, x: number, y: number): Node =>
+  modelSeat({ id, key: `local:e2e-switch-${id}`, label, x, y });
 
-const nodes: ReadonlyArray<CanvasNode> = [
+const nodes: ReadonlyArray<Node> = [
   region("r-junto", "Junto", "5", { x: 0, y: 0, width: 1500, height: 520 }),
   region("r-surfaces", "Surfaces", "2", { x: 40, y: 60, width: 700, height: 420 }),
   region("r-pty", "PTY", "4", { x: 780, y: 60, width: 680, height: 420 }),
@@ -60,7 +62,7 @@ const signals: ReadonlyArray<AgentSignal> = [
 
 test("Cmd+backtick brings up the agents, the ones that need the operator first", async () => {
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: canvasDoc([...nodes], []) },
+    seedModels: { [CANVAS]: modelFixture([...nodes], []) },
     seedAgentSignals: signals,
   });
 

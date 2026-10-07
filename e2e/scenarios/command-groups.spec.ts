@@ -1,4 +1,6 @@
-import { installFixtureDocument } from "../harness/model";
+import { modelNode } from "../harness/model";
+import { installModelFixture, modelFixture, modelSeat } from "../harness/model";
+
 /**
  * Command groups in the top bar: save a multi-selection to a slot with the
  * platform modifier plus a digit, recall it with the bare digit, save from
@@ -11,12 +13,12 @@ import { installFixtureDocument } from "../harness/model";
  * only proves the wiring in the real app.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/command-groups.spec.ts`
  */
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
-const note = (id: string, text: string, x: number) => ({
+const note = (id: string, text: string, x: number) => modelNode({
   id,
-  type: "text" as const,
+  kind: "note", z: 0,
   text,
   x,
   y: 40,
@@ -24,7 +26,7 @@ const note = (id: string, text: string, x: number) => ({
   height: 80,
 });
 
-const fixtureDoc = canvasDoc([
+const fixtureDoc = modelFixture([
   note("n-alpha", "alpha", 40),
   note("n-beta", "beta", 280),
   note("n-gamma", "gamma", 520),
@@ -34,10 +36,10 @@ const shots = process.env.JUNTO_SHOTS_DIR ?? "test-results/command-groups";
 
 const installBoard = async (
   page: import("@playwright/test").Page,
-  document: ReturnType<typeof canvasDoc> = fixtureDoc,
+  document: ReturnType<typeof modelFixture> = fixtureDoc,
 ): Promise<void> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  await installFixtureDocument(page, document, "groups");
+  await installModelFixture(page, document, "groups");
 };
 
 test("command groups: save, recall, and save from the menu", async ({ junto }) => {
@@ -96,10 +98,10 @@ test("command groups: save, recall, and save from the menu", async ({ junto }) =
   await expect(slot2).toHaveAttribute("data-tenure", "group");
 });
 
-const crewDoc = canvasDoc([
-  agentTextNode({ id: "seat-a", key: "local:alpha", label: "alpha", x: 0, y: 0 }),
-  agentTextNode({ id: "seat-b", key: "local:beta", label: "beta", x: 300, y: 0, harness: "claude" }),
-  agentTextNode({ id: "seat-c", key: "local:gamma", label: "gamma", x: 600, y: 0 }),
+const crewFixture = modelFixture([
+  modelSeat({ id: "seat-a", key: "local:alpha", label: "alpha", x: 0, y: 0 }),
+  modelSeat({ id: "seat-b", key: "local:beta", label: "beta", x: 300, y: 0, harness: "claude" }),
+  modelSeat({ id: "seat-c", key: "local:gamma", label: "gamma", x: 600, y: 0 }),
   ...Array.from({ length: 10 }, (_, index) => ({
     ...note(`n${index + 1}`, `note ${index + 1}`, index * 220),
     y: 260,
@@ -119,7 +121,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await setTheme(page, theme);
-    await installBoard(page, crewDoc);
+    await installBoard(page, crewFixture);
     const node = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
     await expect(node("seat-c")).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: "Fit all nodes" }).click();

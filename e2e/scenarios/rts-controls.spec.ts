@@ -1,4 +1,6 @@
-import { installFixtureDocument } from "../harness/model";
+import { modelRegion } from "../harness/model";
+import { installModelFixture, modelFixture, modelSeat } from "../harness/model";
+
 /**
  * RTS shell controls e2e.
  *
@@ -13,13 +15,13 @@ import { installFixtureDocument } from "../harness/model";
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "rts-controls");
 
-const fixtureDoc = canvasDoc([
-  agentTextNode({
+const fixtureDoc = modelFixture([
+  modelSeat({
     id: "seat",
     key: "local:worker",
     label: "worker",
@@ -27,16 +29,15 @@ const fixtureDoc = canvasDoc([
     y: 40,
   }),
   // Region with one member (geometric membership) so the hotbar has a chip.
-  {
+  modelRegion({
     id: "region-ops",
-    type: "group",
     label: "ops",
     x: 640,
     y: 20,
     width: 420,
     height: 260,
-  },
-  agentTextNode({
+  }),
+  modelSeat({
     id: "ops-seat",
     key: "local:ops",
     label: "ops worker",
@@ -48,7 +49,7 @@ const fixtureDoc = canvasDoc([
 /** Authority-only boot: disk seed is not live. Install with model commands. */
 const installBoard = async (page: import("@playwright/test").Page): Promise<string> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  const name = await installFixtureDocument(page, fixtureDoc, "rts");
+  const name = await installModelFixture(page, fixtureDoc, "rts");
   return name;
 };
 
