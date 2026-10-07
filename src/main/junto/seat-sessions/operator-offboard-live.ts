@@ -246,6 +246,10 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       await refreshRules();
       return offboard.run(runInput, by);
     },
+    beforeWake: async (seat) => {
+      await refreshRules();
+      return offboard.beforeWake(seat);
+    },
     status: async (canvasName, seatIds) => {
       await refreshRules();
       return offboard.status(canvasName, seatIds);
@@ -276,9 +280,9 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
     void refreshRules()
       .then(() => offboard.tick())
       .then((result) => {
-        if (result.closed > 0 || result.asked > 0 || result.refused > 0) {
+        if (result.asked > 0 || result.refused > 0) {
           console.info(
-            `[offboard] automatic rules: ${String(result.closed)} closed, ${String(result.asked)} asked, ${String(result.refused)} not done`,
+            `[offboard] idle nudge: ${String(result.asked)} asked, ${String(result.refused)} not done`,
           );
         }
       })

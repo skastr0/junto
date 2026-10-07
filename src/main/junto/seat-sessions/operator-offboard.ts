@@ -15,9 +15,9 @@
  * It also keeps the motionless clock: when each seat last moved, in real
  * time and saved to disk. A seat still for ninety minutes when Junto closed
  * for eight hours has been still for nine and a half when it opens: the
- * cache it would wake into is just as cold. What keeps that from becoming a
- * wave of closes at start is pace, not a stopped clock: the rules wait a few
- * minutes after the app opens, then act on one seat per pass.
+ * cache it would wake into is just as cold. Nothing is ever cut on a timer
+ * or in a batch: auto offboard acts on one seat, at the moment that seat is
+ * about to be woken into a cold session.
  *
  * Everything it touches comes in through ports, so it runs the same against
  * the app and a test.
@@ -500,16 +500,47 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
   };
 
   /**
-   * One pass of the two automatic rules over every seat this installation
-   * runs. Auto offboard: a seat still for its interval, that may be closed
-   * now. Idle nudge: a running, idle seat still for its (shorter) interval
-   * is asked once per stretch. Both act only on a session that has done
-   * enough work to be worth cutting (see `sessionWorthCutting`).
+   * Auto offboard. A seat is about to be woken: if the session it would wake
+   * into has sat still past the interval and is worth cutting, end it first,
+   * so the seat wakes into a fresh one.
    *
-   * Paced so it never reads as a batch: nothing for the first minutes after
-   * the app opens, then one seat per pass, the one that has sat still
-   * longest first. After a night closed, the overdue seats are cut one a
-   * minute, not all at the moment Junto opens.
+   * This is the only place a session is ever ended without someone asking.
+   * Nothing is cut on a timer and nothing is cut in a batch: a cold session
+   * costs nothing while its seat rests, and it is dealt with at the moment
+   * it would start to cost, one seat at a time, as each is woken.
+   *
+   * Only for a seat with no process (offline or resting). Resolves true when
+   * the session was cut. Never throws: a wake is never held up by this.
+   */
+  const beforeWake = async (address: SeatAddress): Promise<boolean> => {
+    try {
+      const seat = await ports.locate(address);
+      if (seat === undefined || !seat.local || seat.running || seat.sessionId === undefined) return false;
+      // A paused canvas refuses the wake; a session is not cut for a wake that will not happen.
+      if (seat.paused === true) return false;
+      const set = offboardRulesFor(ports.rules(), seat.harness);
+      if (!set.auto.enabled) return false;
+      const minutes = stillness(seat, now()).minutes;
+      if (minutes === null || minutes < set.auto.minutes) return false;
+      if (clock.isFresh(seat.bindingId)) return false;
+      if (!mayCloseNow(seat, address).allowed) return false;
+      // Never recycle an empty or tiny session.
+      if (!worthOf(seat, false).worth) return false;
+      const row = await closeOne(address, "automatic");
+      if (!row.ok) ports.log?.(`auto offboard before waking ${address.seatId} did not go through: ${row.reason}`);
+      return row.ok;
+    } catch (error) {
+      ports.log?.(`auto offboard before waking ${address.seatId} failed: ${String(error)}`);
+      return false;
+    }
+  };
+
+  /**
+   * The once-a-minute pass: save the clock, and run the idle nudge. The
+   * nudge asks a running, idle seat, still for its interval, to offboard and
+   * continue: once per stretch, one seat per pass, and only for a session
+   * worth cutting. It does nothing for the first minutes after the app opens.
+   * No session is ended from here (see `beforeWake`).
    */
   const tick = async (): Promise<SeatOffboardRunResult> => {
     const rules = ports.rules();
@@ -522,56 +553,39 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
         ports.log?.("the offboard clock could not be saved");
       }
     };
+    const seats = await ports.seats().catch(() => [] as ReadonlyArray<OffboardSeat>);
+    // Keep each seat's work count on its current session.
+    for (const seat of seats) clock.syncSession(seat.bindingId, seat.sessionId);
     if (at - clock.startedAt < OFFBOARD_START_GRACE_MS) {
       save();
       return summarizeOffboardRun(rows);
     }
-    const seats = await ports.seats().catch(() => [] as ReadonlyArray<OffboardSeat>);
-    type Due = { readonly seat: OffboardSeat; readonly address: SeatAddress; readonly minutes: number; readonly action: "now" | "ask" };
-    const due: Due[] = [];
+    const due: Array<{ readonly seat: OffboardSeat; readonly address: SeatAddress; readonly minutes: number }> = [];
     for (const seat of seats) {
       if (!seat.local) continue;
       const set = offboardRulesFor(rules, seat.harness);
       const minutes = stillness(seat, at).minutes;
-      // Running and not idle: not still at all.
       if (minutes === null) continue;
       const address = { canvasName: seat.canvasName, seatId: seat.seatId };
-      if (
-        set.auto.enabled &&
-        minutes >= set.auto.minutes &&
-        !clock.isFresh(seat.bindingId) &&
-        seat.sessionId !== undefined &&
-        mayCloseNow(seat, address).allowed &&
-        // Never recycle an empty or tiny session.
-        worthOf(seat, false).worth
-      ) {
-        due.push({ seat, address, minutes, action: "now" });
-        continue;
-      }
       if (
         set.nudge.enabled &&
         seat.running &&
         seat.state === "idle" &&
         seat.paused !== true &&
         minutes >= set.nudge.minutes &&
-        // Past the auto offboard interval a turn is the expensive choice:
-        // that seat is waiting its place in line to be closed, not asked.
+        // Past the auto offboard interval a turn is the expensive choice.
         !(set.auto.enabled && minutes >= set.auto.minutes) &&
         !clock.wasNudged(seat.bindingId) &&
         !clock.isFresh(seat.bindingId) &&
         !ports.isClosing(address) &&
         worthOf(seat, false).worth
       ) {
-        due.push({ seat, address, minutes, action: "ask" });
+        due.push({ seat, address, minutes });
       }
     }
     // Longest still first; one per pass.
     due.sort((left, right) => right.minutes - left.minutes);
-    for (const { seat, address, action } of due.slice(0, OFFBOARD_ACTIONS_PER_PASS)) {
-      if (action === "now") {
-        rows.push(await closeOne(address, "automatic"));
-        continue;
-      }
+    for (const { seat, address } of due.slice(0, OFFBOARD_ACTIONS_PER_PASS)) {
       const row = await askOne(address, "continue");
       // Marked whatever the outcome: no retry within a stretch.
       clock.markNudged(seat.bindingId);
@@ -582,7 +596,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
     return summarizeOffboardRun(rows);
   };
 
-  return { run, status, tick, clock };
+  return { run, status, tick, beforeWake, clock };
 };
 
 export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
@@ -590,10 +604,10 @@ export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
 /** How often the automatic rules look. Rule intervals are whole minutes. */
 export const OFFBOARD_TICK_MS = 60_000;
 
-/** After the app opens, the automatic rules wait this long before acting. */
+/** After the app opens, the idle nudge waits this long before asking anyone. */
 export const OFFBOARD_START_GRACE_MS = 5 * 60_000;
 
-/** Seats the automatic rules act on in one pass. */
+/** Seats the idle nudge asks in one pass. */
 export const OFFBOARD_ACTIONS_PER_PASS = 1;
 
 // ── The process instance ───────────────────────────────────────────────────
@@ -619,6 +633,14 @@ export const runSeatOffboard = (
           input.seatIds.map((seatId) => ({ seatId, ok: false as const, code: "failed" as const, reason: NOT_READY })),
         ),
       );
+
+/**
+ * A seat is about to be woken. Ends its session first when it has gone cold
+ * and is worth cutting, so the seat wakes fresh. Await it, then wake. It
+ * never throws and never refuses the wake.
+ */
+export const cutBeforeWake = (seat: SeatAddress): Promise<boolean> =>
+  current ? current.beforeWake(seat) : Promise.resolve(false);
 
 export const seatOffboardStatus = (
   canvasName: string,

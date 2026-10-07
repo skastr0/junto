@@ -275,81 +275,112 @@ describe("before the click", () => {
   });
 });
 
-describe("auto offboard (on by default, 2 hours)", () => {
-  it("closes a seat only after it has sat completely still for the interval", async () => {
-    const w = world([seat("a")]);
-    w.clock.note("bind-a");
-    w.advance(119);
-    expect((await w.offboard.tick()).closed).toBe(0);
-    w.advance(1);
-    const result = await w.offboard.tick();
-    expect(result).toMatchObject({ closed: 1 });
-    expect(w.closed).toEqual([{ seatId: "a", by: "automatic" }]);
-    expect(w.ended[0]).toMatchObject({ by: "automatic", sessionId: "session-a" });
-    expect(w.asked).toEqual([]);
-  });
+const resting = (seatId: string, over: Partial<OffboardSeat> = {}): OffboardSeat =>
+  seat(seatId, { running: false, state: undefined, ...over });
 
-  it("any movement starts the interval again", async () => {
-    const w = world([seat("a")]);
-    w.clock.note("bind-a");
-    w.advance(110);
-    w.clock.note("bind-a"); // output, input, or mail
-    w.advance(110);
-    expect((await w.offboard.tick()).closed).toBe(0);
-    w.advance(10);
-    expect((await w.offboard.tick()).closed).toBe(1);
-  });
+describe("auto offboard (on by default, 2 hours): only as a seat is about to be woken", () => {
+  const wake = (w: ReturnType<typeof world>, seatId: string) =>
+    w.offboard.beforeWake({ canvasName: CANVAS, seatId });
 
-  it("never touches a seat that is working, waiting on the operator, or already offboarding", async () => {
-    const w = world([seat("w", { state: "working" }), seat("d", { state: "attention" }), seat("c")]);
-    w.closing.add("c");
-    w.advance(600);
-    expect(await w.offboard.tick()).toMatchObject({ closed: 0, refused: 0 });
+  it("never ends a session on a timer, however long the seat has sat still", async () => {
+    const w = world([seat("idle"), resting("rest")]);
+    for (let hour = 0; hour < 48; hour += 1) {
+      w.advance(60);
+      expect(await w.offboard.tick()).toMatchObject({ closed: 0 });
+    }
     expect(w.closed).toEqual([]);
   });
 
-  it("includes offline and resting seats, and leaves an unused or already fresh session alone", async () => {
-    const w = world(
-      [
-        seat("resting", { running: false, state: undefined }),
-        seat("unused", { running: false, state: undefined }),
-        seat("nosession", { running: false, state: undefined, sessionId: undefined }),
-      ],
-      { noWork: ["unused"] },
-    );
-    w.advance(120);
-    expect((await w.offboard.tick()).closed).toBe(1);
-    expect(w.closed).toEqual([{ seatId: "resting", by: "automatic" }]);
-    // Hours later, still nothing moved: the fresh session is not cut again.
+  it("a resting seat still for two hours is given a fresh session just before it wakes", async () => {
+    const w = world([resting("a")]);
+    w.clock.note("bind-a");
+    w.advance(119);
+    expect(await wake(w, "a")).toBe(false);
+    expect(w.closed).toEqual([]);
+    w.advance(1);
+    expect(await wake(w, "a")).toBe(true);
+    expect(w.closed).toEqual([{ seatId: "a", by: "automatic" }]);
+    expect(w.ended[0]).toMatchObject({ by: "automatic", sessionId: "session-a" });
+    // Nothing is typed to anyone, and the seat is left for the wake that follows.
+    expect(w.asked).toEqual([]);
+    expect(w.seats.get("a")).toMatchObject({ running: false, sessionId: "fresh-a" });
+  });
+
+  it("is one seat at a time: waking one seat touches no other", async () => {
+    const w = world([resting("a"), resting("b"), resting("c")]);
     w.advance(600);
-    expect((await w.offboard.tick()).closed).toBe(0);
-    // Once it has really worked again and gone still, it is a session worth cutting.
-    w.work("resting", 35);
-    w.advance(120);
-    expect((await w.offboard.tick()).closed).toBe(1);
+    expect(await wake(w, "b")).toBe(true);
+    expect(w.closed).toEqual([{ seatId: "b", by: "automatic" }]);
+    expect(w.seats.get("a")).toMatchObject({ sessionId: "session-a" });
+    expect(w.seats.get("c")).toMatchObject({ sessionId: "session-c" });
+  });
+
+  it("the same wake twice does not cut twice", async () => {
+    const w = world([resting("a")]);
+    w.advance(200);
+    expect(await wake(w, "a")).toBe(true);
+    expect(await wake(w, "a")).toBe(false);
+    w.advance(600);
+    expect(await wake(w, "a")).toBe(false);
+    expect(w.closed).toHaveLength(1);
+  });
+
+  it("leaves a running seat alone, whatever its state: only a seat with no process is cut at its wake", async () => {
+    const w = world([seat("idle"), seat("working", { state: "working" }), seat("dialog", { state: "attention" })]);
+    w.advance(600);
+    for (const id of ["idle", "working", "dialog"]) expect(await wake(w, id)).toBe(false);
+    expect(w.closed).toEqual([]);
+  });
+
+  it("does nothing for a seat already offboarding, on another installation, on a paused canvas, without a session, or unknown", async () => {
+    const w = world([
+      resting("busy"),
+      resting("remote", { local: false }),
+      resting("paused", { paused: true }),
+      resting("nosession", { sessionId: undefined }),
+    ]);
+    w.closing.add("busy");
+    w.advance(600);
+    for (const id of ["busy", "remote", "paused", "nosession", "ghost"]) expect(await wake(w, id)).toBe(false);
+    expect(w.closed).toEqual([]);
   });
 
   it("can be turned off, and follows a harness override", async () => {
-    const off = world([seat("a")], { rules: applyOffboardRulesPatch(defaultOffboardRules(), { auto: { enabled: false } }) });
+    const off = world([resting("a")], { rules: applyOffboardRulesPatch(defaultOffboardRules(), { auto: { enabled: false } }) });
     off.advance(1000);
-    expect((await off.offboard.tick()).closed).toBe(0);
+    expect(await wake(off, "a")).toBe(false);
 
     const rules = applyOffboardRulesPatch(defaultOffboardRules(), {
       harness: { codex: { cacheWindowMinutes: 10, nudge: { minutes: 5 }, auto: { minutes: 15 } } },
     });
-    const w = world([seat("c", { harness: "codex" }), seat("a")], { rules });
+    const w = world([resting("c", { harness: "codex" }), resting("a")], { rules });
     w.advance(15);
-    expect((await w.offboard.tick()).closed).toBe(1);
-    expect(w.closed).toEqual([{ seatId: "c", by: "automatic" }]);
+    expect(await wake(w, "c")).toBe(true);
+    expect(await wake(w, "a")).toBe(false);
   });
 
-  it("a failed automatic close is reported once per pass and nothing is recorded", async () => {
-    const w = world([seat("a")]);
+  it("a close that fails never holds up the wake, and records nothing", async () => {
+    const w = world([resting("a")]);
     w.fail.close.add("a");
-    w.advance(120);
-    const result = await w.offboard.tick();
-    expect(result.results[0]).toMatchObject({ ok: false, code: "failed" });
+    w.advance(200);
+    expect(await wake(w, "a")).toBe(false);
     expect(w.ended).toEqual([]);
+    // A port that throws is the same: the wake goes ahead.
+    const broken = makeOperatorOffboard(
+      {
+        locate: async () => {
+          throw new Error("canvas unreadable");
+        },
+        seats: async () => [],
+        isClosing: () => false,
+        closeNow: async () => ({ ok: true }),
+        ask: async () => ({ ok: true }),
+        markEnded: () => undefined,
+        rules: () => defaultOffboardRules(),
+      },
+      new SeatMotionClock(() => T0),
+    );
+    expect(await broken.beforeWake({ canvasName: CANVAS, seatId: "a" })).toBe(false);
   });
 });
 
@@ -407,29 +438,35 @@ describe("idle nudge (off by default, 40 minutes)", () => {
 
 describe("worth cutting: the automatic rules never recycle an empty or tiny session", () => {
   const nudging = () => applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
+  const wake = (w: ReturnType<typeof world>, seatId: string) =>
+    w.offboard.beforeWake({ canvasName: CANVAS, seatId });
+  /** The seat's process ends and it rests, as after an idle seat is stopped. */
+  const rest = (w: ReturnType<typeof world>, seatId: string) => w.set(seatId, { running: false, state: undefined });
 
-  it("case 1: one small task, then hours of stillness: not cut, not nudged", async () => {
+  it("case 1: one small task, then hours of stillness: not cut at its wake, not nudged", async () => {
     const w = world([seat("a")], { rules: nudging(), noWork: ["a"] });
     w.work("a", 5);
     w.advance(45);
     expect(await w.offboard.tick()).toMatchObject({ asked: 0, closed: 0 });
+    rest(w, "a");
     w.advance(600);
-    expect(await w.offboard.tick()).toMatchObject({ asked: 0, closed: 0 });
+    expect(await wake(w, "a")).toBe(false);
     expect(w.closed).toEqual([]);
     expect(w.asked).toEqual([]);
     expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 5, worthCutting: false, pastWindow: true });
   });
 
   it("case 2: cut, a small task in the fresh session, then stillness: not cut again", async () => {
-    const w = world([seat("a")]);
+    const w = world([resting("a")]);
     w.advance(120);
-    expect((await w.offboard.tick()).closed).toBe(1);
-    // The fresh session wakes, does one small task, and goes still.
+    expect(await wake(w, "a")).toBe(true);
+    // The fresh session wakes, does one small task, and rests again.
     w.set("a", { running: true, state: "idle", sessionId: "fresh-a" });
     w.work("a", 4);
+    rest(w, "a");
     for (let hour = 0; hour < 12; hour += 1) {
       w.advance(60);
-      expect((await w.offboard.tick()).closed).toBe(0);
+      expect(await wake(w, "a")).toBe(false);
     }
     expect(w.closed).toHaveLength(1);
     // The work before the cut does not count for the session after it.
@@ -437,17 +474,17 @@ describe("worth cutting: the automatic rules never recycle an empty or tiny sess
   });
 
   it("case 3: a new session that never really starts is never cut", async () => {
-    const w = world(
-      [seat("idle-new"), seat("resting-new", { running: false, state: undefined })],
-      { noWork: ["idle-new", "resting-new"] },
-    );
+    const w = world([resting("never-ran"), seat("banner-only")], { noWork: ["never-ran", "banner-only"] });
     // It printed a banner and sat at its prompt: output, but no work.
-    w.clock.note("bind-idle-new");
+    w.clock.note("bind-banner-only");
+    rest(w, "banner-only");
     // A large transcript does not rescue a session that has done no work.
-    w.sizes.set("idle-new", 900_000);
-    w.sizes.set("resting-new", 900_000);
+    w.sizes.set("never-ran", 900_000);
+    w.sizes.set("banner-only", 900_000);
     for (let hour = 0; hour < 24; hour += 1) {
       w.advance(60);
+      expect(await wake(w, "never-ran")).toBe(false);
+      expect(await wake(w, "banner-only")).toBe(false);
       expect(await w.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
     }
     expect(w.closed).toEqual([]);
@@ -460,24 +497,29 @@ describe("worth cutting: the automatic rules never recycle an empty or tiny sess
     w.work("a", 10);
     w.advance(20);
     w.work("a", 9);
+    rest(w, "a");
     w.advance(120);
-    expect((await w.offboard.tick()).closed).toBe(0); // 29 minutes
+    expect(await wake(w, "a")).toBe(false); // 29 minutes
+    w.set("a", { running: true, state: "idle" });
     w.work("a", 1);
+    rest(w, "a");
     w.advance(120);
-    expect((await w.offboard.tick()).closed).toBe(1); // 30
+    expect(await wake(w, "a")).toBe(true); // 30
   });
 
   it("or a transcript of about 200,000 tokens, with only a little work", async () => {
     const w = world([seat("big"), seat("small"), seat("lost")], { noWork: ["big", "small", "lost"] });
-    for (const id of ["big", "small", "lost"]) w.work(id, 2);
+    for (const id of ["big", "small", "lost"]) {
+      w.work(id, 2);
+      rest(w, id);
+    }
     w.sizes.set("big", 200_000);
     w.sizes.set("small", 199_999);
     // "lost": its transcript cannot be located, so size does not count.
     w.advance(120);
-    expect((await w.offboard.tick()).closed).toBe(1);
-    w.advance(5);
-    expect((await w.offboard.tick()).closed).toBe(0);
-    expect(w.closed).toEqual([{ seatId: "big", by: "automatic" }]);
+    expect(await wake(w, "big")).toBe(true);
+    expect(await wake(w, "small")).toBe(false);
+    expect(await wake(w, "lost")).toBe(false);
     const status = await w.offboard.status(CANVAS, ["small", "lost"]);
     expect(status[0]).toMatchObject({ sessionTokens: 199_999, worthCutting: false });
     expect(status[1]).toMatchObject({ worthCutting: false });
@@ -489,25 +531,40 @@ describe("worth cutting: the automatic rules never recycle an empty or tiny sess
       worth: { workMinutes: 10 },
       harness: { codex: { worth: { tokens: 50_000, workMinutes: 90 } } },
     });
-    const w = world([seat("a"), seat("c", { harness: "codex" })], { rules, noWork: ["a", "c"] });
-    w.work("a", 10);
-    w.work("c", 10);
+    const w = world([seat("a"), seat("c", { harness: "codex" }), seat("c2", { harness: "codex" })], {
+      rules,
+      noWork: ["a", "c", "c2"],
+    });
+    for (const id of ["a", "c", "c2"]) {
+      w.work(id, 10);
+      rest(w, id);
+    }
     w.sizes.set("c", 60_000);
     w.advance(120);
-    expect((await w.offboard.tick()).closed).toBe(1);
+    expect(await wake(w, "a")).toBe(true); // ten minutes is enough for the installation
+    expect(await wake(w, "c")).toBe(true); // codex: by size
+    expect(await wake(w, "c2")).toBe(false); // codex: ten of ninety minutes, no size
+  });
+
+  it("the idle nudge is gated the same way", async () => {
+    const w = world([seat("tiny"), seat("real")], { rules: nudging(), noWork: ["tiny"] });
+    w.work("tiny", 3);
+    w.clock.note("bind-real");
+    w.advance(40);
+    expect(await w.offboard.tick()).toMatchObject({ asked: 1 });
     w.advance(1);
-    expect((await w.offboard.tick()).closed).toBe(1);
-    expect(w.closed.map((entry) => entry.seatId).sort()).toEqual(["a", "c"]);
+    expect(await w.offboard.tick()).toMatchObject({ asked: 0 });
+    expect(w.asked).toEqual([{ seatId: "real", mode: "continue" }]);
   });
 
   it("work is counted per session: a seat that got a new session by any route starts from zero", async () => {
-    const w = world([seat("a")]);
+    const w = world([resting("a")]);
     expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 60 });
     // Its own agent offboarded: the canvas names a new session.
     w.set("a", { sessionId: "session-a-2" });
     expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 0, worthCutting: false });
     w.advance(600);
-    expect((await w.offboard.tick()).closed).toBe(0);
+    expect(await wake(w, "a")).toBe(false);
   });
 
   it("a session id that appears late names the same session: its work is kept", async () => {
@@ -515,20 +572,6 @@ describe("worth cutting: the automatic rules never recycle an empty or tiny sess
     w.work("a", 40);
     w.set("a", { sessionId: "announced-later" });
     expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 40, worthCutting: true });
-  });
-
-  it("work time survives a restart with the clock, and a turn cut off by the quit is counted up to the save", async () => {
-    const first = world([seat("a")], { noWork: ["a"] });
-    first.work("a", 20);
-    first.clock.noteState("bind-a", "working");
-    first.advance(15);
-    await first.offboard.tick(); // saved mid-turn
-    const saved = parseSeatMotionRecord(JSON.stringify(first.saved.at(-1)!))!;
-    expect(saved.seats["bind-a"]).toMatchObject({ workMs: 35 * MIN, sessionId: "session-a" });
-    const second = world([seat("a")], { restored: saved, at: first.now() + 10 * MIN });
-    // Not working any more after the restart: the count stands, it does not run.
-    second.advance(30);
-    expect((await second.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 35, worthCutting: true });
   });
 
   it("the buttons are not gated: the operator may cut a tiny session", async () => {
@@ -541,8 +584,11 @@ describe("worth cutting: the automatic rules never recycle an empty or tiny sess
 });
 
 describe("the clock across a restart", () => {
+  const wake = (w: ReturnType<typeof world>, seatId: string) =>
+    w.offboard.beforeWake({ canvasName: CANVAS, seatId });
+
   it("is saved on every pass and carries on where it was", async () => {
-    const first = world([seat("a")]);
+    const first = world([resting("a")]);
     first.clock.note("bind-a");
     first.advance(90);
     await first.offboard.tick();
@@ -553,101 +599,111 @@ describe("the clock across a restart", () => {
     });
 
     // Restart one minute later: the seat is at 91 minutes, not at zero.
-    const second = world([seat("a")], { restored: parseSeatMotionRecord(JSON.stringify(saved)), at: T0 + 91 * MIN });
-    expect((await second.offboard.tick()).closed).toBe(0);
+    const second = world([resting("a")], { restored: parseSeatMotionRecord(JSON.stringify(saved)), at: T0 + 91 * MIN });
+    expect(await wake(second, "a")).toBe(false);
     second.advance(28);
-    expect((await second.offboard.tick()).closed).toBe(0);
+    expect(await wake(second, "a")).toBe(false);
     second.advance(1);
-    expect((await second.offboard.tick()).closed).toBe(1);
+    expect(await wake(second, "a")).toBe(true);
   });
 
-  it("catches up: time while Junto was closed counts like any other", async () => {
-    const first = world([seat("a")]);
+  it("catches up: closed for eight hours means still for eight hours plus what it already had", async () => {
+    const first = world([resting("a")]);
     first.clock.note("bind-a");
     first.advance(30);
     await first.offboard.tick();
-    // Closed for eight hours: the seat has been still for eight and a half.
-    const second = world([seat("a")], { restored: first.saved.at(-1)!, at: T0 + 30 * MIN + 480 * MIN });
+    const second = world([resting("a")], { restored: first.saved.at(-1)!, at: T0 + 30 * MIN + 480 * MIN });
     const [status] = await second.offboard.status(CANVAS, ["a"]);
     expect(status).toMatchObject({ motionlessSince: T0, idleMinutes: 510, pastWindow: true, preferred: "now" });
-    // Its session is closed without waiting out another two hours...
-    second.advance(5);
-    expect((await second.offboard.tick()).closed).toBe(1);
-    expect(second.closed).toEqual([{ seatId: "a", by: "automatic" }]);
+    // So the first thing that wakes it finds a session to cut.
+    expect(await wake(second, "a")).toBe(true);
   });
 
-  it("...but never as a batch at start: nothing for five minutes, then one seat per pass, longest still first", async () => {
-    const first = world([seat("a"), seat("b"), seat("c")]);
-    first.clock.note("bind-b");
-    first.advance(10);
-    first.clock.note("bind-a");
-    first.advance(10);
-    first.clock.note("bind-c");
+  it("opening the app after a night ends no session: not at start, not later, until a seat is woken", async () => {
+    const first = world([resting("a"), resting("b"), resting("c")]);
     first.advance(60);
     await first.offboard.tick();
-
-    // Closed overnight. Every seat is far past two hours the moment Junto opens.
-    const second = world([seat("a"), seat("b"), seat("c")], { restored: first.saved.at(-1)!, at: first.now() + 600 * MIN });
-    for (let minute = 0; minute < 5; minute += 1) {
+    const second = world([resting("a"), resting("b"), resting("c")], {
+      restored: first.saved.at(-1)!,
+      at: first.now() + 600 * MIN,
+    });
+    for (let minute = 0; minute < 180; minute += 1) {
       expect(await second.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
       second.advance(1);
     }
     expect(second.closed).toEqual([]);
-    expect((await second.offboard.tick()).closed).toBe(1);
-    second.advance(1);
-    expect((await second.offboard.tick()).closed).toBe(1);
-    second.advance(1);
-    expect((await second.offboard.tick()).closed).toBe(1);
-    expect(second.closed.map((entry) => entry.seatId)).toEqual(["b", "a", "c"]);
-    second.advance(1);
-    expect((await second.offboard.tick()).closed).toBe(0);
+    // Mail arrives for one seat: that seat, and only that seat, wakes fresh.
+    expect(await wake(second, "b")).toBe(true);
+    expect(second.closed).toEqual([{ seatId: "b", by: "automatic" }]);
   });
 
-  it("a seat cold past the auto offboard interval is closed, not asked for an expensive turn", async () => {
+  it("the idle nudge waits five minutes after the app opens and asks one seat per pass", async () => {
     const rules = applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
-    const first = world([seat("a")], { rules });
+    const first = world([seat("a"), seat("b")], { rules });
+    first.clock.note("bind-b");
+    first.advance(1);
     first.clock.note("bind-a");
-    first.advance(10);
+    first.advance(44);
     await first.offboard.tick();
-    const second = world([seat("a")], { rules, restored: first.saved.at(-1)!, at: T0 + 10 * MIN + 480 * MIN });
-    second.advance(5);
-    expect(await second.offboard.tick()).toMatchObject({ closed: 1, asked: 0 });
-    expect(second.asked).toEqual([]);
+    await first.offboard.tick();
+    expect(first.asked.map((entry) => entry.seatId)).toEqual(["b", "a"]);
+
+    const fresh = world([seat("a"), seat("b")], { rules, restored: { savedAt: T0, seats: {
+      "bind-a": { movedAt: T0 - 50 * MIN, workMs: 60 * MIN, sessionId: "session-a" },
+      "bind-b": { movedAt: T0 - 50 * MIN, workMs: 60 * MIN, sessionId: "session-b" },
+    } } });
+    for (let minute = 0; minute < 5; minute += 1) {
+      expect(await fresh.offboard.tick()).toMatchObject({ asked: 0 });
+      fresh.advance(1);
+    }
+    expect((await fresh.offboard.tick()).asked).toBe(1);
   });
 
-  it("remembers that a seat was already given a fresh session, and that it was nudged", async () => {
-    const first = world([seat("a"), seat("b")], { rules: applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } }) });
-    first.advance(40);
+  it("a seat cold past the auto offboard interval is not asked for an expensive turn", async () => {
+    const rules = applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
+    const w = world([seat("a")], { rules });
+    w.advance(200);
+    expect(await w.offboard.tick()).toMatchObject({ asked: 0, closed: 0 });
+    expect(w.asked).toEqual([]);
+  });
+
+  it("remembers that a seat was already given a fresh session", async () => {
+    const first = world([resting("a")]);
+    first.advance(200);
+    expect(await wake(first, "a")).toBe(true);
     await first.offboard.tick();
-    first.advance(1);
-    await first.offboard.tick(); // both nudged, one per pass
-    expect(first.asked.map((entry) => entry.seatId).sort()).toEqual(["a", "b"]);
-    first.set("a", { running: false, state: undefined });
-    first.advance(80);
-    await first.offboard.tick();
-    first.advance(1);
-    await first.offboard.tick(); // both closed, one per pass
-    expect(first.closed).toHaveLength(2);
     const saved = parseSeatMotionRecord(JSON.stringify(first.saved.at(-1)!))!;
     expect(saved.seats["bind-a"]).toMatchObject({ offboarded: true });
+    expect("workMs" in saved.seats["bind-a"]!).toBe(false);
 
-    const second = world(
-      [seat("a", { running: false, state: undefined }), seat("b", { running: false, state: undefined })],
-      { restored: saved, at: first.now() + MIN },
-    );
+    const second = world([resting("a", { sessionId: "fresh-a" })], { restored: saved, at: first.now() + MIN });
     second.advance(500);
-    expect(await second.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
+    expect(await wake(second, "a")).toBe(false);
+  });
+
+  it("work time survives a restart with the clock, and a turn cut off by the quit is counted up to the save", async () => {
+    const first = world([seat("a")], { noWork: ["a"] });
+    first.work("a", 20);
+    first.clock.noteState("bind-a", "working");
+    first.advance(15);
+    await first.offboard.tick(); // saved mid-turn
+    const saved = parseSeatMotionRecord(JSON.stringify(first.saved.at(-1)!))!;
+    expect(saved.seats["bind-a"]).toMatchObject({ workMs: 35 * MIN, sessionId: "session-a" });
+    const second = world([resting("a")], { restored: saved, at: first.now() + 10 * MIN });
+    // Not working any more after the restart: the count stands, it does not run.
+    second.advance(30);
+    expect((await second.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 35, worthCutting: true });
   });
 
   it("a seat the clock has never seen has been still since this run started, and has done no work", async () => {
-    const w = world([seat("new")], { noWork: ["new"] });
+    const w = world([resting("new")], { noWork: ["new"] });
     w.advance(119);
     expect((await w.offboard.status(CANVAS, ["new"]))[0]).toMatchObject({ idleMinutes: 119, workMinutes: 0, worthCutting: false });
     w.advance(600);
-    expect((await w.offboard.tick()).closed).toBe(0);
+    expect(await wake(w, "new")).toBe(false);
   });
 
-  it("an unreadable saved clock is no clock, and a save that fails stops nothing", async () => {
+  it("an unreadable saved clock is no clock", async () => {
     expect(parseSeatMotionRecord("not json")).toBeUndefined();
     expect(parseSeatMotionRecord('{"seats":{}}')).toBeUndefined();
     expect(parseSeatMotionRecord('{"savedAt":1,"seats":{"x":{"movedAt":"soon"},"y":{"movedAt":5}}}')).toEqual({

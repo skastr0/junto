@@ -21,6 +21,7 @@
 // (circular: RootLayer includes KernelLive).
 
 import { createHash } from "node:crypto";
+import { cutBeforeWake } from "../seat-sessions/operator-offboard";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
@@ -1305,7 +1306,14 @@ const makeKernelService = (
   const wakeManagedSeat = (
     canvasName: string,
     nodeId: string,
-  ): Promise<boolean> => run(wakeManagedSeatProgram(canvasName, nodeId));
+  ): Promise<boolean> =>
+    // Auto offboard: a resting seat whose session has gone cold and is worth
+    // cutting gets a fresh one first, so it wakes into that. Before the wake
+    // reads the node, because the wake starts the session the node names. It
+    // never throws and never refuses the wake.
+    cutBeforeWake({ canvasName, seatId: nodeId }).then(() =>
+      run(wakeManagedSeatProgram(canvasName, nodeId)),
+    );
 
   // --- doc hydration + mid-cycle resync ---------------------------------------
 
