@@ -181,6 +181,49 @@ describe("the difference between two documents", () => {
   });
 });
 
+describe("what the two documents share is never read", () => {
+  /** A node that fails the test if anything but its id is read. */
+  const untouchable = (id: string): CanvasNode =>
+    new Proxy({ id } as CanvasNode, {
+      get: (target, key) => {
+        if (key === "id") return target.id;
+        throw new Error(`a shared node was read: ${String(key)}`);
+      },
+    });
+  const untouchableEdge = (id: string): CanvasEdge =>
+    new Proxy({ id } as CanvasEdge, {
+      get: (target, key) => {
+        if (key === "id") return target.id;
+        throw new Error(`a shared edge was read: ${String(key)}`);
+      },
+    });
+
+  it("skips a node and an edge both documents hold as the same object", () => {
+    const shared = [untouchable("s1"), untouchable("s2"), untouchable("s3")];
+    const wire = untouchableEdge("w");
+    const moving = note("plan", "hello");
+    const before = doc([shared[0]!, moving, shared[1]!, shared[2]!], [wire]);
+    const after = doc([shared[0]!, { ...moving, x: 40 }, shared[1]!, shared[2]!], [wire]);
+    expect(documentEdits("factory", before, after, 0)).toEqual([
+      { _tag: "Move", canvas: "factory", moves: [{ id: "plan", x: 40, y: 0 }] },
+    ]);
+  });
+
+  it("reads nothing at all when the two documents hold the same lists", () => {
+    const nodes = [untouchable("s1"), untouchable("s2")];
+    const edges = [untouchableEdge("w")];
+    expect(documentEdits("factory", { nodes, edges }, { nodes, edges }, 0)).toEqual([]);
+  });
+
+  it("still sees one added and one removed among shared ones", () => {
+    const shared = [untouchable("s1"), untouchable("s2")];
+    const leaving = note("old", "bye");
+    const before = doc([shared[0]!, leaving, shared[1]!]);
+    const after = doc([shared[0]!, shared[1]!, note("new", "hi")]);
+    expect(documentEdits("factory", before, after, 7).map((command) => command._tag)).toEqual(["Remove", "Add"]);
+  });
+});
+
 describe("what a document cannot decide", () => {
   it("never gives or takes overseer authority, and never records a session", () => {
     const plain = doc([seat("lead")]);

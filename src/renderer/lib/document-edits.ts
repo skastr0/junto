@@ -1,4 +1,4 @@
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import {
   asCanvasName,
   type Command,
@@ -13,8 +13,15 @@ import { nodeOfDocument, wireOfDocument } from "@shared/model/from-document";
 // The difference between two documents, as the commands that make it. This is
 // how a writer that still works on a document changes the canvas: it says what
 // the document should become, and what is sent is only what differs. No
-// document is saved. It goes when the last such writer is written as an edit
-// (model-edits.ts).
+// document is saved.
+//
+// TEMPORARY, and on its way out. Each writer that is rewritten as a direct
+// edit (model-edits.ts, through authoring.act) stops calling commitDoc, and
+// this file is deleted with the last of them.
+//
+// It runs once per commit, never per mouse move, and it skips by identity: a
+// writer replaces only the node and edge objects it changes, so an object both
+// documents share costs one pointer comparison and is never read or decoded.
 //
 // A grant of overseer authority and a recorded session are never part of a
 // difference: a document cannot give or take either.
@@ -29,18 +36,25 @@ const NOT_EDITED: ReadonlySet<string> = new Set([
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-const rowsOf = (canvas: string, doc: CanvasDoc): Map<string, Node> => {
+/** The objects of one list that the other does not share, by identity. */
+const unshared = <T extends object>(list: ReadonlyArray<T>, other: ReadonlyArray<T>): ReadonlyArray<T> => {
+  const shared = new Set<T>(other);
+  return list.filter((item) => !shared.has(item));
+};
+
+const rowsOf = (canvas: string, nodes: ReadonlyArray<CanvasNode>): Map<string, Node> => {
   const rows = new Map<string, Node>();
-  doc.nodes.forEach((node, z) => {
+  nodes.forEach((node, z) => {
+    // The place in the stack is not compared, so any index will do.
     const row = nodeOfDocument(canvas, node, z);
     if (row !== undefined && !rows.has(row.id)) rows.set(row.id, row);
   });
   return rows;
 };
 
-const wiresOf = (doc: CanvasDoc): Map<string, Wire> => {
+const wiresOf = (edges: ReadonlyArray<CanvasEdge>): Map<string, Wire> => {
   const wires = new Map<string, Wire>();
-  for (const edge of doc.edges) {
+  for (const edge of edges) {
     const wire = wireOfDocument(edge);
     if (wire !== undefined && !wires.has(wire.id)) wires.set(wire.id, wire);
   }
@@ -56,10 +70,13 @@ const sheetOf = (node: CanvasNode | undefined): unknown => node?.ether?.sheet;
  */
 export const documentEdits = (canvasName: string, before: CanvasDoc, after: CanvasDoc, top: number): Commands => {
   const canvas = asCanvasName(canvasName);
-  const was = rowsOf(canvasName, before);
-  const now = rowsOf(canvasName, after);
-  const wiresWas = wiresOf(before);
-  const wiresNow = wiresOf(after);
+  // Only what the two documents do not share is read at all.
+  const nodesWas = unshared(before.nodes, after.nodes);
+  const nodesNow = unshared(after.nodes, before.nodes);
+  const was = rowsOf(canvasName, nodesWas);
+  const now = rowsOf(canvasName, nodesNow);
+  const wiresWas = wiresOf(unshared(before.edges, after.edges));
+  const wiresNow = wiresOf(unshared(after.edges, before.edges));
 
   // A node that became another kind, or a terminal on another session, is a
   // different thing under the same id: it goes and comes back.
@@ -128,8 +145,8 @@ export const documentEdits = (canvasName: string, before: CanvasDoc, after: Canv
 
   // A sheet's grid is content of its own, written by its own command.
   const sheets: Array<Command> = [];
-  const beforeById = new Map(before.nodes.map((node) => [node.id, node]));
-  for (const node of after.nodes) {
+  const beforeById = new Map(nodesWas.map((node) => [node.id, node]));
+  for (const node of nodesNow) {
     const row = now.get(node.id);
     if (row?.kind !== "sheet") continue;
     const grid = sheetOf(node);
@@ -152,11 +169,21 @@ export const documentEdits = (canvasName: string, before: CanvasDoc, after: Canv
     }
   }
 
-  // The order of the nodes both documents hold, when it changed.
-  const kept = (rows: Map<string, Node>, other: Map<string, Node>): Array<Node["id"]> =>
-    [...rows.values()].filter((node) => other.has(node.id) && !replaced.has(node.id)).map((node) => node.id);
-  const order = kept(now, was);
-  const restack: Array<Command> = same(kept(was, now), order) ? [] : [{ _tag: "Restack", canvas, nodes: order, to: "front" }];
+  // The order of the nodes both documents hold, when it changed. Ids alone
+  // are read, and only when the two lists are not the same list.
+  let restack: Array<Command> = [];
+  if (before.nodes !== after.nodes) {
+    const idsWas = new Set(before.nodes.map((node) => node.id));
+    const idsNow = new Set(after.nodes.map((node) => node.id));
+    const lost = new Set<string>([...removedNodes, ...replaced]);
+    const kept = (nodes: ReadonlyArray<CanvasNode>, other: ReadonlySet<string>): Array<string> =>
+      nodes.map((node) => node.id).filter((id) => other.has(id) && !lost.has(id));
+    const order = kept(after.nodes, idsWas);
+    const orderWas = kept(before.nodes, idsNow);
+    if (order.length !== orderWas.length || order.some((id, index) => id !== orderWas[index])) {
+      restack = [{ _tag: "Restack", canvas, nodes: order as Array<Node["id"]>, to: "front" }];
+    }
+  }
 
   return [
     ...(removedNodes.length > 0 || removedWires.length > 0
