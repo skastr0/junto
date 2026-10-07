@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
-import { waitForTerminalPaint } from "../harness/term-ready";
+import { terminalRows, waitForTerminalPaint } from "../harness/term-ready";
 
 const REPO = process.cwd();
 const REPLAY_DIR = "/tmp/junto-real-bytes";
@@ -51,15 +51,11 @@ const BINDING_ID = "e2e-real-bytes-1";
 
 const LAUNCH = { kind: "command" as const, argv: ["/bin/sh", "-i"] };
 
-/** Rendered rows, trailing blanks trimmed — what the operator sees. */
+/** Visible rows, trailing blanks trimmed — what the operator sees. */
 const renderedRows = async (
   page: import("@playwright/test").Page,
 ): Promise<ReadonlyArray<string>> =>
-  page.evaluate(() =>
-    Array.from(document.querySelectorAll(".native-terminal-surface .xterm-rows > *")).map((el) =>
-      (el.textContent ?? "").replace(/ /g, " ").trimEnd(),
-    ),
-  );
+  (await terminalRows(page)).map((row) => row.trimEnd());
 
 const geomOf = async (
   page: import("@playwright/test").Page,
