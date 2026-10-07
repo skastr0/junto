@@ -1,11 +1,11 @@
-import { canvasDoc, textNode } from "../harness/sandbox";
+import { modelNote, modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import type { Page } from "@playwright/test";
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      field: canvasDoc([textNode("marker", "Marker", 0, 0)]),
+    seedModels: {
+      field: modelFixture([modelNote("marker", "Marker", 0, 0)]),
     },
   },
 });

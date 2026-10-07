@@ -2,13 +2,13 @@
  * The delete key asks before it deletes. Refusing the confirm leaves the card
  * on the canvas; accepting removes it.
  */
-import { canvasDoc, textNode } from "../harness/sandbox";
+import { modelNote, modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      "delete-cancel": canvasDoc([textNode("note", "A note to keep", 0, 0)]),
+    seedModels: {
+      "delete-cancel": modelFixture([modelNote("note", "A note to keep", 0, 0)]),
     },
   },
 });

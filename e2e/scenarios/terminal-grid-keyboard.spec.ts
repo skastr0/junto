@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * The terminal grid and the keyboard, on live seats.
  *   bun run test:e2e:fast e2e/scenarios/terminal-grid-keyboard.spec.ts
@@ -8,15 +9,15 @@
  * nothing, and the keys typed next reach the agent the operator was typing
  * to, never another one.
  */
-import { crewDoc, crewOccupySeat, crewPlayFactory, crewSeat, crewSeatNode, installCrewSeatHarness } from "../harness/crew-fixture";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 
 test("[fake-tui] the grid's Escape rule, and a press between cells keeps the keyboard with the agent in use", async () => {
   test.setTimeout(240_000);
   const CANVAS = "grid-keys";
   const ids = ["one", "two", "three"];
-  const nodes = ids.map((id, i) => crewSeatNode({ id, x: 40 + i * 320, y: 40 }));
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: crewDoc(nodes) }, afterSeed: installCrewSeatHarness });
+  const nodes = ids.map((id, i) => modelSeat({ id, x: 40 + i * 320, y: 40 }));
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes) }, afterSeed: installCrewSeatHarness });
   try {
     const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

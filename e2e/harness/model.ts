@@ -79,6 +79,15 @@ export const modelWire = (
   });
 };
 
+/** Echo entered lines to the screen and a transcript file. */
+export const modelEchoTerminal = (input: {
+  readonly id: string; readonly bindingId: string; readonly label: string;
+  readonly transcript: string; readonly x?: number; readonly y?: number;
+}): Terminal => modelTerminal({
+  ...input,
+  launch: { kind: "command", argv: ["/bin/sh", "-c", "printf 'echo-ready\\r\\n'; exec tee \"$0\"", input.transcript] },
+});
+
 /** A directed mail relationship; a mask keeps only the named ports. */
 export const modelMessagesWire = (
   id: string, from: string, to: string, nodes: ReadonlyArray<Node>, mask?: Wire["mask"],

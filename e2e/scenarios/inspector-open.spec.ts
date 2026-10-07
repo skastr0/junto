@@ -1,12 +1,12 @@
-import { textNode, canvasDoc } from "../harness/sandbox";
+import { modelNote, modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const FIXTURE_TEXT = "Inspect this note";
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      inspector: canvasDoc([textNode("n1", FIXTURE_TEXT, 0, 0)]),
+    seedModels: {
+      inspector: modelFixture([modelNote("n1", FIXTURE_TEXT, 0, 0)]),
     },
   },
 });

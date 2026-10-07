@@ -1,4 +1,4 @@
-import { textNode, canvasDoc } from "../harness/sandbox";
+import { modelNote, modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const FIXTURE_TEXT = "Hello Junto e2e";
@@ -42,8 +42,8 @@ const probeCanceledNavigation = async (
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      boot: canvasDoc([textNode("n1", FIXTURE_TEXT, 0, 0)]),
+    seedModels: {
+      boot: modelFixture([modelNote("n1", FIXTURE_TEXT, 0, 0)]),
     },
     extraEnv: {
       JUNTO_E2E_RENDERER_SURFACE_TIMEOUT_MS: "5000",
