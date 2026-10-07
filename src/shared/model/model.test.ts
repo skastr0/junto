@@ -81,6 +81,17 @@ describe("commands", () => {
     expect(Exit.isFailure(edit({ kind: "note", harness: "claude" }))).toBe(true);
   });
 
+  it("sends nodes to the front or the back", () => {
+    const restack = (to: string) =>
+      decode({ _tag: "Restack", canvas: "factory", nodes: ["n1", "n2"], to });
+    expect(Exit.isSuccess(restack("front"))).toBe(true);
+    expect(Exit.isFailure(restack("middle"))).toBe(true);
+  });
+
+  it("keeps a seat's label to one line", () => {
+    expect(Exit.isFailure(run(decodeNode({ ...seat, label: "a\nb" })))).toBe(true);
+  });
+
   it("cannot change who a seat is", () => {
     const edit = (change: unknown) =>
       decode({ _tag: "Edit", canvas: "factory", id: "n1", change });

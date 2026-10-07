@@ -10,6 +10,7 @@ import {
   GitCard,
   Launch,
   Node,
+  OneLine,
   Page,
   PageOnRemove,
   TerminalOnRemove,
@@ -47,7 +48,7 @@ const edit = <const K extends NodeKind, Fields extends Schema.Struct.Fields>(
  */
 export const NodeEdit = Schema.Union([
   edit("agent", {
-    label: set(Schema.String),
+    label: set(OneLine),
     host: set(HostId),
     harness: set(HarnessId),
     launch: setOrClear(Launch),
@@ -108,7 +109,11 @@ export const NodeMove = Schema.Struct({
 export type NodeMove = typeof NodeMove.Type;
 
 export const Command = Schema.TaggedUnion({
-  /** Put new nodes and wires on a canvas. Ids are minted by the sender. */
+  /**
+   * Put new nodes and wires on a canvas. Ids are minted by the sender. A seat
+   * that was removed may be added back as it was, name and session binding
+   * included: that is how a removal is undone.
+   */
   Add: {
     canvas: CanvasName,
     nodes: Schema.Array(Node),
@@ -122,8 +127,15 @@ export const Command = Schema.TaggedUnion({
   },
   /** Move or resize. Many at once is one command: a drag of a selection. */
   Move: { canvas: CanvasName, moves: Schema.Array(NodeMove) },
-  /** Change the paint order. Lists the nodes that move, lowest first. */
-  Restack: { canvas: CanvasName, order: Schema.Array(NodeId) },
+  /**
+   * Bring nodes to the front or send them to the back, keeping their order
+   * among themselves.
+   */
+  Restack: {
+    canvas: CanvasName,
+    nodes: Schema.Array(NodeId),
+    to: Schema.Literals(["front", "back"]),
+  },
   Recolor: {
     canvas: CanvasName,
     nodes: Schema.Array(NodeId),

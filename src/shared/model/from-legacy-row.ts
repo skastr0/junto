@@ -53,7 +53,7 @@ export const nodeFromLegacyRow = (row: LegacyNodeRow): Node => {
   });
   switch (old?.entity?.kind) {
     case "agent": return decodeNode({
-      ...base, kind: "agent", name: old.entity.name, label: text,
+      ...base, kind: "agent", name: old.entity.name, label: text.split(/\r?\n/, 1)[0] ?? "",
       host, overseer: old.overseer ?? false, bindingId: old.terminal?.bindingId,
       harness: old.terminal?.harness, onRemove: old.terminal?.onDelete ?? "detach",
       ...present("launch", old.terminal?.launch),

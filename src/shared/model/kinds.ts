@@ -18,6 +18,12 @@ const EnvName = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)),
 );
 
+/** Text that names something: no line breaks. */
+export const OneLine = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[^\r\n]*$/)),
+  Schema.check(Schema.isMaxLength(256)),
+);
+
 // ── Seats and terminals ─────────────────────────────────────────────────────
 
 export const LaunchKind = Schema.Literals(["shell", "command", "harness"]);
@@ -55,8 +61,8 @@ export const Seat = Schema.Struct({
   ...placement,
   /** Fixed at creation and never edited: the key other records join on. */
   name: NonEmpty,
-  /** What the operator sees and may rename. */
-  label: Schema.String,
+  /** What the operator sees and may rename. One line. */
+  label: OneLine,
   host: HostId,
   /** Operator-granted administrative authority over the canvas. */
   overseer: Schema.Boolean,

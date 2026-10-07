@@ -15,7 +15,10 @@ export const Changed = Schema.Struct({
   canvas: CanvasName,
   /** The canvas's count after this change. Always the previous one plus one. */
   seq: Seq,
-  /** Nodes as they are now, whether new or changed. */
+  /**
+   * Nodes as they are now, whether new or changed. Every node whose `z` moved
+   * is here, including ones another node's removal or restack only shifted.
+   */
   nodes: Schema.Array(Node),
   wires: Schema.Array(Wire),
   removedNodes: Schema.Array(NodeId),

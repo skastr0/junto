@@ -8,3 +8,4 @@ export * from "./sheet";
 export * from "./wire";
 export * from "./commands";
 export * from "./events";
+export * from "./canvas";
