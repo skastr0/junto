@@ -73,6 +73,8 @@ test("a shortcut is listed, recorded, refused on a clash, and then answered", as
 
     await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
     await expect.poll(theme).toBe("bright");
+    // Colours ease from one theme to the other: let them land before the frame.
+    await page.waitForTimeout(600);
     await shot("changed-bright");
     await feedRow().click();
     await shot("recording-bright");
