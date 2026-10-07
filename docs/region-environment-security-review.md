@@ -69,6 +69,13 @@ overlay bundle check. The targeted security and region-environment run passed
 241 tests. The disclosure, shared-secret, credential-precedence, and orphan-child
 regressions were observed failing before their respective fixes.
 
+The two relevant Electron UI cases (`S2 forms` and `S4 and S12 secret`) passed
+with the official Plus overlay. They verified fictional examples, masked entry,
+an empty value on edit, an owner-only secret file, and source removal retaining
+that file. Their screenshots were inspected. These runs used a disposable home
+and forced file store; neither case contacted a real Keychain or 1Password.
+The resulting official bundle also passed `check:overlay-bundle`.
+
 The installed and published 0.4.1 release was built with the official Plus
 overlay at `5f067f078e73622f24707ffb3931624613bec5c9`. Its final build log names
 that revision and passes the official overlay check. The installed `app.asar`
