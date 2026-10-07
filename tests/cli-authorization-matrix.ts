@@ -1,12 +1,11 @@
 import { HashSet, Result } from "effect";
 import { commandCapabilities } from "../src/cli/core/discovery";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
+import type { Node, Wire } from "../src/shared/model";
 import {
   KindSpecs,
   WELL_KNOWN_KINDS,
   admitPure,
   asNodeId,
-  canvasDocToCapabilityView,
   isTargetWorkOp,
   portForWorkOp,
   type Port,
@@ -14,6 +13,23 @@ import {
   type Verb,
   type WellKnownKind,
 } from "../src/shared/physics";
+import { canvasToCapabilityView } from "../src/shared/physics/view";
+import {
+  artifacts,
+  board,
+  canvasOf,
+  cron,
+  pad,
+  page,
+  relay,
+  requests,
+  seat,
+  sheet,
+  taskBoard,
+  terminal,
+  watcher,
+  wire,
+} from "./support/model-nodes";
 
 /**
  * How the edge in a cell states its relationship. A verb is the whole authored
@@ -121,23 +137,30 @@ export const expectedCliAuthorizationCellCount = (): number =>
   MATRIX_DIRECTIONS.length *
   MATRIX_EDGE_MODES.length;
 
-const textNode = (id: string, kind: WellKnownKind, x: number): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x,
-  y: 0,
-  width: 160,
-  height: 80,
-  // A seat is an agent with a binding and a harness; the model holds no other.
-  ether:
-    kind === "agent"
-      ? {
-          entity: { kind, name: `local:${id}` },
-          terminal: { bindingId: `binding-${id}`, harness: "claude" },
-        }
-      : { entity: { kind } },
-});
+const at = (x: number) => ({ x, y: 0, width: 160, height: 80 });
+
+/**
+ * One node of a well-known kind, as the model holds it. The model has no
+ * interval timer: a timer was folded into cron, so the timer cells are built
+ * on a cron node, which is what a stored timer is read as.
+ */
+const BUILDERS: { readonly [K in WellKnownKind]: (id: string, x: number) => Node } = {
+  agent: (id, x) => seat(id, at(x)),
+  page: (id, x) => page(id, at(x)),
+  task: (id, x) => taskBoard(id, at(x)),
+  requests: (id, x) => requests(id, at(x)),
+  artifacts: (id, x) => artifacts(id, at(x)),
+  board: (id, x) => board(id, at(x)),
+  pad: (id, x) => pad(id, at(x)),
+  sheet: (id, x) => sheet(id, at(x)),
+  terminal: (id, x) => terminal(id, at(x)),
+  watcher: (id, x) => watcher(id, at(x)),
+  timer: (id, x) => cron(id, at(x)),
+  cron: (id, x) => cron(id, at(x)),
+  relay: (id, x) => relay(id, at(x)),
+};
+
+const nodeOfKind = (id: string, kind: WellKnownKind, x: number): Node => BUILDERS[kind](id, x);
 
 /**
  * The oracle, restated from the frozen verb grammar rather than read back out
@@ -180,12 +203,12 @@ const edgeFor = (
   direction: MatrixDirection,
   edgeMode: MatrixEdgeMode,
   targetKind: WellKnownKind,
-): CanvasEdge | undefined => {
+): Wire | undefined => {
   const verb = verbFor(targetKind, edgeMode);
   if (verb === undefined) return undefined;
-  const [fromNode, toNode] =
+  const [from, to] =
     direction === "forward" ? ["source", "target"] : ["target", "source"];
-  return { id: "edge", fromNode, toNode, ether: { verb } };
+  return wire("edge", from!, to!, verb);
 };
 
 const expectedAdmission = (
@@ -217,15 +240,15 @@ export const generateCliAuthorizationMatrix = (): ReadonlyArray<CliMatrixCell> =
         for (const direction of MATRIX_DIRECTIONS) {
           for (const edgeMode of MATRIX_EDGE_MODES) {
             const edge = edgeFor(direction, edgeMode, targetKind);
-            const doc: CanvasDoc = {
-              nodes: [
-                textNode("source", sourceKind, 0),
-                textNode("target", targetKind, 240),
+            const canvas = canvasOf(
+              [
+                nodeOfKind("source", sourceKind, 0),
+                nodeOfKind("target", targetKind, 240),
               ],
-              edges: edge === undefined ? [] : [edge],
-            };
+              edge === undefined ? [] : [edge],
+            );
             const result = admitPure(
-              canvasDocToCapabilityView(doc),
+              canvasToCapabilityView(canvas),
               asNodeId("source"),
               asNodeId("target"),
               port,
