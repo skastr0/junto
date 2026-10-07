@@ -3,11 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { agentKeysForWatcher } from "../src/shared/station";
-import {
-  buildPortfolioDoc,
-  hermesAgentsFromSnapshots,
-  snapshotAgentHostId,
-} from "../src/shared/portfolio";
+
 import { buildConnectionIndex } from "../src/shared/connections";
 import {
   isLocalHermesHost,
@@ -73,44 +69,6 @@ const routedDoc = (
 });
 
 describe("canonical Hermes station identity", () => {
-  it("uses physical hostId for portfolio execution, never the display label", () => {
-    const entity = {
-      source: "hermes" as const,
-      key: "fleet-studio:default",
-      kind: "agent",
-      title: "default",
-      stats: {
-        host: "Studio Display Name",
-        hostId: "studio",
-      },
-      updatedAt: "2026-07-23T00:00:00.000Z",
-    };
-
-    expect(snapshotAgentHostId(entity, "wrong-station")).toBe("studio");
-    const doc = buildPortfolioDoc({
-      bundles: [{
-        source: "hermes",
-        fetchedAt: entity.updatedAt,
-        ok: true,
-        entities: [entity],
-      }],
-    });
-    expect(doc.nodes[0]?.ether).toMatchObject({
-      entity: { name: "fleet-studio:default" },
-      host: "studio",
-    });
-    const added = doc.nodes[0];
-    expect(added?.type).toBe("text");
-    if (added?.type === "text") {
-      expect(added.text).toContain("Studio Display Name");
-    }
-  });
-
-  it("falls back to the station's physical hostId when stats carry no canonical hostId", () => {
-    expect(snapshotAgentHostId({ key: "fleet-render:default", stats: {} }, "studio"))
-      .toBe("studio");
-  });
-
   it("keeps successful Hermes facts visible when another fleet host made the bundle partial", () => {
     const state = {
       bundles: [{
@@ -131,12 +89,6 @@ describe("canonical Hermes station identity", () => {
       }],
     };
 
-    expect(hermesAgentsFromSnapshots(state).map((entity) => entity.key))
-      .toEqual(["fleet-studio:default"]);
-    expect(buildPortfolioDoc(state).nodes[0]?.ether).toMatchObject({
-      entity: { name: "fleet-studio:default" },
-      host: "studio",
-    });
     expect(buildConnectionIndex(state).byKey.get("hermes:fleet-studio:default"))
       .toMatchObject({ stale: false });
   });

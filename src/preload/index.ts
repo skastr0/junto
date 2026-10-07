@@ -805,8 +805,6 @@ const padWorkApi: Pick<JuntoApi, "workPadRead" | "workPadPatch"> = {
 };
 
 const hermesIntegrationApi: JuntoHermesIntegrationApi = {
-  generatePortfolio: (name, options) =>
-    invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),
   refreshSnapshots: (hints) =>
     invoke(IPC_CHANNELS.refreshSnapshots, IPC_TIMEOUT_MS, hints),
   agentMessage: (key, text) =>

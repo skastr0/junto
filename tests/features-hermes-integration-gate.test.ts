@@ -105,9 +105,6 @@ describe("Hermes integration product gate", () => {
       );
       expect(preload).toContain("...chatApi,");
       expect(ipc).toContain(
-        "if (HERMES_INTEGRATION_ENABLED) privilegedIpc.handle(\n    IPC_CHANNELS.generatePortfolio",
-      );
-      expect(ipc).toContain(
         "if (HERMES_INTEGRATION_ENABLED) {\n    privilegedIpc.handle(IPC_CHANNELS.agentMessage",
       );
       expect(ipc).toContain("void registerChatIpc(");

@@ -168,7 +168,6 @@ export const IPC_CHANNELS = {
   modelSheetChanged: "junto:model-sheet-changed",
   modelStart: "junto:model-start",
   modelStop: "junto:model-stop",
-  generatePortfolio: "junto:generate-portfolio",
   getSnapshots: "junto:get-snapshots",
   refreshSnapshots: "junto:refresh-snapshots",
   getUsage: "junto:get-usage",
@@ -759,10 +758,7 @@ export interface JuntoSchedulerApi {
 }
 
 export interface JuntoHermesIntegrationApi {
-  readonly generatePortfolio: (
-    name: string,
-    options?: { all?: boolean },
-  ) => Promise<CanvasReadResult>;
+
   readonly refreshSnapshots: (
     hints?: ReadonlyArray<BindingHint>,
   ) => Promise<SnapshotState>;

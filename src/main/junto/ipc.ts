@@ -14,7 +14,6 @@ import type { CanvasDoc } from "@shared/canvas";
 import type { Canvas } from "@shared/model";
 import { pauseWasResumed } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
-import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
@@ -511,31 +510,6 @@ export const registerJuntoIpc = (): void => {
         return { digest };
       }),
     ),
-  );
-
-  if (HERMES_INTEGRATION_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.generatePortfolio,
-    (_event, name: string, options?: { all?: boolean }) =>
-      runMainAuthoring(
-        "ipc.canvas.portfolio",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const canvases = yield* CanvasesService;
-            const snapshots = yield* SnapshotsService;
-            // Fresh full-corpus pull (no hints = base project lists from each source).
-            const state = yield* snapshots.refresh([]);
-            // mergePortfolioInto is idempotent. Run it through the retrying
-            // document mutation boundary so a direct-file edit during refresh
-            // is merged into, never overwritten by a stale pre-refresh read.
-            yield* canvases.mutate(name, (doc) =>
-              mergePortfolioInto(doc, state, {
-                all: options?.all ?? false,
-              }),
-            );
-            return yield* canvases.read(name, "ipc.mergePortfolio");
-          }),
-        ),
-      ),
   );
 
   privilegedIpc.handle(IPC_CHANNELS.getSnapshots, () =>
