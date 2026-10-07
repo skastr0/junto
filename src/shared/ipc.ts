@@ -93,6 +93,18 @@ import type {
   SeatGuidanceMap,
   SeatGuidanceSetResult,
 } from "./seat-guidance";
+import type {
+  AppBriefing,
+  AppBriefingWriteResult,
+  ReferenceDeleteResult,
+  ReferencePlaceInput,
+  ReferenceReadInput,
+  ReferenceSummary,
+  ReferenceWriteInput,
+  ReferenceWriteResult,
+  ReferencesChangedEvent,
+  StoredReference,
+} from "./references";
 import type { SourceReport, StaleSeat } from "./region-environment";
 import type {
   OffboardMode,
@@ -186,6 +198,13 @@ export const IPC_CHANNELS = {
   seatGuidanceList: "junto:seat-guidance-list",
   seatGuidanceSet: "junto:seat-guidance-set",
   seatGuidance: "junto:seat-guidance",
+  appBriefingRead: "junto:app-briefing-read",
+  appBriefingWrite: "junto:app-briefing-write",
+  referencesList: "junto:references-list",
+  referencesRead: "junto:references-read",
+  referencesWrite: "junto:references-write",
+  referencesDelete: "junto:references-delete",
+  referencesChanged: "junto:references-changed",
   /** Region environment: save or remove a value in Junto's own secret store. */
   regionEnvSaveSecret: "junto:region-env-save-secret",
   regionEnvRemoveSecret: "junto:region-env-remove-secret",
@@ -873,6 +892,17 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     seatId: string,
     guidance: SeatGuidance | null,
   ) => Promise<SeatGuidanceSetResult>;
+  /** The app briefing every seat gets at onboard; null when there is none. */
+  readonly appBriefingRead: () => Promise<AppBriefing | null>;
+  /** Replace the app briefing; an empty body clears it. */
+  readonly appBriefingWrite: (body: string) => Promise<AppBriefingWriteResult>;
+  /** References by name, never their bodies: app-wide, or one region's. */
+  readonly referencesList: (place?: ReferencePlaceInput) => Promise<ReadonlyArray<ReferenceSummary>>;
+  /** One reference with its body; null when there is none by that name. */
+  readonly referencesRead: (input: ReferenceReadInput) => Promise<StoredReference | null>;
+  /** Create or replace a reference. An empty body is refused: delete instead. */
+  readonly referencesWrite: (input: ReferenceWriteInput) => Promise<ReferenceWriteResult>;
+  readonly referencesDelete: (input: ReferenceReadInput) => Promise<ReferenceDeleteResult>;
   /**
    * Save a value in Junto's own secret store on this machine. The value
    * crosses once and is never returned by any call; the answer is the id a
@@ -1135,6 +1165,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onSquadsChanged?: (listener: (event: SquadsChanged) => void) => () => void;
   /** Main -> renderer: one seat's guidance as it now stands. */
   readonly onSeatGuidance?: (listener: (event: SeatGuidanceEvent) => void) => () => void;
+  /** Main -> renderer: the briefing or a reference changed, whoever wrote it. Read again. */
+  readonly onReferencesChanged?: (listener: (event: ReferencesChangedEvent) => void) => () => void;
   /** Main -> renderer: one seat's offboard moved on (asked, saved, resting, started). */
   readonly onSeatOffboardProgress?: (listener: (event: SeatOffboardProgress) => void) => () => void;
   /** Main -> renderer: one seat onboarded, or started a session that has not. */

@@ -46,6 +46,7 @@ import {
 } from "./hosts/shutdown";
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
+import { registerReferencesIpc } from "./references/ipc";
 import { SettingsService } from "./settings/service";
 import { registerObservabilityIpc } from "./observability";
 import { registerUpdateIpc } from "./update/ipc";
@@ -420,6 +421,7 @@ export const registerJuntoIpc = (): void => {
   });
   registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);
+  registerReferencesIpc(privilegedIpc, broadcast, (effect) => AppRuntime.runPromise(effect));
   registerObservabilityIpc(privilegedIpc, broadcast);
   if (FLEET_UI_ENABLED) {
     registerHostsIpc(privilegedIpc);

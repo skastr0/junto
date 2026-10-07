@@ -75,7 +75,26 @@ export type ReferencesChangedEvent =
       readonly regionId?: string;
     };
 
-export type ReferenceWriteInput = {
+/** One line of a list the operator or an overseer reads: never a body. */
+export type ReferenceSummary = {
+  readonly name: string;
+  readonly description?: string;
+  readonly bytes: number;
+  readonly updatedAt: number;
+};
+
+/**
+ * Where the window means: nothing for the app-wide references, or both a
+ * canvas and one of its regions.
+ */
+export type ReferencePlaceInput = {
+  readonly canvasName?: string;
+  readonly regionId?: string;
+};
+
+export type ReferenceReadInput = ReferencePlaceInput & { readonly name: string };
+
+export type ReferenceWriteInput = ReferencePlaceInput & {
   readonly name: string;
   readonly description?: string;
   readonly body: string;
@@ -84,6 +103,12 @@ export type ReferenceWriteInput = {
 export type ReferencesResult<A> =
   | ({ readonly ok: true } & A)
   | { readonly ok: false; readonly message: string };
+
+/** The briefing as it now stands; null when the write cleared it. */
+export type AppBriefingWriteResult = ReferencesResult<{ readonly briefing: AppBriefing | null }>;
+export type ReferenceWriteResult = ReferencesResult<{ readonly reference: ReferenceSummary }>;
+/** `deleted` is false when there was no such reference. */
+export type ReferenceDeleteResult = ReferencesResult<{ readonly deleted: boolean }>;
 
 export type ReferenceNameResult =
   | { readonly ok: true; readonly name: string }
@@ -146,6 +171,13 @@ export function referencesInScope(input: {
   }
   return [...byName.values()];
 }
+
+export const toReferenceSummary = (reference: StoredReference): ReferenceSummary => ({
+  name: reference.name,
+  ...(reference.description !== undefined ? { description: reference.description } : {}),
+  bytes: referenceBytes(reference.body),
+  updatedAt: reference.updatedAt,
+});
 
 export const toReferenceListing = (reference: ScopedReference): ReferenceListing => ({
   name: reference.name,

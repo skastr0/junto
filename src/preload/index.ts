@@ -58,6 +58,7 @@ import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } fr
 import type { UsageState } from "@shared/usage";
 import type { SquadsChanged } from "@shared/squads";
 import type { SeatGuidanceEvent } from "@shared/seat-guidance";
+import type { ReferencesChangedEvent } from "@shared/references";
 import type { SeatOffboardProgress } from "@shared/seat-sessions";
 import type { SeatOnboardingEvent } from "@shared/seat-onboarding-status";
 import type { ProfilesChanged } from "@shared/agent-profiles";
@@ -484,6 +485,12 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   seatGuidanceList: () => invoke(IPC_CHANNELS.seatGuidanceList, IPC_TIMEOUT_MS),
   seatGuidanceSet: (seatId, guidance) =>
     invoke(IPC_CHANNELS.seatGuidanceSet, IPC_TIMEOUT_MS, seatId, guidance),
+  appBriefingRead: () => invoke(IPC_CHANNELS.appBriefingRead, IPC_TIMEOUT_MS),
+  appBriefingWrite: (body) => invoke(IPC_CHANNELS.appBriefingWrite, IPC_TIMEOUT_MS, body),
+  referencesList: (place) => invoke(IPC_CHANNELS.referencesList, IPC_TIMEOUT_MS, place),
+  referencesRead: (input) => invoke(IPC_CHANNELS.referencesRead, IPC_TIMEOUT_MS, input),
+  referencesWrite: (input) => invoke(IPC_CHANNELS.referencesWrite, IPC_TIMEOUT_MS, input),
+  referencesDelete: (input) => invoke(IPC_CHANNELS.referencesDelete, IPC_TIMEOUT_MS, input),
   regionEnvSaveSecret: (input) =>
     invoke(IPC_CHANNELS.regionEnvSaveSecret, IPC_TIMEOUT_MS, input),
   regionEnvRemoveSecret: (secretId) =>
@@ -538,6 +545,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     subscribe<PortraitOverrideEvent>(IPC_CHANNELS.portraitOverride, listener),
   onSquadsChanged: (listener) => subscribe<SquadsChanged>(IPC_CHANNELS.squadsChanged, listener),
   onSeatGuidance: (listener) => subscribe<SeatGuidanceEvent>(IPC_CHANNELS.seatGuidance, listener),
+  onReferencesChanged: (listener) => subscribe<ReferencesChangedEvent>(IPC_CHANNELS.referencesChanged, listener),
   onSeatOffboardProgress: (listener) =>
     subscribe<SeatOffboardProgress>(IPC_CHANNELS.seatOffboardProgress, listener),
   onSeatOnboardingChanged: (listener) =>
