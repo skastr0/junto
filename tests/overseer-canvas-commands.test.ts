@@ -366,16 +366,13 @@ describe("executeOverseerCanvas", () => {
       },
       "AuthError",
     );
-    // The model lets only the operator change an overseer seat, its own name
-    // included.
-    const renamed = await expectErr(
-      {
-        operation: "node.configure",
-        args: { nodeId: "overseer", changes: { text: "still me" } },
-      },
-      "AuthError",
-    );
-    expect(renamed.message).toMatch(/Only the operator/u);
+    // An overseer may rename, move and recolor an overseer seat, its own
+    // included; what the seat runs and whether it exists is the operator's.
+    await expectOk({
+      operation: "node.configure",
+      args: { nodeId: "overseer", changes: { text: "still me" } },
+    });
+    await expectOk({ operation: "node.move", args: { nodeId: "overseer", x: 40, y: 60 } });
     setOverseerNativeDeleteHooks({
       prepareOverseerNodeDelete: async () => ({
         ok: true,

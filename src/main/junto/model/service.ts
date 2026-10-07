@@ -212,14 +212,15 @@ export class ModelService extends Context.Service<ModelService>()(
                   ? Effect.succeed(wire)
                   : Effect.fail(new ModelNotFound({ what: "wire", id }));
               };
-              const mayChange = (node: Node) =>
+              const mayChange = (node: Node, presentation = false) =>
                 node.kind === "agent" &&
                 node.overseer &&
                 source !== "operator" &&
-                command._tag !== "RecordSession"
+                command._tag !== "RecordSession" &&
+                !(source === "overseer" && presentation)
                   ? Effect.fail(
                       refused(
-                        "Only the operator can change or remove an overseer seat.",
+                        "Only the operator can change what an overseer seat runs or remove it.",
                       ),
                     )
                   : Effect.void;
@@ -282,9 +283,10 @@ export class ModelService extends Context.Service<ModelService>()(
               const writtenSheets = new Set<Node["id"]>();
               const saveNode = Effect.fn("ModelService.saveNode")(function* (
                 node: Node,
+                presentation = false,
               ) {
                 const previous = yield* requireNode(node.id);
-                yield* mayChange(previous);
+                yield* mayChange(previous, presentation);
                 if (isDeepStrictEqual(previous, node)) return;
                 nodesById.set(node.id, node);
               });
@@ -408,6 +410,7 @@ export class ModelService extends Context.Service<ModelService>()(
                         ...move.size,
                         ...(move.z === undefined ? {} : { z: move.z }),
                       }),
+                      true,
                     );
                   break;
                 case "Restack": {
@@ -424,7 +427,7 @@ export class ModelService extends Context.Service<ModelService>()(
                       ? Math.max(0, ...extremes) + 1
                       : Math.min(0, ...extremes) - moving.length;
                   for (const node of moving)
-                    yield* saveNode(yield* decodeNode({ ...node, z: z++ }));
+                    yield* saveNode(yield* decodeNode({ ...node, z: z++ }), true);
                   break;
                 }
                 case "Recolor":
@@ -433,6 +436,7 @@ export class ModelService extends Context.Service<ModelService>()(
                       yield* decodeNode(
                         patch(yield* requireNode(id), { color: step.color }),
                       ),
+                      true,
                     );
                   break;
                 case "Edit": {
@@ -443,7 +447,7 @@ export class ModelService extends Context.Service<ModelService>()(
                     );
                   const edited = yield* decodeNode(patch(node, step.change));
                   if (edited.kind === "agent" && node.kind === "agent" && edited.host !== node.host) yield* records.requireSeatHost(edited.host);
-                  yield* saveNode(edited);
+                  yield* saveNode(edited, Object.keys(step.change).every((key) => key === "kind" || key === "label"));
                   break;
                 }
                 case "RecordSession": {

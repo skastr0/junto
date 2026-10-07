@@ -411,6 +411,59 @@ it("keeps transaction drafts private, discards failed savepoints, and reads held
     }),
   ));
 
+it("allows overseer seat presentation changes directly and inside a batch", () =>
+  run((model) => Effect.gen(function* () {
+    yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [{ ...seat, overseer: true }], wires: [] }), "operator");
+    for (const batched of [false, true]) {
+      const steps = [
+        { _tag: "Move", canvas: "factory", moves: [{ id: "seat", x: batched ? 20 : 10, y: 30, size: { width: 300, height: 120 } }] },
+        { _tag: "Restack", canvas: "factory", nodes: ["seat"], to: "front" },
+        { _tag: "Recolor", canvas: "factory", nodes: ["seat"], color: batched ? "2" : "1" },
+        { _tag: "Edit", canvas: "factory", id: "seat", change: { kind: "agent", label: batched ? "Renamed again" : "Renamed" } },
+      ];
+      if (batched) yield* model.command(decode({ _tag: "Batch", canvas: "factory", steps }), "overseer");
+      else for (const step of steps) yield* model.command(decode(step), "overseer");
+    }
+    expect((yield* model.open("factory")).nodes[0]).toMatchObject({
+      label: "Renamed again", x: 20, y: 30, width: 300, height: 120, color: "2",
+      overseer: true, host: "local", harness: "codex", bindingId: "binding",
+    });
+    expect((yield* model.open("factory")).seq).toBe(6);
+  })),
+);
+
+it("refuses overseer occupant changes and rolls back presentation steps before them", () =>
+  run((model) => Effect.gen(function* () {
+    yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [{ ...seat, overseer: true }], wires: [] }), "operator");
+    const original = yield* model.open("factory");
+    const events: Changed[] = [];
+    const stop = model.subscribeChanges((event) => events.push(event));
+    const prohibited = [
+      ...[{ launch: { kind: "harness", cwd: "/tmp" } }, { host: "other" }, { harness: "claude" }, { onRemove: "kill-session" }, { label: "Renamed", launch: null }].map((change) => ({
+        _tag: "Edit", canvas: "factory", id: "seat", change: { kind: "agent", ...change },
+      })),
+      { _tag: "Remove", canvas: "factory", nodes: ["seat"], wires: [] },
+      { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:other", bindingId: "fresh-binding", harness: "claude", host: "local" },
+    ];
+    for (const step of prohibited) {
+      for (const input of [step, { _tag: "Batch", canvas: "factory", steps: [
+        { _tag: "Move", canvas: "factory", moves: [{ id: "seat", x: 50, y: 60 }] }, step,
+      ] }]) {
+        expect((yield* model.command(decode(input), "overseer").pipe(Effect.result))._tag).toBe("Failure");
+        expect(yield* model.open("factory")).toEqual(original);
+      }
+    }
+    for (const step of [
+      { _tag: "Edit", canvas: "factory", id: "seat", change: { kind: "agent", label: "Runtime rename" } },
+      { _tag: "Move", canvas: "factory", moves: [{ id: "seat", x: 5, y: 6 }] },
+    ]) expect((yield* model.command(decode(step), "runtime").pipe(Effect.result))._tag).toBe("Failure");
+    expect(events).toEqual([]);
+    yield* model.command(decode({ _tag: "RecordSession", canvas: "factory", id: "seat", sessionId: "captured" }), "runtime");
+    expect((yield* model.open("factory")).nodes[0]).toMatchObject({ overseer: true, sessionId: "captured" });
+    stop();
+  })),
+);
+
 it("refuses protected-seat edits, runtime commands, duplicate bindings and duplicate relationships", () =>
   run((model) =>
     Effect.gen(function* () {
