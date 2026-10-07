@@ -351,6 +351,13 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
     await sleep(120);
     await evaluate(`(() => { window.__verifyWatch.release = Math.round((performance.now() - window.__verifyWatch.start) * 10) / 10; window.__verifyWatch.frames.length = 0; })()`);
   }
+  // The loom's own record of obstacle publications that differed from the one before (when the build keeps it).
+  const obstacleChanges = () =>
+    evaluate<{ now: number; changes: Array<{ atMs: number; dragging: string[]; count: number; changed: unknown[] }> } | null>(`(() => {
+      const snap = typeof juntoPerf === "object" ? juntoPerf.snapshot() : null;
+      return snap && Array.isArray(snap.loomObstacleChanges) ? { now: performance.now(), changes: snap.loomObstacleChanges } : null;
+    })()`);
+  const obstaclesBeforeRelease = watchDrops ? await obstacleChanges() : null;
   const released = Date.now();
   await mouse("mouseReleased", grip.x + direction * steps * stepX, grip.y + direction * steps * stepY);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
@@ -380,6 +387,13 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
         return { compared: 0, apart: [], error: String(error).slice(0, 200) };
       }
     })()`);
+    const obstaclesAfter = await obstacleChanges();
+    if (obstaclesBeforeRelease && obstaclesAfter) {
+      const lastSeen = obstaclesBeforeRelease.changes.at(-1)?.atMs ?? -1;
+      const fresh = obstaclesAfter.changes.filter((entry) => entry.atMs > lastSeen);
+      // Times are the recorder's clock; pageClockJustBeforeRelease is performance.now() in the page, for placing them.
+      console.log(JSON.stringify({ loomObstacleChangesSinceRelease: fresh.map((entry) => ({ atMs: Math.round(entry.atMs * 10) / 10, dragging: entry.dragging.length, count: entry.count, changed: entry.changed.slice(0, 4) })), pageClockJustBeforeRelease: Math.round(obstaclesBeforeRelease.now * 10) / 10, repeat }));
+    }
     console.log(JSON.stringify({ modelAgainstScreen: { compared: apart.compared, apart: apart.apart.length, first: apart.apart.slice(0, 3), error: apart.error ?? null }, repeat }));
   }
   const selectionAtRelease = lacking(await selectionOf());
