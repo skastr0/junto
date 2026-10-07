@@ -19,7 +19,7 @@ import type {
   OverseerNodeEtherChanges,
 } from "./overseer-control";
 import { validateFlowDag } from "./flow-graph";
-import { wiresFromDocument } from "./model/from-document";
+import { wireOfDocument, wiresFromDocument } from "./model/from-document";
 import { verbsForPair, type Verb } from "./physics/verbs";
 
 export type OverseerSeatBinding = {
@@ -463,13 +463,13 @@ export const applyEdgeChanges = (
 const schedulerChainCycle = (doc: CanvasDoc): boolean => {
   const indegrees = new Map<string, number>();
   const outgoing = new Map<string, string[]>();
-  for (const edge of doc.edges) {
-    if (edge.ether?.verb !== "chains") continue;
-    indegrees.set(edge.fromNode, indegrees.get(edge.fromNode) ?? 0);
-    indegrees.set(edge.toNode, (indegrees.get(edge.toNode) ?? 0) + 1);
-    const targets = outgoing.get(edge.fromNode) ?? [];
-    targets.push(edge.toNode);
-    outgoing.set(edge.fromNode, targets);
+  for (const wire of wiresFromDocument(doc).wires.values()) {
+    if (wire.verb !== "chains") continue;
+    indegrees.set(wire.from, indegrees.get(wire.from) ?? 0);
+    indegrees.set(wire.to, (indegrees.get(wire.to) ?? 0) + 1);
+    const targets = outgoing.get(wire.from) ?? [];
+    targets.push(wire.to);
+    outgoing.set(wire.from, targets);
   }
   const ready = [...indegrees].filter(([, degree]) => degree === 0).map(([id]) => id);
   for (let index = 0; index < ready.length; index += 1) {
@@ -583,7 +583,7 @@ export const applyCanvasBatch = (
             return reject("Forbidden", "edge touches a kind disabled in this Junto build");
           }
           const verb = step.changes.verb;
-          if (verb !== edge.ether?.verb && gatedVerbOf(verb) !== undefined) {
+          if (verb !== wireOfDocument(edge)?.verb && gatedVerbOf(verb) !== undefined) {
             return reject("Forbidden", `verb "${verb}" is disabled in this Junto build`);
           }
           edges.set(edge.id, applyEdgeChanges(edge, step.changes));
@@ -632,7 +632,8 @@ export const applyCanvasBatch = (
       sameEndpointKind(previousNodes.get(edge.fromNode), fromNode) &&
       sameEndpointKind(previousNodes.get(edge.toNode), toNode);
     if (untouched) continue;
-    if (edge.ether?.verb === undefined || !edgeVerbAdmitted(fromNode, toNode, edge.ether.verb)) {
+    const verb = wireOfDocument(edge)?.verb;
+    if (verb === undefined || !edgeVerbAdmitted(fromNode, toNode, verb)) {
       return reject("InvalidArguments", `edge "${edge.id}" has no legal verb for its endpoints`);
     }
   }
