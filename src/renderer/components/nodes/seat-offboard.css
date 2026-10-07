@@ -12,15 +12,15 @@
 .seat-offboard-panel__title {
   overflow: hidden;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .seat-offboard-panel__idle {
   color: var(--color-dim);
-  font-size: 10.5px;
-  line-height: 1.35;
+  font-size: var(--text-body);
+  line-height: var(--leading-dense);
 }
 .seat-offboard-panel__choice {
   display: flex;
@@ -35,17 +35,17 @@
 }
 .seat-offboard-panel__preferred {
   color: var(--color-cyan);
-  font-size: 9px;
+  font-size: var(--text-label);
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 .seat-offboard-panel__hint,
 .seat-offboard-panel__block,
 .seat-offboard-panel__status {
   margin: 0;
-  font-size: 10.5px;
-  line-height: 1.4;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   overflow-wrap: anywhere;
 }
 .seat-offboard-panel__hint { color: var(--color-faint); }
