@@ -1,12 +1,12 @@
 import { EventEmitter } from "node:events";
 import { Effect, Result, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { Canvas } from "../src/shared/model";
+import { canvasOf, note, region, seat } from "./support/model-nodes";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelNotFound } from "../src/main/junto/model/records";
 import { WorkRepository } from "../src/main/junto/work/repository";
-import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/junto/chat/acp-client";
 import { ChatService } from "../src/main/junto/chat/service";
 import {
@@ -14,7 +14,7 @@ import {
   RegionRollupService,
 } from "../src/main/junto/region-rollup";
 import { SnapshotsService } from "../src/main/junto/snapshots";
-import { actorRefsForDoc } from "./helpers/actor-ref-fixtures";
+import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 import {
   canvasAuthorityMaterialFixture,
@@ -80,37 +80,35 @@ async function openHappyPath(
   return child;
 }
 
-// --- fixture docs -------------------------------------------------------------
-
-const region = { id: "r", type: "group", label: "ops", x: 0, y: 0, width: 500, height: 500 } as const;
+// --- fixture canvas -----------------------------------------------------------
 
 // a1 (agent "local:default") gets live chat state; a2 (agent "local:quiet")
-// never opens a session; p1 is a PROJECT named "local:default" — activity is
-// keyed by name but only ever applies to kind "agent".
-const docActivity: CanvasDoc = {
-  nodes: [
-    { ...region },
-    { id: "a1", type: "text", text: "PROFILE-13", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:default" }, terminal: { bindingId: "binding-a1", harness: "hermes" } } },
-    { id: "a2", type: "text", text: "QUIET", x: 10, y: 60, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:quiet" }, terminal: { bindingId: "binding-a2", harness: "hermes" } } },
-    { id: "p1", type: "text", text: "name twin", x: 10, y: 110, width: 100, height: 40, ether: { entity: { kind: "project", name: "local:default" } } },
-  ],
-  edges: [],
-};
+// never opens a session; p1 is a plain note beside them, which no agent's
+// activity ever reaches.
+const at = (y: number) => ({ x: 10, y, width: 100, height: 40 });
+const opsActivity = canvasOf([
+  region("r", { x: 0, y: 0, width: 500, height: 500 }, { label: "ops" }),
+  seat("a1", { ...at(10), label: "PROFILE-13", agentKey: "local:default", harness: "hermes" }),
+  seat("a2", { ...at(60), label: "QUIET", agentKey: "local:quiet", harness: "hermes" }),
+  note("p1", "name twin", at(110)),
+]);
 
 // --- stubbed planes (kernel-arming-transaction idiom) -------------------------
 
 const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
 
-const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) => Layer.mergeAll(
+const fakeCanvases = (canvases: ReadonlyMap<string, Canvas>) => Layer.mergeAll(
   Layer.succeed(ModelService, { canvas: (name: string) => {
-    const doc = docs.get(name);
-    return doc ? Effect.succeed(canvasFromDocument(name, doc)) : Effect.fail(new ModelNotFound({ what: "canvas", id: name }));
+    const held = canvases.get(name);
+    return held ? Effect.succeed(held) : Effect.fail(new ModelNotFound({ what: "canvas", id: name }));
   } } as unknown as ModelService["Service"]),
-  Layer.succeed(ModelActorRefs, { read: (name: string) => Effect.succeed(actorRefsForDoc(docs.get(name) ?? { nodes: [], edges: [] }, name)) } as unknown as ModelActorRefs["Service"]),
-  Layer.succeed(WorkRepository, { attentionItems: ({ canvasName }: { canvasName: string }) => {
-    const doc = docs.get(canvasName);
-    return Effect.succeed(doc ? doc.nodes.flatMap((node) => workItemsFromDocument(doc)(node.id).map((item) => ({ nodeId: node.id, kind: "task" as const, item }))) : []);
-  } } as unknown as Parameters<typeof WorkRepository.of>[0]),
+  Layer.succeed(ModelActorRefs, { read: (name: string) => Effect.succeed(
+    [...(canvases.get(name)?.nodes.values() ?? [])]
+      .filter((node) => node.kind === "agent")
+      .map((node) => actorRefFixture(node.id, name)),
+  ) } as unknown as ModelActorRefs["Service"]),
+  // No canvas here holds work.
+  Layer.succeed(WorkRepository, { attentionItems: () => Effect.succeed([]) } as unknown as Parameters<typeof WorkRepository.of>[0]),
 );
 
 const fakeSnapshots = Layer.succeed(
@@ -127,12 +125,12 @@ const fakeSnapshots = Layer.succeed(
 
 const makeRuntime = (
   chatService: ChatService,
-  docs: ReadonlyMap<string, CanvasDoc>,
+  canvases: ReadonlyMap<string, Canvas>,
 ) =>
   ManagedRuntime.make(
     Layer.provide(
       makeRegionRollupLive(chatService),
-      Layer.mergeAll(fakeCanvases(docs), fakeSnapshots),
+      Layer.mergeAll(fakeCanvases(canvases), fakeSnapshots),
     ),
   );
 
@@ -146,7 +144,7 @@ describe("RegionRollupService — activity wiring", () => {
     const chat = new ChatService(spawnFn, (host) => host === "local");
     await openHappyPath(chat, children, "local:default");
 
-    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
+    const runtime = makeRuntime(chat, new Map([["ops", opsActivity]]));
     try {
       const [rollup] = await rollups(runtime, "ops");
       const byId = new Map(rollup?.members.map((member) => [member.nodeId, member]));
@@ -174,7 +172,7 @@ describe("RegionRollupService — activity wiring", () => {
     );
     expect(chat.hasPendingPermission("local:default")).toBe(true);
 
-    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
+    const runtime = makeRuntime(chat, new Map([["ops", opsActivity]]));
     try {
       const [rollup] = await rollups(runtime, "ops");
       const agent = rollup?.members.find((member) => member.nodeId === "a1");
@@ -190,7 +188,7 @@ describe("RegionRollupService — activity wiring", () => {
 describe("RegionRollupService — error channel", () => {
   it("an unknown canvas name fails with CanvasError, not a fabricated rollup", async () => {
     const chat = new ChatService(noSpawn, (host) => host === "local");
-    const runtime = makeRuntime(chat, new Map([["ops", docActivity]]));
+    const runtime = makeRuntime(chat, new Map([["ops", opsActivity]]));
     try {
       const result = await runtime.runPromise(
         Effect.result(Effect.flatMap(RegionRollupService, (service) => service.rollups("missing"))),
