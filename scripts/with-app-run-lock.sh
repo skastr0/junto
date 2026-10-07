@@ -16,4 +16,4 @@ if [[ $# -eq 0 ]]; then
 fi
 
 junto_app_run_lock_acquire "$*"
-"$@"
+junto_app_run_lock_run "$@"

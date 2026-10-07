@@ -44,9 +44,9 @@ elif [[ "$(uname -s)" == "Linux" ]]; then
   fi
   printf 'junto: Electron E2E is using the headless Xvfb fallback\n' >&2
   export JUNTO_E2E_SHOW="${JUNTO_E2E_SHOW:-1}"
-  xvfb-run -a -s '-screen 0 1920x1200x24 -nolisten tcp' "${command[@]}"
+  junto_app_run_lock_run xvfb-run -a -s '-screen 0 1920x1200x24 -nolisten tcp' "${command[@]}"
   exit $?
 fi
 
 # Not exec: this shell must outlive the run to give the lock back.
-"${command[@]}"
+junto_app_run_lock_run "${command[@]}"
