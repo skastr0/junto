@@ -71,6 +71,59 @@ export const GitShowResult = Schema.Union([
 ]);
 export type GitShowResult = typeof GitShowResult.Type;
 
+/** One file a commit changed. A binary file has no line counts. */
+export const GitCommitFile = Schema.Struct({
+  path: Schema.String,
+  additions: Schema.optionalKey(Schema.Number),
+  deletions: Schema.optionalKey(Schema.Number),
+});
+export type GitCommitFile = typeof GitCommitFile.Type;
+
+/**
+ * One commit, read whole: who, when, where it sits, what it changed. A commit
+ * that cannot be read says why in words a reader can act on; nothing here is
+ * ever a stand-in.
+ */
+export const GitCommitResult = Schema.Union([
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    commit: GitCommit,
+    /** The checked-out branch when it holds the commit, else another local branch that does. Absent when none does. */
+    branch: Schema.optionalKey(Schema.String),
+    files: Schema.Array(GitCommitFile),
+    patch: Schema.String,
+    /** Files whose diff is shown; set only when the patch was cut to the render budget. */
+    shownFiles: Schema.optionalKey(Schema.Number),
+  }),
+  Schema.Struct({
+    ok: Schema.Literal(false),
+    error: Schema.String,
+  }),
+]);
+export type GitCommitResult = typeof GitCommitResult.Type;
+
+/** `git show --numstat -z` output after the format line: one record per file. */
+export const parseNumstat = (stdout: string): ReadonlyArray<GitCommitFile> => {
+  const files: GitCommitFile[] = [];
+  const fields = stdout.split("\0");
+  for (let index = 0; index < fields.length; index += 1) {
+    const match = fields[index]?.replace(/^\n+/u, "").match(/^(\d+|-)\t(\d+|-)\t(.*)$/su);
+    if (!match) continue;
+    let path = match[3] ?? "";
+    // A rename leaves the path empty and names the old and the new one in the next two fields.
+    if (path === "") {
+      path = fields[index + 2] ?? "";
+      index += 2;
+    }
+    if (path === "") continue;
+    files.push({
+      path,
+      ...(match[1] === "-" ? {} : { additions: Number(match[1]), deletions: Number(match[2]) }),
+    });
+  }
+  return files;
+};
+
 /** A git operation left unfinished in the working tree. */
 export const GitOperation = Schema.Literals(["rebase", "merge", "cherry-pick", "revert", "bisect"]);
 export type GitOperation = typeof GitOperation.Type;

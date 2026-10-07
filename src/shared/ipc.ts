@@ -57,6 +57,7 @@ import type { HarnessHelpFlag } from "./launch-extra-args";
 import type { TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 import type {
+  GitCommitResult,
   GitLogResult,
   GitReviewResult,
   GitReviewView,
@@ -355,6 +356,7 @@ export const IPC_CHANNELS = {
   gitShow: "junto:git-show",
   gitSummary: "junto:git-summary",
   gitReview: "junto:git-review",
+  gitCommit: "junto:git-commit",
   /** Fail-soft model list for the managed-terminal harness picker. */
   managedTerminalModels: "junto:managed-terminal-models",
   /** Fail-soft Hermes profile list for the harness picker. */
@@ -1495,6 +1497,8 @@ export interface JuntoGitApi {
   readonly gitSummary: (cwd: string) => Promise<GitSummaryResult>;
   /** The diff a reviewer reads for a folder: uncommitted work, or the branch against its base. */
   readonly gitReview: (cwd: string, view: GitReviewView) => Promise<GitReviewResult>;
+  /** One commit in a folder, for a read only preview. */
+  readonly gitCommit: (cwd: string, sha: string) => Promise<GitCommitResult>;
 }
 
 /** submitted = typed into the seat; queued = waiting for the seat to start. */

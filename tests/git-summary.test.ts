@@ -19,8 +19,9 @@ import {
   porcelainHasChanges,
   splitPatchFiles,
   type GitSummary,
+  parseNumstat,
 } from "../src/shared/git";
-import { GIT_REVIEW_UNTRACKED_MAX, GIT_SUMMARY_FRESH_MS, readGitReview, readGitSummary } from "../src/main/junto/adapters/git";
+import { GIT_REVIEW_UNTRACKED_MAX, GIT_SUMMARY_FRESH_MS, readGitCommit, readGitReview, readGitSummary } from "../src/main/junto/adapters/git";
 import { seatGitFolder } from "../src/renderer/lib/git-summary";
 
 const text = (parts: ReturnType<typeof gitSummaryParts>): string => parts.map((part) => part.text).join(" ");
@@ -311,6 +312,51 @@ describe("readGitSummary against real repositories", { timeout: 60_000 }, () => 
     const plain = join(base, "plain-review");
     mkdirSync(plain);
     expect(await readGitReview(plain, "working")).toEqual({ ok: false, error: "not a git repository" });
+  });
+
+  it("one commit reads whole: who, when, its branch, its files with counts, its diff", async () => {
+    const repo = makeRepo("one-commit", "main");
+    git(repo, "checkout", "-q", "-b", "feat/x");
+    writeFileSync(join(repo, "file.txt"), "a\nB\nc\nd\n");
+    writeFileSync(join(repo, "new name.txt"), "one\n");
+    writeFileSync(join(repo, "pic.bin"), Buffer.from([0, 1, 2, 0, 255]));
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "Change three things");
+    const sha = git(repo, "rev-parse", "HEAD");
+    const read = await readGitCommit(repo, sha.slice(0, 10));
+    if (!read.ok) throw new Error(read.error);
+    expect(read.commit).toMatchObject({ sha, subject: "Change three things", author: "Test" });
+    expect(Number.isNaN(Date.parse(read.commit.authoredAt))).toBe(false);
+    expect(read.branch).toBe("feat/x");
+    expect(read.files).toEqual([
+      { path: "file.txt", additions: 2, deletions: 1 },
+      { path: "new name.txt", additions: 1, deletions: 0 },
+      { path: "pic.bin" },
+    ]);
+    expect(read.patch).toContain("+B");
+    expect(read.shownFiles).toBeUndefined();
+    // Checked out elsewhere, the commit still names a branch that holds it.
+    git(repo, "checkout", "-q", "main");
+    const fromMain = await readGitCommit(repo, sha);
+    expect(fromMain.ok && fromMain.branch).toBe("feat/x");
+  });
+
+  it("a commit that cannot be read says why, and never shows another", async () => {
+    const repo = makeRepo("no-such-commit", "main");
+    expect(await readGitCommit(repo, "0123456789abcdef0123456789abcdef01234567")).toEqual({ ok: false, error: "This commit is not in the agent's folder." });
+    expect(await readGitCommit(repo, "HEAD")).toEqual({ ok: false, error: "This is not a commit id." });
+    expect(await readGitCommit(repo, "--output=/tmp/x")).toEqual({ ok: false, error: "This is not a commit id." });
+    const plain = join(base, "plain-commit");
+    mkdirSync(plain);
+    expect(await readGitCommit(plain, "0123456789abcdef")).toEqual({ ok: false, error: "The agent's folder is not a git repository." });
+    expect(await readGitCommit(join(base, "missing"), "0123456789abcdef")).toEqual({ ok: false, error: "The agent's folder cannot be opened." });
+  });
+
+  it("a renamed file is named by its new path", () => {
+    expect(parseNumstat("3\t1\t\0old.ts\0new.ts\0-\t-\tpic.png\0")).toEqual([
+      { path: "new.ts", additions: 3, deletions: 1 },
+      { path: "pic.png" },
+    ]);
   });
 
   it("prefers the remote's default branch as the base", async () => {

@@ -13,10 +13,12 @@ import {
   isOwnGitBase,
   parseAheadBehind,
   parseGitLog,
+  parseNumstat,
   parsePorcelainV2Branch,
   parseShortstat,
   porcelainHasChanges,
   type GitCommit,
+  type GitCommitResult,
   type GitLogResult,
   type GitOperation,
   type GitReviewResult,
@@ -171,6 +173,48 @@ export const readGitShow = async (
 };
 
 /** A summary read stays good this long: many seats in one repository share one read. */
+/**
+ * One commit for a read only preview: its facts, the files it changed with
+ * their counts, and its diff. The folder is never the agent's word; the
+ * caller resolved it from the seat.
+ */
+export const readGitCommit = async (cwdInput: string, shaInput: string): Promise<GitCommitResult> => {
+  const sha = shaInput.trim();
+  if (!isGitSha(sha)) return fail("This is not a commit id.");
+  let cwd: string;
+  try {
+    cwd = await resolveRepoCwd(cwdInput);
+  } catch {
+    return fail("The agent's folder cannot be opened.");
+  }
+  const inside = await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
+  if (!inside.ok) return fail("The agent's folder is not a git repository.");
+  // `^{commit}` so a tag or a tree is refused; `--` so the sha is never read as a path.
+  const known = await git(cwd, ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`, "--"]);
+  if (!known.ok) return fail("This commit is not in the agent's folder.");
+  const safe = ["--no-color", "--no-ext-diff", "--no-textconv"];
+  const [facts, counts, shown, branches, current] = await Promise.all([
+    git(cwd, ["show", "--no-patch", `--format=${GIT_LOG_FORMAT}`, sha, "--"]),
+    git(cwd, ["show", "--format=", "--numstat", "-z", ...safe, sha, "--"]),
+    readGitShow(cwd, sha),
+    git(cwd, ["branch", "--contains", sha, "--format=%(refname:short)"]),
+    git(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+  ]);
+  const commit = facts.ok ? parseGitLog(facts.stdout)[0] : undefined;
+  if (!commit || !counts.ok || !shown.ok) return fail("This commit could not be read.");
+  const holding = branches.ok ? branches.stdout.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("(")) : [];
+  const head = current.ok ? current.stdout.trim() : "";
+  const branch = holding.includes(head) ? head : holding[0];
+  return {
+    ok: true,
+    commit,
+    ...(branch ? { branch } : {}),
+    files: parseNumstat(counts.stdout),
+    patch: shown.patch,
+    ...(shown.shownFiles !== undefined ? { shownFiles: shown.shownFiles } : {}),
+  };
+};
+
 export const GIT_SUMMARY_FRESH_MS = 4_000;
 /** Each quick git call gets this long. */
 const GIT_SUMMARY_STEP_MS = 3_000;

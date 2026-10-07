@@ -913,6 +913,7 @@ const gitApi: JuntoGitApi = {
   gitShow: (cwd, sha) => invoke(IPC_CHANNELS.gitShow, IPC_TIMEOUT_MS, cwd, sha),
   gitSummary: (cwd) => invoke(IPC_CHANNELS.gitSummary, IPC_TIMEOUT_MS, cwd),
   gitReview: (cwd, view) => invoke(IPC_CHANNELS.gitReview, IPC_TIMEOUT_MS, cwd, view),
+  gitCommit: (cwd, sha) => invoke(IPC_CHANNELS.gitCommit, IPC_TIMEOUT_MS, cwd, sha),
 };
 
 const demoApi: JuntoDemoApi = {
