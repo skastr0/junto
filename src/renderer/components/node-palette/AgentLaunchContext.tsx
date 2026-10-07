@@ -4,6 +4,7 @@ import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { FLEET_UI_ENABLED, HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
+import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
@@ -82,7 +83,11 @@ export function AgentLaunchContext({
   initialHostId,
   className,
 }: AgentLaunchContextProps) {
-  const doc = use$(() => state$.doc.get());
+  const doc = use$(() => {
+    const name = state$.canvasName.get();
+    modelStore.canvas$(name).seq.get();
+    return modelStore.canvasOf(name);
+  });
   const anchorRef = useRef<HTMLDivElement>(null);
   const configured = useMemo(configuredHost, []);
   const [hosts, setHosts] = useState<ReadonlyArray<AgentHostChoice>>([configured]);
@@ -96,7 +101,7 @@ export function AgentLaunchContext({
   );
   const regionPath = resolveRegionCwd(doc, center.x, center.y, hostId);
   const selectedHost = hosts.find((host) => host.id === hostId) ?? configured;
-  const regionDefaultPath = region?.ether?.region?.defaults?.paths?.[hostId]?.trim();
+  const regionDefaultPath = region?.defaults?.paths?.[hostId]?.trim();
   const [useRegionDefault, setUseRegionDefault] = useState(Boolean(regionDefaultPath));
   const [cwd, setCwd] = useState(() => regionPath ?? "");
   const [folderSeed, setFolderSeed] = useState(() => regionPath ?? "~");
@@ -119,7 +124,7 @@ export function AgentLaunchContext({
   // that mutation must not reset the checkbox state that initiated it.
   useEffect(() => {
     const nextPath = resolveRegionCwd(doc, center.x, center.y, hostId);
-    const nextDefault = region?.ether?.region?.defaults?.paths?.[hostId]?.trim();
+    const nextDefault = region?.defaults?.paths?.[hostId]?.trim();
     setCwd(nextPath ?? "");
     setFolderSeed(nextPath ?? "~");
     setUseRegionDefault(Boolean(nextDefault));
@@ -149,7 +154,7 @@ export function AgentLaunchContext({
     setUseRegionDefault(checked);
     savePathAsRegionDefault(
       region.id,
-      region.ether?.region?.defaults,
+      region.defaults,
       hostId,
       checked ? cwd : undefined,
     );
@@ -160,7 +165,7 @@ export function AgentLaunchContext({
     if (useRegionDefault && region) {
       savePathAsRegionDefault(
         region.id,
-        region.ether?.region?.defaults,
+        region.defaults,
         hostId,
         path,
       );

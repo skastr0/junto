@@ -9,14 +9,16 @@ import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import { clearCommitReview, seatGitFolder, useCommitReview } from "../../lib/git-summary";
 import { isOperatorModalOpen } from "../../lib/operator-modal";
-import { nodeTitle } from "../../lib/presentation";
+import { titleOf } from "@shared/model/title";
+import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { GitReviewBody } from "./GitDetail";
 
 export function CommitReviewModal() {
   const asked = useCommitReview();
-  const doc = use$(state$.doc);
+  const name = use$(state$.canvasName);
+  const doc = use$(() => { modelStore.canvas$(name).seq.get(); return modelStore.canvasOf(name); });
   // Cleared only when the slot has really left: a dev build mounts, cleans up and mounts again.
   useEffect(
     () => () => {
@@ -24,13 +26,13 @@ export function CommitReviewModal() {
     },
     [],
   );
-  const node = asked ? doc.nodes.find((candidate) => candidate.id === asked.nodeId) : undefined;
+  const node = asked ? doc?.nodes.get(asked.nodeId as never) : undefined;
   const folder = node ? seatGitFolder(doc, node) : undefined;
   return (
     <OperatorModalShell
       id="git"
       label="Commit review"
-      title={node ? `Review of ${nodeTitle(node)}'s commit` : "Commit review"}
+      title={node ? `Review of ${titleOf(node)}'s commit` : "Commit review"}
       status={folder}
       fill
       // As wide as the review the seat header opens: a diff needs two columns.

@@ -28,26 +28,15 @@
  * Renderer-safe: no Node imports.
  */
 import { Schema } from "effect";
-import {
-  EnvSource,
-  EtherRegionEnvironment,
-  type CanvasDoc,
-  type EnvSourceKind,
-  type GroupNode,
-} from "./canvas";
-import {
-  isGroup,
-  regionDisplayName,
-  regionStack,
-  type RegionRect,
-} from "./graph";
+import { EnvSource, RegionEnvironment, type Canvas, type EnvSourceKind, type Region, type Frame } from "./model";
+import { regionStack, regionName } from "./model/canvas";
 import { DEFAULT_STATION_HOST_ID } from "./station";
 import {
   SPAWN_ENV_SCRUB,
   SPAWN_ENV_SCRUB_PREFIXES,
 } from "./managed-terminal-templates";
 
-export { EnvSource, EtherRegionEnvironment };
+export { EnvSource, RegionEnvironment };
 export type { EnvSourceKind };
 
 // ── report (names, kinds, origins and status; never a value) ───────────────
@@ -209,7 +198,7 @@ export const reservedEnvNameReason = (name: string): string | undefined => {
  * or moved may not be in the persisted document yet).
  */
 export type RegionEnvironmentTarget =
-  | { readonly seat: string; readonly rect?: RegionRect }
+  | { readonly seat: string; readonly rect?: Frame }
   | { readonly region: string };
 
 export type PlannedRegion = {
@@ -247,32 +236,32 @@ const EMPTY_PLAN: RegionEnvironmentPlan = { regions: [], sources: [], folders: [
  * node, or a seat inside no region, yields the empty plan.
  */
 export const planRegionEnvironment = (
-  doc: CanvasDoc,
+  doc: Canvas,
   target: RegionEnvironmentTarget,
   hostId: string,
 ): RegionEnvironmentPlan => {
-  let stack: ReadonlyArray<GroupNode>;
+  let stack: ReadonlyArray<Region>;
   if ("seat" in target) {
     stack = (
-      target.rect ? regionStack(doc, target.rect) : regionStack(doc, target.seat)
+      target.rect ? regionStack(doc, target.rect) : regionStack(doc, target.seat as never)
     ).filter((region) => region.id !== target.seat);
   } else {
-    const region = doc.nodes.find((node) => node.id === target.region);
-    if (!region || !isGroup(region)) return EMPTY_PLAN;
+    const region = doc.nodes.get(target.region as never);
+    if (!region || region.kind !== "region") return EMPTY_PLAN;
     stack = [...regionStack(doc, region.id), region];
   }
   // A sealed region cuts everything outside it. The innermost seal wins.
   let from = 0;
   stack.forEach((region, index) => {
-    if (region.ether?.region?.environment?.sealed === true) from = index;
+    if (region.environment?.sealed === true) from = index;
   });
   const scope = stack.slice(from);
   const regions: PlannedRegion[] = [];
   const sources: PlannedSource[] = [];
   const folders: string[] = [];
   for (const region of scope) {
-    const environment = region.ether?.region?.environment;
-    const regionLabel = regionDisplayName(region);
+    const environment = region.environment;
+    const regionLabel = regionName(region);
     regions.push({
       regionId: region.id,
       regionLabel,

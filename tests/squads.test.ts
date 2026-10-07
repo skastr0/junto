@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../src/shared/canvas";
 import { Result } from "effect";
@@ -183,7 +184,7 @@ describe("placeSquad", () => {
   const squad = captureSquad(doc, ["alpha", "beta"])!;
 
   it("mints fresh seats, remaps connections, and offsets the layout to the point", () => {
-    const placed = placeSquad(squad, { x: 2000, y: 1000 }, empty, counter(), LAUNCH);
+    const placed = placeSquad(squad, { x: 2000, y: 1000 }, canvasFromDocument("factory", empty), counter(), LAUNCH);
     const { width, height } = squadBounds(squad);
     const origin = { x: Math.round(2000 - width / 2), y: Math.round(1000 - height / 2) };
     expect(placed.nodes.map((n) => [n.x - origin.x, n.y - origin.y])).toEqual([
@@ -199,32 +200,32 @@ describe("placeSquad", () => {
   });
 
   it("mints each seat from its profile: same harness and dials, fresh session, the launch folder", () => {
-    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), LAUNCH);
+    const placed = placeSquad(squad, { x: 0, y: 0 }, canvasFromDocument("factory", empty), counter(), LAUNCH);
     const terminal = placed.nodes[0]!.ether!.terminal!;
     expect(terminal.harness).toBe("claude");
     expect(terminal.label).toBe("alpha");
     expect(terminal.launch?.argv).toEqual(expect.arrayContaining(["--model", "opus"]));
     expect(terminal.launch?.cwd).toBe("~/elsewhere");
     expect(terminal.sessionId).toBeDefined();
-    const again = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), LAUNCH);
+    const again = placeSquad(squad, { x: 0, y: 0 }, canvasFromDocument("factory", empty), counter(), LAUNCH);
     expect(again.nodes[0]!.ether!.terminal!.sessionId).not.toBe(terminal.sessionId);
     expect(new Set([...placed.nodes, ...again.nodes].map((n) => n.id)).size).toBe(4);
   });
 
   it("asks for a folder instead of minting seats that cannot start", () => {
-    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), { host: "local" });
+    const placed = placeSquad(squad, { x: 0, y: 0 }, canvasFromDocument("factory", empty), counter(), { host: "local" });
     expect(placed.needsFolder).toBe(true);
     expect(placed.nodes).toEqual([]);
   });
 
   it("copies soul and instructions to the new seats", () => {
     const guided = captureSquad(doc, ["alpha"], { guidanceOf: () => ({ soul: "Calm." }) })!;
-    const placed = placeSquad(guided, { x: 0, y: 0 }, empty, counter(), LAUNCH);
+    const placed = placeSquad(guided, { x: 0, y: 0 }, canvasFromDocument("factory", empty), counter(), LAUNCH);
     expect(placed.guidance[placed.nodes[0]!.id]).toEqual({ soul: "Calm." });
   });
 
   it("copies portraits to the new ids so they look the same", () => {
-    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), LAUNCH);
+    const placed = placeSquad(squad, { x: 0, y: 0 }, canvasFromDocument("factory", empty), counter(), LAUNCH);
     const newId = placed.nodes[0]!.id;
     const drawn = portraitCharacter(newId, placed.portraits[newId]);
     const original = resolvedPortrait("alpha")!;
@@ -242,7 +243,7 @@ describe("placeSquad", () => {
       id: "region",
       ether: { region: { defaults: { paths: { local: "~/region-folder" } } } },
     } as CanvasNode;
-    const placed = placeSquad(squad, { x: 1150, y: 750 }, { nodes: [region], edges: [] }, counter(), LAUNCH);
+    const placed = placeSquad(squad, { x: 1150, y: 750 }, canvasFromDocument("factory", { nodes: [region], edges: [] }), counter(), LAUNCH);
     expect(placed.regionId).toBe("region");
     for (const node of placed.nodes) {
       expect(node.x).toBeGreaterThanOrEqual(SQUAD_REGION_PAD);
@@ -257,7 +258,7 @@ describe("placeSquad", () => {
       ...squad,
       seats: [squad.seats[0]!, { ...squad.seats[1]!, profile: { ...squad.seats[1]!.profile, harness: "harness-from-later" } }],
     };
-    const placed = placeSquad(future, { x: 0, y: 0 }, empty, counter(), LAUNCH);
+    const placed = placeSquad(future, { x: 0, y: 0 }, canvasFromDocument("factory", empty), counter(), LAUNCH);
     expect(placed.nodes).toHaveLength(1);
     expect(placed.edges).toEqual([]);
     expect(placed.skipped).toEqual(["beta"]);
@@ -272,7 +273,7 @@ describe("placeSquad", () => {
         { from: "s1", to: "s0", verb: "messages", mask: ["msg.send", "port-from-later"], fromSide: "diagonal" },
       ],
     };
-    const placed = placeSquad(withEdges, { x: 0, y: 0 }, empty, counter(), LAUNCH);
+    const placed = placeSquad(withEdges, { x: 0, y: 0 }, canvasFromDocument("factory", empty), counter(), LAUNCH);
     expect(placed.edges).toHaveLength(1);
     expect(placed.edges[0]!.ether).toEqual({ verb: "messages", mask: ["msg.send"] });
     expect(placed.edges[0]!.fromSide).toBeUndefined();

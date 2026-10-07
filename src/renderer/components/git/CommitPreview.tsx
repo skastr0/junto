@@ -12,6 +12,7 @@ import { use$ } from "@legendapp/state/react";
 import type { GitCommitResult } from "@shared/git";
 import { getJuntoApi } from "../../lib/junto-api";
 import { seatGitFolder } from "../../lib/git-summary";
+import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { Button, DiffView } from "../ui";
 import "./git.css";
@@ -45,8 +46,8 @@ export function CommitPreview({
   const openCanvas = use$(state$.canvasName);
   const folder = use$(() => {
     if (state$.canvasName.get() !== canvasName) return undefined;
-    const doc = state$.doc.get();
-    const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+    const node = modelStore.node$(canvasName, nodeId).get();
+    const doc = modelStore.canvasOf(canvasName);
     return node ? seatGitFolder(doc, node) : undefined;
   });
   const key = `${folder ?? ""}\u0000${sha}`;

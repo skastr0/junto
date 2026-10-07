@@ -1,3 +1,4 @@
+import { modelStore } from "./use-model";
 /**
  * Renderer mirror of the operator's squads plus the squad actions: save from
  * the selection, rename, delete, and place on the canvas. Main owns the
@@ -111,7 +112,7 @@ export const placeSquadAt = async (
   const squad = squads$.list.peek().find((entry) => entry.squadId === squadId);
   if (!squad) return "failed";
   const doc = state$.doc.peek();
-  const placed = placeSquad(squad, at, doc, { edgeId: () => `edge-${ulid()}` }, launch);
+  const placed = placeSquad(squad, at, modelStore.canvasOf(state$.canvasName.peek()), { edgeId: () => `edge-${ulid()}` }, launch);
   if (placed.needsFolder) return "needs-folder";
   if (placed.nodes.length === 0) {
     state$.error.set(`${squad.name}: no seat this build can place`);

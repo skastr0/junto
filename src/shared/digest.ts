@@ -168,7 +168,8 @@ export const digestCanvas = (
   if (groups.length > 0) {
     const rollupLines = ["region rollups"];
     for (const rollup of deriveRegionRollups({
-      doc,
+      canvas,
+      itemsOf: workItemsFromDocument(doc),
       snapshots,
       canvasName: name,
       resolveActorRef: live.resolveActorRef,
@@ -421,7 +422,7 @@ export const digestCanvas = (
     if (items.length === 0) continue;
     const boardLines: string[] = [];
     for (const task of items) {
-      const armed = rulesInForce(doc, node.id, task).some(
+      const armed = rulesInForce(canvas, node.id, task).some(
         ({ rule, provenance }) =>
           rule.kind === "requires-review" && provenance.kind !== "region",
       );

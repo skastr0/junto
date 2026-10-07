@@ -3,6 +3,7 @@ import { LOCAL_HOST_ID, TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
 import { resolveRegionCwd } from "@shared/region-defaults";
 import { makeTerminalNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
+import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -26,7 +27,7 @@ export const createTerminalAt = (
   const host = hostId || LOCAL_HOST_ID;
   // Create-time cwd from containing region paths for the chosen host.
   const cwd = resolveRegionCwd(
-    state$.doc.peek(),
+    modelStore.canvasOf(state$.canvasName.peek()),
     anchor.x + TERMINAL_SIZE.width / 2,
     anchor.y + TERMINAL_SIZE.height / 2,
     host,

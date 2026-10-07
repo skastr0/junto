@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * Region environment, resolved and launched. Fakes and temp folders only: a
  * fake source resolver stands in for every store, the canvas is an object in
@@ -125,7 +126,7 @@ describe("resolving a plan", () => {
       { sources: [{ id: "i", kind: "value", name: "A", value: "inner" }] },
     );
     const resolved = await makeRegionEnvironmentResolution(fake.resolver, "/home/op").resolve(
-      d,
+      canvasFromDocument("factory", d),
       { seat: "in" },
       "local",
     );
@@ -148,7 +149,7 @@ describe("resolving a plan", () => {
       { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       { sources: [{ id: "gh", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "tok" }] },
     );
-    await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "local");
+    await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "in" }, "local");
     expect(fake.tokens.gh).toEqual({ EXAMPLE_AUTH_TOKEN: CANARY });
   });
 
@@ -164,7 +165,7 @@ describe("resolving a plan", () => {
         sources: [{ id: "gh", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "tok" }],
       },
     );
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "in" }, "local");
     // The outer token is neither resolved nor offered.
     expect(fake.calls).toEqual(["gh"]);
     expect("gh" in fake.tokens).toBe(true);
@@ -190,7 +191,7 @@ describe("resolving a plan", () => {
       { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       { sources: [keychain("tok2", "T2")] },
     );
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { region: "inner" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { region: "inner" }, "local");
     expect(
       resolved.report.map((r) => [r.regionLabel, r.regionId, r.sourceId, r.kind, r.names]),
     ).toEqual([
@@ -214,7 +215,7 @@ describe("resolving a plan", () => {
         keychain("later", "L"),
       ],
     });
-    await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "mac");
+    await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "mid" }, "mac");
     expect(fake.tokens.op1).toEqual({ TOKEN: "first" });
     expect(fake.tokens.op2).toBeUndefined();
     expect(fake.tokens.op3).toBeUndefined();
@@ -225,7 +226,7 @@ describe("resolving a plan", () => {
   it("a resolver that throws against its contract fails one source, not the launch", async () => {
     const fake = fakeResolver({ bad: "throw" });
     const d = doc({ sources: [keychain("bad", "B"), { id: "v", kind: "value", name: "A", value: "1" }] });
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "mid" }, "local");
     expect(resolved.env).toEqual({ A: "1" });
     expect(resolved.report[0]).toMatchObject({ status: "error", names: ["B"], reason: "This source could not be read" });
     expect(JSON.stringify(resolved.report)).not.toContain(CANARY);
@@ -235,14 +236,14 @@ describe("resolving a plan", () => {
   it("a required source that cannot be read sets a refusal", async () => {
     const fake = fakeResolver({});
     const d = doc({ sources: [keychain("k", "TOKEN", { required: true })] });
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "mid" }, "local");
     expect(resolved.refusal).toBe("Outer: TOKEN is required and could not be read. Not there");
   });
 
   it("makes folders absolute and drops the ones that are not paths", async () => {
     const d = doc({ folders: ["~/notes", "/srv/shared", "relative/x", "~"] });
     const resolved = await makeRegionEnvironmentResolution(fakeResolver({}).resolver, "/home/op").resolve(
-      d,
+      canvasFromDocument("factory", d),
       { seat: "mid" },
       "local",
     );
@@ -254,9 +255,9 @@ describe("resolving a plan", () => {
     const fake = fakeResolver({ file: ok({ FROM_FILE: "1" }) });
     const d = doc({ sources: [keychain("k", "TOKEN"), { id: "file", kind: "envFile", path: "/x.env" }] });
     const resolution = makeRegionEnvironmentResolution(fake.resolver);
-    const launched = (await resolution.resolve(d, { seat: "mid" }, "local")).record;
+    const launched = (await resolution.resolve(canvasFromDocument("factory", d), { seat: "mid" }, "local")).record;
     fake.calls.length = 0;
-    const current = await resolution.current(d, { seat: "mid" }, "local");
+    const current = await resolution.current(canvasFromDocument("factory", d), { seat: "mid" }, "local");
     expect(current).toEqual(launched);
     // Only the file, whose names are not written in the document, was read.
     expect(fake.calls).toEqual(["file"]);
@@ -276,7 +277,7 @@ describe("one service behind every surface", () => {
       running,
       service: makeRegionEnvironmentService({
         resolution: makeRegionEnvironmentResolution(fake.resolver, "/home/op"),
-        readDoc: async () => d(),
+        readDoc: async () => { const current = d(); return current === undefined ? undefined : canvasFromDocument("factory", current); },
         hostId: async () => "local",
         launchRecord: (bindingId) => running[bindingId],
       }),
@@ -291,8 +292,8 @@ describe("one service behind every surface", () => {
     const { service: s } = service(() => d, { tok: ok({ TOKEN: CANARY }) });
     expect(await s.regionReport("c", "inner")).toEqual((await s.seatReport("c", "in"))?.report);
     // A caller that already holds the canvas gets the identical answer.
-    expect(await s.seatReportFor(d, "in")).toEqual(await s.seatReport("c", "in"));
-    expect(await s.seatReportFor(d, "nope")).toBeUndefined();
+    expect(await s.seatReportFor(canvasFromDocument("factory", d), "in")).toEqual(await s.seatReport("c", "in"));
+    expect(await s.seatReportFor(canvasFromDocument("factory", d), "nope")).toBeUndefined();
     expect(await s.regionReport("c", "outer")).toEqual((await s.seatReport("c", "mid"))?.report);
     expect(await s.regionReport("c", "in")).toBeUndefined();
     expect(await s.regionReport("c", "nope")).toBeUndefined();
@@ -341,8 +342,8 @@ describe("one service behind every surface", () => {
     });
     expect((await s.seatReport("c", "mid"))?.restartToApply).toBe(true);
     expect(await s.staleSeats("c", "outer")).toEqual([
-      { seatId: "in", title: "local:claude", changed: ["A", "GONE", "NEW"] },
-      { seatId: "mid", title: "local:claude", changed: ["A", "GONE", "NEW"] },
+      { seatId: "in", title: "in", changed: ["A", "GONE", "NEW"] },
+      { seatId: "mid", title: "mid", changed: ["A", "GONE", "NEW"] },
     ]);
     // Nested regions are included; a region with no stale seat is empty.
     expect((await s.staleSeats("c", "inner"))?.map((x) => x.seatId)).toEqual(["in"]);
@@ -741,7 +742,7 @@ describe("the launch applies it", () => {
         const doc = walkDoc(name);
         const service = makeRegionEnvironmentService({
           resolution: makeRegionEnvironmentResolution(fakeResolver({}).resolver, "/home/op"),
-          readDoc: async () => doc,
+          readDoc: async () => canvasFromDocument("factory", doc),
           hostId: async () => "local",
           launchRecord: () => undefined,
         });

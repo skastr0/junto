@@ -10,7 +10,7 @@
 import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import { GitBranch } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import { modelStore, useNode } from "../../lib/use-model";
 import { gitSummaryParts } from "@shared/git";
 import {
   closeSeatGitDetail,
@@ -25,9 +25,10 @@ import "./git.css";
 
 const repositoryName = (root: string): string => root.split(/[\\/]/).filter(Boolean).pop() ?? root;
 
-export function SeatGitLine({ node }: { readonly node: CanvasNode }) {
-  const doc = use$(state$.doc);
-  const folder = useMemo(() => seatGitFolder(doc, node), [doc, node]);
+export function SeatGitLine({ node }: { readonly node: { readonly id: string } }) {
+  const canvasName = use$(state$.canvasName);
+  const seat = useNode(canvasName, node.id);
+  const folder = seatGitFolder(modelStore.canvasOf(canvasName), seat);
   const summary = useGitSummary(folder);
   // Open state lives beside the summary so a shortcut can open the same
   // detail the press opens (toggleSeatGitDetail). It closes with the line.

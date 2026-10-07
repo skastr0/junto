@@ -1,18 +1,17 @@
 import { Match, Schema } from "effect";
 import type { ActorRefResolver } from "./attention";
-import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
+import type { Canvas, Node } from "./model";
+import { titleOf } from "./model/title";
+import { inPaintOrder, regionMembers as membersOf, regionName } from "./model/canvas";
 import type { SnapshotState } from "./entities";
 import {
   deriveExecutionGraph,
   type LiveTrustViews,
   type WorkBlockedSeat,
 } from "./execution-graph";
-import { groupMembers, isGroup, regionDisplayName } from "./graph";
 import { resolveSpec } from "./physics";
-import { requestsNodeName } from "./requests-node-identity";
-import { boardNodeName } from "./board-node-identity";
 import type { WorkSurfaceActivity } from "./terminal";
-import { canvasFromDocument, workItemsFromDocument } from "./model/from-document";
+import type { WorkItemsOf } from "./execution-graph";
 
 // Region severity rollups: the operational tier of the bottom-bar information
 // ladder (minimap strategic / region bar operational / selection tactical).
@@ -83,7 +82,8 @@ export const RegionRollup = Schema.Struct({
 export type RegionRollup = typeof RegionRollup.Type;
 
 export interface RegionRollupInput extends LiveTrustViews {
-  readonly doc: CanvasDoc;
+  readonly canvas: Canvas;
+  readonly itemsOf: WorkItemsOf;
   /** Canvas scope and compiled actor identity are mandatory graph inputs. */
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
@@ -148,42 +148,14 @@ const GRAPH_REASON_RANK = { work: 0, edge: 1 } as const;
 
 // mirrors digest.titleOf — duplicated on purpose: shared modules stay
 // decoupled, and the label convention must not drift with the projection.
-const titleOf = (node: CanvasNode): string => {
-  // Requests identity is authored (ether.requests.name), not the mirror's
-  // first line — see requests-node-identity.ts.
-  if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
-  // Board identity is the kind name — the mirror is dash-prefixed topic
-  // titles, never a title (see board-node-identity.ts).
-  if (node.ether?.entity?.kind === "board") return boardNodeName(node);
-  switch (node.type) {
-    case "text":
-      return (node.text.split("\n")[0] ?? "").trim();
-    case "file": {
-      const base = node.file.split(/[\\/]/).pop();
-      return base && base.length > 0 ? base : node.file;
-    }
-    case "link":
-      return node.url;
-    case "group":
-      return regionDisplayName(node);
-  }
-};
-
 const deriveMember = (
-  node: CanvasNode,
+  node: Node,
   graph: ReturnType<typeof deriveExecutionGraph>,
   agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
   terminalStatusByNodeId: ReadonlyMap<string, WorkSurfaceActivity> | undefined,
 ): MemberStatus => {
-  const entity = node.ether?.entity;
-  // The authored entity kind, or none. Presence of a runtime binding key
-  // is not a kind — a node is what it was authored as, never what a live
-  // attachment implies.
-  const kind = entity?.kind ?? "node";
-  const activity =
-    entity?.kind === "agent" && entity.name !== undefined
-      ? agentActivity?.get(entity.name)
-      : undefined;
+  const kind = node.kind;
+  const activity = node.kind === "agent" ? agentActivity?.get(node.agentKey) : undefined;
   const surface = workSurfaceContribution(terminalStatusByNodeId?.get(node.id));
 
   const reasons: string[] = [];
@@ -228,7 +200,7 @@ const deriveMember = (
 // idle), then kind rank (agent, project, rest), then document order.
 const regionMembers = (
   memberIds: ReadonlyArray<string>,
-  nodeById: ReadonlyMap<string, CanvasNode>,
+  nodeById: ReadonlyMap<string, Node>,
   indexById: ReadonlyMap<string, number>,
   graph: ReturnType<typeof deriveExecutionGraph>,
   agentActivity: ReadonlyMap<string, AgentActivity> | undefined,
@@ -271,7 +243,8 @@ const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["co
 // whole region stack without walking region-in-region structure.
 export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<RegionRollup> => {
   const {
-    doc,
+    canvas,
+    itemsOf,
     canvasName,
     resolveActorRef,
     workBlockedSeats,
@@ -280,23 +253,23 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
     agentActivity,
     terminalStatusByNodeId,
   } = input;
-  const graph = deriveExecutionGraph(canvasFromDocument(canvasName, doc), {
+  const graph = deriveExecutionGraph(canvas, {
     canvasName,
     resolveActorRef,
-    itemsOf: workItemsFromDocument(doc),
+    itemsOf,
     ...(workBlockedSeats ? { workBlockedSeats } : {}),
     ...(stamps ? { stamps } : {}),
     ...(approvals ? { approvals } : {}),
   });
-  const membersByRegion = groupMembers(doc);
-  const indexById = new Map(doc.nodes.map((node, index) => [node.id, index] as const));
-  const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
+  const ordered = inPaintOrder(canvas);
+  const indexById = new Map(ordered.map((node, index) => [node.id, index] as const));
+  const nodeById = canvas.nodes;
 
   const rollups: RegionRollup[] = [];
-  for (const node of doc.nodes) {
-    if (!isGroup(node)) continue;
+  for (const node of ordered) {
+    if (node.kind !== "region") continue;
     const members = regionMembers(
-      membersByRegion.get(node.id) ?? [],
+      membersOf(canvas, node).map((member) => member.id),
       nodeById,
       indexById,
       graph,
@@ -305,7 +278,7 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
     );
     rollups.push({
       regionId: node.id,
-      label: regionDisplayName(node),
+      label: regionName(node),
       severity: members[0]?.severity ?? "idle",
       counts: countBySeverity(members),
       members,

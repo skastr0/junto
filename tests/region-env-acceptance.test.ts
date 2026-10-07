@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * The acceptance case, end to end on this machine's own code and a FAKE
  * keychain: a region carrying
@@ -88,7 +89,7 @@ const doc = (inner: EnvSource[] = [], service = SERVICE): CanvasDoc =>
 describe("region environment, the acceptance case", () => {
   it("a keychain source on a region yields its variable for a seat inside it", async () => {
     const { resolution, calls } = setup();
-    const resolved = await resolution.resolve(doc(), { seat: "inside" }, "local");
+    const resolved = await resolution.resolve(canvasFromDocument("factory", doc()), { seat: "inside" }, "local");
     expect(resolved.env).toEqual({ [REGION_TOKEN_NAME]: TOKEN });
     expect(resolved.refusal).toBeUndefined();
     expect(resolved.report).toEqual([
@@ -108,7 +109,7 @@ describe("region environment, the acceptance case", () => {
 
   it("a seat outside the region gets nothing, and nothing is read for it", async () => {
     const { resolution, calls } = setup();
-    const resolved = await resolution.resolve(doc(), { seat: "outside" }, "local");
+    const resolved = await resolution.resolve(canvasFromDocument("factory", doc()), { seat: "outside" }, "local");
     expect(resolved.env).toEqual({});
     expect(resolved.report).toEqual([]);
     expect(calls).toEqual([]);
@@ -116,7 +117,7 @@ describe("region environment, the acceptance case", () => {
 
   it("the value appears in the launch environment and nowhere else", async () => {
     const { resolution } = setup();
-    const resolved = await resolution.resolve(doc(), { seat: "inside" }, "local");
+    const resolved = await resolution.resolve(canvasFromDocument("factory", doc()), { seat: "inside" }, "local");
     const { env: _env, ...everythingElse } = resolved;
     expect(JSON.stringify(everythingElse)).not.toContain(TOKEN);
   });
@@ -124,7 +125,7 @@ describe("region environment, the acceptance case", () => {
   it("an inner region resolves a 1Password reference with that token, passed to op only", async () => {
     const { resolution, calls } = setup();
     const resolved = await resolution.resolve(
-      doc([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }]),
+      canvasFromDocument("factory", doc([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }])),
       { seat: "deep" },
       "local",
     );
@@ -133,13 +134,13 @@ describe("region environment, the acceptance case", () => {
     expect(op.env?.[OP_TOKEN_NAME]).toBe(TOKEN);
     expect(op.args.join(" ")).not.toContain(TOKEN);
     // The seat outside the inner region gets the token and not the GitHub one.
-    const outer = await resolution.resolve(doc([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }]), { seat: "inside" }, "local");
+    const outer = await resolution.resolve(canvasFromDocument("factory", doc([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }])), { seat: "inside" }, "local");
     expect(Object.keys(outer.env)).toEqual([REGION_TOKEN_NAME]);
   });
 
   it("a missing Keychain item never stops the launch: the seat starts without it and the report says why", async () => {
     const { resolution } = setup();
-    const resolved = await resolution.resolve(doc([], "no-such-item"), { seat: "inside" }, "local");
+    const resolved = await resolution.resolve(canvasFromDocument("factory", doc([], "no-such-item")), { seat: "inside" }, "local");
     expect(resolved.env).toEqual({});
     expect(resolved.refusal).toBeUndefined();
     expect(resolved.report[0]).toMatchObject({
@@ -156,9 +157,9 @@ describe("region environment, the acceptance case", () => {
     const secretId = (saved as { secretId: string }).secretId;
     expect(JSON.stringify(saved)).not.toContain("saved-on-the-screen");
     const withSecret = doc([{ id: "api", kind: "secret", name: "API_KEY", secretId }]);
-    expect((await resolution.resolve(withSecret, { seat: "deep" }, "local")).env.API_KEY).toBe("saved-on-the-screen");
+    expect((await resolution.resolve(canvasFromDocument("factory", withSecret), { seat: "deep" }, "local")).env.API_KEY).toBe("saved-on-the-screen");
     expect(removeRegionSecret(secretId, secrets)).toEqual({ ok: true });
-    const after = await resolution.resolve(withSecret, { seat: "deep" }, "local");
+    const after = await resolution.resolve(canvasFromDocument("factory", withSecret), { seat: "deep" }, "local");
     expect(after.env.API_KEY).toBeUndefined();
     expect(after.report.find((entry) => entry.sourceId === "api")).toMatchObject({ status: "missing" });
   });

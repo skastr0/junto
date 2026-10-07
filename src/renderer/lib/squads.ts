@@ -25,6 +25,7 @@
  *   this build does not know is dropped; unknown sides fall away; a port mask
  *   only narrows, and one left with no known port drops its connection.
  */
+import type { Canvas } from "@shared/model";
 import { Schema } from "effect";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "@shared/canvas";
 import { EdgeEnd, NodeSide } from "@shared/canvas";
@@ -174,7 +175,7 @@ export const squadOrigin = (
 export const placeSquad = (
   squad: SquadBody,
   at: { readonly x: number; readonly y: number },
-  doc: CanvasDoc,
+  doc: Canvas | undefined,
   ids: SquadIds,
   launch: SquadLaunch,
 ): SquadPlacement => {

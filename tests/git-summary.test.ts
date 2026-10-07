@@ -1,3 +1,4 @@
+import { canvasFromDocument, nodeFromDocument } from "../src/shared/model/from-document";
 /**
  * Git at a glance for a seat's folder: the parsing, the base branch choice,
  * the one line it becomes, and the reader in main against real repositories.
@@ -136,7 +137,7 @@ describe("what a review says it is of", () => {
 
 describe("the folder that speaks for a seat", () => {
   const seat = (over: Record<string, unknown> = {}): CanvasNode =>
-    ({ id: "seat", type: "text", text: "Atlas", x: 50, y: 50, width: 100, height: 60, ether: { entity: { kind: "agent" }, ...over } }) as unknown as CanvasNode;
+    ({ id: "seat", type: "text", text: "Atlas", x: 50, y: 50, width: 100, height: 60, ether: { entity: { kind: "agent", name: "local:claude" }, ...over, terminal: { bindingId: "git-seat", harness: "claude", ...(over.terminal as object ?? {}), ...((over.terminal as { launch?: object })?.launch ? { launch: { kind: "harness", argv: ["claude"], ...(over.terminal as { launch: object }).launch } } : {}) } } }) as unknown as CanvasNode;
   const doc = (node: CanvasNode): CanvasDoc =>
     ({
       nodes: [
@@ -149,19 +150,19 @@ describe("the folder that speaks for a seat", () => {
 
   it("is where it was launched, first", () => {
     const node = seat({ terminal: { harness: "claude", launch: { cwd: " /launched " } } });
-    expect(seatGitFolder(doc(node), node)).toBe("/launched");
+    expect(seatGitFolder(canvasFromDocument("factory", doc(node)), nodeFromDocument("factory", node, 0))).toBe("/launched");
   });
   it("else its innermost region's folder for its host", () => {
     const node = seat({ terminal: { harness: "claude" } });
-    expect(seatGitFolder(doc(node), node)).toBe("/inner");
+    expect(seatGitFolder(canvasFromDocument("factory", doc(node)), nodeFromDocument("factory", node, 0))).toBe("/inner");
   });
   it("is nothing for a seat on another host: its folder is not on this machine", () => {
     const node = seat({ host: "studio", terminal: { harness: "claude", launch: { cwd: "/launched" } } });
-    expect(seatGitFolder(doc(node), node)).toBeUndefined();
+    expect(seatGitFolder(canvasFromDocument("factory", doc(node)), nodeFromDocument("factory", node, 0))).toBeUndefined();
   });
   it("is nothing with no launch folder and no region folder", () => {
     const node = { ...seat({ terminal: { harness: "claude" } }), x: 5000, y: 5000 } as CanvasNode;
-    expect(seatGitFolder(doc(node), node)).toBeUndefined();
+    expect(seatGitFolder(canvasFromDocument("factory", doc(node)), nodeFromDocument("factory", node, 0))).toBeUndefined();
   });
 });
 

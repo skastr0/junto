@@ -10,13 +10,15 @@ import {
   deriveRegionRollups as deriveRegionRollupsWithContext,
   type RegionRollup,
 } from "../src/shared/region-rollup";
+import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
 
 const deriveRegionRollups = (doc: CanvasDoc) => {
   const context = executionContextForDoc(doc);
   return deriveRegionRollupsWithContext({
-    doc,
+    canvas: canvasFromDocument(context.canvasName, doc),
+    itemsOf: workItemsFromDocument(doc),
     canvasName: context.canvasName,
     resolveActorRef: context.resolveActorRef,
   });

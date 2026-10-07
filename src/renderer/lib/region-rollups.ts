@@ -4,11 +4,12 @@ import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { deriveRegionRollups } from "@shared/region-rollup";
 import { use$ } from "@legendapp/state/react";
-import { agentSeat$, terminalStatusByNodeIdFromSeats } from "./agent-seat-state";
+import { agentSeat$, workSurfaceFromSeat } from "./agent-seat-state";
 import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
 import { chatCoarse$ } from "./chat-state";
-import { workItemsFromDocument } from "@shared/model/from-document";
+import { modelStore } from "./use-model";
+import { useCanvasWorkItems } from "./use-work-sink";
 
 // Coarse poll of window.junto.regionRollups for main-process graph enrichment.
 // Client always re-derives with the live seat + chat planes so chips match the
@@ -119,7 +120,11 @@ export const fuseRegionRollups = (
 
 export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const canvasName = use$(state$.canvasName);
-  const doc = use$(state$.doc);
+  const canvas = use$(() => {
+    modelStore.canvas$(canvasName).seq.get();
+    return modelStore.canvasOf(canvasName);
+  });
+  const itemsOf = useCanvasWorkItems(canvasName);
   const actorRefs = use$(state$.actorRefs);
   const docVersion = use$(state$.docVersion);
   const docEpoch = use$(state$.docEpoch);
@@ -170,16 +175,19 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   );
   const terminalStatusByNodeId = useMemo(
     () => {
-      const map = terminalStatusByNodeIdFromSeats(
-        doc?.nodes ?? [],
-        agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>,
-        agentSeat$.needsLookByBindingId.peek() as Record<string, boolean | undefined>,
-      );
+      const map = new Map<string, ReturnType<typeof workSurfaceFromSeat> & {}>();
+      const seats = agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>;
+      const needsLook = agentSeat$.needsLookByBindingId.peek() as Record<string, boolean | undefined>;
+      for (const node of canvas?.nodes.values() ?? []) {
+        if (node.kind !== "agent" && node.kind !== "terminal") continue;
+        const surface = workSurfaceFromSeat(seats[node.bindingId], needsLook[node.bindingId] === true);
+        if (surface) map.set(node.id, surface);
+      }
       return map;
     },
     // seatKey captures state changes; docVersion/docEpoch capture node binds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docVersion, docEpoch, seatKey, needsLookKey],
+    [canvas, docVersion, docEpoch, seatKey, needsLookKey],
   );
   const vacantSeatNodeIds = useMemo(
     () =>
@@ -194,15 +202,15 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   // Client derive — always has chat/flags/seat; no IPC required for those.
   const client = useMemo(
     () =>
-      deriveRegionRollups({
-        doc,
-        ...executionGraphContextFromActorRefs(canvasName, actorRefs, workItemsFromDocument(doc)),
+      canvas ? deriveRegionRollups({
+        canvas,
+        ...executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf),
         agentActivity,
         terminalStatusByNodeId,
-      }),
+      }) : [],
     // docVersion/docEpoch bound doc identity; chat/seat via maps above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [actorRefs, docVersion, docEpoch, canvasName, agentActivity, terminalStatusByNodeId],
+    [canvas, itemsOf, actorRefs, docVersion, docEpoch, canvasName, agentActivity, terminalStatusByNodeId],
   );
 
   const [live, setLive] = useState<ReadonlyArray<RegionRollup>>([]);

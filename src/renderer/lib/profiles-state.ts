@@ -15,6 +15,7 @@ import { saveSeatGuidances, saveSquadPortraits, squadPortraitOf } from "./squad-
 import { seatGuidanceOf, startSeatGuidance } from "./seat-guidance-state";
 import type { PlaceOutcome } from "./squads-state";
 import type { SquadLaunch } from "./squads";
+import { modelStore } from "./use-model";
 import { state$ } from "./state";
 
 export const profiles$ = observable({
@@ -126,7 +127,7 @@ export const placeProfileInSlot = async (
 ): Promise<PlaceOutcome> => {
   const profile = profiles$.list.peek().find((entry) => entry.profileId === profileId);
   if (!profile) return "failed";
-  const doc = state$.doc.peek();
+  const doc = modelStore.canvasOf(state$.canvasName.peek());
   const at = positionFor(AGENT_NODE_SIZE);
   const center = { x: at.x + AGENT_NODE_SIZE.width / 2, y: at.y + AGENT_NODE_SIZE.height / 2 };
   const regionCwd = findContainingRegion(doc, center.x, center.y)

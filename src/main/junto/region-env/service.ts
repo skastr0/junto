@@ -9,9 +9,9 @@
  * document in memory and a fake set of running seats. `./live.ts` binds the
  * real ones.
  */
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { nodeDisplayLabel } from "@shared/board-actors";
-import { isGroup, type RegionRect } from "@shared/graph";
+import type { Canvas, Node } from "@shared/model";
+import { nodesOf, regionMembers } from "@shared/model/canvas";
+import type { Frame } from "@shared/model";
 import {
   changedNames,
   planRegionEnvironment,
@@ -23,7 +23,6 @@ import {
   type SourceReport,
   type StaleSeat,
 } from "@shared/region-environment";
-import { resolveTerminalBinding } from "@shared/terminal";
 import type {
   RegionEnvironmentResolution,
   ResolvedRegionEnvironment,
@@ -32,7 +31,7 @@ import type {
 export type RegionEnvironmentServiceDeps = {
   readonly resolution: RegionEnvironmentResolution;
   /** The canvas as saved right now. Undefined when it cannot be read. */
-  readonly readDoc: (canvasName: string) => Promise<CanvasDoc | undefined>;
+  readonly readDoc: (canvasName: string) => Promise<Canvas | undefined>;
   /** This machine's host id, as a source's `host` would name it. */
   readonly hostId: () => Promise<string>;
   /**
@@ -45,12 +44,8 @@ export type RegionEnvironmentServiceDeps = {
 };
 
 /** A node that is an agent seat, with the binding its process runs on. */
-const seatBinding = (node: CanvasNode): string | undefined => {
-  if (isGroup(node)) return undefined;
-  const binding = resolveTerminalBinding(node);
-  return binding?.kind === "native" && binding.harness !== undefined
-    ? binding.bindingId
-    : undefined;
+const seatBinding = (node: Node): string | undefined => {
+  return node.kind === "agent" ? node.bindingId : undefined;
 };
 
 export const makeRegionEnvironmentService = (
@@ -64,7 +59,7 @@ export const makeRegionEnvironmentService = (
   const memoized = () => {
     const seen = new Map<string, Promise<ResolvedRegionEnvironment>>();
     return (
-      doc: CanvasDoc,
+      doc: Canvas,
       plan: RegionEnvironmentPlan,
       resolve: () => Promise<ResolvedRegionEnvironment>,
     ): Promise<ResolvedRegionEnvironment> => {
@@ -80,8 +75,8 @@ export const makeRegionEnvironmentService = (
 
   /** Is the running generation on this seat on the current resolution? */
   const staleness = async (
-    doc: CanvasDoc,
-    node: CanvasNode,
+    doc: Canvas,
+    node: Node,
     hostId: string,
   ): Promise<{ readonly stale: boolean; readonly changed: ReadonlyArray<string> }> => {
     const bindingId = seatBinding(node);
@@ -98,8 +93,8 @@ export const makeRegionEnvironmentService = (
   };
 
   const seatReport = async (
-    doc: CanvasDoc,
-    node: CanvasNode,
+    doc: Canvas,
+    node: Node,
     hostId: string,
     resolveOnce: ReturnType<typeof memoized>,
   ): Promise<SeatEnvironmentReport> => {
@@ -109,7 +104,7 @@ export const makeRegionEnvironmentService = (
     );
     return {
       nodeId: node.id,
-      title: nodeDisplayLabel(node),
+      title: "label" in node ? node.label ?? node.kind : node.kind,
       regions: plan.regions.map((region) => region.regionId),
       report: resolved.report,
       folders: plan.folders,
@@ -126,14 +121,14 @@ export const makeRegionEnvironmentService = (
     forLaunch: async (seat: {
       readonly canvasName: string;
       readonly nodeId: string;
-      readonly seatRect?: RegionRect;
+      readonly seatRect?: Frame;
     }): Promise<ResolvedRegionEnvironment> => {
       const [doc, hostId] = await Promise.all([
         deps.readDoc(seat.canvasName),
         deps.hostId(),
       ]);
       return deps.resolution.resolve(
-        doc ?? { nodes: [], edges: [] },
+        doc ?? { name: seat.canvasName as Canvas["name"], seq: 0, nodes: new Map(), wires: new Map() },
         { seat: seat.nodeId, ...(seat.seatRect ? { rect: seat.seatRect } : {}) },
         hostId,
       );
@@ -148,8 +143,8 @@ export const makeRegionEnvironmentService = (
         deps.readDoc(canvasName),
         deps.hostId(),
       ]);
-      const region = doc?.nodes.find((node) => node.id === regionId);
-      if (!doc || !region || !isGroup(region)) return undefined;
+      const region = doc?.nodes.get(regionId as never);
+      if (!doc || !region || region.kind !== "region") return undefined;
       return (await deps.resolution.resolve(doc, { region: regionId }, hostId))
         .report;
     },
@@ -163,7 +158,7 @@ export const makeRegionEnvironmentService = (
         deps.readDoc(canvasName),
         deps.hostId(),
       ]);
-      const node = doc?.nodes.find((candidate) => candidate.id === nodeId);
+      const node = doc?.nodes.get(nodeId as never);
       if (!doc || !node) return undefined;
       return seatReport(doc, node, hostId, memoized());
     },
@@ -173,10 +168,10 @@ export const makeRegionEnvironmentService = (
      * reads the caller's canvas before it dispatches any op).
      */
     seatReportFor: async (
-      doc: CanvasDoc,
+      doc: Canvas,
       nodeId: string,
     ): Promise<SeatEnvironmentReport | undefined> => {
-      const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+      const node = doc.nodes.get(nodeId as never);
       if (!node) return undefined;
       return seatReport(doc, node, await deps.hostId(), memoized());
     },
@@ -192,7 +187,7 @@ export const makeRegionEnvironmentService = (
       if (!doc) return undefined;
       const resolveOnce = memoized();
       const regions: RegionEnvironmentReport["regions"][number][] = [];
-      for (const region of doc.nodes.filter(isGroup)) {
+      for (const region of nodesOf(doc, "region")) {
         const plan = planRegionEnvironment(doc, { region: region.id }, hostId);
         const own = plan.regions.find((entry) => entry.regionId === region.id);
         // A region with nothing of its own and nothing inherited says nothing.
@@ -210,7 +205,7 @@ export const makeRegionEnvironmentService = (
         });
       }
       const seats: SeatEnvironmentReport[] = [];
-      for (const node of doc.nodes) {
+      for (const node of doc.nodes.values()) {
         if (seatBinding(node) === undefined) continue;
         seats.push(await seatReport(doc, node, hostId, resolveOnce));
       }
@@ -229,21 +224,16 @@ export const makeRegionEnvironmentService = (
         deps.readDoc(canvasName),
         deps.hostId(),
       ]);
-      const region = doc?.nodes.find((node) => node.id === regionId);
-      if (!doc || !region || !isGroup(region)) return undefined;
-      const inside = (node: CanvasNode): boolean =>
-        node.x >= region.x &&
-        node.y >= region.y &&
-        node.x + node.width <= region.x + region.width &&
-        node.y + node.height <= region.y + region.height;
+      const region = doc?.nodes.get(regionId as never);
+      if (!doc || !region || region.kind !== "region") return undefined;
       const stale: StaleSeat[] = [];
-      for (const node of doc.nodes) {
-        if (seatBinding(node) === undefined || !inside(node)) continue;
+      for (const node of regionMembers(doc, region)) {
+        if (seatBinding(node) === undefined) continue;
         const verdict = await staleness(doc, node, hostId);
         if (!verdict.stale) continue;
         stale.push({
           seatId: node.id,
-          title: nodeDisplayLabel(node),
+          title: "label" in node ? node.label ?? node.kind : node.kind,
           changed: verdict.changed,
         });
       }

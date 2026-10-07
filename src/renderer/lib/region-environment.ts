@@ -19,7 +19,7 @@
 import type {
   EnvSource,
   EnvSourceKind,
-  EtherRegionEnvironment,
+  RegionEnvironment as ModelRegionEnvironment,
   SourceReport,
   SourceReportStatus,
   StaleSeat,
@@ -27,7 +27,7 @@ import type {
 
 export type { EnvSource, EnvSourceKind, SourceReport, SourceReportStatus, StaleSeat };
 /** A region's environment as the canvas stores it. */
-export type RegionEnvironment = EtherRegionEnvironment;
+export type RegionEnvironment = ModelRegionEnvironment;
 
 // ── What the screen asks of main ───────────────────────────────────────────
 

@@ -6,61 +6,27 @@
 // `defaults.page` supplies the whole bag — no field merge.
 // Paths are host-keyed: innermost region with a non-empty path for that host.
 
-import type {
-  CanvasDoc,
-  CanvasNode,
-  EtherRegionDefaults,
-  EtherRegionPageDefaults,
-  EtherRegionPaths,
-  GroupNode,
-} from "./canvas";
+import type { Canvas, Region, RegionDefaults, RegionPageDefaults } from "./model";
+type RegionPaths = Readonly<Record<string, string>>;
+import { regionStack } from "./model/canvas";
 
-const isGroupNode = (node: CanvasNode): node is GroupNode => node.type === "group";
+/** Regions containing a creation point, using the shared rectangle rule. */
+export const groupsContainingPoint = (canvas: Canvas | undefined, x: number, y: number): ReadonlyArray<Region> =>
+  canvas ? regionStack(canvas, { x, y, width: 0, height: 0 }) : [];
 
-/** True when (x, y) lies inside the group's rectangle (inclusive edges). */
-export const pointInGroup = (group: GroupNode, x: number, y: number): boolean =>
-  x >= group.x &&
-  x <= group.x + group.width &&
-  y >= group.y &&
-  y <= group.y + group.height;
-
-/** All group nodes whose rect contains the point, document order. */
-export const groupsContainingPoint = (
-  doc: CanvasDoc,
-  x: number,
-  y: number,
-): ReadonlyArray<GroupNode> => doc.nodes.filter(isGroupNode).filter((g) => pointInGroup(g, x, y));
-
-const area = (g: GroupNode): number => g.width * g.height;
-
-/**
- * Innermost (smallest-area) group containing the point that satisfies `pred`.
- * Ties break by document order (first wins only if areas equal — rare).
- */
-export const findInnermostGroup = (
-  doc: CanvasDoc,
-  x: number,
-  y: number,
-  pred: (group: GroupNode) => boolean,
-): GroupNode | undefined => {
-  let best: GroupNode | undefined;
-  for (const group of groupsContainingPoint(doc, x, y)) {
-    if (!pred(group)) continue;
-    if (!best || area(group) < area(best)) best = group;
-  }
-  return best;
-};
+export const findInnermostGroup = (canvas: Canvas | undefined, x: number, y: number, pred: (region: Region) => boolean): Region | undefined =>
+  groupsContainingPoint(canvas, x, y).filter(pred).at(-1);
 
 /** Innermost containing region, regardless of defaults. */
 export const findContainingRegion = (
-  doc: CanvasDoc,
+  doc: Canvas | undefined,
   x: number,
   y: number,
-): GroupNode | undefined => findInnermostGroup(doc, x, y, () => true);
+): Region | undefined => findInnermostGroup(doc, x, y, () => true);
 
 /** True when the region bag has a non-empty page url, profile, or host. */
-const regionHasPageSpawnFields = (group: GroupNode): boolean => {
-  const page = group.ether?.region?.defaults?.page;
+const regionHasPageSpawnFields = (group: Region): boolean => {
+  const page = group.defaults?.page;
   if (!page) return false;
   const url = page.url?.trim() ?? "";
   const profile = page.profile?.trim() ?? "";
@@ -69,8 +35,8 @@ const regionHasPageSpawnFields = (group: GroupNode): boolean => {
 };
 
 /** True when the region bag has at least one non-empty host→path entry. */
-const regionHasPaths = (group: GroupNode): boolean => {
-  const paths = group.ether?.region?.defaults?.paths;
+const regionHasPaths = (group: Region): boolean => {
+  const paths = group.defaults?.paths;
   if (!paths) return false;
   for (const [host, path] of Object.entries(paths)) {
     if (host.trim() && path.trim()) return true;
@@ -79,10 +45,10 @@ const regionHasPaths = (group: GroupNode): boolean => {
 };
 
 /** True when the region bag defines a non-empty path for the given host id. */
-const regionHasPathForHost = (group: GroupNode, hostId: string): boolean => {
+const regionHasPathForHost = (group: Region, hostId: string): boolean => {
   const host = hostId.trim();
   if (!host) return false;
-  const path = group.ether?.region?.defaults?.paths?.[host]?.trim() ?? "";
+  const path = group.defaults?.paths?.[host]?.trim() ?? "";
   return path.length > 0;
 };
 
@@ -91,12 +57,12 @@ const regionHasPathForHost = (group: GroupNode, hostId: string): boolean => {
  * Returns undefined when url, profile, and host are all unset on every containing bag.
  */
 export const resolvePageSpawnDefaults = (
-  doc: CanvasDoc,
+  doc: Canvas | undefined,
   x: number,
   y: number,
-): EtherRegionPageDefaults | undefined => {
+): RegionPageDefaults | undefined => {
   const region = findInnermostGroup(doc, x, y, regionHasPageSpawnFields);
-  const page = region?.ether?.region?.defaults?.page;
+  const page = region?.defaults?.page;
   if (!page) return undefined;
   const url = page.url?.trim();
   const profile = page.profile?.trim();
@@ -115,7 +81,7 @@ export const resolvePageSpawnDefaults = (
  * hosts only. Create-time stamp for agent/terminal launch.cwd.
  */
 export const resolveRegionCwd = (
-  doc: CanvasDoc,
+  doc: Canvas | undefined,
   x: number,
   y: number,
   hostId: string,
@@ -123,14 +89,14 @@ export const resolveRegionCwd = (
   const host = hostId.trim();
   if (!host) return undefined;
   const region = findInnermostGroup(doc, x, y, (g) => regionHasPathForHost(g, host));
-  const path = region?.ether?.region?.defaults?.paths?.[host]?.trim();
+  const path = region?.defaults?.paths?.[host]?.trim();
   return path || undefined;
 };
 
 /** Collapse blank host/path entries. Returns undefined when nothing remains. */
 export const stripEmptyRegionPaths = (
-  paths: EtherRegionPaths | undefined,
-): EtherRegionPaths | undefined => {
+  paths: RegionPaths | undefined,
+): RegionPaths | undefined => {
   if (!paths) return undefined;
   const next: Record<string, string> = {};
   for (const [rawHost, rawPath] of Object.entries(paths)) {
@@ -144,27 +110,27 @@ export const stripEmptyRegionPaths = (
 
 /** Full defaults bag on the innermost region that has a non-empty defaults bag. */
 export const resolveRegionDefaults = (
-  doc: CanvasDoc,
+  doc: Canvas | undefined,
   x: number,
   y: number,
-): EtherRegionDefaults | undefined => {
+): RegionDefaults | undefined => {
   const region = findInnermostGroup(doc, x, y, (g) => {
-    const d = g.ether?.region?.defaults;
+    const d = g.defaults;
     if (!d) return false;
     return regionHasPageSpawnFields(g) || regionHasPaths(g);
   });
-  return stripEmptyRegionDefaults(region?.ether?.region?.defaults);
+  return stripEmptyRegionDefaults(region?.defaults);
 };
 
-/** Collapse empty strings / empty nested bags so the document stays sparse. */
+/** Collapse empty strings / empty nested bags so the model stays sparse. */
 export const stripEmptyRegionDefaults = (
-  defaults: EtherRegionDefaults | undefined,
-): EtherRegionDefaults | undefined => {
+  defaults: RegionDefaults | undefined,
+): RegionDefaults | undefined => {
   if (!defaults) return undefined;
   const pageUrl = defaults.page?.url?.trim();
   const pageProfile = defaults.page?.profile?.trim();
   const pageHost = defaults.page?.host?.trim();
-  let page: EtherRegionPageDefaults | undefined;
+  let page: RegionPageDefaults | undefined;
   if (pageUrl || pageProfile || pageHost) {
     page = {
       ...(pageUrl ? { url: pageUrl } : {}),

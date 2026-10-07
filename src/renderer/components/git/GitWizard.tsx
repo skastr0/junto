@@ -3,6 +3,7 @@ import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { resolveRegionCwd } from "@shared/region-defaults";
 import { makeGitNode } from "../../lib/node-factories";
 import { addNode } from "../../lib/mutations";
+import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { HostDirectoryPicker } from "../node-palette/HostDirectoryPicker";
@@ -12,7 +13,7 @@ const GIT_SIZE = { width: 280, height: 128 } as const;
 
 const regionCwdAt = (anchor: { readonly x: number; readonly y: number }): string | undefined =>
   resolveRegionCwd(
-    state$.doc.peek(),
+    modelStore.canvasOf(state$.canvasName.peek()),
     anchor.x + GIT_SIZE.width / 2,
     anchor.y + GIT_SIZE.height / 2,
     LOCAL_HOST_ID,

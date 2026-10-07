@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import {
@@ -94,21 +95,21 @@ describe("region spawn defaults", () => {
   it("walks out for page when inner has no page bag", () => {
     const doc = baseDoc();
     // Inner has only path defaults — page resolves from outer.
-    const page = resolvePageSpawnDefaults(doc, 150, 150);
+    const page = resolvePageSpawnDefaults(canvasFromDocument("factory", doc), 150, 150);
     expect(page).toEqual({
       url: "https://outer.example",
       profile: "work",
       host: "studio",
     });
-    expect(resolvePageSpawnDefaults(doc, 550, 120)).toEqual({
+    expect(resolvePageSpawnDefaults(canvasFromDocument("factory", doc), 550, 120)).toEqual({
       url: "https://page-only.example",
     });
   });
 
   it("returns undefined outside any region with defaults", () => {
     const doc = baseDoc();
-    expect(resolvePageSpawnDefaults(doc, -10, -10)).toBeUndefined();
-    expect(findContainingRegion(doc, -10, -10)).toBeUndefined();
+    expect(resolvePageSpawnDefaults(canvasFromDocument("factory", doc), -10, -10)).toBeUndefined();
+    expect(findContainingRegion(canvasFromDocument("factory", doc), -10, -10)).toBeUndefined();
   });
 
   it("stripEmptyRegionDefaults drops blank hosts and empty bags", () => {
@@ -132,14 +133,14 @@ describe("region spawn defaults", () => {
   it("resolveRegionCwd is host-keyed and walks outward", () => {
     const doc = baseDoc();
     // Inside inner: remote-a uses inner path; local walks out to outer.
-    expect(resolveRegionCwd(doc, 150, 150, "remote-a")).toBe("/home/op/inner-project");
-    expect(resolveRegionCwd(doc, 150, 150, "local")).toBe("/Users/op/outer");
+    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 150, 150, "remote-a")).toBe("/home/op/inner-project");
+    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 150, 150, "local")).toBe("/Users/op/outer");
     // Outside inner, still in outer.
-    expect(resolveRegionCwd(doc, 50, 50, "local")).toBe("/Users/op/outer");
-    expect(resolveRegionCwd(doc, 50, 50, "remote-a")).toBe("/home/op/outer-remote");
+    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 50, 50, "local")).toBe("/Users/op/outer");
+    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 50, 50, "remote-a")).toBe("/home/op/outer-remote");
     // Unknown host / outside region.
-    expect(resolveRegionCwd(doc, 50, 50, "studio")).toBeUndefined();
-    expect(resolveRegionCwd(doc, -10, -10, "local")).toBeUndefined();
+    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 50, 50, "studio")).toBeUndefined();
+    expect(resolveRegionCwd(canvasFromDocument("factory", doc), -10, -10, "local")).toBeUndefined();
   });
 
   it("stripEmptyRegionPaths trims and drops blanks", () => {

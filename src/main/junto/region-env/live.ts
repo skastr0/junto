@@ -7,7 +7,7 @@
  * reads from here.
  */
 import { Effect } from "effect";
-import type { CanvasDoc } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
 import type { RegionEnvironmentReport } from "@shared/region-environment";
 import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import { termPlane } from "../term/plane";
@@ -27,19 +27,19 @@ const resolution = makeRegionEnvironmentResolution({
   staticNamesOf,
 });
 
-const readDoc = async (canvasName: string): Promise<CanvasDoc | undefined> => {
+const readDoc = async (canvasName: string): Promise<Canvas | undefined> => {
   try {
-    const [{ AppRuntime }, { CanvasesService }] = await Promise.all([
+    const [{ AppRuntime }, { ModelService }] = await Promise.all([
       import("../../runtime"),
-      import("../canvases"),
+      import("../model/service"),
     ]);
     const read = await AppRuntime.runPromise(
       Effect.gen(function* () {
-        const canvases = yield* CanvasesService;
-        return yield* canvases.read(canvasName, "term.seatPlan").pipe(Effect.result);
+        const model = yield* ModelService;
+        return yield* model.canvas(canvasName).pipe(Effect.result);
       }),
     );
-    return read._tag === "Success" ? read.success.doc : undefined;
+    return read._tag === "Success" ? read.success : undefined;
   } catch {
     return undefined;
   }
@@ -82,7 +82,7 @@ export const regionEnvironmentService = (): RegionEnvironmentService => {
  * this machine. `env` is for a spawn only; `report` is safe to show.
  */
 export const resolveRegionEnvironment = (
-  doc: CanvasDoc,
+  doc: Canvas,
   nodeId: string,
   host: string,
 ): Promise<ResolvedRegionEnvironment> =>

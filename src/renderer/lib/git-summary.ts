@@ -1,7 +1,8 @@
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect } from "react";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { Canvas, Node } from "@shared/model";
+import { modelStore, nodeAt } from "./use-model";
 import type { GitSummary } from "@shared/git";
 import { resolveRegionCwd } from "@shared/region-defaults";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
@@ -28,10 +29,11 @@ export const GIT_SUMMARY_POLL_MS = 10_000;
  * Undefined for a seat on another host: its folder is not on this machine,
  * and nothing is read there.
  */
-export const seatGitFolder = (doc: CanvasDoc, node: CanvasNode): string | undefined => {
-  const host = (typeof node.ether?.host === "string" && node.ether.host.trim()) || LOCAL_HOST_ID;
+export const seatGitFolder = (doc: Canvas | undefined, node: Node | undefined): string | undefined => {
+  if (node?.kind !== "agent" && node?.kind !== "terminal") return undefined;
+  const host = node.host;
   if (host !== LOCAL_HOST_ID) return undefined;
-  const launched = node.ether?.terminal?.launch?.cwd?.trim();
+  const launched = node.launch?.cwd?.trim();
   if (launched) return launched;
   return resolveRegionCwd(doc, node.x, node.y, host);
 };
@@ -106,12 +108,12 @@ const detailSeat$ = observable<string | null>(null);
  * repository on screen to show: no folder, not a repository, or its git line
  * is not mounted (the agent's modal is closed).
  */
-export const toggleSeatGitDetail = (node: CanvasNode): boolean => {
+export const toggleSeatGitDetail = (node: { readonly id: string }): boolean => {
   if (detailSeat$.peek() === node.id) {
     detailSeat$.set(null);
     return true;
   }
-  const folder = seatGitFolder(state$.doc.peek(), node);
+  const folder = seatGitFolder(modelStore.canvasOf(state$.canvasName.peek()), nodeAt(state$.canvasName.peek(), node.id));
   if (!folder || !summaries$[folder].peek()) return false;
   detailSeat$.set(node.id);
   return true;
@@ -149,8 +151,8 @@ const commitReview$ = observable<{ readonly nodeId: string; readonly sha: string
  */
 export const canReviewCommit = (canvasName: string, nodeId: string): boolean => {
   if (state$.canvasName.peek() !== canvasName) return false;
-  const doc = state$.doc.peek();
-  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+  const doc = modelStore.canvasOf(canvasName);
+  const node = nodeAt(canvasName, nodeId);
   return node !== undefined && seatGitFolder(doc, node) !== undefined;
 };
 

@@ -2,7 +2,11 @@ import { EventEmitter } from "node:events";
 import { Effect, Result, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { CanvasesService, CanvasError } from "../src/main/junto/canvases";
+import { ModelService } from "../src/main/junto/model/service";
+import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelNotFound } from "../src/main/junto/model/records";
+import { WorkRepository } from "../src/main/junto/work/repository";
+import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/junto/chat/acp-client";
 import { ChatService } from "../src/main/junto/chat/service";
 import {
@@ -86,8 +90,8 @@ const region = { id: "r", type: "group", label: "ops", x: 0, y: 0, width: 500, h
 const docActivity: CanvasDoc = {
   nodes: [
     { ...region },
-    { id: "a1", type: "text", text: "PROFILE-13", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:default" } } },
-    { id: "a2", type: "text", text: "QUIET", x: 10, y: 60, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:quiet" } } },
+    { id: "a1", type: "text", text: "PROFILE-13", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:default" }, terminal: { bindingId: "binding-a1", harness: "hermes" } } },
+    { id: "a2", type: "text", text: "QUIET", x: 10, y: 60, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:quiet" }, terminal: { bindingId: "binding-a2", harness: "hermes" } } },
     { id: "p1", type: "text", text: "name twin", x: 10, y: 110, width: 100, height: 40, ether: { entity: { kind: "project", name: "local:default" } } },
   ],
   edges: [],
@@ -97,64 +101,17 @@ const docActivity: CanvasDoc = {
 
 const check = (id: string) => ({ id, label: id, status: "ok" as const, detail: "" });
 
-const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
-  Layer.succeed(
-    CanvasesService,
-    CanvasesService.of({
-      doctor: Effect.succeed(check("canvases")),
-      list: Effect.succeed([]),
-      read: (name: string) => {
-        const doc = docs.get(name);
-        return doc !== undefined
-          ? Effect.succeed({
-              name,
-              doc,
-              actorRefs: actorRefsForDoc(doc, name),
-              revision: `${name}-r1`,
-              workRevision: "0",
-            })
-          : Effect.fail(new CanvasError({ message: `canvas "${name}" does not exist` }));
-      },
-      readWithIntentWitness: () =>
-        Effect.fail(new CanvasError({ message: "not used" })),
-      readNodeStructure: () =>
-        Effect.fail(new CanvasError({ message: "not used" })),
-      write: () => Effect.succeed({ revision: "written-r1" }),
-      mutate: () => Effect.void,
-      mutatePortfolio: () =>
-        Effect.fail(new CanvasError({ message: "not used" })),
-      canvasOverseerSet: () =>
-        Effect.fail(new CanvasError({ message: "not used" })),
-      create: (name: string) => Effect.succeed({
-        name,
-        doc: { nodes: [], edges: [] },
-        actorRefs: actorRefsForDoc({ nodes: [], edges: [] }, name),
-        revision: `${name}-r1`,
-        workRevision: "0",
-      }),
-      remove: (name: string) => Effect.succeed({ name }),
-      ensureSeed: Effect.void,
-      start: () => {},
-      subscribeChanges: () => () => {},
-      announceInstalledProjection: () => {},
-      liveDocuments: () => Effect.succeed([]),
-      liveAuthorityGeneration: () => Effect.succeed("0"),
-      authoritySnapshot: () =>
-        Effect.succeed({
-          generation: "0",
-          intentSha256: "a".repeat(64),
-          documents: new Map(docs),
-        }),
-      authorityMaterialSnapshot: () =>
-        Effect.sync(() => canvasAuthorityMaterialFixture("0", docs)),
-      activeIntentWitness: () =>
-        Effect.succeed({
-          generation: "0",
-          contentSha256: "a".repeat(64),
-        }),
-      activeActorRefs: () => Effect.succeed([]),
-    }),
-  );
+const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) => Layer.mergeAll(
+  Layer.succeed(ModelService, { canvas: (name: string) => {
+    const doc = docs.get(name);
+    return doc ? Effect.succeed(canvasFromDocument(name, doc)) : Effect.fail(new ModelNotFound({ what: "canvas", id: name }));
+  } } as unknown as ModelService["Service"]),
+  Layer.succeed(ModelActorRefs, { read: (name: string) => Effect.succeed(actorRefsForDoc(docs.get(name) ?? { nodes: [], edges: [] }, name)) } as unknown as ModelActorRefs["Service"]),
+  Layer.succeed(WorkRepository, { attentionItems: ({ canvasName }: { canvasName: string }) => {
+    const doc = docs.get(canvasName);
+    return Effect.succeed(doc ? doc.nodes.flatMap((node) => workItemsFromDocument(doc)(node.id).map((item) => ({ nodeId: node.id, kind: "task" as const, item }))) : []);
+  } } as unknown as WorkRepository),
+);
 
 const fakeSnapshots = Layer.succeed(
   SnapshotsService,
@@ -240,8 +197,8 @@ describe("RegionRollupService — error channel", () => {
       );
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
-        expect(result.failure).toBeInstanceOf(CanvasError);
-        expect(result.failure.message).toContain("missing");
+        expect(result.failure).toBeInstanceOf(ModelNotFound);
+        expect(result.failure).toMatchObject({ what: "canvas", id: "missing" });
       }
     } finally {
       await runtime.dispose();

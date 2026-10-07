@@ -12,7 +12,7 @@
  */
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import type { CanvasDoc } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
 import {
   launchRecordOf,
   mergeRegionEnvironment,
@@ -174,13 +174,13 @@ export const makeRegionEnvironmentResolution = (
 ) => ({
   plan: planRegionEnvironment,
   resolve: (
-    doc: CanvasDoc,
+    doc: Canvas,
     target: RegionEnvironmentTarget,
     hostId: string,
   ): Promise<ResolvedRegionEnvironment> =>
     resolvePlan(planRegionEnvironment(doc, target, hostId), resolver, home),
   current: (
-    doc: CanvasDoc,
+    doc: Canvas,
     target: RegionEnvironmentTarget,
     hostId: string,
   ): Promise<RegionEnvironmentLaunchRecord> =>

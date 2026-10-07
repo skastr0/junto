@@ -2,26 +2,30 @@ import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@shared/region-rollup";
-import { CanvasesService, type CanvasError } from "./canvases";
+import { ModelService } from "./model/service";
+import { ModelActorRefs } from "./model/actor-refs";
+import { WorkRepository, type WorkRepositoryError } from "./work/repository";
+import type { ModelError } from "./model/records";
 import { ChatServiceContext, type ChatService } from "./chat/service";
 import { SnapshotsService } from "./snapshots";
-import { workItemsFromDocument } from "@shared/model/from-document";
 
 // Region severity rollups for the RTS bottom bar. Derived per request from
-// the document + snapshots + ACP chat plane.
+// model rows, Work attention rows, snapshots, and the ACP chat plane.
 export class RegionRollupService extends Context.Service<RegionRollupService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
-    readonly rollups: (canvasName: string) => Effect.Effect<ReadonlyArray<RegionRollup>, CanvasError>;
+    readonly rollups: (canvasName: string) => Effect.Effect<ReadonlyArray<RegionRollup>, ModelError | WorkRepositoryError>;
   }>()("@junto/RegionRollupService") {}
 
 export const makeRegionRollupLive = (
   chatService: ChatService,
-): Layer.Layer<RegionRollupService, never, CanvasesService | SnapshotsService> =>
+): Layer.Layer<RegionRollupService, never, ModelService | ModelActorRefs | WorkRepository | SnapshotsService> =>
   Layer.effect(
     RegionRollupService,
     Effect.gen(function* () {
-      const canvases = yield* CanvasesService;
+      const model = yield* ModelService;
+      const actorRefs = yield* ModelActorRefs;
+      const work = yield* WorkRepository;
       const snapshots = yield* SnapshotsService;
 
       return RegionRollupService.of({
@@ -34,22 +38,30 @@ export const makeRegionRollupLive = (
 
         rollups: (canvasName) =>
           Effect.gen(function* () {
-            const { doc, actorRefs } = yield* canvases.read(canvasName, "region.rollup");
+            const canvas = yield* model.canvas(canvasName);
+            const refs = yield* actorRefs.read(canvasName);
+            const rows = yield* work.attentionItems({ canvasName });
+            const byNode = new Map<string, Array<(typeof rows)[number]["item"]>>();
+            for (const row of rows) {
+              const items = byNode.get(row.nodeId) ?? [];
+              items.push(row.item);
+              byNode.set(row.nodeId, items);
+            }
+            const itemsOf = (nodeId: string) => byNode.get(nodeId) ?? [];
             const state = yield* snapshots.current;
 
             const agentActivity = new Map<string, AgentActivity>();
-            for (const node of doc.nodes) {
-              const entity = node.ether?.entity;
-              if (entity?.kind !== "agent" || entity.name === undefined) continue;
-              agentActivity.set(entity.name, {
-                sessionLive: chatService.isLive(entity.name),
-                permissionPending: chatService.hasPendingPermission(entity.name),
+            for (const node of canvas.nodes.values()) {
+              if (node.kind !== "agent") continue;
+              agentActivity.set(node.agentKey, {
+                sessionLive: chatService.isLive(node.agentKey),
+                permissionPending: chatService.hasPendingPermission(node.agentKey),
               });
             }
 
             return deriveRegionRollups({
-              doc,
-              ...executionGraphContextFromActorRefs(canvasName, actorRefs, workItemsFromDocument(doc)),
+              canvas,
+              ...executionGraphContextFromActorRefs(canvasName, refs, itemsOf),
               snapshots: state,
               agentActivity,
             });

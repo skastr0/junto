@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   deriveRegionRollups as deriveRegionRollupsWithContext,
@@ -10,13 +11,15 @@ import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
 
 type RegionRollupFixtureInput = Omit<
   RegionRollupInput,
-  "canvasName" | "resolveActorRef"
->;
+  "canvasName" | "resolveActorRef" | "canvas" | "itemsOf"
+> & { readonly doc: CanvasDoc };
 
 const deriveRegionRollups = (input: RegionRollupFixtureInput) => {
   const context = executionContextForDoc(input.doc);
   return deriveRegionRollupsWithContext({
     ...input,
+    canvas: canvasFromDocument(context.canvasName, input.doc),
+    itemsOf: workItemsFromDocument(input.doc),
     canvasName: context.canvasName,
     resolveActorRef: context.resolveActorRef,
   });
@@ -52,7 +55,7 @@ const projectNode = (id: string, x: number, y: number, label: string, projectKey
   node(id, x, y, label, { entity: { kind: "project", name: projectKey } });
 
 const agentNode = (id: string, x: number, y: number, label: string, agentKey: string): Node =>
-  node(id, x, y, label, { entity: { kind: "agent", name: agentKey } });
+  node(id, x, y, label, { entity: { kind: "agent", name: agentKey }, terminal: { bindingId: `binding-${id}`, harness: "hermes" } });
 
 /** A terminal work surface whose live harness state the rollup reads. */
 const liveSurface = (id: string, x: number, y: number, label: string): Node =>
@@ -132,7 +135,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     };
     const [rollup] = deriveRegionRollups({ doc });
     expect(rollup?.severity).toBe("idle");
-    expect(rollup?.members[0]).toMatchObject({ severity: "idle", kind: "node", reasons: [] });
+    expect(rollup?.members[0]).toMatchObject({ severity: "idle", kind: "note", reasons: [] });
   });
 
   it("worst tier wins; reasons collect every match in ladder order; counts bucket the worst only", () => {
