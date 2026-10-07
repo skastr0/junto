@@ -115,20 +115,6 @@ export function useSeatGlanceOf(seat: Seat): SeatGlance {
  * from the same stores without subscribing: a list sorted by it holds its
  * order while the operator moves through it.
  */
-export function seatUrgencyNow(node: CanvasNode): SeatUrgency {
-  const bindingId = bindingIdForNode(node);
-  const coarse = attentionCoarse$(node).peek() as AgentChatCoarse | undefined;
-  const control = seatControl(node, {
-    seatEvent: bindingId ? agentSeat$.byBindingId[bindingId].peek() : undefined,
-    needsLook: bindingId ? agentSeat$.needsLookByBindingId[bindingId].peek() === true : false,
-    session: bindingId ? terminal$.sessionByBindingId[bindingId].peek() : undefined,
-    graphBlocked: kernel$.execution.peek()?.blocked.includes(node.id) === true,
-    attentionReasons: attentionReasonsForNode({ ether: node.ether }, coarse),
-  });
-  return seatUrgency({ ...control, signal: seatSignalRollups$.peek()[node.id]?.kind });
-}
-
-/** The same reading as seatUrgencyNow, for a caller that holds the seat itself. */
 export function seatUrgencyOf(seat: Seat): SeatUrgency {
   const agent = { ether: { entity: { kind: "agent", name: seat.agentKey } } };
   const coarse = attentionCoarse$(agent).peek() as AgentChatCoarse | undefined;
