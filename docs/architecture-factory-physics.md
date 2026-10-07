@@ -279,8 +279,8 @@ Host capability here means any ordinary work-control or browser-protected op
 that can mutate tasks, messages, requests, artifacts, or page control — not
 merely reading a digest projection. Closed `overseer` ops are a separate
 human-granted administrative plane: they still require the seat credential
-and a live grant. `overseer.live` also checks the Unix peer PID. They never
-get ambient reach, the operator socket, or a minted edge.
+and a live grant, never ambient reach, never the operator socket, and never a
+minted edge. `overseer.live` also checks the Unix peer PID.
 
 Pair with machine safety’s PR test for the sealed kill/path plane: factory
 physics decides *whether* the seat may act; machine safety decides *whether*
