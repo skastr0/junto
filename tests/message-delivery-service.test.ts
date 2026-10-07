@@ -1,6 +1,6 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, seat } from "./support/model-nodes";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CanvasDoc, Message } from "../src/shared/canvas";
+import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension, type MailKind } from "../src/shared/crew";
 import {
   MAIL_HELD_RETRY_MS,
@@ -30,19 +30,11 @@ const mail = (messageId: string, text: string, mailKind: MailKind = "notice"): M
   },
 });
 
-const seatNode = (messages: Message[]) => ({
-  id: nodeId,
-  type: "text" as const,
-  text: "Claude Code",
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 80,
-  ether: {
-    entity: { kind: "agent" as const, name: "local:claude" },
-    terminal: { bindingId, harness: "claude" },
-  },
-});
+const crew = canvasOf(
+  [seat(nodeId, { width: 100, height: 80, label: "Claude Code", agentKey: "local:claude", bindingId: bindingId as never })],
+  [],
+  "crew",
+);
 
 /**
  * One canvas whose mailbox the test appends to, a receipt plane that stamps
@@ -63,7 +55,6 @@ const rig = (
   } = {},
 ) => {
   const messages: Message[] = [];
-  const doc = { nodes: [seatNode(messages)], edges: [] } as unknown as CanvasDoc;
   let live = options.live ?? true;
   const writes: string[] = [];
   let writing = 0;
@@ -73,7 +64,7 @@ const rig = (
     listCanvasNames: async () => [canvas],
     readModel: async () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
-      return canvasFromDocument("crew", doc);
+      return crew;
     },
     readMessage: async (_canvas, _nodeId, messageId) => messages.find((message) => message.messageId === messageId),
     listMail: async () => messages,
