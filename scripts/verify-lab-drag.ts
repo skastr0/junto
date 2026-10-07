@@ -192,6 +192,18 @@ const routed = () =>
     const snap = typeof juntoPerf === "object" ? juntoPerf.snapshot() : null;
     return snap ? { total: snap.routeWireInvocations, byTrigger: snap.routeWireByTrigger } : null;
   })()`);
+// Every number the window's own performance counters hold, flattened, so the
+// ones that moved across a drop can be listed whatever they are called.
+const counters = () =>
+  evaluate<Record<string, number>>(`(() => {
+    const out = {};
+    const walk = (value, path, depth) => {
+      if (typeof value === "number") out[path] = value;
+      else if (value && typeof value === "object" && depth < 3) for (const [key, inner] of Object.entries(value)) walk(inner, path === "" ? key : path + "." + key, depth + 1);
+    };
+    if (typeof juntoPerf === "object") walk(juntoPerf.snapshot(), "", 0);
+    return out;
+  })()`);
 const less = (after: Record<string, number> | undefined, before: Record<string, number> | undefined) =>
   Object.fromEntries(Object.entries(after ?? {}).map(([key, value]) => [key, value - (before?.[key] ?? 0)]).filter(([, value]) => value !== 0));
 for (let repeat = 0; repeat < repeats; repeat += 1) {
@@ -251,6 +263,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
     await sleep(150);
     await evaluate(`performance.mark("verify:release")`);
   }
+  const countersBeforeDrop = await counters();
   const released = Date.now();
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
@@ -316,6 +329,9 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   const facts = { repeat, direction: direction === 1 ? "down-right" : "up-left", selectedBeforePress: grip.selected, cardsMoved: moved };
   rows.push(summarize("drag", during, { ...facts, moves: steps, dragMs, routeWire: routedBefore && routedDrag ? routedDrag.total - routedBefore.total : null, routeWireByTrigger: less(routedDrag?.byTrigger, routedBefore?.byTrigger) }));
   console.log(JSON.stringify(rows.at(-1)));
+  const countersAfterDrop = await counters();
+  const moved3 = Object.entries(less(countersAfterDrop, countersBeforeDrop)).filter(([key]) => !key.startsWith("routeWireByEdge")).sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1]))).slice(0, 30);
+  console.log(JSON.stringify({ windowCountersAcrossTheDrop: Object.fromEntries(moved3), repeat }));
   rows.push(summarize("3 s after the drop", after, { ...facts, dropMs, routeWire: routedDrag && routedDrop ? routedDrop.total - routedDrag.total : null, routeWireByTrigger: less(routedDrop?.byTrigger, routedDrag?.byTrigger) }));
   console.log(JSON.stringify(rows.at(-1)));
 }
