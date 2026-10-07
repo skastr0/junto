@@ -141,7 +141,7 @@ State v3; its prerelease status is not a reason to downgrade it.
   `--continue`) at its own stopping points; `junto onboard` names the command
   and `junto docs doctrine` says how and when.
   Past notes come back at onboard as context, never as ongoing tasks.
-- Junto does not read or estimate context windows or token counts.
+- Junto does not gauge an agent's context to press it. It estimates a session's size from its transcript for one purpose: deciding whether an idle session is worth cutting by the automatic offboard rules.
 
 ## Attention
 
