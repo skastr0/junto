@@ -11,13 +11,14 @@ import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { createCanvasTaskDependencyScopeCapability, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { createCanvasTaskDependencyScopeCapability, WorkProjectionReaderLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { readLiveCanvas } from "../src/main/junto/overseer/live/composition";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 
 it("reads kernel lanes and compact watch counts without decoding mail, board posts or artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-kernel-read-"));
   const modelLive = Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), makeStateEngineLive(join(root, "junto.db")));
-  const runtime = ManagedRuntime.make(Layer.provideMerge(WorkRepositoryLive, modelLive));
+  const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.mergeAll(WorkRepositoryLive, WorkProjectionReaderLive), modelLive));
   try {
     const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
@@ -89,6 +90,11 @@ it("reads kernel lanes and compact watch counts without decoding mail, board pos
     expect(work.tasks.get("asks")?.[0]?.claimedBy).toBe(actor.seatId);
     expect([...work.boards]).toEqual([["board", { topics: 2, posts: 2 }]]);
     expect([...work.artifacts]).toEqual([["artifacts", 1]]);
+    expect(await runtime.runPromise(repo.artifactIds("factory", "artifacts"))).toEqual(["artifact"]);
+    expect(await runtime.runPromise(repo.artifactIds("another-canvas", "artifacts"))).toEqual([]);
+    const live = await runtime.runPromise(readLiveCanvas("factory"));
+    expect([...live.artifacts]).toEqual([["artifacts", ["artifact"]]]);
+    expect(live.tasks.get("tasks")?.map((task) => task.id)).toEqual(["old", "new"]);
     const empty = await runtime.runPromise(repo.kernelWork("another-canvas"));
     expect(empty.tasks.size + empty.boards.size + empty.artifacts.size).toBe(0);
   } finally { await runtime.dispose(); await rm(root, { recursive: true, force: true }); }

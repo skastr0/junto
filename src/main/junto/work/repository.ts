@@ -8504,6 +8504,7 @@ export interface WorkRepositoryShape {
   readonly taskLane: (canvasName: string, nodeId: string, kind: "task" | "requests") => Effect.Effect<ReadonlyArray<TaskValue>, WorkRepositoryError>;
   readonly boardTopics: (canvasName: string, nodeId: string, topicId?: string) => Effect.Effect<ReadonlyArray<BoardTopicViewValue>, WorkRepositoryError>;
   readonly artifactLane: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<ArtifactValue>, WorkRepositoryError>;
+  readonly artifactIds: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<string>, WorkRepositoryError>;
   readonly artifactItem: (canvasName: string, nodeId: string, id: string) => Effect.Effect<ArtifactValue | undefined, WorkRepositoryError>;
   readonly taskItem: (query: WorkItemQuery) => Effect.Effect<TaskValue | undefined, WorkRepositoryError>;
   readonly actorPage: (query: WorkActorQuery) => Effect.Effect<WorkActorPage, WorkRepositoryError>;
@@ -12284,6 +12285,16 @@ export const WorkRepositoryLive = Layer.effect(
       artifactLane: Effect.fn("WorkRepository.artifactLane")((canvasName: string, nodeId: string) =>
         withSqlRead(sql, loadArtifacts(sql, { canvasName, nodeId })).pipe(
           Effect.mapError((error) => toRepositoryError("work.artifacts.list", error)),
+        )),
+      artifactIds: Effect.fn("WorkRepository.artifactIds")((canvasName: string, nodeId: string) =>
+        withSqlRead(sql, SqlSchema.findAll({
+          Request: WorkSqlBindings,
+          Result: Schema.Struct({ artifact_id: Schema.String }),
+          execute: (bindings) => sql.unsafe(`SELECT artifact_id FROM work_artifacts
+            WHERE canvas_name=? AND node_id=? ORDER BY origin_at DESC,artifact_id`, bindings),
+        })([canvasName, nodeId])).pipe(
+          Effect.map((rows) => rows.map((row) => row.artifact_id)),
+          Effect.mapError((error) => toRepositoryError("work.artifacts.ids", error)),
         )),
       artifactItem: Effect.fn("WorkRepository.artifactItem")((canvasName: string, nodeId: string, id: string) =>
         withSqlRead(sql, loadArtifacts(sql, { canvasName, nodeId }, [id])).pipe(

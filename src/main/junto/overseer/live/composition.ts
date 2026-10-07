@@ -6,6 +6,7 @@ import { ModelService } from "../../model/service";
 import { getProcessIdentityMap } from "../../process-identity";
 import { SettingsService } from "../../settings/service";
 import { StateEngine } from "../../state/service";
+import { withSqlRead } from "../../state/sql-read";
 import { StationRepository } from "../../station/repository";
 import { WorkProjectionReader, WorkRepository } from "../../work/repository";
 import { admitOverseer } from "../admission";
@@ -32,27 +33,30 @@ export const canvasRevisionOf = (model: ModelService["Service"]) => (canvasName:
  * it the task, request and artifact rows the context summarises.
  */
 export const readLiveCanvas = Effect.fn("Live.readCanvas")(function* (canvasName: string) {
-  const model = yield* ModelService;
-  const work = yield* WorkRepository;
-  const revisions = yield* WorkProjectionReader;
-  const canvas = yield* model.canvas(canvasName);
-  const rows = yield* work.kernelWork(canvasName);
-  const artifacts = new Map<string, ReadonlyArray<string>>();
-  for (const node of canvas.nodes.values()) {
-    if (node.kind !== "artifacts") continue;
-    artifacts.set(
-      node.id,
-      (yield* work.artifactLane(canvasName, node.id)).map((artifact) => artifact.artifactId),
-    );
-  }
-  return {
-    name: canvas.name,
-    canvas,
-    tasks: rows.tasks,
-    artifacts,
-    revision: revisionOf(canvas),
-    workRevision: yield* revisions.revision(canvasName),
-  } satisfies LiveCanvasRead;
+  const sql = yield* SqlClient.SqlClient;
+  return yield* withSqlRead(sql, Effect.gen(function* () {
+    const model = yield* ModelService;
+    const work = yield* WorkRepository;
+    const revisions = yield* WorkProjectionReader;
+    const canvas = yield* model.canvas(canvasName);
+    const rows = yield* work.kernelWork(canvasName);
+    const artifacts = new Map<string, ReadonlyArray<string>>();
+    for (const node of canvas.nodes.values()) {
+      if (node.kind !== "artifacts") continue;
+      artifacts.set(
+        node.id,
+        yield* work.artifactIds(canvasName, node.id),
+      );
+    }
+    return {
+      name: canvas.name,
+      canvas,
+      tasks: rows.tasks,
+      artifacts,
+      revision: revisionOf(canvas),
+      workRevision: yield* revisions.revision(canvasName),
+    } satisfies LiveCanvasRead;
+  }));
 });
 
 /** The voice overseer in a seat, or nothing when the seat is not one. */
