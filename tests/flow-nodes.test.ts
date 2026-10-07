@@ -1,7 +1,6 @@
 /**
- * flowNodesFromModel builds React Flow nodes from the model. Until Canvas
- * draws from it, it has to say what toFlow says for the same canvas: where
- * each card sits, how large, how it stacks, and what it knows of its regions.
+ * flowNodesFromModel builds React Flow nodes from the model: where each card
+ * sits, how large, how it stacks, and what it knows of its regions.
  */
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
@@ -9,7 +8,6 @@ import { asCanvasName, type Node } from "../src/shared/model";
 import { canvasFromOpened, inPaintOrder } from "../src/shared/model/canvas";
 import { nodeFromDocument } from "../src/shared/model/from-document";
 import { titleOf } from "../src/shared/model/title";
-import { toFlow } from "../src/renderer/lib/convert";
 import { flowNodesFromModel, type ModelFlowCache } from "../src/renderer/lib/flow-nodes";
 
 const at = (x: number, y: number, width = 216, height = 96) => ({ x, y, width, height });
@@ -53,34 +51,35 @@ const model = (source: CanvasDoc) => {
   return { canvas, nodes: inPaintOrder(canvas) };
 };
 
-const context = { canvasName: "factory", actorRefs: [] } as unknown as Parameters<typeof toFlow>[1];
-
 describe("React Flow nodes from the model", () => {
-  it("places, sizes and stacks every node as the document projection does", () => {
-    const old = toFlow(doc, context, { phaseByEdgeId: {}, detailByEdgeId: {}, blocked: ["nodes"], blockedEdgeIds: [] }).nodes;
+  it("places, sizes and stacks each kind", () => {
     const { canvas, nodes } = model(doc);
-    const next = flowNodesFromModel(canvas, nodes, new Set(["nodes"]));
-
-    expect(next.map((node) => node.id)).toEqual(old.map((node) => node.id));
-    for (const [index, was] of old.entries()) {
-      const now = next[index]!;
-      expect({
-        id: now.id, type: now.type, position: now.position, style: now.style, zIndex: now.zIndex,
-        connectable: now.connectable, selectable: now.selectable, draggable: now.draggable,
-        focusable: now.focusable,
-      }).toEqual({
-        id: was.id, type: was.type, position: was.position, style: was.style, zIndex: was.zIndex,
-        connectable: was.connectable, selectable: was.selectable, draggable: was.draggable,
-        focusable: was.focusable,
-      });
-      expect({
-        blocked: now.data.blocked, regionDepth: now.data.regionDepth, nameSlot: now.data.nameSlot,
-        ringCap: now.data.ringCap, seatRegion: now.data.seatRegion, parentRegion: now.data.parentRegion,
-      }).toEqual({
-        blocked: was.data.blocked, regionDepth: was.data.regionDepth, nameSlot: was.data.nameSlot,
-        ringCap: was.data.ringCap, seatRegion: was.data.seatRegion, parentRegion: was.data.parentRegion,
-      });
-    }
+    const flow = new Map(flowNodesFromModel(canvas, nodes, new Set(["nodes"])).map((node) => [node.id, node]));
+    expect([...flow.keys()]).toEqual(doc.nodes.map((node) => node.id));
+    // A region: behind the wires at its nesting depth, never selected or dragged by React Flow.
+    expect(flow.get("outer")).toMatchObject({
+      type: "group", position: { x: 0, y: 0 }, zIndex: 0, selectable: false, draggable: false, connectable: false,
+      style: { width: 2000, height: 1400, pointerEvents: "none" },
+    });
+    expect(flow.get("inner")).toMatchObject({ zIndex: 1, data: { regionDepth: 1, parentRegion: "outer" } });
+    expect(flow.get("empty")?.data.regionDepth).toBe(0);
+    // A seat: drawn at the seat size whatever it stores, above the wires, with its ring room.
+    expect(flow.get("lead")).toMatchObject({
+      type: "text", position: { x: 200, y: 220 }, zIndex: 32, selectable: true, draggable: true, connectable: true,
+      data: { blocked: false, seatRegion: "inner" },
+    });
+    expect(flow.get("lead")?.style).toMatchObject({ width: 216, height: 56 });
+    expect(flow.get("lead")?.data.ringCap).toBeGreaterThan(0);
+    expect(flow.get("nodes")?.data.blocked).toBe(true);
+    expect(flow.get("alone")?.data.seatRegion).toBe("");
+    // An instrument: the instrument size. A note: the size it stores.
+    expect(flow.get("term")?.style).toMatchObject({ width: 176, height: 44 });
+    expect(flow.get("note")?.style).toEqual({ width: 220, height: 84 });
+    // A bare label and a git card take no wire.
+    expect(flow.get("label")?.connectable).toBe(false);
+    expect(flow.get("git")?.connectable).toBe(false);
+    expect(flow.get("file")?.type).toBe("file");
+    expect(flow.get("link")?.type).toBe("link");
   });
 
   it("names each node as the model names it", () => {

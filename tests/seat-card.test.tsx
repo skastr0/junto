@@ -4,10 +4,9 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import type { CanvasNode } from "../src/shared/canvas";
 import { SeatCard } from "../src/renderer/components/nodes/SeatCard";
-import { followDocument } from "../src/renderer/lib/model-from-document";
-import { EMPTY_DOC, state$ } from "../src/renderer/lib/state";
+import { holdCanvas } from "./support/hold-canvas";
 
 const seat = (id: string, text: string, extra: Record<string, unknown> = {}): CanvasNode =>
   ({
@@ -25,8 +24,6 @@ const seat = (id: string, text: string, extra: Record<string, unknown> = {}): Ca
     },
   }) as CanvasNode;
 
-const doc = (...nodes: CanvasNode[]): CanvasDoc => ({ nodes, edges: [] });
-
 const card = (id: string): string => renderToStaticMarkup(<SeatCard canvas="factory" id={id} />);
 
 describe("SeatCard", () => {
@@ -35,14 +32,10 @@ describe("SeatCard", () => {
   afterEach(() => {
     stop?.();
     stop = undefined;
-    state$.canvasName.set("");
-    state$.doc.set(EMPTY_DOC);
   });
 
   it("shows the seat's label, which is one line", () => {
-    state$.canvasName.set("factory");
-    state$.doc.set(doc(seat("lead", "canvas-lead\nnotes under the name")));
-    stop = followDocument();
+    stop = holdCanvas("factory", [seat("lead", "canvas-lead\nnotes under the name")]);
 
     const html = card("lead");
     expect(html).toContain('data-testid="agent-seat"');
@@ -52,26 +45,22 @@ describe("SeatCard", () => {
   });
 
   it("marks an overseer seat", () => {
-    state$.canvasName.set("factory");
-    state$.doc.set(doc(seat("lead", "canvas-lead", { overseer: true })));
-    stop = followDocument();
+    stop = holdCanvas("factory", [seat("lead", "canvas-lead", { overseer: true })]);
 
     expect(card("lead")).toContain('data-overseer="true"');
   });
 
   it("follows a rename", () => {
-    state$.canvasName.set("factory");
-    state$.doc.set(doc(seat("lead", "canvas-lead")));
-    stop = followDocument();
-    state$.doc.set(doc(seat("lead", "lead")));
+    stop = holdCanvas("factory", [seat("lead", "canvas-lead")]);
+    const renamed = holdCanvas("factory", [seat("lead", "lead")]);
+    stop();
+    stop = renamed;
 
     expect(card("lead")).toContain('title="lead"');
   });
 
   it("renders nothing for an id the store does not hold as a seat", () => {
-    state$.canvasName.set("factory");
-    state$.doc.set(doc(seat("lead", "canvas-lead")));
-    stop = followDocument();
+    stop = holdCanvas("factory", [seat("lead", "canvas-lead")]);
 
     expect(card("absent")).toBe("");
   });

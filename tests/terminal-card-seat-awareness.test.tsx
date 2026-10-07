@@ -28,8 +28,7 @@ import {
   resetSeatAwareness,
 } from "../src/renderer/lib/seat-awareness";
 import type { SeatAwarenessAssessment } from "../src/renderer/lib/seat-awareness-contract";
-import { followDocument } from "../src/renderer/lib/model-from-document";
-import { EMPTY_DOC, state$ } from "../src/renderer/lib/state";
+import { holdCanvas } from "./support/hold-canvas";
 import {
   applyAgentSeatStateEvent,
   resetAgentSeatState,
@@ -93,8 +92,6 @@ afterEach(() => {
   resetSeatAwareness();
   stopFollowing?.();
   stopFollowing = undefined;
-  state$.canvasName.set("");
-  state$.doc.set(EMPTY_DOC);
 });
 
 /**
@@ -103,9 +100,7 @@ afterEach(() => {
  */
 const renderSeat = (node: CanvasNode): string => {
   stopFollowing?.();
-  state$.canvasName.set("factory");
-  state$.doc.set({ nodes: [node], edges: [] });
-  stopFollowing = followDocument();
+  stopFollowing = holdCanvas("factory", [node]);
   return renderToStaticMarkup(
     <>
       <TerminalCard canvas="factory" id={node.id} />

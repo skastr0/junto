@@ -1,8 +1,8 @@
 import type { CanvasNode } from "@shared/canvas";
-import type { CanvasOverseerSetResult } from "@shared/ipc";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { flushCanvasEdits } from "./canvas-editor-flush";
-import { getCanvasRevision } from "./mutations";
+import { asCanvasName, asNodeId } from "@shared/model";
+import { modelStore } from "./use-model";
 import { state$ } from "./state";
 import { getJuntoApi } from "./junto-api";
 
@@ -30,28 +30,26 @@ export class OverseerSetError extends Error {
 }
 
 /**
- * Human-only immediate grant/revoke. Flushes local drafts, then calls
- * canvasOverseerSet. Never writes ether.overseer through writeCanvas and
- * never moves the viewport — canvasChanged reloads the committed grant.
+ * Human-only immediate grant or revoke. The operator's toggle is the
+ * GrantOverseer command, sent as it is: main admits it only from the operator,
+ * applies it to every alias of the seat at once, and refuses it from anyone
+ * else. It is not part of undo, and it never rides along with another edit.
+ * Local drafts are committed and sent first, so the grant lands on the canvas
+ * the operator is looking at.
  */
 export const setOverseerSeat = async (input: {
   readonly canvasName: string;
   readonly nodeId: string;
   readonly overseer: boolean;
-}): Promise<CanvasOverseerSetResult> => {
-  const api = getJuntoApi();
-  if (typeof api?.canvasOverseerSet !== "function") {
+}): Promise<void> => {
+  if (typeof getJuntoApi()?.modelCommand !== "function") {
     throw new OverseerSetError("Overseer control is unavailable.");
   }
   await flushCanvasEdits("background");
-  const expectedRevision = getCanvasRevision(input.canvasName);
-  if (expectedRevision === undefined) {
-    throw new OverseerSetError("Reload before changing overseer.");
-  }
-  return api.canvasOverseerSet({
-    canvasName: input.canvasName,
-    nodeId: input.nodeId,
+  await modelStore.send({
+    _tag: "GrantOverseer",
+    canvas: asCanvasName(input.canvasName),
+    id: asNodeId(input.nodeId),
     overseer: input.overseer,
-    expectedRevision,
   });
 };

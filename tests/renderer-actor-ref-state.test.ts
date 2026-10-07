@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { ActorRef } from "../src/shared/work-protocol";
 import {
-  applyWorkCanvasWrite,
   loadDoc,
   replaceActiveActorRefs,
 } from "../src/renderer/lib/mutations";
@@ -44,13 +43,6 @@ describe("renderer ActorRef projection state", () => {
     state$.canvasName.set("factory");
     loadDoc(document("authorial"), "revision-1", "factory");
     replaceActiveActorRefs([first]);
-    expect(state$.actorRefs.peek()).toEqual([first]);
-
-    applyWorkCanvasWrite(
-      "factory",
-      document("authorial"),
-      "revision-work",
-    );
     expect(state$.actorRefs.peek()).toEqual([first]);
 
     loadDoc(document("next-authorial"), "revision-2", "factory");

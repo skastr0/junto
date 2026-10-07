@@ -20,7 +20,6 @@ import {
   Maximize2,
   Trash2,
 } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
@@ -68,6 +67,12 @@ const NO_CONNECTION_DRAG = { fromId: "", fromKind: "" } as const;
 
 const NO_VERBS: ReadonlyArray<Verb> = [];
 
+/** The verb-table kind of the card a wire is being drawn from, off its flow data. */
+const fromKindOf = (data: unknown): string => {
+  const kind = (data as { readonly kind?: NodeKind } | undefined)?.kind;
+  return kind === undefined ? "" : (physicsKind(kind) ?? "");
+};
+
 /**
  * Zone geometry, plus the verb's hue as `--zone-hue`.
  *
@@ -109,9 +114,7 @@ function VerbLandingZones({ id, kind }: { readonly id: string; readonly kind: No
     connection.inProgress && connection.fromNode
       ? {
           fromId: connection.fromNode.id,
-          fromKind:
-            (connection.fromNode.data as unknown as { readonly node?: CanvasNode })
-              .node?.ether?.entity?.kind ?? "",
+          fromKind: fromKindOf(connection.fromNode.data),
         }
       : NO_CONNECTION_DRAG,
   );

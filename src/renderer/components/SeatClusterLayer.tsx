@@ -4,7 +4,7 @@ import { useReactFlow, useStoreApi, ViewportPortal } from "@xyflow/react";
 import { canvasTier$ } from "../lib/canvas-tier";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
-import { nodeTitle } from "../lib/presentation";
+import { titleAt } from "../lib/use-model";
 import {
   buildClusterIndex,
   clustersOf,
@@ -90,8 +90,8 @@ function ClusterBadge({ cluster, rings }: { readonly cluster: SeatCluster; reado
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const count = cluster.members.length;
   const nameOf = (id: string): string => {
-    const node = store.getState().nodeLookup.get(id)?.data.node;
-    return node ? nodeTitle(node) : id;
+    const data = store.getState().nodeLookup.get(id)?.data;
+    return data ? titleAt(data.canvas, id) : id;
   };
   const busiest = cluster.members.some((id) => rings.get(id) === "work")
     ? "work"

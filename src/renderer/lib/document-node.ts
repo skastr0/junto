@@ -36,5 +36,7 @@ export const useDocumentNode = (id: string): CanvasNode | undefined => {
 };
 
 /** The same, read once and not followed. */
-export const documentNode = (id: string): CanvasNode | undefined =>
-  state$.doc.nodes.peek().find((node) => node.id === id);
+export const documentNodeAt = (id: string): CanvasNode | undefined => {
+  start();
+  return byId$[id].peek();
+};

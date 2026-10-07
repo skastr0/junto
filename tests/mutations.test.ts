@@ -66,7 +66,7 @@ const chatFinishNodeDelete = vi.fn(
 
 const runtimeWindow = {
   junto: {
-    writeCanvas: async () => ({ revision: "test-revision" }),
+    modelCommand: async () => ({ seq: 1 }),
     browserStop,
     browserSessionList: async () => ({ ok: true, data: [] }),
     chatClose,

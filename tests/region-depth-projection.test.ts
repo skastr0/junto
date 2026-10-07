@@ -96,7 +96,7 @@ describe("region depth projection", () => {
     const after = toFlow({ nodes: [grown, sibling], edges: [] }, emptyContext, null, cache);
     const projected = after.nodes.find((n) => n.id === "sibling");
 
-    expect(projected?.data.node).toBe(sibling);
+    expect(projected?.data.id).toBe("sibling");
     expect(projected?.data.regionDepth).toBe(1);
     expect(projected).not.toBe(before.nodes.find((n) => n.id === "sibling"));
   });
@@ -116,7 +116,7 @@ describe("region depth projection", () => {
     const moved = { ...seat, x: 900, y: 700 };
     const after = toFlow({ nodes: [outer, inner, moved], edges: [] }, emptyContext, null, cache);
     const reprojected = after.nodes.find((n) => n.id === "outer");
-    expect(reprojected?.data.node).toBe(outer);
+    expect(reprojected?.data.id).toBe("outer");
     expect(reprojected).not.toBe(before.nodes.find((n) => n.id === "outer"));
     // The untouched nested region keeps its identity.
     expect(after.nodes.find((n) => n.id === "inner")).toBe(before.nodes.find((n) => n.id === "inner"));

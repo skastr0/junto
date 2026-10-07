@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
+import type { Command } from "../src/shared/model";
 import {
-  applyWorkCanvasWrite,
   canvasMutationsQuiesced,
   commitDoc,
   hasPendingCanvasChanges,
   loadDoc,
-  scheduleSave,
   undo,
 } from "../src/renderer/lib/mutations";
 import {
@@ -22,15 +21,17 @@ const note = (text: string): CanvasDoc => ({
   edges: [],
 });
 
-const writeCanvas = vi.fn(
-  async (_name: string, _doc: CanvasDoc, _expectedRevision?: string) => ({
-    revision: "written",
-  }),
-);
+const modelCommand = vi.fn(async (_command: Command) => ({ seq: 1 }));
+
+/** The text each command sent so far set on the note. */
+const textsSent = (): unknown[] =>
+  modelCommand.mock.calls.map(([command]) =>
+    command._tag === "Edit" && command.change.kind === "note" ? command.change.text : command._tag,
+  );
 
 const runtimeWindow = {
   junto: {
-    writeCanvas,
+    modelCommand,
     readCanvas: async (name: string) => ({
       name,
       doc: note("disk"),
@@ -56,8 +57,8 @@ afterEach(() => {
 describe("renderer canvas quiesce boundary", () => {
   it("closes mutation admission synchronously, drains the final draft, and rejects late async work", async () => {
     vi.useFakeTimers();
-    writeCanvas.mockClear();
-    writeCanvas.mockResolvedValue({ revision: "written" });
+    modelCommand.mockClear();
+    modelCommand.mockResolvedValue({ seq: 1 });
     state$.canvasName.set("alpha");
     state$.error.set("");
     state$.saveState.set("saved");
@@ -67,13 +68,13 @@ describe("renderer canvas quiesce boundary", () => {
     commitDoc(note("normal-flush"));
     await flushCanvasEdits("navigation");
     expect(canvasMutationsQuiesced()).toBe(false);
-    expect(writeCanvas).toHaveBeenCalledWith("alpha", note("normal-flush"), "alpha-r1");
+    expect(textsSent()).toEqual(["normal-flush"]);
 
-    let finishFinalWrite!: (result: { readonly revision: string }) => void;
-    const finalWrite = new Promise<{ readonly revision: string }>((resolve) => {
-      finishFinalWrite = resolve;
+    let finishQueuedSend!: (result: { readonly seq: number }) => void;
+    const queuedSend = new Promise<{ readonly seq: number }>((resolve) => {
+      finishQueuedSend = resolve;
     });
-    writeCanvas.mockImplementationOnce(async () => finalWrite);
+    modelCommand.mockImplementationOnce(async () => queuedSend);
     commitDoc(note("queued-before-quiesce"));
     const unregister = registerCanvasDraftCommit(() => commitDoc(note("final-editor-draft")));
     let finishAuthoringOperation!: () => void;
@@ -82,9 +83,9 @@ describe("renderer canvas quiesce boundary", () => {
     });
     const activeAuthoringOperation = runCanvasAuthoringOperation(async () => {
       await authoringOperationGate;
-      // Models a WorkService write admitted before quiescence whose renderer
-      // projection returns only after the main-process write completes.
-      applyWorkCanvasWrite("alpha", note("returning-work-write"), "work-r5");
+      // Models an operation admitted before quiescence whose canvas comes
+      // back from main only after the latch has closed.
+      loadDoc(note("returning-after-quiesce"), "work-r5", "alpha");
       return "created-before-quiesce";
     });
 
@@ -99,10 +100,8 @@ describe("renderer canvas quiesce boundary", () => {
     const committedEpoch = state$.docEpoch.peek();
 
     commitDoc(note("late-commit"));
-    applyWorkCanvasWrite("alpha", note("late-work-write"), "work-r2");
     loadDoc(note("late-navigation"), "late-r3", "alpha");
     undo();
-    scheduleSave();
     const lateAuthoringOperation = vi.fn(async () => "late-create");
     await expect(runCanvasAuthoringOperation(lateAuthoringOperation)).resolves.toBeUndefined();
 
@@ -124,23 +123,21 @@ describe("renderer canvas quiesce boundary", () => {
     expect(state$.docVersion.peek()).toBe(committedVersion);
     expect(state$.docEpoch.peek()).toBe(committedEpoch);
 
-    for (let turn = 0; turn < 8 && writeCanvas.mock.calls.length < 2; turn += 1) {
+    for (let turn = 0; turn < 8 && modelCommand.mock.calls.length < 2; turn += 1) {
       await Promise.resolve();
     }
-    expect(writeCanvas).toHaveBeenCalledTimes(2);
-    expect(writeCanvas).toHaveBeenLastCalledWith(
-      "alpha",
-      note("final-editor-draft"),
-      "written",
-    );
+    // Edits go out one at a time, in order: the one made before the quiesce is
+    // still on its way, and the final draft waits behind it.
+    expect(textsSent()).toEqual(["normal-flush", "queued-before-quiesce"]);
     expect(hasPendingCanvasChanges("alpha")).toBe(true);
 
-    finishFinalWrite({ revision: "final-r4" });
+    finishQueuedSend({ seq: 2 });
     await quiesce;
+    expect(textsSent()).toEqual(["normal-flush", "queued-before-quiesce", "final-editor-draft"]);
     expect(hasPendingCanvasChanges("alpha")).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(writeCanvas).toHaveBeenCalledTimes(2);
+    expect(modelCommand).toHaveBeenCalledTimes(3);
     expect(state$.doc.peek()).toEqual(note("final-editor-draft"));
     expect(state$.docVersion.peek()).toBe(committedVersion);
     expect(state$.docEpoch.peek()).toBe(committedEpoch);

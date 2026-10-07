@@ -32,7 +32,7 @@ const terminalBeginNodeDelete = vi.fn(
 const terminalFinishNodeDelete = vi.fn(
   async () => ({ ok: true as const }),
 );
-const writeCanvas = vi.fn(async () => ({ revision: "written" }));
+const modelCommand = vi.fn(async () => ({ seq: 1 }));
 const chatBeginNodeDelete = vi.fn(
   async (resources: ReadonlyArray<AgentDeleteResource>) => ({
     ok: true as const,
@@ -50,7 +50,7 @@ const chatFinishNodeDelete = vi.fn(
 
 const runtimeWindow = {
   junto: {
-    writeCanvas,
+    modelCommand,
     terminalBeginNodeDelete,
     terminalFinishNodeDelete,
     chatBeginNodeDelete,
@@ -108,8 +108,8 @@ describe.sequential("managed agent node terminal teardown", () => {
     );
     terminalFinishNodeDelete.mockReset();
     terminalFinishNodeDelete.mockResolvedValue({ ok: true });
-    writeCanvas.mockReset();
-    writeCanvas.mockResolvedValue({ revision: "written" });
+    modelCommand.mockReset();
+    modelCommand.mockResolvedValue({ seq: 1 });
     chatBeginNodeDelete.mockReset();
     chatBeginNodeDelete.mockImplementation(async (resources) => ({
       ok: true as const,
@@ -305,7 +305,7 @@ describe.sequential("managed agent node terminal teardown", () => {
     await quiescence;
 
     expect(state$.doc.peek()).toEqual(original);
-    expect(writeCanvas).not.toHaveBeenCalled();
+    expect(modelCommand).not.toHaveBeenCalled();
     expect(chatFinishNodeDelete).toHaveBeenCalledWith(
       "managed-delete-lease",
       "aborted",

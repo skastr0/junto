@@ -35,10 +35,10 @@ describe("renderer delete quiesce boundary", () => {
         finishStop = resolve;
       }),
     );
-    const writeCanvas = vi.fn(async () => ({ revision: "written" }));
+    const modelCommand = vi.fn(async () => ({ seq: 1 }));
     const runtimeWindow = {
       junto: {
-        writeCanvas,
+        modelCommand,
         browserStop,
         browserSessionList: async () => ({ ok: true, data: [] }),
       },
@@ -80,7 +80,7 @@ describe("renderer delete quiesce boundary", () => {
     // The destructive call admitted before the latch is terminal, but its
     // returning continuation cannot mutate or save the final document.
     expect(state$.doc.peek()).toEqual(pageDoc);
-    expect(writeCanvas).not.toHaveBeenCalled();
+    expect(modelCommand).not.toHaveBeenCalled();
 
     deleteNode("page");
     await Promise.resolve();

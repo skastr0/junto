@@ -4,13 +4,9 @@ import { managedAgentEther } from "./helpers/managed-agent-ether";
 import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 
 const flushCanvasEdits = vi.fn(async () => undefined);
-const getCanvasRevision = vi.fn((_name: string): string | undefined => "rev-1");
 
 vi.mock("../src/renderer/lib/canvas-editor-flush", () => ({
   flushCanvasEdits: () => flushCanvasEdits(),
-}));
-vi.mock("../src/renderer/lib/mutations", () => ({
-  getCanvasRevision: (name: string) => getCanvasRevision(name),
 }));
 
 import {
@@ -22,16 +18,7 @@ import {
   setOverseerSeat,
 } from "../src/renderer/lib/overseer-set";
 
-const canvasOverseerSet = vi.fn(async (input: {
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly overseer: boolean;
-  readonly expectedRevision: string;
-}) => ({
-  binding: { hostId: "local", bindingId: "bind-worker" },
-  overseer: input.overseer,
-  affected: [{ name: input.canvasName, revision: "rev-2" }],
-}));
+const modelCommand = vi.fn(async (_command: unknown) => ({ seq: 1 }));
 
 const managedSeat = (): CanvasNode =>
   ({
@@ -47,12 +34,11 @@ const managedSeat = (): CanvasNode =>
 
 beforeEach(() => {
   flushCanvasEdits.mockClear();
-  getCanvasRevision.mockClear();
-  getCanvasRevision.mockReturnValue("rev-1");
-  canvasOverseerSet.mockClear();
+  modelCommand.mockClear();
+  modelCommand.mockResolvedValue({ seq: 1 });
   state$.settings.set(EMPTY_SETTINGS);
   vi.stubGlobal("window", {
-    junto: { canvasOverseerSet },
+    junto: { modelCommand },
   });
 });
 
@@ -123,36 +109,39 @@ describe("overseer seat eligibility", () => {
 });
 
 describe("setOverseerSeat", () => {
-  it("flushes local edits, then calls canvasOverseerSet with the live revision", async () => {
-    const result = await setOverseerSeat({
-      canvasName: "Workshop",
-      nodeId: "seat",
-      overseer: true,
-    });
+  it("commits local edits, then sends the grant as its own command", async () => {
+    await setOverseerSeat({ canvasName: "workshop", nodeId: "seat", overseer: true });
     expect(flushCanvasEdits).toHaveBeenCalledOnce();
-    expect(getCanvasRevision).toHaveBeenCalledExactlyOnceWith("Workshop");
-    expect(canvasOverseerSet).toHaveBeenCalledExactlyOnceWith({
-      canvasName: "Workshop",
-      nodeId: "seat",
+    expect(modelCommand).toHaveBeenCalledExactlyOnceWith({
+      _tag: "GrantOverseer",
+      canvas: "workshop",
+      id: "seat",
       overseer: true,
-      expectedRevision: "rev-1",
     });
-    expect(result.overseer).toBe(true);
-    expect(result.affected).toEqual([{ name: "Workshop", revision: "rev-2" }]);
+    expect(flushCanvasEdits.mock.invocationCallOrder[0]).toBeLessThan(modelCommand.mock.invocationCallOrder[0]!);
   });
 
-  it("refuses when no revision is loaded", async () => {
-    getCanvasRevision.mockReturnValue(undefined);
+  it("sends a revoke the same way", async () => {
+    await setOverseerSeat({ canvasName: "workshop", nodeId: "seat", overseer: false });
+    expect(modelCommand).toHaveBeenCalledExactlyOnceWith({
+      _tag: "GrantOverseer",
+      canvas: "workshop",
+      id: "seat",
+      overseer: false,
+    });
+  });
+
+  it("passes on main's refusal", async () => {
+    modelCommand.mockRejectedValueOnce(new Error("Only the operator changes overseer authority"));
     await expect(
-      setOverseerSeat({ canvasName: "Workshop", nodeId: "seat", overseer: true }),
-    ).rejects.toBeInstanceOf(OverseerSetError);
-    expect(canvasOverseerSet).not.toHaveBeenCalled();
+      setOverseerSeat({ canvasName: "workshop", nodeId: "seat", overseer: true }),
+    ).rejects.toThrow("Only the operator");
   });
 
   it("refuses when the IPC method is absent", async () => {
     vi.stubGlobal("window", { junto: {} });
     await expect(
-      setOverseerSeat({ canvasName: "Workshop", nodeId: "seat", overseer: true }),
+      setOverseerSeat({ canvasName: "workshop", nodeId: "seat", overseer: true }),
     ).rejects.toBeInstanceOf(OverseerSetError);
     expect(flushCanvasEdits).not.toHaveBeenCalled();
   });

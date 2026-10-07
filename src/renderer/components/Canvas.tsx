@@ -15,7 +15,7 @@ import {
 } from "@xyflow/react";
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnBeforeDelete, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
+import type { EtherEdgeKind } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, MessageSquare, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
 import {
@@ -29,7 +29,7 @@ import { kernel$ } from "../lib/kernel-view";
 import { dock$ } from "../lib/dock-state";
 import { openingAnchors, openingViewport } from "../lib/camera-placement";
 import type { FlowEdge, FlowNode } from "../lib/convert";
-import { createFlowIdentityCache, toFlow } from "../lib/convert";
+import { createFlowIdentityCache, toFlowOfCanvas } from "../lib/convert";
 import {
   edgeImpactClass,
   edgeImpactRole,
@@ -49,7 +49,7 @@ import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, connectAllowed, connectMesh, deleteEdges, disconnectWithin, edgeIdsWithin, planConnectMesh } from "../lib/edge-mutations";
-import { agentCountLabel, agentSeatIds, isAgentSeatNode } from "../lib/multi-selection";
+import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
 import { openAgentEditor } from "../lib/agent-editor-state";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
 import { planSeatMessage } from "../lib/seat-message";
@@ -57,7 +57,11 @@ import { SeatMessageForm } from "./nodes/SeatMessage";
 import { SeatOffboardMenuRows } from "./nodes/SeatOffboard";
 import { AGENT_BROADCAST_PROMPTS, type AgentBroadcastKind } from "@shared/agent-broadcast-prompts";
 import { placeAtPoint, placeBesideRect, type ScreenRect } from "../lib/menu-placement";
-import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
+import { findOpenPosition, syncPositions } from "../lib/geometry";
+import { observe } from "@legendapp/state";
+import { documentNodeAt } from "../lib/document-node";
+import { heldBy } from "../lib/model-edits";
+import { modelStore, nodeAt, titleAt } from "../lib/use-model";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import "../styles/factory-grammar.css";
@@ -125,7 +129,7 @@ import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePa
 import { FocusSurface } from "./FocusSurface";
 import { useCanvasGroupFocus } from "./useCanvasGroupFocus";
 import { IconButton, OverlayHeader } from "./ui";
-import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
+import { workItemsFromDocument } from "@shared/model/from-document";
 
 /**
  * A node's class: agents carry junto-flow-agent (convert.ts), which keeps them
@@ -140,7 +144,7 @@ const flowNodeClass = (node: FlowNode, impactClass: string | undefined): string 
  * is where a reader hears it.
  */
 const flowNodeLabel = (node: FlowNode, selected: boolean): string => {
-  const title = nodeTitle(node.data.node);
+  const title = titleAt(node.data.canvas, node.id);
   return selected ? `${title}, selected` : title;
 };
 
@@ -155,7 +159,7 @@ type CanvasFlow = {
 
 /** A region's name, for choosing what the camera shows. */
 const regionLabelOf = (node: CanvasNodeRef): string =>
-  ((node.data as { readonly node?: { readonly label?: string } } | undefined)?.node?.label ?? "");
+  titleAt((node.data as FlowNode["data"]).canvas, node.id);
 
 const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
   const graphNodes = rf.getNodes();
@@ -193,7 +197,7 @@ const selectionForCanvas = (
   context: ReturnType<typeof currentExecutionGraphContext>,
 ): ImpactSelection => {
   const connectionFocusNodeId = state$.connectionFocusNodeId.peek();
-  const canvas = canvasFromDocument(context.canvasName, state$.doc.peek());
+  const canvas = modelStore.canvasOf(context.canvasName);
   if (connectionFocusNodeId) {
     return connectionFocusSelection(canvas, connectionFocusNodeId);
   }
@@ -267,8 +271,8 @@ function applyStructuralRebuild(
   flowCache: ReturnType<typeof createFlowIdentityCache>,
   edgeFilter: EtherEdgeKind | "",
 ): void {
-  const built = toFlow(
-    state$.doc.peek(),
+  const built = toFlowOfCanvas(
+    modelStore.canvasOf(state$.canvasName.peek()),
     currentExecutionGraphContext(),
     kernel$.execution.peek(),
     flowCache,
@@ -309,8 +313,6 @@ function useCanvasDocument(
   flowCacheRef: React.MutableRefObject<ReturnType<typeof createFlowIdentityCache>>,
   rebuildTick: number,
 ) {
-  // The document the standing projection was built from.
-  const builtDocRef = useRef<CanvasDoc | null>(null);
   const rebuild = useCallback(() => {
     // A drag owns node positions until it commits — queue structural remints.
     if (dragInProgressRef.current || regionLabelDrag$.peek()) {
@@ -318,7 +320,6 @@ function useCanvasDocument(
       return;
     }
     pendingRebuildRef.current = false;
-    builtDocRef.current = state$.doc.peek();
     applyStructuralRebuild(
       setNodes,
       setEdges,
@@ -339,17 +340,19 @@ function useCanvasDocument(
     rebuild();
   }, [rebuild, rebuildTick]);
 
-  // Document + kernel ticks — apply via setNodes without re-rendering CanvasGraph.
+  // Canvas + kernel ticks — apply via setNodes without re-rendering CanvasGraph.
   // (use$ on these would re-render the whole React Flow tree every cycle.)
   useEffect(() => {
     const offs = [
-      state$.docVersion.onChange(() => rebuild()),
-      // A move or resize commits without a docVersion bump, and what the
-      // projection reads off positions (a wire's sockets, a region's name
-      // slot, a seat's ring room) has to follow it. Skipped when the
-      // docVersion rebuild just above already read this document.
-      state$.docEpoch.onChange(() => {
-        if (builtDocRef.current !== state$.doc.peek()) rebuild();
+      // Any node or wire of the open canvas: a move, a resize, a rename, one
+      // added or removed. What the projection reads off positions (a wire's
+      // sockets, a region's name slot, a seat's ring room) follows a move.
+      // The projection keeps every flow node and edge that did not change.
+      observe(() => {
+        const open$ = modelStore.canvas$(state$.canvasName.get());
+        open$.nodes.get();
+        open$.wires.get();
+        rebuild();
       }),
       state$.actorRefs.onChange(() => rebuild()),
       kernel$.executionRev.onChange(() => rebuild()),
@@ -588,12 +591,10 @@ function useCanvasInteractions(
   const onNodeDragStart: OnNodeDrag<FlowNode> = useCallback((_event, node) => {
     dragInProgressRef.current = true;
     holdDragRef.current = null;
-    if (node.data.node.type !== "group" || !node.data.node.ether?.region?.hold) return;
-    const doc = state$.doc.peek();
-    const regionDoc = doc.nodes.find((n) => n.id === node.id);
-    if (!regionDoc || regionDoc.type !== "group") return;
+    const region = nodeAt(node.data.canvas, node.id);
+    if (region?.kind !== "region" || !region.hold) return;
     const startPositions = new Map<string, { x: number; y: number }>();
-    for (const id of dragHoldMemberIds(doc, regionDoc)) {
+    for (const id of heldBy(modelStore.canvasOf(node.data.canvas), node.id)) {
       const member = rf.getNode(id);
       if (!member || member.selected) continue;
       startPositions.set(id, member.position);
@@ -810,7 +811,7 @@ const makeAddActions = (
     // Create-time stamp from containing region defaults (center-in-region).
     // Escape hatch: place outside the region, or edit url/profile after create.
     const seed = resolvePageSpawnDefaults(
-      canvasFromDocument(state$.canvasName.peek(), state$.doc.peek()),
+      modelStore.canvasOf(state$.canvasName.peek()),
       position.x + size.width / 2,
       position.y + size.height / 2,
     );
@@ -1322,8 +1323,7 @@ function RtsMinimapStack() {
   const seatRollups = useSeatRollups();
   const ground = minimapTheme.ground!;
   const miniMapNodeColor = useCallback((node: Node): string => {
-    const data = node.data as FlowNode["data"] | undefined;
-    const canvasNode = data?.node;
+    const canvasNode = documentNodeAt(node.id);
     const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
     if (canvasNode) return minimapNodeColors(canvasNode, severity, seatRollups.get(node.id), ground).fill;
     return HUE.amber;
@@ -1344,9 +1344,8 @@ function RtsMinimapStack() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seatUrgencyKey]);
   const miniMapNodeStroke = useCallback((node: Node): string => {
-    const data = node.data as FlowNode["data"] | undefined;
     const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-    return minimapNodeColors(data?.node, severity, seatRollups.get(node.id), ground).stroke;
+    return minimapNodeColors(documentNodeAt(node.id), severity, seatRollups.get(node.id), ground).stroke;
   }, [severityByNodeId, seatRollups, ground]);
 
   // Click = pan camera to that world point; double-click = zoom in on it.
@@ -1619,7 +1618,7 @@ function CanvasGraph() {
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: FlowNode) => {
     const live = rf.getNodes();
     const selectedCount = live.filter((n) => n.selected).length;
-    const isGroup = node.data?.node.type === "group" || node.type === "group";
+    const isGroup = node.data?.kind === "region" || node.type === "group";
 
     if (selectedCount >= 1 && !node.selected && !isGroup) {
       const sourceIds = connectableSourceIds(live, node.id);
@@ -1641,10 +1640,9 @@ function CanvasGraph() {
       openMultiMenu({ kind: "point", x: event.clientX, y: event.clientY });
       return;
     }
-    const seat = node.data?.node;
-    if (seat && isAgentSeatNode(seat)) {
+    if (node.data?.kind === "agent") {
       event.preventDefault();
-      openSeatMenu({ x: event.clientX, y: event.clientY }, seat.id);
+      openSeatMenu({ x: event.clientX, y: event.clientY }, node.id);
       return;
     }
     if (!isGroup) return;

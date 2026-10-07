@@ -4,6 +4,7 @@ import { identityHints } from "../shared/connections";
 import type { CanvasDoc } from "@shared/canvas";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
+import { modelStore } from "./lib/use-model";
 import { impactModeActive$ } from "./lib/impact-mode";
 import { clearSelection, selectNode, state$ } from "./lib/state";
 import { canvasCommandGroups } from "./lib/command-groups";
@@ -14,6 +15,7 @@ import {
   getCanvasRevision,
   hasPendingCanvasChanges,
   loadDoc,
+  onEditRefused,
   prepareCanvasRemoval,
   replaceActiveActorRefs,
   retrySave,
@@ -32,7 +34,6 @@ import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
 import { KEY_ACTIONS } from "./lib/key-actions";
 import { installKeyDispatcher } from "./lib/key-dispatcher";
-import { followDocument } from "./lib/model-from-document";
 import { installRemovedNodeViews } from "./lib/removed-node-views";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
@@ -140,6 +141,29 @@ const resetCanvasView = (): void => {
 
 const canvasNavigationClock = makeNavigationClock();
 
+// The node store holds the canvas on screen. A canvas is read into the store
+// before the window shows it, so its cards and its document arrive together
+// and the first fit of the camera is not left to run over the operator's
+// first move. The canvas shown before is let go only once the next is shown.
+let shownCanvas: { readonly name: string; readonly release: () => void } | undefined;
+
+/** Read a canvas into the store and keep it there. Returns the way to let it go. */
+const holdCanvas = async (name: string): Promise<() => void> => {
+  const release = modelStore.open(name);
+  await modelStore.ready(name);
+  return release;
+};
+
+/** Canvases read for a jump to a node, held until the jump is applied. */
+const heldForNavigation = new Map<string, () => void>();
+
+/** The canvas held by `release` is the one on screen now. */
+const showHeldCanvas = (name: string, release: () => void): void => {
+  const before = shownCanvas;
+  shownCanvas = { name, release };
+  before?.release();
+};
+
 // Read a canvas, load it as the source of truth, and prime the adapter plane
 // with just this document's bindings.
 const openCanvas = async (name: string) => {
@@ -153,7 +177,13 @@ const openCanvas = async (name: string) => {
       request = canvasNavigationClock.begin();
       const result = await window.junto.readCanvas(name);
       if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
+      const release = await holdCanvas(result.name);
+      if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) {
+        release();
+        return;
+      }
       clearAbandonedCanvas(result.name);
+      showHeldCanvas(result.name, release);
       state$.canvasName.set(result.name);
       resetCanvasView();
       batch(() => {
@@ -184,11 +214,18 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
   readCanvas: async (name) => {
     const junto = window.junto;
     if (!junto) throw new Error("Electron preload bridge is not available.");
-    return junto.readCanvas(name);
+    const result = await junto.readCanvas(name);
+    // Held until `apply` shows it. A read that is never applied is let go by
+    // the next read of the same canvas.
+    heldForNavigation.get(result.name)?.();
+    heldForNavigation.set(result.name, await holdCanvas(result.name));
+    return result;
   },
   assertCanApply: assertCanvasNavigationAdmitted,
   apply: (event, result) => {
     clearAbandonedCanvas(result.name);
+    showHeldCanvas(result.name, heldForNavigation.get(result.name) ?? modelStore.open(result.name));
+    heldForNavigation.delete(result.name);
     state$.canvasName.set(result.name);
     resetCanvasView();
     batch(() => {
@@ -245,6 +282,12 @@ const createCanvas = async (name: string) => {
       clearAbandonedCanvas(result.name);
       await refreshList();
       if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
+      const release = await holdCanvas(result.name);
+      if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) {
+        release();
+        return;
+      }
+      showHeldCanvas(result.name, release);
       state$.canvasName.set(result.name);
       resetCanvasView();
       batch(() => {
@@ -472,8 +515,11 @@ export function App() {
   // A view never outlives its node, however the node left the canvas.
   useEffect(() => installRemovedNodeViews(), []);
 
-  // Until main serves the model, the node store is filled from the document.
-  useEffect(() => followDocument(), []);
+  // An edit main refuses leaves the document on screen ahead of the canvas.
+  useEffect(() => {
+    onEditRefused((name) => void externalCanvasReload.changed(name));
+    return () => onEditRefused(() => undefined);
+  }, []);
 
   // Command bar "Open canvas" action — one-shot request consumed here so the
   // readCanvas + loadDoc flow keeps its single owner in App.

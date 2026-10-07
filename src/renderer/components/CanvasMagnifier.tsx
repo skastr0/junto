@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { useOnViewportChange, useReactFlow } from "@xyflow/react";
 import type { MemberSeverity } from "@shared/region-rollup";
 import type { FlowEdge, FlowNode } from "../lib/convert";
-import { nodeTitle, nodeTypeLabel } from "../lib/presentation";
+import { documentNodeAt } from "../lib/document-node";
+import { titleAt } from "../lib/use-model";
 import { signalMark, identityHue } from "../lib/signal-mark";
 import { themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
@@ -48,8 +49,8 @@ const severityOf = (node: FlowNode): MemberSeverity => {
 };
 
 const nodeBounds = (node: FlowNode) => {
-  const width = node.measured?.width ?? node.width ?? node.data.node.width;
-  const height = node.measured?.height ?? node.height ?? node.data.node.height;
+  const width = node.measured?.width ?? node.width ?? Number(node.style?.width ?? 0);
+  const height = node.measured?.height ?? node.height ?? Number(node.style?.height ?? 0);
   return {
     x: node.position.x,
     y: node.position.y,
@@ -88,8 +89,8 @@ const visibleNodes = (nodes: ReadonlyArray<FlowNode>, center: Point): VisibleNod
     .sort((a, b) => a.distance - b.distance)
     .slice(0, MAX_VISIBLE_NODES)
     .sort((a, b) => {
-      const aGroup = a.flow.data.node.type === "group" ? 0 : 1;
-      const bGroup = b.flow.data.node.type === "group" ? 0 : 1;
+      const aGroup = a.flow.data.kind === "region" ? 0 : 1;
+      const bGroup = b.flow.data.kind === "region" ? 0 : 1;
       return aGroup - bGroup || b.distance - a.distance;
     });
 };
@@ -182,12 +183,14 @@ const drawNode = (
 ) => {
   const { flow, severity } = visible;
   const t = paintTokens();
-  const source = flow.data.node;
+  // The hue helpers still read the document's node; the rest comes from the store.
+  const source = documentNodeAt(flow.id);
+  const title = titleAt(flow.data.canvas, flow.id);
   const x = LENS_RADIUS + (visible.x - center.x) * INSPECTION_SCALE;
   const y = LENS_RADIUS + (visible.y - center.y) * INSPECTION_SCALE;
   const width = visible.width * INSPECTION_SCALE;
   const height = visible.height * INSPECTION_SCALE;
-  const isGroup = source.type === "group";
+  const isGroup = flow.data.kind === "region";
   const mark = signalMark(severity);
   const elevated = severity !== "idle";
   const accent = elevated ? mark.hue : identityHue(source);
@@ -202,7 +205,7 @@ const drawNode = (
   if (isGroup) {
     context.fillStyle = withAlpha(identityHue(source), 0.75);
     context.font = "600 9px ui-monospace, SFMono-Regular, Menlo, monospace";
-    context.fillText(fitText(context, nodeTitle(source), Math.max(width - 14, 8)), x + 7, y + 14);
+    context.fillText(fitText(context, title, Math.max(width - 14, 8)), x + 7, y + 14);
     return;
   }
 
@@ -212,7 +215,7 @@ const drawNode = (
   context.fillStyle = t.ink!;
   context.font = "650 11px ui-monospace, SFMono-Regular, Menlo, monospace";
   context.fillText(
-    fitText(context, nodeTitle(source), Math.max(width - 34, 8)),
+    fitText(context, title, Math.max(width - 34, 8)),
     x + 11,
     y + Math.min(21, height * 0.45),
   );
@@ -220,7 +223,7 @@ const drawNode = (
   if (height >= 38 && width >= 62) {
     context.fillStyle = elevated ? withAlpha(accent, 0.9) : t.dim!;
     context.font = "600 8px ui-monospace, SFMono-Regular, Menlo, monospace";
-    const detail = elevated ? mark.label : nodeTypeLabel(source);
+    const detail = elevated ? mark.label : flow.data.kind;
     context.fillText(
       fitText(context, detail.toUpperCase(), Math.max(width - 28, 8)),
       x + 11,
@@ -352,14 +355,14 @@ export function CanvasMagnifier() {
     drawHud(context);
 
     const nearest = [...visible]
-      .filter((node) => node.flow.data.node.type !== "group")
+      .filter((node) => node.flow.data.kind !== "region")
       .sort((a, b) => a.distance - b.distance)[0] ?? visible.at(-1);
     if (subjectRef.current) {
-      subjectRef.current.textContent = nearest ? nodeTitle(nearest.flow.data.node) : "open field";
+      subjectRef.current.textContent = nearest ? titleAt(nearest.flow.data.canvas, nearest.flow.id) : "open field";
     }
     if (statusRef.current) {
       statusRef.current.textContent = nearest
-        ? `${nodeTypeLabel(nearest.flow.data.node)} - ${signalMark(nearest.severity).label}`
+        ? `${nearest.flow.data.kind} - ${signalMark(nearest.severity).label}`
         : "no node in range";
       statusRef.current.style.color = nearest && nearest.severity !== "idle"
         ? signalMark(nearest.severity).hue
