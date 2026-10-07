@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pin } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import { regionStack } from "@shared/graph";
+import { asNodeId, regionName, regionStack } from "@shared/model";
 import { state$ } from "../../lib/state";
 import { pinRuling } from "../../lib/mutations";
-import { nodeTitle } from "../../lib/presentation";
+import { useCanvas } from "../../lib/use-model";
 import { Button, Select } from "../ui";
 
 // Pin-as-ruling (spec section 6): the answer the operator just gave becomes
@@ -21,10 +21,12 @@ export function PinRulingControl({
   readonly text: string;
   readonly sourceRequestId?: string;
 }) {
-  const doc = use$(state$.doc);
-  const regions = useMemo(() => regionStack(doc, nodeId), [doc, nodeId]);
+  // Which regions hold the node depends on every region's rectangle, so the
+  // canvas is followed; this is mounted only beside an answer being read.
+  const canvas = useCanvas(use$(state$.canvasName));
+  const regions = useMemo(() => regionStack(canvas, asNodeId(nodeId)), [canvas, nodeId]);
   const innermost = regions[regions.length - 1];
-  const [regionId, setRegionId] = useState(innermost?.id ?? "");
+  const [regionId, setRegionId] = useState<string>(innermost?.id ?? "");
   const [pinned, setPinned] = useState(false);
 
   useEffect(() => {
@@ -46,7 +48,7 @@ export function PinRulingControl({
         size="xs"
         variant="subtle"
         disabled={!text.trim() || pinned}
-        aria-label={`Pin this answer as a ruling on region ${nodeTitle(target)}`}
+        aria-label={`Pin this answer as a ruling on region ${regionName(target)}`}
         title="Seats inside the region read pinned rulings on onboard"
         onClick={() => {
           pinRuling(target.id, text, sourceRequestId);
@@ -64,7 +66,7 @@ export function PinRulingControl({
             value={target.id}
             options={regions.map((region) => ({
               value: region.id,
-              label: nodeTitle(region),
+              label: regionName(region),
             }))}
             onChange={(next) => {
               setRegionId(next);
@@ -74,7 +76,7 @@ export function PinRulingControl({
         </div>
       ) : (
         <span className="text-[9px] tracking-[0.1em] text-faint uppercase">
-          {nodeTitle(target)}
+          {regionName(target)}
         </span>
       )}
     </div>
