@@ -1,4 +1,3 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * S4 - Edge-delete session teardown (I10 / I20)
  *
@@ -13,7 +12,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { Canvas } from "../src/shared/model";
+import { canvasOf, page as pageNode, seat, wire } from "./support/model-nodes";
 import { makeEdgeGrantService } from "../src/main/junto/browser/edge-grant";
 import {
   makeBrowserCapabilityRegistry,
@@ -108,61 +108,28 @@ const makeSpyAdapter = (): BrowserViewAdapter => {
 const twoPageDoc = (
   edges: ReadonlyArray<{ id: string; from: string; to: string }>,
   pageHosts?: { p1?: string; p2?: string },
-): CanvasDoc => ({
-  nodes: [
-    {
-      id: "agent",
-      type: "text",
-      text: "agent",
-      x: 0,
-      y: 0,
-      width: 120,
-      height: 48,
-      ether: {
-          entity: { kind: "agent", name: "local:default" },
-          terminal: {
-            bindingId: "bind-local-default",
-            harness: "claude",
-            launch: { kind: "harness", argv: ["claude"] },
-          },
-        },
-    },
-    {
-      id: "p1",
-      type: "link",
-      url: "https://example.com/one",
-      x: 200,
-      y: 0,
-      width: 120,
-      height: 48,
-      ether: {
-        entity: { kind: "page" },
-        browser: { profile: "personal" },
-        ...(pageHosts?.p1 !== undefined ? { host: pageHosts.p1 } : {}),
-      },
-    },
-    {
-      id: "p2",
-      type: "link",
-      url: "https://example.com/two",
-      x: 400,
-      y: 0,
-      width: 120,
-      height: 48,
-      ether: {
-        entity: { kind: "page" },
-        browser: { profile: "personal" },
-        ...(pageHosts?.p2 !== undefined ? { host: pageHosts.p2 } : {}),
-      },
-    },
-  ],
-  edges: edges.map((e) => ({
-    id: e.id,
-    fromNode: e.from,
-    toNode: e.to,
-    ether: { verb: "navigates" as const },
-  })),
-});
+  agentX = 0,
+): Canvas =>
+  canvasOf(
+    [
+      seat("agent", {
+        x: agentX, y: 0, width: 120, height: 48,
+        agentKey: "local:default",
+        bindingId: "bind-local-default" as never,
+        launch: { kind: "harness", argv: ["claude"] },
+      }),
+      pageNode("p1", {
+        url: "https://example.com/one", x: 200, y: 0, width: 120, height: 48, profile: "personal",
+        host: pageHosts?.p1 ?? "local",
+      }),
+      pageNode("p2", {
+        url: "https://example.com/two", x: 400, y: 0, width: 120, height: 48, profile: "personal",
+        host: pageHosts?.p2 ?? "local",
+      }),
+    ],
+    edges.map((e) => wire(e.id, e.from, e.to, "navigates")),
+    "work",
+  );
 
 describe("edge-revocation pure helpers", () => {
   it("keys lost targets by (caller, page) and ignores unrelated edges", () => {
@@ -172,8 +139,8 @@ describe("edge-revocation pure helpers", () => {
     ]);
     const next = twoPageDoc([{ id: "e2", from: "agent", to: "p2" }]);
     const lost = lostPageTargetsForCaller(
-      canvasFromDocument("work", previous),
-      canvasFromDocument("work", next),
+      previous,
+      next,
       "work",
       "agent",
       [
@@ -241,7 +208,7 @@ describe("browser edge-delete session teardown", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  const makeStack = (doc: CanvasDoc, targets: ReadonlyArray<ResolvedPageTarget>) => {
+  const makeStack = (doc: Canvas, targets: ReadonlyArray<ResolvedPageTarget>) => {
     let sessionCounter = 0;
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
@@ -266,7 +233,7 @@ describe("browser edge-delete session teardown", () => {
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       resolvePageTarget,
-      listCanvasModels: async () => [{ name: "work", doc: canvasFromDocument("work", liveDoc) }],
+      listCanvasModels: async () => [{ name: "work", doc: liveDoc }],
       station: () => sessions.stationIdentity(),
       admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       sessions: {
@@ -278,7 +245,7 @@ describe("browser edge-delete session teardown", () => {
       sessions,
       capabilities,
       edgeGrant,
-      setDoc: (next: CanvasDoc) => {
+      setDoc: (next: Canvas) => {
         liveDoc = next;
       },
     };
@@ -342,8 +309,8 @@ describe("browser edge-delete session teardown", () => {
     const next = twoPageDoc([{ id: "e2", from: "agent", to: "p2" }]);
     setDoc(next);
     const receipts = edgeGrant.invalidateCanvas("work", {
-      previous: canvasFromDocument("work", previous),
-      next: canvasFromDocument("work", next),
+      previous: previous,
+      next: next,
     });
 
     expect(receipts).toHaveLength(1);
@@ -400,7 +367,7 @@ describe("browser edge-delete session teardown", () => {
 
     const next = twoPageDoc([]);
     setDoc(next);
-    const receipts = edgeGrant.invalidateCanvas("work", { previous: canvasFromDocument("work", previous), next: canvasFromDocument("work", next) });
+    const receipts = edgeGrant.invalidateCanvas("work", { previous: previous, next: next });
     expect(receipts.some((r) => r.pageRef === REF_P1 && r.status === "confirmed")).toBe(
       true,
     );
@@ -442,13 +409,8 @@ describe("browser edge-delete session teardown", () => {
     if (!opened.ok) return;
 
     // Same edges; only node geometry changed — no teardown.
-    const next: CanvasDoc = {
-      ...previous,
-      nodes: previous.nodes.map((n) =>
-        n.id === "agent" ? { ...n, x: 50 } : n,
-      ),
-    };
-    const receipts = edgeGrant.invalidateCanvas("work", { previous: canvasFromDocument("work", previous), next: canvasFromDocument("work", next) });
+    const next = twoPageDoc([{ id: "e1", from: "agent", to: "p1" }], undefined, 50);
+    const receipts = edgeGrant.invalidateCanvas("work", { previous: previous, next: next });
     expect(receipts).toEqual([]);
     expect(sessions.sessionIdForRefForOwner(lease.auditId, REF_P1)).toBe(
       opened.data.sessionId,
