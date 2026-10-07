@@ -1,3 +1,4 @@
+import type { CanvasesChanged, Changed } from "@shared/model";
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import {
@@ -446,6 +447,11 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   createCanvas: (name) => invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name),
   deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   canvasDigest: (name) => invoke(IPC_CHANNELS.canvasDigest, IPC_TIMEOUT_MS, name),
+  modelOpen: (input) => invoke(IPC_CHANNELS.modelOpen, IPC_TIMEOUT_MS, input),
+  modelCommand: (command) => invoke(IPC_CHANNELS.modelCommand, IPC_TIMEOUT_MS, command),
+  onModelChanged: (listener) => subscribe<Changed>(IPC_CHANNELS.modelChanged, listener),
+  onModelCanvasesChanged: (listener) =>
+    subscribe<CanvasesChanged>(IPC_CHANNELS.modelCanvasesChanged, listener),
   getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   factoryPauseState: (canvas) =>

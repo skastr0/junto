@@ -1,3 +1,4 @@
+import type { CanvasesChanged, Changed, Command, Opened } from "./model";
 import type {
   SeatOffboardRunInput,
   SeatOffboardRunResult,
@@ -142,6 +143,10 @@ export const IPC_CHANNELS = {
   createCanvas: "junto:create-canvas",
   deleteCanvas: "junto:delete-canvas",
   canvasDigest: "junto:canvas-digest",
+  modelOpen: "junto:model-open",
+  modelCommand: "junto:model-command",
+  modelChanged: "junto:model-changed",
+  modelCanvasesChanged: "junto:model-canvases-changed",
   generatePortfolio: "junto:generate-portfolio",
   getSnapshots: "junto:get-snapshots",
   refreshSnapshots: "junto:refresh-snapshots",
@@ -789,6 +794,13 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly deleteCanvas: (name: string) => Promise<{ name: string }>;
   readonly canvasDigest: (name: string) => Promise<DigestResult>;
+  /** Everything on one canvas, read once when it is opened. */
+  readonly modelOpen: (input: { readonly canvas: string }) => Promise<Opened>;
+  /** Change something on a canvas. Resolves once committed; a refusal rejects. */
+  readonly modelCommand: (command: Command) => Promise<{ readonly seq: number }>;
+  /** The rows that changed on a canvas, after every commit, to every window. */
+  readonly onModelChanged: (listener: (event: Changed) => void) => () => void;
+  readonly onModelCanvasesChanged: (listener: (event: CanvasesChanged) => void) => () => void;
   readonly getSnapshots: () => Promise<SnapshotState>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;
