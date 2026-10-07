@@ -574,13 +574,17 @@ function useCanvasInteractions(
     readonly startPositions: ReadonlyMap<string, { readonly x: number; readonly y: number }>;
   } | null>(null);
   // End drag: clear latch, optionally stamp RF positions, flush deferred rebuild.
-  // Idempotent — safe when both onNodeDragStop and pointerup fire.
-  const finishDrag = useCallback((sync: boolean) => {
+  // Idempotent — safe when both onNodeDragStop and pointerup fire. `dropped`
+  // is what React Flow says the dragged nodes ended on: it applies the last
+  // step of a drag as the drag ends, so those are the places to take, over
+  // whatever the node list held a moment earlier.
+  const finishDrag = useCallback((sync: boolean, dropped: ReadonlyArray<FlowNode> = []) => {
     if (!dragInProgressRef.current) return;
     holdDragRef.current = null;
     if (sync) {
       const positions = new Map<string, { x: number; y: number }>();
       for (const node of rf.getNodes()) positions.set(node.id, node.position);
+      for (const node of dropped) positions.set(node.id, node.position);
       syncPositions(positions);
     }
     dragInProgressRef.current = false;
@@ -591,8 +595,16 @@ function useCanvasInteractions(
   }, [rf, dragInProgressRef, pendingRebuildRef, flushRebuild]);
 
   // Recover from pointercancel / missing dragStop / unmount so rebuilds never stick.
+  // This is the fallback and never the first to act: the pointer goes up
+  // before React Flow has ended its drag and applied the last step, so taking
+  // the positions here left the cards one step short of where they were let
+  // go, and the rebuild then moved them back. It waits a frame, by which time
+  // onNodeDragStop has taken the drop if there was a drag to end.
   useEffect(() => {
-    const onPointerEnd = () => finishDrag(true);
+    const onPointerEnd = () => {
+      if (!dragInProgressRef.current) return;
+      requestAnimationFrame(() => finishDrag(true));
+    };
     window.addEventListener("pointerup", onPointerEnd);
     window.addEventListener("pointercancel", onPointerEnd);
     return () => {
@@ -630,8 +642,8 @@ function useCanvasInteractions(
       return start ? { ...n, position: { x: start.x + dx, y: start.y + dy } } : n;
     }));
   }, [setNodes]);
-  const onNodeDragStop = useCallback(() => {
-    finishDrag(true);
+  const onNodeDragStop: OnNodeDrag<FlowNode> = useCallback((_event, _node, dropped) => {
+    finishDrag(true, dropped);
   }, [finishDrag]);
   // React Flow drops what the delete key names from its own view before it
   // reports the deletion, and the document's delete can still refuse (the
