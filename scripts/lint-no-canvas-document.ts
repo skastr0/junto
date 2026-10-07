@@ -42,7 +42,26 @@ const ALLOWED = new Set([
   // The one-time reading of rows an old database holds.
   "src/main/junto/model/migrate.ts",
   "src/shared/model/from-legacy-row.ts",
+  // Tests of that one-time reading and of what old databases held.
+  "tests/model-legacy-row.test.ts",
+  "tests/model-kind-migration.test.ts",
+  "tests/model-installed-migration.test.ts",
+  "tests/state-v1-fixture-migration.test.ts",
+  "tests/audit-retired-state-signatures.test.ts",
+  "tests/token-pressure-retired-data.test.ts",
+  // Tests of the unhooked station, frozen with it.
+  "tests/actor-projection-barrier.test.ts",
+  "tests/actor-seat.test.ts",
+  "tests/work-replication.test.ts",
+  "tests/work-v2-state-schema.test.ts",
+  // Guards that name the old word only to forbid it in output.
+  "tests/overseer-control.test.ts",
+  "tests/overseer-cli.test.ts",
+  "tests/terminal-actor-entry-architecture.test.ts",
 ]);
+
+/** Tests of the unhooked station share its name. */
+const ALLOWED_PATTERNS = [/^tests\/station[.-][\w.-]*\.test\.tsx?$/];
 
 /**
  * Things that stay exactly as they were written, old names included: old
@@ -57,6 +76,7 @@ const ALLOWED_DIRS = [
   "src/main/junto/station/",
   // Records of measurements taken while the old document still existed.
   "docs/research/",
+  "tests/fixtures/domain-cutover",
 ];
 
 const TEXT = /\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|css|sh|sql|yml|yaml|html)$/;
@@ -77,7 +97,8 @@ const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: ROOT })
   .split("\n")
   .filter(
     (file) =>
-      TEXT.test(file) && !ALLOWED.has(file) && !ALLOWED_DIRS.some((dir) => file.startsWith(dir)),
+      TEXT.test(file) && !ALLOWED.has(file) && !ALLOWED_DIRS.some((dir) => file.startsWith(dir)) &&
+      !ALLOWED_PATTERNS.some((pattern) => pattern.test(file)),
   );
 
 const hits = new Map<string, Map<string, Array<string>>>();
