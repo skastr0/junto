@@ -54,3 +54,10 @@
 .seat-offboard-panel__status[data-tone="done"] { color: var(--color-green); }
 .seat-offboard-panel__status[data-tone="partial"] { color: var(--color-amber); }
 .seat-offboard-panel__status[data-tone="refused"] { color: var(--color-crimson); }
+
+/* The same actions as rows of a canvas right-click menu: the menu's own
+   button style, plus the armed and result colours. */
+.canvas-action-menu button[data-armed="true"] strong { color: var(--color-crimson); }
+.canvas-action-menu button[data-tone="done"] small { color: var(--color-green); }
+.canvas-action-menu button[data-tone="partial"] small { color: var(--color-amber); }
+.canvas-action-menu button[data-tone="refused"] small { color: var(--color-crimson); }

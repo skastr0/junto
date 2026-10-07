@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { LogOut } from "lucide-react";
+import { LogOut, NotebookPen } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { SeatOffboardAction, SeatOffboardStatus } from "@shared/seat-offboard";
 import type { OffboardMode } from "@shared/seat-sessions";
@@ -8,7 +8,10 @@ import type { Side } from "../../lib/menu-placement";
 import { agentCountLabel, isAgentSeatNode } from "../../lib/multi-selection";
 import { nodeTitle } from "../../lib/presentation";
 import {
+  armedNowLabel,
+  askMenuDetail,
   askOffboardLine,
+  nowMenuRow,
   offboardIdleLine,
   offboardLineTone,
   offboardNowBlock,
@@ -26,22 +29,18 @@ import "./seat-offboard.css";
 /** How often an open panel asks again how long its seats have sat still. */
 const STATUS_REFRESH_MS = 60_000;
 
-type Line = { readonly text: string; readonly tone: "busy" | "done" | "partial" | "refused" };
+type Line = {
+  readonly action: SeatOffboardAction;
+  readonly text: string;
+  readonly tone: "busy" | "done" | "partial" | "refused";
+};
 
 /**
- * End the session of one agent seat or of every agent in a selection. Two
- * ways: ask the agent, which writes its notes first (continue in a fresh
- * session, or rest), or have Junto close it now with no agent turn and no
- * notes. The cache window says which is the better call for a seat's idle
- * time; both stay available.
+ * The state behind every offboard surface (the panel, the canvas menu's
+ * rows): the agents among `nodeIds`, what main says of each, the two-press
+ * arming of Offboard now, and the line for the last action.
  */
-export function SeatOffboardPanel({
-  nodeIds,
-  ops = seatOffboardOps,
-}: {
-  readonly nodeIds: ReadonlyArray<string>;
-  readonly ops?: SeatOffboardOps;
-}) {
+export const useSeatOffboard = (nodeIds: ReadonlyArray<string>, ops: SeatOffboardOps = seatOffboardOps) => {
   const canvasName = use$(state$.canvasName);
   // The agents among the ids, by canvas name, read off the live document.
   const seats = use$(() => {
@@ -75,7 +74,7 @@ export function SeatOffboardPanel({
   useEffect(disarm, [seatKey]);
 
   // Main knows whether each seat may be closed now and how long it has sat
-  // still. Ask when the panel opens or its seats change, and again each
+  // still. Ask when the surface opens or its seats change, and again each
   // minute while it stays open: the idle clock moves by the minute.
   useEffect(() => {
     const ids = seatKey.split(" ").filter(Boolean);
@@ -98,12 +97,26 @@ export function SeatOffboardPanel({
   }, [canvasName, seatKey, ops]);
 
   const count = seats.length;
-  const many = count > 1;
-  const title = many ? `Offboard ${agentCountLabel(count)}` : `Offboard ${seats[0]?.name ?? "agent"}`;
-  const idle = offboardIdleLine(statuses);
-  const session = offboardSessionLine(statuses);
-  const preferred = offboardPreferred(statuses);
-  const nowBlock = offboardNowBlock(statuses);
+
+  const run = async (action: SeatOffboardAction, mode: OffboardMode): Promise<void> => {
+    if (busy !== undefined || count === 0) return;
+    disarm();
+    setBusy(action);
+    setLine({ action, text: action === "now" ? "Closing…" : "Asking…", tone: "busy" });
+    const ids = seats.map((seat) => seat.id);
+    const result = await ops.run({ canvasName, seatIds: ids, action, ...(action === "ask" ? { mode } : {}) });
+    if (!live.current) return;
+    setBusy(undefined);
+    setLine({
+      action,
+      text: action === "now" ? offboardNowLine(result.results) : askOffboardLine(mode, result.results),
+      tone: offboardLineTone(result.results),
+    });
+    // A closed seat is no longer idle-with-a-session; ask again what holds.
+    void ops.status(canvasName, ids).then((next) => {
+      if (live.current) setStatuses(next);
+    });
+  };
 
   const pressNow = (): void => {
     if (armed) {
@@ -115,24 +128,30 @@ export function SeatOffboardPanel({
     armTimer.current = setTimeout(() => setArmed(false), KILL_ARM_MS);
   };
 
-  const run = async (action: SeatOffboardAction, mode: OffboardMode): Promise<void> => {
-    if (busy !== undefined || count === 0) return;
-    disarm();
-    setBusy(action);
-    setLine({ text: action === "now" ? "Closing…" : "Asking…", tone: "busy" });
-    const ids = seats.map((seat) => seat.id);
-    const result = await ops.run({ canvasName, seatIds: ids, action, ...(action === "ask" ? { mode } : {}) });
-    if (!live.current) return;
-    setBusy(undefined);
-    setLine({
-      text: action === "now" ? offboardNowLine(result.results) : askOffboardLine(mode, result.results),
-      tone: offboardLineTone(result.results),
-    });
-    // A closed seat is no longer idle-with-a-session; ask again what holds.
-    void ops.status(canvasName, ids).then((next) => {
-      if (live.current) setStatuses(next);
-    });
-  };
+  return { seats, count, statuses, busy, line, armed, run, pressNow };
+};
+
+/**
+ * End the session of one agent seat or of every agent in a selection. Two
+ * ways: ask the agent, which writes its notes first (continue in a fresh
+ * session, or rest), or have Junto close it now with no agent turn and no
+ * notes. The cache window says which is the better call for a seat's idle
+ * time; both stay available.
+ */
+export function SeatOffboardPanel({
+  nodeIds,
+  ops = seatOffboardOps,
+}: {
+  readonly nodeIds: ReadonlyArray<string>;
+  readonly ops?: SeatOffboardOps;
+}) {
+  const { seats, count, statuses, busy, line, armed, run, pressNow } = useSeatOffboard(nodeIds, ops);
+  const many = count > 1;
+  const title = many ? `Offboard ${agentCountLabel(count)}` : `Offboard ${seats[0]?.name ?? "agent"}`;
+  const idle = offboardIdleLine(statuses);
+  const session = offboardSessionLine(statuses);
+  const preferred = offboardPreferred(statuses);
+  const nowBlock = offboardNowBlock(statuses);
 
   const disabled = busy !== undefined || count === 0;
   // What the second press will close: the seats main says can be closed now.
@@ -240,6 +259,67 @@ function PreferredMark() {
     >
       preferred
     </span>
+  );
+}
+
+/**
+ * The same two actions as rows of a canvas right-click menu, in the menu's
+ * own markup (a label and one grey line). The rows keep the menu open: the
+ * grey line becomes the result, and Offboard now needs its second press.
+ */
+export function SeatOffboardMenuRows({
+  nodeIds,
+  ops = seatOffboardOps,
+}: {
+  readonly nodeIds: ReadonlyArray<string>;
+  readonly ops?: SeatOffboardOps;
+}) {
+  const { count, statuses, busy, line, armed, run, pressNow } = useSeatOffboard(nodeIds, ops);
+  if (count === 0) return null;
+  const agents = agentCountLabel(count);
+  const now = nowMenuRow(count, statuses);
+  const said = (action: SeatOffboardAction): string | undefined => (line?.action === action ? line.text : undefined);
+  const tone = (action: SeatOffboardAction): string | undefined => (line?.action === action ? line.tone : undefined);
+  return (
+    <>
+      <button
+        aria-label={count === 1 ? "Ask the agent to offboard and continue" : `Ask ${agents} to offboard and continue`}
+        disabled={busy !== undefined}
+        data-testid="menu-offboard-ask"
+        data-tone={tone("ask")}
+        onClick={() => void run("ask", "continue")}
+      >
+        <span className="canvas-action-menu__icon" aria-hidden>
+          <NotebookPen size={14} />
+        </span>
+        <span>
+          <strong>ask to offboard</strong>
+          <small role="status">{said("ask") ?? askMenuDetail(count)}</small>
+        </span>
+      </button>
+      <button
+        aria-label={
+          armed
+            ? `Confirm: ${armedNowLabel(now.closable)} No notes are written`
+            : count === 1
+              ? "Offboard now: close this agent's session without notes"
+              : `Offboard now: close the sessions of ${agents} without notes`
+        }
+        disabled={busy !== undefined || now.disabled}
+        data-testid="menu-offboard-now"
+        data-armed={armed ? "true" : undefined}
+        data-tone={tone("now")}
+        onClick={pressNow}
+      >
+        <span className="canvas-action-menu__icon" aria-hidden>
+          <LogOut size={14} />
+        </span>
+        <span>
+          <strong>{armed ? armedNowLabel(now.closable) : "offboard now"}</strong>
+          <small role="status">{armed ? "press again to close, no notes" : said("now") ?? now.detail}</small>
+        </span>
+      </button>
+    </>
   );
 }
 

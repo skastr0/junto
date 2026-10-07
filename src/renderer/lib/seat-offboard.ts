@@ -213,6 +213,62 @@ export const offboardNowBlock = (statuses: ReadonlyArray<SeatOffboardStatus>): s
   return "None of these agents can be closed right now.";
 };
 
+// --- the canvas menu's rows ----------------------------------------------------
+// The right-click menus say each action in a label and one grey line. These
+// are the grey lines.
+
+/** Under "ask to offboard". */
+export const askMenuDetail = (count: number): string =>
+  count === 1 ? "continue in a fresh session" : `${agentCountLabel(count)}, continue`;
+
+/** What the second press of an armed "offboard now" closes. */
+export const armedNowLabel = (closable: number): string =>
+  closable === 1 ? "close this session?" : `close ${closable} sessions?`;
+
+/** One agent's reason in a few words; main's own sentence when there is no short form. */
+const ONE_BLOCK: Readonly<Partial<Record<OffboardRefusalCode, string>>> = {
+  working: "this agent is working",
+  attention: "this agent is waiting on you",
+  closing: "this agent is already closing",
+};
+
+/**
+ * The "offboard now" row: its grey line, whether it can be pressed, and how
+ * many sessions a press would close. Before main has answered it shows the
+ * count and stays pressable; main refuses at the press what cannot close.
+ */
+export const nowMenuRow = (
+  count: number,
+  statuses: ReadonlyArray<SeatOffboardStatus>,
+): { readonly detail: string; readonly disabled: boolean; readonly closable: number } => {
+  if (count === 1) {
+    const now = statuses[0]?.now;
+    if (now === undefined || now.allowed) return { detail: "no notes, the seat rests", disabled: false, closable: 1 };
+    return { detail: ONE_BLOCK[now.code] ?? now.reason, disabled: true, closable: 0 };
+  }
+  if (statuses.length === 0) return { detail: agentCountLabel(count), disabled: false, closable: count };
+  const closable = statuses.filter((entry) => entry.now.allowed).length;
+  if (closable === 0) {
+    const counts = new Map<string, number>();
+    for (const entry of statuses) {
+      if (entry.now.allowed) continue;
+      const key = REFUSAL_PHRASE[entry.now.code] !== undefined ? entry.now.code : "";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const reasons = [...counts].map(([key, n]) =>
+      key === "" ? `${n} cannot be closed` : REFUSAL_PHRASE[key as OffboardRefusalCode]!(n),
+    );
+    return { detail: `none can close now: ${reasons.join(", ")}`, disabled: true, closable: 0 };
+  }
+  const detail =
+    closable < statuses.length
+      ? `${closable} of ${statuses.length} can close now`
+      : closable === 2
+        ? "both can close now"
+        : `all ${closable} can close now`;
+  return { detail, disabled: false, closable };
+};
+
 // --- the automatic rules -------------------------------------------------------
 
 /**

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  armedNowLabel,
+  askMenuDetail,
   askOffboardLine,
+  nowMenuRow,
   offboardIdleLine,
   offboardLineTone,
   offboardNowBlock,
@@ -232,5 +235,59 @@ describe("a session size field", () => {
     expect(parseOffboardTokens("200,000")).toBe(200_000);
     expect(parseOffboardTokens(" 1000 ")).toBe(1_000);
     for (const raw of ["", "999", "100000001", "2.5", "200k", "-1"]) expect(parseOffboardTokens(raw)).toBeUndefined();
+  });
+});
+
+describe("the offboard rows of the canvas menu", () => {
+  const blocked = (code: OffboardRefusalCode): SeatOffboardStatus["now"] => ({ allowed: false, code, reason: "x" });
+
+  it("ask to offboard: the count, and that the agents continue", () => {
+    expect(askMenuDetail(1)).toBe("continue in a fresh session");
+    expect(askMenuDetail(2)).toBe("2 agents, continue");
+  });
+
+  it("offboard now: how many can close, before anything is known just the count", () => {
+    expect(nowMenuRow(3, [])).toEqual({ detail: "3 agents", disabled: false, closable: 3 });
+    expect(nowMenuRow(5, [status(), status(), status({ now: working }), status({ now: working }), status({ now: working })])).toEqual({
+      detail: "2 of 5 can close now",
+      disabled: false,
+      closable: 2,
+    });
+    expect(nowMenuRow(2, [status(), status()])).toEqual({ detail: "both can close now", disabled: false, closable: 2 });
+    expect(nowMenuRow(3, [status(), status(), status()])).toEqual({ detail: "all 3 can close now", disabled: false, closable: 3 });
+  });
+
+  it("offboard now: greyed with its reason when none can close", () => {
+    expect(nowMenuRow(2, [status({ now: working }), status({ now: working })])).toEqual({
+      detail: "none can close now: 2 are working",
+      disabled: true,
+      closable: 0,
+    });
+    expect(nowMenuRow(3, [status({ now: working }), status({ now: blocked("attention") }), status({ now: blocked("failed") })])).toEqual({
+      detail: "none can close now: 1 is working, 1 is waiting on you, 1 cannot be closed",
+      disabled: true,
+      closable: 0,
+    });
+  });
+
+  it("offboard now for one agent: what it does, or why not", () => {
+    expect(nowMenuRow(1, [status()])).toEqual({ detail: "no notes, the seat rests", disabled: false, closable: 1 });
+    expect(nowMenuRow(1, [])).toEqual({ detail: "no notes, the seat rests", disabled: false, closable: 1 });
+    expect(nowMenuRow(1, [status({ now: working })])).toEqual({ detail: "this agent is working", disabled: true, closable: 0 });
+    expect(nowMenuRow(1, [status({ now: blocked("attention") })])).toEqual({
+      detail: "this agent is waiting on you",
+      disabled: true,
+      closable: 0,
+    });
+    expect(nowMenuRow(1, [status({ now: { allowed: false, code: "failed", reason: "Junto is still starting. Try again in a moment." } })])).toEqual({
+      detail: "Junto is still starting. Try again in a moment.",
+      disabled: true,
+      closable: 0,
+    });
+  });
+
+  it("the armed row names what the second press closes", () => {
+    expect(armedNowLabel(1)).toBe("close this session?");
+    expect(armedNowLabel(4)).toBe("close 4 sessions?");
   });
 });

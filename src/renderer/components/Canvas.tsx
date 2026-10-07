@@ -54,6 +54,7 @@ import { openAgentEditor } from "../lib/agent-editor-state";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
 import { planSeatMessage } from "../lib/seat-message";
 import { SeatMessageForm } from "./nodes/SeatMessage";
+import { SeatOffboardMenuRows } from "./nodes/SeatOffboard";
 import { AGENT_BROADCAST_PROMPTS, type AgentBroadcastKind } from "@shared/agent-broadcast-prompts";
 import { placeAtPoint, placeBesideRect, type ScreenRect } from "../lib/menu-placement";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
@@ -1050,6 +1051,9 @@ type MultiMenuEntry = {
   readonly onSelect: () => void;
 };
 
+/** The multi-select menu's last agent rows: saving the selection for reuse. */
+const SAVE_ROW_KEYS: ReadonlySet<string> = new Set(["profile", "squad"]);
+
 const MultiMenuRow = ({ entry }: { readonly entry: MultiMenuEntry }) => (
   <button aria-label={entry.ariaLabel} disabled={entry.disabled} onClick={entry.onSelect}>
     <span className="canvas-action-menu__icon" aria-hidden>{entry.icon}</span>
@@ -1218,7 +1222,10 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
         </div>
       ) : (
         <div ref={menuRef} className="canvas-action-menu" role="toolbar" aria-orientation="vertical" aria-label={`Actions for ${nodes}`} onKeyDown={onMenuKeyDown}>
-          {agentRows.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
+          {agentRows.filter((entry) => !SAVE_ROW_KEYS.has(entry.key)).map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
+          {/* Offboard sits with stop and check, before the save rows. */}
+          <SeatOffboardMenuRows nodeIds={agentIds} />
+          {agentRows.filter((entry) => SAVE_ROW_KEYS.has(entry.key)).map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
           {agentRows.length > 0 ? <hr className="canvas-action-menu__rule" /> : null}
           <SaveToGroupPicker count={count} onPick={(slot) => run((ids) => saveSelectionToCommandGroup(ids, slot))} />
           <hr className="canvas-action-menu__rule" />
@@ -1265,6 +1272,8 @@ function SeatMenu({ at, seatId, onClose }: {
     >
       <div ref={menuRef} className="canvas-action-menu" role="toolbar" aria-orientation="vertical" aria-label="Agent actions" data-testid="seat-menu" onKeyDown={onMenuKeyDown}>
         {entries.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
+        <hr className="canvas-action-menu__rule" />
+        <SeatOffboardMenuRows nodeIds={[seatId]} />
       </div>
     </div>
   );
