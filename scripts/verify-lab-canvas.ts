@@ -141,6 +141,15 @@ if (layout) {
   layoutEdges = layout.wires
     .map(([from, to], i) => ({ id: `verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, fromNode: nodes[from]!.id, toNode: nodes[to]!.id, ether: { verb: "messages" } }))
     .filter((edge) => edge.fromNode !== edge.toNode && edge.fromNode.includes("-seat-") && edge.toNode.includes("-seat-"));
+  // The real pairs may be wired more than once with different verbs; here
+  // every wire is a message wire, and a pair may hold only one of those.
+  const pairs = new Set<string>();
+  layoutEdges = layoutEdges.filter((edge) => {
+    const pair = `${edge.fromNode}>${edge.toNode}`;
+    if (pairs.has(pair)) return false;
+    pairs.add(pair);
+    return true;
+  });
 }
 
 // --regions, --notes and --wires fill the canvas out to the shape of a real
