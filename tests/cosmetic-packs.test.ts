@@ -177,9 +177,12 @@ describe("catalog and fallback", () => {
     );
   });
 
-  it("wears the seat's free look when a premium item is not in this build", () => {
-    installCosmeticPacks(decodeCosmeticPacks([testPack]));
-    const config = { accessory: "test-pack:top-hat", shape: "test-pack:blob", bodyHue: "test-pack:mint" };
+  it.each(["bare", "namespaced"] as const)("retains and restores %s premium selections while rendering free fallbacks", (keys) => {
+    const packs = decodeCosmeticPacks([{ ...testPack, ...(keys === "bare" ? { keys: "bare" } : {}) }]);
+    installCosmeticPacks(packs);
+    const prefix = keys === "bare" ? "" : "test-pack:";
+    const config = { accessory: `${prefix}top-hat`, shape: `${prefix}blob`, bodyHue: `${prefix}mint` };
+    const original = portraitSvg({ seed: "seat-a", mode: "bright", detail: "rich", config });
     installCosmeticPacks([]);
     for (const detail of ["glyph", "card", "rich"] as const) {
       expect(portraitSvg({ seed: "seat-a", mode: "bright", detail, config })).toBe(
@@ -187,5 +190,9 @@ describe("catalog and fallback", () => {
       );
     }
     expect(normalizePortraitOverride(config)).toEqual(config);
+    expect(portraitSvg({ seed: "seat-a", mode: "bright", detail: "rich", config })).not.toBe(original);
+    installCosmeticPacks(packs);
+    expect(portraitCharacter("seat-a", config)).toMatchObject(config);
+    expect(portraitSvg({ seed: "seat-a", mode: "bright", detail: "rich", config })).toBe(original);
   });
 });

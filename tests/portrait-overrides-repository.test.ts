@@ -51,6 +51,36 @@ describe("PortraitOverrideRepository", () => {
     expect(afterReset).toEqual({});
   });
 
+  it("preserves unavailable cosmetic IDs across a cold reopen and unrelated portrait edits", async () => {
+    const saved = {
+      shape: "unreleased-body",
+      topper: "unreleased-topper",
+      accessory: "unreleased:hat",
+      bodyHue: "unreleased:palette",
+      temperament: 0.5,
+    };
+    await run(Effect.gen(function* () {
+      const repository = yield* PortraitOverrideRepository;
+      yield* repository.set("seat-a", saved);
+    }));
+    await runtime.dispose();
+    runtime = ManagedRuntime.make(
+      PortraitOverrideRepositoryLive.pipe(Layer.provide(makeStateEngineLive(join(root, "junto.db")))),
+    );
+    const reopened = await run(Effect.gen(function* () {
+      const repository = yield* PortraitOverrideRepository;
+      return yield* repository.list();
+    }));
+    expect(reopened).toEqual({ "seat-a": saved });
+
+    const afterMoodEdit = await run(Effect.gen(function* () {
+      const repository = yield* PortraitOverrideRepository;
+      yield* repository.set("seat-a", { ...reopened["seat-a"], temperament: -0.25 });
+      return yield* repository.list();
+    }));
+    expect(afterMoodEdit).toEqual({ "seat-a": { ...saved, temperament: -0.25 } });
+  });
+
   it("holds hundreds of seats with no shared size ceiling", async () => {
     const count = await run(
       Effect.gen(function* () {
