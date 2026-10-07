@@ -38,6 +38,12 @@ const ActivityMarkGallery = lazy(() =>
   import("./components/gallery/ActivityMarkGallery").then((m) => ({ default: m.ActivityMarkGallery })),
 );
 
+// Dev gallery for code and diffs (`#/gallery/code`).
+const CODE_GALLERY = "#/gallery/code";
+const CodeViewGallery = lazy(() =>
+  import("./components/gallery/CodeViewGallery").then((m) => ({ default: m.CodeViewGallery })),
+);
+
 function AppRoot() {
   const api = window.junto;
 
@@ -51,6 +57,14 @@ function AppRoot() {
     return (
       <Suspense fallback={null}>
         <ActivityMarkGallery />
+      </Suspense>
+    );
+  }
+
+  if (window.location.hash.startsWith(CODE_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <CodeViewGallery />
       </Suspense>
     );
   }
