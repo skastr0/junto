@@ -58,6 +58,7 @@ import {
 import { SignalRaiseCliInput } from "./signal-input";
 import { ContentStageArgs } from "../../shared/content-stage";
 import { envReportCapability, envReportExamples, envReportSchema } from "../commands/env";
+import { referencesCapabilities, referencesExamples, referencesSchemas } from "../commands/references";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
@@ -654,6 +655,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   padGetSchema,
   padTaggedSchema,
   envReportSchema,
+  ...referencesSchemas,
   contentStageSchema,
   ...overseerSchemas,
   ...(BROWSER_ENABLED
@@ -1390,6 +1392,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
       ]
     : []),
   ...envReportExamples,
+  ...referencesExamples,
   ...overseerExamples,
 ];
 
@@ -1875,6 +1878,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
       ]
     : []),
   envReportCapability,
+  ...referencesCapabilities,
   ...overseerCapabilities,
 ];
 

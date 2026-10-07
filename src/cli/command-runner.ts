@@ -23,6 +23,7 @@ const commands: readonly Entry[] = [
   { name: "msg", load: async () => (await import("./commands/work")).msgCommand },
   { name: "seat", load: async () => (await import("./commands/seat")).seatCommand },
   { name: "env", load: async () => (await import("./commands/env")).envCommand },
+  { name: "references", load: async () => (await import("./commands/references")).referencesCommand },
   { name: "verdict", load: async () => (await import("./commands/work")).verdictCommand },
   { name: "content", enabled: TASKS_ENABLED, load: async () => (await import("./commands/content")).contentCommand },
   { name: "docs", load: async () => (await import("./commands/docs")).docsCommand },

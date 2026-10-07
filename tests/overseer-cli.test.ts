@@ -577,6 +577,61 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
     expect(parseStdout(missing.stdout)).toEqual({ ok: true, command: "env report", data: next });
   });
 
+  it("lists and reads references as ordinary commands, the name a plain argument", async () => {
+    const observed: Array<Record<string, unknown>> = [];
+    const listing = { references: [{ name: "style", scope: "app", read: "junto references read style", bytes: 10, updatedAt: 1 }] };
+    const reference = { name: "style", scope: "app", body: "App style.", updatedAt: 1 };
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed.push(request);
+      if (request.op === "references.list") {
+        return { ok: true, op: "references.list", protocol_version: WORK_PROTOCOL_VERSION, data: listing };
+      }
+      const { name } = request.args as { name: string };
+      return name === "style"
+        ? { ok: true, op: "references.read", protocol_version: WORK_PROTOCOL_VERSION, data: reference }
+        : {
+            ok: false,
+            op: "references.read",
+            protocol_version: WORK_PROTOCOL_VERSION,
+            error: { type: "UnknownTarget", message: `no reference named "${name}"`, details: { hint: "in scope: style" } },
+          };
+    });
+    const listed = await runCli(["references", "list"], { workHome });
+    expect(listed.code).toBe(0);
+    expect(parseStdout(listed.stdout)).toEqual({ ok: true, command: "references list", data: listing });
+    const read = await runCli(["references", "read", "style"], { workHome });
+    expect(read.code).toBe(0);
+    expect(parseStdout(read.stdout)).toEqual({ ok: true, command: "references read", data: reference });
+    const missing = await runCli(["references", "read", "nope"], { workHome });
+    expect(missing.code).toBe(1);
+    expect((JSON.parse(missing.stderr.trim()) as { error: unknown }).error).toMatchObject({
+      type: "UnknownTarget",
+      details: { hint: "in scope: style" },
+    });
+    expect(observed.map(({ op, args }) => ({ op, args }))).toEqual([
+      { op: "references.list", args: {} },
+      { op: "references.read", args: { name: "style" } },
+      { op: "references.read", args: { name: "nope" } },
+    ]);
+    for (const request of observed) expect(Result.isSuccess(decodeWorkRequest(request))).toBe(true);
+  });
+
+  it("registers junto references with schemas, examples and a docs entry", async () => {
+    for (const id of ["references.list", "references.read"]) {
+      expect(allSchemas.map((schema) => schema.command_id)).toContain(id);
+      expect(allExamples.map((example) => example.command_id)).toContain(id);
+      expect(commandCapabilities.map((capability) => capability.command_id)).toContain(id);
+    }
+    for (const topic of ["doctrine", "contract"]) {
+      const docs = await runCli(["docs", topic]);
+      expect(docs.code).toBe(0);
+      expect(docs.stdout).toContain("junto references read");
+    }
+    const help = await runCli(["references", "read", "--help"]);
+    expect(help.code).toBe(0);
+    expect(`${help.stdout}${help.stderr}`).toContain("--timeout");
+  });
+
   it("registers junto env report as an ordinary command with a schema, an example and a docs entry", async () => {
     expect(allSchemas.map((schema) => schema.command_id)).toContain("env.report");
     expect(allExamples.map((example) => example.command_id)).toContain("env.report");

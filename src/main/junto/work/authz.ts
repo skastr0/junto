@@ -342,6 +342,9 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "signal.list":
     // A seat reads only its own region environment report. No edge, no port.
     case "env.report":
+    // A seat reads the references in its own scope. No edge, no port.
+    case "references.list":
+    case "references.read":
     // A seat stages only its own files; a stage id answers to its seat alone.
     case "content.stage":
       return false;

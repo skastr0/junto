@@ -107,6 +107,9 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "signal.list",
 /** Universal seat-local: what this seat's regions resolve to (names and status, never values). */
 "env.report",
+/** Universal seat-local: the operator's references in this seat's scope (the app and its regions). */
+"references.list",
+"references.read",
 /** Universal seat-local: the seat puts a file of its own into the content store, in pieces. */
 "content.stage",
 "artifact.publish",
@@ -681,6 +684,22 @@ export const EnvReportArgs = Schema.Struct({}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type EnvReportArgs = typeof EnvReportArgs.Type;
+
+/**
+ * references.list / references.read: seat-local, no edge, no port. The seat is
+ * the process-bound caller; its scope is the app plus every region containing
+ * it. `list` answers names and descriptions (`@shared/references`
+ * `ReferenceListEntry`), `read` the innermost match with its body.
+ */
+export const ReferencesListArgs = Schema.Struct({}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type ReferencesListArgs = typeof ReferencesListArgs.Type;
+
+export const ReferencesReadArgs = Schema.Struct({ name: Schema.String }).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type ReferencesReadArgs = typeof ReferencesReadArgs.Type;
 
 /**
  * `junto onboard`: how many of the seat's latest offboard notes to carry

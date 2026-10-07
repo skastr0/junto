@@ -123,6 +123,7 @@ import {
 import { CanvasesService } from "../canvases";
 import { ContentService } from "../content/service";
 import { handleContentStage } from "./content-stage";
+import { handleSeatReferences, onboardReferenceFields } from "../references/seat-reads";
 import {
   claimSignalAttachments,
   releaseSignalAttachments,
@@ -1235,6 +1236,7 @@ const dispatchOp = (
         tools,
         overseer: { enabled: overseer, affectedByPause: false },
         protocol_version: WORK_PROTOCOL_VERSION,
+        ...(yield* onboardReferenceFields({ doc: board, canvasName: caller.canvasName, nodeId: caller.nodeId })),
         region: region ?? null,
         connected: connected.map((c) => ({
           id: c.id,
@@ -2155,6 +2157,10 @@ const dispatchOp = (
 
     if (op === "content.stage") {
       return yield* handleContentStage({ canvasName: caller.canvasName, nodeId: caller.nodeId }, args);
+    }
+
+    if (op === "references.list" || op === "references.read") {
+      return yield* handleSeatReferences(op, args, { doc: board, canvasName: caller.canvasName, nodeId: caller.nodeId });
     }
 
     if (op === "env.report") {
