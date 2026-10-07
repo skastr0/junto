@@ -213,22 +213,3 @@ export const evaluateFinishCriteria = (params: {
 
   return undefined;
 };
-
-/** Collect ether.artifacts from every node on the doc. */
-export const artifactsByNodeFromDoc = (
-  nodes: ReadonlyArray<{
-    readonly id: string;
-    readonly ether?: {
-      readonly artifacts?: { readonly items?: ReadonlyArray<Artifact> };
-    };
-  }>,
-): Map<string, ReadonlyArray<Artifact>> => {
-  const map = new Map<string, ReadonlyArray<Artifact>>();
-  for (const node of nodes) {
-    const items = node.ether?.artifacts?.items;
-    if (items !== undefined && items.length > 0) {
-      map.set(node.id, items);
-    }
-  }
-  return map;
-};

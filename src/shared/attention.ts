@@ -1,10 +1,8 @@
 import { Schema } from "effect";
-import type { Task, CanvasNode } from "./canvas";
+import type { Task } from "./work-model";
 import type { TasksContract } from "./work-model";
-import { claimedByOf, isAttentionTaskState, isTerminalTaskState } from "./task";
+import { claimedByOf, isAttentionTaskState } from "./task";
 import { taskAdmissionState } from "./rules";
-import { isBlockableNode, type ExecutionGraph } from "./execution-graph";
-import { resolveSpec, roleOf } from "./physics/kinds";
 import {
   ActorRef,
   type ActorRef as ActorRefValue,
@@ -19,7 +17,7 @@ import {
  * - idle: present but nothing to do
  * - empty: no occupancy / no items (sink empty)
  *
- * Pure document + graph. Never invents stoppage (phase stays in execution-graph).
+ * Pure work counters and compiled actor identity. Never invents stoppage (phase stays in execution-graph).
  */
 
 export type AttentionSignal = "fire" | "ice" | "idle" | "empty";
@@ -28,14 +26,6 @@ const needsHuman = (item: Task): boolean => isAttentionTaskState(item.state);
 
 /** In flight = actively being worked. Queue inventory and human waits are not flight. */
 const inFlight = (item: Task): boolean => item.state === "working";
-
-const roleOfNode = (node: CanvasNode) =>
-  roleOf(
-    resolveSpec({
-      isGroup: node.type === "group",
-      kind: node.ether?.entity?.kind,
-    }),
-  );
 
 const isQueuedSubmitted = (
   item: Task,
@@ -96,46 +86,6 @@ export const taskScanCounts = (
     approval: unadmitted,
     completed: items.filter((item) => item.state === "completed").length,
   };
-};
-
-/**
- * Per-node attention signal for chrome (`data-attention`).
- * Actors: fire when phase-blocked, ice when free with no human queue, idle otherwise.
- * Task sinks: fire when any item needs human; ice when empty or all terminal; idle when queue open but calm.
- */
-export const attentionOf = (
-  node: CanvasNode,
-  graph: ExecutionGraph | undefined,
-): AttentionSignal => {
-  const role = roleOfNode(node);
-  const kind = node.ether?.entity?.kind;
-
-  if (kind === "task") {
-    const items = node.ether?.tasks?.items ?? [];
-    if (items.length === 0) return "empty";
-    if (items.some(needsHuman)) return "fire";
-    if (items.every((t) => isTerminalTaskState(t.state))) return "ice";
-    return "idle";
-  }
-
-  if (kind === "requests") {
-    const items = node.ether?.requests?.items ?? [];
-    if (items.length === 0) return "empty";
-    if (items.some(needsHuman)) return "fire";
-    return "ice";
-  }
-
-  if (kind === "artifacts") {
-    const items = node.ether?.artifacts?.items ?? [];
-    return items.length === 0 ? "empty" : "idle";
-  }
-
-  if (role === "actor" || isBlockableNode(node)) {
-    if (graph?.blocked.has(node.id)) return "fire";
-    return "ice";
-  }
-
-  return "idle";
 };
 
 /**

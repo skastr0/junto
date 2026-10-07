@@ -1,36 +1,10 @@
-/**
- * What a kind means to the card around it. The glance and the blocked rule
- * are held to what the document versions say for the same node, so moving the
- * shell onto the model changes nothing the operator sees.
- */
+/** A card's glance reads the separately queried work counts. */
 import { describe, expect, it } from "vitest";
-import { attentionOf } from "../src/shared/attention";
-import type { CanvasNode } from "../src/shared/canvas";
-import { isBlockableNode, type ExecutionGraph } from "../src/shared/execution-graph";
-import { asCanvasName, NODE_KINDS, type Node } from "../src/shared/model";
-import { nodeFromDocument } from "../src/shared/model/from-document";
-import {
-  holdsWork,
-  kindMayBeBlocked,
-  kindWord,
-  nodeAttention,
-  physicsKind,
-  roleOfKind,
-  type SinkCounts,
-} from "../src/renderer/lib/model-kind";
+import { asCanvasName, NODE_KINDS } from "../src/shared/model";
+import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind, type SinkCounts } from "../src/renderer/lib/model-kind";
 import { canvasOfState } from "../src/renderer/lib/model-store";
+import { note } from "./support/model-nodes";
 
-const rect = { x: 0, y: 0, width: 240, height: 120 };
-const text = (id: string, ether?: unknown): CanvasNode => ({ id, type: "text", text: id, ...rect, ...(ether ? { ether } : {}) }) as CanvasNode;
-const item = (state: string) => ({ id: `t-${state}`, state, history: [] });
-
-const graph = (blocked: ReadonlyArray<string>): ExecutionGraph =>
-  ({
-    phaseByEdgeId: new Map(), detailByEdgeId: new Map(), edgeEvalById: new Map(),
-    blocked: new Set(blocked), blockedEdgeIds: new Set(), reasonsByNodeId: new Map(),
-  }) as unknown as ExecutionGraph;
-
-/** The glance the work store would hold for these items. */
 const NOTHING: SinkCounts = { count: 0, needsHuman: false, allTerminal: true };
 
 const glanceOf = (states: ReadonlyArray<string>): SinkCounts => ({
@@ -44,14 +18,14 @@ describe("a card's glance", () => {
     [], ["submitted"], ["working", "input-required"], ["auth-required"], ["completed"], ["completed", "canceled"], ["completed", "working"],
   ];
 
-  it.each(queues)("a task board holding %j reads as the document version does", (...states) => {
-    const doc = text("n", { entity: { kind: "task" }, tasks: { items: states.map(item) } });
-    expect(nodeAttention("task", glanceOf(states), false)).toBe(attentionOf(doc, graph([])));
+  it.each(queues)("a task board holding %j follows its work counts", (...states) => {
+    const expected = states.length === 0 ? "empty" : states.some(state => ["input-required", "auth-required"].includes(state)) ? "fire" : states.every(state => ["completed", "canceled", "failed", "rejected"].includes(state)) ? "ice" : "idle";
+    expect(nodeAttention("task", glanceOf(states), false)).toBe(expected);
   });
 
-  it.each(queues)("requests holding %j read as the document version does", (...states) => {
-    const doc = text("n", { entity: { kind: "requests" }, requests: { items: states.map(item) } });
-    expect(nodeAttention("requests", glanceOf(states), false)).toBe(attentionOf(doc, graph([])));
+  it.each(queues)("requests holding %j follow their work counts", (...states) => {
+    const expected = states.length === 0 ? "empty" : states.some(state => ["input-required", "auth-required"].includes(state)) ? "fire" : "ice";
+    expect(nodeAttention("requests", glanceOf(states), false)).toBe(expected);
   });
 
   it("artifacts are empty or idle by count", () => {
@@ -59,26 +33,11 @@ describe("a card's glance", () => {
     expect(nodeAttention("artifacts", { count: 2, needsHuman: false, allTerminal: false }, false)).toBe("idle");
   });
 
-  it("everything else reads as the document version does, blocked or not", () => {
-    const docs: CanvasNode[] = [
-      text("seat", { entity: { kind: "agent", name: "local:claude" }, terminal: { bindingId: "b", harness: "claude" } }),
-      text("term", { entity: { kind: "terminal" }, terminal: { bindingId: "t" } }),
-      text("cron", { entity: { kind: "cron" }, timer: { expression: "*/5 * * * *" } }),
-      text("relay", { entity: { kind: "relay" } }),
-      text("board", { entity: { kind: "board" } }),
-      text("pad", { entity: { kind: "pad" } }),
-      text("note"),
-      text("label", { entity: { kind: "label" } }),
-      { id: "region", type: "group", label: "r", ...rect } as CanvasNode,
-    ];
-    for (const doc of docs) {
-      const node: Node = nodeFromDocument("factory", doc, 0);
-      for (const blocked of [false, true]) {
-        expect([doc.id, blocked, nodeAttention(node.kind, NOTHING, blocked)]).toEqual([
-          doc.id, blocked, attentionOf(doc, graph(blocked ? [doc.id] : [])),
-        ]);
-      }
-      expect([doc.id, kindMayBeBlocked(node.kind)]).toEqual([doc.id, isBlockableNode(doc)]);
+  it("only actors can be blocked; other kinds stay idle regardless of a blocked flag", () => {
+    for (const kind of ["agent", "terminal", "cron", "relay", "board", "pad", "note", "label", "region"] as const) {
+      expect(kindMayBeBlocked(kind)).toBe(kind === "agent");
+      expect(nodeAttention(kind, NOTHING, true)).toBe(kind === "agent" ? "fire" : "idle");
+      expect(nodeAttention(kind, NOTHING, false)).toBe(kind === "agent" ? "ice" : "idle");
     }
   });
 });
@@ -106,7 +65,7 @@ describe("kind words", () => {
 
 describe("the canvas the window holds, as shared logic reads it", () => {
   it("has the nodes and wires by id, and the seq", () => {
-    const node = nodeFromDocument("factory", text("note"), 3);
+    const node = note("note", "Note", { z: 3 });
     const canvas = canvasOfState("factory", { seq: 9, nodes: { note: node }, wires: {} });
     expect(canvas.name).toBe(asCanvasName("factory"));
     expect(canvas.seq).toBe(9);
