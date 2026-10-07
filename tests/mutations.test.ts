@@ -72,6 +72,10 @@ const runtimeWindow = {
     chatClose,
     chatBeginNodeDelete,
     chatFinishNodeDelete,
+    // The base document's two nodes are real seats, and deleting a seat takes
+    // a lease on its terminal first. These cases are not about that lease.
+    terminalBeginNodeDelete: async () => ({ ok: true as const, leaseId: "terminal-lease" }),
+    terminalFinishNodeDelete: async () => ({ ok: true as const }),
   },
   setTimeout: globalThis.setTimeout,
   confirm: (_message: string) => true,
@@ -88,7 +92,11 @@ const doc: CanvasDoc = {
       y: 0,
       width: 200,
       height: 80,
-      ether: { entity: { kind: "agent", name: "local:worker" } },
+      ether: {
+        entity: { kind: "agent", name: "local:worker" },
+        host: "local",
+        terminal: { bindingId: "binding-worker", harness: "claude" },
+      },
     },
     {
       id: "target",
@@ -98,7 +106,11 @@ const doc: CanvasDoc = {
       y: 0,
       width: 200,
       height: 80,
-      ether: { entity: { kind: "agent", name: "local:peer" } },
+      ether: {
+        entity: { kind: "agent", name: "local:peer" },
+        host: "local",
+        terminal: { bindingId: "binding-peer", harness: "claude" },
+      },
     },
   ],
   edges: [],
@@ -857,7 +869,11 @@ describe("renderer graph mutations", () => {
           y: 0,
           width: 200,
           height: 80,
-          ether: { entity: { kind: "agent", name: "local:worker" } },
+          ether: {
+            entity: { kind: "agent", name: "local:worker" },
+            host: "local",
+            terminal: { bindingId: "binding-worker", harness: "claude" },
+          },
         },
       ],
       edges: [],

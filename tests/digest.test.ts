@@ -33,9 +33,6 @@ const doc: CanvasDoc = {
       y: 20,
       width: 100,
       height: 50,
-      ether: {
-        entity: { kind: "project", name: "foo" },
-      },
     },
     {
       id: "m2",
@@ -45,7 +42,6 @@ const doc: CanvasDoc = {
       y: 20,
       width: 100,
       height: 50,
-      ether: { entity: { kind: "orbit" } },
     },
     {
       id: "m3",
@@ -146,7 +142,6 @@ const doc2: CanvasDoc = {
       y: 60,
       width: 100,
       height: 40,
-      ether: { entity: { kind: "project", name: "prism" } },
     },
     { id: "g-solo", type: "group", label: "  solo  ", x: 0, y: 400, width: 300, height: 300 },
     { id: "solo1", type: "text", text: "Lone", x: 10, y: 410, width: 100, height: 40 },
@@ -210,8 +205,8 @@ describe("digestCanvas — design (I13)", () => {
       },
       {
         id: "page1",
-        type: "text",
-        text: "docs",
+        type: "link",
+        url: "https://docs.example.test",
         x: 200,
         y: 0,
         width: 100,
@@ -226,7 +221,6 @@ describe("digestCanvas — design (I13)", () => {
         y: 0,
         width: 100,
         height: 40,
-        ether: { entity: { kind: "project", name: "ship" } },
       },
     ],
     edges: [

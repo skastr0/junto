@@ -76,7 +76,7 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
 
   it("agent without terminal ports is illegal — not ACP, not a surface", () => {
     expect(actorDeliverySurfaceOf(illegalAgent())).toBeUndefined();
-    expect(deliveryTargetOf(nodeFromDocument("factory", illegalAgent(), 0))).toBeUndefined();
+    expect(() => nodeFromDocument("factory", illegalAgent(), 0)).toThrow(/"bad".*canvas can hold/);
     expect(isManagedAgentNode(illegalAgent())).toBe(false);
   });
 

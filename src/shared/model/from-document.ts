@@ -2,7 +2,7 @@
 import type { CanvasEdge, CanvasNode, Task } from "../canvas";
 import { asCanvasName } from "./base";
 import type { Canvas } from "./canvas";
-import { nodeFromLegacyRow, wireFromLegacyRow } from "./from-legacy-row";
+import { convertLegacyRow, wireFromLegacyRow } from "./from-legacy-row";
 import type { Node } from "./kinds";
 import type { Wire } from "./wire";
 
@@ -11,7 +11,7 @@ export const nodeFromDocument = (
   node: CanvasNode,
   z: number,
 ): Node => {
-  const row = nodeFromLegacyRow({
+  const converted = convertLegacyRow({
     canvas_name: canvas,
     node_id: node.id,
     type: node.type,
@@ -35,7 +35,15 @@ export const nodeFromDocument = (
         }
       : {}),
   });
-  return row;
+  // A stored row the model no longer holds is kept as a note, with a report,
+  // so nothing in an old database is lost. That is for reading old storage. A
+  // document node is someone's edit or a fixture, and one that would only
+  // survive as a note is not a node the model holds: it is refused here, so
+  // that a seat missing what makes it a seat is an error and never a note.
+  if (converted.downgraded !== undefined && converted.node.kind === "note") {
+    throw new Error(`"${node.id}" is not something the canvas can hold: ${converted.downgraded.reason}`);
+  }
+  return converted.node;
 };
 
 export const wireFromDocument = (canvas: string, wire: CanvasEdge) =>
@@ -75,7 +83,8 @@ export const nodeOfDocument = (
   try {
     row = nodeFromDocument(canvas, node, z);
   } catch {
-    // Not a kind the model knows.
+    // Not something the model holds. The caller decides what that means: the
+    // difference of two documents refuses the edit, a whole canvas fails.
   }
   heldNodeRows.set(node, { z, row });
   return row;
@@ -123,7 +132,7 @@ const heldNodes = new WeakMap<object, Pick<Canvas, "nodes">>();
 /**
  * The nodes a document describes, for a caller that holds a document and not
  * the name of its canvas. Worked out once per document object. A node the
- * model refuses is left out; of two with one id the first is kept.
+ * model refuses fails the whole read, naming it; of two with one id the first is kept.
  */
 export const nodesFromDocument = (
   doc: Pick<Document, "nodes">,
@@ -133,7 +142,14 @@ export const nodesFromDocument = (
   const nodes = new Map<Node["id"], Node>();
   doc.nodes.forEach((node, z) => {
     const row = nodeOfDocument("", node, z);
-    if (row !== undefined && !nodes.has(row.id)) nodes.set(row.id, row);
+    // A document with a node the model cannot hold is not a canvas. It fails
+    // whole, naming the node and why: leaving the node out would read a
+    // broken document as a smaller valid one.
+    if (row === undefined) {
+      nodeFromDocument("", node, z);
+      throw new Error(`"${node.id}" is not something the canvas can hold`);
+    }
+    if (!nodes.has(row.id)) nodes.set(row.id, row);
   });
   const made = { nodes };
   heldNodes.set(doc, made);
@@ -144,9 +160,10 @@ const held = new WeakMap<object, Canvas>();
 
 /**
  * The canvas a document describes, for a caller that still holds a document.
- * Worked out once per document object. A node the model refuses is left out,
- * the same as it would be when the old rows are read; of two with one id the
- * first is kept.
+ * Worked out once per document object. A node the model refuses fails the
+ * read, naming it: a document is someone's edit or a fixture, and only the
+ * one-time reading of old rows keeps what it cannot hold as a note. Of two
+ * nodes with one id the first is kept.
  */
 export const canvasFromDocument = (name: string, doc: Document): Canvas => {
   const known = held.get(doc);
