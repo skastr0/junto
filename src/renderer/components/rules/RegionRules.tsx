@@ -1,16 +1,20 @@
-import type { CanvasNode, EtherRegionContract } from "@shared/canvas";
+import { use$ } from "@legendapp/state/react";
+import type { RegionContract } from "@shared/model/region";
 import type { Rule } from "@shared/work-model";
 import { setRegionContract } from "../../lib/mutations";
+import { state$ } from "../../lib/state";
+import { useNodeOf } from "../../lib/use-model";
 import { RuleList } from "./RuleList";
 import { RulingList } from "./RulingList";
 
-export function RegionRules({ node }: { readonly node: CanvasNode }) {
-  if (node.type !== "group") return null;
-  const contract = node.ether?.region?.contract;
-  const rules = contract?.rules ?? [];
-  const rulings = contract?.rulings ?? [];
-  const write = (next: Partial<EtherRegionContract>) =>
-    setRegionContract(node.id, { rules, rulings, ...next });
+/** The rules and pinned rulings of a region, read from the store's region. */
+export function RegionRules({ regionId }: { readonly regionId: string }) {
+  const region = useNodeOf(use$(state$.canvasName), regionId, "region");
+  if (!region) return null;
+  const rules = region.contract?.rules ?? [];
+  const rulings = region.contract?.rulings ?? [];
+  const write = (next: Partial<RegionContract>) =>
+    setRegionContract(regionId, { rules, rulings, ...next });
   return <>
     <RuleList rules={rules} label="Region rules"
       hint="Every task inside this region must answer these rules."

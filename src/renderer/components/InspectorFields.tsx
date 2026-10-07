@@ -3,7 +3,6 @@ import { use$ } from "@legendapp/state/react";
 import { useRtsNodes } from "../lib/rts-selection";
 import { HashMap, HashSet, Option } from "effect";
 import type {
-  CanvasNode,
   EtherRegionDefaults,
   EtherWatch,
 } from "@shared/canvas";
@@ -32,7 +31,7 @@ import {
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { physicsKind, roleOfKind } from "../lib/model-kind";
-import { useCanvas, useNode, useNodeValue } from "../lib/use-model";
+import { useCanvas, useNode, useNodeOf, useNodeValue } from "../lib/use-model";
 import { asNodeId as asModelNodeId, wireGrant, wireKinds } from "@shared/model";
 import { LOCAL_HOST } from "@shared/model/base";
 import { titleOf } from "@shared/model/title";
@@ -213,11 +212,20 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
   </>;
 }
 
+/**
+ * Which node an editor is for. An editor reads the node from the store by its
+ * id; a caller that still holds a node may hand that instead, for its id alone.
+ */
+type EditorTarget = { readonly nodeId?: string; readonly node?: { readonly id: string } };
+const targetId = (target: EditorTarget): string => target.nodeId ?? target.node?.id ?? "";
+
 /** Queue home host for a tasks sink — used from RTS kind strip pop. */
 export function TaskQueueHomeControl({ nodeId }: { readonly nodeId: string }) {
-  const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
-  const storedHost = node ? resolveNodeHostId(node) : "local";
-  if (!node) return null;
+  const board = useNodeOf(use$(state$.canvasName), nodeId, "task");
+  // A task board in the model names no host, so its queue home reads as this
+  // machine; see the note to canvas-lead on where a chosen host is kept.
+  const storedHost = "local";
+  if (!board) return null;
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
       <div className="inspector-section__label">queue home</div>
@@ -331,21 +339,21 @@ export function PageUrlControl({ nodeId }: { readonly nodeId: string }) {
 // stacked onto an already-dense dispatcher. Regions never reach this form:
 // their fields open from the region kind strip.
 function KernelFieldEditors({ nodeId }: { readonly nodeId: string }) {
-  const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
-  if (!node) return null;
-  const kind = node.ether?.entity?.kind;
+  const kind = useNodeValue(use$(state$.canvasName), nodeId, (node) => node?.kind);
+  if (kind === undefined) return null;
   return <>
-    {RELAY_ENABLED && kind === "watcher" ? <WatcherEditor node={node} /> : null}
-    {CRON_ENABLED && (kind === "timer" || kind === "cron") ? <TimerEditor node={node} /> : null}
-    {RELAY_ENABLED && kind === "relay" ? <RelayEditor node={node} /> : null}
+    {RELAY_ENABLED && kind === "watcher" ? <WatcherEditor nodeId={nodeId} /> : null}
+    {CRON_ENABLED && kind === "cron" ? <TimerEditor nodeId={nodeId} /> : null}
+    {RELAY_ENABLED && kind === "relay" ? <RelayEditor nodeId={nodeId} /> : null}
 
     {kind === "agent" ? <AgentMessagesPane nodeId={nodeId} /> : null}
   </>;
 }
 
 /** Defaults for new page nodes created inside this region. */
-export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode }) {
-  const stored = node.ether?.region?.defaults;
+export function RegionPageDefaultsControl(target: EditorTarget) {
+  const regionId = targetId(target);
+  const stored = useNodeOf(use$(state$.canvasName), regionId, "region")?.defaults;
   const [pageUrl, setPageUrl] = useState(stored?.page?.url ?? "");
   const [pageProfile, setPageProfile] = useState(stored?.page?.profile ?? "");
   const [pageHost, setPageHost] = useState(stored?.page?.host ?? "");
@@ -354,7 +362,7 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
     setPageUrl(stored?.page?.url ?? "");
     setPageProfile(stored?.page?.profile ?? "");
     setPageHost(stored?.page?.host ?? "");
-  }, [node.id, stored?.page?.url, stored?.page?.profile, stored?.page?.host]);
+  }, [regionId, stored?.page?.url, stored?.page?.profile, stored?.page?.host]);
 
   const writePage = (url: string, profile: string, host: string) => {
     const paths = stored?.paths;
@@ -370,7 +378,7 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
       ...(page ? { page } : {}),
       ...(paths && Object.keys(paths).length > 0 ? { paths } : {}),
     };
-    setRegionDefaults(node.id, Object.keys(next).length > 0 ? next : undefined);
+    setRegionDefaults(regionId, Object.keys(next).length > 0 ? next : undefined);
   };
 
   const commit = () => writePage(pageUrl, pageProfile, pageHost);
@@ -444,9 +452,9 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
 // Region briefing — operator context for agents inside the region.
 // Work-control `onboard` returns it via containingRegion; nothing injects it
 // into agent turns. An empty briefing clears the field.
-const commitRegionInstruction = (node: CanvasNode, instruction: string): void => {
+const commitRegionInstruction = (regionId: string, instruction: string): void => {
   const trimmed = instruction.trim();
-  commitCommands((canvas) => regionEdited(canvas, node.id, { instruction: trimmed === "" ? null : trimmed }));
+  commitCommands((canvas) => regionEdited(canvas, regionId, { instruction: trimmed === "" ? null : trimmed }));
 };
 
 /**
@@ -455,17 +463,18 @@ const commitRegionInstruction = (node: CanvasNode, instruction: string): void =>
  * are statements a closing task must answer, so they live with the briefing.
  * Single copy line; large editor; CLI refs use first-class amber mono.
  */
-export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
-  const instructionValue = node.ether?.region?.instruction ?? "";
+export function RegionBriefingEditor(target: EditorTarget) {
+  const regionId = targetId(target);
+  const instructionValue = useNodeOf(use$(state$.canvasName), regionId, "region")?.instruction ?? "";
   const [instructionDraft, setInstructionDraft] = useState(instructionValue);
 
   useEffect(() => {
     setInstructionDraft(instructionValue);
-  }, [node.id, instructionValue]);
+  }, [regionId, instructionValue]);
 
   const commitInstruction = () => {
     if (instructionDraft === instructionValue) return;
-    commitRegionInstruction(node, instructionDraft);
+    commitRegionInstruction(regionId, instructionDraft);
   };
 
   return (
@@ -491,7 +500,7 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
         }}
       />
       {/* Region rules ride the Tasks gate: a tasks-off build has none. */}
-      {TASKS_ENABLED ? <RegionRules node={node} /> : null}
+      {TASKS_ENABLED ? <RegionRules regionId={regionId} /> : null}
     </div>
   );
 }
@@ -592,12 +601,23 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
 }
 
 // Gauge editor: hermes stat_threshold.
-export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
-  const watch = node.ether?.watch;
+export function WatcherEditor(target: EditorTarget) {
+  const nodeId = targetId(target);
+  const watcher = useNodeOf(use$(state$.canvasName), nodeId, "watcher");
+  // The model keeps a watcher's threshold as its own fields; the draft and the
+  // writer below still speak the document's watch shape.
+  const watch: EtherWatch | undefined = watcher && {
+    kind: "stat_threshold",
+    source: "hermes",
+    ...(watcher.key === undefined ? {} : { key: watcher.key }),
+    ...(watcher.stat === undefined ? {} : { stat: watcher.stat }),
+    ...(watcher.op === undefined ? {} : { op: watcher.op }),
+    ...(watcher.value === undefined ? {} : { value: watcher.value }),
+  };
   const {
     source, setSource, key, setKey, stat, setStat, op, setOp,
     valueText, setValueText,
-  } = useWatchDraft(node.id, watch);
+  } = useWatchDraft(nodeId, watch);
 
   type Overrides = Partial<{
     readonly source: NonNullable<EtherWatch["source"]>;
@@ -616,7 +636,7 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
       op: nextOp,
       ...(parsedValue !== undefined && Number.isFinite(parsedValue) ? { value: parsedValue } : {}),
     };
-    setNodeWatch(node.id, nextWatch);
+    setNodeWatch(nodeId, nextWatch);
   };
 
   return <div className="inspector-section">
@@ -642,7 +662,8 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
  * an edge says which relationship it is, and the watch predicate and fire
  * action fall out of that plus the two kinds.
  */
-export function RelayEditor({ node }: { readonly node: CanvasNode }) {
+export function RelayEditor(target: EditorTarget) {
+  const nodeId = targetId(target);
   // What a relay watches and what it does are its wires, so the canvas is
   // followed; this is mounted only while a relay is inspected.
   const canvas = useCanvas(use$(state$.canvasName));
@@ -651,12 +672,12 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
     const wires = [...canvas.wires.values()];
     return {
       inbound: wires.flatMap((wire) => {
-        const when = wire.to === node.id ? wireGrant(wire, kinds)?.when : undefined;
+        const when = wire.to === nodeId ? wireGrant(wire, kinds)?.when : undefined;
         return when === undefined ? [] : [{ wire, when }];
       }),
-      outbound: wires.filter((wire) => wire.from === node.id && wireGrant(wire, kinds)?.does !== undefined),
+      outbound: wires.filter((wire) => wire.from === nodeId && wireGrant(wire, kinds)?.does !== undefined),
     };
-  }, [canvas, node.id]);
+  }, [canvas, nodeId]);
   const watchLine =
     inbound.length === 0
       ? "Not watching anything yet"
@@ -687,25 +708,17 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
 }
 
 // Compact expression strip — full human schedule is CronScheduleSurface.
-export function TimerEditor({ node }: { readonly node: CanvasNode }) {
-  const timer = node.ether?.timer;
-  const defaultExpr =
-    timer?.expression?.trim() ||
-    (typeof timer?.everyMinutes === "number" && timer.everyMinutes > 0
-      ? `*/${Math.round(timer.everyMinutes)} * * * *`
-      : "*/30 * * * *");
+export function TimerEditor(target: EditorTarget) {
+  const nodeId = targetId(target);
+  const expression = useNodeOf(use$(state$.canvasName), nodeId, "cron")?.expression;
+  const defaultExpr = expression?.trim() || "*/30 * * * *";
   const [draft, setDraft] = useState(defaultExpr);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setDraft(
-      timer?.expression?.trim() ||
-        (typeof timer?.everyMinutes === "number" && timer.everyMinutes > 0
-          ? `*/${Math.round(timer.everyMinutes)} * * * *`
-          : "*/30 * * * *"),
-    );
+    setDraft(expression?.trim() || "*/30 * * * *");
     setError("");
-  }, [node.id, timer?.expression, timer?.everyMinutes]);
+  }, [nodeId, expression]);
 
   const commit = () => {
     const cleaned = draft.trim().replace(/\s+/g, " ");
@@ -714,7 +727,7 @@ export function TimerEditor({ node }: { readonly node: CanvasNode }) {
       return;
     }
     setError("");
-    setNodeTimer(node.id, { expression: cleaned });
+    setNodeTimer(nodeId, { expression: cleaned });
   };
 
   return (
