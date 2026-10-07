@@ -30,9 +30,6 @@ export type FocusHeight =
   /** User-resizable box with session memory — browse/detail. */
   | "resizable";
 
-/** Stacking layer. Work surfaces sit above detail modals and inspector. */
-export type FocusLayer = "detail" | "work";
-
 /** Shared mono cell estimate used by xterm fallback measure. */
 export const MONO_CELL = {
   fontSizePx: 13,

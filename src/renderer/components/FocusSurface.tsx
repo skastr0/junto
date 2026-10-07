@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import {
   focusMeasureCssVars,
   type FocusHeight,
-  type FocusLayer,
   type FocusMeasure,
 } from "../lib/focus-measure";
 import { claimFocus, pickPrimaryFocusControl, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
@@ -73,11 +72,6 @@ export function FocusSurface({
 }: {
   readonly measure: FocusMeasure;
   readonly height?: FocusHeight;
-  /**
-   * Retired: every focus surface is a working modal now, at one layer. The
-   * prop is ignored and goes once its last caller drops it.
-   */
-  readonly layer?: FocusLayer;
   /** `viewport` = body portal (default). `parent` = absolute fill of parent. */
   readonly contain?: "viewport" | "parent";
   readonly onClose: () => void;
