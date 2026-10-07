@@ -38,7 +38,7 @@ const stringArgumentsForCalls = (
 };
 
 describe("main authoring architecture", () => {
-  it("classifies every renderer, pull, portfolio, and delivery mutation ingress", () => {
+  it("classifies every renderer, model, and delivery mutation ingress", () => {
     const ipcPath = join(mainRoot, "junto", "ipc.ts");
     const labels = stringArgumentsForCalls(
       ipcPath,
@@ -52,7 +52,6 @@ describe("main authoring architecture", () => {
       "ipc.canvas.create",
       "ipc.canvas.delete",
       "ipc.canvas.overseer-set",
-      "ipc.canvas.portfolio",
       "ipc.canvas.write",
       "ipc.model.command",
       // Artifact library operator actions (archive / hard-delete).
