@@ -32,7 +32,7 @@ describe("browser Electron containment authority", () => {
 
     expect(probe).toContain("`--canvas-payload=${canvasPayload}`");
     expect(probe).toContain(
-      '["canvas document payload", options.canvasDocumentJson]',
+      '["native model fixture", options.modelFixtureJson]',
     );
     expect(fixture).toContain('requiredArgument("canvas-payload")');
     expect(fixture).toContain("activeCanvasRuntime.runPromise(ModelService)");
@@ -42,5 +42,7 @@ describe("browser Electron containment authority", () => {
     expect(fixture).toContain("model.canvas(name)");
     expect(fixture).not.toContain("CanvasesService");
     expect(fixture).not.toContain("CanvasesLive");
+    expect(fixture).not.toContain("from-document");
+    expect(fixture).toContain("nodes: Schema.Array(Node), wires: Schema.Array(Wire)");
   });
 });

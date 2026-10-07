@@ -16,6 +16,7 @@ import { createServer, request, type Server } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Result } from "effect";
+import { asBindingId, type Node, type Wire } from "../src/shared/model";
 import {
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
@@ -1664,7 +1665,7 @@ const qualifyCapabilityNonDisclosure = async (options: {
   readonly stdout: string;
   readonly stderr: string;
   readonly auditPaths: ReadonlyArray<string>;
-  readonly canvasDocumentJson: string;
+  readonly modelFixtureJson: string;
   readonly electronArguments: ReadonlyArray<ReadonlyArray<string>>;
 }): Promise<void> => {
   if (options.outputCapabilityLeak !== undefined) {
@@ -1679,7 +1680,7 @@ const qualifyCapabilityNonDisclosure = async (options: {
     ["Electron stdout", options.stdout],
     ["Electron stderr", options.stderr],
     ["probe audit JSON", persistedAuditJson],
-    ["canvas document payload", options.canvasDocumentJson],
+    ["native model fixture", options.modelFixtureJson],
     ["Electron argv", JSON.stringify(options.electronArguments)],
     ["control response JSON", observedControlResponseJson.join("\n")],
   ]);
@@ -1781,45 +1782,24 @@ const main = async (): Promise<void> => {
     { nodeId: "filler-two", profile: "work", url: fixtureUrl("read") },
     { nodeId: "personal-restored", profile: "personal", url: fixtureUrl("read") },
   ] as const;
-  const canvasDocumentJson = JSON.stringify({
-    nodes: [
-      {
-        id: "probe-agent",
-        type: "text",
-        text: "browser-containment-probe",
-        x: 840,
-        y: -180,
-        width: 320,
-        height: 96,
-        ether: {
-          entity: { kind: "agent", name: "browser-containment-probe" },
-          // The actor-seat law: kind "agent" is a managed terminal seat.
-          // A bare agent node fails portfolio compilation, so the fixture
-          // canvas carries a complete surface like any authored agent.
-          terminal: {
-            bindingId: "browser-containment-probe",
-            harness: "codex",
-          },
-        },
-      },
-      ...pageTargets.map(({ nodeId, profile, url }, index) => ({
-        id: nodeId,
-        type: "link",
-        url,
-        x: index * 420,
-        y: 0,
-        width: 400,
-        height: 300,
-        ether: { entity: { kind: "page" }, browser: { profile } },
-      })),
-    ],
-    edges: pageTargets.map(({ nodeId }, index) => ({
-      id: `probe-edge-${index + 1}`,
-      fromNode: "probe-agent",
-      toNode: nodeId,
+  const nodes: ReadonlyArray<Node> = [
+    {
+      kind: "agent", id: "probe-agent" as Node["id"], label: "browser-containment-probe",
+      agentKey: "browser-containment-probe", bindingId: asBindingId("browser-containment-probe"),
+      harness: "codex", host: "local", overseer: false, onRemove: "detach",
+      x: 840, y: -180, width: 320, height: 96, z: 0,
+    },
+    ...pageTargets.map(({ nodeId, profile, url }, index): Node => ({
+      kind: "page", id: nodeId as Node["id"], url, profile, host: "local", onRemove: "detach",
+      x: index * 420, y: 0, width: 400, height: 300, z: index + 1,
     })),
-  });
-  const canvasPayload = Buffer.from(canvasDocumentJson, "utf8").toString("base64url");
+  ];
+  const wires: ReadonlyArray<Wire> = pageTargets.map(({ nodeId }, index) => ({
+    id: `probe-wire-${index + 1}` as Wire["id"],
+    from: "probe-agent" as Wire["from"], to: nodeId as Wire["to"], verb: "navigates",
+  }));
+  const modelFixtureJson = JSON.stringify({ nodes, wires });
+  const canvasPayload = Buffer.from(modelFixtureJson, "utf8").toString("base64url");
 
   probeStage = "dedicated Electron entry build";
   const dedicatedMainPath = await buildDedicatedElectronEntry(root);
@@ -2243,7 +2223,7 @@ const main = async (): Promise<void> => {
       stdout: `${firstOutput.stdout}\n${restartOutput.stdout}`,
       stderr: `${firstOutput.stderr}\n${restartOutput.stderr}`,
       auditPaths: [auditPath, restartAuditPath],
-      canvasDocumentJson,
+      modelFixtureJson,
       electronArguments: [electronArguments, restartElectronArguments],
     });
 

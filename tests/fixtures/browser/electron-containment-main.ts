@@ -5,11 +5,10 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { url as inspectorUrl } from "node:inspector";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
-import { Effect, Result, Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { WorkModelDependentsLive } from "../../../src/main/junto/work/model-dependents";
-import { Command } from "../../../src/shared/model";
-import { canvasFromDocument } from "../../../src/shared/model/from-document";
+import { Command, Node, Wire } from "../../../src/shared/model";
 import {
   makeStateEngineLive,
   StateEngine,
@@ -54,7 +53,6 @@ import {
 } from "../../../src/main/junto/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
-import { decodeCanvasDoc } from "../../../src/shared/canvas";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 
 // Chromium re-applies proxy command-line switches over Session proxy
@@ -652,19 +650,15 @@ void app.whenReady().then(async () => {
     harness.targetAdmission,
   );
   const model = await activeCanvasRuntime.runPromise(ModelService);
-  const fixtureCanvas = decodeCanvasDoc(
+  const seed = Schema.decodeUnknownSync(Schema.Struct({
+    nodes: Schema.Array(Node), wires: Schema.Array(Wire),
+  }), { onExcessProperty: "error" })(
     JSON.parse(Buffer.from(canvasPayload, "base64url").toString("utf8")),
   );
-  if (Result.isFailure(fixtureCanvas)) {
-    throw new Error(
-      `dedicated browser probe canvas is invalid: ${fixtureCanvas.failure.message}`,
-    );
-  }
-  const seed = canvasFromDocument(canvasName, fixtureCanvas.success);
   await activeCanvasRuntime.runPromise(Effect.gen(function* () {
     yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas: canvasName }), "operator");
     yield* model.command(Schema.decodeUnknownSync(Command)({
-      _tag: "Add", canvas: canvasName, nodes: [...seed.nodes.values()], wires: [...seed.wires.values()],
+      _tag: "Add", canvas: canvasName, nodes: seed.nodes, wires: seed.wires,
     }), "operator");
   }));
   const listCanvasModels = async () => activeCanvasRuntime.runPromise(Effect.gen(function* () {
