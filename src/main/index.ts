@@ -20,6 +20,7 @@ import {
   IPC_CHANNELS,
   type CanvasFlushResult,
   type CanvasQuiesceAndFlushResult,
+  type MenuYield,
   type NodeRefOpenedDelivery,
 } from "@shared/ipc";
 import { overlayManifest } from "@shared/overlay";
@@ -452,6 +453,8 @@ const quitPreparationArbiter = createQuitPreparationArbiter();
 const signalQuiescedWindows = new WeakSet<BrowserWindow>();
 let signalRendererDestroyInProgress = false;
 let closeWindowsWithoutCanvasFlush = false;
+// Set once the macOS menu bar exists: rebuilds it for the agent switcher being up or down.
+let showAppMenuFor: ((switcherUp: boolean) => void) | undefined;
 /** Explicit quit confirmed by the operator (or skipped: signal / headless / idle). */
 let quitConfirmed = false;
 /**
@@ -961,24 +964,28 @@ const createWindow = () => {
     mainWindow.close();
   };
   ipcMain.on(IPC_CHANNELS.windowClose, closeFromKeyboard);
-  // A chord being recorded in Settings must be recorded, not run by the menu
-  // bar. The menu comes back whenever the window loses focus or its page
-  // loads again, so a page that goes away mid-recording cannot leave Cmd+Q
-  // dead.
-  const ignoreMenuShortcuts = (event: IpcMainEvent, ignore: unknown): void => {
+  // The page asks the menu bar to give up chords: all of them while a chord
+  // is being recorded in Settings (it must be recorded, not run), or Cmd+H
+  // while the agent switcher is up. The menu takes them back whenever the
+  // window loses focus or its page loads again, so a page that goes away
+  // cannot leave Cmd+Q dead.
+  const applyMenuYield = (yielding: MenuYield): void => {
+    if (mainWindow.isDestroyed()) return;
+    mainWindow.webContents.setIgnoreMenuShortcuts(yielding === "all");
+    showAppMenuFor?.(yielding === "switcher");
+  };
+  const yieldMenuKeys = (event: IpcMainEvent, yielding: unknown): void => {
     if (
       event.sender !== mainWindow.webContents ||
       mainWindow.isDestroyed() ||
       !rendererOrigin.allows(event.sender.getURL())
     ) return;
-    mainWindow.webContents.setIgnoreMenuShortcuts(ignore === true);
+    applyMenuYield(yielding === "all" || yielding === "switcher" ? yielding : "none");
   };
-  ipcMain.on(IPC_CHANNELS.menuShortcutsIgnored, ignoreMenuShortcuts);
-  const restoreMenuShortcuts = (): void => {
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.setIgnoreMenuShortcuts(false);
-  };
-  mainWindow.on("blur", restoreMenuShortcuts);
-  mainWindow.webContents.on("did-start-loading", restoreMenuShortcuts);
+  ipcMain.on(IPC_CHANNELS.menuYield, yieldMenuKeys);
+  const restoreMenuKeys = (): void => applyMenuYield("none");
+  mainWindow.on("blur", restoreMenuKeys);
+  mainWindow.webContents.on("did-start-loading", restoreMenuKeys);
 
   const rendererNavigation = createTrustedRendererNavigation({
     origin: rendererOrigin,
@@ -1105,7 +1112,7 @@ const createWindow = () => {
     surfaceReadiness.dispose();
     ipcMain.removeListener(IPC_CHANNELS.rendererSurfaceReady, acknowledgeRendererSurface);
     ipcMain.removeListener(IPC_CHANNELS.windowClose, closeFromKeyboard);
-    ipcMain.removeListener(IPC_CHANNELS.menuShortcutsIgnored, ignoreMenuShortcuts);
+    ipcMain.removeListener(IPC_CHANNELS.menuYield, yieldMenuKeys);
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
     quitWhenNoOperatorWindow();
@@ -1315,18 +1322,22 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     if (process.platform === "darwin") {
       // The menu shows and claims the chords the operator chose in Settings,
       // so it is rebuilt whenever those change.
-      let shownOverrides: string | undefined;
-      const showAppMenu = (settings: Settings | undefined): void => {
-        const overrides = keyboardSettings(settings).overrides;
-        const key = JSON.stringify(overrides);
-        if (key === shownOverrides) return;
-        shownOverrides = key;
+      let shown: string | undefined;
+      let menuSettings: Settings | undefined;
+      let switcherUp = false;
+      const showAppMenu = (): void => {
+        const overrides = keyboardSettings(menuSettings).overrides;
+        const key = JSON.stringify([overrides, switcherUp]);
+        if (key === shown) return;
+        shown = key;
         Menu.setApplicationMenu(
           Menu.buildFromTemplate(
             appMenuTemplate({
               productName: PRODUCT_NAME,
               packaged: app.isPackaged,
               overrides,
+              switcherUp,
+              hideApp: () => app.hide(),
               sendKey: ({ keyCode, modifiers }) => {
                 const contents = BrowserWindow.getFocusedWindow()?.webContents;
                 if (!contents || contents.isDestroyed()) return;
@@ -1337,12 +1348,20 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           ),
         );
       };
-      showAppMenu(undefined);
+      const showAppMenuWith = (settings: Settings | undefined): void => {
+        menuSettings = settings;
+        showAppMenu();
+      };
+      showAppMenuFor = (up) => {
+        switcherUp = up;
+        showAppMenu();
+      };
+      showAppMenuWith(undefined);
       void AppRuntime.runPromise(
         Effect.gen(function* () {
           const settings = yield* SettingsService;
-          showAppMenu(yield* settings.get);
-          settings.subscribe(showAppMenu);
+          showAppMenuWith(yield* settings.get);
+          settings.subscribe(showAppMenuWith);
         }),
       ).catch(() => {
         console.error("[menu] stored shortcuts could not be read; the menu shows the defaults");

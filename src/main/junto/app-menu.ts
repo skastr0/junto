@@ -22,6 +22,8 @@ import {
  *   keeps Cmd+backtick for itself unless a menu item claims it, which is why
  *   the urgency switcher is here;
  * - in development builds only: reload and the developer tools.
+ *
+ * While the agent switcher is up, Hide gives up Cmd+H to it.
  */
 
 type TableItem = { readonly id: ShortcutId; readonly label: string };
@@ -45,6 +47,13 @@ export type AppMenuInput = {
   readonly packaged: boolean;
   /** The chords the operator changed in Settings; the menu shows and claims those. */
   readonly overrides?: KeyOverrides;
+  /**
+   * The agent switcher is up. Cmd is held then, so Cmd+H is the h of
+   * h j k l: Hide stays in the menu but gives up its chord until it is down.
+   */
+  readonly switcherUp?: boolean;
+  /** Hide the app; used by the Hide item while it has no chord. */
+  readonly hideApp?: () => void;
   /** Hand a chord to the focused window's page as a keydown. */
   readonly sendKey: (key: MenuKey) => void;
 };
@@ -62,7 +71,16 @@ export const appMenuTemplate = (input: AppMenuInput): MenuItemConstructorOptions
   return [
     {
       label: input.productName,
-      submenu: [{ role: "about" }, separator, { role: "hide" }, { role: "unhide" }, separator, { role: "quit" }],
+      submenu: [
+        { role: "about" },
+        separator,
+        input.switcherUp
+          ? { label: `Hide ${input.productName}`, click: () => input.hideApp?.() }
+          : { role: "hide" },
+        { role: "unhide" },
+        separator,
+        { role: "quit" },
+      ],
     },
     {
       label: "Edit",

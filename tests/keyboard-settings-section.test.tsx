@@ -18,7 +18,7 @@ import { state$ } from "../src/renderer/lib/state";
 let host: HTMLDivElement;
 let root: Root;
 let patches: SettingsPatch[];
-let menuIgnored: boolean[];
+let menuYield: string[];
 let uninstall: () => void;
 
 const withKeyboard = (overrides: Record<string, string[]>): Settings => ({
@@ -28,10 +28,10 @@ const withKeyboard = (overrides: Record<string, string[]>): Settings => ({
 
 beforeEach(() => {
   patches = [];
-  menuIgnored = [];
+  menuYield = [];
   Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
   (window as unknown as { junto: unknown }).junto = {
-    ignoreMenuShortcuts: (ignore: boolean) => menuIgnored.push(ignore),
+    yieldMenuKeys: (yielding: string) => menuYield.push(yielding),
     settingsPatch: async (patch: SettingsPatch) => {
       patches.push(patch);
       return { ok: true, settings: withKeyboard({ ...(patch.keyboard?.overrides as Record<string, string[]>) }) };
@@ -139,9 +139,9 @@ describe("keyboard shortcuts section", () => {
 
   it("stands the menu bar down while recording, so Cmd+Q is recorded and refused, not run", async () => {
     const button = startRecording("Open the needs-you feed");
-    expect(menuIgnored).toEqual([true]);
+    expect(menuYield).toEqual(["all"]);
     await press(button, { key: "q", code: "KeyQ", metaKey: true });
-    expect(menuIgnored).toEqual([true, false]);
+    expect(menuYield).toEqual(["all", "none"]);
     expect(host.textContent).toContain("macOS quits the app");
   });
 

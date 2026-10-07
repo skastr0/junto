@@ -12,6 +12,7 @@ import {
 import { dock$ } from "./dock-state";
 import { isOperatorTyping } from "./focus-ownership";
 import { focusSwitcher$ } from "./focus-switcher";
+import type { MenuYield } from "../../shared/ipc";
 import { getJuntoApi } from "./junto-api";
 import { frontModalLayer } from "./modal-stack";
 import { isOperatorModalOpen } from "./operator-modal";
@@ -95,6 +96,21 @@ const storedOverrides = (): KeyOverrides => keyboardSettings(state$.settings.pee
 
 let holds = 0;
 
+// What the menu bar was last told to give up, so it is told only on a change.
+let menuYield: MenuYield = "none";
+
+/**
+ * Tell the menu bar which of its chords the page needs: all of them while a
+ * chord is being recorded, Cmd+H while the switcher is up (Cmd is held, so
+ * it is the h of h j k l), none otherwise.
+ */
+const syncMenuYield = (): void => {
+  const next: MenuYield = holds > 0 ? "all" : focusSwitcher$.session.peek() !== null ? "switcher" : "none";
+  if (next === menuYield) return;
+  menuYield = next;
+  getJuntoApi()?.yieldMenuKeys(next);
+};
+
 /**
  * Stand every shortcut down while a new chord is being recorded: the
  * dispatcher's and the menu bar's. Every key then belongs to the recorder,
@@ -102,13 +118,13 @@ let holds = 0;
  */
 export const holdKeyDispatch = (): (() => void) => {
   holds += 1;
-  if (holds === 1) getJuntoApi()?.ignoreMenuShortcuts(true);
+  syncMenuYield();
   let released = false;
   return () => {
     if (released) return;
     released = true;
     holds -= 1;
-    if (holds === 0) getJuntoApi()?.ignoreMenuShortcuts(false);
+    syncMenuYield();
   };
 };
 
@@ -165,7 +181,9 @@ export const installKeyDispatcher = (actions: KeyActions): (() => void) => {
   window.addEventListener("keydown", onKeyDown, { capture: true });
   // focus-law: acts only when Cmd is let go while the switcher is up.
   window.addEventListener("keyup", onKeyUp, { capture: true });
+  const stopMenuSync = focusSwitcher$.session.onChange(syncMenuYield);
   return () => {
+    stopMenuSync();
     window.removeEventListener("keydown", onKeyDown, { capture: true });
     window.removeEventListener("keyup", onKeyUp, { capture: true });
   };

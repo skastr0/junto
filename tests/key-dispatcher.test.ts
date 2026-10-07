@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { OPERATOR_TYPING_SELECTOR } from "../src/renderer/lib/focus-ownership";
+import { focusSwitcher$ } from "../src/renderer/lib/focus-switcher";
 import {
   TERMINAL_SELECTOR,
   dispatchKey,
   dispatchRelease,
   holdKeyDispatch,
+  installKeyDispatcher,
   keyContextOf,
   type KeyActions,
 } from "../src/renderer/lib/key-dispatcher";
@@ -158,22 +160,45 @@ describe("dispatchKey", () => {
   });
 });
 
-describe("holdKeyDispatch", () => {
-  it("stands the menu bar down for as long as anything holds, and gives it back once", () => {
-    const calls: boolean[] = [];
-    (globalThis as { window?: unknown }).window = { junto: { ignoreMenuShortcuts: (ignore: boolean) => calls.push(ignore) } };
+describe("what the menu bar gives up", () => {
+  const withMenu = (run: (calls: string[]) => void): void => {
+    const calls: string[] = [];
+    const listeners: Record<string, unknown> = {};
+    (globalThis as { window?: unknown }).window = {
+      junto: { yieldMenuKeys: (yielding: string) => calls.push(yielding) },
+      addEventListener: (type: string, listener: unknown) => (listeners[type] = listener),
+      removeEventListener: () => undefined,
+    };
     try {
-      const first = holdKeyDispatch();
-      const second = holdKeyDispatch();
-      expect(calls).toEqual([true]);
-      first();
-      first();
-      expect(calls).toEqual([true]);
-      second();
-      expect(calls).toEqual([true, false]);
+      run(calls);
     } finally {
+      focusSwitcher$.session.set(null);
       delete (globalThis as { window?: unknown }).window;
     }
+  };
+
+  it("gives up every chord for as long as anything records, and takes them back once", () => {
+    withMenu((calls) => {
+      const first = holdKeyDispatch();
+      const second = holdKeyDispatch();
+      expect(calls).toEqual(["all"]);
+      first();
+      first();
+      expect(calls).toEqual(["all"]);
+      second();
+      expect(calls).toEqual(["all", "none"]);
+    });
+  });
+
+  it("gives up Cmd+H while the switcher is up, so h moves the selection and does not hide the app", () => {
+    withMenu((calls) => {
+      const uninstall = installKeyDispatcher({});
+      focusSwitcher$.session.set({ entries: [], selectedIndex: 0 });
+      expect(calls).toEqual(["switcher"]);
+      focusSwitcher$.session.set(null);
+      expect(calls).toEqual(["switcher", "none"]);
+      uninstall();
+    });
   });
 });
 

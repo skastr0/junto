@@ -436,7 +436,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     sendRendererSurfaceReceipt();
   },
   closeWindow: () => ipcRenderer.send(IPC_CHANNELS.windowClose),
-  ignoreMenuShortcuts: (ignore) => ipcRenderer.send(IPC_CHANNELS.menuShortcutsIgnored, ignore === true),
+  yieldMenuKeys: (yielding) => ipcRenderer.send(IPC_CHANNELS.menuYield, yielding),
   listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
   writeCanvas: (name, doc, expectedRevision) =>

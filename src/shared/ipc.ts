@@ -311,8 +311,8 @@ export const IPC_CHANNELS = {
   rendererSurfaceReady: "junto:renderer-surface-ready",
   // renderer -> main: the operator closed the window from the keyboard.
   windowClose: "junto:window-close",
-  // renderer -> main: a new chord is being recorded; the menu bar stands down.
-  menuShortcutsIgnored: "junto:menu-shortcuts-ignored",
+  // renderer -> main: which of its chords the menu bar gives up to the page.
+  menuYield: "junto:menu-yield",
   // Command Center auto-update (Mac; readiness-gated install)
   updateGetState: "junto:update-get-state",
   updateCheck: "junto:update-check",
@@ -755,6 +755,8 @@ export type RegionEnvStaleSeatsResult =
   | { readonly ok: true; readonly seats: ReadonlyArray<StaleSeat> }
   | { readonly ok: false; readonly message: string };
 
+export type MenuYield = "none" | "switcher" | "all";
+
 export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
@@ -766,10 +768,12 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
    */
   readonly closeWindow: () => void;
   /**
-   * While true the menu bar answers no chord in this window, so a chord
-   * being recorded in Settings is recorded and not run (Cmd+Q would quit).
+   * Which of its chords the menu bar gives up to the page in this window.
+   * "all": a chord is being recorded in Settings, so every chord is recorded
+   * and none is run (Cmd+Q would quit). "switcher": the agent switcher is up
+   * with Cmd held, so Cmd+H is the h of h j k l and does not hide the app.
    */
-  readonly ignoreMenuShortcuts: (ignore: boolean) => void;
+  readonly yieldMenuKeys: (yielding: MenuYield) => void;
   readonly listCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
   readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly writeCanvas: (

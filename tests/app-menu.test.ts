@@ -75,6 +75,23 @@ describe("the app menu with the operator's own chords", () => {
   });
 });
 
+describe("the app menu while the agent switcher is up", () => {
+  it("keeps Hide in the menu but without its chord, and hides when clicked", () => {
+    const hideApp = vi.fn();
+    const all = items(
+      appMenuTemplate({ productName: "Junto", packaged: true, switcherUp: true, hideApp, sendKey: () => undefined }),
+    );
+    expect(all.map((item) => item.role)).not.toContain("hide");
+    const hide = all.find((item) => item.label === "Hide Junto")!;
+    expect(hide.accelerator).toBeUndefined();
+    (hide.click as () => void)();
+    expect(hideApp).toHaveBeenCalledTimes(1);
+    // Everything else is as it was.
+    expect(all.map((item) => item.role)).toContain("quit");
+    expect(all.find((item) => item.label === "Next Agent That Needs You")?.accelerator).toBe("Cmd+`");
+  });
+});
+
 describe("menuKeyOf", () => {
   it("writes a chord as the menu bar does and as a key to send", () => {
     expect(menuKeyOf("Cmd+Shift+Backquote")).toEqual({
