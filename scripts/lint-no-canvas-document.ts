@@ -24,6 +24,10 @@ const NAMES: ReadonlyArray<readonly [label: string, pattern: RegExp]> = [
   ["state$.doc", /\bstate\$\.doc\b/],
   ["old canvas tables", /\bcanvas_(?:nodes|edges|documents|entities|portfolio_head)\b/],
   ["JSON Canvas", /JSON Canvas|jsoncanvas/i],
+  // The temporary bridges: a caller of one still thinks in documents even
+  // when it names none of the words above.
+  ["document seeds", /\b(?:canvasDoc|crewDoc|seedCanvases|installFixtureDocument|writeFixtureDocument)\b/],
+  ["document converters", /\b(?:nodeToDocument|nodeFromDocument|nodesFromDocument|canvasFromDocument|documentEdits|commitDoc)\b/],
 ];
 
 /**
