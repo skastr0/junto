@@ -82,6 +82,20 @@ export const connectAllowed = (
   wireableNode(toNode) &&
   verbsForDraw(kindOf(fromNode), kindOf(toNode)).verbs.length > 0;
 
+/**
+ * The same question of two nodes as the store holds them: could a wire be
+ * drawn between these at all. connectAllowed above goes when its one caller
+ * (the canvas's live connect check) asks this instead.
+ */
+export const canConnect = (from: Node | undefined, to: Node | undefined): boolean => {
+  if (from === undefined || to === undefined) return false;
+  for (const node of [from, to]) {
+    if (node.kind === "region" || node.kind === "label" || node.kind === "git") return false;
+    if (!productNodeKindEnabled(physicsKind(node.kind))) return false;
+  }
+  return verbsForDraw(physicsKind(from.kind), physicsKind(to.kind)).verbs.length > 0;
+};
+
 const VERB_HANDLE_PREFIX = "verb:";
 
 /** Handle id a landing zone carries. Never parses as a node side. */
