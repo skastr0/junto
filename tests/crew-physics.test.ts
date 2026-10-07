@@ -1,76 +1,68 @@
-import { Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { decodeCanvasDoc, edgeGrant, type CanvasDoc, type CanvasEdge } from "../src/shared/canvas";
-import { admitPure, asNodeId, canvasDocToCapabilityView, type Port } from "../src/shared/physics";
+import { Wire, decodeWire, wireGrant, wireKinds, type Canvas } from "../src/shared/model";
+import { admitPure, asNodeId, type Port } from "../src/shared/physics";
+import { canvasToCapabilityView } from "../src/shared/physics/view";
+import { canvasOf, seat, wire } from "./support/model-nodes";
 
-const docWith = (edges: readonly CanvasEdge[]): CanvasDoc => ({
-  nodes: ["author", "reviewer"].map((id) => ({
-    id, type: "text" as const, text: id, x: 0, y: 0, width: 200, height: 100,
-    ether: { entity: { kind: "agent", name: id }, terminal: { bindingId: `binding-${id}`, harness: "claude" as const } },
-  })),
-  edges,
+// What a messages wire between two seats lets each do to the other, and that
+// a mask can only take from it.
+
+const seats = [seat("author"), seat("reviewer")];
+
+const messages = (mask?: readonly Port[]): Wire => ({
+  ...wire("messages", "reviewer", "author", "messages"),
+  ...(mask === undefined ? {} : { mask: [...mask] }),
 });
 
-const edge = (verb: "messages", mask?: readonly Port[]): CanvasEdge => ({
-  id: verb, fromNode: "reviewer", toNode: "author",
-  ether: { verb, ...(mask === undefined ? {} : { mask }) },
-});
+const canvasWith = (wires: readonly Wire[]): Canvas => canvasOf(seats, wires);
 
-const allows = (doc: CanvasDoc, from: string, to: string, port: Port): boolean =>
-  Result.isSuccess(admitPure(canvasDocToCapabilityView(doc), asNodeId(from), asNodeId(to), port));
+const allows = (canvas: Canvas, from: string, to: string, port: Port): boolean =>
+  Result.isSuccess(admitPure(canvasToCapabilityView(canvas), asNodeId(from), asNodeId(to), port));
 
-describe("crew edge authority", () => {
+/** Whether a wire read from outside the process is taken. */
+const decodes = (input: unknown): boolean =>
+  Result.isSuccess(Effect.runSync(Effect.result(decodeWire(input))));
+
+describe("crew wire authority", () => {
   it("defaults peer observation and immediate prompt to the messages relationship", () => {
-    const doc = docWith([edge("messages")]);
+    const canvas = canvasWith([messages()]);
     for (const port of ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"] as const) {
-      expect(allows(doc, "author", "reviewer", port), port).toBe(true);
-      expect(allows(doc, "reviewer", "author", port), port).toBe(true);
+      expect(allows(canvas, "author", "reviewer", port), port).toBe(true);
+      expect(allows(canvas, "reviewer", "author", port), port).toBe(true);
     }
-    expect(allows(doc, "reviewer", "author", "verdict.post")).toBe(false);
+    expect(allows(canvas, "reviewer", "author", "verdict.post")).toBe(false);
   });
 
-  it("attenuates prompt independently and preserves an empty mask through decode", () => {
-    const doc = docWith([edge("messages", ["msg.send", "terminal.read"])]);
-    expect(allows(doc, "author", "reviewer", "msg.send")).toBe(true);
-    expect(allows(doc, "author", "reviewer", "terminal.read")).toBe(true);
-    expect(allows(doc, "author", "reviewer", "msg.prompt")).toBe(false);
-    const decoded = decodeCanvasDoc(docWith([edge("messages", [])]));
-    expect(Result.isSuccess(decoded)).toBe(true);
-    if (Result.isFailure(decoded)) throw decoded.failure;
-    expect(decoded.success.edges[0]?.ether?.mask).toEqual([]);
-    expect(allows(decoded.success, "author", "reviewer", "msg.send")).toBe(false);
+  it("attenuates prompt independently, and an empty mask grants nothing", () => {
+    const canvas = canvasWith([messages(["msg.send", "terminal.read"])]);
+    expect(allows(canvas, "author", "reviewer", "msg.send")).toBe(true);
+    expect(allows(canvas, "author", "reviewer", "terminal.read")).toBe(true);
+    expect(allows(canvas, "author", "reviewer", "msg.prompt")).toBe(false);
+    // An empty mask is kept as written: it is not read as no mask at all.
+    const empty = messages([]);
+    expect(Schema.decodeUnknownSync(Wire)(empty).mask).toEqual([]);
+    expect(allows(canvasWith([empty]), "author", "reviewer", "msg.send")).toBe(false);
   });
 
   it("cannot manufacture review, task update, input or signal power in a mask", () => {
-    const doc = docWith([edge("messages", ["verdict.post", "tasks.update", "terminal.read"])]);
-    expect(edgeGrant(doc, doc.edges[0]!)?.ports).toEqual(["terminal.read"]);
-    expect(allows(doc, "reviewer", "author", "verdict.post")).toBe(false);
+    const masked = messages(["verdict.post", "tasks.update", "terminal.read"]);
+    expect(wireGrant(masked, wireKinds(seats))?.ports).toEqual(["terminal.read"]);
+    expect(allows(canvasWith([masked]), "reviewer", "author", "verdict.post")).toBe(false);
     for (const invalid of ["terminal.write", "terminal.resize", "terminal.signal"]) {
-      const raw = docWith([edge("messages")]);
-      expect(Result.isFailure(decodeCanvasDoc({
-        ...raw, edges: [{ ...raw.edges[0], ether: { verb: "messages", mask: [invalid] } }],
-      })), invalid).toBe(true);
+      expect(decodes({ ...messages(), mask: [invalid] }), invalid).toBe(false);
     }
   });
 
   it("does not turn malformed attenuation into unmasked authority", () => {
-    const doc = docWith([edge("messages")]);
-    for (const mask of [undefined, null, "msg.send", ["unknown.port"], [123]]) {
-      expect(Result.isFailure(decodeCanvasDoc({
-        ...doc, edges: [{ ...doc.edges[0], ether: { verb: "messages", mask } }],
-      }))).toBe(true);
+    for (const mask of [null, "msg.send", ["unknown.port"], [123]]) {
+      expect(decodes({ ...messages(), mask }), JSON.stringify(mask)).toBe(false);
     }
   });
 
-  it("does not infer a broader relationship from an explicitly invalid verb", () => {
-    const doc = docWith([edge("messages")]);
+  it("does not take a wire whose verb is not one", () => {
     for (const verb of [undefined, null, "reviewz", 123]) {
-      const decoded = decodeCanvasDoc({
-        ...doc, edges: [{ ...doc.edges[0], ether: { verb } }],
-      });
-      expect(Result.isSuccess(decoded)).toBe(true);
-      if (Result.isFailure(decoded)) throw decoded.failure;
-      expect(decoded.success.edges).toEqual([]);
+      expect(decodes({ ...messages(), verb }), String(verb)).toBe(false);
     }
   });
 });
