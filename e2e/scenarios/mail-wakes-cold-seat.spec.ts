@@ -142,9 +142,12 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
     });
 
     // Born paused — first play is an explicit operator confirmation.
+    expect(await page.evaluate((name) => window.junto!.factoryPauseState(name), CANVAS))
+      .toEqual({ playing: false, everPlayed: false });
     await page.getByRole("button", { name: "Play canvas" }).click();
-    const dialog = page.getByRole("dialog", { name: /start|first|play|crew/i });
-    await dialog.getByRole("button", { name: "play" }).click();
+    const dialog = page.getByRole("alertdialog", { name: /^Start / });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Play", exact: true }).click();
     await expect(page.getByRole("button", { name: "Pause canvas" })).toBeVisible({
       timeout: 15_000,
     });

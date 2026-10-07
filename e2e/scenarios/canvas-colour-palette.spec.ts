@@ -87,6 +87,9 @@ test("the colour palette offers a clear yellow and remembers custom colours", as
     const { page } = junto;
     const note = page.locator('.react-flow__node[data-id="note"]');
     await expect(note).toBeVisible({ timeout: 30_000 });
+    // The opening view frames named regions; this loose note sits outside them.
+    await page.getByRole("button", { name: "Fit all nodes", exact: true }).click();
+    await expect(note).toBeInViewport();
     await note.click();
 
     const palette = page.getByRole("group", { name: "Colour", exact: true });
