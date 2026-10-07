@@ -112,6 +112,27 @@ describe("provisionAmpThread", () => {
     );
   });
 
+  it("forwards native thread features and configuration on creation, not client or executor flags", async () => {
+    const run = vi.fn(async () => REAL_RECEIPT);
+    expect(await provisionAmpThread({
+      mode: "fixture-reviewer",
+      extraArgs: [
+        "--features", "plaid", "--features=pro", "--fast", "--no-notifications",
+        "--settings-file", "/a b/settings.json", "--label=fixture", "--executor", "orb",
+      ],
+      run,
+    })).toMatchObject({ ok: true });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "amp",
+      [
+        "--mode", "fixture-reviewer", "--features", "plaid", "--features=pro", "--fast",
+        "--settings-file", "/a b/settings.json", "--label=fixture",
+        "threads", "new", "--visibility", "private",
+      ],
+      { timeoutMs: 20_000 },
+    );
+  });
+
   it("mints from the live URL receipt the same way as a bare id", async () => {
     const result = await provisionAmpThread({
       run: async () => REAL_URL_RECEIPT,
@@ -131,7 +152,26 @@ describe("provisionAmpThread", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe("amp_thread_unprovisioned");
-    expect(result.failure.reason).toContain("Not logged in");
+    expect(result.failure.reason).toContain("check Amp login");
+  });
+
+  it("does not copy command arguments or stderr into the provisioning failure", async () => {
+    const config = JSON.stringify({
+      fixture: { url: "https://fixture.invalid/mcp", headers: { Authorization: "Bearer fixture-only-token" } },
+    });
+    const result = await provisionAmpThread({
+      extraArgs: ["--mcp-config", config],
+      run: async () => {
+        throw new Error(`Command failed: amp --mcp-config ${config} threads new\n/fixture-private/settings.json`);
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failure.code).toBe("amp_thread_unprovisioned");
+    expect(result.failure.reason).toContain("configuration");
+    expect(result.failure.reason).not.toContain(config);
+    expect(result.failure.reason).not.toContain("fixture-only-token");
+    expect(result.failure.reason).not.toContain("/fixture-private");
   });
 
   it("surfaces an unreadable receipt rather than inventing an id", async () => {
@@ -213,6 +253,28 @@ describe("ensureProvisionedSessionId", () => {
     }
   });
 
+  it("carries the authored feature arguments into thread creation", async () => {
+    const provision = vi.spyOn(ampThread, "provisionAmpThread").mockResolvedValue({
+      ok: true, threadId: "T-00000000-0000-4000-8000-000000000001",
+    });
+    const store = vi.spyOn(seatSession, "writeSeatSessionId").mockResolvedValue({ ok: true });
+    try {
+      await ensureProvisionedSessionId({
+        canvasName: "factory", nodeId: "n1", harness: "amp",
+        documentLaunch: {
+          kind: "harness", argv: ["amp", "--no-ide", "--mode=fixture-reviewer", "--features", "plaid"],
+          extraArgs: ["--features", "plaid"],
+        },
+      });
+      expect(provision).toHaveBeenCalledExactlyOnceWith({
+        mode: "fixture-reviewer", extraArgs: ["--features", "plaid"],
+      });
+    } finally {
+      provision.mockRestore();
+      store.mockRestore();
+    }
+  });
+
   it("returns a valid stored thread without calling the CLI again", async () => {
     const provision = vi.spyOn(ampThread, "provisionAmpThread").mockRejectedValue(new Error("must not provision"));
     try {
@@ -258,9 +320,9 @@ describe("ensureProvisionedSessionId", () => {
 });
 
 describe("amp mode survives a wake", () => {
-  it("recovers -m from the stored argv instead of dropping to the default", () => {
-    // A wake re-plans from the document's argv. Without mode recovery a seat
-    // created in ultra would come back in Amp's default mode.
+  it("resumes the named thread's saved mode without overriding it", () => {
+    // Mode was set when this thread was created. The stored choice remains
+    // available to profiles, but continuing must leave Amp's saved mode alone.
     const resolved = launchForManagedSpawn({
       harness: "amp",
       agentKey: "local:amp",
@@ -285,8 +347,6 @@ describe("amp mode survives a wake", () => {
       "threads",
       "continue",
       "T-01a03989-71a6-733b-ac4c-76f54969cb55",
-      "-m",
-      "ultra",
     ]);
   });
 });
@@ -306,7 +366,7 @@ describe("an Amp seat authored from the picker", () => {
     expect(node.ether?.terminal?.sessionId).toBeUndefined();
   });
 
-  it("offers exactly the modes Amp documents, and no model list", () => {
+  it("offers Amp's built-in modes as a fallback, and no model list", () => {
     expect(AMP_TEMPLATE.modes).toEqual(["low", "medium", "high", "ultra"]);
     expect(AMP_TEMPLATE.efforts).toEqual([]);
     expect(AMP_TEMPLATE.argvSpec.modelFlag).toBeUndefined();

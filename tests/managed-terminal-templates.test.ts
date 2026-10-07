@@ -574,22 +574,32 @@ describe("resolveManagedLaunch argv", () => {
     expect(GROK_TEMPLATE.efforts).toEqual(["xhigh", "high", "medium", "low"]);
   });
 
-  it("amp: launches --no-ide and resumes the exact thread by id", () => {
-    // Both shapes verified against amp 0.0.1787664850 in a real PTY.
-    // 0.0.1789113641 still emits `--no-ide` + named `threads continue <T-id>`.
+  it("amp: creation choices do not override an exact named-thread resume", () => {
+    // 0.0.1791331298 restores the thread's saved mode on named continuation.
     const fresh = resolveManagedLaunch(
       "amp",
-      { resumeId: "T-01a03989-71a6-733b-ac4c-76f54969cb55", mode: "low" },
+      { mode: "fixture-reviewer", extraArgs: ["--features", "fast", "--no-color"] },
       bareAmbient,
     );
     expect(fresh.argv).toEqual([
+      "amp", "--no-ide", "-m", "fixture-reviewer", "--features", "fast", "--no-color",
+    ]);
+    const resumed = resolveManagedLaunch(
+      "amp",
+      {
+        resumeId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+        mode: "low",
+        extraArgs: ["--features", "plaid", "--no-color"],
+      },
+      bareAmbient,
+    );
+    expect(resumed.argv).toEqual([
       "amp",
       "--no-ide",
       "threads",
       "continue",
       "T-01a03989-71a6-733b-ac4c-76f54969cb55",
-      "-m",
-      "low",
+      "--no-color",
     ]);
     // Amp exposes no model flag and no independent effort — the one dial is
     // the named mode, and it must never be reported as either of the others.
@@ -1423,4 +1433,3 @@ describe("model enumeration (fail-soft)", () => {
     ]);
   });
 });
-

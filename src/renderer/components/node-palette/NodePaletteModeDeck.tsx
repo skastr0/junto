@@ -239,6 +239,7 @@ export function NodePaletteModeDeck({
             className="node-deck__harness-pick"
             query={query}
             listLabel="Agents"
+            cwd={launchContext.cwd}
             onConfigure={configureAgent}
             cascadeDismissRef={cascadeDismissRef}
           />

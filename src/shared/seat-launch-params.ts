@@ -10,6 +10,7 @@ import type { CanvasNode, EtherTerminalLaunch } from "./canvas";
 import { recoverDocumentLaunchChoices } from "./launch-choices";
 import {
   sanitizeExtraArgs,
+  splitAmpFeatureArgs,
   type RejectedExtraArg,
 } from "./launch-extra-args";
 import { resolveManagedLaunch } from "./managed-terminal-launch";
@@ -134,9 +135,31 @@ export const planSeatLaunch = (input: {
 };
 
 /**
+ * Restarting a named Amp thread cannot change its mode. Junto applies feature
+ * flags only at creation; native Amp controls own later feature changes.
+ * Refuse these edits before saving or stopping anything, not after a restart.
+ */
+export const seatLaunchParamsChangeError = (
+  node: CanvasNode,
+  params: SeatLaunchParams,
+): string | undefined => {
+  if (harnessOf(node) !== "amp" || !node.ether?.terminal?.sessionId?.trim()) return undefined;
+  const stored = recoverDocumentLaunchChoices("amp", node.ether.terminal.launch);
+  if ((trimmed(stored.mode) ?? "").toLowerCase() !== (trimmed(params.mode) ?? "").toLowerCase()) {
+    return "Amp resumes the thread's saved mode. Restarting cannot change it; use Amp's dial before the first message, or re-seat from Launch.";
+  }
+  const before = splitAmpFeatureArgs(stored.extraArgs).features;
+  const after = splitAmpFeatureArgs(sanitizeExtraArgs("amp", params.extraArgs).args).features;
+  if (before.join("\u0000") !== after.join("\u0000")) {
+    return "Startup features apply when Junto creates the Amp thread. Change an existing thread's features in Amp; Fast and Plaid can be toggled there.";
+  }
+  return undefined;
+};
+
+/**
  * The same seat with new starting parameters: binding, session id, identity,
  * label and geometry are untouched; only the stored launch changes. Returns
- * undefined when the node is not a managed agent seat.
+ * undefined for an unmanaged seat or a change its named thread cannot apply.
  */
 export const relaunchManagedAgentNode = <N extends CanvasNode>(
   node: N,
@@ -145,6 +168,7 @@ export const relaunchManagedAgentNode = <N extends CanvasNode>(
   const harness = harnessOf(node);
   const terminal = node.ether?.terminal;
   if (!harness || !terminal || !node.ether) return undefined;
+  if (seatLaunchParamsChangeError(node, params)) return undefined;
   const recovered = recoverDocumentLaunchChoices(harness, terminal.launch);
   const plan = planSeatLaunch({
     harness,

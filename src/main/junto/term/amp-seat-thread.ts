@@ -51,12 +51,14 @@ const provisionFor = async (
   harness: HarnessId,
   cwd: string | undefined,
   mode: string | undefined,
+  extraArgs: readonly string[] | undefined,
 ): Promise<SeatThreadResult> => {
   switch (harness) {
     case "amp": {
       const minted = await provisionAmpThread({
         ...(cwd === undefined ? {} : { cwd }),
         ...(mode === undefined ? {} : { mode }),
+        ...(extraArgs === undefined ? {} : { extraArgs }),
       });
       return minted.ok
         ? { ok: true, sessionId: minted.threadId, minted: true }
@@ -107,8 +109,8 @@ export const ensureProvisionedSessionId = async (input: {
     return { ok: true, sessionId: existing, minted: false };
   }
 
-  const { mode } = recoverDocumentLaunchChoices(harness, input.documentLaunch);
-  const minted = await provisionFor(harness, input.cwd, mode);
+  const { mode, extraArgs } = recoverDocumentLaunchChoices(harness, input.documentLaunch);
+  const minted = await provisionFor(harness, input.cwd, mode, extraArgs);
   if (!minted.ok) return minted;
 
   const stored = await writeSeatSessionId({

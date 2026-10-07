@@ -25,19 +25,23 @@ export type RecoveredLaunchChoices = Pick<
 const valueForFlag = (
   argv: ReadonlyArray<string>,
   flag: string | undefined,
+  aliases: readonly string[] = [],
 ): string | undefined => {
   if (!flag) return undefined;
+  const names = [flag, ...aliases];
   for (let i = argv.length - 1; i >= 0; i -= 1) {
     const token = argv[i];
-    if (token === flag) {
+    if (names.includes(token)) {
       const value = argv[i + 1]?.trim();
       if (value && value.length > 0) return value;
       continue;
     }
-    const inline = `${flag}=`;
-    if (token.startsWith(inline)) {
-      const value = token.slice(inline.length).trim();
-      if (value.length > 0) return value;
+    for (const name of names) {
+      const inline = `${name}=`;
+      if (token.startsWith(inline)) {
+        const value = token.slice(inline.length).trim();
+        if (value.length > 0) return value;
+      }
     }
   }
   return undefined;
@@ -87,10 +91,9 @@ const recoverTemplateChoices = (
     ? (argv.includes("--yolo") ? "yolo" : undefined)
     : valueForFlag(argv, spec.permissionModeFlag);
 
-  // Named agent mode (Amp `-m`). Recovered like every other template-owned
-  // flag so a wake or restart relaunches the seat in the mode it was created
-  // with, rather than silently dropping back to the harness default.
-  const mode = valueForFlag(argv, spec.modeFlag);
+  // Amp accepts both spellings. This is the authored creation choice, not a
+  // query of the native thread's current mode; resumes load Amp's saved mode.
+  const mode = valueForFlag(argv, spec.modeFlag, harness === "amp" ? ["--mode"] : []);
 
   switch (harness) {
     case "claude":

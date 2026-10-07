@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   argvWithoutExtraArgs,
   formatExtraArgs,
+  parseAmpPluginModes,
   parseExtraArgsText,
   parseHelpFlags,
   reservedLaunchFlags,
   sanitizeExtraArgs,
+  splitAmpFeatureArgs,
 } from "../src/shared/launch-extra-args";
 
 describe("parseExtraArgsText / formatExtraArgs", () => {
@@ -52,6 +54,19 @@ describe("sanitizeExtraArgs", () => {
     ]);
   });
 
+  it("keeps Amp's interactive, private, named-thread seat out of runner and execute modes", () => {
+    const out = sanitizeExtraArgs("amp", [
+      "--executor=orb", "--runner-dir", "/other", "--project", "fixture/project",
+      "--orb-size", "a1.large", "--no-tui", "--visibility", "workspace",
+      "-x", "send a prompt", "-ox", "--stream-json", "--fast", "--no-notifications",
+    ]);
+    expect(out.args).toEqual(["--fast", "--no-notifications"]);
+    expect(out.rejected.map((item) => item.token)).toEqual([
+      "--executor=orb", "--runner-dir", "--project", "--orb-size", "--no-tui",
+      "--visibility", "-x", "-ox", "--stream-json",
+    ]);
+  });
+
   it("refuses the flags that carry the seat's session", () => {
     const reserved = reservedLaunchFlags("claude");
     expect(reserved.has("--session-id")).toBe(true);
@@ -81,6 +96,39 @@ describe("sanitizeExtraArgs", () => {
 
   it("drops blanks and control characters", () => {
     expect(sanitizeExtraArgs("claude", ["  ", "--ver\u0000bose"]).args).toEqual(["--verbose"]);
+  });
+});
+
+describe("Amp thread features and plugin modes", () => {
+  it("separates creation features from client flags without rewriting values or repetition", () => {
+    expect(splitAmpFeatureArgs([
+      "--no-notifications", "--features", "plaid", "--settings-file", "/a b/settings.json",
+      "--features=pro", "--fast", "--label", "fixture",
+    ])).toEqual({
+      features: ["--features", "plaid", "--features=pro", "--fast"],
+      client: ["--no-notifications", "--settings-file", "/a b/settings.json", "--label", "fixture"],
+    });
+  });
+
+  it("does not steal the next option as a missing feature value", () => {
+    expect(splitAmpFeatureArgs(["--features", "--no-color", "--fast"])).toEqual({
+      features: ["--features", "--fast"],
+      client: ["--no-color"],
+    });
+  });
+
+  it("reads only registered mode keys, not agent names, and deduplicates case-insensitively", () => {
+    expect(parseAmpPluginModes([
+      "✓ fixture-plugin active",
+      "  agent: fixture-agent",
+      "  agent mode: fixture-reviewer",
+      "  agent mode: HIGH",
+      "  tool: fixture-tool",
+      "  agent mode: Fixture-Reviewer",
+      "  agent mode: fixture-writer",
+      "  agent mode:",
+    ].join("\n"))).toEqual(["fixture-reviewer", "HIGH", "fixture-writer"]);
+    expect(parseAmpPluginModes("")).toEqual([]);
   });
 });
 

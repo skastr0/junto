@@ -63,7 +63,23 @@ export const reservedLaunchFlags = (
   // config-override flag, so it stays open to the operator.
   if (!spec.effortConfigKey) reserve(spec.effortFlag, "set by the effort choice");
   reserve(spec.modeFlag, "set by the mode choice");
-  if (harness === "amp") reserve("--mode", "set by the mode choice");
+  if (harness === "amp") {
+    reserve("--mode", "set by the mode choice");
+    reserve("--visibility", "Junto creates a private thread for this seat");
+    for (const flag of ["--executor", "--runner-dir", "--project", "--orb-size"]) {
+      reserve(flag, "Orb and runner seats need their own integration");
+    }
+    for (const flag of ["--no-tui", "--runner-id", "--share", "--desktop", "--amp-env"]) {
+      reserve(flag, "this seat uses Amp's interactive terminal, not a runner server");
+    }
+    for (const flag of [
+      "-x", "--execute", "-ox", "--orb-execute", "--stream-json",
+      "--stream-json-thinking", "--stream-json-input", "--title", "--attach",
+      "--plugin-ready-timeout", "--no-archive-after-execute",
+    ]) {
+      reserve(flag, "execute-mode options do not apply to an interactive seat");
+    }
+  }
   reserve(spec.permissionModeFlag, "set by the permission mode choice");
   reserve(spec.profileFlag, "set by the profile choice");
   reserve(spec.providerFlag, "set by the provider choice");
@@ -123,6 +139,56 @@ export const sanitizeExtraArgs = (
     args.push(token);
   }
   return { args, rejected };
+};
+
+/**
+ * Junto applies speed features at thread creation, not when reopening its TUI.
+ * Once a thread exists, speed changes belong to Amp, not the viewer's next start.
+ * Keep values and repeated flags verbatim; Amp owns their interpretation.
+ */
+export const splitAmpFeatureArgs = (input: readonly string[] = []): {
+  readonly features: readonly string[];
+  readonly client: readonly string[];
+} => {
+  const features: string[] = [];
+  const client: string[] = [];
+  for (let i = 0; i < input.length; i += 1) {
+    const token = input[i]!;
+    const name = flagNameOf(token);
+    if (name !== "--features" && name !== "--fast") {
+      client.push(token);
+      continue;
+    }
+    features.push(token);
+    const next = input[i + 1];
+    if (token === "--features" && next !== undefined && !next.startsWith("-")) {
+      features.push(next);
+      i += 1;
+    }
+  }
+  return { features, client };
+};
+
+/** Public global options that affect Amp thread creation, not TUI paint. */
+export const ampThreadCreationArgs = (input: readonly string[] = []): readonly string[] => {
+  const valueFlags = new Set([
+    "--features", "--settings-file", "--mcp-config", "--log-level", "--log-file",
+    "-l", "--label",
+  ]);
+  const out: string[] = [];
+  const { args } = sanitizeExtraArgs("amp", input);
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i]!;
+    const name = flagNameOf(token);
+    if (name !== "--fast" && !valueFlags.has(name)) continue;
+    out.push(token);
+    const next = args[i + 1];
+    if (valueFlags.has(name) && name === token && next !== undefined && !next.startsWith("-")) {
+      out.push(next);
+      i += 1;
+    }
+  }
+  return out;
 };
 
 /**
@@ -207,6 +273,19 @@ export const argvWithoutExtraArgs = (
 };
 
 // ── Flags a harness reports about itself ───────────────────────────────────
+
+/** Mode keys printed by the public `amp plugins list` command. */
+export const parseAmpPluginModes = (text: string): readonly string[] => {
+  const modes: string[] = [];
+  const seen = new Set<string>();
+  for (const line of text.replace(/\u001b\[[0-9;]*m/g, "").split(/\r?\n/)) {
+    const mode = line.match(/^\s+agent mode:\s*(\S.*?)\s*$/)?.[1];
+    if (!mode || seen.has(mode.toLowerCase())) continue;
+    seen.add(mode.toLowerCase());
+    modes.push(mode);
+  }
+  return modes;
+};
 
 export type HarnessHelpFlag = {
   /** Preferred spelling: the long form when the help line lists one. */

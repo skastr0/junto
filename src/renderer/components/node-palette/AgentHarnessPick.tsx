@@ -52,6 +52,8 @@ export type CascadeDismiss = () => boolean;
 
 export type AgentHarnessPickProps = {
   readonly onConfigure: (choices: AgentConfigurationChoices) => void;
+  /** Selected seat folder, for project-local Amp mode discovery. */
+  readonly cwd?: string;
   /** Optional filter over display names and harness ids. */
   readonly query?: string;
   readonly className?: string;
@@ -81,6 +83,7 @@ const isPrintableKey = (event: { key: string; metaKey: boolean; ctrlKey: boolean
  */
 export function AgentHarnessPick({
   onConfigure,
+  cwd,
   query = "",
   className,
   listLabel = "Agents",
@@ -440,6 +443,7 @@ export function AgentHarnessPick({
         <AgentCascadeMenu
           key={agentCascade.harness}
           harness={agentCascade.harness}
+          cwd={cwd}
           anchor={agentCascade.anchor}
           focusOnOpen={agentCascade.focusOnOpen}
           onConfigure={configure}

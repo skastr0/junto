@@ -24,6 +24,7 @@ import type {
 import { harnessPrefsFor } from "@shared/settings";
 import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
+import { useHarnessLaunchOptions } from "../../lib/harness-launch-options";
 import {
   typeaheadAccept,
   typeaheadIndex,
@@ -44,7 +45,7 @@ type CascadePosition =
   | { readonly top: number; readonly left: number; readonly flexDirection: "row" }
   | { readonly top: number; readonly right: number; readonly flexDirection: "row-reverse" };
 
-type CascadeStep = "profile" | "model" | "effort";
+type CascadeStep = "profile" | "mode" | "model" | "effort";
 
 const MENU_WIDTH = 184;
 const MENU_GAP = 3;
@@ -278,6 +279,7 @@ function CascadeItem({
 
 export function AgentCascadeMenu({
   harness,
+  cwd,
   anchor,
   onConfigure,
   onPointerEnter,
@@ -289,6 +291,7 @@ export function AgentCascadeMenu({
   onTabExit,
 }: {
   readonly harness: HarnessId;
+  readonly cwd?: string;
   readonly anchor: HTMLElement;
   readonly onConfigure: (choices: AgentConfigurationChoices) => void;
   readonly onPointerEnter: () => void;
@@ -309,6 +312,7 @@ export function AgentCascadeMenu({
   const [modelSource, setModelSource] = useState<ManagedTerminalModelsResult["source"]>();
   const [modelQuery, setModelQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const { modes: discoveredModes } = useHarnessLaunchOptions(harness === "amp" ? harness : undefined, cwd);
   const settings = use$(state$.settings);
   const recentModels = harnessPrefsFor(settings, harness).recentModels;
   const [profiles, setProfiles] = useState<readonly ManagedTerminalProfileOption[] | null>(
@@ -413,12 +417,12 @@ export function AgentCascadeMenu({
   const showSearch = modelChoices.length >= MODEL_SEARCH_MIN;
   /**
    * Some harnesses have no model to choose — their one dial is a named mode
-   * (Amp `-m low|medium|high|ultra`, which selects model, system prompt, and
-   * tools together). Those list modes in the first column, labelled as modes
-   * and committed as `mode`, so nothing calls a mode a model.
+   * (Amp `-m` accepts a built-in or plugin mode, selecting model, system prompt,
+   * and tools together). Those list modes in the first column, labelled as
+   * modes and committed as `mode`, so nothing calls a mode a model.
    */
   const firstColumn = firstCascadeColumn(harness);
-  const templateModes = firstColumn.kind === "modes" ? firstColumn.modes : [];
+  const templateModes = firstColumn.kind === "modes" ? discoveredModes ?? firstColumn.modes : [];
   const usesModes = firstColumn.kind === "modes";
   const firstColumnIsLoading = usesModes
     ? false
@@ -465,7 +469,7 @@ export function AgentCascadeMenu({
 
   const stepOf = (column: Element): CascadeStep | null => {
     const step = column.getAttribute("data-cascade-step");
-    return step === "profile" || step === "model" || step === "effort" ? step : null;
+    return step === "profile" || step === "mode" || step === "model" || step === "effort" ? step : null;
   };
 
   const exitCascade = (): void => {
@@ -817,7 +821,7 @@ export function AgentCascadeMenu({
               : `${displayName} models`
         }
         parent={displayName}
-        step={harness === "hermes" ? "profile" : "model"}
+        step={harness === "hermes" ? "profile" : usesModes ? "mode" : "model"}
         {...(harness !== "hermes" && !usesModes && !firstColumnIsLoading
           ? { search: search(`Search ${displayName} models`) }
           : {})}

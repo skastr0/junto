@@ -6,6 +6,7 @@ import {
   permissionModeOptions,
   planSeatLaunch,
   relaunchManagedAgentNode,
+  seatLaunchParamsChangeError,
   seatLaunchParamsDiffer,
   seatLaunchParamsOf,
 } from "../src/shared/seat-launch-params";
@@ -13,7 +14,7 @@ import { applySettingsPatch, defaultSettings, harnessPrefsFor } from "../src/sha
 import { planManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
 
 const seat = (
-  harness: "claude" | "codex" | "hermes" | "devin",
+  harness: "claude" | "codex" | "hermes" | "devin" | "amp",
   params: Parameters<typeof planSeatLaunch>[0]["params"] = {},
   sessionId?: string,
 ): TextNode => ({
@@ -135,6 +136,59 @@ describe("seat start parameters", () => {
     expect(permissionModeOptions("claude")).toContain("bypassPermissions");
     expect(permissionModeOptions("claude", "custom")).toContain("custom");
     expect(permissionModeOptions("pi")).toEqual([]);
+  });
+});
+
+describe("Amp parameters respect the existing thread", () => {
+  const threadId = "T-00000000-0000-4000-8000-000000000001";
+
+  it("allows mode and features before provisioning, but refuses to rewrite a named thread", () => {
+    const newSeat = seat("amp", { mode: "low" });
+    expect(seatLaunchParamsChangeError(newSeat, { mode: "fixture-reviewer", extraArgs: ["--fast"] })).toBeUndefined();
+    expect(relaunchManagedAgentNode(newSeat, { mode: "fixture-reviewer" })?.node.ether?.terminal?.launch?.argv).toContain("fixture-reviewer");
+
+    const existing = seat("amp", { mode: "low" }, threadId);
+    expect(seatLaunchParamsChangeError(existing, { mode: "high" })).toContain("mode");
+    expect(relaunchManagedAgentNode(existing, { mode: "high" })).toBeUndefined();
+    expect(seatLaunchParamsChangeError(existing, {})).toContain("mode");
+    expect(seatLaunchParamsChangeError(existing, { mode: "LOW" })).toBeUndefined();
+  });
+
+  it("keeps startup features while allowing client flags, without promising CLI feature mutation", () => {
+    const existing = seat("amp", { mode: "low", extraArgs: ["--features", "plaid", "--no-color"] }, threadId);
+    expect(seatLaunchParamsChangeError(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] })).toBeUndefined();
+    expect(seatLaunchParamsChangeError(existing, { mode: "low", extraArgs: ["--fast"] })).toContain("features");
+    expect(relaunchManagedAgentNode(existing, { mode: "low", extraArgs: [] })).toBeUndefined();
+
+    const relaunched = relaunchManagedAgentNode(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] });
+    expect(relaunched?.node.ether?.terminal?.sessionId).toBe(threadId);
+    expect(relaunched?.node.ether?.terminal?.launch?.extraArgs).toEqual(["--features", "plaid", "--no-notifications"]);
+  });
+
+  it("resumes the exact Amp thread without reapplying its creation mode or features", () => {
+    const node = seat("amp", { mode: "fixture-reviewer", extraArgs: ["--features=pro", "--fast", "--no-notifications"] }, threadId);
+    expect(planManagedSpawn({
+      harness: "amp",
+      sessionId: threadId,
+      documentLaunch: node.ether?.terminal?.launch,
+      resume: true,
+    })?.launch.argv).toEqual([
+      "amp", "--no-ide", "threads", "continue", threadId, "--no-notifications",
+    ]);
+    // Authorial choices stay available to profiles and re-seating.
+    expect(seatLaunchParamsOf(node)?.params).toEqual({
+      mode: "fixture-reviewer",
+      extraArgs: ["--features=pro", "--fast", "--no-notifications"],
+    });
+  });
+
+  it("recovers Amp's long mode alias, with last occurrence winning across aliases", () => {
+    expect(recoverDocumentLaunchChoices("amp", {
+      kind: "harness", argv: ["amp", "-m", "low", "--mode=fixture-reviewer"],
+    })).toEqual({ mode: "fixture-reviewer" });
+    expect(recoverDocumentLaunchChoices("amp", {
+      kind: "harness", argv: ["amp", "--mode", "fixture-reviewer", "-m", "medium"],
+    })).toEqual({ mode: "medium" });
   });
 });
 

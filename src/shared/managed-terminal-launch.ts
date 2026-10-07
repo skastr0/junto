@@ -9,7 +9,7 @@
  * The only prompt a launch can carry is one the operator supplied.
  */
 import type { EtherTerminalLaunch } from "./canvas";
-import { sanitizeExtraArgs } from "./launch-extra-args";
+import { sanitizeExtraArgs, splitAmpFeatureArgs } from "./launch-extra-args";
 import {
   type HarnessId,
   type ManagedTerminalTemplate,
@@ -319,8 +319,8 @@ const buildArgv = (
       ? resumeFlag
       : undefined;
 
-  // Subcommand resume re-passes every flag — resume does not inherit spawn
-  // options. Named id only, never `--continue` / bare resume / latest session.
+  // Most subcommand resumes re-pass the dials. Amp is different: its thread
+  // owns mode and features. Named id only, never an id-less/latest resume.
   // The tokens are template data: `codex resume <id>`, `amp threads continue <id>`.
   if (resumeId && spec.resumeMode === "subcommand") {
     argv.push(...spec.prefix);
@@ -353,7 +353,7 @@ const buildArgv = (
     );
   }
 
-  if (choices.mode) {
+  if (choices.mode && !(template.harness === "amp" && resumeId)) {
     pushFlag(argv, spec.modeFlag, choices.mode);
   }
 
@@ -409,7 +409,10 @@ const buildArgv = (
 
   // The operator's own arguments: after everything the template owns, before
   // the prompt (a positional prompt must stay the last token).
-  argv.push(...sanitizeExtraArgs(template.harness, choices.extraArgs).args);
+  const extraArgs = sanitizeExtraArgs(template.harness, choices.extraArgs).args;
+  argv.push(...(template.harness === "amp" && resumeId
+    ? splitAmpFeatureArgs(extraArgs).client
+    : extraArgs));
 
   // Prompt last (positional, with optional separator), as -q for Hermes TUI
   // auto-submit, as -i for Antigravity auto-submit, or not at all when the

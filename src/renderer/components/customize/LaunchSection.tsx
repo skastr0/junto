@@ -51,7 +51,7 @@ function LaunchFacts({ harness, choices }: { readonly harness: string | undefine
         ))}
       {!choices.model && !choices.effort && !choices.mode ? (
         <div className="customize-launch__fact">
-          <dt>model</dt>
+          <dt>{harness === "amp" ? "mode" : "model"}</dt>
           <dd className="customize-launch__default">harness default</dd>
         </div>
       ) : null}
@@ -74,8 +74,9 @@ function DraftLaunch({ draft }: { readonly draft: AgentEditorDraft }) {
         />
       </div>
       <p className="agent-editor__hint">
-        Every seat made from this profile starts on this harness, model, and effort. The folder comes from
-        wherever you place it.
+        {harness === "amp"
+          ? "Every seat made from this profile starts in the selected Amp mode. The folder comes from wherever you place it."
+          : "Every seat made from this profile starts on this harness, model, and effort. The folder comes from wherever you place it."}
       </p>
     </div>
   );
@@ -120,13 +121,15 @@ function SeatLaunch({ seat }: AgentEditorSectionProps) {
         <AgentHarnessPick
           className="customize-launch__pick"
           listLabel="Harnesses"
+          cwd={terminal?.launch?.cwd}
           onConfigure={onConfigure}
           {...(harness ? { currentHarness: harness } : {})}
         />
       </div>
       <p className="agent-editor__hint">
-        Picking a harness, model, or effort restarts this agent on it. The seat, its folder, look, soul, and
-        instructions stay.
+        {harness === "amp"
+          ? "Choosing an Amp mode creates a new thread for this seat. The seat, folder, look, soul, and instructions stay."
+          : "Picking a harness, model, or effort restarts this agent on it. The seat, its folder, look, soul, and instructions stay."}
       </p>
       {busy ? <p className="agent-editor__hint" role="status">Re-seating…</p> : null}
       {error ? <p className="customize-guidance__error" role="alert">{error}</p> : null}
@@ -150,7 +153,9 @@ function SeatLaunch({ seat }: AgentEditorSectionProps) {
       {pending ? (
         <ReseatConfirmDialog
           fromLabel={harness ? harnessDisplayName(harness) : "current seat"}
-          toLabel={harnessDisplayName(pending.harness)}
+          toLabel={pending.mode
+            ? `${harnessDisplayName(pending.harness)} (${pending.mode})`
+            : harnessDisplayName(pending.harness)}
           onCancel={() => setPending(null)}
           onConfirm={(dontShowAgain) => {
             if (dontShowAgain) writeSkipReseatConfirm(true);

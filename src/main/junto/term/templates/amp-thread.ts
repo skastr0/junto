@@ -20,6 +20,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { ampThreadCreationArgs } from "@shared/launch-extra-args";
 
 const execFileAsync = promisify(execFile);
 
@@ -80,6 +81,8 @@ export type AmpThreadProvisionOptions = {
   readonly cwd?: string;
   /** Set on creation: continuing a thread loads its saved mode. */
   readonly mode?: string;
+  /** Authored launch flags; only public thread-creation options are forwarded. */
+  readonly extraArgs?: readonly string[];
   readonly timeoutMs?: number;
   /** Test seam — the real runner is `execFile`, never a shell. */
   readonly run?: (
@@ -123,17 +126,18 @@ export const provisionAmpThread = async (
   try {
     stdout = await run("amp", [
       ...(mode ? ["--mode", mode] : []),
+      ...ampThreadCreationArgs(options.extraArgs),
       "threads", "new", "--visibility", "private",
     ], {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       timeoutMs,
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  } catch {
     // Authentication, network, and missing-binary failures all land here and
     // all become one operator-visible reason. None of them fall back to a
-    // different thread, and none of them start a PTY.
-    return failure(`amp threads new failed: ${message}`);
+    // different thread or start a PTY. execFile errors echo argv, which can
+    // contain MCP credentials; never copy those into Junto's failure state.
+    return failure("amp threads new failed; check Amp login, the selected mode, and configuration.");
   }
   const threadId = parseAmpThreadReceipt(stdout);
   if (threadId === undefined) {

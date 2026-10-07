@@ -1437,6 +1437,8 @@ export interface ManagedTerminalModelsResult {
 export interface ManagedTerminalFlagsResult {
   readonly installed: boolean;
   readonly flags: readonly HarnessHelpFlag[];
+  /** Built-in and publicly enumerated plugin modes, when the harness has them. */
+  readonly modes?: readonly string[];
 }
 
 export interface ManagedTerminalProfileOption {
@@ -1577,10 +1579,12 @@ export interface JuntoTerminalApi {
   readonly managedTerminalHarnesses: () => Promise<ManagedTerminalHarnessesResult>;
   /**
    * Fail-soft: the options the installed harness prints in `--help`, for the
-   * launch-parameter editor. Empty when the harness is absent or silent.
+   * launch-parameter editor, plus Amp plugin modes in the chosen folder.
+   * Empty when the harness is absent or silent.
    */
   readonly managedTerminalFlags: (
     harness: string,
+    cwd?: string,
   ) => Promise<ManagedTerminalFlagsResult>;
   /** Current managed-seat projection for renderer restart hydration. */
   readonly agentSeatStateSnapshot: () => Promise<ReadonlyArray<AgentSeatStateEvent>>;

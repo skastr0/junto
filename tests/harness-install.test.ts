@@ -1,9 +1,10 @@
 import { mkdirSync, writeFileSync, chmodSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   harnessBinaryInstalled,
+  harnessLaunchFlags,
   resetHostProbedFlagCacheForTests,
   resolveHarnessExecutable,
   supportedHostProbedFlags,
@@ -310,6 +311,62 @@ describe("supportedHostProbedFlags", () => {
     const later = new Date(Date.now() + 60_000);
     utimesSync(bin, later, later);
     expect(supportedHostProbedFlags(bin, ["--no-daemon"])).toEqual(["--no-daemon"]);
+  });
+});
+
+describe("Amp launch option discovery", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetHostProbedFlagCacheForTests();
+  });
+
+  const fakeAmp = (plugins: string): void => {
+    const bin = fakeHarness("amp", "");
+    writeFileSync(bin, `#!/bin/sh
+if [ "$1" = "--help" ]; then
+  printf '  --features <value>\n      Enable a thread feature\n'
+elif [ "$1" = "plugins" ] && [ "$2" = "list" ]; then
+  ${plugins}
+else
+  exit 9
+fi
+`);
+    vi.stubEnv("PATH", `${dirname(bin)}:${process.env.PATH ?? ""}`);
+  };
+
+  it("reads project plugin modes asynchronously in the chosen cwd, without caching them", async () => {
+    fakeAmp('sleep 0.05; cat "$PWD/amp-modes.txt"');
+    const firstCwd = makeScratch();
+    const otherCwd = makeScratch();
+    writeFileSync(join(firstCwd, "amp-modes.txt"), "  agent mode: fixture-reviewer\n  agent: not-a-mode\n  agent mode: HIGH\n");
+    writeFileSync(join(otherCwd, "amp-modes.txt"), "  agent mode: fixture-planner\n");
+
+    let heartbeat = false;
+    const timer = setTimeout(() => { heartbeat = true; }, 0);
+    try {
+      const first = await harnessLaunchFlags("amp", firstCwd);
+      expect(heartbeat).toBe(true);
+      expect(first.installed).toBe(true);
+      expect(first.flags.map((flag) => flag.flag)).toEqual(["--features"]);
+      expect(first.modes).toEqual(["low", "medium", "high", "ultra", "fixture-reviewer"]);
+      expect((await harnessLaunchFlags("amp", otherCwd)).modes).toEqual([
+        "low", "medium", "high", "ultra", "fixture-planner",
+      ]);
+
+      writeFileSync(join(firstCwd, "amp-modes.txt"), "  agent mode: fixture-new-mode\n");
+      expect((await harnessLaunchFlags("amp", firstCwd)).modes).toEqual([
+        "low", "medium", "high", "ultra", "fixture-new-mode",
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it("keeps help and built-in modes when the public plugin command fails", async () => {
+    fakeAmp("printf '  agent mode: invalid-result\n'; exit 2");
+    const result = await harnessLaunchFlags("amp", makeScratch());
+    expect(result.flags.map((flag) => flag.flag)).toEqual(["--features"]);
+    expect(result.modes).toEqual(["low", "medium", "high", "ultra"]);
   });
 });
 

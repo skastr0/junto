@@ -56,7 +56,7 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
 
   const onConfigure = useCallback(
     (choices: AgentConfigurationChoices) => {
-      if (choices.harness === current && !choices.model && !choices.effort && !choices.profile) {
+      if (choices.harness === current && !choices.model && !choices.effort && !choices.profile && !choices.mode) {
         // Same bare harness with no deeper pick — no-op.
         close();
         return;
@@ -103,6 +103,7 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
           <div className="agent-reseat-pop__title">Re-seat harness</div>
           <AgentHarnessPick
             currentHarness={current}
+            cwd={node.ether?.terminal?.launch?.cwd}
             onConfigure={onConfigure}
             listLabel="Available harnesses"
           />
@@ -116,7 +117,9 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
       {pending ? (
         <ReseatConfirmDialog
           fromLabel={current ? harnessDisplayName(current) : "current seat"}
-          toLabel={harnessDisplayName(pending.harness)}
+          toLabel={pending.mode
+            ? `${harnessDisplayName(pending.harness)} (${pending.mode})`
+            : harnessDisplayName(pending.harness)}
           onCancel={() => setPending(null)}
           onConfirm={(dontShowAgain) => {
             if (dontShowAgain) writeSkipReseatConfirm(true);

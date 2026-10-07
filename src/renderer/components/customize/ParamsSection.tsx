@@ -10,16 +10,18 @@ import {
   type HarnessHelpFlag,
 } from "@shared/launch-extra-args";
 import { isHarnessId, templateFor, type HarnessId } from "@shared/managed-terminal-templates";
+import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import {
   permissionModeOptions,
   planSeatLaunch,
+  seatLaunchParamsChangeError,
   seatLaunchParamsDiffer,
   seatLaunchParamsOf,
   type SeatLaunchParams,
 } from "@shared/seat-launch-params";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { openAgentEditor } from "../../lib/agent-editor-state";
-import { getJuntoApi } from "../../lib/junto-api";
+import { useHarnessLaunchOptions } from "../../lib/harness-launch-options";
 import { performSeatRelaunch } from "../../lib/seat-relaunch";
 import { terminal$ } from "../../lib/terminal-state";
 import { Button, IconButton, Input, Select } from "../ui";
@@ -44,40 +46,6 @@ const optionsWith = (values: readonly string[], current: string) => [
   })),
 ];
 
-/** The flags an installed harness lists, loaded once per harness. */
-const useHarnessFlags = (
-  harness: HarnessId | undefined,
-): { readonly flags: readonly HarnessHelpFlag[]; readonly loading: boolean } => {
-  const [state, setState] = useState<{
-    readonly flags: readonly HarnessHelpFlag[];
-    readonly loading: boolean;
-  }>({ flags: [], loading: harness !== undefined });
-  useEffect(() => {
-    if (!harness) {
-      setState({ flags: [], loading: false });
-      return;
-    }
-    let live = true;
-    setState({ flags: [], loading: true });
-    const load = getJuntoApi()?.managedTerminalFlags?.(harness);
-    if (!load) {
-      setState({ flags: [], loading: false });
-      return;
-    }
-    void load
-      .then((result) => {
-        if (live) setState({ flags: result.flags, loading: false });
-      })
-      .catch(() => {
-        if (live) setState({ flags: [], loading: false });
-      });
-    return () => {
-      live = false;
-    };
-  }, [harness]);
-  return state;
-};
-
 export function ParamsSection({ seat }: AgentEditorSectionProps) {
   const node = seat.node;
   const view = useMemo(() => seatLaunchParamsOf(node), [node]);
@@ -93,6 +61,7 @@ type ParamsFormProps = {
   readonly stored: SeatLaunchParams;
   /** Working folder shown in nothing, but part of the resolved launch. */
   readonly cwd?: string;
+  readonly sessionId?: string;
   readonly lead: string;
   /** Called with every edit, already sanitized. */
   readonly onDraft?: (params: SeatLaunchParams) => void;
@@ -105,17 +74,21 @@ type ParamsFormProps = {
 };
 
 /** The fields, the harness's own options, and the resolved command. */
-function ParamsForm({ harness, stored, cwd, lead, onDraft, footer }: ParamsFormProps) {
+function ParamsForm({ harness, stored, cwd, sessionId, lead, onDraft, footer }: ParamsFormProps) {
   const template = templateFor(harness);
   const spec = template.argvSpec;
+  const ampThread = harness === "amp" && Boolean(sessionId?.trim());
   const [model, setModel] = useState(stored.model ?? "");
   const [effort, setEffort] = useState(stored.effort ?? "");
   const [mode, setMode] = useState(stored.mode ?? "");
+  const [customMode, setCustomMode] = useState(() =>
+    harness === "amp" && Boolean(stored.mode) && !(template.modes ?? []).includes(stored.mode ?? ""),
+  );
   const [permissionMode, setPermissionMode] = useState(stored.permissionMode ?? "");
   const [extraText, setExtraText] = useState(formatExtraArgs(stored.extraArgs));
   const [filter, setFilter] = useState("");
 
-  const { flags, loading } = useHarnessFlags(harness);
+  const { flags, modes: discoveredModes, loading } = useHarnessLaunchOptions(harness, cwd);
   const reserved = useMemo(() => reservedLaunchFlags(harness), [harness]);
 
   const extra = useMemo(
@@ -133,8 +106,10 @@ function ParamsForm({ harness, stored, cwd, lead, onDraft, footer }: ParamsFormP
     [model, effort, mode, permissionMode, extra.args],
   );
   const preview = useMemo(
-    () => planSeatLaunch({ harness, params: current, base: { cwd } }).launch.argv ?? [],
-    [harness, current, cwd],
+    () => ampThread
+      ? resolveManagedLaunch(harness, { ...current, cwd, resumeId: sessionId }, {}).argv ?? []
+      : planSeatLaunch({ harness, params: current, base: { cwd } }).launch.argv ?? [],
+    [harness, current, cwd, sessionId, ampThread],
   );
   const changed = seatLaunchParamsDiffer({ ...stored, extraArgs: stored.extraArgs ?? [] }, current);
 
@@ -171,7 +146,10 @@ function ParamsForm({ harness, stored, cwd, lead, onDraft, footer }: ParamsFormP
       flag.description.toLowerCase().includes(needle),
   );
   const efforts = template.efforts;
-  const modes = template.modes ?? [];
+  const modes = discoveredModes ?? template.modes ?? [];
+  // Keep the custom-entry option distinct from any discovered or typed key.
+  let customModeOption = "__custom_mode__";
+  while (modes.includes(customModeOption) || mode === customModeOption) customModeOption += "_";
   const permissionModes = permissionModeOptions(harness, permissionMode);
 
   return (
@@ -199,10 +177,44 @@ function ParamsForm({ harness, stored, cwd, lead, onDraft, footer }: ParamsFormP
       ) : null}
 
       {modes.length > 0 ? (
-        <label className="agent-editor__field">
-          <span className="agent-editor__field-label">mode</span>
-          <Select dense value={mode} aria-label="Mode" options={optionsWith(modes, mode)} onChange={touch(setMode)} />
-        </label>
+        <div className="agent-editor__field">
+          <span className="agent-editor__field-label">{ampThread ? "creation mode" : "mode"}</span>
+          {ampThread ? (
+            <Input readOnly value={mode || "Amp default at creation"} aria-label="Creation mode" />
+          ) : (
+            <>
+              <Select
+                dense
+                value={customMode ? customModeOption : mode}
+                aria-label="Mode"
+                options={[
+                  ...optionsWith(modes, mode),
+                  ...(harness === "amp" ? [{ value: customModeOption, label: "other key or label…" }] : []),
+                ]}
+                onChange={(value) => {
+                  setCustomMode(value === customModeOption);
+                  if (value !== customModeOption) touch(setMode)(value);
+                }}
+              />
+              {customMode ? (
+                <Input
+                  value={mode}
+                  aria-label="Mode key or label"
+                  placeholder="plugin mode key or label"
+                  spellCheck={false}
+                  onChange={(event) => touch(setMode)(event.target.value)}
+                />
+              ) : null}
+            </>
+          )}
+          {harness === "amp" ? (
+            <p className="agent-editor__hint">
+              {ampThread
+                ? "This records the creation choice, not the live mode. Use Amp's dial before the first message, or re-seat from Launch for a new thread."
+                : "Built-in or plugin mode, by key or label. Amp controls the model and effort."}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {permissionModes.length > 0 ? (
@@ -259,14 +271,17 @@ function ParamsForm({ harness, stored, cwd, lead, onDraft, footer }: ParamsFormP
             />
             <ul className="customize-params__flags" aria-label="Harness options">
               {shown.map((flag) => {
-                const why = reserved.get(flag.flag) ?? flag.aliases.map((alias) => reserved.get(alias)).find(Boolean);
+                const why = reserved.get(flag.flag) ?? flag.aliases.map((alias) => reserved.get(alias)).find(Boolean)
+                  ?? (ampThread && [flag.flag, ...flag.aliases].some((name) => name === "--features" || name === "--fast")
+                    ? "change this thread's features in Amp"
+                    : undefined);
                 return (
                   <li key={flag.flag} className="customize-params__flag" data-reserved={why ? "true" : undefined}>
                     <button
                       type="button"
                       className="customize-params__flag-add"
                       disabled={Boolean(why)}
-                      title={why ? `Has its own field above: ${why}` : `Add ${flag.flag}`}
+                      title={why ?? `Add ${flag.flag}`}
                       onClick={() => addFlag(flag)}
                     >
                       <code>
@@ -284,12 +299,16 @@ function ParamsForm({ harness, stored, cwd, lead, onDraft, footer }: ParamsFormP
       </div>
 
       <div className="agent-editor__field">
-        <span className="agent-editor__field-label">starts as</span>
+        <span className="agent-editor__field-label">{ampThread ? "resumes as" : "starts as"}</span>
         <code className="customize-params__preview" data-testid="seat-start-params-preview">
-          {preview.join(" ")}
+          {formatExtraArgs(preview)}
         </code>
         <p className="agent-editor__hint">
-          Junto adds the seat's session and instructions when it starts the harness.
+          {harness === "amp"
+            ? ampThread
+              ? "The thread keeps its saved mode and features. Fast and Plaid can be toggled inside Amp."
+              : "Junto sets mode and startup features when it creates the private thread."
+            : "Junto adds the seat's session and instructions when it starts the harness."}
         </p>
       </div>
 
@@ -344,19 +363,27 @@ function SeatParams({
       harness={harness}
       stored={stored}
       cwd={node.ether?.terminal?.launch?.cwd}
-      lead={`What ${templateFor(harness).displayName} is started with on this seat. Saving restarts a running agent on the new parameters and resumes the same session.`}
-      footer={({ params, changed, settle }) => (
-        <>
-          <div className="customize-params__actions">
-            <Button size="sm" variant="primary" disabled={busy || !changed} onClick={() => void save(params, settle)}>
-              {running ? "Save and restart" : "Save"}
-            </Button>
-            {busy ? <span className="agent-editor__hint" role="status">{running ? "Restarting…" : "Saving…"}</span> : null}
-            {notice ? <span className="agent-editor__hint" role="status">{notice}</span> : null}
-          </div>
-          {error ? <p className="customize-guidance__error" role="alert">{error}</p> : null}
-        </>
-      )}
+      sessionId={node.ether?.terminal?.sessionId}
+      lead={harness === "amp"
+        ? node.ether?.terminal?.sessionId
+          ? "Client options for this Amp seat. Saving restarts its viewer and resumes the same thread."
+          : "Choices for this seat's next Amp thread. Mode and startup features are set when the private thread is created."
+        : `What ${templateFor(harness).displayName} is started with on this seat. Saving restarts a running agent on the new parameters and resumes the same session.`}
+      footer={({ params, changed, settle }) => {
+        const changeError = seatLaunchParamsChangeError(node, params);
+        return (
+          <>
+            <div className="customize-params__actions">
+              <Button size="sm" variant="primary" disabled={busy || !changed || Boolean(changeError)} onClick={() => void save(params, settle)}>
+                {running ? "Save and restart" : "Save"}
+              </Button>
+              {busy ? <span className="agent-editor__hint" role="status">{running ? "Restarting…" : "Saving…"}</span> : null}
+              {notice ? <span className="agent-editor__hint" role="status">{notice}</span> : null}
+            </div>
+            {changeError || error ? <p className="customize-guidance__error" role="alert">{changeError || error}</p> : null}
+          </>
+        );
+      }}
     />
   );
 }

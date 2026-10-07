@@ -6,10 +6,11 @@
  * "not installed" after a broken process start.
  */
 
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
 import {
   allTemplates,
   templateFor,
@@ -19,12 +20,15 @@ import {
   type IsolationSpec,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
-import { parseHelpFlags, type HarnessHelpFlag } from "@shared/launch-extra-args";
+import { parseAmpPluginModes, parseHelpFlags } from "@shared/launch-extra-args";
+import type { ManagedTerminalFlagsResult } from "@shared/ipc";
 import {
   configuredToolDirectories,
   enumeratedToolDirs,
 } from "../../adapters/exec";
 import { juntoCliPathPrefixes } from "./seat-env";
+
+const execFileAsync = promisify(execFile);
 
 export type HarnessInstallProbe = {
   readonly harness: HarnessId;
@@ -190,13 +194,16 @@ export const supportedHostProbedFlags = (
  * The options this installed harness lists for the command a seat launches,
  * for the operator's launch-parameter editor. Fail-soft: an uninstalled
  * harness, or one whose `--help` errors or times out, yields an empty list
- * and the editor falls back to free-form arguments.
+ * and the editor falls back to free-form arguments. Amp's public plugin list
+ * supplies project-local mode keys; it is asynchronous and never cached.
  */
-export const harnessLaunchFlags = (
+export const harnessLaunchFlags = async (
   harness: HarnessId,
-): { readonly installed: boolean; readonly flags: readonly HarnessHelpFlag[] } => {
+  cwd?: string,
+): Promise<ManagedTerminalFlagsResult> => {
   if (!managedHarnessEnabled(harness)) return { installed: false, flags: [] };
-  const spec = templateFor(harness).argvSpec;
+  const template = templateFor(harness);
+  const spec = template.argvSpec;
   const executable = resolveHarnessExecutable(spec.binary);
   if (!executable) return { installed: false, flags: [] };
   const subcommand = spec.prefix.filter((token) => !token.startsWith("-"));
@@ -205,11 +212,28 @@ export const harnessLaunchFlags = (
   if (help === "" && subcommand.length > 0) {
     help = helpTextOf(executable, searchPath);
   }
+  let modes: readonly string[] | undefined;
+  if (harness === "amp") {
+    modes = template.modes ?? [];
+    try {
+      const { stdout } = await execFileAsync(executable, ["plugins", "list"], {
+        ...(cwd?.trim() ? { cwd: cwd.trim() } : {}),
+        env: { ...process.env, PATH: searchPath },
+        timeout: HELP_PROBE_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      });
+      const builtins = new Set(modes.map((mode) => mode.toLowerCase()));
+      modes = [...modes, ...parseAmpPluginModes(stdout).filter((mode) => !builtins.has(mode.toLowerCase()))];
+    } catch {
+      // Plugin failure does not hide the built-in modes or the CLI's help.
+    }
+  }
   return {
     installed: true,
     flags: parseHelpFlags(help).filter(
       (flag) => flag.flag !== "--help" && flag.flag !== "--version",
     ),
+    ...(modes ? { modes } : {}),
   };
 };
 

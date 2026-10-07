@@ -10,6 +10,7 @@ import type { TextNode } from "@shared/canvas";
 import type { RejectedExtraArg } from "@shared/launch-extra-args";
 import {
   relaunchManagedAgentNode,
+  seatLaunchParamsChangeError,
   type SeatLaunchParams,
 } from "@shared/seat-launch-params";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -144,6 +145,8 @@ export const performSeatRelaunch = async (
   node: TextNode,
   params: SeatLaunchParams,
 ): Promise<SeatRelaunchResult> => {
+  const changeError = seatLaunchParamsChangeError(node, params);
+  if (changeError) return { ok: false, message: changeError };
   const relaunched = relaunchManagedAgentNode(node, params);
   if (!relaunched) return { ok: false, message: "not a managed agent seat" };
   const next = relaunched.node;
