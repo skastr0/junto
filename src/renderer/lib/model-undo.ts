@@ -159,11 +159,8 @@ export const inverseOf = (canvas: Canvas, command: Command, context: UndoContext
       const { back } = stepBack(canvas, command.steps, context);
       return reversed(...asOneAct(command.canvas, back));
     }
-    case "GrantOverseer":
-    case "RecordSession":
-    case "CreateCanvas":
-    case "RemoveCanvas":
-    case "RenameCanvas":
+    // Authority, a runtime record, a whole canvas: never part of a step.
+    default:
       return irreversible("never");
   }
 };
@@ -283,13 +280,10 @@ export const asOneAct = (canvas: Command["canvas"], commands: ReadonlyArray<Comm
   return steps.length === commands.length ? [{ _tag: "Batch", canvas, steps }] : commands;
 };
 
-const batchable = (command: Command): command is CanvasCommand =>
-  command._tag !== "Batch" &&
-  command._tag !== "GrantOverseer" &&
-  command._tag !== "RecordSession" &&
-  command._tag !== "CreateCanvas" &&
-  command._tag !== "RemoveCanvas" &&
-  command._tag !== "RenameCanvas";
+/** Commands a batch may not hold: authority, a runtime record, a whole canvas, another batch. */
+const UNBATCHABLE: ReadonlySet<string> = new Set(["Batch", "GrantOverseer", "RecordSession", "CreateCanvas", "RemoveCanvas"]);
+
+const batchable = (command: Command): command is CanvasCommand => !UNBATCHABLE.has(command._tag);
 
 /**
  * The step that takes back a run of commands done as one act: each reversed

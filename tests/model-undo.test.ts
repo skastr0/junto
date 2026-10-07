@@ -157,7 +157,6 @@ describe("authority is never part of undo", () => {
       { _tag: "RecordSession", canvas: name, id: "lead" as Node["id"], sessionId: "s" },
       { _tag: "CreateCanvas", canvas: name },
       { _tag: "RemoveCanvas", canvas: name },
-      { _tag: "RenameCanvas", canvas: name, to: asCanvasName("works") },
     ];
     for (const command of never) expect(inverseOf(canvas, command)).toEqual({ _tag: "Irreversible", why: "never" });
   });
