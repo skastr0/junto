@@ -15,7 +15,7 @@
   min-width: 96px;
   padding: 9px 12px 8px;
   border: 1px solid var(--color-overlay-4);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--color-overlay-1);
   color: var(--color-dim);
   font: inherit;
@@ -56,23 +56,23 @@
 
 .rts-region-key__caption {
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 600;
-  line-height: 1.2;
+  line-height: var(--leading-compact);
   white-space: nowrap;
 }
 
 .rts-region-key__state {
   color: var(--color-faint);
-  font-size: 9.5px;
-  line-height: 1.2;
+  font-size: var(--text-label);
+  line-height: var(--leading-compact);
   white-space: nowrap;
 }
 
 /* Set: the icon and the state word take the accent. The key is not pressed. */
 .rts-region-key[data-state="set"] .rts-region-key__icon,
 .rts-region-key[data-state="set"] .rts-region-key__state {
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
 }
 
 /* Open: pressed, for as long as the key's screen is open. */

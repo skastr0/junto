@@ -63,9 +63,9 @@
   margin: 0;
   padding: 9px 11px;
   border: 1px solid color-mix(in oklab, var(--color-crimson) 45%, transparent);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--color-crimson) 12%, transparent);
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
   font-size: var(--text-label);
   font-weight: 600;
   line-height: var(--leading-body);
