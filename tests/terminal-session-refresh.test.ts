@@ -73,7 +73,7 @@ describe("sessionChromeUnchanged", () => {
 describe("card wiring", () => {
   const files = [
     "src/renderer/components/terminal/TerminalCard.tsx",
-    "src/renderer/components/nodes/TextNode.tsx",
+    "src/renderer/components/nodes/SeatCard.tsx",
   ] as const;
 
   it("gates terminalGet on session/exit, not output", () => {

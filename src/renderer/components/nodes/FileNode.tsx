@@ -11,6 +11,7 @@ import type { FlowNode } from "../../lib/convert";
 import { imageContentRefFromFile } from "../../lib/image-content";
 import { state$ } from "../../lib/state";
 import { DIM, INK } from "../../lib/theme";
+import { useNodeFieldOf } from "../../lib/use-model";
 import { ContentMedia } from "../work/ContentMedia";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
@@ -18,7 +19,8 @@ import { NodeShell } from "./NodeShell";
 
 export function FileNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node;
-  const path = node.type === "file" ? node.file : "";
+  const canvasName = use$(state$.canvasName);
+  const path = useNodeFieldOf(canvasName, node.id, "file", (file) => file.path) ?? "";
   const imageRef = imageContentRefFromFile(path);
   const [expanded, setExpanded] = useState(false);
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);

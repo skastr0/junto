@@ -8,7 +8,6 @@ import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { Gauge, Radio, Settings2, Timer } from "lucide-react";
 
-import type { CanvasNode } from "@shared/canvas";
 import {
   describeCronExpression,
   expressionFromEveryMinutes,
@@ -51,6 +50,7 @@ import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
+import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { SeatCard } from "./SeatCard";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
@@ -151,17 +151,21 @@ function SchedulerDecal({
 
 // Gauge / relay: kernel status only. Idle mark is silent.
 function WatcherCard({
-  node,
+  canvas,
+  id,
   label,
 }: {
-  readonly node: CanvasNode;
+  readonly canvas: string;
+  readonly id: string;
   readonly label: "gauge" | "relay";
 }) {
-  const runtime = use$(kernel$.watchers[node.id]) as
+  const runtime = use$(kernel$.watchers[id]) as
     WatcherRuntimeState | undefined;
   const now = useRelativeNow(30_000);
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const title = rawName || label;
+  const name = useNodeValue(canvas, id, (node) =>
+    node?.kind === "watcher" || node?.kind === "relay" ? node.label : undefined,
+  );
+  const title = name || label;
   const status = runtime?.status ?? "unknown";
   const detail = runtime?.detail ?? "no watch yet";
   const activity = watcherActivity(status);
@@ -198,12 +202,14 @@ function WatcherCard({
 }
 
 // Cron: countdown + expression glance; schedule via double-click modal.
-function TimerCard({ node }: { readonly node: CanvasNode }) {
-  const nextFire = use$(kernel$.nextFire[node.id]) as number | undefined;
+function TimerCard({ canvas, id }: { readonly canvas: string; readonly id: string }) {
+  const nextFire = use$(kernel$.nextFire[id]) as number | undefined;
   const now = useRelativeNow(30_000);
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const title = rawName || "cron";
-  const expression = cronExpressionOf(node.ether?.timer);
+  const name = useNodeFieldOf(canvas, id, "cron", (cron) => cron.label);
+  const title = name || "cron";
+  const expression = cronExpressionOf({
+    expression: useNodeFieldOf(canvas, id, "cron", (cron) => cron.expression),
+  });
   const activity = timerActivity({ nextFire, now });
   const countdown = nextFire ? formatCountdown(nextFire, now) : "—";
   const scheduleLine = describeCronExpression(expression);
@@ -593,11 +599,11 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             />
           ) : null}
           {entityKind === "watcher" ? (
-            <WatcherCard node={node} label="gauge" />
+            <WatcherCard canvas={canvasName} id={node.id} label="gauge" />
           ) : entityKind === "relay" ? (
-            <WatcherCard node={node} label="relay" />
+            <WatcherCard canvas={canvasName} id={node.id} label="relay" />
           ) : entityKind === "timer" || entityKind === "cron" ? (
-            <TimerCard node={node} />
+            <TimerCard canvas={canvasName} id={node.id} />
           ) : entityKind === "task" ? (
             <TasksCard
               node={node}
