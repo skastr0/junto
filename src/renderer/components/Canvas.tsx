@@ -17,6 +17,7 @@ import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnBefore
 import { use$ } from "@legendapp/state/react";
 import type { EtherEdgeKind } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
+import type { Task } from "@shared/work-model";
 import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, MessageSquare, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
 import {
   clearSelection,
@@ -62,6 +63,7 @@ import { observe } from "@legendapp/state";
 import { documentNodeAt } from "../lib/document-node";
 import { heldBy } from "../lib/model-edits";
 import { modelStore, nodeAt, titleAt } from "../lib/use-model";
+import { useCanvasWorkItems, workAttentionStore } from "../lib/use-work-sink";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import "../styles/factory-grammar.css";
@@ -129,7 +131,6 @@ import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePa
 import { FocusSurface } from "./FocusSurface";
 import { useCanvasGroupFocus } from "./useCanvasGroupFocus";
 import { IconButton, OverlayHeader } from "./ui";
-import { workItemsFromDocument } from "@shared/model/from-document";
 
 /**
  * A node's class: agents carry junto-flow-agent (convert.ts), which keeps them
@@ -185,11 +186,19 @@ const withEdgeImpact = (
   return rest;
 };
 
+const NO_WORK_ITEMS: ReadonlyArray<Task> = [];
+
+/** The claim rows of each work sink on a canvas, from the work store, as they stand now. */
+const workItemsNow = (canvasName: string) => {
+  const items = workAttentionStore.state(canvasName).itemsByNodeId.peek();
+  return (nodeId: string): ReadonlyArray<Task> => items[nodeId] ?? NO_WORK_ITEMS;
+};
+
 const currentExecutionGraphContext = () =>
   executionGraphContextFromActorRefs(
     state$.canvasName.peek(),
     state$.actorRefs.peek(),
-    workItemsFromDocument(state$.doc.peek()),
+    workItemsNow(state$.canvasName.peek()),
   );
 
 const selectionForCanvas = (
@@ -353,6 +362,18 @@ function useCanvasDocument(
         open$.nodes.get();
         open$.wires.get();
         rebuild();
+      }),
+      // What is blocked depends on the claim rows of the work sinks, which the
+      // work store keeps for as long as this canvas is shown.
+      observe(() => {
+        const name = state$.canvasName.get();
+        if (!name) return;
+        workAttentionStore.state(name).itemsByNodeId.get();
+        rebuild();
+      }),
+      observe((event) => {
+        const name = state$.canvasName.get();
+        if (name) event.onCleanup = workAttentionStore.retain(name);
       }),
       state$.actorRefs.onChange(() => rebuild()),
       kernel$.executionRev.onChange(() => rebuild()),
@@ -1470,14 +1491,11 @@ function ImpactSeedChip() {
   const executionRev = use$(kernel$.executionRev);
   const canvasName = use$(state$.canvasName);
   const actorRefs = use$(state$.actorRefs);
+  const itemsOf = useCanvasWorkItems(canvasName);
   const impact = useMemo(() => {
-    const context = executionGraphContextFromActorRefs(
-      canvasName,
-      actorRefs,
-      workItemsFromDocument(state$.doc.peek()),
-    );
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
     return selectionForCanvas(selectedNodeId, context);
-  }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, docVersion, executionRev]);
+  }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, docVersion, executionRev, itemsOf]);
   if (!impact.active) return null;
   return (
     <Panel position="top-left" className="impact-hud-panel">
