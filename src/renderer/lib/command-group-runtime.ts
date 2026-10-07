@@ -5,7 +5,7 @@
  * is command-groups.ts and hotbar-slots.ts; the top bar's CommandGroupBar and
  * the bottom bar's command cards drive it.
  */
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { asNodeId, nodesOf, regionMembers, type Canvas, type Node } from "@shared/model";
@@ -43,7 +43,7 @@ import {
 import { digitLease, liveAttentionReasons, seatFactsForNode, type SeatFacts } from "./seat-projections";
 import { selectNodes, state$ } from "./state";
 import { terminal$ } from "./terminal-state";
-import { modelStore, useNodeIds } from "./use-model";
+import { modelStore } from "./use-model";
 
 /** The open canvas as the store holds it now. Read, never followed. */
 const canvasNow = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
@@ -151,6 +151,25 @@ export const promoteExtraGroupTo = (extraIndex: number, slotIndex: number): void
 
 // --- upkeep ------------------------------------------------------------------
 
+const ID_SPLIT = "";
+
+/**
+ * Which nodes the open canvas holds, as a set that changes only when a node
+ * comes or goes. The store's own list is in stacking order, and dropping a
+ * card restacks it, so that list changes on a move that adds and removes
+ * nothing; this one is put in id order and compared as one string.
+ */
+export const useLiveNodeIds = (): ReadonlySet<string> => {
+  const key = use$(() =>
+    [...modelStore.canvas$(state$.canvasName.get()).nodeIds.get()].sort().join(ID_SPLIT),
+  );
+  return useMemo(() => new Set(key === "" ? [] : key.split(ID_SPLIT)), [key]);
+};
+
+/** Whether two values say the same thing. A reader is woken only when they do not. */
+const saysTheSame = (held: unknown, next: unknown): boolean =>
+  JSON.stringify(held) === JSON.stringify(next);
+
 /** Recompute leases after fixed mutations, activity MRU, or seat sticky set changes. */
 export const recomputeHotbar = (): void => {
   const canvas = canvasNow();
@@ -162,15 +181,18 @@ export const recomputeHotbar = (): void => {
   if (selected && live.includes(selected) && actors.has(selected)) {
     mru = touchActiveMru(mru, selected);
   }
-  state$.hotbarActiveMru.set([...mru]);
+  if (!saysTheSame(state$.hotbarActiveMru.peek(), mru)) state$.hotbarActiveMru.set([...mru]);
   const sticky = stickyWorkingNodeIds(canvas);
   const next = purgeNonEligibleSoftSlots(
     resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru, sticky),
     actors,
   );
-  state$.hotbarSlots.set(next);
+  // Upkeep runs often and usually changes nothing; a slot array that says
+  // what the held one says is not written, or the bar would redraw for it.
+  if (!saysTheSame(state$.hotbarSlots.peek(), next)) state$.hotbarSlots.set(next);
   // Compat mirror: dense fixed-only order for any remaining legacy readers.
-  state$.regionSlotOrder.set(fixedOrderOf(next));
+  const fixedOrder = fixedOrderOf(next);
+  if (!saysTheSame(state$.regionSlotOrder.peek(), fixedOrder)) state$.regionSlotOrder.set(fixedOrder);
   const extras = extraGroupsNow();
   const pruned = pruneExtraGroups(extras, live);
   if (pruned.length !== extras.length || pruned.some((group, index) => group !== extras[index])) {
@@ -186,7 +208,7 @@ export const recomputeHotbar = (): void => {
 export const useCommandGroupUpkeep = (): void => {
   // Which nodes there are is all the board keeps of the canvas: a card that
   // moves or is renamed changes no lease, so it wakes nothing here.
-  const nodeIds = useNodeIds(use$(state$.canvasName));
+  const nodeIds = useLiveNodeIds();
   const selectedNodeId = use$(state$.selectedNodeId);
   const seatRev = use$(agentSeat$.rev);
   useEffect(() => {

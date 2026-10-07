@@ -19,6 +19,7 @@ import {
   seatFactsOf,
   useCommandGroupUpkeep,
   useExtraGroups,
+  useLiveNodeIds,
 } from "../../lib/command-group-runtime";
 import { currentSelectionIds, selectionIsGroup, swapHotbarSlots } from "../../lib/command-groups";
 import { hotbarNodeSeverity, liveActivitySeverity } from "../../lib/hotbar-signal";
@@ -30,7 +31,7 @@ import { digitHue } from "../../lib/seat-projections";
 import { seatRollup, worseRollup, type SeatRollup } from "../../lib/seat-rollup";
 import { state$ } from "../../lib/state";
 import { useHealthClock } from "../../lib/thread-health";
-import { modelStore, useNodeIds } from "../../lib/use-model";
+import { modelStore } from "../../lib/use-model";
 import { CommandGroupChip } from "./CommandGroupChip";
 import "./command-group-bar.css";
 
@@ -153,13 +154,12 @@ export function CommandGroupBar() {
   const extras = useExtraGroups();
   // Which nodes the canvas holds: all the bar itself needs of it. Each chip
   // follows its own members.
-  const liveIds = useNodeIds(use$(state$.canvasName));
+  const live = useLiveNodeIds();
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedNodeIds = use$(state$.selectedNodeIds);
   const drag = useRef<Drag | null>(null);
   const row = useRowOverflow(slots.length + extras.length);
 
-  const live = useMemo(() => new Set(liveIds), [liveIds]);
   const membersOf = (ids: ReadonlyArray<string>): string[] => ids.filter((id) => live.has(id));
   const onBar = useMemo(
     () => [...new Set([...slots.flatMap(slotMemberIds), ...extras.flat()])],
