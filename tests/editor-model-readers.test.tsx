@@ -80,7 +80,7 @@ const publishWire = (input: unknown) => {
 it("a mounted cron follows its native schedule and connected actions", async () => {
   const cron = { ...rect, kind: "cron", label: "Morning", host: "local" };
   publish({ ...cron, expression: "0 9 * * *" });
-  await act(async () => root.render(<CronScheduleSurface node={{ id: "subject" }} onClose={() => {}} />));
+  await act(async () => root.render(<CronScheduleSurface canvas={canvas} id="subject" onClose={() => {}} />));
   expect(document.querySelector<HTMLInputElement>('[aria-label="Time of day"]')?.value).toBe("09:00");
   expect(document.body.textContent).toContain("Nothing connected yet");
   await act(async () => {
