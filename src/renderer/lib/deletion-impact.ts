@@ -2,6 +2,8 @@ import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import { flowDestinations, isTaskSinkNode } from "@shared/flow-graph";
 import { canvasFromDocument, wireOfDocument, wiresFromDocument } from "@shared/model/from-document";
 import type { WorkRead } from "@shared/work-read";
+import { asNodeId, type Canvas, type Wire } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import { readTaskPolicy } from "./use-work-task-policy";
 import { taskPolicyRead } from "./work-task-policy-store";
 import {
@@ -125,6 +127,67 @@ export const flowEdgeRemovalWarnings = (
       warnings.push(
         `This removes ${sourceName}’s last Next board, so tasks will complete here.`,
       );
+    }
+    return warnings;
+  });
+};
+
+// ── The same questions over the model canvas ────────────────────────────────
+// Asked by the wire writers, which read the canvas the store holds. The
+// document forms above are still called when nodes are deleted
+// (lib/mutations.ts and lib/confirm-delete.ts); they go, with their tests, the
+// day those two read the model.
+
+/** Only removing a task board or a task path needs the current task policy. */
+export const removalPolicy = (
+  canvasName: string,
+  canvas: Pick<Canvas, "nodes">,
+  removedNodeIds: ReadonlySet<string>,
+  removedWires: ReadonlyArray<Wire>,
+): WorkRead | Promise<WorkRead> =>
+  [...removedNodeIds].some((id) => canvas.nodes.get(asNodeId(id))?.kind === "task") ||
+  removedWires.some((wire) => wire.verb === "feeds")
+    ? readTaskPolicy(canvasName)
+    : taskPolicyRead([]);
+
+const boardNamed = (canvas: Pick<Canvas, "nodes">, nodeId: string): string => {
+  const node = canvas.nodes.get(asNodeId(nodeId));
+  return node ? `“${titleOf(node)}”` : "the removed board";
+};
+
+/**
+ * What removing these wires does to tasks on their way. The caller names
+ * every wire that will go, so several removed at once are reported together.
+ * Empty means the ordinary confirmation is enough.
+ */
+export const wireRemovalWarnings = (
+  canvas: Canvas,
+  removedWires: ReadonlyArray<Wire>,
+  work: WorkRead,
+  removedNodeIds: ReadonlySet<string> = new Set(),
+): ReadonlyArray<string> => {
+  const bySource = new Map<string, { nextBoards: Set<string>; tasks: Set<string> }>();
+  for (const wire of removedWires) {
+    // A feeds wire runs from the earlier board to its Next board.
+    if (wire.verb !== "feeds" || removedNodeIds.has(wire.from)) continue;
+    const impact = flowEdgeRemovalImpact(canvas, work, wire.from, wire.to);
+    const entry = bySource.get(wire.from) ?? { nextBoards: new Set<string>(), tasks: new Set<string>() };
+    entry.nextBoards.add(wire.to);
+    for (const task of impact.affectedTasks) entry.tasks.add(task);
+    bySource.set(wire.from, entry);
+  }
+  return [...bySource].flatMap(([source, { nextBoards, tasks }]) => {
+    const sourceName = boardNamed(canvas, source);
+    const lostNames = [...nextBoards].map((board) => boardNamed(canvas, board));
+    const remaining = flowDestinations(canvas, source).filter((board) => !nextBoards.has(board));
+    const warnings: string[] = [];
+    if (tasks.size > 0) {
+      warnings.push(
+        `${sourceName} has ${count(tasks.size, "live task")} that will lose ${lostNames.join(" and ")} as ${lostNames.length === 1 ? "its Next board" : "Next boards"}.`,
+      );
+    }
+    if (remaining.length === 0 && nextBoards.size > 0) {
+      warnings.push(`This removes ${sourceName}’s last Next board, so tasks will complete here.`);
     }
     return warnings;
   });

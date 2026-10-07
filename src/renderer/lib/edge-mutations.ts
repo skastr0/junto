@@ -1,13 +1,13 @@
 import { ulid } from "ulid";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
+import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import { defaultVerbForPair, verbsForPair, type Verb } from "@shared/physics";
 import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
 import { isGitNode, isLabelNode } from "./presentation";
-import { flowEdgeRemovalWarnings, readDeletionPolicy } from "./deletion-impact";
+import { removalPolicy, wireRemovalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
-import { commitCommands, commitDoc, parseSide } from "./mutations";
-import { connected, type Connected } from "./model-edits";
+import { canvasAsItStands, commitCommands, parseSide } from "./mutations";
+import { connected, removed, type Connected } from "./model-edits";
 import { physicsKind, roleOfKind } from "./model-kind";
 import { asNodeId, asWireId, type Canvas, type Command, type Node, type Wire } from "@shared/model";
 import { titleOf } from "@shared/model/title";
@@ -88,21 +88,27 @@ const VERB_HANDLE_PREFIX = "verb:";
 export const verbHandleId = (verb: Verb): string =>
   `${VERB_HANDLE_PREFIX}${verb}`;
 
+/**
+ * Remove wires, once the operator has confirmed with what removing them does
+ * to tasks on their way. The removal is one act, undone as one.
+ */
 export const deleteEdges = async (ids: ReadonlyArray<string>): Promise<void> => {
-  const removed = new Set(ids);
-  if (removed.size === 0) return;
-  const doc = state$.doc.peek();
-  const existingEdges = doc.edges.filter((edge) => removed.has(edge.id));
-  if (existingEdges.length === 0) return;
-  const label = existingEdges.length === 1 ? "this relation" : `${existingEdges.length} relations`;
-  const pendingPolicy = readDeletionPolicy(state$.canvasName.peek(), doc, new Set(), existingEdges);
+  const going = new Set(ids);
+  if (going.size === 0) return;
+  const canvas = canvasAsItStands();
+  const wires = [...canvas.wires.values()].filter((wire) => going.has(wire.id));
+  if (wires.length === 0) return;
+  const label = wires.length === 1 ? "this relation" : `${wires.length} relations`;
+  const pendingPolicy = removalPolicy(state$.canvasName.peek(), canvas, new Set(), wires);
   const policy = pendingPolicy instanceof Promise ? await pendingPolicy : pendingPolicy;
-  if (state$.doc.peek() !== doc) return;
-  const impactWarnings = flowEdgeRemovalWarnings(doc, existingEdges, policy);
+  // The canvas moved while the policy was being read: what was asked about is
+  // no longer what would be removed.
+  if (canvasAsItStands().seq !== canvas.seq) return;
+  const impactWarnings = wireRemovalWarnings(canvas, wires, policy);
   const impactCopy = impactWarnings.length === 0 ? "" : ` ${impactWarnings.join(" ")}`;
   if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return;
-  removeEdgesFromSelection(removed);
-  commitDoc({ ...doc, edges: doc.edges.filter((edge) => !removed.has(edge.id)) });
+  removeEdgesFromSelection(going);
+  commitCommands((now) => removed(now, [], [...going]));
 };
 
 /** What the operator reads when two cards cannot be joined, for each way that can be. */
@@ -490,5 +496,10 @@ export const edgeIdsWithin = (
 
 /** Remove every wire among `nodeIds` through the confirmed delete path. */
 export const disconnectWithin = (nodeIds: ReadonlyArray<string>): void => {
-  deleteEdges(edgeIdsWithin(nodeIds, state$.doc.peek().edges));
+  const inside = new Set(nodeIds);
+  void deleteEdges(
+    [...canvasAsItStands().wires.values()]
+      .filter((wire) => inside.has(wire.from) && inside.has(wire.to))
+      .map((wire) => wire.id),
+  );
 };

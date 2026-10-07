@@ -801,7 +801,8 @@ describe("renderer graph mutations", () => {
 
   it("requires confirmation before deleting relations", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
+    // A wire the model holds: an edge with no verb is not one.
+    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target", ether: { verb: "messages" } }] });
     const confirms: string[] = [];
     runtimeWindow.confirm = (message: string) => {
       confirms.push(message);
