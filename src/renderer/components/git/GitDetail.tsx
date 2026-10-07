@@ -315,6 +315,8 @@ export function GitRepositoryDetail({
                   type="button"
                   role="option"
                   aria-selected={index === activeFile}
+                  // One Tab stop for the list; the arrows move within it.
+                  tabIndex={index === activeFile ? 0 : -1}
                   data-active={index === activeFile ? "true" : "false"}
                   className="git-browser__row git-browser__file"
                   title={path}
@@ -327,12 +329,13 @@ export function GitRepositoryDetail({
             </div>
           ) : (
           <div className="git-browser__list" role="listbox" aria-label="Commits" onKeyDown={moveInList}>
-            {commits.map((commit) => (
+            {commits.map((commit, index) => (
               <button
                 key={commit.sha}
                 type="button"
                 role="option"
                 aria-selected={commit.sha === selected}
+                tabIndex={index === Math.max(0, commits.findIndex((entry) => entry.sha === selected)) ? 0 : -1}
                 data-active={commit.sha === selected ? "true" : "false"}
                 className="git-browser__row"
                 onClick={() => setSelected(commit.sha)}

@@ -132,8 +132,11 @@ function Composer({
         aria-label={`Comment on ${anchor}`}
         placeholder="Comment on this line, @ to send it to another agent"
         aria-keyshortcuts={keyAria("message.send")}
+        aria-autocomplete="list"
         aria-expanded={listOpen}
         aria-controls={listOpen ? "git-review-mentions" : undefined}
+        // The keyboard stays in the field, so the agent the arrows are on is named from here.
+        aria-activedescendant={listOpen ? `git-review-mention-${String(at)}` : undefined}
         onChange={(event) => {
           setCaret(event.target.selectionStart ?? event.target.value.length);
           onChange({ text: event.target.value, picked: draft.picked });
@@ -146,6 +149,7 @@ function Composer({
           {offered.map((candidate, index) => (
             <li
               key={candidate.nodeId}
+              id={`git-review-mention-${String(index)}`}
               role="option"
               aria-selected={index === at}
               data-active={index === at ? "true" : "false"}
