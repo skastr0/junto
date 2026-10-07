@@ -1,19 +1,16 @@
-import type { CanvasDoc, CanvasNode, EtherEdgeKind } from "./canvas";
 import {
   deriveExecutionGraph,
   type ExecutionGraphContext,
 } from "./execution-graph";
 import { canvasSwatchFor, normalizeHexColor } from "./canvas-colors";
-import { isGroup } from "./graph";
-import { requestsNodeName } from "./requests-node-identity";
-import { boardNodeName } from "./board-node-identity";
+import { inPaintOrder, type Canvas, type Node, type WirePhase } from "./model";
+import { titleOf } from "./model/title";
 import { themeRuntime, type ThemeMode } from "./theme";
 import { hexAtAlpha } from "./theme/oklch";
-import { canvasFromDocument, wireOfDocument } from "./model/from-document";
 
 // Headless render of a canvas to SVG — the "screenshot for agents" half of
 // the agent surface (the text half is digest.ts). Pure and deterministic:
-// same doc + actor projection in, same SVG out. No DOM, no Electron.
+// same canvas + actor projection in, same SVG out. No DOM, no Electron.
 // Palette comes from the single token source (./theme), projected per mode;
 // the default dark projection matches the app's default appearance.
 
@@ -34,10 +31,7 @@ const svgPalette = (mode: ThemeMode) => {
       const swatch = canvasSwatchFor(color);
       return swatch ? t[swatch.token] : undefined;
     },
-    edgeColor: { blocks: t.crimson!, relates: t.steel! } as Record<
-      EtherEdgeKind,
-      string
-    >,
+    edgeColor: { blocks: t.crimson!, relates: t.steel! } as Record<WirePhase, string>,
   };
 };
 type SvgPalette = ReturnType<typeof svgPalette>;
@@ -45,50 +39,35 @@ type SvgPalette = ReturnType<typeof svgPalette>;
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const nodeStroke = (node: CanvasNode, pal: SvgPalette): string => {
+const nodeStroke = (node: Node, pal: SvgPalette): string => {
   if (node.color) {
     const painted = pal.swatch(node.color) ?? normalizeHexColor(node.color);
     if (painted) return painted;
   }
-  if (node.ether?.entity?.kind === "agent") return pal.steel;
+  if (node.kind === "agent") return pal.steel;
   return pal.stroke;
 };
 
-const nodeTitle = (node: CanvasNode): string => {
-  // Requests identity is authored (ether.requests.name), not the mirror's
-  // first line — see requests-node-identity.ts.
-  if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
-  // Board identity is the kind name — the mirror is dash-prefixed topic
-  // titles, never a title (see board-node-identity.ts).
-  if (node.ether?.entity?.kind === "board") return boardNodeName(node);
-  switch (node.type) {
-    case "text":
-      return (node.text.split("\n")[0] ?? "").trim();
-    case "file":
-      return node.file.split(/[\\/]/).pop() ?? node.file;
-    case "link":
-      return node.url;
-    case "group":
-      return node.label ?? "";
-  }
-};
+/** Furniture says what it is by what is written on it; every other card is headed by its kind. */
+const headedByKind = (node: Node): boolean =>
+  node.kind !== "note" && node.kind !== "label" && node.kind !== "file" && node.kind !== "link";
 
-const center = (node: CanvasNode) => ({ x: node.x + node.width / 2, y: node.y + node.height / 2 });
+const center = (node: Node) => ({ x: node.x + node.width / 2, y: node.y + node.height / 2 });
 
 export const renderCanvasSvg = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   context: ExecutionGraphContext,
   mode: ThemeMode = "dark",
 ): string => {
   const pal = svgPalette(mode);
-  const nodesById = new Map(doc.nodes.map((n) => [n.id, n] as const));
-  const graph = deriveExecutionGraph(canvasFromDocument(context.canvasName, doc), context);
+  const nodes = inPaintOrder(canvas);
+  const graph = deriveExecutionGraph(canvas, context);
   const blocked = graph.blocked;
   const activeEdges = graph.blockedEdgeIds;
 
   const PAD = 80;
-  const xs = doc.nodes.flatMap((n) => [n.x, n.x + n.width]);
-  const ys = doc.nodes.flatMap((n) => [n.y, n.y + n.height]);
+  const xs = nodes.flatMap((n) => [n.x, n.x + n.width]);
+  const ys = nodes.flatMap((n) => [n.y, n.y + n.height]);
   const minX = xs.length ? Math.min(...xs) - PAD : 0;
   const minY = ys.length ? Math.min(...ys) - PAD : 0;
   const maxX = xs.length ? Math.max(...xs) + PAD : 800;
@@ -102,12 +81,13 @@ export const renderCanvasSvg = (
   );
   parts.push(`<rect x="${Math.round(minX)}" y="${Math.round(minY)}" width="${w}" height="${h}" fill="${pal.ground}"/>`);
 
-  // Groups behind everything.
-  for (const node of doc.nodes.filter(isGroup)) {
+  // Regions behind everything.
+  for (const node of nodes) {
+    if (node.kind !== "region") continue;
     parts.push(
       `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="10" fill="${pal.groupFill}" stroke="${pal.stroke}" stroke-width="1"/>`,
     );
-    const label = nodeTitle(node);
+    const label = (node.label ?? "").trim();
     if (label) {
       parts.push(
         `<text x="${node.x + 12}" y="${node.y + 20}" fill="${pal.dim}" font-size="12" letter-spacing="1">${esc(label.toUpperCase())}</text>`,
@@ -115,22 +95,20 @@ export const renderCanvasSvg = (
     }
   }
 
-  // Edges.
-  for (const edge of doc.edges) {
-    const from = nodesById.get(edge.fromNode);
-    const to = nodesById.get(edge.toNode);
+  // Wires.
+  for (const edge of canvas.wires.values()) {
+    const from = canvas.nodes.get(edge.from);
+    const to = canvas.nodes.get(edge.to);
     if (!from || !to) continue;
     const a = center(from);
     const b = center(to);
-    const kind = graph.phaseByEdgeId.get(edge.id) as EtherEdgeKind | undefined;
-    const fromKind = from.ether?.entity?.kind;
-    const toKind = to.ether?.entity?.kind;
+    const kind = graph.phaseByEdgeId.get(edge.id);
     const agentMsg =
       kind !== "blocks" &&
-      fromKind === "agent" &&
-      toKind === "agent" &&
+      from.kind === "agent" &&
+      to.kind === "agent" &&
       // The only verb an agent pair can hold, and it opens the mailbox.
-      wireOfDocument(edge)?.verb === "messages";
+      edge.verb === "messages";
     const color = kind === "blocks" ? pal.crimson : agentMsg ? pal.amber : kind ? pal.edgeColor[kind] : pal.steel;
     const active = activeEdges.has(edge.id);
     const strokeW = active ? 2 : agentMsg ? 1.6 : 1;
@@ -145,21 +123,21 @@ export const renderCanvasSvg = (
     }
   }
 
-  // Nodes.
-  for (const node of doc.nodes) {
-    if (isGroup(node)) continue;
+  // Cards.
+  for (const node of nodes) {
+    if (node.kind === "region") continue;
     const stroke = nodeStroke(node, pal);
     const dim = blocked.has(node.id);
     parts.push(
       `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${pal.cardFill}" stroke="${stroke}" stroke-width="1" opacity="${dim ? 0.85 : 1}"/>`,
     );
-    const kind = node.ether?.entity?.kind;
+    const kind = headedByKind(node) ? node.kind : undefined;
     if (kind) {
       parts.push(
         `<text x="${node.x + 12}" y="${node.y + 18}" fill="${pal.dim}" font-size="9" letter-spacing="1">${esc(kind.toUpperCase())}</text>`,
       );
     }
-    const title = nodeTitle(node);
+    const title = titleOf(node);
     if (title) {
       // Truncate to what fits the node width (~7.5px per char at 14px mono).
       const maxChars = Math.max(4, Math.floor((node.width - 24) / 7.5));

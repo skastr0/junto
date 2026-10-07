@@ -52,7 +52,6 @@ import { readModelDigest } from "../model/digest";
 import { ModelService } from "../model/service";
 import { WorkRepository } from "../work/repository";
 import {
-  documentOfCanvas,
   editCanvases,
   fromModelError,
   isCanvasName,
@@ -463,7 +462,7 @@ const handleRender = (
       Effect.mapError((error): WorkErrorBody => fail("InternalError", error.message)),
     );
     return {
-      svg: renderCanvasSvg(documentOfCanvas(canvas), {
+      svg: renderCanvasSvg(canvas, {
         canvasName: canvas.name,
         resolveActorRef: actorRefResolverFromProjection(
           yield* actorRefsOf(canvas.name),

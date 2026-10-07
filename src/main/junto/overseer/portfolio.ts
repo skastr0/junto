@@ -1,10 +1,7 @@
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import type { CanvasDoc } from "@shared/canvas";
 import type { Command } from "@shared/model";
 import { CanvasName, type Canvas } from "@shared/model";
-import { inPaintOrder } from "@shared/model/canvas";
-import { nodeToDocument, wireToDocument } from "@shared/model/from-document";
 import type { WorkErrorBody } from "@shared/work-control";
 import { ModelNotFound, ModelRefused, type ModelError } from "../model/records";
 import type { ModelActorRefs } from "../model/actor-refs";
@@ -22,23 +19,6 @@ export type OverseerStores =
   | ModelActorRefs
   | SqlClient.SqlClient
   | WorkRepository;
-
-const held = new WeakMap<Canvas, CanvasDoc>();
-
-/**
- * A canvas in the shape the picture renderer and the voice context still
- * read. Never sent to an overseer: the wire carries model nodes and wires.
- */
-export const documentOfCanvas = (canvas: Canvas): CanvasDoc => {
-  const known = held.get(canvas);
-  if (known !== undefined) return known;
-  const doc: CanvasDoc = {
-    nodes: inPaintOrder(canvas).map(nodeToDocument),
-    edges: [...canvas.wires.values()].map(wireToDocument),
-  };
-  held.set(canvas, doc);
-  return doc;
-};
 
 export const fromModelError = (error: ModelError): WorkErrorBody => {
   if (error instanceof ModelNotFound) {
