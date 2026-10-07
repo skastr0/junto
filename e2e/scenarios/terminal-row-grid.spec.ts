@@ -1,9 +1,9 @@
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { waitForTerminalPaint } from "../harness/term-ready";
 const LABEL = "e2e rowdrift";
 const LAUNCH = { kind: "command" as const, argv: ["/bin/sh","-c","i=1; while [ $i -le 200 ]; do printf 'D%04d ----------\\r\\n' $i; i=$((i+1)); done; exec sleep 3600"] };
-test.use({ juntoOptions: { seedCanvases: { drift: canvasDoc([terminalTextNode({ id:"t1", bindingId:"e2e-drift-1", label:LABEL, launch:LAUNCH })]) } } });
+test.use({ juntoOptions: { seedModels: { drift: modelFixture([modelTerminal({ id:"t1", bindingId:"e2e-drift-1", label:LABEL, launch:LAUNCH })]) } } });
 test("row elements sit on an exact grid", async ({ junto }) => {
   const { page } = junto;
   const node = page.locator(".react-flow__node", { hasText: LABEL });

@@ -1,18 +1,14 @@
+import { modelFixture, modelSeat, modelWire, modelMessagesWire, modelNode } from "../harness/model";
 import type { Locator, Page } from "@playwright/test";
 import {
-  crewDoc,
-  crewMessagesEdge,
   crewOccupySeat,
   crewPlayFactory,
   crewSeat,
-  crewSeatNode,
   installCrewSeatHarness,
 } from "../harness/crew-fixture";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 import { Schema } from "effect";
 import { Node } from "../../src/shared/model";
-import { modelFixture, modelSeat, modelWire } from "../harness/model";
 
 /**
  * The agent modal's rail: the connected agents, each drawn by the canvas's
@@ -25,14 +21,14 @@ import { modelFixture, modelSeat, modelWire } from "../harness/model";
 const CANVAS = "agent-rail";
 const PEERS = ["ada", "bea", "cy"];
 const nodes = [
-  agentTextNode({ id: "lead", key: "local:rail-lead", label: "lead", x: 40, y: 40 }),
-  ...PEERS.map((id, i) => agentTextNode({ id, key: `local:rail-${id}`, label: id, x: 360, y: 40 + i * 130 })),
-  agentTextNode({ id: "solo", key: "local:rail-solo", label: "solo", x: 700, y: 40 }),
-  { id: "note", type: "text" as const, text: "Field notes", x: 40, y: 420, width: 240, height: 90 },
+  modelSeat({ id: "lead", key: "local:rail-lead", label: "lead", x: 40, y: 40 }),
+  ...PEERS.map((id, i) => modelSeat({ id, key: `local:rail-${id}`, label: id, x: 360, y: 40 + i * 130 })),
+  modelSeat({ id: "solo", key: "local:rail-solo", label: "solo", x: 700, y: 40 }),
+  modelNode({ id: "note", kind: "note", z: 0, text: "Field notes", x: 40, y: 420, width: 240, height: 90 }),
 ];
-const fixture = canvasDoc(nodes, [
-  ...PEERS.map((id) => verbEdge(`e-lead-${id}`, "lead", id, "messages", nodes)),
-  verbEdge("e-ada-bea", "ada", "bea", "messages", nodes),
+const fixture = modelFixture(nodes, [
+  ...PEERS.map((id) => modelWire(`e-lead-${id}`, "lead", id, "messages", nodes)),
+  modelWire("e-ada-bea", "ada", "bea", "messages", nodes),
 ]);
 
 const front = (page: Page): Locator =>
@@ -59,7 +55,7 @@ const say = async (junto: Awaited<ReturnType<typeof launchJunto>>, nodeId: strin
 };
 
 test("a seat in the rail is the canvas seat, and a press on it moves to that agent, expanded and collapsed", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
@@ -119,7 +115,7 @@ test("a seat in the rail is the canvas seat, and a press on it moves to that age
 });
 
 test("the rail snaps between its two widths, and a seat with no connections has none", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
@@ -175,7 +171,7 @@ test("the rail snaps between its two widths, and a seat with no connections has 
 });
 
 test("a voiced preamble shows the canvas bubble beside its seat and never takes the keyboard", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
@@ -243,7 +239,7 @@ test("a voiced preamble shows the canvas bubble beside its seat and never takes 
 });
 
 test("search over an open agent opens the result on Enter", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
@@ -275,11 +271,11 @@ test("search over an open agent opens the result on Enter", async () => {
 test("[fake-tui] every key typed while bubbles come and go reaches the agent", async () => {
   test.setTimeout(240_000);
   const KEYS = "keys";
-  const typist = crewSeatNode({ id: "typist", x: 40, y: 40 });
-  const talker = crewSeatNode({ id: "talker", x: 360, y: 40 });
+  const typist = modelSeat({ id: "typist", x: 40, y: 40 });
+  const talker = modelSeat({ id: "talker", x: 360, y: 40 });
   const junto = await launchJunto({
-    seedCanvases: {
-      [KEYS]: crewDoc([typist, talker], [crewMessagesEdge("e-tt", "typist", "talker", [typist, talker])]),
+    seedModels: {
+      [KEYS]: modelFixture([typist, talker], [modelMessagesWire("e-tt", "typist", "talker", [typist, talker])]),
     },
     afterSeed: installCrewSeatHarness,
   });
@@ -384,7 +380,7 @@ test("[fake-tui] the rail lists agents most urgent first under their own names, 
 });
 
 test("seat details open from the header and hold what left the rail", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });

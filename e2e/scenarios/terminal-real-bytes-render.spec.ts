@@ -17,7 +17,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { terminalRows, waitForTerminalPaint, waitForTerminalQuiet } from "../harness/term-ready";
 
@@ -70,9 +70,9 @@ const geomOf = async (
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      realbytes: canvasDoc([
-        terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
+    seedModels: {
+      realbytes: modelFixture([
+        modelTerminal({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
       ]),
     },
   },

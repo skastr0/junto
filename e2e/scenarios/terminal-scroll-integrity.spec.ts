@@ -18,7 +18,7 @@
  * Every other PTY test in this repo feeds SessionObserver, the classifier's
  * model of the screen. None of them can see this.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { terminalRows, waitForTerminalPaint, waitForTerminalQuiet } from "../harness/term-ready";
 
@@ -88,9 +88,9 @@ const ptyGeom = async (
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      geom: canvasDoc([
-        terminalTextNode({
+    seedModels: {
+      geom: modelFixture([
+        modelTerminal({
           id: "t1",
           bindingId: BINDING_ID,
           label: LABEL,

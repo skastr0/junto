@@ -1,14 +1,11 @@
+import { modelFixture, modelSeat, modelWire, modelMessagesWire } from "../harness/model";
 import type { Locator, Page } from "@playwright/test";
 import {
-  crewDoc,
-  crewMessagesEdge,
   crewOccupySeat,
   crewPlayFactory,
   crewSeat,
-  crewSeatNode,
   installCrewSeatHarness,
 } from "../harness/crew-fixture";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
 /**
@@ -19,10 +16,10 @@ import { expect, launchJunto, test } from "../harness/launch";
 const CANVAS = "rail-edges";
 const PEERS = ["ada", "bea", "cy"];
 const nodes = [
-  agentTextNode({ id: "lead", key: "local:edges-lead", label: "lead", x: 40, y: 40 }),
-  ...PEERS.map((id, i) => agentTextNode({ id, key: `local:edges-${id}`, label: id, x: 360, y: 40 + i * 130 })),
+  modelSeat({ id: "lead", key: "local:edges-lead", label: "lead", x: 40, y: 40 }),
+  ...PEERS.map((id, i) => modelSeat({ id, key: `local:edges-${id}`, label: id, x: 360, y: 40 + i * 130 })),
 ];
-const fixture = canvasDoc(nodes, PEERS.map((id) => verbEdge(`e-lead-${id}`, "lead", id, "messages", nodes)));
+const fixture = modelFixture(nodes, PEERS.map((id) => modelWire(`e-lead-${id}`, "lead", id, "messages", nodes)));
 
 const front = (page: Page): Locator =>
   page.locator(".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface");
@@ -56,10 +53,10 @@ const blankPoint = (locator: Locator): Promise<{ x: number; y: number } | null> 
 test("[fake-tui] a press on blank chrome of the agent modal leaves the keyboard in the terminal", async () => {
   test.setTimeout(240_000);
   const LIVE = "rail-edges-blank";
-  const lead = crewSeatNode({ id: "lead", x: 40, y: 40 });
-  const peer = crewSeatNode({ id: "peer", x: 360, y: 40 });
+  const lead = modelSeat({ id: "lead", x: 40, y: 40 });
+  const peer = modelSeat({ id: "peer", x: 360, y: 40 });
   const junto = await launchJunto({
-    seedCanvases: { [LIVE]: crewDoc([lead, peer], [crewMessagesEdge("e-lp", "lead", "peer", [lead, peer])]) },
+    seedModels: { [LIVE]: modelFixture([lead, peer], [modelMessagesWire("e-lp", "lead", "peer", [lead, peer])]) },
     afterSeed: installCrewSeatHarness,
   });
   try {
@@ -120,7 +117,7 @@ test("[fake-tui] a press on blank chrome of the agent modal leaves the keyboard 
 });
 
 test("a bubble beside an agent whose session has ended can still be read and closed", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
     await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
@@ -164,10 +161,10 @@ test("a bubble beside an agent whose session has ended can still be read and clo
 test("[fake-tui] a rail seat that is not onboarded still shows its whole state line", async () => {
   test.setTimeout(240_000);
   const LIVE = "rail-edges-live";
-  const lead = crewSeatNode({ id: "lead", x: 40, y: 40 });
-  const peer = crewSeatNode({ id: "peer", x: 360, y: 40 });
+  const lead = modelSeat({ id: "lead", x: 40, y: 40 });
+  const peer = modelSeat({ id: "peer", x: 360, y: 40 });
   const junto = await launchJunto({
-    seedCanvases: { [LIVE]: crewDoc([lead, peer], [crewMessagesEdge("e-lp", "lead", "peer", [lead, peer])]) },
+    seedModels: { [LIVE]: modelFixture([lead, peer], [modelMessagesWire("e-lp", "lead", "peer", [lead, peer])]) },
     afterSeed: installCrewSeatHarness,
   });
   try {

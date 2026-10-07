@@ -5,7 +5,7 @@
  * explicit SGR sequences; the assertion reads inline colors off the DOM
  * renderer's row spans, so it fails when color reaches the surface as plain ink.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const LABEL = "e2e term color";
@@ -62,9 +62,9 @@ const probeColors = async (
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      term: canvasDoc([
-        terminalTextNode({
+    seedModels: {
+      term: modelFixture([
+        modelTerminal({
           id: "t1",
           bindingId: BINDING_ID,
           label: LABEL,
