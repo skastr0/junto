@@ -6,7 +6,8 @@ import { selectNode, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { executionGraphForImpact } from "../lib/impact-mode";
 import { HUE, HUE_TEXT } from "../lib/theme";
-import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
+import { canvasFromDocument } from "@shared/model/from-document";
+import { useCanvasWorkItems } from "../lib/use-work-sink";
 
 /**
  * Inspector "Waiting on…" — reverse-walks reasonsByNodeId from the selected
@@ -18,13 +19,14 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
   const executionRev = use$(kernel$.executionRev);
   const canvasName = use$(state$.canvasName);
   const actorRefs = use$(state$.actorRefs);
+  const itemsOf = useCanvasWorkItems(canvasName);
   const canvas = useMemo(() => canvasFromDocument(canvasName, doc), [canvasName, doc]);
 
   const path = useMemo(() => {
     const context = executionGraphContextFromActorRefs(
       canvasName,
       actorRefs,
-      workItemsFromDocument(doc),
+      itemsOf,
     );
     const graph = executionGraphForImpact(canvas, execution, context);
     // Only show for blocked nodes or nodes inside a stoppage cone.
@@ -37,7 +39,7 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
     }
     return waitingOnPath(canvas, graph, nodeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actorRefs, canvasName, doc, execution, executionRev, nodeId]);
+  }, [actorRefs, canvasName, doc, execution, executionRev, nodeId, itemsOf]);
 
   if (!path || path.hops.length === 0) return null;
 

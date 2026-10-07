@@ -1438,6 +1438,13 @@ export const registerJuntoIpc = (): void => {
     })),
   );
 
+  privilegedIpc.handle(IPC_CHANNELS.workTaskPolicy, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, { onExcessProperty: "error" })(input);
+      return yield* (yield* WorkRepository).taskPolicy(query);
+    })),
+  );
+
   privilegedIpc.handle(IPC_CHANNELS.workSinkPage, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(WorkSinkQuery, { onExcessProperty: "error" })(input);

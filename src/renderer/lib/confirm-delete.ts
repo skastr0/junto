@@ -1,5 +1,5 @@
 import { askConfirm } from "./confirm";
-import { flowEdgeRemovalWarnings, tasksNodeDeletionWarnings } from "./deletion-impact";
+import { flowEdgeRemovalWarnings, readDeletionPolicy, tasksNodeDeletionWarnings } from "./deletion-impact";
 import { state$ } from "./state";
 
 /**
@@ -9,7 +9,7 @@ import { state$ } from "./state";
  * delete, so a caller can gate on the answer alone.
  */
 
-export const confirmNodeDelete = (ids: ReadonlyArray<string>): Promise<boolean> => {
+export const confirmNodeDelete = async (ids: ReadonlyArray<string>): Promise<boolean> => {
   const removed = new Set(ids);
   const doc = state$.doc.peek();
   const nodes = doc.nodes.filter((node) => removed.has(node.id));
@@ -18,12 +18,13 @@ export const confirmNodeDelete = (ids: ReadonlyArray<string>): Promise<boolean> 
     (edge) => removed.has(edge.fromNode) || removed.has(edge.toNode),
   );
   const one = nodes.length === 1;
+  const policy = await readDeletionPolicy(state$.canvasName.peek(), doc, removed, removedEdges);
   return askConfirm({
     source: "node-delete",
     title: one ? "Delete this node?" : `Delete ${nodes.length} nodes?`,
     body: [
-      ...tasksNodeDeletionWarnings(doc, removed),
-      ...flowEdgeRemovalWarnings(doc, removedEdges, removed),
+      ...tasksNodeDeletionWarnings(doc, removed, policy),
+      ...flowEdgeRemovalWarnings(doc, removedEdges, policy, removed),
       ...(removedEdges.length === 0
         ? []
         : [`Connected edges (${removedEdges.length}) will also be removed.`]),
@@ -33,16 +34,17 @@ export const confirmNodeDelete = (ids: ReadonlyArray<string>): Promise<boolean> 
   });
 };
 
-export const confirmEdgeDelete = (ids: ReadonlyArray<string>): Promise<boolean> => {
+export const confirmEdgeDelete = async (ids: ReadonlyArray<string>): Promise<boolean> => {
   const removed = new Set(ids);
   const doc = state$.doc.peek();
   const edges = doc.edges.filter((edge) => removed.has(edge.id));
   if (edges.length === 0) return Promise.resolve(true);
   const one = edges.length === 1;
+  const policy = await readDeletionPolicy(state$.canvasName.peek(), doc, new Set(), edges);
   return askConfirm({
     source: "edge-delete",
     title: one ? "Delete this relation?" : `Delete ${edges.length} relations?`,
-    body: flowEdgeRemovalWarnings(doc, edges),
+    body: flowEdgeRemovalWarnings(doc, edges, policy),
     confirmLabel: one ? "Delete relation" : `Delete ${edges.length} relations`,
     tone: "danger",
   });

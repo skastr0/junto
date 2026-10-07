@@ -59,6 +59,7 @@ it("reads kernel lanes and compact watch counts without decoding mail, board pos
       const at = `2026-10-07T00:0${minute}:00.000Z`;
       await runtime.runPromise(repo.createTask({ sink: { canvasName: "factory", nodeId: "tasks" }, basis, dependencyScope,
         task: { id, state: "submitted", history: history(id), metadata: { priority: "high" },
+          ...(id === "new" ? { dependsOn: ["old"] } : {}),
           admission: "auto", waitUntil: "2026-10-08T00:00:00.000Z", visits: [{ board: "tasks", enteredAt: at, epoch: 0 }] },
         originAt: at, receivedAt: at }));
     }
@@ -97,5 +98,17 @@ it("reads kernel lanes and compact watch counts without decoding mail, board pos
     expect(live.tasks.get("tasks")?.map((task) => task.id)).toEqual(["old", "new"]);
     const empty = await runtime.runPromise(repo.kernelWork("another-canvas"));
     expect(empty.tasks.size + empty.boards.size + empty.artifacts.size).toBe(0);
+    await runtime.runPromise(Effect.gen(function* () {
+      yield* sql`PRAGMA ignore_check_constraints=ON`;
+      yield* sql.withTransaction(unjournaledWorkMutationEffect("test.fixture-seed",
+        sql`UPDATE work_task_messages SET parts_json='invalid JSON'`,
+      )).pipe(Effect.ensuring(sql`PRAGMA ignore_check_constraints=OFF`.pipe(Effect.asVoid, Effect.orDie)));
+    }));
+    const policy = await runtime.runPromise(repo.taskPolicy({ canvasName: "factory" }));
+    expect(policy.map((row) => row.item.id)).toEqual(["old", "new"]);
+    expect(policy[1]?.item).toMatchObject({ state: "submitted", history: [], dependsOn: ["old"],
+      metadata: { priority: "high" }, visits: [{ board: "tasks", epoch: 0 }] });
+    expect(await runtime.runPromise(repo.taskPolicy({ canvasName: "factory", nodeId: "asks" }))).toEqual([]);
+    expect(await runtime.runPromise(repo.taskPolicy({ canvasName: "another-canvas" }))).toEqual([]);
   } finally { await runtime.dispose(); await rm(root, { recursive: true, force: true }); }
 });

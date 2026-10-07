@@ -25,6 +25,7 @@ import type { RegionEnvironment } from "./region-environment";
 import { TASKS_ENABLED } from "@shared/features";
 import {
   flowEdgeRemovalWarnings,
+  readDeletionPolicy,
   tasksNodeDeletionWarnings,
 } from "./deletion-impact";
 import type { Command } from "@shared/model";
@@ -442,9 +443,11 @@ const deleteNodesInternal = async (
   );
   const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
   const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
+  const policy = await readDeletionPolicy(canvasName, doc, removed, removedEdges);
+  if (state$.doc.peek() !== doc) return;
   const impactWarnings = [
-    ...tasksNodeDeletionWarnings(doc, removed),
-    ...flowEdgeRemovalWarnings(doc, removedEdges, removed),
+    ...tasksNodeDeletionWarnings(doc, removed, policy),
+    ...flowEdgeRemovalWarnings(doc, removedEdges, policy, removed),
   ];
   const impactCopy =
     impactWarnings.length === 0 ? "" : `\n${impactWarnings.join("\n")}`;

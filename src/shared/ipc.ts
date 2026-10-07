@@ -1,5 +1,5 @@
 import type { WorkAttentionSnapshot } from "./work-attention";
-import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
+import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type {
@@ -284,6 +284,7 @@ export const IPC_CHANNELS = {
   workItem: "junto:work-item",
   workActorPage: "junto:work-actor-page",
   workAttention: "junto:work-attention",
+  workTaskPolicy: "junto:work-task-policy",
   workSinkPage: "junto:work-sink-page",
   workSinkChanged: "junto:work-sink-changed",
   workMailChanged: "junto:work-mail-changed",
@@ -1081,6 +1082,7 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly workItem: (query: WorkItemQuery) => Promise<Task | undefined>;
   readonly workActorPage: (query: WorkActorQuery) => Promise<WorkActorPage>;
   readonly workAttention: (query: WorkAttentionQuery) => Promise<WorkAttentionSnapshot>;
+  readonly workTaskPolicy: (query: WorkAttentionQuery) => Promise<ReadonlyArray<WorkLaneRow>>;
   readonly workSinkPage: (query: WorkSinkQuery) => Promise<WorkSinkPage>;
   readonly onWorkSinkChanged: (listener: (event: WorkSinkChanged) => void) => () => void;
   readonly workMailPage: (query: WorkMailQuery) => Promise<WorkMailPage>;

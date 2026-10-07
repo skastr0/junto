@@ -527,6 +527,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   workItem: (query) => invoke(IPC_CHANNELS.workItem, IPC_TIMEOUT_MS, query),
   workActorPage: (query) => invoke(IPC_CHANNELS.workActorPage, IPC_TIMEOUT_MS, query),
   workAttention: (query) => invoke(IPC_CHANNELS.workAttention, IPC_TIMEOUT_MS, query),
+  workTaskPolicy: (query) => invoke(IPC_CHANNELS.workTaskPolicy, IPC_TIMEOUT_MS, query),
   workSinkPage: (query) => invoke(IPC_CHANNELS.workSinkPage, IPC_TIMEOUT_MS, query),
   onWorkSinkChanged: (listener) => subscribe<WorkSinkChanged>(IPC_CHANNELS.workSinkChanged, listener),
   workMailPage: (query) => invoke(IPC_CHANNELS.workMailPage, IPC_TIMEOUT_MS, query),

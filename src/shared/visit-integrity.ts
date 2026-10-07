@@ -18,7 +18,8 @@ import type { CanvasDoc } from "./canvas";
 import type { Task } from "./work-model";
 import { isTerminalTaskState } from "./task";
 import { flowDestinations, isTaskSinkNode } from "./flow-graph";
-import { wiresFromDocument } from "./model/from-document";
+import { nodesOf, type Canvas } from "./model";
+import type { WorkRead } from "./work-read";
 import { taskDefects } from "./rules";
 
 /** How a task references a board. */
@@ -33,10 +34,11 @@ export type BoardReference = {
 
 /** Every task row on the canvas, with the board its row lives on. */
 const taskRows = (
-  doc: CanvasDoc,
+  canvas: Canvas,
+  work: WorkRead,
 ): ReadonlyArray<{ readonly board: string; readonly task: Task }> =>
-  doc.nodes.flatMap((node) =>
-    (node.ether?.tasks?.items ?? []).map((task) => ({
+  nodesOf(canvas, "task").flatMap((node) =>
+    work.itemsOf(node.id).map((task) => ({
       board: node.id,
       task,
     })),
@@ -48,7 +50,8 @@ const taskRows = (
  * degrade rendering (which renders the bare id and moves on).
  */
 export const boardsReferencedByLiveVisits = (
-  doc: CanvasDoc,
+  canvas: Canvas,
+  work: WorkRead,
 ): ReadonlyMap<string, ReadonlyArray<BoardReference>> => {
   const out = new Map<string, BoardReference[]>();
   // One reference per (task, kind) per board — a board revisited across epochs
@@ -70,7 +73,7 @@ export const boardsReferencedByLiveVisits = (
   // The LIVE row is the authority: completed visit rows carry the history only
   // as of their exit, and document order says nothing about which row is live.
   // One live row per task holds by the no-split invariant.
-  for (const { board, task } of taskRows(doc)) {
+  for (const { board, task } of taskRows(canvas, work)) {
     if (isTerminalTaskState(task.state)) continue;
     add(board, { taskId: task.id, rowBoard: board, kind: "home-row" });
     for (const visit of task.visits ?? []) {
@@ -106,10 +109,11 @@ export type DeletionImpact = {
  * silently; anything else earns the warn/confirm naming exactly this.
  */
 export const boardDeletionImpact = (
-  doc: CanvasDoc,
+  canvas: Canvas,
+  work: WorkRead,
   nodeId: string,
 ): DeletionImpact => {
-  const references = boardsReferencedByLiveVisits(doc).get(nodeId) ?? [];
+  const references = boardsReferencedByLiveVisits(canvas, work).get(nodeId) ?? [];
   const byTask = new Map<string, Set<BoardReferenceKind>>();
   let carriesLiveRows = false;
   for (const reference of references) {
@@ -138,13 +142,14 @@ export type FlowEdgeImpact = {
 
 /** What removing the path edge from one board to its Next would take away. */
 export const flowEdgeRemovalImpact = (
-  doc: CanvasDoc,
+  canvas: Canvas,
+  work: WorkRead,
   board: string,
   nextBoard: string,
 ): FlowEdgeImpact => {
-  const nextBoards = flowDestinations(wiresFromDocument(doc), board);
+  const nextBoards = flowDestinations(canvas, board);
   const remaining = nextBoards.filter((node) => node !== nextBoard);
-  const affected = taskRows(doc)
+  const affected = taskRows(canvas, work)
     .filter(
       ({ board: rowBoard, task }) =>
         rowBoard === board && !isTerminalTaskState(task.state),

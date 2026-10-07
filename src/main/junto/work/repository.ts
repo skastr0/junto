@@ -4263,6 +4263,36 @@ export const readWorkAttention = Effect.fn("work.attention")(function* (
   }}));
 });
 
+/** Complete task policy fields without messages, reviews or artifact bodies. */
+const readWorkTaskPolicy = Effect.fn("work.task.policy")(function* (
+  reader: SqlClient.SqlClient,
+  input: WorkAttentionQuery,
+): Effect.fn.Return<ReadonlyArray<WorkLaneRow>, WorkSqlFailure> {
+  const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, strictDecode)(input);
+  const rows = yield* SqlSchema.findAll({
+    Request: WorkSqlBindings,
+    Result: Schema.Struct({ ...TaskRowSchema.fields, depends_on_json: Schema.String }),
+    execute: (bindings) => reader.unsafe(`SELECT work.*,work.task_id AS item_id,
+      (SELECT json_group_array(depends_on_task_id) FROM (
+        SELECT depends_on_task_id FROM work_task_dependencies AS dependency
+        WHERE dependency.canvas_name=work.canvas_name AND dependency.node_id=work.node_id
+          AND dependency.task_id=work.task_id ORDER BY position,depends_on_task_id
+      )) AS depends_on_json
+      FROM work_tasks AS work JOIN task_boards AS node
+        ON node.canvas_name=work.canvas_name AND node.id=work.node_id
+      WHERE work.canvas_name=? ${query.nodeId === undefined ? "" : "AND work.node_id=?"}
+        AND work.state != 'archived'
+      ORDER BY work.node_id,work.created_at,work.task_id`, bindings),
+  })([query.canvasName, ...(query.nodeId === undefined ? [] : [query.nodeId])]);
+  return yield* Effect.forEach(rows, (row) => Effect.gen(function* () {
+    const dependsOn = yield* Schema.decodeUnknownEffect(Schema.Array(Schema.String))(
+      yield* Effect.try(() => JSON.parse(row.depends_on_json)),
+    );
+    const item = yield* taskFromRow(reader, { canvasName: query.canvasName, nodeId: row.node_id }, "task", row, dependsOn, undefined, []);
+    return { nodeId: row.node_id, item };
+  }));
+});
+
 /** Seat ledger pages hydrate only the selected rows, across live sinks. */
 export const readWorkActorPage = Effect.fn("work.actor.page")(function* (
   reader: SqlClient.SqlClient, input: WorkActorQuery,
@@ -8510,6 +8540,7 @@ export interface WorkRepositoryShape {
   readonly actorPage: (query: WorkActorQuery) => Effect.Effect<WorkActorPage, WorkRepositoryError>;
   readonly attentionSnapshot: (query: WorkAttentionQuery) => Effect.Effect<WorkAttentionSnapshot, WorkRepositoryError>;
   readonly attentionItems: (query: WorkAttentionQuery) => Effect.Effect<ReadonlyArray<WorkAttentionRow>, WorkRepositoryError>;
+  readonly taskPolicy: (query: WorkAttentionQuery) => Effect.Effect<ReadonlyArray<WorkLaneRow>, WorkRepositoryError>;
   readonly sinkPage: (query: WorkSinkQuery) => Effect.Effect<WorkSinkPage, WorkRepositoryError>;
   readonly mailPage: (query: WorkMailQuery) => Effect.Effect<WorkMailPage, WorkRepositoryError>;
   readonly mailbox: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<MessageValue>, WorkRepositoryError>;
@@ -12326,6 +12357,11 @@ export const WorkRepositoryLive = Layer.effect(
         withSqlRead(sql, readWorkAttention(sql, query)).pipe(
           Effect.provideService(StateTransactionOperation, "work.attention"),
           Effect.mapError((error) => toRepositoryError("work.attention", error)),
+        )),
+      taskPolicy: Effect.fn("WorkRepository.taskPolicy")((query: WorkAttentionQuery) =>
+        withSqlRead(sql, readWorkTaskPolicy(sql, query)).pipe(
+          Effect.provideService(StateTransactionOperation, "work.task.policy"),
+          Effect.mapError((error) => toRepositoryError("work.task.policy", error)),
         )),
       sinkPage: Effect.fn("WorkRepository.sinkPage")((query: WorkSinkQuery) =>
         withSqlRead(sql, readWorkSinkPage(sql, query)).pipe(

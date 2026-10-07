@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { AgentSignal } from "@shared/agent-signals";
-import { feedCanvasNeeds } from "@shared/canvas-needs";
+import { feedCanvasModelNeeds } from "@shared/canvas-needs";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import {
   buildOperatorFeed,
@@ -24,7 +24,8 @@ import { seatAwareness$ } from "./seat-awareness";
 import { attentionAgentKey } from "./seat-projections";
 import { state$ } from "./state";
 import { threadHealthView, useHealthClock } from "./thread-health";
-import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
+import { canvasFromDocument } from "@shared/model/from-document";
+import { useCanvasWorkItems } from "./use-work-sink";
 
 /**
  * The desktop's reading of the operator feed: joins the live planes (declared
@@ -87,6 +88,7 @@ const liveWantsInput = (nodes: ReadonlyArray<CanvasNode>): ReadonlyMap<string, n
 const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
+  const itemsOf = useCanvasWorkItems(canvasName);
   const actorRefs = use$(state$.actorRefs);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
@@ -101,18 +103,18 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
     const context = executionGraphContextFromActorRefs(
       canvasName,
       actorRefs,
-      workItemsFromDocument(doc),
+      itemsOf,
     );
-    return feedCanvasNeeds({
+    return feedCanvasModelNeeds({
       canvasName,
-      doc,
+      canvas: canvasFromDocument(canvasName, doc),
+      itemsOf,
       graph: executionGraphForImpact(canvasFromDocument(canvasName, doc), execution, context),
-      nameOf: nodeTitle,
       wantsInput: liveWantsInput(doc.nodes),
     });
     // Kernel execution and seat state mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, canvasName, actorRefs, execution, executionRev, seatRev, permissionKey]);
+  }, [doc, canvasName, actorRefs, execution, executionRev, seatRev, permissionKey, itemsOf]);
 };
 
 /** The live feed for the open canvas. */

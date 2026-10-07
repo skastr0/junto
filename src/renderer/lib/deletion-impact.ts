@@ -1,11 +1,26 @@
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import { flowDestinations, isTaskSinkNode } from "@shared/flow-graph";
-import { wireOfDocument, wiresFromDocument } from "@shared/model/from-document";
+import { canvasFromDocument, wireOfDocument, wiresFromDocument } from "@shared/model/from-document";
+import type { WorkRead } from "@shared/work-read";
+import { readTaskPolicy } from "./use-work-task-policy";
+import { taskPolicyRead } from "./work-task-policy-store";
 import {
   boardDeletionImpact,
   flowEdgeRemovalImpact,
 } from "@shared/visit-integrity";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
+
+/** Only task retirement and task-path changes need current task policy. */
+export const readDeletionPolicy = (
+  canvasName: string,
+  doc: CanvasDoc,
+  removedNodeIds: ReadonlySet<string>,
+  removedEdges: ReadonlyArray<CanvasEdge>,
+): WorkRead | Promise<WorkRead> =>
+  doc.nodes.some((node) => removedNodeIds.has(node.id) && isTaskSinkNode(node)) ||
+  removedEdges.some((edge) => wireOfDocument(edge)?.verb === "feeds")
+    ? readTaskPolicy(canvasName)
+    : taskPolicyRead([]);
 
 const count = (value: number, singular: string, plural = `${singular}s`): string =>
   `${value} ${value === 1 ? singular : plural}`;
@@ -25,11 +40,12 @@ const boardName = (doc: CanvasDoc, nodeId: string): string => {
 export const tasksNodeDeletionWarnings = (
   doc: CanvasDoc,
   removedNodeIds: ReadonlySet<string>,
+  work: WorkRead,
 ): ReadonlyArray<string> => {
   const warnings: string[] = [];
   for (const node of doc.nodes) {
     if (!removedNodeIds.has(node.id) || !isTaskSinkNode(node)) continue;
-    const impact = boardDeletionImpact(doc, node.id);
+    const impact = boardDeletionImpact(canvasFromDocument("", doc), work, node.id);
     const liveRows = impact.strandedTasks.filter((task) =>
       task.kinds.includes("home-row"),
     ).length;
@@ -62,6 +78,7 @@ type SourceRemoval = {
 export const flowEdgeRemovalWarnings = (
   doc: CanvasDoc,
   removedEdges: ReadonlyArray<CanvasEdge>,
+  work: WorkRead,
   removedNodeIds: ReadonlySet<string> = new Set(),
 ): ReadonlyArray<string> => {
   const bySource = new Map<
@@ -75,7 +92,7 @@ export const flowEdgeRemovalWarnings = (
     const source = edge.fromNode;
     if (removedNodeIds.has(source)) continue;
     const nextBoard = edge.toNode;
-    const impact = flowEdgeRemovalImpact(doc, source, nextBoard);
+    const impact = flowEdgeRemovalImpact(canvasFromDocument("", doc), work, source, nextBoard);
     const entry = bySource.get(source) ?? {
       nextBoards: new Set<string>(),
       tasks: new Set<string>(),

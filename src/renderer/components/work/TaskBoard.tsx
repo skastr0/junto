@@ -85,7 +85,7 @@ import { rulesInForce } from "@shared/rules";
 import { defectTargetOptions } from "@shared/visit-integrity";
 import { reachableBoards } from "@shared/flow-graph";
 import { nodesFromDocument, wiresFromDocument } from "@shared/model/from-document";
-import { workReadFromDocument } from "@shared/work-read";
+import { useCanvasTaskPolicy } from "../../lib/use-work-task-policy";
 import {
   resolveTaskAdmission,
   type TaskAdmission,
@@ -2291,6 +2291,7 @@ export function TaskBoard({
   readonly initialItemId?: string;
 }) {
   const work = useTaskItems(use$(state$.canvasName) || "", node.id);
+  const taskPolicy = useCanvasTaskPolicy(use$(state$.canvasName) || "");
   const items = work.items;
   const boardSettings = node.ether?.tasks?.contract;
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -2474,8 +2475,8 @@ export function TaskBoard({
   );
   /** Region-scoped tasks for dep glance (cross-sink prereqs in the same region). */
   const scopeTasks = useMemo(
-    () => dependencyScopeTasks(nodesFromDocument(doc), workReadFromDocument(doc), node.id),
-    [doc, node.id],
+    () => dependencyScopeTasks(nodesFromDocument(doc), taskPolicy, node.id),
+    [doc, node.id, taskPolicy],
   );
 
   // Wait countdowns tick only while some Queue or Incoming task is still waiting.
