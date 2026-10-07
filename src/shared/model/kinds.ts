@@ -59,7 +59,11 @@ export type BindingId = typeof BindingId.Type;
 export const Seat = Schema.Struct({
   kind: Schema.Literal("agent"),
   ...placement,
-  /** Fixed at creation and never edited: the key other records join on. */
+  /**
+   * Which agent this seat runs, as `<host>:<profile or harness>`, fixed at
+   * creation. It is not the seat's identity: many seats run `local:claude`.
+   * A seat is identified by its id, and its session by `bindingId`.
+   */
   name: NonEmpty,
   /** What the operator sees and may rename. One line. */
   label: OneLine,
