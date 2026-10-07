@@ -38,6 +38,7 @@ import {
 import { getJuntoApi } from "./junto-api";
 import { nodeAt } from "./use-model";
 import { state$ } from "./state";
+import { titleOf } from "@shared/model/title";
 import { taskBoardTitle } from "@shared/model/title";
 import { dropTerminalView, terminal$ } from "./terminal-state";
 
@@ -239,23 +240,28 @@ const applyTransition = (transition: WorkbenchTransition): void => {
 };
 
 /** Open an agent's ACP conversation in the shared focus/pinned workbench. */
-export const openAgentChatSurface = (
-  node: CanvasNode,
-  zone: WorkZone = "focus",
-): void => {
-  const entity = node.ether?.entity;
-  if (entity?.kind !== "agent" || !entity.name) return;
-  const id = chatSurfaceId(node.id);
-  const title =
-    (node.type === "text" ? node.text : "").split("\n")[0]?.trim() ||
-    entity.name;
+export function openAgentChatSurface(canvas: string, nodeId: string, zone?: WorkZone): void;
+/** The same for a caller that still holds a document node. Goes with its last caller. */
+export function openAgentChatSurface(node: { readonly id: string }, zone?: WorkZone): void;
+export function openAgentChatSurface(
+  first: string | { readonly id: string },
+  second?: string | WorkZone,
+  third?: WorkZone,
+): void {
+  const byId = typeof first === "string";
+  const canvas = byId ? first : state$.canvasName.peek();
+  const nodeId = byId ? ((second as string | undefined) ?? "") : first.id;
+  const zone: WorkZone = (byId ? third : (second as WorkZone | undefined)) ?? "focus";
+  const seat = nodeAt(canvas, nodeId);
+  if (seat?.kind !== "agent") return;
+  const id = chatSurfaceId(seat.id);
   dock$.chatById[id].set({
-    nodeId: node.id,
-    agentKey: entity.name,
-    title,
+    nodeId: seat.id,
+    agentKey: seat.agentKey,
+    title: titleOf(seat),
   });
   applyTransition(openSurface(dock$.registry.peek(), { id, kind: "chat" }, admittedZone(zone)));
-};
+}
 
 /**
  * Open (or re-focus) the quick task-enqueue surface for a tasks sink node.

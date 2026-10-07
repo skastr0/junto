@@ -10,6 +10,8 @@ import { markAgentSeatSeen } from "./agent-seat-state";
 import { flushPendingCanvasSave } from "./mutations";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
+import { nodeToDocument } from "@shared/model/from-document";
+import { nodeAt } from "./use-model";
 import type { WorkZone } from "./surface-registry";
 import { openTerminalSurface } from "./dock-state";
 import { openGridTerminalSurface, terminal$ } from "./terminal-state";
@@ -152,7 +154,39 @@ export const ensureTerminalRunning = async (
  * while ensure + attach run inside TerminalSurface. Geography shells still
  * ensure before open (no actor load chrome).
  */
-export const openTerminal = async (
+/**
+ * Open the terminal of a seat or a terminal, named by canvas and id: the node
+ * is read from the store as it stands at the gesture.
+ */
+export function openTerminal(
+  canvas: string,
+  id: string,
+  zone?: WorkZone,
+  options?: { readonly resume?: boolean },
+): Promise<void>;
+/** The same for a caller that still holds a document node. Goes with its last caller. */
+export function openTerminal(
+  node: CanvasNode,
+  zone?: WorkZone,
+  options?: { readonly resume?: boolean },
+): Promise<void>;
+export function openTerminal(
+  first: string | CanvasNode,
+  second?: string | WorkZone,
+  third?: WorkZone | { readonly resume?: boolean },
+  fourth?: { readonly resume?: boolean },
+): Promise<void> {
+  if (typeof first !== "string") {
+    return openTerminalNode(first, (second as WorkZone | undefined) ?? "focus", third as { readonly resume?: boolean } | undefined);
+  }
+  const row = nodeAt(first, second ?? "");
+  if (row === undefined) return Promise.resolve();
+  // The surface and the open-terminals store still take a document node; this
+  // is the one place it is made for them, and it goes when they take an id.
+  return openTerminalNode(nodeToDocument(row), (third as WorkZone | undefined) ?? "focus", fourth);
+}
+
+const openTerminalNode = async (
   node: CanvasNode,
   zone: WorkZone = "focus",
   options?: { readonly resume?: boolean },

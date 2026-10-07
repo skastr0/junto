@@ -1,3 +1,4 @@
+import { holdCanvas } from "./support/hold-canvas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
@@ -518,13 +519,20 @@ describe("renderer graph mutations", () => {
         y: 0,
         width: 220,
         height: 84,
-        ether: { entity: { kind: "agent", name: "local:default" } },
+        ether: {
+          entity: { kind: "agent", name: "local:default" },
+          host: "local",
+          terminal: { bindingId: "binding-agent", harness: "claude" },
+        },
       } as const;
     loadDoc({
       nodes: [agentNode],
       edges: [],
     });
-    openAgentChatSurface(agentNode);
+    // The chat opens on the seat the store holds; the store lets go before the delete.
+    const releaseSeat = holdCanvas("mutation-test", [agentNode as never]);
+    openAgentChatSurface("mutation-test", "agent");
+    releaseSeat();
     expect(dock$.registry.peek().surfaces).toMatchObject([
       { id: "chat:agent", kind: "chat", zone: "focus" },
     ]);

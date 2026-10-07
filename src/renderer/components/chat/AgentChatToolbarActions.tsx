@@ -2,6 +2,7 @@ import { MessageSquareText } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { openAgentChatSurface } from "../../lib/dock-state";
+import { state$ } from "../../lib/state";
 import { IconButton } from "../ui";
 
 /** Selection-toolbar entry point for the agent's ACP work surface. */
@@ -17,7 +18,7 @@ export function AgentChatToolbarActions({ node }: { readonly node: CanvasNode })
       onPointerDown={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        openAgentChatSurface(node);
+        openAgentChatSurface(state$.canvasName.peek(), node.id);
       }}
     >
       <MessageSquareText size={14} />

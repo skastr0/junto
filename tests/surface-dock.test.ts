@@ -1,3 +1,4 @@
+import { holdCanvas } from "./support/hold-canvas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserOpResult, BrowserSessionInfo } from "../src/shared/ipc";
 import { formatNodeRef, parseNodeRef } from "../src/shared/node-ref";
@@ -306,9 +307,15 @@ describe("dock-state", () => {
       width: 240,
       height: 96,
       text: "PROFILE-01",
-      ether: { entity: { kind: "agent", name: "remote-a:profile-01" } },
+      ether: {
+        entity: { kind: "agent", name: "remote-a:profile-01" },
+        host: "local",
+        terminal: { bindingId: "binding-agent-1", harness: "claude" },
+      },
     };
-    openAgentChatSurface(node);
+    const release = holdCanvas("dock-test", [node as never]);
+    openAgentChatSurface("dock-test", node.id);
+    release();
     const id = chatSurfaceId(node.id);
     expect(dock$.registry.peek().surfaces).toEqual([
       { id, kind: "chat", zone: "focus" },
@@ -880,7 +887,7 @@ describe("dock-state", () => {
 
     it("with tab chrome visible (mixed kinds) close stays per-surface", () => {
       openTerminalSurface(nativeTerminalNode("t1"), "focus");
-      openAgentChatSurface({
+      const release = holdCanvas("dock-test", [{
         id: "agent-1",
         type: "text",
         x: 0,
@@ -888,8 +895,14 @@ describe("dock-state", () => {
         width: 240,
         height: 96,
         text: "PROFILE-01",
-        ether: { entity: { kind: "agent", name: "remote-a:profile-01" } },
-      });
+        ether: {
+          entity: { kind: "agent", name: "remote-a:profile-01" },
+          host: "local",
+          terminal: { bindingId: "binding-agent-1", harness: "claude" },
+        },
+      } as never]);
+      openAgentChatSurface("dock-test", "agent-1");
+      release();
       closeFocusModalSurface(terminalSurfaceId("t1"));
       expect(dock$.registry.peek().surfaces).toEqual([
         { id: chatSurfaceId("agent-1"), kind: "chat", zone: "focus" },

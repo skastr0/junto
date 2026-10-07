@@ -642,9 +642,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
           }}
         >
           {cronScheduleOpen && isCron ? (
-            <WithDocumentNode id={id}>
-              {(node) => <CronScheduleSurface node={node} onClose={() => setCronScheduleOpen(false)} />}
-            </WithDocumentNode>
+            <CronScheduleSurface canvas={canvasName} id={id} onClose={() => setCronScheduleOpen(false)} />
           ) : null}
           {entityKind === "watcher" ? (
             <WatcherCard canvas={canvasName} id={id} label="gauge" />

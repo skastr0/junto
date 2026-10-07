@@ -137,14 +137,18 @@ const needsTime = (mode: FriendlyMode): boolean =>
 /**
  * Human-first cron schedule. Presets + time; raw expression is advanced-only.
  */
-export function CronScheduleSurface({
-  node,
-  onClose,
-}: {
-  readonly node: { readonly id: string };
-  readonly onClose: () => void;
-}) {
-  const current = useNodeOf(use$(state$.canvasName), node.id, "cron");
+export function CronScheduleSurface(
+  props: { readonly onClose: () => void } & (
+    | { readonly canvas: string; readonly id: string }
+    // A caller that still holds a node. Goes with its last caller.
+    | { readonly node: { readonly id: string } }
+  ),
+) {
+  const open = use$(state$.canvasName);
+  const canvas = "node" in props ? open : props.canvas;
+  const id = "node" in props ? props.node.id : props.id;
+  const { onClose } = props;
+  const current = useNodeOf(canvas, id, "cron");
   return current ? <CronScheduleBody key={current.id} node={current} onClose={onClose} /> : null;
 }
 
