@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Files attached to a needs-you signal.
  *   bun run test:e2e:fast e2e/scenarios/feed-attachments.spec.ts
@@ -24,11 +25,9 @@ import { deflateSync } from "node:zlib";
 import type { AgentSignal, AgentSignalAttachment } from "../../src/shared/agent-signals";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
-  crewDoc,
   crewOccupySeat,
   crewPlayFactory,
   crewSeat,
-  crewSeatNode,
   installCrewSeatHarness,
 } from "../harness/crew-fixture";
 
@@ -44,7 +43,7 @@ const ZIP = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(2
 const SHOTS = join(process.cwd(), "test-results", "feed-attachments");
 const CANVAS = "feed-attachments";
 const SEAT = "seat-ada";
-const seatNode = crewSeatNode({ id: SEAT, label: "Ada", x: 120, y: 220 });
+const seatNode = modelSeat({ id: SEAT, label: "Ada", x: 120, y: 220 });
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -98,7 +97,7 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
   await writeFile(at("build.zip"), ZIP);
 
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: crewDoc([seatNode]) },
+    seedModels: { [CANVAS]: modelFixture([seatNode]) },
     afterSeed: installCrewSeatHarness,
   });
   try {

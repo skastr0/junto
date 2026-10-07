@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat, modelMessagesWire } from "../harness/model";
 import { readSeatMailbox } from "../harness/work-mail";
 /**
  * Prompt mail — the full body typed into the recipient seat at once, over a
@@ -27,7 +28,7 @@ import { readSeatMailbox } from "../harness/work-mail";
  */
 import { createHash } from "node:crypto";
 import type { Page } from "@playwright/test";
-import type { Message } from "../../src/shared/canvas";
+import type { Message } from "../../src/shared/work-model";
 import { readMailExtension } from "../../src/shared/crew";
 import { MAIL_ONBOARD_POINTER, composeImmediatePromptPayload } from "../../src/shared/message-delivery";
 import { expect, launchJunto, test } from "../harness/launch";
@@ -36,9 +37,6 @@ import {
   crewPlayFactory,
   crewReceipts,
   crewSeat,
-  crewSeatNode,
-  crewDoc,
-  crewMessagesEdge,
   installCrewSeatHarness,
   type CrewSeat,
   type WorkEnvelope,
@@ -48,11 +46,11 @@ const CANVAS = "crew-prompt";
 const A = "seat-a";
 const B = "seat-b";
 
-const seatA = crewSeatNode({ id: A, x: 40, y: 40 });
-const seatB = crewSeatNode({ id: B, x: 360, y: 40 });
-const promptDoc = crewDoc(
+const seatA = modelSeat({ id: A, x: 40, y: 40 });
+const seatB = modelSeat({ id: B, x: 360, y: 40 });
+const promptDoc = modelFixture(
   [seatA, seatB],
-  [crewMessagesEdge("e-ab", A, B, [seatA, seatB])],
+  [modelMessagesWire("e-ab", A, B, [seatA, seatB])],
 );
 
 const opData = (env: WorkEnvelope): Record<string, unknown> => {
@@ -63,7 +61,7 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 
 const launch = () =>
   launchJunto({
-    seedCanvases: { [CANVAS]: promptDoc },
+    seedModels: { [CANVAS]: promptDoc },
     afterSeed: installCrewSeatHarness,
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });

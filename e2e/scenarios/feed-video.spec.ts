@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * A video attached to a needs-you signal plays from the card.
  *   bun run test:e2e:fast e2e/scenarios/feed-video.spec.ts
@@ -27,11 +28,9 @@ import { join } from "node:path";
 import type { AgentSignal, AgentSignalAttachment } from "../../src/shared/agent-signals";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
-  crewDoc,
   crewOccupySeat,
   crewPlayFactory,
   crewSeat,
-  crewSeatNode,
   installCrewSeatHarness,
 } from "../harness/crew-fixture";
 
@@ -45,7 +44,7 @@ const SHOTS = join(process.cwd(), "test-results", "feed-video");
 const CLIPS = join(process.cwd(), "e2e", "fixtures", "video");
 const CANVAS = "feed-video";
 const SEAT = "seat-ada";
-const seatNode = crewSeatNode({ id: SEAT, label: "Ada", x: 120, y: 220 });
+const seatNode = modelSeat({ id: SEAT, label: "Ada", x: 120, y: 220 });
 
 test("[fake-tui] a seat attaches videos to a signal and the card plays them", async () => {
   test.setTimeout(240_000);
@@ -58,7 +57,7 @@ test("[fake-tui] a seat attaches videos to a signal and the card plays them", as
   await copyFile(join(CLIPS, "clip.webm"), at("capture.bin"));
 
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: crewDoc([seatNode]) },
+    seedModels: { [CANVAS]: modelFixture([seatNode]) },
     afterSeed: installCrewSeatHarness,
   });
   try {
@@ -187,7 +186,7 @@ test("[fake-tui] a video at a web address plays only after play is pressed, and 
   const elsewhere = await serveClip();
   const host = await serveClip(() => `${elsewhere.origin}/runs/onboarding.mp4`);
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: crewDoc([seatNode]) },
+    seedModels: { [CANVAS]: modelFixture([seatNode]) },
     afterSeed: installCrewSeatHarness,
   });
   try {

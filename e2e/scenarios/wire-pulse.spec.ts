@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat, modelMessagesWire } from "../harness/model";
 /**
  * Wire pulse — a delivered message runs light along its wire [fake-tui].
  *
@@ -12,12 +13,9 @@
 import type { Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
-  crewDoc,
-  crewMessagesEdge,
   crewOccupySeat,
   crewPlayFactory,
   crewSeat,
-  crewSeatNode,
   installCrewSeatHarness,
   type CrewSeat,
 } from "../harness/crew-fixture";
@@ -27,9 +25,9 @@ const CANVAS = "wire-pulse";
 const A = "seat-a";
 const B = "seat-b";
 
-const seatA = crewSeatNode({ id: A, x: 40, y: 60 });
-const seatB = crewSeatNode({ id: B, x: 520, y: 60 });
-const pulseDoc = crewDoc([seatA, seatB], [crewMessagesEdge("e-ab", A, B, [seatA, seatB])]);
+const seatA = modelSeat({ id: A, x: 40, y: 60 });
+const seatB = modelSeat({ id: B, x: 520, y: 60 });
+const pulseDoc = modelFixture([seatA, seatB], [modelMessagesWire("e-ab", A, B, [seatA, seatB])]);
 
 const seatStateOf = async (from: CrewSeat, target: string): Promise<string> => {
   const read = await from.op("seat.read", { target, lines: 10 });
@@ -66,7 +64,7 @@ const releasePulse = (page: Page) =>
 test("wire pulse [fake-tui]: delivered mail lights its wire, sender to receiver", async () => {
   test.setTimeout(240_000);
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: pulseDoc },
+    seedModels: { [CANVAS]: pulseDoc },
     afterSeed: installCrewSeatHarness,
   });
   try {

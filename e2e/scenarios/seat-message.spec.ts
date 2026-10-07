@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Message a seat from the canvas [fake-tui]: the seat toolbar's message
  * button, and the selection menu's "message" row for many seats at once.
@@ -19,12 +20,10 @@ import type { Page } from "@playwright/test";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
-  crewDoc,
   crewOccupySeat,
   crewPlayFactory,
   crewReceipts,
   crewSeat,
-  crewSeatNode,
   installCrewSeatHarness,
   type CrewSeat,
 } from "../harness/crew-fixture";
@@ -33,12 +32,12 @@ const CANVAS = "seat-message";
 const SHOTS = join(process.cwd(), "test-results", "seat-message");
 const A = "seat-a";
 const B = "seat-b";
-const seatA = crewSeatNode({ id: A, label: "Ada", x: 120, y: 220 });
-const seatB = crewSeatNode({ id: B, label: "Bo", x: 480, y: 220 });
+const seatA = modelSeat({ id: A, label: "Ada", x: 120, y: 220 });
+const seatB = modelSeat({ id: B, label: "Bo", x: 480, y: 220 });
 
 const launch = () =>
   launchJunto({
-    seedCanvases: { [CANVAS]: crewDoc([seatA, seatB]) },
+    seedModels: { [CANVAS]: modelFixture([seatA, seatB]) },
     afterSeed: installCrewSeatHarness,
   });
 
