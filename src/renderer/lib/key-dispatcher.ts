@@ -40,6 +40,8 @@ export type KeyActions = Readonly<Partial<Record<ShortcutId, KeyAction>>>;
 export type KeyPlace = {
   /** The urgency switcher is up. */
   readonly switcher: boolean;
+  /** A dialog is the front layer. */
+  readonly dialog: boolean;
   /** An operator modal (search, the needs-you feed) is open. */
   readonly operator: boolean;
   /** Focus is in a terminal. */
@@ -53,6 +55,7 @@ export type KeyPlace = {
 /** The one answer to "where is the keyboard". */
 export const keyContextOf = (place: KeyPlace): KeyContext => {
   if (place.switcher) return "switcher";
+  if (place.dialog) return "dialog";
   if (place.operator) return "operator";
   if (place.terminal) return "terminal";
   if (place.typing) return "field";
@@ -78,7 +81,8 @@ export const keySituation = (target: EventTarget | null): KeySituation => {
     typing,
     context: keyContextOf({
       switcher: focusSwitcher$.session.peek() !== null,
-      operator: isOperatorModalOpen() || front === "operator" || front === "operator-dialog",
+      dialog: front === "working-dialog" || front === "operator-dialog",
+      operator: isOperatorModalOpen() || front === "operator",
       terminal,
       typing,
       working: front !== null || workingModalOpen(),
@@ -142,7 +146,8 @@ export const dispatchRelease = (
   actions: KeyActions,
   situation: KeySituation = keySituation(event.target),
 ): ShortcutId | null => {
-  if (event.key !== "Meta") return null;
+  // With two Cmd keys down, letting one go is not letting Cmd go.
+  if (event.key !== "Meta" || event.metaKey) return null;
   const hit = resolveRelease("Cmd", situation);
   if (hit === null) return null;
   actions[hit.id]?.(hit, event);

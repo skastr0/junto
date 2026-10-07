@@ -32,8 +32,11 @@ describe("proposeRebind", () => {
   it("refuses a bare key for a shortcut that works while typing", () => {
     expect(proposeRebind("git.review", "G", true)).toEqual({
       kind: "refused",
-      why: "A key without Cmd would be typed into the terminal",
+      why: "Without Cmd it would be typed into the terminal",
     });
+    // Option and a letter types a character on macOS; the shell moves by word with Alt.
+    expect(proposeRebind("git.review", "Alt+B", true).kind).toBe("refused");
+    expect(proposeRebind("groups.jump", "Alt+Shift+3", true).kind).toBe("refused");
     // On the canvas nothing is typed: a bare key is fine there.
     expect(proposeRebind("alerts.next", "N", true).kind).toBe("ok");
   });

@@ -69,7 +69,7 @@ export const proposeRebind = (
     return { kind: "refused", why: "Needs Cmd: letting Cmd go opens the agent" };
   }
   if (isBareChord(chord) && typedWhere(def, mac)) {
-    return { kind: "refused", why: "A key without Cmd would be typed into the terminal" };
+    return { kind: "refused", why: "Without Cmd it would be typed into the terminal" };
   }
   const next = withChords(overrides, def, [chord], mac);
   const clash = keyConflicts(mac, next, table).find((conflict) => conflict.ids.includes(id));

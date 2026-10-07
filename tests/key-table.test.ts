@@ -63,12 +63,14 @@ describe("chordOfKey", () => {
 });
 
 describe("isBareChord", () => {
-  it("is true only without Cmd, Ctrl or Alt", () => {
+  it("is true without Cmd or Control: Alt alone types a character", () => {
     expect(isBareChord("Slash")).toBe(true);
     expect(isBareChord("Shift+A")).toBe(true);
     expect(isBareChord("Cmd+K")).toBe(false);
     expect(isBareChord("Ctrl+Shift+Tab")).toBe(false);
-    expect(isBareChord("Alt+1")).toBe(false);
+    expect(isBareChord("Alt+1")).toBe(true);
+    expect(isBareChord("Alt+Shift+B")).toBe(true);
+    expect(isBareChord("Cmd+Alt+1")).toBe(false);
   });
 });
 
@@ -356,6 +358,43 @@ describe("rebinding", () => {
     expect(reservedReason("Ctrl+Tab", true)).toBe("Control belongs to the terminal");
     expect(reservedReason("Ctrl+K", false)).toBeNull();
     expect(reservedReason("Cmd+J", true)).toBeNull();
+  });
+});
+
+describe("under a dialog", () => {
+  it("answers only search, the feed and closing what is in front", () => {
+    const live = new Set<string>();
+    for (const def of KEY_TABLE) {
+      if (def.surface) continue;
+      for (const chord of def.mac) {
+        const hit = resolveChord(chord.replace("Digit", "1"), at("dialog", true, false));
+        if (hit) live.add(hit.id);
+      }
+    }
+    expect([...live].sort()).toEqual(["feed.open", "front.close", "search.open"]);
+  });
+
+  it("does not jump to another agent, undo, or cycle alerts from under a dialog", () => {
+    expect(resolveKey(key({ key: "2", code: "Digit2", metaKey: true }), at("dialog"))).toBeNull();
+    expect(resolveKey(key({ key: "z", metaKey: true }), at("dialog"))).toBeNull();
+    expect(resolveKey(key({ key: " ", code: "Space" }), at("dialog", true, false))).toBeNull();
+    expect(resolveKey(key({ key: "g", metaKey: true }), at("dialog"))).toBeNull();
+  });
+});
+
+describe("under search or the feed", () => {
+  it("does not cycle the agent terminals behind it", () => {
+    expect(resolveKey(key({ key: "]", metaKey: true }), at("operator"))).toBeNull();
+    expect(resolveKey(key({ key: "[", metaKey: true }), at("operator"))).toBeNull();
+    expect(resolveKey(key({ key: "]", metaKey: true }), at("terminal"))).toEqual({ id: "mirrors.next" });
+  });
+});
+
+describe("Alt chords", () => {
+  it("never fire while the operator types, whatever is stored", () => {
+    const overrides = { "git.review": ["Alt+B"] };
+    expect(resolveChord("Alt+B", at("terminal"), overrides)).toBeNull();
+    expect(resolveChord("Alt+B", at("field"), overrides)).toBeNull();
   });
 });
 

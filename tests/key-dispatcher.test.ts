@@ -36,12 +36,17 @@ const at = (context: KeyContext, mac = true): KeySituation => ({
 });
 
 describe("keyContextOf", () => {
-  const place = { switcher: false, operator: false, terminal: false, typing: false, working: false };
+  const place = { switcher: false, dialog: false, operator: false, terminal: false, typing: false, working: false };
 
   it("puts the open switcher above everything", () => {
-    expect(keyContextOf({ switcher: true, operator: true, terminal: true, typing: true, working: true })).toBe(
-      "switcher",
-    );
+    expect(
+      keyContextOf({ switcher: true, dialog: true, operator: true, terminal: true, typing: true, working: true }),
+    ).toBe("switcher");
+  });
+
+  it("puts a dialog above whatever it was opened over, a field inside it included", () => {
+    expect(keyContextOf({ ...place, dialog: true, operator: true, working: true })).toBe("dialog");
+    expect(keyContextOf({ ...place, dialog: true, typing: true, working: true })).toBe("dialog");
   });
 
   it("puts an open operator modal above the rest", () => {
@@ -186,6 +191,8 @@ describe("dispatchRelease", () => {
     expect(dispatchRelease(press({ key: "`", metaKey: true }), { "switcher.commit": commit }, at("switcher"))).toBeNull();
     expect(dispatchRelease(press({ key: "Meta" }), { "switcher.commit": commit }, at("terminal"))).toBeNull();
     expect(dispatchRelease(press({ key: "Shift" }), { "switcher.commit": commit }, at("switcher"))).toBeNull();
+    // The other Cmd key is still down.
+    expect(dispatchRelease(press({ key: "Meta", metaKey: true }), { "switcher.commit": commit }, at("switcher"))).toBeNull();
     expect(commit).not.toHaveBeenCalled();
   });
 });

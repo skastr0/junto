@@ -17,16 +17,25 @@
  * - field: focus is in any other field the operator types in.
  * - working: a working modal or Settings is open, focus is not in a field.
  * - operator: an operator modal (search, the needs-you feed) is open.
+ * - dialog: a dialog is in front. It asks a question and waits, so nothing
+ *   acts under it but opening search or the feed and closing what is in front.
  * - switcher: the urgency switcher is up, which means Cmd is being held.
  *
  * Laws the resolver holds for every row
- * - A chord with no Cmd, Ctrl or Alt is a typed character: it never fires
+ * - A chord with no Cmd or Control is a typed character: it never fires
  *   while the operator is typing, a terminal included.
  * - On macOS the app's chords are Cmd chords. Control belongs to the shell.
  * - Elsewhere there is no Cmd: today's Control chords are kept as they were.
  */
 
-export type KeyContext = "canvas" | "terminal" | "field" | "working" | "operator" | "switcher";
+export type KeyContext =
+  | "canvas"
+  | "terminal"
+  | "field"
+  | "working"
+  | "operator"
+  | "dialog"
+  | "switcher";
 
 export const KEY_CONTEXTS: ReadonlyArray<KeyContext> = [
   "canvas",
@@ -34,12 +43,17 @@ export const KEY_CONTEXTS: ReadonlyArray<KeyContext> = [
   "field",
   "working",
   "operator",
+  "dialog",
   "switcher",
 ];
 
 // The switcher is not part of "everywhere": while it is up, its own rows
 // decide what each key means.
 const EVERYWHERE: ReadonlyArray<KeyContext> = ["canvas", "terminal", "field", "working", "operator"];
+// The few chords that also answer under a dialog.
+const OVER_DIALOGS: ReadonlyArray<KeyContext> = [...EVERYWHERE, "dialog"];
+// Everywhere but under search or the feed: nothing behind an operator modal acts.
+const UNDER_NO_MODAL: ReadonlyArray<KeyContext> = ["canvas", "terminal", "field", "working"];
 const NOT_TYPING: ReadonlyArray<KeyContext> = ["canvas", "working", "operator"];
 
 /** Where the shortcuts page lists a shortcut: by where its chord works. */
@@ -159,9 +173,9 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     does: "Open search, or close it when it is open",
     mac: ["Cmd+K"],
     other: ["Ctrl+K"],
-    where: EVERYWHERE,
+    where: OVER_DIALOGS,
     // Ctrl+K in a shell kills to the end of the line.
-    whereOther: ["canvas", "field", "working", "operator"],
+    whereOther: ["canvas", "field", "working", "operator", "dialog"],
   },
   {
     id: "search.slash",
@@ -179,8 +193,8 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     does: "Open the needs-you feed, or close it when it is open",
     mac: ["Cmd+I"],
     other: ["Ctrl+I"],
-    where: EVERYWHERE,
-    whereOther: ["canvas", "field", "working", "operator"],
+    where: OVER_DIALOGS,
+    whereOther: ["canvas", "field", "working", "operator", "dialog"],
   },
   {
     id: "groups.assign",
@@ -302,7 +316,7 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     does: "Go to the next connected agent terminal",
     mac: ["Cmd+BracketRight"],
     other: [],
-    where: EVERYWHERE,
+    where: UNDER_NO_MODAL,
   },
   {
     id: "mirrors.previous",
@@ -311,7 +325,7 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     does: "Go to the previous connected agent terminal",
     mac: ["Cmd+BracketLeft"],
     other: [],
-    where: EVERYWHERE,
+    where: UNDER_NO_MODAL,
   },
   // Canvas only: a surface in front (the drawing pad, a browser page) has its
   // own undo, and Cmd+Z must never edit the canvas behind it.
@@ -369,7 +383,7 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     mac: ["Cmd+W"],
     // Ctrl+W deletes a word in the shell.
     other: [],
-    where: EVERYWHERE,
+    where: OVER_DIALOGS,
   },
 ];
 
@@ -413,7 +427,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     name: "Close or clear",
     does: "Close what is open, or clear the selection",
     keys: ["Escape"],
-    where: ["canvas", "working", "operator"],
+    where: ["canvas", "working", "operator", "dialog"],
   }),
   surfaceKey({
     id: "canvas.magnify",
@@ -668,12 +682,16 @@ export const chordOfKey = (event: KeyEventLike): string | null => {
   return parts.join("+");
 };
 
-/** True when the chord would type a character: no Cmd, Ctrl or Alt in it. */
+/**
+ * True when the chord would type a character: no Cmd and no Control in it.
+ * Alt alone does not make a chord: on macOS Option and a key types a
+ * character, and the shell moves by word with Alt.
+ */
 export const isBareChord = (chord: string): boolean =>
   !chord
     .split("+")
     .slice(0, -1)
-    .some((part) => part === "Cmd" || part === "Ctrl" || part === "Alt");
+    .some((part) => part === "Cmd" || part === "Ctrl");
 
 const digitFamily = (chord: string): string | null => {
   const at = chord.lastIndexOf("+");
