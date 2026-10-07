@@ -14,7 +14,8 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { region as regionNode, seat } from "./support/model-nodes";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
 import { WorkLive } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
@@ -33,7 +34,6 @@ import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junt
 import { ReferencesFollowCanvasLive } from "../src/main/junto/references/follow-canvas";
 import { ModelService } from "../src/main/junto/model/service";
 import { APP_REFERENCE_PLACE, type ReferencePlace } from "../src/shared/references";
-import type { CanvasDoc } from "../src/shared/canvas";
 
 const CANVAS = "factory";
 let playing = true;
@@ -61,45 +61,27 @@ const makeRuntime = (root: string, withStore: boolean) => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesOnly = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesOnly = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   // The app composes the follower beside the store; here it sits above the model the same way.
   const canvasesLive = withStore ? Layer.provideMerge(ReferencesFollowCanvasLive, canvasesOnly) : canvasesOnly;
   const workLive = Layer.provideMerge(WorkLive, Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive));
   return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneSwitchable));
 };
 
-const group = (id: string, label: string, x: number, y: number, width: number, height: number) => ({
-  id,
-  type: "group",
-  x,
-  y,
-  width,
-  height,
-  label,
-});
+const group = (id: string, label: string, x: number, y: number, width: number, height: number) =>
+  regionNode(id, { x, y, width, height }, { label });
 
 /** The seat sits in "inner", which sits in "outer". "elsewhere" holds neither. */
-const doc = {
-  nodes: [
-    group("outer", "CLI", -100, -100, 1000, 600),
-    group("inner", "Protocol", -40, -40, 400, 300),
-    group("elsewhere", "Product", 2000, 2000, 300, 300),
-    {
-      id: "agent",
-      type: "text",
-      x: 0,
-      y: 40,
-      width: 120,
-      height: 48,
-      text: "agent",
-      ether: {
-        entity: { kind: "agent", name: "local:agent" },
-        terminal: { bindingId: "bind-agent", harness: "claude", launch: { kind: "harness", argv: ["claude"] } },
-      },
-    },
-  ],
-  edges: [],
-} as unknown as CanvasDoc;
+const nodes = [
+  group("outer", "CLI", -100, -100, 1000, 600),
+  group("inner", "Protocol", -40, -40, 400, 300),
+  group("elsewhere", "Product", 2000, 2000, 300, 300),
+  seat("agent", {
+    x: 0, y: 40, width: 120, height: 48,
+    bindingId: "bind-agent" as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  }),
+];
 
 let root: string;
 let runtime: ReturnType<typeof makeRuntime>;
@@ -124,8 +106,7 @@ const start = async (withStore = true) => {
     authoringGate: createMainAuthoringGate(),
   });
   token = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write(CANVAS, doc));
+  await runtime.runPromise(seedCanvas(CANVAS, nodes));
 };
 
 beforeEach(async () => {

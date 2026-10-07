@@ -14,7 +14,10 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { region, seat as seatNode, wire } from "./support/model-nodes";
+import { ModelService } from "../src/main/junto/model/service";
+import { asCanvasName, asWireId } from "../src/shared/model";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
 import { WorkLive } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
@@ -33,7 +36,6 @@ import {
   SeatGuidanceRepository,
   SeatGuidanceRepositoryLive,
 } from "../src/main/junto/seat-guidance/repository";
-import type { CanvasDoc } from "../src/shared/canvas";
 import { ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboarding";
 
 const CANVAS = "onboard";
@@ -55,52 +57,30 @@ const makeRuntime = (root: string) => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(WorkLive, Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive));
   return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
 };
 
-const seat = (id: string, x: number): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  x,
-  y: 40,
-  width: 120,
-  height: 48,
-  text: id,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: {
-      bindingId: `bind-${id}`,
-      harness: "claude",
-      launch: { kind: "harness", argv: ["claude"] },
-    },
-  },
-});
+const seat = (id: string, x: number) =>
+  seatNode(id, {
+    x,
+    y: 40,
+    width: 120,
+    height: 48,
+    bindingId: `bind-${id}` as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  });
 
-/** One seat in a briefed region, wired by messages edges to the given peers. */
-const doc = (peers: ReadonlyArray<string>): CanvasDoc => ({
-  nodes: [
-    {
-      id: "region",
-      type: "group",
-      x: -40,
-      y: -40,
-      width: 900,
-      height: 300,
-      label: "PTY",
-      ether: { region: { instruction: "We are working on the PTY subsystem." } },
-    },
-    seat("agent", 0),
-    ...PEERS.map((id, index) => seat(id, 160 * (index + 1))),
-  ],
-  edges: peers.map((id) => ({
-    id: `edge-${id}`,
-    fromNode: "agent",
-    toNode: id,
-    ether: { verb: "messages" },
-  })),
-} as CanvasDoc);
+/** One seat in a briefed region, wired by messages wires to the given peers. */
+const nodes = () => [
+  region("region", { x: -40, y: -40, width: 900, height: 300 }, {
+    label: "PTY",
+    instruction: "We are working on the PTY subsystem.",
+  }),
+  seat("agent", 0),
+  ...PEERS.map((id, index) => seat(id, 160 * (index + 1))),
+];
 
 let root: string;
 let runtime: ReturnType<typeof makeRuntime>;
@@ -139,8 +119,18 @@ afterEach(async () => {
 });
 
 const write = async (peers: ReadonlyArray<string>) => {
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write(CANVAS, doc(peers)));
+  const model = await runtime.runPromise(ModelService);
+  if (!(await runtime.runPromise(model.listCanvases())).some((name) => name === CANVAS)) {
+    await runtime.runPromise(
+      seedCanvas(CANVAS, nodes(), peers.map((id) => wire(`edge-${id}`, "agent", id, "messages"))),
+    );
+    return;
+  }
+  // Written again, the seat keeps only the connections named this time.
+  const cut = PEERS.filter((id) => !peers.includes(id)).map((id) => asWireId(`edge-${id}`));
+  await runtime.runPromise(
+    model.command({ _tag: "Remove", canvas: asCanvasName(CANVAS), nodes: [], wires: cut }, "operator"),
+  );
 };
 
 const call = (body: unknown): Promise<any> =>
