@@ -208,10 +208,10 @@ The answer arrives in this seat as operator mail; \`junto signal list\` shows yo
 
 \`junto offboard\` ends this session with notes for the next one: what happened, what is relevant, and why it matters. The first line sums the session up; \`@file\` or \`-\` for stdin also work. You choose the stopping point, and the mode:
 
-- At a stopping point: \`junto offboard "<notes>"\`. Junto closes this session at once and the seat rests. Its next wake starts a fresh session that reads your notes.
-- Mid-work: \`junto offboard "<notes>" --continue "<what to pick up next and why>"\`. Junto closes this session at once and starts a fresh one right away. It reads your continuation first and carries on.
+- At a stopping point: \`junto offboard "<notes>"\`. The moment it returns your seat has moved on and rests. Its next wake starts a fresh session that reads your notes.
+- Mid-work: \`junto offboard "<notes>" --continue "<what to pick up next and why>"\`. The moment it returns your seat has moved on to a fresh session, started right away. It reads your continuation first and carries on.
 
-Offboard is the last thing a session does: it ends the session the moment it returns, and nothing after it in your turn runs. Put everything in the notes before you call it.
+Offboard is the last thing a session does. Put everything in the notes before you call it: this session may finish what it is saying, but it receives nothing more and its junto commands are refused.
 
 Offboarding is yours to decide: Junto never measures your context or asks you to. Offboard on your own:
 
@@ -220,6 +220,8 @@ Offboarding is yours to decide: Junto never measures your context or asks you to
 - when switching topics: new work that does not need this session's history starts cleaner fresh.
 
 Use \`--continue\` when the work is unfinished and should go on now: the fresh session starts right away from your note. Use plain offboard when the stretch is done and the seat can rest until mail wakes it. The operator may also ask you to offboard.
+
+A session can also be ended from outside it, with no notes: by the operator, by an overseer, or by Junto when the seat is about to be given a turn on a session that has sat still for a long time and its cache has gone cold. The session that follows is told so by \`junto onboard\` (\`previous_session_without_notes\`, with who ended it and where the transcript is). That transcript is history to read if you need it, not work to resume.
 
 When \`junto onboard\` shows a \`handoff\`, your previous session left it for you: it is the one exception to past sessions being context only. Pick it up unless your current instructions or mail say otherwise.
 
