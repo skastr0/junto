@@ -287,6 +287,22 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
       by.set(key, (by.get(key) ?? 0) + ms);
     }
     const top = [...by].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([name, ms]) => [name, Math.round(ms * 10) / 10]);
+    // Who calls each function named measure: its chain of callers, outermost last.
+    const parentOf = new Map<number, any>();
+    for (const node of profile.nodes as Array<any>) for (const child of node.children ?? []) parentOf.set(child, node);
+    const byId = new Map<number, any>((profile.nodes as Array<any>).map((node) => [node.id, node]));
+    const frameName = (node: any) => `${node.callFrame.functionName || "(anonymous)"}:${String(node.callFrame.lineNumber)}`;
+    const measureCallers = (profile.nodes as Array<any>)
+      .filter((node) => node.callFrame.functionName === "measure")
+      .map((node) => {
+        const chain: string[] = [];
+        for (let at = parentOf.get(node.id); at && chain.length < 10; at = parentOf.get(at.id)) chain.push(frameName(at));
+        const below = (id: number): number => (self.get(id) ?? 0) + (byId.get(id)?.children ?? []).reduce((sum: number, child: number) => sum + below(child), 0);
+        return { measure: frameName(node), totalMs: Math.round(below(node.id) / 100) / 10, callers: chain };
+      })
+      .sort((a, b) => b.totalMs - a.totalMs)
+      .slice(0, 4);
+    console.log(JSON.stringify({ measureCallers, repeat }));
     const path = join(outDir, `drop-${String(repeat)}-${direction === 1 ? "down-right" : "up-left"}.cpuprofile`);
     writeFileSync(path, JSON.stringify(profile));
     console.log(JSON.stringify({ dropProfile: path, repeat, dropMs, selfMsByFunction: top }));
