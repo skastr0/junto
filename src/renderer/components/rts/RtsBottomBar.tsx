@@ -48,8 +48,7 @@ import {
 import { HUE } from "../../lib/theme";
 import { collectAlertSignals, useAlertSignals } from "../../lib/alert-attention";
 import { kernel$ } from "../../lib/kernel-view";
-import { specOf } from "../../lib/node-spec";
-import { roleOf } from "@shared/physics";
+import { roleOfKind } from "../../lib/model-kind";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
 import { executionGraphForImpact } from "../../lib/impact-mode";
@@ -317,6 +316,7 @@ function RegionCommandCard({
 function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const canvasName = use$(state$.canvasName);
   const node = useRtsNodes(canvasName, [nodeId])[0];
+  const modelKind = use$(() => modelStore.node$(canvasName, nodeId).kind.get());
   useEffect(() => canvasName ? workAttentionStore.retain(canvasName) : undefined, [canvasName]);
   const [connectOpen, setConnectOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
@@ -347,7 +347,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     return resolveBlockerCause(canvas, graph, nodeId, { blockedActorSeatId, itemsOf });
   });
 
-  if (!node) {
+  if (!node || !modelKind) {
     return (
       <div className="rts-panel rts-panel--cmd">
         <div className="rts-panel__body">
@@ -360,7 +360,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const kind = commandSelectionKind(node);
   const entityKind = node.ether?.entity?.kind;
   // Physics role from the kind registry — never hardcoded per node.
-  const role = roleOf(specOf(node));
+  const role = roleOfKind(modelKind);
   // Kind-specific actions live in the middle-bar kind strip now; the left
   // card keeps type/base + slot cue.
   const primary = primaryCommandActions(kind);
