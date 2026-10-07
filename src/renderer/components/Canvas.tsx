@@ -1526,8 +1526,18 @@ function ImpactSeedChip() {
 // The bottom bar's two slots, made once. Neither takes a prop, and each
 // follows what it shows for itself, so a render of the canvas hands the bar the
 // same two elements and gives it no reason to render.
-const FIELD_TOOLS = <CanvasFieldTools />;
-const MINIMAP_STACK = <RtsMinimapStack />;
+// Each is counted under its own name, inside the bar's total, so a run can
+// tell the bar's own commits from those of what sits in its slots.
+const FIELD_TOOLS = (
+  <CountedSurface id="bar-tools">
+    <CanvasFieldTools />
+  </CountedSurface>
+);
+const MINIMAP_STACK = (
+  <CountedSurface id="bar-minimap">
+    <RtsMinimapStack />
+  </CountedSurface>
+);
 
 function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
   // Dev always profiles; a packaged build profiles only when JUNTO_PERF armed
