@@ -101,18 +101,48 @@ const moveInList = (event: KeyboardEvent<HTMLElement>): void => {
 /**
  * A repository's commits and their diffs, for any folder: the git node opens
  * it for its own, the agent modal's git line for the folder its seat runs in.
+ * This is the working modal's frame around the review; the same review opens
+ * in the operator layer from a needs-you card (CommitReviewModal).
  */
 export function GitRepositoryDetail({
   cwd,
   title,
+  onClose,
+  ...review
+}: GitReviewProps & {
+  readonly title: string;
+  readonly onClose: () => void;
+}) {
+  return (
+    <FocusSurface measure="workspace" height="immersive" label="Git review" onClose={onClose}>
+      <div className="flex h-full min-h-0 flex-col" data-testid="git-detail">
+        <OverlayHeader
+          eyebrow="git"
+          title={title}
+          status={cwd || "no folder"}
+          actions={
+            <IconButton aria-label="Close git" title="Close" onClick={onClose}>
+              <X size={14} />
+            </IconButton>
+          }
+        />
+        <GitReviewBody cwd={cwd} {...review} />
+      </div>
+    </FocusSurface>
+  );
+}
+
+export type GitReviewProps = Parameters<typeof GitReviewBody>[0];
+
+/** The review itself, with no frame: what to show, the files or commits, the diff, and the send. */
+export function GitReviewBody({
+  cwd,
   initialView = "commits",
   initialCommit,
   recipientNodeId,
   anchorNodeId,
-  onClose,
 }: {
   readonly cwd: string;
-  readonly title: string;
   /** The view it opens on: a seat's review opens on its uncommitted work, a git node on its commits. */
   readonly initialView?: GitDetailView;
   /** The commit to open on, in the commits view: the one a needs-you card carries. */
@@ -121,7 +151,6 @@ export function GitRepositoryDetail({
   readonly recipientNodeId?: string;
   /** The node it was opened from (a seat, a git node): its region decides who can receive the review. */
   readonly anchorNodeId?: string;
-  readonly onClose: () => void;
 }) {
   const doc = use$(state$.doc);
   const candidates = useMemo(() => reviewCandidates(doc, anchorNodeId, nodeTitle), [doc, anchorNodeId]);
@@ -290,23 +319,7 @@ export function GitRepositoryDetail({
   const cutFiles = cut ? Math.max(active?.stats?.files ?? 0, cut.files ?? 0, cut.shownFiles) : 0;
 
   return (
-    <FocusSurface
-      measure="workspace"
-      height="immersive"
-      label="Git review"
-      onClose={onClose}
-    >
-      <div className="flex h-full min-h-0 flex-col" data-testid="git-detail">
-      <OverlayHeader
-        eyebrow="git"
-        title={title}
-        status={cwd || "no folder"}
-        actions={
-          <IconButton aria-label="Close git" title="Close" onClick={onClose}>
-            <X size={14} />
-          </IconButton>
-        }
-      />
+    <>
       <InspectorTabs label="What to show" tabs={VIEW_TABS} active={view} onSelect={(id) => setView(id as GitDetailView)} />
       {error ? (
         <div className="git-browser__empty" style={{ color: DIM }}>
@@ -441,7 +454,6 @@ export function GitRepositoryDetail({
           nameOf={nameOf}
         />
       ) : null}
-      </div>
-    </FocusSurface>
+    </>
   );
 }
