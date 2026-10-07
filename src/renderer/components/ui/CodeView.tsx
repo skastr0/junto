@@ -85,7 +85,7 @@ export type DiffSource =
   | { readonly before: string; readonly after: string };
 
 /**
- * A diff. Rows that sit between lines (comments), a control beside the line
+ * A diff. Rows that sit between lines (comments), a plus beside the line
  * under the pointer, and line selection are the caller's to add; without
  * them the diff is read only.
  */
@@ -96,7 +96,7 @@ export function DiffView<A = undefined>({
   header = true,
   lineAnnotations,
   renderAnnotation,
-  renderGutterUtility,
+  onGutterPress,
   onLineSelected,
   ...source
 }: DiffSource & {
@@ -109,7 +109,11 @@ export function DiffView<A = undefined>({
   readonly header?: boolean | undefined;
   readonly lineAnnotations?: PatchProps<A>["lineAnnotations"];
   readonly renderAnnotation?: PatchProps<A>["renderAnnotation"];
-  readonly renderGutterUtility?: PatchProps<A>["renderGutterUtility"];
+  /**
+   * A plus beside the line under the pointer. A press gives that line; a
+   * press held and dragged over other lines gives the whole range.
+   */
+  readonly onGutterPress?: NonNullable<PatchProps<A>["options"]>["onGutterUtilityClick"];
   readonly onLineSelected?: NonNullable<PatchProps<A>["options"]>["onLineSelected"];
 }) {
   const themeType = useThemeType();
@@ -121,7 +125,7 @@ export function DiffView<A = undefined>({
     overflow: "scroll" as const,
     diffStyle: layout,
     disableFileHeader: !header,
-    ...(renderGutterUtility ? { enableGutterUtility: true } : {}),
+    ...(onGutterPress ? { enableGutterUtility: true, onGutterUtilityClick: onGutterPress } : {}),
     ...(onLineSelected ? { enableLineSelection: true, onLineSelected } : {}),
   };
   if ("patch" in source) {
@@ -135,7 +139,6 @@ export function DiffView<A = undefined>({
               options={options}
               {...(lineAnnotations ? { lineAnnotations } : {})}
               {...(renderAnnotation ? { renderAnnotation } : {})}
-              {...(renderGutterUtility ? { renderGutterUtility } : {})}
             />
           </PlainOnFailure>
         ))}
@@ -152,7 +155,6 @@ export function DiffView<A = undefined>({
           options={options}
           {...(lineAnnotations ? { lineAnnotations } : {})}
           {...(renderAnnotation ? { renderAnnotation } : {})}
-          {...(renderGutterUtility ? { renderGutterUtility } : {})}
         />
       </PlainOnFailure>
     </div>

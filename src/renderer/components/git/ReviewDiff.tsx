@@ -2,13 +2,13 @@
  * One file's diff in a review, with the operator's comments on its lines.
  *
  * The diff library draws the rows; comments ride its own annotation rows
- * (lineAnnotations, renderAnnotation) and the add button its gutter utility,
- * so nothing here overlays the diff. A comment is on one line, or on the
- * range of lines selected on one side. It joins the repository's pending
+ * (lineAnnotations, renderAnnotation) and the plus is its own gutter button,
+ * so nothing here overlays the diff. A comment is on one line, or on a range
+ * of lines on one side: press the plus and drag, or mark the lines first. It joins the repository's pending
  * review; nothing is sent from here.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import {
   applyMention,
   commentableLines,
@@ -264,11 +264,6 @@ export function ReviewDiff({
   // The lines selected on one side, if any: a comment added inside them covers them all.
   const [selected, setSelected] = useState<{ readonly side: ReviewSide; readonly start: number; readonly end: number } | null>(null);
 
-  const keepSelection = useRef((slot: HTMLSpanElement | null): void => {
-    // A listener on the element itself: it must run before the diff's own, which React's would not.
-    slot?.addEventListener("pointerdown", (event) => event.stopPropagation());
-  }).current;
-
   const annotations = useMemo<DiffLineAnnotation<Row>[]>(() => {
     const rows: DiffLineAnnotation<Row>[] = comments
       .filter((comment) => comment.id !== draft?.id)
@@ -281,12 +276,17 @@ export function ReviewDiff({
     return rows;
   }, [comments, draft]);
 
-  const begin = (side: ReviewSide, line: number, fromKeyboard = false): void => {
-    const inSelection = selected !== null && selected.side === side && line >= selected.start && line <= selected.end;
-    const start = inSelection ? selected.start : line;
+  /**
+   * Open a comment on lines `first` to `last` of one side. A single line
+   * inside a marked range means that range: a person who marked lines and
+   * pressed the plus on one of them gets them all.
+   */
+  const beginOn = (side: ReviewSide, first: number, last: number, fromKeyboard = false): void => {
+    const marked = first === last && selected !== null && selected.side === side && first >= selected.start && first <= selected.end;
+    const start = marked ? selected.start : first;
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setMovable(fromKeyboard);
-    setDraft({ side, line: start, endLine: inSelection ? selected.end : line, text: takeReviewDraft(root, path, side, start), picked: [] });
+    setDraft({ side, line: start, endLine: marked ? selected.end : last, text: takeReviewDraft(root, path, side, start), picked: [] });
   };
 
   const save = (): void => {
@@ -314,7 +314,7 @@ export function ReviewDiff({
           variant="subtle"
           data-testid="git-review-comment-on-file"
           // The plus in the gutter needs a pointer; this starts a comment from the keyboard.
-          onClick={() => begin(lines.first!.side, lines.first!.line, true)}
+          onClick={() => beginOn(lines.first!.side, lines.first!.line, lines.first!.line, true)}
         >
           Comment on {path.split("/").pop()}
         </Button>
@@ -334,25 +334,12 @@ export function ReviewDiff({
         });
       }}
       lineAnnotations={annotations}
-      renderGutterUtility={(getHoveredLine) => (
-        // The plus sits in the line number's cell, where a press selects that
-        // line. The press on the plus stops here, before the diff hears it, so
-        // a marked range is still marked when the comment opens on it.
-        <span ref={keepSelection} className="git-review__add-slot">
-        <IconButton
-          size="xs"
-          className="git-review__add"
-          aria-label="Add comment"
-          title="Add comment"
-          onClick={() => {
-            const hovered = getHoveredLine();
-            if (hovered) begin(hovered.side, hovered.lineNumber);
-          }}
-        >
-          <Plus size={12} />
-        </IconButton>
-        </span>
-      )}
+      onGutterPress={(range) => {
+        // One side only: a press that ends on the other side is on the line it ended on.
+        const side = range.endSide ?? range.side ?? "additions";
+        const oneSide = range.side === undefined || range.endSide === undefined || range.side === range.endSide;
+        beginOn(side, oneSide ? Math.min(range.start, range.end) : range.end, Math.max(range.start, range.end));
+      }}
       renderAnnotation={(annotation) => {
         const row = annotation.metadata;
         if (row.kind === "composer") {

@@ -297,20 +297,6 @@
   color: var(--color-ink);
 }
 
-/* The plus in the gutter shares its cell with the line number: it sits above
-   the number and covers it, so it reads as a button and a press lands on it. */
-.git-review__add-slot {
-  display: contents;
-}
-
-.git-review__add {
-  position: relative;
-  z-index: 2;
-  background: var(--color-raise);
-  color: var(--color-ink);
-  pointer-events: auto;
-}
-
 /* Above each file's diff: start a comment without a pointer. */
 .git-review__file-tools {
   display: flex;
