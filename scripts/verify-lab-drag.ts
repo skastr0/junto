@@ -4,7 +4,7 @@
  * them with real mouse moves at one move per frame, and records the frame
  * intervals during the drag and in the second after the drop.
  *
- *   bun scripts/verify-lab-drag.ts [--select 10] [--steps 90] [--repeats 5] [--profile-first] [--out DIR]
+ *   bun scripts/verify-lab-drag.ts [--select 10] [--steps 90] [--repeats 5] [--profile-first] [--profile-drops] [--out DIR]
  *
  * Run after scripts/verify-lab-canvas.ts, under the app-run lock.
  */
@@ -20,6 +20,7 @@ const select = Number(arg("select", "10"));
 const steps = Number(arg("steps", "90"));
 const repeats = Number(arg("repeats", "5"));
 const profileFirst = process.argv.includes("--profile-first");
+const profileDrops = process.argv.includes("--profile-drops");
 const rendererPort = process.env.JUNTO_PERF_LAB_RENDERER_PORT ?? "9229";
 const outDir = resolve(arg("out", "."));
 mkdirSync(outDir, { recursive: true });
@@ -227,10 +228,37 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   }
   // The drop, timed on its own: from the release until the page next answers,
   // then the frames of the three seconds after.
+  // With --profile-drops the profiler starts a moment before the release, so
+  // the first task after the pointer goes up is inside the capture, and stops
+  // a second after the page next paints.
+  if (profileDrops) {
+    await send("Profiler.enable", {});
+    await send("Profiler.start", {});
+    await sleep(120);
+  }
   const released = Date.now();
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
   const dropMs = Date.now() - released;
+  if (profileDrops) {
+    await sleep(1_000);
+    const { profile } = await send("Profiler.stop", {});
+    const self = new Map<number, number>();
+    const deltas: number[] = profile.timeDeltas ?? [];
+    (profile.samples as number[]).forEach((id, index) => self.set(id, (self.get(id) ?? 0) + (deltas[index] ?? 0)));
+    const by = new Map<string, number>();
+    for (const node of profile.nodes as Array<{ id: number; callFrame: { functionName: string; url: string; lineNumber: number } }>) {
+      const ms = (self.get(node.id) ?? 0) / 1000;
+      if (ms === 0) continue;
+      const fileName = node.callFrame.url.split("/").at(-1) ?? "";
+      const key = `${node.callFrame.functionName || "(anonymous)"} ${fileName}:${String(node.callFrame.lineNumber)}`;
+      by.set(key, (by.get(key) ?? 0) + ms);
+    }
+    const top = [...by].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([name, ms]) => [name, Math.round(ms * 10) / 10]);
+    const path = join(outDir, `drop-${String(repeat)}-${direction === 1 ? "down-right" : "up-left"}.cpuprofile`);
+    writeFileSync(path, JSON.stringify(profile));
+    console.log(JSON.stringify({ dropProfile: path, repeat, dropMs, selfMsByFunction: top }));
+  }
   await sleep(3_000);
   const after = await take();
   const routedDrop = await routed();
