@@ -379,52 +379,82 @@ describe("the clock across a restart", () => {
     const saved = first.saved.at(-1)!;
     expect(saved).toEqual({ savedAt: T0 + 90 * MIN, seats: { "bind-a": { movedAt: T0 } } });
 
-    // Restart one minute later: the seat is at 90 minutes, not at zero.
+    // Restart one minute later: the seat is at 91 minutes, not at zero.
     const second = world([seat("a")], { restored: parseSeatMotionRecord(JSON.stringify(saved)), at: T0 + 91 * MIN });
     expect((await second.offboard.tick()).closed).toBe(0);
-    second.advance(29);
+    second.advance(28);
     expect((await second.offboard.tick()).closed).toBe(0);
     second.advance(1);
     expect((await second.offboard.tick()).closed).toBe(1);
   });
 
-  it("does not count time Junto was closed: opening the app never closes a wave of seats", async () => {
-    const first = world([seat("a"), seat("b"), seat("c")]);
-    for (const id of ["a", "b", "c"]) first.clock.note(`bind-${id}`);
-    first.advance(90);
-    await first.offboard.tick();
-    const saved = first.saved.at(-1)!;
-
-    // Closed overnight: ten hours later every seat is far past the interval in real time.
-    const reopened = T0 + 90 * MIN + 600 * MIN;
-    const second = world([seat("a"), seat("b"), seat("c")], { restored: saved, at: reopened });
-    expect(await second.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
-    second.advance(29);
-    expect((await second.offboard.tick()).closed).toBe(0);
-    // Thirty watched minutes complete the two hours.
-    second.advance(1);
-    expect((await second.offboard.tick()).closed).toBe(3);
-  });
-
-  it("what the operator is shown uses real time: a seat cold overnight is past its window", async () => {
+  it("catches up: time while Junto was closed counts like any other", async () => {
     const first = world([seat("a")]);
     first.clock.note("bind-a");
     first.advance(30);
     await first.offboard.tick();
-    const second = world([seat("a")], { restored: first.saved.at(-1)!, at: T0 + 30 * MIN + 600 * MIN });
+    // Closed for eight hours: the seat has been still for eight and a half.
+    const second = world([seat("a")], { restored: first.saved.at(-1)!, at: T0 + 30 * MIN + 480 * MIN });
     const [status] = await second.offboard.status(CANVAS, ["a"]);
-    expect(status).toMatchObject({ motionlessSince: T0, idleMinutes: 630, pastWindow: true, preferred: "now" });
-    // And the rule has not fired: 30 watched minutes, not 630.
+    expect(status).toMatchObject({ motionlessSince: T0, idleMinutes: 510, pastWindow: true, preferred: "now" });
+    // Its session is closed without waiting out another two hours...
+    second.advance(5);
+    expect((await second.offboard.tick()).closed).toBe(1);
+    expect(second.closed).toEqual([{ seatId: "a", by: "automatic" }]);
+  });
+
+  it("...but never as a batch at start: nothing for five minutes, then one seat per pass, longest still first", async () => {
+    const first = world([seat("a"), seat("b"), seat("c")]);
+    first.clock.note("bind-b");
+    first.advance(10);
+    first.clock.note("bind-a");
+    first.advance(10);
+    first.clock.note("bind-c");
+    first.advance(60);
+    await first.offboard.tick();
+
+    // Closed overnight. Every seat is far past two hours the moment Junto opens.
+    const second = world([seat("a"), seat("b"), seat("c")], { restored: first.saved.at(-1)!, at: first.now() + 600 * MIN });
+    for (let minute = 0; minute < 5; minute += 1) {
+      expect(await second.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
+      second.advance(1);
+    }
+    expect(second.closed).toEqual([]);
+    expect((await second.offboard.tick()).closed).toBe(1);
+    second.advance(1);
+    expect((await second.offboard.tick()).closed).toBe(1);
+    second.advance(1);
+    expect((await second.offboard.tick()).closed).toBe(1);
+    expect(second.closed.map((entry) => entry.seatId)).toEqual(["b", "a", "c"]);
+    second.advance(1);
     expect((await second.offboard.tick()).closed).toBe(0);
+  });
+
+  it("a seat cold past the auto offboard interval is closed, not asked for an expensive turn", async () => {
+    const rules = applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
+    const first = world([seat("a")], { rules });
+    first.clock.note("bind-a");
+    first.advance(10);
+    await first.offboard.tick();
+    const second = world([seat("a")], { rules, restored: first.saved.at(-1)!, at: T0 + 10 * MIN + 480 * MIN });
+    second.advance(5);
+    expect(await second.offboard.tick()).toMatchObject({ closed: 1, asked: 0 });
+    expect(second.asked).toEqual([]);
   });
 
   it("remembers that a seat was already given a fresh session, and that it was nudged", async () => {
     const first = world([seat("a"), seat("b")], { rules: applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } }) });
     first.advance(40);
-    await first.offboard.tick(); // both nudged
+    await first.offboard.tick();
+    first.advance(1);
+    await first.offboard.tick(); // both nudged, one per pass
+    expect(first.asked.map((entry) => entry.seatId).sort()).toEqual(["a", "b"]);
     first.set("a", { running: false, state: undefined });
     first.advance(80);
-    await first.offboard.tick(); // both closed at two hours
+    await first.offboard.tick();
+    first.advance(1);
+    await first.offboard.tick(); // both closed, one per pass
+    expect(first.closed).toHaveLength(2);
     const saved = parseSeatMotionRecord(JSON.stringify(first.saved.at(-1)!))!;
     expect(saved.seats["bind-a"]).toMatchObject({ offboarded: true });
 

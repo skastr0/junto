@@ -12,10 +12,12 @@
  * is the offboard closer's (`closeNow`), the same path an agent's own
  * offboard takes from the point its notes are saved.
  *
- * It also keeps the motionless clock: when each seat last moved. The clock
- * is durable, so the rules carry on across a restart, and it does not count
- * time while Junto was closed, so opening the app never sets off a wave of
- * automatic closes.
+ * It also keeps the motionless clock: when each seat last moved, in real
+ * time and saved to disk. A seat still for ninety minutes when Junto closed
+ * for eight hours has been still for nine and a half when it opens: the
+ * cache it would wake into is just as cold. What keeps that from becoming a
+ * wave of closes at start is pace, not a stopped clock: the rules wait a few
+ * minutes after the app opens, then act on one seat per pass.
  *
  * Everything it touches comes in through ports, so it runs the same against
  * the app and a test.
@@ -88,7 +90,6 @@ export type OperatorOffboardPorts = {
 
 /** What the clock keeps on disk, so it carries on across a restart. */
 export type SeatMotionRecord = {
-  /** When this was written: the last moment Junto is known to have been open. */
   readonly savedAt: number;
   readonly seats: Readonly<
     Record<
@@ -96,8 +97,6 @@ export type SeatMotionRecord = {
       {
         /** When the seat last moved (epoch ms). */
         readonly movedAt: number;
-        /** Time since then that Junto was closed. Not counted by the rules. */
-        readonly awayMs?: number;
         readonly offboarded?: boolean;
         readonly nudged?: boolean;
       }
@@ -105,25 +104,22 @@ export type SeatMotionRecord = {
   >;
 };
 
-type MotionEntry = { movedAt: number; awayMs: number; offboarded: boolean; nudged: boolean };
+type MotionEntry = { movedAt: number; offboarded: boolean; nudged: boolean };
 
 /**
  * When each seat last moved: produced output, left idle, was typed into, or
  * had mail written to it.
  *
- * Durable: the clock is saved and restored, so a seat that had sat still for
- * ninety minutes before a restart is at ninety minutes after it, and the
- * rules carry on as if Junto had never closed. Time while Junto WAS closed is
- * kept apart (`awayMs`): the automatic rules do not count it, so opening the
- * app after a night never closes a wave of sessions at once. What the
- * operator is shown (how long a seat has really sat still, whether its cache
- * window has passed) uses the real time.
+ * Real time, and durable: the clock is saved and restored, and time while
+ * Junto was closed counts like any other. A session that sat still through
+ * the night is exactly as cold as one that sat still with the app open.
  *
  * A seat the clock has never seen has been still since the clock first
  * started in this run.
  */
 export class SeatMotionClock {
   private readonly entries = new Map<string, MotionEntry>();
+  /** When this run's clock started: the moment the app opened. */
   readonly startedAt: number;
 
   constructor(
@@ -131,14 +127,11 @@ export class SeatMotionClock {
     restored?: SeatMotionRecord,
   ) {
     this.startedAt = this.now();
-    if (restored === undefined) return;
-    // Everything between the last save and now, Junto was closed.
-    const away = Math.max(0, this.startedAt - restored.savedAt);
-    for (const [bindingId, seat] of Object.entries(restored.seats)) {
+    for (const [bindingId, seat] of Object.entries(restored?.seats ?? {})) {
+      // A time in the future (a changed system clock) is no evidence at all.
       if (!Number.isFinite(seat.movedAt) || seat.movedAt > this.startedAt) continue;
       this.entries.set(bindingId, {
         movedAt: seat.movedAt,
-        awayMs: Math.max(0, seat.awayMs ?? 0) + away,
         offboarded: seat.offboarded === true,
         nudged: seat.nudged === true,
       });
@@ -148,7 +141,7 @@ export class SeatMotionClock {
   private entry(bindingId: string): MotionEntry {
     let entry = this.entries.get(bindingId);
     if (entry === undefined) {
-      entry = { movedAt: this.startedAt, awayMs: 0, offboarded: false, nudged: false };
+      entry = { movedAt: this.startedAt, offboarded: false, nudged: false };
       this.entries.set(bindingId, entry);
     }
     return entry;
@@ -156,22 +149,12 @@ export class SeatMotionClock {
 
   /** The seat moved. A new stretch of stillness starts here. */
   note(bindingId: string): void {
-    this.entries.set(bindingId, { movedAt: this.now(), awayMs: 0, offboarded: false, nudged: false });
+    this.entries.set(bindingId, { movedAt: this.now(), offboarded: false, nudged: false });
   }
 
-  /** When the seat last moved, in real time. */
+  /** When the seat last moved. */
   stillSince(bindingId: string): number {
     return this.entries.get(bindingId)?.movedAt ?? this.startedAt;
-  }
-
-  /**
-   * How long the seat has sat still while Junto was open (ms). This is what
-   * the automatic rules measure.
-   */
-  watchedStillMs(bindingId: string): number {
-    const entry = this.entries.get(bindingId);
-    if (entry === undefined) return Math.max(0, this.now() - this.startedAt);
-    return Math.max(0, this.now() - entry.movedAt - entry.awayMs);
   }
 
   markOffboarded(bindingId: string): void {
@@ -195,13 +178,12 @@ export class SeatMotionClock {
     this.entries.delete(bindingId);
   }
 
-  /** The clock as it is saved. Call it on every tick. */
+  /** The clock as it is saved. Call it on every pass. */
   record(): SeatMotionRecord {
     const seats: Record<string, SeatMotionRecord["seats"][string]> = {};
     for (const [bindingId, entry] of this.entries) {
       seats[bindingId] = {
         movedAt: entry.movedAt,
-        ...(entry.awayMs > 0 ? { awayMs: entry.awayMs } : {}),
         ...(entry.offboarded ? { offboarded: true } : {}),
         ...(entry.nudged ? { nudged: true } : {}),
       };
@@ -218,11 +200,10 @@ export const parseSeatMotionRecord = (text: string): SeatMotionRecord | undefine
     if (typeof parsed.seats !== "object" || parsed.seats === null || Array.isArray(parsed.seats)) return undefined;
     const seats: Record<string, SeatMotionRecord["seats"][string]> = {};
     for (const [bindingId, value] of Object.entries(parsed.seats as Record<string, unknown>)) {
-      const seat = value as { movedAt?: unknown; awayMs?: unknown; offboarded?: unknown; nudged?: unknown };
+      const seat = value as { movedAt?: unknown; offboarded?: unknown; nudged?: unknown };
       if (typeof seat?.movedAt !== "number" || !Number.isFinite(seat.movedAt)) continue;
       seats[bindingId] = {
         movedAt: seat.movedAt,
-        ...(typeof seat.awayMs === "number" && seat.awayMs > 0 ? { awayMs: seat.awayMs } : {}),
         ...(seat.offboarded === true ? { offboarded: true } : {}),
         ...(seat.nudged === true ? { nudged: true } : {}),
       };
@@ -395,29 +376,46 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
    * runs. Auto offboard: a seat still for its interval, that may be closed
    * now, whose session was really used. Idle nudge: a running, idle seat
    * still for its (shorter) interval is asked once per stretch.
+   *
+   * Paced so it never reads as a batch: nothing for the first minutes after
+   * the app opens, then one seat per pass, the one that has sat still
+   * longest first. After a night closed, the overdue seats are cut one a
+   * minute, not all at the moment Junto opens.
    */
   const tick = async (): Promise<SeatOffboardRunResult> => {
     const rules = ports.rules();
     const at = now();
-    const seats = await ports.seats().catch(() => [] as ReadonlyArray<OffboardSeat>);
     const rows: SeatOffboardRunRow[] = [];
+    const save = (): void => {
+      try {
+        ports.saveClock?.(clock.record());
+      } catch {
+        ports.log?.("the offboard clock could not be saved");
+      }
+    };
+    if (at - clock.startedAt < OFFBOARD_START_GRACE_MS) {
+      save();
+      return summarizeOffboardRun(rows);
+    }
+    const seats = await ports.seats().catch(() => [] as ReadonlyArray<OffboardSeat>);
+    type Due = { readonly seat: OffboardSeat; readonly address: SeatAddress; readonly minutes: number; readonly action: "now" | "ask" };
+    const due: Due[] = [];
     for (const seat of seats) {
       if (!seat.local) continue;
       const set = offboardRulesFor(rules, seat.harness);
+      const minutes = stillness(seat, at).minutes;
       // Running and not idle: not still at all.
-      if (stillness(seat, at).minutes === null) continue;
-      // The rules measure stillness Junto watched, not time it was closed.
-      const watchedMinutes = Math.floor(clock.watchedStillMs(seat.bindingId) / 60_000);
+      if (minutes === null) continue;
       const address = { canvasName: seat.canvasName, seatId: seat.seatId };
       if (
         set.auto.enabled &&
-        watchedMinutes >= set.auto.minutes &&
+        minutes >= set.auto.minutes &&
         !clock.isFresh(seat.bindingId) &&
         seat.sessionId !== undefined &&
         mayCloseNow(seat, address).allowed &&
         ports.sessionHasHistory(seat)
       ) {
-        rows.push(await closeOne(address, "automatic"));
+        due.push({ seat, address, minutes, action: "now" });
         continue;
       }
       if (
@@ -425,24 +423,31 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
         seat.running &&
         seat.state === "idle" &&
         seat.paused !== true &&
-        watchedMinutes >= set.nudge.minutes &&
+        minutes >= set.nudge.minutes &&
+        // Past the auto offboard interval a turn is the expensive choice:
+        // that seat is waiting its place in line to be closed, not asked.
+        !(set.auto.enabled && minutes >= set.auto.minutes) &&
         !clock.wasNudged(seat.bindingId) &&
         !clock.isFresh(seat.bindingId) &&
         !ports.isClosing(address)
       ) {
-        // Marked before the ask: its own mail is movement and would
-        // otherwise read as a new stretch.
-        const row = await askOne(address, "continue");
-        clock.markNudged(seat.bindingId);
-        if (!row.ok) ports.log?.(`idle nudge could not ask ${seat.seatId}: ${row.reason}`);
-        rows.push(row);
+        due.push({ seat, address, minutes, action: "ask" });
       }
     }
-    try {
-      ports.saveClock?.(clock.record());
-    } catch {
-      ports.log?.("the offboard clock could not be saved");
+    // Longest still first; one per pass.
+    due.sort((left, right) => right.minutes - left.minutes);
+    for (const { seat, address, action } of due.slice(0, OFFBOARD_ACTIONS_PER_PASS)) {
+      if (action === "now") {
+        rows.push(await closeOne(address, "automatic"));
+        continue;
+      }
+      const row = await askOne(address, "continue");
+      // Marked whatever the outcome: no retry within a stretch.
+      clock.markNudged(seat.bindingId);
+      if (!row.ok) ports.log?.(`idle nudge could not ask ${seat.seatId}: ${row.reason}`);
+      rows.push(row);
     }
+    save();
     return summarizeOffboardRun(rows);
   };
 
@@ -453,6 +458,12 @@ export type OperatorOffboard = ReturnType<typeof makeOperatorOffboard>;
 
 /** How often the automatic rules look. Rule intervals are whole minutes. */
 export const OFFBOARD_TICK_MS = 60_000;
+
+/** After the app opens, the automatic rules wait this long before acting. */
+export const OFFBOARD_START_GRACE_MS = 5 * 60_000;
+
+/** Seats the automatic rules act on in one pass. */
+export const OFFBOARD_ACTIONS_PER_PASS = 1;
 
 // ── The process instance ───────────────────────────────────────────────────
 
