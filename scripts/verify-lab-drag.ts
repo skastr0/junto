@@ -230,6 +230,12 @@ const counters = () =>
 // Commits per named surface, where the window keeps them (juntoSurfaceCommits).
 const surfaces = () =>
   evaluate<Record<string, { commits: number; ms: number }> | null>(`typeof juntoSurfaceCommits === "function" ? juntoSurfaceCommits() : null`);
+// Renders per card by counted name, where the window keeps them (juntoCardRenders), and which cards are selected.
+const cardRenders = () =>
+  evaluate<{ renders: Record<string, Record<string, number>> | null; selected: string[] }>(`(() => ({
+    renders: typeof juntoCardRenders === "function" ? juntoCardRenders() : null,
+    selected: [...document.querySelectorAll(".react-flow__node.selected")].map((card) => card.getAttribute("data-id") ?? ""),
+  }))()`);
 const less = (after: Record<string, number> | undefined, before: Record<string, number> | undefined) =>
   Object.fromEntries(Object.entries(after ?? {}).map(([key, value]) => [key, value - (before?.[key] ?? 0)]).filter(([, value]) => value !== 0));
 for (let repeat = 0; repeat < repeats; repeat += 1) {
@@ -292,6 +298,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   }
   const countersBeforeDrop = await counters();
   const surfacesBeforeDrop = await surfaces();
+  const cardsBeforeDrop = await cardRenders();
   const released = Date.now();
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
@@ -381,6 +388,16 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
       .map(([name, now]) => [name, { commits: now.commits - (surfacesBeforeDrop[name]?.commits ?? 0), ms: Math.round((now.ms - (surfacesBeforeDrop[name]?.ms ?? 0)) * 10) / 10 }] as const)
       .filter(([, value]) => value.commits !== 0));
     console.log(JSON.stringify({ surfaceCommitsAcrossTheDrop: delta, repeat }));
+  }
+  const cardsAfterDrop = await cardRenders();
+  if (cardsBeforeDrop.renders && cardsAfterDrop.renders) {
+    const moved = new Set(cardsBeforeDrop.selected);
+    const perCard = Object.fromEntries(Object.entries(cardsAfterDrop.renders).map(([name, cards]) => {
+      const delta = less(cards, cardsBeforeDrop.renders?.[name]);
+      const of = (wanted: boolean) => Object.fromEntries(Object.entries(delta).filter(([id]) => moved.has(id) === wanted));
+      return [name, { moved: of(true), others: of(false) }] as const;
+    }));
+    console.log(JSON.stringify({ cardRendersAcrossTheDrop: perCard, repeat }));
   }
   const countersAfterDrop = await counters();
   const moved3 = Object.entries(less(countersAfterDrop, countersBeforeDrop)).filter(([key]) => !key.startsWith("routeWireByEdge")).sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1]))).slice(0, 30);
