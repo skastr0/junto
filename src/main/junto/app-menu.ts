@@ -35,8 +35,8 @@ const VIEW_ITEMS: ReadonlyArray<TableItem> = [
 ];
 
 const AGENT_ITEMS: ReadonlyArray<TableItem> = [
-  { id: "urgency.next", label: "Next Agent That Needs You" },
-  { id: "urgency.previous", label: "Previous Agent That Needs You" },
+  { id: "urgency.next", label: "Next Agent" },
+  { id: "urgency.previous", label: "Previous Agent" },
 ];
 
 const WINDOW_ITEMS: ReadonlyArray<TableItem> = [{ id: "front.close", label: "Close" }];

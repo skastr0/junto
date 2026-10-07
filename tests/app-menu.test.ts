@@ -51,7 +51,7 @@ describe("the app menu", () => {
 
   it("hands a table item's chord to the page instead of acting on it", () => {
     const sendKey = vi.fn();
-    const next = items(build(true, sendKey)).find((item) => item.label === "Next Agent That Needs You")!;
+    const next = items(build(true, sendKey)).find((item) => item.label === "Next Agent")!;
     (next.click as () => void)();
     expect(sendKey).toHaveBeenCalledWith({ accelerator: "Cmd+`", keyCode: "`", modifiers: ["meta"] });
   });
@@ -63,7 +63,7 @@ describe("the app menu with the operator's own chords", () => {
 
   it("shows and claims the chord the operator chose", () => {
     const next = withOverrides({ "urgency.next": ["Cmd+E"] }).find(
-      (item) => item.label === "Next Agent That Needs You",
+      (item) => item.label === "Next Agent",
     )!;
     expect(next.accelerator).toBe("Cmd+E");
   });
@@ -88,7 +88,7 @@ describe("the app menu while the agent switcher is up", () => {
     expect(hideApp).toHaveBeenCalledTimes(1);
     // Everything else is as it was.
     expect(all.map((item) => item.role)).toContain("quit");
-    expect(all.find((item) => item.label === "Next Agent That Needs You")?.accelerator).toBe("Cmd+`");
+    expect(all.find((item) => item.label === "Next Agent")?.accelerator).toBe("Cmd+`");
   });
 });
 

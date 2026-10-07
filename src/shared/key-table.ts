@@ -240,9 +240,9 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "urgency.next",
-    name: "Next agent that needs you",
+    name: "Next agent, most urgent first",
     area: "Anywhere",
-    does: "Step to the agent that most needs you: hold Cmd, tap to step, let go to open it",
+    does: "Step through every agent, most urgent first: hold Cmd, tap to step, let go to open it",
     mac: ["Cmd+Backquote"],
     other: [],
     where: ["canvas", "terminal", "field", "working", "switcher"],
@@ -251,9 +251,9 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "urgency.previous",
-    name: "Previous agent that needs you",
+    name: "Previous agent",
     area: "Anywhere",
-    does: "Step back through the agents that need you",
+    does: "Step back through the agents, towards the most urgent",
     mac: ["Cmd+Shift+Backquote"],
     other: [],
     where: ["canvas", "terminal", "field", "working", "switcher"],
