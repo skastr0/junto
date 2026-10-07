@@ -4,9 +4,9 @@ import { LogOut, NotebookPen } from "lucide-react";
 import type { SeatOffboardAction, SeatOffboardStatus } from "@shared/seat-offboard";
 import type { OffboardMode } from "@shared/seat-sessions";
 import type { Side } from "../../lib/menu-placement";
-import { agentCountLabel, isAgentSeatNode } from "../../lib/multi-selection";
-import { nodeTitle } from "../../lib/presentation";
-import { useNodeFieldOf } from "../../lib/use-model";
+import { titleOf } from "@shared/model/title";
+import { agentCountLabel } from "../../lib/multi-selection";
+import { modelStore, useNodeFieldOf } from "../../lib/use-model";
 import {
   armedNowLabel,
   askMenuDetail,
@@ -42,14 +42,13 @@ type Line = {
  */
 export const useSeatOffboard = (nodeIds: ReadonlyArray<string>, ops: SeatOffboardOps = seatOffboardOps) => {
   const canvasName = use$(state$.canvasName);
-  // The agents among the ids, by canvas name, read off the live document.
-  const seats = use$(() => {
-    const wanted = new Set(nodeIds);
-    return state$.doc
-      .get()
-      .nodes.filter((node) => wanted.has(node.id) && isAgentSeatNode(node))
-      .map((node) => ({ id: node.id, name: nodeTitle(node) }));
-  });
+  // The agents among the ids, each with the name it has now, from the store.
+  const seats = use$(() =>
+    nodeIds.flatMap((id) => {
+      const node = modelStore.node$(canvasName, id).get();
+      return node?.kind === "agent" ? [{ id, name: titleOf(node) }] : [];
+    }),
+  );
   const seatKey = seats.map((seat) => seat.id).join(" ");
   const [statuses, setStatuses] = useState<ReadonlyArray<SeatOffboardStatus>>([]);
   const [busy, setBusy] = useState<SeatOffboardAction | undefined>();

@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
+import { holdCanvas } from "./support/hold-canvas";
 import {
   OFFBOARD_REFUSAL_REASON,
   summarizeOffboardRun,
@@ -47,10 +48,11 @@ const working = { allowed: false, code: "working", reason: OFFBOARD_REFUSAL_REAS
 
 let host: HTMLDivElement;
 let root: Root;
+let release: () => void;
 
 beforeEach(() => {
   state$.canvasName.set("factory");
-  state$.doc.set({ nodes: [seat("a", "Ada"), seat("b", "Bo"), seat("c", "Cy")], edges: [] });
+  release = holdCanvas("factory", [seat("a", "Ada"), seat("b", "Bo"), seat("c", "Cy")]);
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -59,6 +61,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  release();
 });
 
 const flush = async () => {
