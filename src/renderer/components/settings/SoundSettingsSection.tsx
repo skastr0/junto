@@ -155,9 +155,8 @@ export function SoundSettingsSection() {
   return (
     <div className="settings-section" data-testid="settings-sound-section">
       <p className="m-0 max-w-[62ch] text-body-lg leading-body text-dim">
-        Junto plays a short sound when an agent changes state. The more a sound needs you, the louder it
-        is; the rest stay in the background. When many agents move at once, you hear a few notes, not all
-        of them.
+        A short sound plays when an agent changes state. Set how loud each kind is, or switch it off.
+        When many agents change at once you hear a few notes, not all of them.
       </p>
       <div className="flex flex-col border-t border-stroke">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 border-b border-stroke py-4">
@@ -166,7 +165,7 @@ export function SoundSettingsSection() {
               All sounds
             </label>
             <p className="m-0 text-body-lg leading-body text-dim">
-              {on ? "Every family below, together." : "Junto is silent."}
+              {on ? "Scales every kind below together." : "No sound plays."}
             </p>
           </div>
           <div className="flex items-center gap-3">

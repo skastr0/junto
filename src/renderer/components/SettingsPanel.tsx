@@ -78,7 +78,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
   { key: "terminal", group: "You", label: "Terminal", blurb: "How agent terminals look and behave: text, cursor, scrolling, the bell and accessibility. Changes apply to every terminal." },
   { key: "keyboard", group: "You", label: "Keyboard shortcuts", blurb: "Every shortcut and where it works. Press a shortcut's keys to change them." },
   ...(AUDIO_ENABLED
-    ? [{ key: "audio", group: "You", label: "Sound", blurb: "levels for each kind of sound, and a preview" } as const]
+    ? [{ key: "audio", group: "You", label: "Sound", blurb: "How loud each kind of sound is. Press a sound's name to hear it." } as const]
     : []),
   {
     key: "notifications",
