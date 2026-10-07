@@ -54,7 +54,7 @@ const raiseCommand = (kind: AgentSignalKind, description: string) =>
       executeJsonCommand(
         kind,
         Effect.gen(function* () {
-          const args = yield* loadSignalRaiseArgs(kind, input, toUndefined(detail), attach);
+          const args = yield* loadSignalRaiseArgs(kind, input, toUndefined(detail), attach, toUndefined(timeout));
           return yield* call("signal.raise", args, toUndefined(timeout));
         }),
       ),

@@ -1,16 +1,15 @@
 import { existsSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { open, readFile, stat } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import type { AgentSignalKind } from "../../shared/agent-signals";
-import { classifyAttachment } from "../../shared/preview-bytes";
+import { ATTACHMENT_HEAD_BYTES, attachmentName, classifyAttachment } from "../../shared/preview-bytes";
 import {
   type SignalAttachCliInput,
   SignalRaiseCliArgs,
   type SignalAttachmentInput,
   type SignalRaiseArgs,
-  WORK_MAX_FRAME_BYTES,
 } from "../../shared/work-control";
+import { stageFile } from "./content-stage";
 import { InputError } from "./errors";
 import { decodeJsonText } from "./json";
 
@@ -23,9 +22,11 @@ import { decodeJsonText } from "./json";
  *
  * `--attach` names a file to show the operator, once per file:
  * `--attach /abs/shot.png` or `--attach "Before=/abs/shot.png"`. The JSON
- * input takes the same list as `attach: [{path, caption?}]`. The CLI reads
- * each file here and sends its bytes: a path never crosses the socket. The
- * checks below only fail fast; main is the authority on what is admitted.
+ * input takes the same list as `attach: [{path, caption?}]`. The CLI
+ * uploads each file in pieces (`stageFile`) and the signal names it by the
+ * reference that comes back: a path never crosses the socket, and a file of
+ * any size can be attached. The checks below only fail fast; main is the
+ * authority on what is admitted.
  */
 export type SignalSource =
   | { readonly kind: "stdin" }
@@ -104,13 +105,6 @@ export const parseAttachFlag = (
   return caption ? { path, caption } : { path };
 };
 
-/**
- * The files ride as Base64 in the one request frame that raises the signal.
- * Nothing else bounds them: no count, no size of their own.
- */
-const base64Length = (byteLength: number): number => Math.ceil(byteLength / 3) * 4;
-const OVER_FRAME = `the attached files do not fit in one message (about ${Math.floor((WORK_MAX_FRAME_BYTES * 3) / 4 / (1024 * 1024))} MB in all)`;
-
 const attachError = (path: string, message: string) =>
   new InputError({
     message: `${path}: ${message}`,
@@ -118,37 +112,61 @@ const attachError = (path: string, message: string) =>
     hint: 'attach an image or a text file: --attach "Before=/abs/before.png"',
   });
 
-/** Read each attached file and refuse early what main would refuse anyway. */
-const readAttachments = (attach: ReadonlyArray<SignalAttachCliInput>) =>
-  Effect.gen(function* () {
-    let encoded = 0;
-    const out: SignalAttachmentInput[] = [];
-    for (const item of attach) {
-      const bytes = yield* Effect.tryPromise({
-        try: async () => {
-          // stat follows a link: what matters is that a regular file is read.
-          const info = await stat(item.path);
-          if (!info.isFile()) throw new Error("not a regular file");
-          // Refused on its size alone, before a byte of it is read.
-          if (encoded + base64Length(info.size) > WORK_MAX_FRAME_BYTES) throw new Error(OVER_FRAME);
-          return await readFile(item.path);
-        },
-        catch: (cause) => attachError(item.path, cause instanceof Error ? cause.message : "read failed"),
-      });
-      encoded += base64Length(bytes.byteLength);
-      if (encoded > WORK_MAX_FRAME_BYTES) {
-        return yield* Effect.fail(attachError(item.path, OVER_FRAME));
-      }
-      const name = basename(item.path);
-      const kind = classifyAttachment(name, bytes);
-      if (!kind.ok) return yield* Effect.fail(attachError(item.path, kind.reason));
-      out.push({
-        name,
-        bytesBase64: bytes.toString("base64"),
-        ...(item.caption === undefined ? {} : { caption: item.caption }),
-      });
+const readHead = async (path: string, limit: number): Promise<Buffer> => {
+  const handle = await open(path, "r");
+  try {
+    const head = Buffer.alloc(limit);
+    let filled = 0;
+    // A read may come back short before the end of the file.
+    while (filled < limit) {
+      const { bytesRead } = await handle.read(head, filled, limit - filled, filled);
+      if (bytesRead === 0) break;
+      filled += bytesRead;
     }
-    return out;
+    return head.subarray(0, filled);
+  } finally {
+    await handle.close();
+  }
+};
+
+/**
+ * Judge every file from its start, refusing early what main would refuse
+ * anyway, then upload each one. Nothing is uploaded unless all of them pass.
+ * No count and no size of ours: a file is streamed from disk in pieces.
+ */
+const stageAttachments = (attach: ReadonlyArray<SignalAttachCliInput>, timeoutMs?: number) =>
+  Effect.gen(function* () {
+    const judged = yield* Effect.forEach(attach, (item) =>
+      Effect.gen(function* () {
+        const name = attachmentName(item.path) || "file";
+        const kind = yield* Effect.tryPromise({
+          try: async () => {
+            // stat follows a link: what matters is that a regular file is read.
+            const info = await stat(item.path);
+            if (!info.isFile()) throw new Error("not a regular file");
+            const head = await readHead(item.path, Math.min(info.size, ATTACHMENT_HEAD_BYTES));
+            return classifyAttachment(name, head, info.size);
+          },
+          catch: (cause) => attachError(item.path, cause instanceof Error ? cause.message : "read failed"),
+        });
+        if (!kind.ok) return yield* Effect.fail(attachError(item.path, kind.reason));
+        return { item, name, mediaType: kind.mediaType };
+      }),
+    );
+    return yield* Effect.forEach(judged, ({ item, name, mediaType }) =>
+      stageFile(item.path, {
+        mediaType,
+        displayName: name,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      }).pipe(
+        Effect.map(
+          (ref): SignalAttachmentInput => ({
+            ref: { sha256: ref.sha256, byteLength: ref.byteLength },
+            ...(item.caption === undefined ? {} : { caption: item.caption }),
+          }),
+        ),
+      ),
+    );
   });
 
 const readStdin = Effect.tryPromise({
@@ -183,6 +201,7 @@ export const loadSignalRaiseArgs = (
   input: string,
   detail: string | undefined,
   attachFlags: ReadonlyArray<string> = [],
+  timeoutMs?: number,
 ) =>
   Effect.gen(function* () {
     const planned = planSignalInvocation(input, detail);
@@ -212,7 +231,7 @@ export const loadSignalRaiseArgs = (
     }
     const attach =
       payload.attach ?? attachFlags.map((value) => parseAttachFlag(value, existsSync));
-    const files = attach.length > 0 ? yield* readAttachments(attach) : [];
+    const files = attach.length > 0 ? yield* stageAttachments(attach, timeoutMs) : [];
     const args: SignalRaiseArgs = {
       kind,
       text: payload.text,

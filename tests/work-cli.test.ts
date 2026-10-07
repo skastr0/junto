@@ -3,9 +3,10 @@ import { Effect, Result, Schema } from "effect";
 import { MsgPromptArgs, PreambleArgs } from "../src/shared/work-control";
 import { loadBatchJsonInput, loadJsonInput } from "../src/cli/core/json";
 import {
-  loadSignalRaiseArgs,
+  loadSignalRaiseArgs as loadSignalRaiseArgsWithSocket,
   planSignalInvocation,
 } from "../src/cli/core/signal-input";
+import { WorkSocket } from "../src/cli/core/socket";
 import { runMutationBatch } from "../src/cli/core/batch";
 import {
   renderFailureEnvelope,
@@ -24,6 +25,12 @@ import { BROWSER_ENABLED } from "../src/shared/features";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+// No file is attached in this suite, so the socket is never called.
+const loadSignalRaiseArgs = (...args: Parameters<typeof loadSignalRaiseArgsWithSocket>) =>
+  loadSignalRaiseArgsWithSocket(...args).pipe(
+    Effect.provideService(WorkSocket, WorkSocket.of({ call: () => Effect.die("no socket in this suite") })),
+  );
 
 describe("work CLI envelopes", () => {
   it("success is exactly one JSON object on stdout shape", () => {

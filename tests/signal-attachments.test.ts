@@ -1,57 +1,145 @@
-import { describe, expect, it } from "vitest";
+/**
+ * Files on a signal, main's side: the seat uploaded them (`content.stage`),
+ * the signal names them by reference, and main takes them from the store.
+ * Real content store and manifest in a temp home; no socket.
+ */
+import { createHash } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect, Layer, ManagedRuntime, Result } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { afterEach, describe, expect, it } from "vitest";
+import { ContentManifest } from "../src/main/junto/content/manifest";
+import { contentStoreRoot } from "../src/main/junto/content/paths";
+import { ContentService, createContentService } from "../src/main/junto/content/service";
 import {
-  admitSignalAttachments,
   attachmentName,
+  claimSignalAttachments,
   signalAttachmentOwner,
 } from "../src/main/junto/signals/attachments";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { handleContentStage } from "../src/main/junto/work/content-stage";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
 );
-const file = (name: string, bytes: Buffer, caption?: string) => ({
-  name,
-  bytesBase64: bytes.toString("base64"),
-  ...(caption === undefined ? {} : { caption }),
+const sha = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+const atlas = { canvasName: "factory", nodeId: "atlas" };
+const signal = { ...atlas, signalId: "s1" };
+
+let home: string | undefined;
+let runtime:
+  | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient | ContentManifest, unknown>
+  | undefined;
+
+afterEach(async () => {
+  await runtime?.dispose();
+  if (home) await rm(home, { recursive: true, force: true });
+  runtime = undefined;
+  home = undefined;
 });
 
-describe("admitSignalAttachments", () => {
-  it("admits images and text in order, with their type and caption", () => {
-    const admitted = admitSignalAttachments([
-      file("before.png", PNG, "  Before  "),
-      file("notes.md", Buffer.from("# hi")),
+const boot = async () => {
+  home = await mkdtemp(join(tmpdir(), "junto-signal-attachments-"));
+  runtime = ManagedRuntime.make(
+    ContentManifest.layer.pipe(Layer.provideMerge(makeStateEngineLive(join(home, "junto.db")))),
+  );
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
+  const manifest = await runtime.runPromise(ContentManifest);
+  const content = createContentService(sql, manifest, contentStoreRoot(home));
+  /** A seat uploads one file, as the CLI would, and gets what to name it by. */
+  const stage = async (name: string, bytes: Buffer, mediaType = "application/octet-stream", seat = atlas) => {
+    const answer = await Effect.runPromise(
+      handleContentStage(seat, {
+        bytesBase64: bytes.toString("base64"),
+        done: { mediaType, displayName: name },
+      }).pipe(Effect.provideService(ContentService, content)),
+    );
+    if (!("ref" in answer)) throw new Error("the upload did not close");
+    return { ref: { sha256: answer.ref.sha256, byteLength: answer.ref.byteLength } };
+  };
+  const claim = (inputs: Parameters<typeof claimSignalAttachments>[2], to = signal) =>
+    Effect.runPromise(Effect.result(claimSignalAttachments(content, to, inputs)));
+  const owners = async (bytes: Buffer) =>
+    (await Effect.runPromise(content.listRefs(sha(bytes)))).map((row) => row.owner.recordId);
+  return { content, stage, claim, owners };
+};
+
+describe("claimSignalAttachments", () => {
+  it("takes images and text in order, typed by their bytes and named as uploaded", async () => {
+    const { stage, claim, owners } = await boot();
+    const notes = Buffer.from("# hi");
+    // The type the seat declared is not what the signal records.
+    const result = await claim([
+      { ...(await stage("before.png", PNG, "text/plain")), caption: "  Before  " },
+      await stage("notes.md", notes),
     ]);
-    expect(admitted.ok && admitted.attachments.map(({ bytes: _bytes, ...rest }) => rest)).toEqual([
-      { name: "before.png", mediaType: "image/png", caption: "Before" },
-      { name: "notes.md", mediaType: "text/markdown" },
+    expect(Result.isSuccess(result) && result.success).toEqual([
+      { ref: { sha256: sha(PNG), byteLength: PNG.length, mediaType: "image/png", displayName: "before.png" }, caption: "Before" },
+      { ref: { sha256: sha(notes), byteLength: notes.length, mediaType: "text/markdown", displayName: "notes.md" } },
     ]);
+    expect(await owners(PNG)).toEqual(["signal:s1"]);
+    expect(await owners(notes)).toEqual(["signal:s1"]);
   });
 
+  it("sets no count and no size: two hundred files, and one of many megabytes", async () => {
+    const { stage, claim } = await boot();
+    const many = [];
+    for (let n = 0; n < 200; n += 1) many.push(await stage(`${n}.txt`, Buffer.from(`file ${n}`)));
+    const result = await claim(many);
+    expect(Result.isSuccess(result) && result.success.length).toBe(200);
+
+    const big = Buffer.concat([PNG, Buffer.alloc(3 * 1024 * 1024)]);
+    const taken = await claim([await stage("big.png", big)], { ...atlas, signalId: "s2" });
+    expect(Result.isSuccess(taken) && taken.success[0]?.ref.byteLength).toBe(big.length);
+  }, 60_000);
+
+  it("holds a file named twice once", async () => {
+    const { stage, claim, owners } = await boot();
+    const first = await stage("before.png", PNG);
+    await stage("after.png", PNG);
+    const result = await claim([first, first]);
+    expect(Result.isSuccess(result) && result.success.map((attachment) => attachment.ref.displayName)).toEqual([
+      "before.png",
+      "before.png",
+    ]);
+    expect((await owners(PNG)).filter((recordId) => recordId === "signal:s1")).toHaveLength(1);
+  });
+
+  it("refuses a file another seat uploaded, and one never uploaded", async () => {
+    const { stage, claim } = await boot();
+    const theirs = await stage("theirs.png", PNG, "image/png", { canvasName: "factory", nodeId: "vega" });
+    const other = await claim([theirs]);
+    expect(Result.isFailure(other) && other.failure).toMatchObject({ path: "attach[0]" });
+    const never = await claim([{ ref: { sha256: "0".repeat(64), byteLength: 3 } } as never]);
+    expect(Result.isFailure(never) && never.failure.message).toContain("not uploaded by this seat");
+  });
+
+  it("refuses by naming the file and the reason, and keeps nothing of a refused signal", async () => {
+    const { stage, claim, owners } = await boot();
+    const zip = Buffer.from("PK");
+    // Declared as an image: the bytes and the name decide, not the claim.
+    const refused = await claim([await stage("a.png", PNG), await stage("build.zip", zip, "image/png")]);
+    expect(Result.isFailure(refused) && refused.failure).toMatchObject({ path: "attach[1]" });
+    expect(Result.isFailure(refused) && refused.failure.message).toContain("build.zip: only images");
+    expect(await owners(PNG)).not.toContain("signal:s1");
+    expect(await owners(zip)).not.toContain("signal:s1");
+
+    const fake = await claim([await stage("fake.png", Buffer.from("text"))]);
+    expect(Result.isFailure(fake) && fake.failure.message).toContain("fake.png");
+    const caption = await claim([{ ...(await stage("b.png", PNG)), caption: "x".repeat(121) }]);
+    expect(Result.isFailure(caption) && caption.failure.message).toContain("caption");
+  });
+});
+
+describe("attachment names and owners", () => {
   it("keeps only the file name of whatever name it is given", () => {
     expect(attachmentName("/Users/me/shots/before.png")).toBe("before.png");
     expect(attachmentName("C:\\shots\\before.png")).toBe("before.png");
     expect(attachmentName("a\u0000b.png")).toBe("ab.png");
     expect(attachmentName("///")).toBe("");
-  });
-
-  it("refuses by naming the file and the reason", () => {
-    const refusal = (inputs: Parameters<typeof admitSignalAttachments>[0]) => {
-      const result = admitSignalAttachments(inputs);
-      return result.ok ? undefined : result.refusal;
-    };
-    expect(refusal([file("build.zip", Buffer.from("PK"))])).toMatchObject({ path: "attach[0]" });
-    expect(refusal([file("build.zip", Buffer.from("PK"))])?.message).toContain("build.zip: only images");
-    expect(refusal([file("a.png", PNG), file("fake.png", Buffer.from("text"))])).toMatchObject({ path: "attach[1]" });
-    expect(refusal([{ name: "a.png", bytesBase64: "not base64!" }])?.message).toContain("Base64");
-    expect(refusal([file("", PNG)])?.message).toContain("file name");
-    expect(refusal([file("a.png", PNG, "x".repeat(121))])?.message).toContain("caption");
-  });
-
-  it("admits any number of files, of any size", () => {
-    const many = admitSignalAttachments(Array.from({ length: 200 }, (_, n) => file(`${n}.png`, PNG)));
-    expect(many.ok && many.attachments.length).toBe(200);
-    const big = Buffer.concat([PNG, Buffer.alloc(4 * 1024 * 1024)]);
-    expect(admitSignalAttachments([file("a.png", big), file("b.png", big)]).ok).toBe(true);
   });
 
   it("holds a signal's files under the signal in the content store", () => {

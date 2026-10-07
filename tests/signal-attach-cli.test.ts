@@ -1,20 +1,66 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { allExamples } from "../src/cli/core/discovery";
 import { loadSignalRaiseArgs, parseAttachFlag } from "../src/cli/core/signal-input";
+import { WorkSocket } from "../src/cli/core/socket";
+import { WORK_MAX_FRAME_BYTES } from "../src/shared/work-control";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
 );
+const sha = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+const refOf = (bytes: Buffer) => ({ sha256: sha(bytes), byteLength: bytes.length });
+
+type Staged = { readonly mediaType: string; readonly displayName?: string; readonly byteLength: number };
+/** What crossed "the socket", and what each closed upload was said to be. */
+let frames: Array<{ readonly op: string; readonly bytes: number }> = [];
+let staged: Staged[] = [];
+
+/** Main's side of `content.stage`, in memory: pieces by stage id, a reference on done. */
+const socket = (() => {
+  const open = new Map<string, Buffer[]>();
+  return WorkSocket.of({
+    call: (op, args) =>
+      Effect.sync(() => {
+        const frame = JSON.stringify({ token: "t", op, args });
+        frames.push({ op, bytes: Buffer.byteLength(frame) });
+        const { stageId, bytesBase64, done } = args as {
+          stageId?: string;
+          bytesBase64?: string;
+          done?: { mediaType: string; displayName?: string };
+        };
+        const id = stageId ?? `stg_${String(open.size).padStart(32, "0")}`;
+        const pieces = open.get(id) ?? [];
+        if (bytesBase64 !== undefined) pieces.push(Buffer.from(bytesBase64, "base64"));
+        open.set(id, pieces);
+        const byteLength = pieces.reduce((sum, piece) => sum + piece.length, 0);
+        if (done === undefined) return { stageId: id, byteLength };
+        const hash = createHash("sha256");
+        for (const piece of pieces) hash.update(piece);
+        open.delete(id);
+        const { mediaType, displayName } = done;
+        staged.push({ mediaType, ...(displayName === undefined ? {} : { displayName }), byteLength });
+        return { ref: { sha256: hash.digest("hex"), byteLength, mediaType, displayName } };
+      }),
+  });
+})();
 
 let dir = "";
 const at = (name: string): string => join(dir, name);
 const load = (input: string, attach: ReadonlyArray<string> = []) =>
-  Effect.runPromise(loadSignalRaiseArgs("feedback", input, undefined, attach));
+  Effect.runPromise(
+    loadSignalRaiseArgs("feedback", input, undefined, attach).pipe(Effect.provideService(WorkSocket, socket)),
+  );
+
+beforeEach(() => {
+  frames = [];
+  staged = [];
+});
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "junto-signal-attach-"));
@@ -46,31 +92,33 @@ describe("parseAttachFlag", () => {
 });
 
 describe("--attach on the needs-you commands", () => {
-  it("sends each file's bytes and name in order, never its path", async () => {
+  it("uploads each file in order and names it by reference: no bytes and no path in the signal", async () => {
     const args = await load("ready", [`Before=${at("before.png")}`, at("after.png"), at("a=b.png")]);
     expect(args).toEqual({
       kind: "feedback",
       text: "ready",
-      attach: [
-        { name: "before.png", caption: "Before", bytesBase64: PNG.toString("base64") },
-        { name: "after.png", bytesBase64: PNG.toString("base64") },
-        { name: "a=b.png", bytesBase64: PNG.toString("base64") },
-      ],
+      attach: [{ ref: refOf(PNG), caption: "Before" }, { ref: refOf(PNG) }, { ref: refOf(PNG) }],
     });
     expect(JSON.stringify(args)).not.toContain(dir);
+    expect(staged).toEqual([
+      { mediaType: "image/png", displayName: "before.png", byteLength: PNG.length },
+      { mediaType: "image/png", displayName: "after.png", byteLength: PNG.length },
+      { mediaType: "image/png", displayName: "a=b.png", byteLength: PNG.length },
+    ]);
+    expect(frames.every((frame) => frame.op === "content.stage")).toBe(true);
   });
 
   it("takes the same list from the JSON input", async () => {
     const args = await load(
       JSON.stringify({ text: "ready", attach: [{ path: at("notes.md"), caption: "Notes" }] }),
     );
-    expect(args.attach).toEqual([
-      { name: "notes.md", caption: "Notes", bytesBase64: Buffer.from("# notes").toString("base64") },
-    ]);
+    expect(args.attach).toEqual([{ ref: refOf(Buffer.from("# notes")), caption: "Notes" }]);
+    expect(staged).toEqual([{ mediaType: "text/markdown", displayName: "notes.md", byteLength: 7 }]);
   });
 
   it("sends no attach field when nothing is attached", async () => {
     expect(await load("ready")).toEqual({ kind: "feedback", text: "ready" });
+    expect(frames).toEqual([]);
   });
 
   it("refuses, naming the file: a missing one, a folder, a type no preview shows, given twice", async () => {
@@ -83,18 +131,30 @@ describe("--attach on the needs-you commands", () => {
     await expect(load(JSON.stringify({ text: "x", attach: [{ path: at("before.png"), bytes: "x" }] }))).rejects.toThrow();
   });
 
+  it("uploads nothing when one of the files is refused", async () => {
+    await expect(load("x", [at("before.png"), at("build.zip")])).rejects.toThrow(/build\.zip: only images/);
+    expect(frames).toEqual([]);
+  });
+
   it("sets no count of its own: fifty files go as fifty", async () => {
     const args = await load("x", Array.from({ length: 50 }, () => at("before.png")));
     expect(args.attach).toHaveLength(50);
+    expect(staged).toHaveLength(50);
   });
 
-  it("refuses what one message cannot carry on size alone, before reading it", async () => {
+  it("sets no size of its own: a file larger than a frame goes in pieces that each fit", async () => {
     const huge = at("huge.png");
-    // Sparse: sixteen megabytes on paper, nothing to read.
-    writeFileSync(huge, "");
-    truncateSync(huge, 16 * 1024 * 1024);
-    await expect(load("x", [huge])).rejects.toThrow(/huge\.png: the attached files do not fit in one message/);
-  });
+    // Sparse: a PNG signature, then twenty megabytes of nothing.
+    writeFileSync(huge, PNG);
+    truncateSync(huge, 20 * 1024 * 1024);
+    expect(20 * 1024 * 1024).toBeGreaterThan(WORK_MAX_FRAME_BYTES);
+    const args = await load("x", [huge]);
+    expect(args.attach?.[0]?.ref.byteLength).toBe(20 * 1024 * 1024);
+    expect(staged).toEqual([{ mediaType: "image/png", displayName: "huge.png", byteLength: 20 * 1024 * 1024 }]);
+    expect(frames.length).toBeGreaterThan(1);
+    for (const frame of frames) expect(frame.bytes).toBeLessThan(WORK_MAX_FRAME_BYTES);
+    expect(Buffer.byteLength(JSON.stringify(args))).toBeLessThan(1024);
+  }, 60_000);
 
   it("decodes with the schema it shows: every example input is accepted as written", async () => {
     const examples = allExamples.filter((example) => /^signal\.(escalate|blocked|feedback)$/u.test(example.command_id));

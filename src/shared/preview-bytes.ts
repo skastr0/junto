@@ -1,4 +1,4 @@
-import { PREVIEW_MAX_IMAGE_BYTES, PREVIEW_MAX_SVG_BYTES, previewExtension, previewKindOf } from "./preview";
+import { PREVIEW_MAX_SVG_BYTES, previewExtension, previewKindOf } from "./preview";
 
 /**
  * What a file is, judged by its bytes. One judge for every door a file comes
@@ -62,25 +62,43 @@ export type AttachmentKind =
   | { readonly ok: true; readonly kind: "image" | "text"; readonly mediaType: string }
   | { readonly ok: false; readonly reason: string };
 
+/** A display name: the last segment only, nothing a terminal or a table would choke on. */
+export const attachmentName = (raw: string): string => {
+  const last = raw.replace(/\\/gu, "/").split("/").filter(Boolean).pop() ?? "";
+  return last.replace(/[\u0000-\u001f\u007f]/gu, "").trim().slice(0, 255);
+};
+
+/**
+ * How much of a file's start `classifyAttachment` needs: a whole SVG (one
+ * larger than this is never shown as a drawing), and more than enough of
+ * anything else.
+ */
+export const ATTACHMENT_HEAD_BYTES = PREVIEW_MAX_SVG_BYTES;
+
 /**
  * Whether a file may ride on a signal: only what a preview can show. An
  * image by its bytes (PNG, JPEG, GIF, WebP, or an SVG that is only a
  * drawing), or text by its name (txt, md, markdown, json, diff, patch, log)
  * with no NUL byte in it.
+ *
+ * Judged from the file's start (`head`, its first ATTACHMENT_HEAD_BYTES at
+ * least) and its whole length, so a file of any size is judged without
+ * being read through. The file's size is no reason to refuse it.
  */
-export const classifyAttachment = (name: string, bytes: Uint8Array): AttachmentKind => {
-  if (bytes.byteLength === 0) return { ok: false, reason: "the file is empty" };
+export const classifyAttachment = (
+  name: string,
+  head: Uint8Array,
+  byteLength: number = head.byteLength,
+): AttachmentKind => {
+  const bytes = head;
+  if (byteLength === 0) return { ok: false, reason: "the file is empty" };
   const raster = sniffRasterType(bytes);
-  if (raster !== undefined) {
-    return bytes.byteLength > PREVIEW_MAX_IMAGE_BYTES
-      ? { ok: false, reason: "the image is too large" }
-      : { ok: true, kind: "image", mediaType: raster };
-  }
+  if (raster !== undefined) return { ok: true, kind: "image", mediaType: raster };
   const extension = previewExtension(`/${name}`);
   if (extension === "svg") {
-    return isInertSvgBytes(bytes)
+    return byteLength <= PREVIEW_MAX_SVG_BYTES && isInertSvgBytes(bytes)
       ? { ok: true, kind: "image", mediaType: "image/svg+xml" }
-      : { ok: false, reason: "the SVG carries script, an event handler or an outside reference, or is too large" };
+      : { ok: false, reason: "the SVG carries script, an event handler or an outside reference, or is too large to be checked" };
   }
   if (previewKindOf(`/${name}`) === "image") {
     return { ok: false, reason: `the bytes are not a ${extension} image` };

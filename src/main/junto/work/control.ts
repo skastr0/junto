@@ -126,10 +126,9 @@ import { CanvasesService } from "../canvases";
 import { ContentService } from "../content/service";
 import { handleContentStage } from "./content-stage";
 import {
-  admitSignalAttachments,
+  claimSignalAttachments,
   releaseSignalAttachments,
   signalAttachmentOwner,
-  storeSignalAttachments,
 } from "../signals/attachments";
 import {
   materializeContentObject,
@@ -2265,19 +2264,12 @@ const dispatchOp = (
           details: { path: "args.detail", retryable: false },
         });
       }
-      // Attached files: judged here, whatever the CLI already checked, then
-      // stored under the signal's id before the signal itself is written.
+      // Attached files: the seat uploaded them already. They are judged here,
+      // whatever the CLI already checked, and held under the signal's id
+      // before the signal itself is written.
       const signalId = ulid();
       let attachments: ReadonlyArray<AgentSignalAttachment> = [];
       if (decoded.success.attach !== undefined && decoded.success.attach.length > 0) {
-        const admitted = admitSignalAttachments(decoded.success.attach);
-        if (!admitted.ok) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "InputError",
-            message: admitted.refusal.message,
-            details: { path: `args.${admitted.refusal.path}`, retryable: false },
-          });
-        }
         const contentOption = yield* Effect.serviceOption(ContentService);
         if (Option.isNone(contentOption)) {
           return yield* Effect.fail<WorkErrorBody>({
@@ -2286,15 +2278,15 @@ const dispatchOp = (
             details: { retryable: false, next_step: "raise the signal without --attach" },
           });
         }
-        attachments = yield* storeSignalAttachments(
+        attachments = yield* claimSignalAttachments(
           contentOption.value,
           { ...seat, signalId },
-          admitted.attachments,
+          decoded.success.attach,
         ).pipe(
-          Effect.mapError((error): WorkErrorBody => ({
-            type: "InternalError",
-            message: `an attachment could not be stored: ${error.message}`,
-            details: { retryable: true },
+          Effect.mapError((refused): WorkErrorBody => ({
+            type: "InputError",
+            message: refused.message,
+            details: { path: `args.${refused.path}`, retryable: false },
           })),
         );
       }

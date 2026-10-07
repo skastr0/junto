@@ -11,7 +11,7 @@ import {
   TaskAdmission,
   TaskRule,
 } from "./work-model";
-import { ContentRef } from "./content";
+import { ContentIdentity, ContentRef } from "./content";
 import { PadPatch } from "./pad";
 import { MailEvidenceRef } from "./crew";
 import { AgentSignalKind } from "./agent-signals";
@@ -621,15 +621,15 @@ export type PreambleArgs = typeof PreambleArgs.Type;
  * process-bound caller, so a seat can only raise, clear, or read its own.
  */
 /**
- * One file on its way to a signal. The CLI reads the file and sends its
- * bytes: a path never crosses the socket, since a Remote seat's path does
- * not exist on the Command Center. Main is the authority on what is admitted.
+ * One file on a signal. The seat put it into the content store first, in
+ * pieces (`content.stage`), and names it here by what came back: no bytes
+ * and no path ride in the signal's own request, so a file of any size can be
+ * attached. Main is the authority on what is admitted, and takes the file's
+ * name and type from what it recorded, not from here.
  */
 export const SignalAttachmentInput = Schema.Struct({
-  /** The file's name, for display only. Never a path. */
-  name: Schema.String,
+  ref: ContentIdentity,
   caption: Schema.optionalKey(Schema.String),
-  bytesBase64: Schema.String,
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
@@ -657,8 +657,8 @@ export type SignalAttachCliInput = typeof SignalAttachCliInput.Type;
 /**
  * What `junto escalate|blocked|feedback` takes as its JSON input: the one
  * schema the CLI both shows and decodes with. The command name is the kind,
- * so there is none here. The CLI turns `attach` paths into bytes
- * (`SignalRaiseArgs.attach`) before the call.
+ * so there is none here. The CLI uploads each `attach` path and sends its
+ * reference (`SignalRaiseArgs.attach`) in the call.
  */
 export const SignalRaiseCliArgs = Schema.Struct({
   text: Schema.String,
