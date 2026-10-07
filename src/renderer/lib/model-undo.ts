@@ -167,7 +167,8 @@ export const inverseOf = (canvas: Canvas, command: Command, context: UndoContext
 
 /**
  * The canvas after a command, for the commands whose result is known without
- * asking main. Used only to reverse the next command of the same step.
+ * asking main: what each command does, said once. Undo reads it to reverse
+ * the next command of a step, and the store to show an edit at once.
  */
 export const canvasAfter = (canvas: Canvas, command: Command): Canvas => {
   switch (command._tag) {
@@ -264,6 +265,21 @@ export const canvasAfter = (canvas: Canvas, command: Command): Canvas => {
     }
     case "Batch":
       return command.steps.reduce(canvasAfter, canvas);
+    case "GrantOverseer": {
+      const seat = canvas.nodes.get(command.id);
+      if (seat === undefined || seat.kind !== "agent" || seat.overseer === command.overseer) return canvas;
+      const nodes = new Map(canvas.nodes);
+      nodes.set(seat.id, { ...seat, overseer: command.overseer });
+      return { ...canvas, nodes };
+    }
+    case "RecordSession": {
+      const seat = canvas.nodes.get(command.id);
+      if (seat === undefined || seat.kind !== "agent") return canvas;
+      const { sessionId: _was, ...rest } = seat;
+      const nodes = new Map(canvas.nodes);
+      nodes.set(seat.id, command.sessionId === null ? rest : { ...rest, sessionId: command.sessionId });
+      return { ...canvas, nodes };
+    }
     default:
       return canvas;
   }

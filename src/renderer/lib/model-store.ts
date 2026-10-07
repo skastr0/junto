@@ -1,6 +1,7 @@
 import { batch, observable, type Observable } from "@legendapp/state";
 import { asCanvasName, type Changed, type Command, type Node, type Opened, type Wire } from "@shared/model";
 import type { Canvas } from "@shared/model/canvas";
+import { canvasAfter } from "./model-undo";
 
 // What is on each open canvas, as the window holds it: nodes and wires by id.
 // Filled once by `Opened` and kept current by `Changed`, which carries only
@@ -82,76 +83,22 @@ type Rows = {
 };
 
 /**
- * What a command will have done once main commits it, for the commands whose
- * result the window can know by itself. `undefined` means wait for the event.
+ * What a command will have done once main commits it, so the window can show
+ * it at once: the rows that differ between the canvas now and the canvas
+ * after (model-undo.ts says what each command does). `undefined` for a command
+ * about a whole canvas, which is main's to say.
  */
 export const rowsAfterCommand = (state: ModelCanvasState, command: Command): Rows | undefined => {
-  const none = { nodes: [], wires: [], removedNodes: [], removedWires: [] } as const;
-  const present = (ids: ReadonlyArray<string>): ReadonlyArray<Node> =>
-    ids.flatMap((id) => (state.nodes[id] === undefined ? [] : [state.nodes[id]]));
-  switch (command._tag) {
-    case "Add":
-      return { ...none, nodes: command.nodes, wires: command.wires };
-    case "Remove": {
-      const gone = new Set<string>(command.nodes);
-      const dangling = Object.values(state.wires)
-        .filter((wire) => gone.has(wire.from) || gone.has(wire.to))
-        .map((wire) => wire.id);
-      return { ...none, removedNodes: command.nodes, removedWires: [...new Set([...command.wires, ...dangling])] };
-    }
-    case "Move":
-      return {
-        ...none,
-        nodes: command.moves.flatMap((move) => {
-          const node = state.nodes[move.id];
-          if (node === undefined) return [];
-          return [{
-            ...node,
-            x: move.x,
-            y: move.y,
-            ...(move.size === undefined ? {} : move.size),
-          }];
-        }),
-      };
-    case "Recolor":
-      return {
-        ...none,
-        nodes: present(command.nodes).map((node) => {
-          const { color: _color, ...rest } = node;
-          return (command.color === null ? rest : { ...rest, color: command.color }) as Node;
-        }),
-      };
-    case "Edit": {
-      const node = state.nodes[command.id];
-      if (node === undefined || node.kind !== command.change.kind) return none;
-      const next: Record<string, unknown> = { ...node };
-      for (const [field, value] of Object.entries(command.change)) {
-        if (field === "kind") continue;
-        if (value === null) delete next[field];
-        else next[field] = value;
-      }
-      return { ...none, nodes: [next as Node] };
-    }
-    case "Rewire": {
-      const wire = state.wires[command.id];
-      if (wire === undefined) return none;
-      const next: Record<string, unknown> = { ...wire };
-      for (const [field, value] of Object.entries(command.change)) {
-        if (value === null) delete next[field];
-        else next[field] = value;
-      }
-      return { ...none, wires: [next as Wire] };
-    }
-    case "GrantOverseer": {
-      const node = state.nodes[command.id];
-      if (node === undefined || node.kind !== "agent") return none;
-      return { ...none, nodes: [{ ...node, overseer: command.overseer }] };
-    }
-    // Where restacked nodes land, what a canvas command leaves behind, and
-    // anything this window does not know how to foresee, is main's to say.
-    default:
-      return undefined;
-  }
+  if (command._tag === "CreateCanvas" || command._tag === "RemoveCanvas") return undefined;
+  const before = canvasOfState(command.canvas, state);
+  const after = canvasAfter(before, command);
+  if (after === before) return { nodes: [], wires: [], removedNodes: [], removedWires: [] };
+  return {
+    nodes: [...after.nodes.values()].filter((node) => before.nodes.get(node.id) !== node),
+    wires: [...after.wires.values()].filter((wire) => before.wires.get(wire.id) !== wire),
+    removedNodes: [...before.nodes.keys()].filter((id) => !after.nodes.has(id)),
+    removedWires: [...before.wires.keys()].filter((id) => !after.wires.has(id)),
+  };
 };
 
 /**
