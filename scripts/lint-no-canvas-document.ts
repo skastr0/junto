@@ -54,6 +54,10 @@ const ALLOWED = new Set([
   "tests/actor-seat.test.ts",
   "tests/work-replication.test.ts",
   "tests/work-v2-state-schema.test.ts",
+  // The old shapes, frozen for those tests alone; no product source imports them.
+  "tests/fixtures/frozen-canvas-types.ts",
+  "tests/helpers/authorial-material.ts",
+  "tests/helpers/canvas-authority-material.ts",
   // Guards that name the old word only to forbid it in output.
   "tests/overseer-control.test.ts",
   "tests/overseer-cli.test.ts",
