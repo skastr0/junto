@@ -109,8 +109,6 @@ describe("main authoring architecture", () => {
       // A paired phone's mail and signal answers are operator mail, written only
       // under the companion.* authoring labels (asserted below).
       "src/main/junto/companion/operator-actions.ts",
-      // Operator qualification mints offline Remote Work through WorkService.
-      "src/main/junto/hosts/operator-qualification-work.ts",
       "src/main/junto/ipc.ts",
       "src/main/junto/kernel/service.ts",
       // Closed administrative dispatch is still process-bound and gated.
