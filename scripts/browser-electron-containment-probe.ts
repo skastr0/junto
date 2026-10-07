@@ -15,8 +15,8 @@ import {
 import { createServer, request, type Server } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Result } from "effect";
-import { asBindingId, type Node, type Wire } from "../src/shared/model";
+import { Result, Schema } from "effect";
+import { BindingId, type Node, type Wire } from "../src/shared/model";
 import {
   CONTROL_REQUEST_ID_HEADER,
   CONTROL_ROUTES,
@@ -1785,7 +1785,7 @@ const main = async (): Promise<void> => {
   const nodes: ReadonlyArray<Node> = [
     {
       kind: "agent", id: "probe-agent" as Node["id"], label: "browser-containment-probe",
-      agentKey: "browser-containment-probe", bindingId: asBindingId("browser-containment-probe"),
+      agentKey: "browser-containment-probe", bindingId: Schema.decodeUnknownSync(BindingId)("browser-containment-probe"),
       harness: "codex", host: "local", overseer: false, onRemove: "detach",
       x: 840, y: -180, width: 320, height: 96, z: 0,
     },
