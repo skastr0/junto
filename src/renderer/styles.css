@@ -1088,18 +1088,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .inspector-actions button:hover { border-color: color-mix(in oklab, var(--color-second) 40%, transparent); background: color-mix(in oklab, var(--color-second) 6%, transparent); color: var(--color-ink); }
 .inspector-actions .inspector-action--danger { color: var(--color-crimson); }
 .inspector-actions .inspector-action--danger:hover { border-color: color-mix(in oklab, var(--color-accent) 50%, transparent); background: color-mix(in oklab, var(--color-accent) 8%, transparent); }
-.inspector-connect { display: grid; gap: 8px; margin-top: 10px; border-top: 1px solid var(--color-overlay-4); padding-top: 10px; }
-.inspector-connect label { display: grid; gap: 5px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-connect label span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.inspector-connect label em { color: var(--color-faint); font-style: normal; letter-spacing: var(--tracking-soft); }
-.inspector-connect input { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
-.inspector-connect input::placeholder { color: var(--color-faint); }
-.inspector-connect input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.inspector-connect__empty { border: 1px dashed var(--color-overlay-4); border-radius: var(--radius-sm); color: var(--color-faint); padding: 8px; font-size: var(--text-caption); line-height: var(--leading-body); }
-.inspector-connect select { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
-.inspector-connect select:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.inspector-connect button { border: 1px solid color-mix(in oklab, var(--color-main) 35%, transparent); border-radius: var(--radius-sm); background: color-mix(in oklab, var(--color-main) 8%, transparent); color: var(--color-amber); padding: 7px 8px; font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-connect button:disabled { cursor: not-allowed; opacity: .35; }
 .inspector-edge { display: flex; align-items: center; gap: 8px; color: var(--color-ink); font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); }
 .inspector-edge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inspector-edge-label { display: grid; gap: 5px; margin-top: 15px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }

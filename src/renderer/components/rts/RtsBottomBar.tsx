@@ -54,7 +54,7 @@ import { roleOf } from "@shared/physics";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
 import { executionGraphForImpact } from "../../lib/impact-mode";
-import { ConnectEditor } from "../InspectorFields";
+import { ConnectEditor } from "./ConnectEditor";
 import { EdgeCommandCard } from "./RtsControls";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
@@ -513,7 +513,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
         {connectOpen ? (
           <div className="rts-cmd-pop">
-            <ConnectEditor node={node} doc={doc} open={connectOpen} onOpenChange={setConnectOpen} />
+            <ConnectEditor node={node} doc={doc} onClose={() => setConnectOpen(false)} />
           </div>
         ) : null}
       </div>
