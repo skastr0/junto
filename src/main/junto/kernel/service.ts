@@ -229,17 +229,38 @@ export const subscribeKernelPauseWake = (
 /**
  * Keep the kernel's hot Work projection at the exact claim result.
  *
- * WorkService already returns the post-transaction hydrated document. Retain
- * it before the delivery phase so a claim can wake its seat in this cycle
- * instead of waiting for the repository notification/resync repair cycle.
+ * WorkService answers a claim with the claimed row. Put it in place of the
+ * board's row before the delivery phase so a claim can wake its seat in this
+ * cycle instead of waiting for the repository notification/resync repair cycle.
  */
-export const retainSuccessfulClaimProjection = (
+export const retainClaimedTask = (
   documents: Map<string, CanvasDoc>,
   canvasName: string,
-  result: { readonly ok: boolean; readonly doc?: CanvasDoc },
+  boardId: string,
+  task: Task,
 ): boolean => {
-  if (!result.ok || result.doc === undefined) return false;
-  documents.set(canvasName, result.doc);
+  const doc = documents.get(canvasName);
+  if (doc === undefined) return false;
+  let retained = false;
+  const nodes = doc.nodes.map((node) => {
+    const tasks = node.id === boardId ? node.ether?.tasks : undefined;
+    if (tasks === undefined || !tasks.items.some((item) => item.id === task.id)) {
+      return node;
+    }
+    retained = true;
+    return {
+      ...node,
+      ether: {
+        ...node.ether,
+        tasks: {
+          ...tasks,
+          items: tasks.items.map((item) => (item.id === task.id ? task : item)),
+        },
+      },
+    };
+  });
+  if (!retained) return false;
+  documents.set(canvasName, { ...doc, nodes });
   return true;
 };
 
@@ -1057,10 +1078,11 @@ const makeKernelService = (
             );
           }
           if (result.ok) {
-            retainSuccessfulClaimProjection(
+            retainClaimedTask(
               docs,
               selection.sink.canvasName,
-              result,
+              selection.sink.nodeId,
+              result.data,
             );
             busyActorSeatIds.add(selection.actor.seatId);
           }
