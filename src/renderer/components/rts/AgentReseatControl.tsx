@@ -7,7 +7,10 @@
  */
 import { useCallback, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import type { CanvasNode, TextNode } from "@shared/canvas";
+import type { CanvasNode } from "@shared/canvas";
+import { useRtsNodes, readRtsNode } from "../../lib/rts-selection";
+import { state$ } from "../../lib/state";
+import { use$ } from "@legendapp/state/react";
 import { resolveTerminalBinding } from "@shared/terminal";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import {
@@ -33,25 +36,28 @@ const currentHarnessOf = (node: CanvasNode): HarnessId | undefined => {
 // Module-level so the popover's placement effect sees one stable array.
 const POP_SIDES = ["above", "below"] as const;
 
-export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
+export function AgentReseatControl({ nodeId }: { readonly nodeId: string }) {
+  const canvasName = use$(state$.canvasName);
+  const node = useRtsNodes(canvasName, [nodeId])[0];
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [pending, setPending] = useState<AgentConfigurationChoices | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const current = currentHarnessOf(node);
+  const current = node ? currentHarnessOf(node) : undefined;
   const close = useCallback(() => setAnchor(null), []);
 
   const runReseat = useCallback(
     async (choices: AgentConfigurationChoices) => {
-      if (node.type !== "text") return;
+      const live = readRtsNode(canvasName, nodeId);
+      if (live?.type !== "text") return;
       setBusy(true);
       setError(undefined);
-      const result = await performManagedAgentReseat(node as TextNode, choices);
+      const result = await performManagedAgentReseat(live, choices);
       setBusy(false);
       setPending(null);
       if (!result.ok) setError(result.message);
     },
-    [node],
+    [canvasName, nodeId],
   );
 
   const onConfigure = useCallback(
@@ -72,7 +78,7 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
     [close, current, runReseat],
   );
 
-  if (node.ether?.entity?.kind !== "agent") return null;
+  if (node?.ether?.entity?.kind !== "agent") return null;
   if (resolveTerminalBinding(node)?.kind !== "native") return null;
 
   return (

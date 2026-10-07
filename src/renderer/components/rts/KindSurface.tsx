@@ -565,7 +565,7 @@ export function KindSurface() {
       <div className="rts-kind-cluster">
         <span className="rts-kind-kind-label">{stripLabel}</span>
         <div className="rts-kind-strip" role="toolbar" aria-label={`${stripLabel} actions`}>
-          {hasKindActions ? <KindActions node={node} /> : null}
+          {hasKindActions ? <KindActions nodeId={node.id} /> : null}
           {kind === "agent" ? <SeatOffboardKindKey nodeIds={[node.id]} /> : null}
           {isFreeNote ? (
             <KindKey

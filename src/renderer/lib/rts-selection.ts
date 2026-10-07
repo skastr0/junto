@@ -17,13 +17,33 @@ export const useSelectedNodeIds = (): ReadonlyArray<string> =>
 export function rtsNode(canvas: string, id: string): CanvasNode | undefined {
   const node = modelStore.node$(canvas, id).get();
   if (!node) return undefined;
-  // Legacy field controls still consume this view; placement is read by an
-  // opened editor, never by the always-mounted command chrome.
-  return nodeToDocument({ ...node, x: 0, y: 0, width: 0, height: 0, z: 0 });
+  return nodeToDocument(node);
 }
 
-export const useRtsNodes = (canvas: string, ids: ReadonlyArray<string>): ReadonlyArray<CanvasNode> =>
-  useRtsValue(() => ids.map(id => rtsNode(canvas, id)).filter((node): node is CanvasNode => node !== undefined));
+/** Resolve complete current data at the gesture, never from a displayed snapshot. */
+export function readRtsNode(canvas: string, id: string): CanvasNode | undefined {
+  const node = modelStore.node$(canvas, id).peek();
+  return node ? nodeToDocument(node) : undefined;
+}
+
+export function withCurrentRtsNode(id: string, action: (node: CanvasNode) => unknown): void {
+  const node = readRtsNode(state$.canvasName.peek(), id);
+  if (node) void action(node);
+}
+
+export function useRtsNodes(canvas: string, ids: ReadonlyArray<string>): ReadonlyArray<CanvasNode> {
+  const key = use$(() => JSON.stringify(ids.flatMap(id => {
+    const node = rtsNode(canvas, id);
+    if (!node) return [];
+    // Only the comparison omits placement. No fabricated node escapes it.
+    const { x, y, width, height, ...displayed } = node;
+    return [displayed];
+  })));
+  return useMemo(() => JSON.parse(key).flatMap(({ id }: { id: string }) => {
+    const node = readRtsNode(canvas, id);
+    return node ? [node] : [];
+  }), [canvas, key]);
+}
 
 export const useRtsWire = (canvas: string, id: string): CanvasEdge | null =>
   useRtsValue(() => {

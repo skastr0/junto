@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Shield } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import { useRtsNodes } from "../../lib/rts-selection";
 import { use$ } from "@legendapp/state/react";
 import { HUE } from "../../lib/theme";
 import { state$ } from "../../lib/state";
@@ -17,13 +17,14 @@ const ICON = 12;
  * Human-only grant/revoke on a managed agent seat. Pause/play is orthogonal.
  * Lives on the RTS kind strip — never on the card body.
  */
-export function OverseerToggleKey({ node }: { readonly node: CanvasNode }) {
+export function OverseerToggleKey({ nodeId }: { readonly nodeId: string }) {
   const canvasName = use$(state$.canvasName);
-  const granted = isOverseerGranted(node);
+  const node = useRtsNodes(canvasName, [nodeId])[0];
+  const granted = node ? isOverseerGranted(node) : false;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  if (!canToggleOverseer(node)) return null;
+  if (!node || !canToggleOverseer(node)) return null;
 
   const toggle = () => {
     if (busy || !canvasName) return;
@@ -31,7 +32,7 @@ export function OverseerToggleKey({ node }: { readonly node: CanvasNode }) {
     setError("");
     void setOverseerSeat({
       canvasName,
-      nodeId: node.id,
+      nodeId,
       overseer: !granted,
     })
       .catch((caught: unknown) => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
+import { useRtsNodes } from "../lib/rts-selection";
 import { HashMap, HashSet, Option } from "effect";
 import type {
   CanvasDoc,
@@ -223,8 +224,10 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
 }
 
 /** Queue home host for a tasks sink — used from RTS kind strip pop. */
-export function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
-  const storedHost = resolveNodeHostId(node);
+export function TaskQueueHomeControl({ nodeId }: { readonly nodeId: string }) {
+  const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
+  const storedHost = node ? resolveNodeHostId(node) : "local";
+  if (!node) return null;
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
       <div className="inspector-section__label">queue home</div>
@@ -233,7 +236,7 @@ export function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
         <EnrolledHostSelect
           ariaLabel="Task queue home host"
           value={storedHost}
-          onChange={(next) => setNodeHost(node.id, next)}
+          onChange={(next) => setNodeHost(nodeId, next)}
         />
       </label>
       <div className="inspector-detail">Existing tasks stay where they are.</div>
@@ -242,21 +245,23 @@ export function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
 }
 
 /** Host + profile for a page — used from RTS kind-strip pop. */
-export function PageBindingControl({ node }: { readonly node: CanvasNode }) {
-  const storedProfile = node.ether?.browser?.profile ?? "personal";
-  const storedHost = resolveNodeHostId(node);
+export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
+  const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
+  const storedProfile = node?.ether?.browser?.profile ?? "personal";
+  const storedHost = node ? resolveNodeHostId(node) : "local";
   const [profile, setProfile] = useState(storedProfile);
   const [host, setHost] = useState(storedHost);
 
   useEffect(() => {
     setProfile(storedProfile);
     setHost(storedHost);
-  }, [node.id, storedHost, storedProfile]);
+  }, [nodeId, storedHost, storedProfile]);
 
   const commit = (nextProfile = profile, nextHost = host) => {
-    setPageBinding(node.id, { profile: nextProfile, host: nextHost });
+    setPageBinding(nodeId, { profile: nextProfile, host: nextHost });
   };
 
+  if (!node) return null;
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
       <div className="inspector-section__label">browser binding</div>
@@ -290,17 +295,19 @@ export function PageBindingControl({ node }: { readonly node: CanvasNode }) {
 }
 
 /** Page URL — used from RTS kind-strip pop. */
-export function PageUrlControl({ node }: { readonly node: CanvasNode }) {
-  const url = node.type === "link" ? node.url : "";
+export function PageUrlControl({ nodeId }: { readonly nodeId: string }) {
+  const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
+  const url = node?.type === "link" ? node.url : "";
   const [draft, setDraft] = useState(url);
   useEffect(() => {
     setDraft(url);
-  }, [node.id, url]);
+  }, [nodeId, url]);
   const commit = () => {
     const next = draft.trim();
-    if (!next || next === url || node.type !== "link") return;
-    editLink(node.id, next);
+    if (!next || next === url || node?.type !== "link") return;
+    editLink(nodeId, next);
   };
+  if (!node) return null;
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
       <div className="inspector-section__label">page url</div>

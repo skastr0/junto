@@ -1,4 +1,4 @@
-import { useRtsValue, useRtsWire } from "../../lib/rts-selection";
+import { useRtsNodes, withCurrentRtsNode, useRtsValue, useRtsWire } from "../../lib/rts-selection";
 import { wireOfDocument } from "@shared/model/from-document";
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -265,12 +265,12 @@ function PageKindKeys({ node }: { readonly node: CanvasNode }) {
       </KindKey>
       {pop === "url" ? (
         <div className="rts-kind-pop rts-kind-pop--editor">
-          <PageUrlControl node={node} />
+          <PageUrlControl nodeId={node.id} />
         </div>
       ) : null}
       {pop === "binding" ? (
         <div className="rts-kind-pop rts-kind-pop--editor">
-          <PageBindingControl node={node} />
+          <PageBindingControl nodeId={node.id} />
         </div>
       ) : null}
     </>
@@ -314,7 +314,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       <KindKey
         label="Add task"
         title="Enqueue a task"
-        onClick={() => openTaskCreateSurface(node)}
+        onClick={() => withCurrentRtsNode(node.id, openTaskCreateSurface)}
       >
         <Plus size={ICON} />
       </KindKey>
@@ -409,7 +409,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       ) : null}
       {fleetUi && pop === "home" ? (
         <div className="rts-kind-pop rts-kind-pop--queue-home">
-          <TaskQueueHomeControl node={node} />
+          <TaskQueueHomeControl nodeId={node.id} />
         </div>
       ) : null}
     </>
@@ -417,7 +417,10 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
 }
 
 /** Kind-specific action keys (agent/terminal/task/…). */
-export function KindActions({ node }: { readonly node: CanvasNode }) {
+export function KindActions({ nodeId }: { readonly nodeId: string }) {
+  const canvasName = use$(state$.canvasName);
+  const node = useRtsNodes(canvasName, [nodeId])[0];
+  if (!node) return null;
   const kind = node.ether?.entity?.kind;
   // A feature-gated kind turned off in this build keeps its historical card
   // but loses every kind action, so no pop or surface can reopen it.
@@ -472,12 +475,12 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
             <KindKey
               label="Open terminal"
               title="Open agent terminal (double-click node or re-tap slot)"
-              onClick={() => void openTerminal(node)}
+              onClick={() => withCurrentRtsNode(node.id, openTerminal)}
             >
               <Terminal size={ICON} />
             </KindKey>
-            <AgentReseatControl node={node} />
-            <OverseerToggleKey node={node} />
+            <AgentReseatControl nodeId={node.id} />
+            <OverseerToggleKey nodeId={node.id} />
             {canStartOverseerLive(node) && <KindKey
               label="Start live conversation"
               title="Talk with this Overseer"
@@ -494,7 +497,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
       if (ACP_CHAT_SURFACE_HIDDEN) {
         return (
           <>
-            <OverseerToggleKey node={node} />
+            <OverseerToggleKey nodeId={node.id} />
             {customize}
             {rename}
             {guidance}
@@ -507,11 +510,11 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           <KindKey
             label="Open chat"
             title="Open chat"
-            onClick={() => openAgentChatSurface(node)}
+            onClick={() => withCurrentRtsNode(node.id, openAgentChatSurface)}
           >
             <MessageSquareText size={ICON} />
           </KindKey>
-          <OverseerToggleKey node={node} />
+          <OverseerToggleKey nodeId={node.id} />
           {customize}
           {rename}
           {guidance}
@@ -524,7 +527,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         <KindKey
           label="Open terminal"
           title="Open terminal"
-          onClick={() => void openTerminal(node)}
+          onClick={() => withCurrentRtsNode(node.id, openTerminal)}
         >
           <Terminal size={ICON} />
         </KindKey>
@@ -853,7 +856,7 @@ export function KindStrip() {
   return (
     <div className="rts-kind-strip" role="toolbar" aria-label={`${kind} actions`}>
       <span className="rts-kind-strip__label">{kind}</span>
-      <KindActions node={node} />
+      <KindActions nodeId={node.id} />
     </div>
   );
 }
