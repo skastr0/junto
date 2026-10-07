@@ -328,3 +328,27 @@ html[data-theme="bright"] .git-browser__diff {
   color: var(--color-ink);
   pointer-events: auto;
 }
+
+/* Above each file's diff: start a comment without a pointer. */
+.git-review__file-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 12px 0;
+}
+
+/* The line a keyboard-started comment sits on, changeable. */
+.git-review__line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.git-review__line-pick {
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+}

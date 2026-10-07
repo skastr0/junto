@@ -72,3 +72,24 @@ export const noteReviewComposer = (root: string, delta: 1 | -1): void =>
   composing$[root].set(Math.max(0, (composing$[root].peek() ?? 0) + delta));
 
 export const useReviewComposing = (root: string): boolean => use$(() => (composing$[root].get() ?? 0) > 0);
+
+/**
+ * Words the operator typed for a line and then left: a cancelled or escaped
+ * draft, or a comment they removed. Kept for this window, by line, so opening
+ * a comment on that line again brings them back. Escape is pressed often and
+ * must never cost the text.
+ */
+const keptDrafts = new Map<string, string>();
+const draftKey = (root: string, file: string, side: string, line: number): string => `${root}\u0000${file}\u0000${side}\u0000${String(line)}`;
+
+export const keepReviewDraft = (root: string, file: string, side: string, line: number, text: string): void => {
+  if (text.trim().length > 0) keptDrafts.set(draftKey(root, file, side, line), text);
+};
+
+/** The kept words for a line, taken out as they are handed back. */
+export const takeReviewDraft = (root: string, file: string, side: string, line: number): string => {
+  const key = draftKey(root, file, side, line);
+  const text = keptDrafts.get(key) ?? "";
+  keptDrafts.delete(key);
+  return text;
+};
