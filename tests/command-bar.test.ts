@@ -333,3 +333,12 @@ describe("openCanvasDigest", () => {
     expect(state$.error.peek()).toBe("");
   });
 });
+
+describe("command bar fuzzy title match", () => {
+  it("finds a name by its letters in order, whatever the punctuation", () => {
+    const nodes = [text("a", "product-lead"), text("b", "pty-lead"), text("c", "product-feed")];
+    expect(filterCommandBarNodes(nodes, "productlead", []).map((m) => m.node.id)).toEqual(["a"]);
+    expect(filterCommandBarNodes(nodes, "prdld", []).map((m) => m.node.id)).toEqual(["a"]);
+    expect(filterCommandBarNodes(nodes, "lead", []).map((m) => m.node.id)).toEqual(["a", "b"]);
+  });
+});

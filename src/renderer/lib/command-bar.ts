@@ -1,6 +1,7 @@
 import { batch } from "@legendapp/state";
 import type { CanvasNode } from "@shared/canvas";
 import { roleOf } from "@shared/physics";
+import { fuzzyMatch } from "./fuzzy-match";
 import { touchActiveMru } from "./hotbar-slots";
 import { specOf } from "./node-spec";
 import { nodeTitle, searchText } from "./presentation";
@@ -61,10 +62,11 @@ const kindRank = (node: CanvasNode): number => {
  *
  * Empty query: agents first, most urgent first (`urgencyById`, lower is more
  * urgent: see seatUrgency), then regions, then notes, then every other kind.
- * Non-empty: title-prefix (4) above title-substring (3) above any other
- * matched text (2), which includes the node's region path (`regionPathById`),
- * so a region name finds the nodes inside it; at equal match quality agents
- * rank above other kinds, the most urgent agent first. Remaining ties break
+ * Non-empty: the palettes' shared fuzzy matcher (lib/fuzzy-match) scores the
+ * title, so "productlead" and "prdld" both find product-lead; other text and
+ * the node's region path (`regionPathById`) match as plain substrings, so a
+ * region name finds the nodes inside it. A title hit outranks the same hit in
+ * other text; at equal match quality agents rank above other kinds, the most urgent agent first. Remaining ties break
  * by hotbar MRU recency, then document order.
  */
 export const filterCommandBarNodes = (
@@ -83,12 +85,15 @@ export const filterCommandBarNodes = (
       matches.push({ node, score: 0, index });
       continue;
     }
-    const title = nodeTitle(node).toLowerCase();
-    let score = 0;
-    if (title.startsWith(q)) score = 4;
-    else if (title.includes(q)) score = 3;
-    else if (searchText(node).includes(q)) score = 2;
-    else if (regionPathById.get(node.id)?.toLowerCase().includes(q)) score = 2;
+    // The trailing space keeps a whole-title match in the prefix tier, so a
+    // note named exactly like the query does not outrank the agents.
+    const title = `${nodeTitle(node)} `;
+    const inTitle = fuzzyMatch(q, { identity: [title] });
+    const anywhere = fuzzyMatch(q, {
+      identity: [title],
+      metadata: [searchText(node), regionPathById.get(node.id) ?? ""],
+    });
+    const score = Math.max(anywhere?.score ?? 0, inTitle ? inTitle.score + 1 : 0);
     if (score > 0) matches.push({ node, score, index });
   }
   const urgency = (node: CanvasNode): number => urgencyById.get(node.id) ?? URGENCY_UNKNOWN;
