@@ -16,6 +16,7 @@ import {
   type SeatOffboardStatus,
 } from "@shared/seat-offboard";
 import type { OffboardMode } from "@shared/seat-sessions";
+import type { JuntoApi } from "@shared/ipc";
 import { getJuntoApi } from "./junto-api";
 import { agentCountLabel } from "./multi-selection";
 
@@ -30,20 +31,6 @@ import { agentCountLabel } from "./multi-selection";
  * been motionless, and which action the cache window prefers. This file asks
  * and puts the answers into the operator's words.
  */
-
-type OffboardApi = {
-  /** The one-seat ask that predates seatOffboardRun; still served by main. */
-  readonly seatOffboardAsk?: (
-    canvasName: string,
-    seatId: string,
-    mode: OffboardMode,
-  ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
-  readonly seatOffboardRun?: (input: SeatOffboardRunInput) => Promise<SeatOffboardRunResult>;
-  readonly seatOffboardStatus?: (
-    canvasName: string,
-    seatIds: ReadonlyArray<string>,
-  ) => Promise<ReadonlyArray<SeatOffboardStatus>>;
-};
 
 // --- calls ---------------------------------------------------------------------
 
@@ -60,11 +47,9 @@ const UNREACHABLE = "Junto could not reach its offboard service.";
 const refuseAll = (seatIds: ReadonlyArray<string>): SeatOffboardRunResult =>
   summarizeOffboardRun(seatIds.map((seatId) => ({ seatId, ok: false, code: "failed", reason: UNREACHABLE })));
 
-const api = (): OffboardApi | undefined => getJuntoApi() as OffboardApi | undefined;
-
 /** Ask seat by seat through the one-seat call, for a main without seatOffboardRun. */
 const askEach = async (
-  ask: NonNullable<OffboardApi["seatOffboardAsk"]>,
+  ask: NonNullable<JuntoApi["seatOffboardAsk"]>,
   input: SeatOffboardRunInput,
 ): Promise<SeatOffboardRunResult> => {
   const results = await Promise.all(
@@ -80,14 +65,14 @@ const askEach = async (
 /** The app's own calls. Neither ever throws: a lost call is a refused row per seat. */
 export const seatOffboardOps: SeatOffboardOps = {
   run: async (input) => {
-    const bridge = api();
+    const bridge = getJuntoApi();
     const call = bridge?.seatOffboardRun;
     if (call !== undefined) return call(input).catch(() => refuseAll(input.seatIds));
     if (input.action === "ask" && bridge?.seatOffboardAsk !== undefined) return askEach(bridge.seatOffboardAsk, input);
     return refuseAll(input.seatIds);
   },
   status: async (canvasName, seatIds) => {
-    const call = api()?.seatOffboardStatus;
+    const call = getJuntoApi()?.seatOffboardStatus;
     if (call === undefined) return [];
     return call(canvasName, seatIds).catch(() => []);
   },
