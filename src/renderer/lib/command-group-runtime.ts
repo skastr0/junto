@@ -9,6 +9,7 @@ import { useEffect, useMemo } from "react";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { asNodeId, nodesOf, regionMembers, type Canvas, type Node } from "@shared/model";
+import { storeNodeAsDocument } from "./store-document-node";
 import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
 import { agentSeat$, seatEventForBinding } from "./agent-seat-state";
 import { chatCoarse$ } from "./chat-state";
@@ -302,7 +303,7 @@ export const frameGroup = (nodeIds: ReadonlyArray<string>): void => {
 /** Focus then open the live surface when the node has one (actor model, etc.). */
 export const focusAndActivate = (nodeId: string): void => {
   focusNode(nodeId);
-  const node = state$.doc.peek().nodes.find((n) => n.id === nodeId);
+  const node = storeNodeAsDocument(state$.canvasName.peek(), nodeId);
   if (node) activateNodeSurface(node);
 };
 
@@ -367,16 +368,16 @@ export const recallSlot = (slotIndex: number): boolean => {
  * slot holds nothing that opens.
  */
 export const jumpToSlot = (slotIndex: number): boolean => {
-  // What opens is still asked of the document node: activate-node-surface
-  // takes one. Read once here, never followed.
-  const byId = new Map(state$.doc.peek().nodes.map((node) => [node.id, node]));
+  // What opens is still asked in the document form: activate-node-surface
+  // takes one. The node itself is the store's, read once here.
+  const canvasName = state$.canvasName.peek();
   const registry = dock$.registry.peek();
   const nodeId = jumpCommandGroup(
     state$.hotbarSlots.peek(),
     slotIndex,
     recallContext(canvasNow()),
     (id) => {
-      const node = byId.get(id);
+      const node = storeNodeAsDocument(canvasName, id);
       return node !== undefined && nodeSurfaceKind(node) !== null;
     },
     focusMruNodeIds(registry.surfaces, registry.focusMru)[0] ?? null,
