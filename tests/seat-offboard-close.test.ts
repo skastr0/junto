@@ -30,11 +30,11 @@ const harness = (over: Partial<OffboardClosePorts> = {}) => {
     locate: async () => h.seat,
     isRunning: () => h.running,
     isIdle: () => h.idle,
-    close: async (seatId, _canvas, wake) => {
+    close: async ({ seatId }, wake) => {
       h.closes.push({ seatId, wake });
       return { ok: true, ended: "s1", next: "s2", woke: wake && h.woke };
     },
-    kickoff: async (seatId) => (h.kickoffs.push(seatId), true),
+    kickoff: async ({ seatId }) => (h.kickoffs.push(seatId), true),
     publish: (progress) => h.progress.push(progress),
     now: () => h.now,
     ...over,
@@ -131,7 +131,7 @@ describe("SeatOffboardCloser", () => {
   it("carries the operator's ask through to the close, and reports a paused canvas as waiting", async () => {
     const { h, closer } = harness();
     h.woke = false;
-    closer.asked("a", "c", "continue");
+    closer.asked({ seatId: "a", canvasName: "c" }, "continue");
     closer.offboarded(offboard("continue"));
     h.idle = true;
     await settle(h, closer);
@@ -188,5 +188,75 @@ describe("rotateSeatSession wake", () => {
     const { acts, ports } = recorder();
     expect(await rotateSeatSession("a", ports, { wake: true })).toMatchObject({ ok: true, woke: true });
     expect(acts.at(-1)).toBe("wake a");
+  });
+
+  describe("which seat, on which canvas", () => {
+    /**
+     * A canvas that answers only for the seat it holds, the way the app's
+     * lookup does. Asked for canvas "a" and seat "c" it knows nothing.
+     */
+    const canvases: Record<string, Record<string, ClosingSeat>> = {
+      c: { a: { bindingId: "bind-a", sessionId: "s1" } },
+    };
+    const lookedUp: Array<{ seatId: string; canvasName: string }> = [];
+    const onCanvas = (over: Partial<OffboardClosePorts> = {}) =>
+      harness({
+        locate: async (seat) => {
+          lookedUp.push({ ...seat });
+          return canvases[seat.canvasName]?.[seat.seatId];
+        },
+        ...over,
+      });
+
+    it("the closer finds the seat it is closing, so the session does close", async () => {
+      // The defect this pins: the lookup was handed the seat where it expected
+      // the canvas, found nothing, and every close failed as "no longer on its
+      // canvas" while the agent's notes sat saved.
+      lookedUp.length = 0;
+      const { h, closer } = onCanvas();
+      h.idle = true;
+      closer.offboarded(offboard("continue"));
+      await settle(h, closer);
+      expect(lookedUp.at(-1)).toEqual({ seatId: "a", canvasName: "c" });
+      expect(h.closes).toEqual([{ seatId: "a", wake: true }]);
+      expect(h.kickoffs).toEqual(["a"]);
+      expect(h.progress.at(-1)).toMatchObject({ stage: "started" });
+      expect(h.progress.some((progress) => progress.stage === "failed")).toBe(false);
+    });
+
+    it("hands the same seat and canvas to the close and to the kickoff", async () => {
+      const asked: Array<{ port: string; seatId: string; canvasName: string }> = [];
+      const { h, closer } = onCanvas({
+        close: async (seat, wake) => {
+          asked.push({ port: "close", ...seat });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+        kickoff: async (seat) => {
+          asked.push({ port: "kickoff", ...seat });
+          return true;
+        },
+      });
+      h.idle = true;
+      closer.offboarded(offboard("continue"));
+      await settle(h, closer);
+      expect(asked).toEqual([
+        { port: "close", seatId: "a", canvasName: "c" },
+        { port: "kickoff", seatId: "a", canvasName: "c" },
+      ]);
+    });
+
+    it("a seat that really is gone from its canvas fails with that reason, published for the seat", async () => {
+      const { h, closer } = onCanvas();
+      h.idle = true;
+      closer.offboarded({ ...offboard("rest"), seatId: "ghost" });
+      await settle(h, closer);
+      expect(h.closes).toEqual([]);
+      expect(h.progress.at(-1)).toMatchObject({
+        seatId: "ghost",
+        canvasName: "c",
+        stage: "failed",
+        message: "The seat is no longer on its canvas.",
+      });
+    });
   });
 });

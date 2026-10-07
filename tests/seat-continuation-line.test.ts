@@ -64,7 +64,7 @@ const rig = () => {
     locate: async () => ({ bindingId: BINDING, sessionId: "s1" }),
     isRunning: () => true,
     isIdle: () => true,
-    close: async (_seat, _canvas, wake) => {
+    close: async (_seat, wake) => {
       offboarded = supervisor.generationOf(BINDING);
       state("gone");
       // The fresh generation is already up when the rotation returns.
@@ -240,7 +240,7 @@ describe("nothing else starts a session with a message", () => {
     // port, which the closer reaches only after a rotation asked to wake.
     const owing = callersOf(/continuationLedger\.owe\(/g);
     expect(owing.map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
-    expect(owing[0]?.before).toMatch(/kickoff: async \(seatId, canvasName\) => \{/);
+    expect(owing[0]?.before).toMatch(/kickoff: async \(address\) => \{/);
     expect(callersOf(/\bnew ContinuationLedger\(/g).map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
     // And the line itself is typed from one place.
     const users = sources

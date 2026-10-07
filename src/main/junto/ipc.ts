@@ -91,6 +91,7 @@ import {
   composeOffboardAsk,
   OFFBOARD_MODES,
   type OffboardMode,
+  type SeatAddress,
   type SeatOffboardAskResult,
 } from "@shared/seat-sessions";
 import { seatGuidanceIndex } from "./seat-guidance/index-memory";
@@ -2065,7 +2066,7 @@ export const registerJuntoIpc = (): void => {
       // with `junto offboard`, and the closer ends the session once the agent
       // is idle, in the mode the agent chose. Both prompts ride the mail path
       // above, so they reach the agent between turns.
-      const managedSeatOn = (canvasName: string, seatId: string) =>
+      const managedSeatOn = ({ canvasName, seatId }: SeatAddress) =>
         AppRuntime.runPromise(
           Effect.gen(function* () {
             const canvases = yield* CanvasesService;
@@ -2092,29 +2093,28 @@ export const registerJuntoIpc = (): void => {
         console.info(`[offboard] ${owedContinuations} seat(s) still owed their continuation line`);
       }
       offboardCloser = new SeatOffboardCloser({
-        // The closer names the seat first, the canvas second.
-        locate: (seatId, canvasName) => managedSeatOn(canvasName, seatId),
+        locate: managedSeatOn,
         isRunning: (bindingId) =>
           !productAutomationSuspended && termPlane.host.get(bindingId)?.status === "running",
         isIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
-        close: async (seatId, canvasName, wake) => {
+        close: async (address, wake) => {
           // Name the generation that offboarded before it is replaced: the
           // fresh one may be up by the time the rotation returns.
-          const seat = wake ? await managedSeatOn(canvasName, seatId) : undefined;
+          const seat = wake ? await managedSeatOn(address) : undefined;
           if (seat !== undefined) {
-            offboardedGeneration.set(seatId, injectionSupervisor.generationOf(seat.bindingId));
+            offboardedGeneration.set(address.seatId, injectionSupervisor.generationOf(seat.bindingId));
           }
-          return offboardAndRotate(seatId, { canvasName, wake });
+          return offboardAndRotate(address.seatId, { canvasName: address.canvasName, wake });
         },
         // The fresh session is told once, by the supervisor, when its
         // composer is up and empty; the ledger keeps what is owed across a
         // restart. This is the only caller: a seat started any other way
         // opens to an empty composer and is told nothing.
-        kickoff: async (seatId, canvasName) => {
-          const seat = await managedSeatOn(canvasName, seatId);
+        kickoff: async (address) => {
+          const seat = await managedSeatOn(address);
           if (seat === undefined) return false;
-          continuationLedger.owe(seatId, seat.bindingId, offboardedGeneration.get(seatId));
-          offboardedGeneration.delete(seatId);
+          continuationLedger.owe(address.seatId, seat.bindingId, offboardedGeneration.get(address.seatId));
+          offboardedGeneration.delete(address.seatId);
           return true;
         },
         publish: (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress),
@@ -2133,7 +2133,7 @@ export const registerJuntoIpc = (): void => {
             return { ok: false, message: "Offboard to rest or to continue." };
           }
           const offboardMode = mode as OffboardMode;
-          const seat = await managedSeatOn(canvasName, seatId);
+          const seat = await managedSeatOn({ canvasName, seatId });
           if (seat === undefined) return { ok: false, message: "Junto could not find that seat." };
           if (!seat.local) return { ok: false, message: "This seat runs on another installation." };
           const sent = await appendManagedPrompt({
@@ -2143,7 +2143,7 @@ export const registerJuntoIpc = (): void => {
             nodeId: seatId,
           });
           if (!sent.ok) return { ok: false, message: sent.error ?? "Junto could not send the offboard prompt." };
-          offboardCloser?.asked(seatId, canvasName, offboardMode);
+          offboardCloser?.asked({ seatId, canvasName }, offboardMode);
           return { ok: true };
         },
       );
@@ -2154,7 +2154,7 @@ export const registerJuntoIpc = (): void => {
       const onboardedMarkerOf = async (bindingId: string): Promise<string | undefined> => {
         const live = termPlane.host.get(bindingId);
         if (!live?.canvasName || !live.nodeId) return undefined;
-        const seat = await managedSeatOn(live.canvasName, live.nodeId);
+        const seat = await managedSeatOn({ canvasName: live.canvasName, seatId: live.nodeId });
         if (seat === undefined || seat.bindingId !== bindingId || !seat.sessionId) return undefined;
         return onboardedMarkerPath(defaultSeatsRoot(), live.nodeId, seat.sessionId);
       };
@@ -2201,7 +2201,7 @@ export const registerJuntoIpc = (): void => {
           if (typeof canvasName !== "string" || !canvasName || typeof seatId !== "string" || !seatId) {
             return { ok: false, message: "Junto could not find that seat." };
           }
-          const seat = await managedSeatOn(canvasName, seatId);
+          const seat = await managedSeatOn({ canvasName, seatId });
           if (seat === undefined) return { ok: false, message: "Junto could not find that seat." };
           if (!seat.local) return { ok: false, message: "This seat runs on another installation." };
           if (termPlane.host.get(seat.bindingId)?.status !== "running") {

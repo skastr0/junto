@@ -10,6 +10,17 @@
  * to the next session so it knows what came before and where to look.
  */
 
+/**
+ * Which seat, on which canvas. Named fields on purpose: both are plain
+ * strings, and two bare strings side by side get passed in the wrong order
+ * without anything noticing (that is how offboard once stopped closing
+ * sessions). A function that needs both takes one of these.
+ */
+export type SeatAddress = {
+  readonly seatId: string;
+  readonly canvasName: string;
+};
+
 export const SEAT_SESSION_END_REASONS = ["offboard", "reseat", "replaced"] as const;
 /**
  * Why a session stopped being the seat's current one. offboard: Junto rotated

@@ -15,7 +15,7 @@
  * resting, started) for the operator. Everything outside the clock comes in
  * through ports, so the closer runs the same against the app and a test.
  */
-import type { OffboardMode, SeatOffboardProgress, SeatOffboardStage } from "@shared/seat-sessions";
+import type { OffboardMode, SeatAddress, SeatOffboardProgress, SeatOffboardStage } from "@shared/seat-sessions";
 import type { SeatRotateResult } from "./rotate";
 import type { SeatOffboardEvent } from "./service";
 
@@ -27,15 +27,15 @@ export type ClosingSeat = {
 };
 
 export type OffboardClosePorts = {
-  readonly locate: (seatId: string, canvasName: string) => Promise<ClosingSeat | undefined>;
+  readonly locate: (seat: SeatAddress) => Promise<ClosingSeat | undefined>;
   /** The seat's process is running. */
   readonly isRunning: (bindingId: string) => boolean;
   /** The seat is idle between turns, confirmed (the same gate mail typing uses). */
   readonly isIdle: (bindingId: string) => boolean;
   /** End the session and give the seat a fresh one; start it only when `wake`. */
-  readonly close: (seatId: string, canvasName: string, wake: boolean) => Promise<SeatRotateResult>;
+  readonly close: (seat: SeatAddress, wake: boolean) => Promise<SeatRotateResult>;
   /** Have the fresh session of a continuing seat told to read its handoff. */
-  readonly kickoff: (seatId: string, canvasName: string) => Promise<boolean>;
+  readonly kickoff: (seat: SeatAddress) => Promise<boolean>;
   readonly publish: (progress: SeatOffboardProgress) => void;
   /** Told whenever an agent runs `junto offboard`. */
   readonly onOffboard?: (listener: (event: SeatOffboardEvent) => void) => () => void;
@@ -58,6 +58,8 @@ type Pending = {
   readonly mode: OffboardMode;
   idleSince?: number;
 };
+
+const addressOf = (entry: SeatAddress): SeatAddress => ({ seatId: entry.seatId, canvasName: entry.canvasName });
 
 const keyOf = (canvasName: string, seatId: string): string => `${canvasName}\u0000${seatId}`;
 
@@ -115,8 +117,8 @@ export class SeatOffboardCloser {
   }
 
   /** The operator sent the offboard prompt for this mode. */
-  asked(seatId: string, canvasName: string, mode: OffboardMode): void {
-    this.report(seatId, canvasName, mode, "asked");
+  asked(seat: SeatAddress, mode: OffboardMode): void {
+    this.report(seat.seatId, seat.canvasName, mode, "asked");
   }
 
   /** An agent ran `junto offboard`: close its session at its next idle moment. */
@@ -151,7 +153,7 @@ export class SeatOffboardCloser {
   }
 
   private async step(key: string, entry: Pending): Promise<void> {
-    const seat = await this.ports.locate(entry.seatId, entry.canvasName).catch(() => undefined);
+    const seat = await this.ports.locate(addressOf(entry)).catch(() => undefined);
     if (seat === undefined) {
       this.pending.delete(key);
       this.report(entry.seatId, entry.canvasName, entry.mode, "failed", "The seat is no longer on its canvas.");
@@ -184,7 +186,7 @@ export class SeatOffboardCloser {
   private async close(key: string, entry: Pending): Promise<void> {
     const wake = entry.mode === "continue";
     const result = await this.ports
-      .close(entry.seatId, entry.canvasName, wake)
+      .close(addressOf(entry), wake)
       .catch((error: unknown): SeatRotateResult => ({ ok: false, reason: String(error) }));
     if (!result.ok) {
       this.ports.log?.(`closing ${entry.seatId} failed: ${result.reason}`);
@@ -198,7 +200,7 @@ export class SeatOffboardCloser {
     }
     // The kickoff waits for a seat that did not start (a paused canvas),
     // and reaches the fresh session when it does.
-    const mailed = await this.ports.kickoff(entry.seatId, entry.canvasName).catch(() => false);
+    const mailed = await this.ports.kickoff(addressOf(entry)).catch(() => false);
     if (!mailed) {
       this.report(
         entry.seatId,
