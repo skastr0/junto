@@ -1,19 +1,17 @@
 import { ulid } from "ulid";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
-import {
-  defaultVerbForPair,
-  resolveSpec,
-  roleOf,
-  verbsForPair,
-  type Verb,
-} from "@shared/physics";
+import { defaultVerbForPair, verbsForPair, type Verb } from "@shared/physics";
 import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
 import { wiresFromDocument } from "@shared/model/from-document";
 import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
 import { flowEdgeRemovalWarnings, readDeletionPolicy } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
-import { commitDoc, parseSide } from "./mutations";
+import { commitCommands, commitDoc, parseSide } from "./mutations";
+import { connected, type Connected } from "./model-edits";
+import { roleOfKind } from "./model-kind";
+import { asNodeId, type Canvas } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 
 /**
  * Edge authoring — drawing the wire is the whole act.
@@ -24,16 +22,6 @@ import { commitDoc, parseSide } from "./mutations";
  * default. Ports, watch predicates, fire actions, and the task path hop are
  * compiled from the verb (`physics/verbs.ts`), never stored beside it.
  */
-
-const roleOfNode = (node: CanvasNode | undefined) => {
-  if (!node) return "geography" as const;
-  return roleOf(
-    resolveSpec({
-      isGroup: node.type === "group",
-      kind: node.ether?.entity?.kind,
-    }),
-  );
-};
 
 /** Authored kind, or nothing for a region — geography holds no verb. */
 const kindOf = (node: CanvasNode | undefined): string | undefined =>
@@ -95,37 +83,11 @@ export const connectAllowed = (
   wireableNode(toNode) &&
   verbsForDraw(kindOf(fromNode), kindOf(toNode)).verbs.length > 0;
 
-const refusalReason = (
-  fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
-): string => {
-  const loose = [fromNode, toNode].find((node) => roleOfNode(node) === "geography");
-  return loose ? `${nodeTitle(loose)} does not connect to anything.` : "These two cannot be connected.";
-};
-
 const VERB_HANDLE_PREFIX = "verb:";
 
 /** Handle id a landing zone carries. Never parses as a node side. */
 export const verbHandleId = (verb: Verb): string =>
   `${VERB_HANDLE_PREFIX}${verb}`;
-
-/**
- * The verb a landing zone stamped. React Flow reports the dropped handle as
- * `sourceHandle` or `targetHandle` depending on which end the drag began at,
- * so both are read; a verb the pair cannot hold is ignored rather than trusted.
- */
-const verbFromHandles = (
-  handles: ReadonlyArray<string | null | undefined>,
-  legal: ReadonlyArray<Verb>,
-): Verb | undefined => {
-  for (const handle of handles) {
-    if (!handle || !handle.startsWith(VERB_HANDLE_PREFIX)) continue;
-    const dropped = handle.slice(VERB_HANDLE_PREFIX.length);
-    const verb = legal.find((candidate) => candidate === dropped);
-    if (verb) return verb;
-  }
-  return undefined;
-};
 
 /**
  * Translate a raw FlowCycleError (board ids) into a titled, readable line.
@@ -159,86 +121,83 @@ export const deleteEdges = async (ids: ReadonlyArray<string>): Promise<void> => 
   commitDoc({ ...doc, edges: doc.edges.filter((edge) => !removed.has(edge.id)) });
 };
 
+/** What the operator reads when two cards cannot be joined, for each way that can be. */
+const refusalLine = (canvas: Canvas, refusal: Extract<Connected, { ok: false }>, draw: { from: string; to: string }): string => {
+  switch (refusal.why) {
+    case "self":
+      return "A node cannot connect to itself.";
+    case "label":
+      return "Labels cannot take connections.";
+    case "git":
+      return "Git cannot take connections.";
+    case "disabled":
+      return "That node is disabled in this build.";
+    case "duplicate":
+      return "That relation already exists.";
+    case "cycle":
+      return cycleLine(canvas, refusal.cycle ?? []);
+    case "missing":
+    case "no-verb": {
+      // A card that only sits there (a note, a file, a link, a region) is why.
+      const loose = [draw.from, draw.to]
+        .map((id) => canvas.nodes.get(asNodeId(id)))
+        .find((node) => node !== undefined && roleOfKind(node.kind) === "geography");
+      return loose ? `${titleOf(loose)} does not connect to anything.` : "These two cannot be connected.";
+    }
+  }
+};
+
+/** A loop of boards, named: one wording for the single connect and the batch. */
+const cycleLine = (canvas: Canvas, cycle: ReadonlyArray<string>): string => {
+  const names = cycle.map((id) => {
+    const node = canvas.nodes.get(asNodeId(id));
+    return node ? titleOf(node) : "that board";
+  });
+  const loop = names.length > 0 ? `${names.join(" → ")} → ${names[0]}` : "a loop";
+  return `That direction would send tasks in a loop — ${loop}. Pick the other direction or a different Next board.`;
+};
+
+/** The verb a landing zone named, whether or not the pair admits it; the edit decides. */
+const droppedVerb = (handles: ReadonlyArray<string | null | undefined>): Verb | undefined => {
+  for (const handle of handles) {
+    if (handle?.startsWith(VERB_HANDLE_PREFIX)) return handle.slice(VERB_HANDLE_PREFIX.length) as Verb;
+  }
+  return undefined;
+};
+
+/**
+ * Draw one wire. The edit is the model's own (`connected`): it picks the verb
+ * the operator dropped on when the pair admits it, else the pair's default,
+ * stores the wire in the direction its verb reads, and refuses a wire that
+ * would close a loop of boards. A refusal is said in the window's own words
+ * and nothing is sent.
+ */
 export const addEdge = (params: {
   source: string;
   target: string;
   sourceHandle?: string | null;
   targetHandle?: string | null;
 }): void => {
-  if (params.source === params.target) {
-    state$.error.set("A node cannot connect to itself.");
-    return;
-  }
-  const doc = state$.doc.peek();
-  const fromNode = doc.nodes.find((node) => node.id === params.source);
-  const toNode = doc.nodes.find((node) => node.id === params.target);
-  if (
-    (fromNode && isLabelNode(fromNode)) ||
-    (toNode && isLabelNode(toNode))
-  ) {
-    state$.error.set("Labels cannot take connections.");
-    return;
-  }
-  if (
-    (fromNode && isGitNode(fromNode)) ||
-    (toNode && isGitNode(toNode))
-  ) {
-    state$.error.set("Git cannot take connections.");
-    return;
-  }
-  if (
-    (fromNode !== undefined && !productNodeKindEnabled(kindOf(fromNode))) ||
-    (toNode !== undefined && !productNodeKindEnabled(kindOf(toNode)))
-  ) {
-    state$.error.set("That node is disabled in this build.");
-    return;
-  }
-  const fromKind = kindOf(fromNode);
-  const toKind = kindOf(toNode);
-  const draw = verbsForDraw(fromKind, toKind);
-  const sourceKind = draw.reversed ? toKind : fromKind;
-  const targetKind = draw.reversed ? fromKind : toKind;
-  // A landing zone names the verb outright; every other path — click-connect,
-  // a card-body drop, batch connect — takes the pair's default.
-  const verb =
-    verbFromHandles([params.sourceHandle, params.targetHandle], draw.verbs) ??
-    defaultVerbForPair(sourceKind, targetKind);
-  if (verb === undefined) {
-    state$.error.set(refusalReason(fromNode, toNode));
-    return;
-  }
-  const fromId = draw.reversed ? params.target : params.source;
-  const toId = draw.reversed ? params.source : params.target;
-  if (doc.edges.some((edge) => edge.fromNode === fromId && edge.toNode === toId)) {
-    state$.error.set("That relation already exists.");
-    return;
-  }
-  // Sides follow the stored ends, so a reversed draw keeps its anchors.
-  const drawnFromSide = parseSide(params.sourceHandle);
-  const drawnToSide = parseSide(params.targetHandle);
-  const fromSide = draw.reversed ? drawnToSide : drawnFromSide;
-  const toSide = draw.reversed ? drawnFromSide : drawnToSide;
-  const edge: CanvasEdge = {
-    id: `edge-${ulid()}`,
-    fromNode: fromId,
-    toNode: toId,
-    ...(fromSide ? { fromSide } : {}),
-    ...(toSide ? { toSide } : {}),
-    ether: { verb },
-  };
-  const nextDoc: CanvasDoc = { ...doc, edges: [...doc.edges, edge] };
-  // DAG guard at connect: a hop that would close a loop refuses the wire
-  // outright rather than landing a task path that can never drain.
-  if (verb === "feeds") {
-    const cycle = validateFlowDag(wiresFromDocument(nextDoc));
-    if (cycle) {
-      state$.error.set(friendlyCycleMessage(cycle, doc));
-      return;
+  let drawn: string | undefined;
+  commitCommands((canvas) => {
+    const draw = {
+      id: `edge-${ulid()}`,
+      from: params.source,
+      to: params.target,
+      verb: droppedVerb([params.sourceHandle, params.targetHandle]),
+      fromSide: parseSide(params.sourceHandle),
+      toSide: parseSide(params.targetHandle),
+    };
+    const result = connected(canvas, draw);
+    if (!result.ok) {
+      state$.error.set(refusalLine(canvas, result, draw));
+      return [];
     }
-  }
-  selectEdge(edge.id);
-  state$.error.set("");
-  commitDoc(nextDoc);
+    drawn = result.wire.id;
+    state$.error.set("");
+    return result.commands;
+  });
+  if (drawn !== undefined) selectEdge(drawn);
 };
 
 // --- multi-source → one target (RTS-006) ------------------------------------
