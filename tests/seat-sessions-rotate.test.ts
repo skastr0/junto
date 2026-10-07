@@ -18,7 +18,10 @@ const recorder = (found: RotatingSeat | undefined, overrides: Partial<SeatRotate
     endSession: async (seatId, sessionId) => void acts.push(`end ${seatId} ${sessionId}`),
     reopenSession: async (seatId, sessionId) => void acts.push(`reopen ${seatId} ${sessionId}`),
     writeSessionId: async (_seat, seatId, next) => (acts.push(`write ${seatId} ${next ?? "(none)"}`), true),
-    stop: async (bindingId) => void acts.push(`stop ${bindingId}`),
+    detach: async (found) => {
+      acts.push(`detach ${found.bindingId}`);
+      return { stopNow: async () => void acts.push(`stop ${found.bindingId}`) };
+    },
     wake: async (_seat, seatId) => (acts.push(`wake ${seatId}`), true),
     mintSessionId: () => "fresh",
     ...overrides,
@@ -27,10 +30,45 @@ const recorder = (found: RotatingSeat | undefined, overrides: Partial<SeatRotate
 };
 
 describe("rotateSeatSession", () => {
-  it("ends the session as offboard, pins a fresh id, stops, then wakes", async () => {
+  it("takes the old process off the seat first, then ends the session, pins a fresh id, and wakes", async () => {
     const { acts, ports } = recorder(seat());
     expect(await rotateSeatSession("a", ports)).toEqual({ ok: true, ended: "s1", next: "fresh", woke: true });
-    expect(acts).toEqual(["end a s1", "write a fresh", "stop bind-a", "wake a"]);
+    // Detached before anything is awaited for the seat; never stopped here.
+    expect(acts).toEqual(["detach bind-a", "end a s1", "write a fresh", "wake a"]);
+  });
+
+  it("tells the detach which session is ending, so its wind-down can be recorded", async () => {
+    const seen: Array<string | undefined> = [];
+    const { ports } = recorder(seat(), {
+      detach: async (_seat, _seatId, ended) => {
+        seen.push(ended);
+        return { stopNow: async () => undefined };
+      },
+    });
+    await rotateSeatSession("a", ports);
+    await rotateSeatSession("a", recorder(seat({ sessionId: undefined }), { detach: ports.detach }).ports);
+    expect(seen).toEqual(["s1", undefined]);
+  });
+
+  it("wakes without waiting for the old process to be gone", async () => {
+    let oldProcessGone = false;
+    const order: string[] = [];
+    const { ports } = recorder(seat(), {
+      detach: async () => {
+        order.push("detached");
+        // The old process winds down for minutes; nobody waits on it.
+        setTimeout(() => {
+          oldProcessGone = true;
+        }, 600_000).unref();
+        return { stopNow: async () => undefined };
+      },
+      wake: async () => {
+        order.push(`wake while old process gone=${String(oldProcessGone)}`);
+        return true;
+      },
+    });
+    expect(await rotateSeatSession("a", ports)).toMatchObject({ ok: true, woke: true });
+    expect(order).toEqual(["detached", "wake while old process gone=false"]);
   });
 
   it("clears the id of a harness that announces its own session", async () => {
@@ -52,6 +90,8 @@ describe("rotateSeatSession", () => {
 
     const failing = recorder(seat(), { writeSessionId: async () => false });
     expect(await rotateSeatSession("a", failing.ports)).toMatchObject({ ok: false });
-    expect(failing.acts).toEqual(["end a s1", "reopen a s1"]);
+    // The seat could not be given a fresh session: the detached process is
+    // stopped at once rather than left beside a seat that would resume it.
+    expect(failing.acts).toEqual(["detach bind-a", "end a s1", "stop bind-a", "reopen a s1"]);
   });
 });

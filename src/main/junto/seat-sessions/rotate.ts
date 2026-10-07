@@ -48,6 +48,12 @@ export type RotatingSeat = {
   readonly local: boolean;
 };
 
+/** The generation rotation took off the seat. */
+export type DetachedGeneration = {
+  /** Stop it now and wait for it to be gone (bounded). */
+  readonly stopNow: () => Promise<void>;
+};
+
 /** What rotation touches, so the sequence is testable without the app. */
 export type SeatRotatePorts = {
   readonly locate: (seatId: string, canvasName?: string) => Promise<RotatingSeat | undefined>;
@@ -55,8 +61,20 @@ export type SeatRotatePorts = {
   readonly reopenSession: (seatId: string, sessionId: string, harness: string) => Promise<void>;
   /** Replace the node's session id (or clear it); false when the seat changed hands. */
   readonly writeSessionId: (seat: RotatingSeat, seatId: string, next: string | undefined) => Promise<boolean>;
-  /** Stop the running generation and wait for it to exit (bounded). */
-  readonly stop: (bindingId: string) => Promise<void>;
+  /**
+   * Take the running generation off the seat, now. From the moment this
+   * returns the seat is vacant: nothing addressed to it reaches the old
+   * process, and its next generation may start. What becomes of the old
+   * process is the port's to arrange (it is left to finish its turn and
+   * stopped when it settles). The answer can stop it at once, for a rotation
+   * that could not go through.
+   */
+  readonly detach: (
+    seat: RotatingSeat,
+    seatId: string,
+    /** The session that is ending, when the seat named one. */
+    endedSessionId: string | undefined,
+  ) => Promise<DetachedGeneration>;
   /** Start the seat again under the kernel's wake rules. */
   readonly wake: (seat: RotatingSeat, seatId: string) => Promise<boolean>;
   readonly mintSessionId?: () => string;
@@ -67,6 +85,11 @@ export type SeatRotateOptions = {
   readonly canvasName?: string;
   /** Start the fresh session now (default), or leave the seat resting. */
   readonly wake?: boolean;
+  /**
+   * How the app takes the old generation off the seat and winds it down.
+   * Without it the old process is simply stopped.
+   */
+  readonly detach?: SeatRotatePorts["detach"];
 };
 
 export const rotateSeatSession = async (
@@ -83,16 +106,22 @@ export const rotateSeatSession = async (
   const next =
     templateFor(seat.harness).capabilityBadges.sessionId === "pin" ? (ports.mintSessionId ?? randomUUID)() : undefined;
 
-  // End first, as offboard, so the canvas recorder sees no open session to
-  // call replaced when the new id lands.
+  // The seat lets go of the old process first, before anything is awaited
+  // on its behalf: from here the seat is the fresh session's.
+  const old = await ports.detach(seat, seatId, ended);
+  // End the session as offboard before the new id lands, so the canvas
+  // recorder sees no open session to call replaced.
   if (ended) await ports.endSession(seatId, ended);
   const written = await ports.writeSessionId(seat, seatId, next).catch(() => false);
   if (!written) {
-    // The seat keeps running its session: reopen it in the history.
+    // The seat still names the old session and nothing fresh can start on
+    // it. A process left winding down beside a seat that would resume its
+    // session is two owners of one session: stop it now. The session is the
+    // seat's again in the history; its next wake resumes it.
+    await old.stopNow().catch(() => undefined);
     if (ended) await ports.reopenSession(seatId, ended, seat.harness);
     return { ok: false, reason: "could not give the seat a fresh session on its canvas" };
   }
-  await ports.stop(seat.bindingId);
   const woke = options.wake === false ? false : await ports.wake(seat, seatId).catch(() => false);
   return { ok: true, ...(ended ? { ended } : {}), ...(next ? { next } : {}), woke };
 };
@@ -183,19 +212,25 @@ export const offboardAndRotate = async (
             }),
           ),
         ),
-      // The wake refuses while a process is still dying, so let it exit.
-      // Stopping goes through the router, the same owned-session stop the
-      // operator's terminal uses; rotation only ever reaches a local seat.
-      stop: async (bindingId) => {
-        if (termPlane.host.get(bindingId) === undefined) return;
-        await termPlane.router.kill(bindingId);
-        const deadline = Date.now() + EXIT_WAIT_MS;
-        while (Date.now() < deadline && termPlane.host.get(bindingId)?.status !== "exited") {
-          await sleep(50);
-        }
+      detach: async (seat, id, endedSessionId) => {
+        // Stopping goes through the router, the same owned-session stop the
+        // operator's terminal uses; rotation only ever reaches a local seat.
+        const stopNow = async (): Promise<void> => {
+          if (termPlane.host.get(seat.bindingId) === undefined) return;
+          await termPlane.router.kill(seat.bindingId);
+          const deadline = Date.now() + EXIT_WAIT_MS;
+          while (Date.now() < deadline && termPlane.host.get(seat.bindingId)?.status !== "exited") {
+            await sleep(50);
+          }
+        };
         // A rotation is deliberate, not a crash: it spends none of the seat's
         // automatic restarts, now or at the wake that follows a rest.
-        forgetAutoRestartSpend(bindingId);
+        forgetAutoRestartSpend(seat.bindingId);
+        if (options.detach !== undefined) return options.detach(seat, id, endedSessionId);
+        // No one to wind the old process down: stop it, and let it exit
+        // before the wake, which refuses while a process is still dying.
+        await stopNow();
+        return { stopNow };
       },
       wake: (seat, id) => {
         forgetAutoRestartSpend(seat.bindingId);

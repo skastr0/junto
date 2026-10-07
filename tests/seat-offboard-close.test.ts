@@ -328,17 +328,20 @@ describe("rotateSeatSession wake", () => {
       endSession: async (seatId, sessionId) => void acts.push(`end ${seatId} ${sessionId}`),
       reopenSession: async () => undefined,
       writeSessionId: async (_seat, seatId, next) => (acts.push(`write ${seatId} ${next ?? "(none)"}`), true),
-      stop: async (bindingId) => void acts.push(`stop ${bindingId}`),
+      detach: async (found) => {
+      acts.push(`detach ${found.bindingId}`);
+      return { stopNow: async () => void acts.push(`stop ${found.bindingId}`) };
+    },
       wake: async (_seat, seatId) => (acts.push(`wake ${seatId}`), true),
       mintSessionId: () => "fresh",
     };
     return { acts, ports };
   };
 
-  it("rests: ends the session, pins a fresh id, stops, and does not wake", async () => {
+  it("rests: detaches, ends the session, pins a fresh id, and does not wake", async () => {
     const { acts, ports } = recorder();
     expect(await rotateSeatSession("a", ports, { wake: false })).toEqual({ ok: true, ended: "s1", next: "fresh", woke: false });
-    expect(acts).toEqual(["end a s1", "write a fresh", "stop bind-a"]);
+    expect(acts).toEqual(["detach bind-a", "end a s1", "write a fresh"]);
   });
 
   it("continues: the same, then wakes", async () => {
