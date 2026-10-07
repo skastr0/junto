@@ -33,9 +33,9 @@ describe("Fleet product gate", () => {
     );
 
     expect(ipc).toContain("if (FLEET_UI_ENABLED) {\n    registerHostsIpc(privilegedIpc);");
-    expect(ipc).toContain(
-      "if (FLEET_UI_ENABLED && stationForSeed.station.role === \"command-center\")",
-    );
+    // Remote stations are switched off: the fleet supervisor is never started.
+    expect(ipc).not.toContain("fleetPropagation.start()");
+    expect(ipc).not.toContain("startLiveFleetUpdateExecutor");
     expect(app).toContain(
       "const FleetOverlay = __JUNTO_FLEET_UI_ENABLED__",
     );
