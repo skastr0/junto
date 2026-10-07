@@ -1,7 +1,7 @@
 /**
  * Region reference rows follow the canvas: a removed region takes its rows,
- * a removed canvas takes all of its region rows, a renamed canvas re-keys
- * them. Driven by a fake event source over a real store in a temp folder.
+ * and a removed canvas takes all of its region rows. Driven by a fake event
+ * source over a real store in a temp folder.
  * Nothing is ever deleted except on an event, and app-wide rows and the
  * briefing are never touched.
  */
@@ -41,10 +41,8 @@ const makeSource = () => {
       };
       for (const listener of changes) listener(event);
     },
-    canvases: (event: { _tag: "Created" | "Removed"; canvas: string } | { _tag: "Renamed"; from: string; to: string }) => {
-      const typed = (event._tag === "Renamed"
-        ? { _tag: "Renamed", from: asCanvasName(event.from), to: asCanvasName(event.to) }
-        : { _tag: event._tag, canvas: asCanvasName(event.canvas) }) as CanvasesChanged;
+    canvases: (event: { _tag: "Created" | "Removed"; canvas: string }) => {
+      const typed = { _tag: event._tag, canvas: asCanvasName(event.canvas) } as CanvasesChanged;
       for (const listener of canvases) listener(typed);
     },
   };
@@ -155,47 +153,18 @@ describe("region references follow the canvas", () => {
     expect(events).toHaveLength(4);
   });
 
-  it("re-keys a renamed canvas's region rows to the new name, all at once", async () => {
-    await seed();
-    fake.canvases({ _tag: "Renamed", from: "factory", to: "plant" });
-    const moved = [...FACTORY_A, ...FACTORY_B].map((row) => row.replace("region|factory|", "region|plant|"));
-    await settled([...APP, ...OTHER, ...moved]);
-    expect(await store((r) => r.list(region("region-a", "plant")))).toHaveLength(2);
-    expect(await store((r) => r.list(region("region-a")))).toEqual([]);
-    // Both names are announced, so a page on either one refreshes.
-    expect(events.map((event) => (event.kind === "reference" ? event.canvasName : event))).toEqual([
-      "factory", "factory", "factory", "plant", "plant", "plant",
-    ]);
-    // Repeated, it finds nothing under the old name.
-    fake.canvases({ _tag: "Renamed", from: "factory", to: "plant" });
-    fake.canvases({ _tag: "Removed", canvas: "other" });
-    await settled([...APP, ...moved]);
-    expect(events).toHaveLength(7);
-  });
-
-  it("lets the renamed canvas's row win a key an older canvas left under the new name", async () => {
-    await seed();
-    // "other" once had a canvas whose rows were never cleared; "factory" now takes that name.
-    await store((r) => r.write(region("region-b", "other"), { name: "keep", body: "Older, different key." }, "operator"));
-    await store((r) => r.write(region("region-a"), { name: "only-here", body: "Moves." }, "operator"));
-    await store((r) => r.write(region("region-a", "other"), { name: "runbook", body: "Older runbook." }, "operator"));
-    fake.canvases({ _tag: "Renamed", from: "factory", to: "other" });
-    await settled([
-      ...APP,
-      "region|other|region-a|only-here|Moves.",
-      "region|other|region-a|runbook|A runbook.",
-      "region|other|region-a|style|A style.",
-      "region|other|region-b|keep|Older, different key.",
-      "region|other|region-b|style|B style.",
-    ]);
-  });
-
   it("applies events in the order they were published", async () => {
     await seed();
-    fake.canvases({ _tag: "Renamed", from: "factory", to: "plant" });
-    fake.removed("plant", "region-a");
-    fake.canvases({ _tag: "Renamed", from: "plant", to: "works" });
-    await settled([...APP, ...OTHER, "region|works|region-b|style|B style."]);
+    fake.removed("factory", "region-a");
+    fake.canvases({ _tag: "Removed", canvas: "other" });
+    fake.removed("factory", "region-b");
+    await settled([...APP]);
+    expect(events.map((event) => (event.kind === "reference" ? [event.canvasName, event.regionId, event.name] : event))).toEqual([
+      ["factory", "region-a", "runbook"],
+      ["factory", "region-a", "style"],
+      ["other", "region-a", "style"],
+      ["factory", "region-b", "style"],
+    ]);
   });
 
   it("stops listening when its scope closes, and never deletes without an event", async () => {

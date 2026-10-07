@@ -69,11 +69,6 @@ export class ReferencesRepository extends Context.Service<ReferencesRepository,
     readonly removeCanvas: (
       canvasName: string,
     ) => Effect.Effect<ReadonlyArray<RegionReferenceKey>, ReferencesRepositoryError>;
-    /** The canvas was renamed: its region rows take the new name, all or none. */
-    readonly renameCanvas: (
-      from: string,
-      to: string,
-    ) => Effect.Effect<ReadonlyArray<RegionReferenceKey>, ReferencesRepositoryError>;
     /** The references of the named regions of one canvas, each tagged with its region. */
     readonly regionTexts: (
       canvasName: string,
@@ -278,22 +273,6 @@ export const ReferencesRepositoryLive: Layer.Layer<ReferencesRepository, never, 
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "references.removeCanvas"), Effect.mapError(persistence("removeCanvas")));
       const removeCanvas = (canvasName: string) => dropCanvas(canvasName).pipe(Effect.tap(announce(canvasName)));
 
-      const moveCanvas = Effect.fn("references.renameCanvas")(function* (from: string, to: string) {
-        if (from === to || to.length === 0) return [];
-        const rows = yield* rowsOfCanvas(from);
-        if (rows.length > 0) {
-          // A row left under the new name by a canvas long gone gives way to
-          // the one that belongs to the canvas being renamed.
-          yield* sql`
-            UPDATE OR REPLACE app_texts SET canvas_name = ${to}
-            WHERE scope_kind = 'region' AND canvas_name = ${from}
-          `;
-        }
-        return keysOf(rows);
-      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "references.renameCanvas"), Effect.mapError(persistence("renameCanvas")));
-      const renameCanvas = (from: string, to: string) =>
-        moveCanvas(from, to).pipe(Effect.tap(announce(from)), Effect.tap(announce(to)));
-
       const regionTexts = Effect.fn("references.regionTexts")(function* (
         canvasName: string,
         regionIds: ReadonlyArray<string>,
@@ -314,7 +293,6 @@ export const ReferencesRepositoryLive: Layer.Layer<ReferencesRepository, never, 
         remove,
         removeRegions,
         removeCanvas,
-        renameCanvas,
         regionTexts,
       });
     }),

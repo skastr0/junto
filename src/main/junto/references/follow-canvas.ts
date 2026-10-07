@@ -5,14 +5,13 @@ import { ReferencesRepository, type ReferencesRepositoryError } from "./reposito
 
 /**
  * A region's references follow the canvas. When a region is removed its rows
- * go; when a canvas is removed every region row of it goes; when a canvas is
- * renamed its region rows take the new name. App-wide references and the
- * briefing are never touched.
+ * go; when a canvas is removed every region row of it goes. App-wide
+ * references and the briefing are never touched.
  *
  * Only an event the model published after a commit deletes anything. There
  * is no sweep: a canvas that cannot be read costs the operator no text, and
  * a row whose region is missing just stays unlisted. Each step is a no-op
- * when its rows are already gone or moved, so a repeated event is harmless.
+ * when its rows are already gone, so a repeated event is harmless.
  */
 export type CanvasEventSource = {
   readonly subscribeChanges: (listener: (event: Changed) => void) => () => void;
@@ -31,14 +30,7 @@ const apply = (
   if (!isCanvasesChanged(event)) {
     return event.removedNodes.length === 0 ? Effect.void : store.removeRegions(event.canvas, event.removedNodes);
   }
-  switch (event._tag) {
-    case "Removed":
-      return store.removeCanvas(event.canvas);
-    case "Renamed":
-      return store.renameCanvas(event.from, event.to);
-    case "Created":
-      return Effect.void;
-  }
+  return event._tag === "Removed" ? store.removeCanvas(event.canvas) : Effect.void;
 };
 
 /**
@@ -55,7 +47,7 @@ export const followCanvas = (source: CanvasEventSource) =>
       if (event.removedNodes.length > 0) Queue.offerUnsafe(steps, event);
     });
     const stopCanvases = source.subscribeCanvasesChanges((event) => {
-      if (event._tag !== "Created") Queue.offerUnsafe(steps, event);
+      if (event._tag === "Removed") Queue.offerUnsafe(steps, event);
     });
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {

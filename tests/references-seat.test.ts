@@ -265,7 +265,7 @@ describe("what a seat reads of the operator's texts", () => {
     expect(onboard.data).toMatchObject({ paused: true, briefing: expect.stringContaining("House rules") });
   });
 
-  it("follows the real model: a removed region, a renamed canvas and a removed canvas", async () => {
+  it("follows the real model: a removed region and a removed canvas", async () => {
     await start();
     await seed();
     const model = <A, E>(use: (service: ModelService["Service"]) => Effect.Effect<A, E>) =>
@@ -283,17 +283,13 @@ describe("what a seat reads of the operator's texts", () => {
     expect((await call("references.read", { name: "style" })).data).toMatchObject({ region: { id: "outer" }, body: "Outer style." });
     expect(await names(region("inner", "other"))).toEqual(["other-canvas"]);
 
-    await model((service) => service.command({ _tag: "RenameCanvas", canvas: CANVAS, to: "plant" } as never, "operator"));
-    await until(async () => (await names(region("outer", "plant"))).length === 2);
-    expect(await names(region("outer"))).toEqual([]);
-    expect(await names(region("elsewhere", "plant"))).toEqual(["plans"]);
-    // A row for a region the canvas no longer has is kept and moves with its canvas: nothing sweeps it.
-    expect(await names(region("deleted-region", "plant"))).toEqual(["ghost"]);
+    // A row for a region the canvas no longer has is kept until its canvas goes: nothing sweeps it.
+    expect(await names(region("deleted-region"))).toEqual(["ghost"]);
 
-    await model((service) => service.command({ _tag: "RemoveCanvas", canvas: "plant" } as never, "operator"));
-    await until(async () => (await names(region("outer", "plant"))).length === 0);
-    expect(await names(region("elsewhere", "plant"))).toEqual([]);
-    expect(await names(region("deleted-region", "plant"))).toEqual([]);
+    await model((service) => service.command({ _tag: "RemoveCanvas", canvas: CANVAS } as never, "operator"));
+    await until(async () => (await names(region("outer"))).length === 0);
+    expect(await names(region("elsewhere"))).toEqual([]);
+    expect(await names(region("deleted-region"))).toEqual([]);
     expect(await names(region("inner", "other"))).toEqual(["other-canvas"]);
     expect(await names(APP_REFERENCE_PLACE)).toEqual(["release", "style"]);
     expect((await store((r) => r.briefingRead()))?.body).toContain("House rules");
