@@ -207,6 +207,7 @@ describe("offboard rules", () => {
       cacheWindowMinutes: 60,
       auto: { enabled: true, minutes: 180 },
       nudge: { enabled: true, minutes: 40 },
+      worth: DEFAULT_OFFBOARD_RULES.worth,
       harness: { claude: { cacheWindowMinutes: 50 } },
     };
     expect(patchRules).toHaveBeenCalledTimes(1);
@@ -215,7 +216,7 @@ describe("offboard rules", () => {
       ok: true,
       data: {
         rules: expected,
-        effective: { claude: { cacheWindowMinutes: 50, auto: { enabled: true, minutes: 180 }, nudge: { enabled: true, minutes: 40 } } },
+        effective: { claude: { cacheWindowMinutes: 50, auto: { enabled: true, minutes: 180 }, nudge: { enabled: true, minutes: 40 }, worth: DEFAULT_OFFBOARD_RULES.worth } },
       },
     });
 

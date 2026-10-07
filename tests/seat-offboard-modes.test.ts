@@ -251,6 +251,10 @@ describe("junto onboard handoff", () => {
       from_session: "s1",
       left_at: expect.any(String),
       continuation: CONTINUATION,
+      gist: "Parser shipped",
+      notes: NOTES,
+      notes_path: expect.stringMatching(/\/seats\/agent\/sessions\/s1\.md$/),
+      transcript_path: null,
     });
     // Once: the note appears in the handoff only, and leads the payload.
     expect(occurrences(JSON.stringify(next.data), "Pick up the 429 retry")).toBe(1);

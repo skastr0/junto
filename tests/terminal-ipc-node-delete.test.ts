@@ -41,6 +41,7 @@ const harness = (options: {
     })),
     deleteBinding: vi.fn(async () => true),
     release: vi.fn(),
+    setTerminalEnvironment: vi.fn(),
   });
   registerTerminalIpc(
     ipcMain as never,

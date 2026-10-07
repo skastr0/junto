@@ -20,6 +20,7 @@ const allowed = new Set([
   "src/main/junto/install-ops/engine.ts",
   // Read-only external harness receipts; never Junto product state.
   "src/main/junto/term/session-existence.ts",
+  "src/main/junto/term/session-size.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {

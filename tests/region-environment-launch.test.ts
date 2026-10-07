@@ -7,7 +7,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { Effect } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, EnvSource, EtherRegionEnvironment } from "../src/shared/canvas";
 import {
   EMPTY_LAUNCH_RECORD,
@@ -410,6 +410,7 @@ describe("the launch applies it", () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     for (const host of hosts.splice(0)) await host.shutdownAll("test_cleanup");
     setConfiguredToolDirectories([]);
     rmSync(binDir, { recursive: true, force: true });
@@ -603,6 +604,7 @@ describe("the launch applies it", () => {
       }) as Parameters<typeof resolveLaunch>[0];
 
     it("gets the region's variables, under what the terminal itself sets", () => {
+      vi.stubEnv("OP_SERVICE_ACCOUNT_TOKEN", undefined);
       const launch = Result.getOrThrow(
         resolveLaunch(shell({ FROM_TERMINAL: "terminal" }), {
           regionEnv: { OP_SERVICE_ACCOUNT_TOKEN: CANARY, FROM_TERMINAL: "region", TERM: "dumb" },
