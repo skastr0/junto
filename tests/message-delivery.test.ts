@@ -1,7 +1,7 @@
-import { nodeFromDocument } from "../src/shared/model/from-document";
+import { note, seat, terminal } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
 import { ulid } from "ulid";
-import type { CanvasDoc, Message } from "../src/shared/canvas";
+import type { Message } from "../src/shared/work-model";
 import {
   composeMessageDeliveryPayload,
   composeImmediatePromptPayload,
@@ -25,27 +25,6 @@ const userMsg = (over: Partial<Message> = {}): Message => ({
   role: "user",
   parts: [{ kind: "text", text: "ping the lane" }],
   ...over,
-});
-
-const agentNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][number] => ({
-  id: "agent",
-  type: "text",
-  text: "profile-13",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 100,
-  ether: {
-    entity: { kind: "agent", name: "local:profile-13" },
-    // Managed terminal is the only agent delivery surface.
-    terminal: { bindingId: "bind-profile-13", harness: "claude" },
-  },
-});
-
-
-const terminalNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][number] => ({
-  id: "terminal", type: "text", text: "shell", x: 0, y: 0, width: 200, height: 100,
-  ether: { entity: { kind: "terminal" }, terminal: { bindingId: "binding-1" } },
 });
 
 describe("message-delivery pure helpers", () => {
@@ -234,25 +213,13 @@ describe("message-delivery pure helpers", () => {
     ).toBe(false);
   });
 
-  it("resolves the agent seat; bare agent and raw terminals are unreachable", () => {
-    // Agents without ether.terminal.bindingId never fall back to ACP.
-    expect(deliveryTargetOf(nodeFromDocument("factory", agentNode(), 0))).toEqual({
+  it("resolves the agent seat; a raw terminal and a note are unreachable", () => {
+    expect(deliveryTargetOf(seat("agent", { bindingId: "bind-profile-13" as never }))).toEqual({
       bindingId: "bind-profile-13",
     });
-    // Geography holds no inbox — a raw user terminal
-    // is a delivery target.
-    expect(deliveryTargetOf(nodeFromDocument("factory", terminalNode(), 0))).toBeUndefined();
-    const bare: CanvasDoc["nodes"][number] = {
-      id: "x",
-      type: "text",
-      text: "x",
-      x: 0,
-      y: 0,
-      width: 10,
-      height: 10,
-      ether: { entity: { kind: "agent", name: "local:orphan" } },
-    };
-    expect(deliveryTargetOf(nodeFromDocument("factory", bare, 0))).toBeUndefined();
+    // A raw user terminal holds no inbox, and neither does furniture.
+    expect(deliveryTargetOf(terminal("terminal"))).toBeUndefined();
+    expect(deliveryTargetOf(note("x"))).toBeUndefined();
   });
 
 
