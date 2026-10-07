@@ -159,6 +159,7 @@ export const IPC_CHANNELS = {
   deleteCanvas: "junto:delete-canvas",
   canvasDigest: "junto:canvas-digest",
   modelOpen: "junto:model-open",
+  modelCanvases: "junto:model-canvases",
   modelCommand: "junto:model-command",
   modelChanged: "junto:model-changed",
   modelCanvasesChanged: "junto:model-canvases-changed",
@@ -830,6 +831,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly canvasDigest: (name: string) => Promise<DigestResult>;
   /** Everything on one canvas, read once when it is opened. */
   readonly modelOpen: (input: { readonly canvas: string }) => Promise<Opened>;
+  /** Canvas headers only, ordered by name for the switcher. */
+  readonly modelCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
   /** Change something on a canvas. Resolves once committed; a refusal rejects. */
   readonly modelCommand: (command: Command) => Promise<{ readonly seq: number }>;
   /** The rows that changed on a canvas, after every commit, to every window. */

@@ -99,6 +99,11 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         const rows = yield* canvasNames(undefined);
         return rows.map((row) => row.canvas_name);
       }, failure("listCanvases"));
+      const listCanvasSummaries = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({ name: CanvasName, modifiedAt: Schema.String }),
+        execute: () => sql`SELECT canvas_name AS name,updated_at AS modifiedAt FROM canvases ORDER BY canvas_name`,
+      });
       const kindOf = Effect.fn("ModelRecords.kindOf")(function* (
         canvas: string,
         id: string,
@@ -311,6 +316,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         requireSeatHost,
         getCanvas,
         listCanvases,
+        listCanvasSummaries: () => listCanvasSummaries(undefined).pipe(failure("listCanvasSummaries")),
         kindOf,
         getNode: (canvas: string, id: string) =>
           withSqlRead(sql, getNode(canvas, id)).pipe(failure("getNode")),

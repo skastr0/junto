@@ -365,6 +365,9 @@ export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
   const ModelOpenInput = Schema.Struct({ canvas: CanvasName });
   const ModelSheetInput = Schema.Struct({ canvas: CanvasName, id: NodeId });
+  privilegedIpc.handle(IPC_CHANNELS.modelCanvases, () =>
+    AppRuntime.runPromise(Effect.flatMap(ModelService, (model) => model.listCanvasSummaries())),
+  );
   privilegedIpc.handle(IPC_CHANNELS.modelOpen, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(ModelOpenInput)(input, { onExcessProperty: "error" });
@@ -1702,7 +1705,7 @@ export const registerJuntoIpc = (): void => {
   // Wire pushes and background loops once at startup.
   void AppRuntime.runPromise(
     Effect.gen(function* () {
-      const canvases = yield* CanvasesService;
+      const modelForBoot = yield* ModelService;
       const snapshots = yield* SnapshotsService;
       const usage = yield* UsageService;
       const kernel = yield* KernelService;
@@ -1717,7 +1720,7 @@ export const registerJuntoIpc = (): void => {
         yield* Effect.tryPromise({
           try: () =>
             runMainAuthoring("startup.canvas.ensure-seed", () =>
-              AppRuntime.runPromise(canvases.ensureSeed),
+              AppRuntime.runPromise(modelForBoot.ensureSeed),
             ),
           catch: () => undefined,
         }).pipe(Effect.catch(() => Effect.void));
@@ -1727,7 +1730,13 @@ export const registerJuntoIpc = (): void => {
         if (kind === "mail") broadcast(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
         else broadcast(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
       });
-      canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
+      // Temporary window invalidation until its last document reader moves.
+      modelForBoot.subscribeChanges((event) => broadcast(IPC_CHANNELS.canvasChanged, event.canvas));
+      modelForBoot.subscribeCanvasesChanges((event) => broadcast(IPC_CHANNELS.canvasChanged, event.canvas));
+      modelForBoot.subscribeSheetChanges((event) => broadcast(IPC_CHANNELS.canvasChanged, event.canvas));
+      mailRepository.subscribeChanges((name, _id, kind) => {
+        if (kind !== "mail") broadcast(IPC_CHANNELS.canvasChanged, name);
+      });
       // Keep the last model topology for compact connection-change notices.
       const modelForNotices = yield* ModelService;
       const noticeCanvases = new Map<string, Canvas>();
@@ -2616,7 +2625,6 @@ export const registerJuntoIpc = (): void => {
       };
       syncCheckoutWatch((yield* settingsForSeed.get).station.role);
 
-      canvases.start();
       snapshots.start();
       // First usage fetch is fire-and-forget off the boot critical path;
       // provider fetches can take tens of seconds so it never blocks window open.

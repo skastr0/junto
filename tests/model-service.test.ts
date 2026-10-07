@@ -10,6 +10,7 @@ import { ModelService } from "../src/main/junto/model/service";
 import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
 import { installSqlCommitCallbacks } from "../src/main/junto/state/sql-commit";
+import { SEED_CANVAS_NAME } from "../src/shared/seed";
 
 const at = "2026-10-07T00:00:00Z";
 const node = (id: string, kind = "note", fields: object = {}) => ({
@@ -69,6 +70,28 @@ const run = (
       }),
     ).pipe(Effect.provide(Reactivity.layer)),
   );
+
+it("reads ordered canvas headers and seeds an empty installation exactly once", () =>
+  run((model, _sql, db) => Effect.gen(function* () {
+    yield* model.ensureSeed;
+    expect(yield* model.listCanvasSummaries()).toEqual([{ name: "factory", modifiedAt: at }]);
+    yield* model.command(decode({ _tag: "CreateCanvas", canvas: "alpha" }), "operator");
+    expect((yield* model.listCanvasSummaries()).map(({ name }) => name)).toEqual(["alpha", "factory"]);
+    yield* model.command(decode({ _tag: "RemoveCanvas", canvas: "alpha" }), "operator");
+    yield* model.command(decode({ _tag: "RemoveCanvas", canvas: "factory" }), "operator");
+    const events: string[] = [];
+    const stop = model.subscribeCanvasesChanges((event) => {
+      expect(db.isTransaction).toBe(false);
+      events.push(event._tag);
+    });
+    yield* model.ensureSeed;
+    yield* model.ensureSeed;
+    expect(yield* model.listCanvases()).toEqual([SEED_CANVAS_NAME]);
+    expect((yield* model.open(SEED_CANVAS_NAME))).toMatchObject({ seq: 0, nodes: [], wires: [] });
+    expect(events).toEqual(["Created"]);
+    stop();
+  })),
+);
 
 it("changes only addressed rows and publishes one event after commit, including its sender", () =>
   run((model, _sql, db) =>

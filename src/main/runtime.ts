@@ -38,7 +38,8 @@ import {
 import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
-import { CanvasesLive, CanvasesService } from "./junto/canvases";
+import { CanvasesLive } from "./junto/canvases";
+import { ModelService } from "./junto/model/service";
 import { ChatServiceFromHermesLive, HermesPlaneLive } from "./junto/hermes/plane";
 import { HermesTransportLive } from "./junto/hermes/transport";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
@@ -422,7 +423,7 @@ export const buildDoctorReport = Effect.gen(function* () {
 
   const appInfo = yield* AppInfoService;
   const codex = yield* CodexService;
-  const canvases = yield* CanvasesService;
+  const model = yield* ModelService;
   const snapshots = yield* SnapshotsService;
   const kernel = yield* KernelService;
   const regionRollup = yield* RegionRollupService;
@@ -534,7 +535,10 @@ export const buildDoctorReport = Effect.gen(function* () {
   const serviceResults = yield* Effect.all(
     [
       codex.doctor,
-      canvases.doctor,
+      model.listCanvases().pipe(Effect.match({
+        onFailure: () => ({ id: "canvases", label: "Canvases", status: "error" as const, detail: "Canvas storage is unavailable" }),
+        onSuccess: (names) => ({ id: "canvases", label: "Canvases", status: "ok" as const, detail: `${names.length} canvases` }),
+      })),
       snapshots.doctor,
       kernel.doctor,
       regionRollup.doctor,

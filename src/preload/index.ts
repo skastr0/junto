@@ -452,6 +452,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   canvasDigest: (name) => invoke(IPC_CHANNELS.canvasDigest, IPC_TIMEOUT_MS, name),
   modelOpen: (input) => invoke(IPC_CHANNELS.modelOpen, IPC_TIMEOUT_MS, input),
+  modelCanvases: () => invoke(IPC_CHANNELS.modelCanvases, IPC_TIMEOUT_MS),
   modelCommand: (command) => invoke(IPC_CHANNELS.modelCommand, IPC_TIMEOUT_MS, command),
   onModelChanged: (listener) => subscribe<Changed>(IPC_CHANNELS.modelChanged, listener),
   onModelCanvasesChanged: (listener) =>

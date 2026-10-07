@@ -18,6 +18,7 @@ import {
   type Opened,
 } from "@shared/model";
 import { ModelDependents } from "./dependents";
+import { SEED_CANVAS_NAME } from "@shared/seed";
 import { normalizeNode } from "@shared/model/normalize";
 import { compileVerb } from "@shared/physics/verbs";
 import {
@@ -583,6 +584,10 @@ export class ModelService extends Context.Service<ModelService>()(
             Effect.mapError((cause) => modelError("command", cause)),
           );
       });
+      const ensureSeed = sql.withTransaction(Effect.gen(function* () {
+        if ((yield* records.listCanvases()).length === 0)
+          yield* command({ _tag: "CreateCanvas", canvas: Schema.decodeUnknownSync(CanvasName)(SEED_CANVAS_NAME) }, "operator");
+      })).pipe(Effect.mapError((cause) => modelError("ensureSeed", cause)));
       return {
         subscribeChanges: (
           listener: (event: Changed, current: Canvas) => void,
@@ -612,6 +617,8 @@ export class ModelService extends Context.Service<ModelService>()(
         open,
         command,
         listCanvases: records.listCanvases,
+        listCanvasSummaries: records.listCanvasSummaries,
+        ensureSeed,
         readSheet: records.readSheet,
         sheetChanges: Stream.fromPubSub(sheetChanges),
         changes: Stream.fromPubSub(changes),
