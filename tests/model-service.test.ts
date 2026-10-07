@@ -505,6 +505,27 @@ it("skips unchanged edits and restacks only the selected nodes with sparse negat
   ));
 
 
+it("revokes only the addressed binding when overseer seats share an agent key", () =>
+  run((model, _sql, db) => Effect.gen(function* () {
+    const first = { ...seat, agentKey: "local:claude", harness: "claude", overseer: true };
+    const second = { ...first, id: "paused-overseer", bindingId: "other-binding" };
+    yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [first, second], wires: [] }), "operator");
+    const events: Changed[] = [];
+    const stop = model.subscribeChanges((event) => events.push(event));
+    yield* model.command(decode({ _tag: "GrantOverseer", canvas: "factory", id: "seat", overseer: false }), "operator");
+    expect((yield* model.open("factory")).nodes.find(({ id }) => id === second.id)).toMatchObject({
+      agentKey: "local:claude", bindingId: "other-binding", overseer: true,
+    });
+    expect(db.prepare("SELECT id,overseer FROM seats ORDER BY id").all()).toEqual([
+      { id: "paused-overseer", overseer: 1 }, { id: "seat", overseer: 0 },
+    ]);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.nodes.map(({ id }) => id)).toEqual(["seat"]);
+    expect(events[0]?.removedNodes).toEqual([]);
+    stop();
+  })),
+);
+
 it("grants every alias atomically and publishes one committed event per affected canvas", () =>
   run((model, sql, db) => Effect.gen(function* () {
     yield* model.command(decode({ _tag: "CreateCanvas", canvas: "alias" }), "operator");
