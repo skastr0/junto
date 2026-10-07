@@ -40,12 +40,34 @@ import "./factory-minimap.css";
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 
-type MinimapNodeRect = Rect & {
+export type MinimapNodeRect = Rect & {
   readonly id: string;
   readonly fill: string;
   readonly stroke: string;
   readonly seat?: SeatMark;
 };
+
+/** Two lists of rectangles that draw the same map. */
+export const sameRects = (
+  before: ReadonlyArray<MinimapNodeRect> | undefined,
+  after: ReadonlyArray<MinimapNodeRect>,
+): boolean =>
+  before !== undefined &&
+  before.length === after.length &&
+  after.every((rect, index) => {
+    const was = before[index]!;
+    return (
+      was.id === rect.id &&
+      was.x === rect.x &&
+      was.y === rect.y &&
+      was.width === rect.width &&
+      was.height === rect.height &&
+      was.fill === rect.fill &&
+      was.stroke === rect.stroke &&
+      was.seat?.urgency === rect.seat?.urgency &&
+      (was.seat === undefined) === (rect.seat === undefined)
+    );
+  });
 
 /** An agent seat on the map: its urgency, if any. */
 export type SeatMark = { readonly urgency?: Urgency };
@@ -128,6 +150,8 @@ export function FactoryMinimap({
   // lands on the same map pixel writes nothing.
   const cameraKeyRef = useRef<string>("");
   const [rects, setRects] = useState<ReadonlyArray<MinimapNodeRect>>([]);
+  /** The rectangles last published, to tell a real change from the same map. */
+  const rectsRef = useRef<ReadonlyArray<MinimapNodeRect> | undefined>(undefined);
   // Node bounds feed the viewBox; kept in a ref so the camera subscription
   // reads the latest without re-subscribing.
   const nodeBoundsRef = useRef<Rect>(EMPTY_BOUNDS);
@@ -197,6 +221,12 @@ export function FactoryMinimap({
         const seat = seatOf?.(user);
         next.push({ id: user.id, x, y, width, height, fill: fill(user), stroke: stroke(user), ...(seat ? { seat } : {}) });
       }
+      // React Flow replaces its node list for changes the map cannot show (a
+      // selection, a measurement, a card's class). Rectangles that say what
+      // the last ones said are not published again: the map does not render
+      // and its view box is not worked out afresh.
+      if (sameRects(rectsRef.current, next)) return;
+      rectsRef.current = next;
       nodeBoundsRef.current = boundsOf(next);
       // A new node set may change the bounds; let the camera pass re-fit.
       viewBoxRef.current = "";
