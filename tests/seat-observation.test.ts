@@ -134,7 +134,7 @@ const makeHarness = (input: {
       const items = kind === "task" ? node?.ether?.tasks?.items : node?.ether?.requests?.items;
       return Effect.succeed(items?.find((item) => item.id === taskId));
     },
-    readCanvas: () => Effect.succeed(canvasFromDocument("factory", currentDoc)),
+    readTopology: () => Effect.succeed(canvasFromDocument("factory", currentDoc)),
     subscribeCanvasChanges: (listener) => {
       canvasListeners.add(listener);
       return () => canvasListeners.delete(listener);
@@ -303,7 +303,7 @@ describe("seat.wait", () => {
     let reads = 0;
     const service = makeSeatObservation({
       readTask: () => Effect.succeed(undefined),
-    readCanvas: () => Effect.succeed(canvasFromDocument("factory", peerDoc())),
+    readTopology: () => Effect.succeed(canvasFromDocument("factory", peerDoc())),
       subscribeCanvasChanges: () => () => {},
       seatStates: {
         current: () => [],
@@ -336,7 +336,7 @@ describe("seat.wait", () => {
     let reads = 0;
     const service = makeSeatObservation({
       readTask: () => Effect.succeed(undefined),
-    readCanvas: () => {
+    readTopology: () => {
         reads += 1;
         return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
       },
@@ -408,7 +408,7 @@ describe("seat.wait", () => {
     let reads = 0;
     const service = makeSeatObservation({
       readTask: () => Effect.succeed(undefined),
-    readCanvas: () => {
+    readTopology: () => {
         reads += 1;
         return Effect.succeed(canvasFromDocument("factory", reads === 1 ? withA : withB));
       },
@@ -458,7 +458,7 @@ describe("seat.wait", () => {
     let reads = 0;
     const service = makeSeatObservation({
       readTask: () => Effect.succeed(undefined),
-    readCanvas: () => {
+    readTopology: () => {
         reads += 1;
         return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
       },

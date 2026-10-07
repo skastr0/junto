@@ -72,7 +72,7 @@ const makeHarness = (input: {
 
   const service = makeSeatObservation({
     readTask: () => Effect.succeed(undefined),
-    readCanvas: () => Effect.succeed(canvasFromDocument("factory", doc)),
+    readTopology: () => Effect.succeed(canvasFromDocument("factory", doc)),
     subscribeCanvasChanges: (listener) => {
       canvasListeners.add(listener);
       return () => canvasListeners.delete(listener);
@@ -252,7 +252,7 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     let subscribed = false;
     const service = makeSeatObservation({
       readTask: () => Effect.succeed(undefined),
-    readCanvas: () => {
+    readTopology: () => {
         reads += 1;
         return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
       },
@@ -321,7 +321,7 @@ describe("crew seat observation — adversarial authority and ordering", () => {
       // First read resolves targets; by the post-event revalidation the
       // edge is gone — the answer must be ScopeError, not the stale match.
       readTask: () => Effect.succeed(undefined),
-    readCanvas: () => {
+    readTopology: () => {
         reads += 1;
         return Effect.succeed(canvasFromDocument("factory", reads === 1 ? authorized : revoked));
       },

@@ -566,7 +566,7 @@ export interface WorkServiceShape {
       message: Message,
       admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Message>>;
-    readonly readCanvases: (canvasName?: string) => Effect.Effect<ReadonlyArray<Canvas>, WorkServiceError>;
+    readonly listTopologies: (canvasName?: string) => Effect.Effect<ReadonlyArray<Canvas>, WorkServiceError>;
     readonly subscribeTopologyChanges: (listener: (canvasName: string) => void) => () => void;
     readonly subscribeWorkChanges: (listener: (canvasName?: string, nodeId?: string) => void) => () => void;
     readonly readKernelWork: (canvas: string) => Effect.Effect<KernelWork, WorkServiceError>;
@@ -809,7 +809,7 @@ export const WorkLive = Layer.effect(
       })),
     );
 
-    const readCanvas = Effect.fn("WorkService.readTopology")(function* (canvasName: string) {
+    const readTopology = Effect.fn("WorkService.readTopology")(function* (canvasName: string) {
       return yield* withSqlRead(sql, Effect.gen(function* () {
         const topology = yield* model.canvas(canvasName);
         const projection = yield* stations.projection;
@@ -1062,7 +1062,7 @@ export const WorkLive = Layer.effect(
     const requireLiveOverseer = (
       admin: OverseerWorkAdmin,
     ): Effect.Effect<ActorRef, WorkServiceError> =>
-      readCanvas(admin.actor.canvasName).pipe(
+      readTopology(admin.actor.canvasName).pipe(
         Effect.flatMap((origin) => {
           const admitted = admitLiveOverseer(
             origin.topology,
@@ -1086,7 +1086,7 @@ export const WorkLive = Layer.effect(
     const requireExactActorNode = (
       actor: ActorRef,
     ): Effect.Effect<Node, WorkServiceError> =>
-      readCanvas(actor.canvasName).pipe(
+      readTopology(actor.canvasName).pipe(
         Effect.flatMap((origin) => {
           const exact = origin.actorRefs.filter((candidate) =>
             sameActor(candidate, actor)
@@ -1458,7 +1458,7 @@ export const WorkLive = Layer.effect(
       input: Omit<VerdictPostArgs, "target">,
       reviewer: ActorRef,
     ) => Effect.gen(function* () {
-      const [context, read] = yield* Effect.all([stationContext, readCanvas(canvas)]);
+      const [context, read] = yield* Effect.all([stationContext, readTopology(canvas)]);
       if (reviewer.canvasName !== canvas ||
         read.actorRefs.filter((actor) => sameActor(actor, reviewer)).length !== 1) {
         return yield* new WorkServiceError({
@@ -1557,7 +1557,7 @@ export const WorkLive = Layer.effect(
     );
 
     return WorkService.of({
-      readCanvases: (canvasName) => withSqlRead(sql, Effect.gen(function* () {
+      listTopologies: (canvasName) => withSqlRead(sql, Effect.gen(function* () {
         const names = canvasName === undefined ? yield* model.listCanvases() : [canvasName];
         return yield* Effect.forEach(names, (name) => model.canvas(name));
       })).pipe(Effect.mapError(toWorkServiceError)),
@@ -1573,7 +1573,7 @@ export const WorkLive = Layer.effect(
       readArtifacts: (canvas, nodeId) => repository.artifactLane(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
       readArtifact: (canvas, nodeId, id) => repository.artifactItem(canvas, nodeId, id).pipe(Effect.mapError(toWorkServiceError)),
       readSheet: (canvas, nodeId) => model.readSheet(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
-      readTopology: (canvas) => readCanvas(canvas).pipe(Effect.map((read) => ({ canvas: read.topology, actorRefs: read.actorRefs }))),
+      readTopology: (canvas) => readTopology(canvas).pipe(Effect.map((read) => ({ canvas: read.topology, actorRefs: read.actorRefs }))),
       readTask: readItem,
       readTasks: (canvas, nodeId, kind = "task") => repository.taskLane(canvas, nodeId, kind).pipe(Effect.mapError(toWorkServiceError)),
       readMailbox: (canvas, nodeId) => repository.mailbox(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
@@ -1656,7 +1656,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             if (admin !== undefined) yield* requireLiveOverseer(admin);
             const node = yield* requireNode(read.topology, nodeId);
@@ -1724,7 +1724,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
             const policyWork = yield* policyRows(canvas, nodeId, taskId === null ? [] : [taskId]);
@@ -1763,7 +1763,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
             const before = yield* readItem(canvas, nodeId, taskId);
@@ -1976,7 +1976,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
             if (admin !== undefined) {
@@ -2074,7 +2074,7 @@ export const WorkLive = Layer.effect(
 
       workTaskShow: (canvas, nodeId, taskId, view) =>
         Effect.gen(function* () {
-          const read = yield* readCanvas(canvas);
+          const read = yield* readTopology(canvas);
           const node = yield* requireNode(read.topology, nodeId);
           const task = yield* readItem(canvas, nodeId, taskId);
           if (task === undefined) {
@@ -2185,7 +2185,7 @@ export const WorkLive = Layer.effect(
 
       workTaskRules: (canvas, nodeId, taskId) =>
         Effect.gen(function* () {
-          const read = yield* readCanvas(canvas);
+          const read = yield* readTopology(canvas);
           const node = yield* requireNode(read.topology, nodeId);
           const task = taskId === undefined
             ? undefined
@@ -2263,7 +2263,7 @@ export const WorkLive = Layer.effect(
 
       workRulingsList: (canvas, nodeId) =>
         Effect.gen(function* () {
-          const read = yield* readCanvas(canvas);
+          const read = yield* readTopology(canvas);
           yield* requireNode(read.topology, nodeId);
           return {
             regions: regionStack(read.topology, asNodeId(nodeId)).map((group) => ({
@@ -2281,7 +2281,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
             if (home !== context.localInstallationId) {
@@ -2376,7 +2376,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
             if (admin !== undefined) {
@@ -2433,7 +2433,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read, sourceHome] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
             const actorNode = yield* requireActor(
@@ -2707,7 +2707,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
             const overseer =
@@ -2843,7 +2843,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             yield* requireLocalActor(
               read,
@@ -3005,7 +3005,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             if (context.configuration.role !== "command-center") {
               return yield* Effect.fail(
@@ -3075,7 +3075,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             yield* requireLocalActor(
               read,
@@ -3184,7 +3184,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             yield* requireLocalActor(
               read,
@@ -3309,7 +3309,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             const raiserNode = yield* requireLocalActor(
               read,
@@ -3371,7 +3371,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
               itemHome("request", canvas, nodeId, taskId),
             ]);
             const before = yield* readItem(canvas, nodeId, taskId, "requests");
@@ -3474,7 +3474,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             if (admin === undefined) {
               yield* requireLocalActor(
@@ -3526,7 +3526,7 @@ export const WorkLive = Layer.effect(
             ).pipe(
               Effect.map((parts) => ({ ...policy.artifact, parts })),
             );
-            const origin = yield* readCanvas(publishedBy.canvasName);
+            const origin = yield* readTopology(publishedBy.canvasName);
             const publisherNode = yield* requireNode(origin.topology, publishedBy.nodeId);
             const publisherHome = yield* homeForNode(publisherNode, context);
             const action = {
@@ -3598,7 +3598,7 @@ export const WorkLive = Layer.effect(
       workSeatRecentOps: (canvas, nodeId, limit) =>
         asResult(
           Effect.gen(function* () {
-            const read = yield* readCanvas(canvas);
+            const read = yield* readTopology(canvas);
             const actors = read.actorRefs.filter(
               (actor) =>
                 actor.canvasName === canvas && actor.nodeId === nodeId,
@@ -3643,7 +3643,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             const node = read.topology.nodes.get(asNodeId(nodeId));
             if (node?.kind !== "board") {
@@ -3735,7 +3735,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             if (
               read.topology.nodes.get(asNodeId(nodeId))?.kind !== "board"
@@ -3857,7 +3857,7 @@ export const WorkLive = Layer.effect(
       workPadRead: (canvas, nodeId, pinId) =>
         asResult(
           Effect.gen(function* () {
-            const read = yield* readCanvas(canvas);
+            const read = yield* readTopology(canvas);
             const node = read.topology.nodes.get(asNodeId(nodeId));
             if (node?.kind !== "pad") {
               return yield* Effect.fail(
@@ -3911,7 +3911,7 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
-              readCanvas(canvas),
+              readTopology(canvas),
             ]);
             const overseer =
               admin === undefined

@@ -28,7 +28,7 @@ export const liveSeatObservation = (): Effect.Effect<
   Effect.gen(function* () {
     const work = yield* WorkService;
     return makeSeatObservation({
-      readCanvas: (canvasName) =>
+      readTopology: (canvasName) =>
         work.readTopology(canvasName).pipe(Effect.map((read) => read.canvas),
           Effect.mapError(
             (error): WorkErrorBody => ({

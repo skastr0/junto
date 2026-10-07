@@ -127,7 +127,7 @@ const makeWorkService = (
   gate: DispatchGate | undefined,
   onMutation: () => void,
 ): WorkServiceShape => ({
-  readCanvases: () => Effect.succeed([canvas]),
+  listTopologies: () => Effect.succeed([canvas]),
   readTopology: () => Effect.succeed({ canvas: canvas, actorRefs: [] }),
   commandStatus: Effect.gen(function* () {
     if (gate !== undefined) yield* gate.wait;

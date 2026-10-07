@@ -54,7 +54,7 @@ const canvas = canvasOf(
   "proof",
 );
 const workService = {
-  readCanvases: () => Effect.succeed([canvas]),
+  listTopologies: () => Effect.succeed([canvas]),
   readTopology: () => Effect.succeed({ canvas, actorRefs: [] }),
   commandStatus: Effect.succeed({
     counts: { pending: 0, applied: 0, rejected: 0 },

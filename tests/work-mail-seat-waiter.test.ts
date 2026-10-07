@@ -32,7 +32,7 @@ it("a mailbox commit wakes a seat waiter once even when it immediately subscribe
     let registrations = 0;
     let callbacks = 0;
     const observation = makeSeatObservation({
-      readTask: () => Effect.succeed(undefined), readCanvas: () => Effect.succeed(canvas),
+      readTask: () => Effect.succeed(undefined), readTopology: () => Effect.succeed(canvas),
       // Exercise the publisher with a synchronously re-subscribing consumer.
       // No facade or window invalidation forwards this mailbox notification.
       subscribeCanvasChanges: (listener) => {

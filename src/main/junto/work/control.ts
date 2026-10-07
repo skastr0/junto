@@ -3262,7 +3262,7 @@ export const startWorkControlServer = async (
         > = Effect.gen(function* () {
           const liveDocsResult = yield* Effect.flatMap(
             WorkService,
-            (work) => work.readCanvases(admission.principal.canvasName),
+            (work) => work.listTopologies(admission.principal.canvasName),
           ).pipe(Effect.result);
           if (Result.isFailure(liveDocsResult)) {
             return Result.fail({

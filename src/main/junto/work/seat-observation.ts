@@ -85,7 +85,7 @@ export type SeatObservationDeps = {
    * made against.
    */
   readonly readTask: (canvasName: string, nodeId: string, taskId: string, kind: "task" | "requests") => Effect.Effect<Task | undefined, WorkErrorBody>;
-  readonly readCanvas: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
+  readonly readTopology: (canvasName: string) => Effect.Effect<Canvas, WorkErrorBody>;
   /** Canvas commit subscription — a grant change re-derives authority. */
   readonly subscribeCanvasChanges: (listener: (canvasName: string) => void) => () => void;
   /** Seat state stream. `current` is the live projection for registration races. */
@@ -486,7 +486,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       ): Effect.Effect<Signal, WorkErrorBody> =>
         Effect.suspend(() =>
           Effect.gen(function* () {
-            const fresh = yield* deps.readCanvas(caller.canvasName);
+            const fresh = yield* deps.readTopology(caller.canvasName);
             const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args);
             if (Result.isFailure(freshTargets)) return yield* Effect.fail(freshTargets.failure);
             if (sameSeatTargets(captured, freshTargets.success)) {
@@ -501,7 +501,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       // Only a canvas grant change re-enters the loop: every other signal
       // either answers, fails, or expires.
       for (;;) {
-        const doc = yield* deps.readCanvas(caller.canvasName);
+        const doc = yield* deps.readTopology(caller.canvasName);
         const targets = resolveSeatTargets(doc, caller.nodeId, args);
         if (Result.isFailure(targets)) return yield* Effect.fail(targets.failure);
         const byBinding = new Map(
@@ -568,7 +568,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
 
         // Revalidate against a fresh document before answering: the event may
         // have been produced under an edge the operator has already removed.
-        const fresh = yield* deps.readCanvas(caller.canvasName);
+        const fresh = yield* deps.readTopology(caller.canvasName);
         const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args);
         if (Result.isFailure(freshTargets)) return yield* Effect.fail(freshTargets.failure);
         const stillAuthorized = freshTargets.success.find(
@@ -605,7 +605,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       /** Re-derive authority from the live document, or fail ScopeError. */
       const authorize = (): Effect.Effect<SeatTarget, WorkErrorBody> =>
         Effect.gen(function* () {
-          const doc = yield* deps.readCanvas(caller.canvasName);
+          const doc = yield* deps.readTopology(caller.canvasName);
           const resolved = resolveReadTarget(doc, caller.nodeId, args.target);
           if (Result.isFailure(resolved)) return yield* Effect.fail(resolved.failure);
           return resolved.success;
@@ -744,7 +744,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           // out its whole duration before the return-path check noticed.
           Effect.suspend(() =>
             Effect.gen(function* () {
-              const fresh = yield* deps.readCanvas(caller.canvasName);
+              const fresh = yield* deps.readTopology(caller.canvasName);
               const reauthorized = resolveReadTarget(fresh, caller.nodeId, args.target);
               if (Result.isFailure(reauthorized)) {
                 return yield* Effect.fail(reauthorized.failure);
@@ -837,7 +837,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
 
       const observe = (): Effect.Effect<TaskWaitResult, WorkErrorBody> =>
         Effect.gen(function* () {
-          const doc = yield* deps.readCanvas(caller.canvasName);
+          const doc = yield* deps.readTopology(caller.canvasName);
           const admitted = admitWorkTarget(doc, caller.nodeId, args.target, "tasks.wait");
           if (Result.isFailure(admitted)) return yield* Effect.fail(admitted.failure);
           const node = admitted.success.node;
