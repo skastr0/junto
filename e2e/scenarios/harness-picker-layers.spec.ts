@@ -70,7 +70,7 @@ test("the Launch tab keeps the harness list in its own box and the model cascade
       await page.waitForTimeout(600);
       const seatBox = await box(seat);
       await page.mouse.click(seatBox.x + seatBox.width / 2, seatBox.y + seatBox.height / 2, { button: "right" });
-      await page.getByRole("button", { name: "Edit soul and instructions" }).click();
+      await page.getByRole("menuitem", { name: "Edit soul and instructions" }).click();
       await page.getByRole("tab", { name: "launch" }).click();
 
       const list = page.locator(".customize-launch__pick .agent-harness-pick__list");

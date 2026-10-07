@@ -94,7 +94,7 @@ for (const theme of ["Dark", "Bright"] as const) test(`squads (${theme}): save f
   for (const id of ["seat-a", "seat-b", "seat-c"]) await expect(seat(id)).toHaveClass(/selected/);
   const cBox = await stableBox(seat("seat-c"));
   await page.mouse.click(cBox.x + cBox.width / 2, cBox.y + cBox.height / 2, { button: "right" });
-  const saveEntry = page.getByRole("button", { name: "Save 3 agents as a squad" });
+  const saveEntry = page.getByRole("menuitem", { name: "Save 3 agents as a squad" });
   await expect(saveEntry).toBeVisible();
   await page.screenshot({ path: `${shots}/1-menu-entry.png` });
   await saveEntry.click();
@@ -118,7 +118,7 @@ for (const theme of ["Dark", "Bright"] as const) test(`squads (${theme}): save f
 
   // Saving again under a taken name never replaces it: the name is refused.
   await page.mouse.click(cBox.x + cBox.width / 2, cBox.y + cBox.height / 2, { button: "right" });
-  await page.getByRole("button", { name: "Save 3 agents as a squad" }).click();
+  await page.getByRole("menuitem", { name: "Save 3 agents as a squad" }).click();
   await dialog.getByRole("textbox", { name: "Squad name" }).fill("review squad");
   await dialog.getByRole("button", { name: "Save squad" }).click();
   await expect(dialog.getByRole("alert")).toHaveText("a squad named review squad already exists");
