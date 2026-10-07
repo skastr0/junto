@@ -204,6 +204,9 @@ const counters = () =>
     if (typeof juntoPerf === "object") walk(juntoPerf.snapshot(), "", 0);
     return out;
   })()`);
+// Commits per named surface, where the window keeps them (juntoSurfaceCommits).
+const surfaces = () =>
+  evaluate<Record<string, { commits: number; ms: number }> | null>(`typeof juntoSurfaceCommits === "function" ? juntoSurfaceCommits() : null`);
 const less = (after: Record<string, number> | undefined, before: Record<string, number> | undefined) =>
   Object.fromEntries(Object.entries(after ?? {}).map(([key, value]) => [key, value - (before?.[key] ?? 0)]).filter(([, value]) => value !== 0));
 for (let repeat = 0; repeat < repeats; repeat += 1) {
@@ -264,6 +267,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
     await evaluate(`performance.mark("verify:release")`);
   }
   const countersBeforeDrop = await counters();
+  const surfacesBeforeDrop = await surfaces();
   const released = Date.now();
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
@@ -329,6 +333,13 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   const facts = { repeat, direction: direction === 1 ? "down-right" : "up-left", selectedBeforePress: grip.selected, cardsMoved: moved };
   rows.push(summarize("drag", during, { ...facts, moves: steps, dragMs, routeWire: routedBefore && routedDrag ? routedDrag.total - routedBefore.total : null, routeWireByTrigger: less(routedDrag?.byTrigger, routedBefore?.byTrigger) }));
   console.log(JSON.stringify(rows.at(-1)));
+  const surfacesAfterDrop = await surfaces();
+  if (surfacesBeforeDrop && surfacesAfterDrop) {
+    const delta = Object.fromEntries(Object.entries(surfacesAfterDrop)
+      .map(([name, now]) => [name, { commits: now.commits - (surfacesBeforeDrop[name]?.commits ?? 0), ms: Math.round((now.ms - (surfacesBeforeDrop[name]?.ms ?? 0)) * 10) / 10 }] as const)
+      .filter(([, value]) => value.commits !== 0));
+    console.log(JSON.stringify({ surfaceCommitsAcrossTheDrop: delta, repeat }));
+  }
   const countersAfterDrop = await counters();
   const moved3 = Object.entries(less(countersAfterDrop, countersBeforeDrop)).filter(([key]) => !key.startsWith("routeWireByEdge")).sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1]))).slice(0, 30);
   console.log(JSON.stringify({ windowCountersAcrossTheDrop: Object.fromEntries(moved3), repeat }));
