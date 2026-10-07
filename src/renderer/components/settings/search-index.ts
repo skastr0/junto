@@ -80,8 +80,7 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("station", "Allow remote managed installs", "Deploy and update Junto on enrolled Remotes"),
   entry("station", "Prefer supervised runtime", "Preference only, does not install the supervisor"),
 
-  entry("updates", "Installed version", "currently running Junto"),
-  entry("updates", "Application updates", "Check for and install a newer Junto"),
+  entry("updates", "Check for updates", "The Junto version you run, and newer ones", "version install"),
 
   entry("audio", "All sounds", "The level and switch for every sound together"),
 
@@ -92,13 +91,13 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("harnesses", "Default effort", "the effort a new seat of this harness starts with"),
   entry("harnesses", "Default permission mode", "the permission mode a new seat of this harness starts with"),
 
-  entry("advanced", "Introduction", "the short tour from first launch"),
+  entry("advanced", "Introduction", "The short tour from first launch"),
   entry("advanced", "Logs explorer", "show the developer logs panel in the top bar"),
-  entry("advanced", "Agent tool directories", "extra directories searched for agent CLIs"),
-  entry("advanced", "Start Junto at login", "macOS Login Items"),
-  entry("advanced", "App version", "currently running Junto"),
+  entry("advanced", "Agent tool directories", "Extra folders to look in for agent CLIs"),
+  entry("advanced", "Start Junto at login", "Open Junto when you log in to your Mac"),
+  entry("advanced", "App version", "The Junto version you run"),
   entry("advanced", "Platform", "OS and architecture"),
-  entry("advanced", "Backup", "restore Junto's state from a verified backup"),
+  entry("advanced", "Backup", "Export a copy of Junto's data"),
 ];
 
 /** Every setting on the pages this build shows. */

@@ -279,8 +279,7 @@ export function CompanionSettingsSection() {
   return (
     <div className="settings-section companion-settings">
       <p className="companion-lead">
-        See who needs you, answer agents and send them mail from your phone. It talks straight to this Mac over your
-        own network; nothing goes through a Junto server.
+        Answer agents from your phone, straight to this Mac over your own network.
       </p>
 
       <Readiness status={status} checking={checking} onCheck={() => void check()} />

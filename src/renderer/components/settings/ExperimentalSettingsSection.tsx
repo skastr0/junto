@@ -75,11 +75,9 @@ function ExperimentalFeatureRow({ featureKey }: { readonly featureKey: FeatureKe
               <span>{requirement.line}</span>
             </li>
           ) : null}
-          <li className="experimental-feature__applies">
-            {spec.applies === "live"
-              ? "Applies at once, no restart."
-              : "Applies after you restart Junto."}
-          </li>
+          {spec.applies === "live" ? null : (
+            <li className="experimental-feature__applies">Applies after you restart Junto.</li>
+          )}
         </ul>
       </div>
       <Switch
@@ -97,9 +95,6 @@ export function ExperimentalSettingsSection() {
   const keys = experimentalFeatureKeys();
   return (
     <div className="settings-section">
-      <p className="experimental-lead">
-        Each one stays off until you turn it on here, and you can turn it off again at any time.
-      </p>
       <div className="experimental-list">
         {keys.map((key) => (
           <ExperimentalFeatureRow key={key} featureKey={key} />

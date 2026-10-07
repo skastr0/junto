@@ -50,7 +50,7 @@ import { HUE_TEXT, INK, themeFor } from "../lib/theme";
 import { claimFocus } from "../lib/focus-ownership";
 import { getJuntoApi } from "../lib/junto-api";
 import { FocusSurface } from "./FocusSurface";
-import { Button, ConfirmDialog, Eyebrow, IconButton, Input, OverlayHeader, Select } from "./ui";
+import { Button, ConfirmDialog, IconButton, Input, OverlayHeader, Select, Switch } from "./ui";
 import "./settings-panel.css";
 
 /**
@@ -112,8 +112,8 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
         } as const,
       ]
     : []),
-  { key: "companion", group: "Agents", label: "Companion", blurb: "answer your agents from your phone" },
-  { key: "updates", group: "App", label: "Updates", blurb: "check and install app updates" },
+  { key: "companion", group: "Agents", label: "Companion", blurb: "" },
+  { key: "updates", group: "App", label: "Updates", blurb: "" },
   ...(BROWSER_ENABLED
     ? [{ key: "browser", group: "App", label: "Browser", blurb: "surface and warm-session limits" } as const]
     : []),
@@ -129,7 +129,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
           key: "experimental",
           group: "App",
           label: "Experimental",
-          blurb: "built, not yet fully available",
+          blurb: "Off until you turn them on.",
         } as const,
       ]
     : []),
@@ -137,9 +137,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     key: "advanced",
     group: "App",
     label: "Advanced",
-    blurb: DEV_TOOLS_ENABLED
-      ? "startup, recovery, developer tools"
-      : "startup and recovery",
+    blurb: "",
   },
 ];
 
@@ -581,7 +579,7 @@ function AdvancedSection() {
       <FieldRow
         group
         label="Introduction"
-        hint="the short tour from first launch: what Junto is, how to start an agent, and why macOS may name Junto"
+        hint="The short tour from first launch."
       >
         <Button
           size="sm"
@@ -612,7 +610,7 @@ function AdvancedSection() {
       ) : null}
       <FieldRow
         label="Agent tool directories"
-        hint="extra directories searched for agent CLIs, one per line. Detection and launch share this list. No login shell is run."
+        hint="Extra folders to look in for agent CLIs, one per line."
       >
         <textarea
           className="settings-tool-directories"
@@ -631,8 +629,13 @@ function AdvancedSection() {
         />
       </FieldRow>
       {usesAppleLoginItems ? (
-        <FieldRow label="Start Junto at login" hint="macOS Login Items">
-          <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Junto at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
+        <FieldRow label="Start Junto at login">
+          <Switch
+            checked={openAtLogin}
+            disabled={loginItemLoading || loginItemBusy}
+            aria-label="Start Junto at login"
+            onCheckedChange={(on) => void onToggleLoginItem(on)}
+          />
         </FieldRow>
       ) : startupProvider === "systemd-supervision" ? (
         <FieldRow group label="Startup" hint="Remotes on Linux run as a systemd user service.">
@@ -683,10 +686,10 @@ function InstallationFacts() {
         <span>
           {DEV_TOOLS_ENABLED
             ? "App version and release provenance. Check for updates lives under Updates."
-            : "App version and platform for this installation."}
+            : ""}
         </span>
       </div>
-      <FieldRow group label="App version" hint="currently running Junto">
+      <FieldRow group label="App version">
         <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{status.currentVersion}</span>
       </FieldRow>
       {DEV_TOOLS_ENABLED ? (
@@ -697,7 +700,7 @@ function InstallationFacts() {
       <FieldRow
         group
         label="Platform"
-        hint={DEV_TOOLS_ENABLED ? "OS, architecture, Electron runtime" : "OS and architecture"}
+        {...(DEV_TOOLS_ENABLED ? { hint: "OS, architecture, Electron runtime" } : {})}
       >
         <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{platformLabel}</span>
       </FieldRow>
@@ -736,32 +739,32 @@ function UpdatesSection() {
   const summary = (() => {
     switch (status.phase) {
       case "checking":
-        return "checking for updates…";
+        return "Checking for updates…";
       case "available":
         return status.available
-          ? `update ${status.available.version} available`
-          : "update available";
+          ? `Update ${status.available.version} available`
+          : "Update available";
       case "downloading": {
         const percent =
           status.progress !== undefined
             ? Math.round(status.progress.percent)
             : undefined;
         return percent === undefined
-          ? "downloading update…"
-          : `downloading ${percent}%`;
+          ? "Downloading update…"
+          : `Downloading ${percent}%`;
       }
       case "ready":
         return status.available
-          ? `ready to install ${status.available.version}`
-          : "ready to install";
+          ? `Ready to install ${status.available.version}`
+          : "Ready to install";
       case "installing":
-        return "installing…";
+        return "Installing…";
       case "error":
-        return status.error?.message ?? "update check failed";
+        return status.error?.message ?? "Update check failed";
       default:
         return status.lastCheckedAt
-          ? `last checked ${status.lastCheckedAt.slice(0, 19).replace("T", " ")} UTC`
-          : `running ${status.currentVersion} — check for a newer release`;
+          ? `Last checked ${status.lastCheckedAt.slice(0, 19).replace("T", " ")} UTC`
+          : undefined;
     }
   })();
 
@@ -770,10 +773,7 @@ function UpdatesSection() {
 
   return (
     <div className="settings-section">
-      <FieldRow group label="Installed version" hint="currently running Junto">
-        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{status.currentVersion}</span>
-      </FieldRow>
-      <FieldRow group label="Application updates" hint={summary}>
+      <FieldRow group label={`Junto ${status.currentVersion}`} hint={summary}>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="chrome"
@@ -953,15 +953,14 @@ function StateRecoveryControls() {
       <div className="settings-profile-list__head">
         <span>Verified retained backups</span>
         <span>
-          Export creates a new SQLite copy for portability and evidence.
-          It cannot restore or replace this installation.
+          Export saves a copy. It cannot restore or replace this installation.
         </span>
       </div>
       {loading ? (
         <p className="settings-note">verifying retained backups…</p>
       ) : backups.length === 0 ? (
         <p className="settings-note">
-          No verified retained backups are available.
+          None yet.
         </p>
       ) : (
         <FieldRow

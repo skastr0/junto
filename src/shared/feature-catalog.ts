@@ -145,13 +145,10 @@ export const FEATURE_CATALOG = {
     experimental: {
       title: "Seat awareness (Jev)",
       description:
-        "A model reads each agent seat's recent terminal output and says how the thread is going: " +
-        "stuck, thrashing, waiting on you, or going well. Seat cards, the minimap and the feed show " +
-        "its reading, and a seat can ask a peer for help. Terminal excerpts are sent to the provider " +
-        "while this is on.",
+        "A model reads each agent's recent terminal output and says how it is going: stuck, thrashing, waiting on you, or going well. Terminal excerpts are sent to the provider while this is on.",
       requirement: {
         env: "TYPESAFE_API_KEY",
-        label: "Needs a provider key in TYPESAFE_API_KEY. Without one, seats say the key is missing.",
+        label: "Needs a provider key in TYPESAFE_API_KEY.",
       },
       applies: "live",
     },
