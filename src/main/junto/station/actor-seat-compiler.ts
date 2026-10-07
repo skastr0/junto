@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Result, SchemaIssue, Schema } from "effect";
 import { ActorSeatId, type ActorSeatId as ActorSeatIdValue } from "@shared/actor-seat";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import { actorDeliverySurfaceOf } from "./frozen-actor-surface";
 import {
   EtherTerminalLaunch,
   type CanvasDoc,
