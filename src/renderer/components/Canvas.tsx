@@ -581,13 +581,19 @@ function useCanvasInteractions(
   const finishDrag = useCallback((sync: boolean, dropped: ReadonlyArray<FlowNode> = []) => {
     if (!dragInProgressRef.current) return;
     holdDragRef.current = null;
+    // The drag is over before the drop is sent, not after. The Move shows in
+    // the store at once, and the canvas is rebuilt from the store in the same
+    // turn, which sets each dropped card on the whole-number place the model
+    // holds. With the latch still set that rebuild was put off to a later
+    // frame, so the cards moved once at the drop and once more after it, and
+    // everything that reads their geometry ran twice.
+    dragInProgressRef.current = false;
     if (sync) {
       const positions = new Map<string, { x: number; y: number }>();
       for (const node of rf.getNodes()) positions.set(node.id, node.position);
       for (const node of dropped) positions.set(node.id, node.position);
       syncPositions(positions);
     }
-    dragInProgressRef.current = false;
     if (pendingRebuildRef.current) {
       pendingRebuildRef.current = false;
       flushRebuild();
