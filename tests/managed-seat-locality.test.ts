@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
+import { nodeFromDocument } from "../src/shared/model/from-document";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -58,7 +59,7 @@ describe("managed actor runtime locality", () => {
     expect(
       isManagedSeatRuntimeLocal(
         "factory",
-        node,
+        nodeFromDocument("factory", node, 0),
         authority(installation("remote-a"), "box-a", node),
       ),
     ).toBe(true);
@@ -73,7 +74,7 @@ describe("managed actor runtime locality", () => {
     );
 
     expect(
-      isManagedSeatRuntimeLocal("factory", node, {
+      isManagedSeatRuntimeLocal("factory", nodeFromDocument("factory", node, 0), {
         ...local,
         actor: { ...local.actor, seatId: foreignSeat },
       }),
@@ -88,12 +89,12 @@ describe("managed actor runtime locality", () => {
       actorNode("box-a"),
     );
 
-    expect(isManagedSeatRuntimeLocal("factory", node, local)).toBe(false);
+    expect(isManagedSeatRuntimeLocal("factory", nodeFromDocument("factory", node, 0), local)).toBe(false);
     expect(
-      isManagedSeatRuntimeLocal("another-canvas", actorNode("box-a"), local),
+      isManagedSeatRuntimeLocal("another-canvas", nodeFromDocument("factory", actorNode("box-a"), 0), local),
     ).toBe(false);
     expect(
-      isManagedSeatRuntimeLocal("factory", { ...actorNode("box-a"), id: "other" }, local),
+      isManagedSeatRuntimeLocal("factory", nodeFromDocument("factory", { ...actorNode("box-a"), id: "other" }, 0), local),
     ).toBe(false);
   });
 });

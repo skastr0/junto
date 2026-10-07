@@ -229,7 +229,7 @@ describe("a managed launch carries no Junto instructions", () => {
             instructions: SEAT_INSTRUCTIONS,
           });
           return {
-            doc: doc(harness, connected),
+
             nodeId: "worker",
             harness,
             documentLaunch: {
@@ -274,7 +274,7 @@ describe("a managed launch carries no Junto instructions", () => {
       it("a connected seat and an unconnected seat launch identically", () => {
         const argvFor = (connected: boolean, resume: boolean) =>
           planManagedSpawn({
-            doc: doc(harness, connected),
+
             nodeId: "worker",
             harness,
             sessionId: SESSION,

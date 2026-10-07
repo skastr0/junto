@@ -440,7 +440,7 @@ describe("spawn replan resume gate", () => {
     const sid = node.ether!.terminal!.sessionId!;
     const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
-      doc,
+      sessionId: node.ether?.terminal?.sessionId,
       nodeId: node.id,
       harness: "grok",
       documentLaunch: node.ether!.terminal!.launch,
@@ -469,7 +469,7 @@ describe("spawn replan resume gate", () => {
     __setSessionExistenceHomeForTest(home);
     const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
-      doc,
+      sessionId: node.ether?.terminal?.sessionId,
       nodeId: node.id,
       harness: "grok",
       documentLaunch: node.ether!.terminal!.launch,

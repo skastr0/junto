@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import { Node, type Seat } from "../src/shared/model";
 import { InstallationId } from "../src/shared/installation-id";
 import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
 import {
@@ -110,31 +110,17 @@ describe("managed-seat wake decision", () => {
   });
 });
 
-const managedNode = (): CanvasNode => ({
-  id: "actor",
-  type: "text",
-  x: 0,
-  y: 0,
-  width: 240,
-  height: 100,
-  text: "actor",
-  ether: {
-    entity: { kind: "agent", name: "box-a:codex" },
-    host: "box-a",
-    terminal: {
-      bindingId: "binding-alpha",
-      harness: "codex",
-    },
-  },
-});
+const managedNode = (): Seat => Schema.decodeUnknownSync(Node)({
+  id: "actor", kind: "agent", x: 0, y: 0, width: 240, height: 100, z: 0,
+  label: "actor", agentKey: "box-a:codex", host: "box-a", bindingId: "binding-alpha", harness: "codex",
+  overseer: false, onRemove: "detach",
+}) as Seat;
 
 const managedFixture = () => {
   const node = managedNode();
-  const doc: CanvasDoc = { nodes: [node], edges: [] };
   const installationId = Schema.decodeUnknownSync(InstallationId)("install-a");
   return {
     node,
-    doc,
     authority: {
       actor: {
         seatId: deriveActorSeatId(installationId, "binding-alpha"),
@@ -178,7 +164,6 @@ describe("managed-seat occupation", () => {
         await Effect.runPromise(
           ensureManagedSeatRunning(
             "factory",
-            fixture.doc,
             fixture.node,
             fixture.authority,
             actorSeatOccupy,
@@ -222,7 +207,6 @@ describe("managed-seat occupation", () => {
         await Effect.runPromise(
           ensureManagedSeatRunning(
             "factory",
-            fixture.doc,
             fixture.node,
             fixture.authority,
             actorSeatOccupy,
@@ -244,14 +228,7 @@ describe("managed-seat occupation", () => {
     resetAutoRestartBudgetsForTest();
     const fixture = managedFixture();
     const launch = { kind: "harness" as const, argv: ["amp", "--no-ide", "-m", "low"], cwd: "/work" };
-    const node: CanvasNode = {
-      ...fixture.node,
-      ether: {
-        ...fixture.node.ether!,
-        entity: { kind: "agent", name: "box-a:amp" },
-        terminal: { ...fixture.node.ether!.terminal!, harness: "amp", launch },
-      },
-    };
+    const node: Seat = { ...fixture.node, agentKey: "box-a:amp" as Seat["agentKey"], harness: "amp", launch };
     const provision = vi.spyOn(ampSeatThread, "ensureProvisionedSessionId").mockResolvedValue({
       ok: true,
       sessionId: "T-00000000-0000-4000-8000-000000000001",
@@ -266,7 +243,6 @@ describe("managed-seat occupation", () => {
     try {
       expect(await Effect.runPromise(ensureManagedSeatRunning(
         "factory",
-        { ...fixture.doc, nodes: [node] },
         node,
         fixture.authority,
         actorSeatOccupy,

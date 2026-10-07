@@ -24,6 +24,8 @@ import { createHash } from "node:crypto";
 import { cutBeforeWake } from "../seat-sessions/operator-offboard";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
+import { nodeFromDocument } from "@shared/model/from-document";
 import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
@@ -523,6 +525,24 @@ const runtimeAuthority = (
       };
 };
 
+const heldSeatNodes = new WeakMap<CanvasNode, Node | undefined>();
+
+/**
+ * The model's reading of a document node, for the seat calls that take one.
+ * Worked out once per node object; nothing when the model refuses the node.
+ */
+const seatNodeOf = (canvasName: string, node: CanvasNode): Node | undefined => {
+  if (heldSeatNodes.has(node)) return heldSeatNodes.get(node);
+  let seat: Node | undefined;
+  try {
+    seat = nodeFromDocument(canvasName, node, 0);
+  } catch {
+    // Not a kind the model knows.
+  }
+  heldSeatNodes.set(node, seat);
+  return seat;
+};
+
 type ActorAvailability = {
   readonly isLocalSeatReady: (bindingId: string) => boolean;
   readonly installationForHost: (
@@ -553,7 +573,11 @@ export const actorSeatSelectableNow = (
       installationId: scope.installationId,
       hostId: scope.hostId,
     } satisfies ManagedSeatRuntimeAuthority;
-    if (isManagedSeatRuntimeLocal(canvasName, node, localAuthority)) {
+    const seat = seatNodeOf(canvasName, node);
+    if (
+      seat !== undefined &&
+      isManagedSeatRuntimeLocal(canvasName, seat, localAuthority)
+    ) {
       const surface = actorDeliverySurfaceOf(node);
       return (
         surface?._tag === "managedAgent" &&
@@ -853,7 +877,11 @@ const makeKernelService = (
           isAwake: (node) => {
             const authority = runtimeAuthority(scope, registry, canvasName, node);
             if (authority === undefined) return true;
-            if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
+            const seat = seatNodeOf(canvasName, node);
+            if (
+              seat === undefined ||
+              !isManagedSeatRuntimeLocal(canvasName, seat, authority)
+            ) {
               return true;
             }
             const surface = actorDeliverySurfaceOf(node);
@@ -874,11 +902,11 @@ const makeKernelService = (
             canvasName,
             node,
           );
-          if (authority === undefined) continue;
+          const seat = seatNodeOf(canvasName, node);
+          if (authority === undefined || seat === undefined) continue;
           yield* ensureManagedSeatRunning(
             canvasName,
-            doc,
-            node,
+            seat,
             authority,
             actorSeatOccupy,
           );
@@ -1076,9 +1104,11 @@ const makeKernelService = (
               canvasName,
               actor,
             );
+            const seat = seatNodeOf(canvasName, actor);
             if (
               authority === undefined ||
-              !isManagedSeatRuntimeLocal(canvasName, actor, authority)
+              seat === undefined ||
+              !isManagedSeatRuntimeLocal(canvasName, seat, authority)
             ) {
               continue;
             }
@@ -1124,8 +1154,7 @@ const makeKernelService = (
             if (!generationIsActive(generation)) return;
             const running = yield* ensureManagedSeatRunning(
               canvasName,
-              doc,
-              actor,
+              seat,
               authority,
               actorSeatOccupy,
             );
@@ -1268,7 +1297,6 @@ const makeKernelService = (
       if (read.success === undefined) {
         return refuse("node is not on the canvas");
       }
-      const doc = read.success.structure;
       const node = read.success.node;
 
       const scope = yield* refreshStationScope(stations, () =>
@@ -1287,7 +1315,11 @@ const makeKernelService = (
       if (authority === undefined) {
         return refuse("actor reference is not in the compiled portfolio");
       }
-      if (!isManagedSeatRuntimeLocal(canvasName, node, authority)) {
+      const seat = seatNodeOf(canvasName, node);
+      if (
+        seat === undefined ||
+        !isManagedSeatRuntimeLocal(canvasName, seat, authority)
+      ) {
         return refuse("seat is not local to this installation");
       }
       if (!pause.stateFor(canvasName).playing) {
@@ -1296,8 +1328,7 @@ const makeKernelService = (
 
       return yield* ensureManagedSeatRunning(
         canvasName,
-        doc,
-        node,
+        seat,
         authority,
         actorSeatOccupy,
       );

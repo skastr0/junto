@@ -25,7 +25,6 @@
  *   still in the process-local map for this generation.
  */
 
-import type { CanvasDoc } from "@shared/canvas";
 import {
   isHarnessId,
   templateFor,
@@ -48,7 +47,7 @@ export type CapturedSeatSession = {
 };
 
 export type CapturePersistOutcome =
-  /** Written to `ether.terminal.sessionId`; the next wake resumes this session. */
+  /** Written to the session column; the next wake resumes this session. */
   | "written"
   /** The node already names this session — nothing to do. */
   | "already-stored"
@@ -73,40 +72,24 @@ type SessionIdWriter = (
 const writeSessionIdToCanvas: SessionIdWriter = async (input) => {
   // Imported at call time: this module sits under the terminal host, which the
   // runtime layer itself pulls in. A top-level import would close that loop.
-  const [{ AppRuntime }, { CanvasesService }, { Effect }] = await Promise.all([
-    import("../../runtime"),
-    import("../canvases"),
-    import("effect"),
+  const [{ AppRuntime }, { ModelService }, { Effect, Schema }, { SqlClient }, { Command }] = await Promise.all([
+    import("../../runtime"), import("../model/service"), import("effect"), import("effect/unstable/sql"), import("@shared/model"),
   ]);
-
   let outcome: CapturePersistOutcome = "already-stored";
-  await AppRuntime.runPromise(
-    Effect.gen(function* () {
-      const canvases = yield* CanvasesService;
-      // Transactional RMW: other writers touch the same canvas, and a stale
-      // full-document write would drop the id we just proved.
-      yield* canvases.mutate(input.canvasName, (doc: CanvasDoc) => ({
-        ...doc,
-        nodes: doc.nodes.map((node) => {
-          if (node.id !== input.nodeId || !node.ether?.terminal) return node;
-          if (node.ether.terminal.sessionId?.trim() === input.sessionId) {
-            return node;
-          }
-          outcome = "written";
-          return {
-            ...node,
-            ether: {
-              ...node.ether,
-              terminal: {
-                ...node.ether.terminal,
-                sessionId: input.sessionId,
-              },
-            },
-          };
-        }),
-      }));
-    }) as never,
-  );
+  await AppRuntime.runPromise(Effect.gen(function* () {
+    const model = yield* ModelService;
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql.withTransaction(Effect.gen(function* () {
+      if (input.isCurrent && !input.isCurrent()) { outcome = "not-current"; return; }
+      const canvas = yield* model.canvas(input.canvasName);
+      const node = canvas.nodes.get(input.nodeId as never);
+      if (node?.kind !== "agent" || node.harness !== input.harness) { outcome = "not-current"; return; }
+      if (node.sessionId?.trim() === input.sessionId) return;
+      yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RecordSession", canvas: input.canvasName,
+        id: input.nodeId, sessionId: input.sessionId }), "runtime");
+      outcome = "written";
+    }));
+  }) as never);
   return outcome;
 };
 
@@ -155,6 +138,7 @@ export const persistCapturedSessionId = async (
       harness,
       sessionId,
       ...(cwd ? { cwd } : {}),
+      ...(input.isCurrent ? { isCurrent: input.isCurrent } : {}),
     });
   } catch {
     return "failed";

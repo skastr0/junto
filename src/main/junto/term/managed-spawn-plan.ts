@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
 import {
   resolveManagedLaunchPlan,
   type ManagedLaunchChoices,
@@ -45,7 +45,6 @@ export const shouldAvoidSharedHarnessResume = (
   usableJuntoHome(juntoHomeEnv) !== undefined && ownsSessionsEnv !== "1";
 
 export type SpawnPlanInput = {
-  readonly doc?: CanvasDoc;
   readonly nodeId?: string;
   readonly harness?: string;
   readonly documentLaunch?: TerminalLaunch;
@@ -59,7 +58,7 @@ export type SpawnPlanInput = {
   readonly mode?: string;
   readonly permissionMode?: string;
   readonly cwd?: string;
-  /** Pin/resume session id from ether.terminal.sessionId. */
+  /** Pin/resume the seat's named session id. */
   readonly sessionId?: string;
   /** When true, treat sessionId as resume rather than first pin. */
   readonly resume?: boolean;
@@ -68,10 +67,7 @@ export type SpawnPlanInput = {
 const sessionIdForSpawn = (input: SpawnPlanInput): string | undefined => {
   const explicit = input.sessionId?.trim();
   if (explicit) return explicit;
-  if (!input.doc || !input.nodeId) return undefined;
-  return input.doc.nodes
-    .find((node) => node.id === input.nodeId)
-    ?.ether?.terminal?.sessionId?.trim() || undefined;
+  return undefined;
 };
 
 /** Compile the session request without consulting this machine's disk. */
@@ -256,8 +252,8 @@ export const planFreshManagedSpawnIntent = (
     resume: false,
   });
 
-export const harnessFromNode = (node: CanvasNode | undefined): string | undefined => {
-  const h = node?.ether?.terminal?.harness?.trim();
+export const harnessFromNode = (node: Node | undefined): string | undefined => {
+  const h = node?.kind === "agent" ? node.harness : undefined;
   return h && h.length > 0 ? h : undefined;
 };
 

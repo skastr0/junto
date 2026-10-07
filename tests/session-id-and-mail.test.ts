@@ -231,7 +231,7 @@ describe("session id parsing + authorial pin", () => {
     expect(sid).toMatch(UUID_RE);
     const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
-      doc,
+      sessionId: node.ether?.terminal?.sessionId,
       nodeId: node.id,
       harness: "claude",
       documentLaunch: node.ether!.terminal!.launch,
@@ -254,7 +254,7 @@ describe("session id parsing + authorial pin", () => {
     const doc: CanvasDoc = { nodes: [node], edges: [] };
     // No FS proof → pin path even with resume:true (fail open).
     const unproven = launchForManagedSpawn({
-      doc,
+      sessionId: node.ether?.terminal?.sessionId,
       nodeId: node.id,
       harness: "claude",
       documentLaunch: node.ether!.terminal!.launch,

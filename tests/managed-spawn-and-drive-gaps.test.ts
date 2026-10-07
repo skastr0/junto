@@ -188,7 +188,7 @@ describe("managed spawn plan", () => {
   it("a connected seat launches on the plain harness argv", () => {
     for (const harness of ["claude", "codex", "devin"] as const) {
       const { plan, launch } = launchForManagedSpawn({
-        doc: baseDoc(true),
+
         nodeId: "worker",
         harness,
         documentLaunch: { kind: "harness", argv: [harness] },
@@ -203,7 +203,7 @@ describe("managed spawn plan", () => {
 
   it("preserves picker choices on a connected seat", () => {
     const { launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
+
       nodeId: "worker",
       harness: "claude",
       documentLaunch: {
@@ -234,7 +234,7 @@ describe("managed spawn plan", () => {
 
   it("preserves inline Claude picker flags and permission values", () => {
     const { launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
+
       nodeId: "worker",
       harness: "claude",
       documentLaunch: {
@@ -262,7 +262,7 @@ describe("managed spawn plan", () => {
 
   it("recovers Hermes profile from the agent key", () => {
     const { launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
+
       nodeId: "worker",
       harness: "hermes",
       agentKey: "remote:research",
@@ -286,7 +286,7 @@ describe("managed spawn plan", () => {
         "",
       );
       const { launch } = launchForManagedSpawn({
-        doc: baseDoc(true),
+
         nodeId: "worker",
         harness: "codex",
         sessionId: "thread_123",
@@ -332,7 +332,7 @@ describe("managed spawn plan", () => {
       // pure and retain only the request.
       __setSessionExistenceHomeForTest(commandCenterHome);
       const intent = makeManagedSpawnIntent({
-        doc: baseDoc(true),
+
         nodeId: "worker",
         harness: "grok",
         agentKey: "station:grok",
@@ -418,7 +418,7 @@ describe("managed spawn plan", () => {
     expect(shouldAvoidSharedHarnessResume()).toBe(true);
     const prodSession = "0c813489-ff73-4f9d-af00-96adc0d63d94";
     const { launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
+
       nodeId: "worker",
       harness: "grok",
       sessionId: prodSession,
@@ -483,7 +483,7 @@ describe("managed spawn plan", () => {
 
   it("recovers Codex inline effort and inline approval flags", () => {
     const { launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
+
       nodeId: "worker",
       harness: "codex",
       documentLaunch: {
@@ -511,7 +511,7 @@ describe("managed spawn plan", () => {
 
   it("recovers Hermes --yolo permission mode for long-running seats", () => {
     const { launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
+
       nodeId: "worker",
       harness: "hermes",
       documentLaunch: {

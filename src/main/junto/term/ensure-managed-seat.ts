@@ -4,8 +4,7 @@
  */
 
 import { Effect } from "effect";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import type { Node } from "@shared/model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorRef } from "@shared/work-protocol";
 import { deriveActorSeatId } from "../station/actor-seat-compiler";
@@ -137,11 +136,11 @@ export const resetAutoRestartBudgetsForTest = (): void => {
  */
 export const isManagedSeatRuntimeLocal = (
   canvasName: string,
-  node: CanvasNode,
+  node: Node,
   authority: ManagedSeatRuntimeAuthority,
 ): boolean => {
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface?._tag !== "managedAgent") return false;
+  if (node.kind !== "agent") return false;
+  const surface = { ...node, hostId: node.host };
   if (
     authority.actor.canvasName !== canvasName ||
     authority.actor.nodeId !== node.id ||
@@ -172,8 +171,7 @@ export const localManagedSeatReadyForClaim = (
 
 export const ensureManagedSeatRunning = (
   canvasName: string,
-  doc: CanvasDoc,
-  node: CanvasNode,
+  node: Node,
   authority: ManagedSeatRuntimeAuthority,
   actorSeatOccupy: ActorSeatOccupyApi,
 ): Effect.Effect<boolean> =>
@@ -186,8 +184,8 @@ export const ensureManagedSeatRunning = (
     }
 
     // The locality proof above already established this exact managed surface.
-    const surface = actorDeliverySurfaceOf(node);
-    if (surface?._tag !== "managedAgent") return false;
+    if (node.kind !== "agent") return false;
+    const surface = { ...node, hostId: node.host };
 
     const occupy = (spec: ActorOccupySpec): Effect.Effect<boolean> =>
       actorSeatOccupy.occupy(spec).pipe(
@@ -211,8 +209,8 @@ export const ensureManagedSeatRunning = (
         nodeId: node.id,
         harness: surface.harness,
         documentLaunch: surface.launch,
-        ...(node.ether?.terminal?.sessionId
-          ? { storedSessionId: node.ether.terminal.sessionId }
+        ...(node.sessionId
+          ? { storedSessionId: node.sessionId }
           : {}),
         ...(surface.launch?.cwd ? { cwd: surface.launch.cwd } : {}),
       }),
@@ -240,11 +238,10 @@ export const ensureManagedSeatRunning = (
       hostId: surface.hostId,
       canvasName,
       nodeId: node.id,
-      label: node.ether?.terminal?.label,
+      label: node.label,
       harness: surface.harness,
       agentKey: surface.agentKey,
       spawnIntent: makeManagedSpawnIntent({
-        doc,
         nodeId: node.id,
         harness: surface.harness,
         documentLaunch: surface.launch,

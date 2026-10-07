@@ -224,7 +224,7 @@ describe("a cursor seat carries its session from the moment it is authored", () 
     const sid = node.ether!.terminal!.sessionId!;
     const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
-      doc,
+      sessionId: node.ether?.terminal?.sessionId,
       nodeId: node.id,
       harness: "cursor",
       documentLaunch: node.ether!.terminal!.launch,
@@ -253,7 +253,7 @@ describe("a cursor seat carries its session from the moment it is authored", () 
     );
     const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
-      doc,
+      sessionId: node.ether?.terminal?.sessionId,
       nodeId: node.id,
       harness: "cursor",
       documentLaunch: node.ether!.terminal!.launch,

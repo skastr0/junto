@@ -248,7 +248,7 @@ describe("hermes cold wake", () => {
     } as unknown as CanvasDoc;
 
     const { launch } = launchForManagedSpawn({
-      doc,
+      sessionId: SESSION_ID,
       nodeId,
       harness: "hermes",
       documentLaunch: (doc.nodes[0] as { ether: { terminal: { launch: unknown } } })

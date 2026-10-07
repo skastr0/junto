@@ -4,7 +4,7 @@
  * A provision-session harness (Amp) cannot have its session id invented by
  * Junto the way a pin harness can: the id names a thread that lives
  * on the harness's side, and only the harness's own CLI can create one. So the
- * node's `ether.terminal.sessionId` is filled in here — once — before any PTY
+ * node's session id is filled in here — once — before any PTY
  * opens, and every later wake resumes that exact thread.
  *
  * Two properties this has to hold, because the side effect is external:
@@ -19,7 +19,6 @@
  */
 
 import { Effect } from "effect";
-import type { CanvasDoc } from "@shared/canvas";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import {
   isHarnessId,
