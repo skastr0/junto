@@ -13,13 +13,11 @@
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect } from "react";
-import type { CanvasNode } from "@shared/canvas";
 import type {
   SeatOnboardingEvent,
   SeatOnboardingStatus,
   SeatOnboardNudgeResult,
 } from "@shared/seat-onboarding-status";
-import { bindingIdForNode } from "./agent-seat-state";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 
@@ -77,14 +75,7 @@ export const subscribeSeatOnboarding = (): (() => void) => {
   return activeUnsubscribe;
 };
 
-/** One seat's status; undefined until main has one for it. */
-export const useSeatOnboarding = (
-  node: Pick<CanvasNode, "id" | "ether">,
-): SeatOnboardingStatus | undefined => {
-  return useSeatOnboardingOf(bindingIdForNode(node));
-};
-
-/** The same status, for a caller that already holds the seat's binding. */
+/** One seat's status by its binding; undefined until main has one for it. */
 export const useSeatOnboardingOf = (bindingId: string | undefined): SeatOnboardingStatus | undefined => {
   useEffect(() => {
     subscribeSeatOnboarding();

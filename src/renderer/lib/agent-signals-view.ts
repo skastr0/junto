@@ -1,5 +1,4 @@
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
 import {
   AGENT_SIGNAL_SEVERITY,
   type AgentSignal,

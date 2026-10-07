@@ -18,10 +18,9 @@ import { useWorkMail } from "../../lib/use-work-mail";
 import { useEffect, useMemo, useState } from "react";
 import { Ellipsis } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskState } from "@shared/work-model";
-import { asNodeId, inPaintOrder, type Node } from "@shared/model";
+import { asNodeId, inPaintOrder, type Node, type Seat } from "@shared/model";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
   mailAgeLabel,
@@ -329,7 +328,7 @@ const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
 /** The contract a task board holds its tasks to, when the node is one. */
 const contractOf = (node: Node | undefined) => (node?.kind === "task" ? node.contract : undefined);
 
-function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly session: SeatSession }) {
+function SeatDetails({ node, session }: { readonly node: Seat; readonly session: SeatSession }) {
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
   // The canvas the store holds: the seat's wires, its boards and who its mail is from.
@@ -341,15 +340,7 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
   );
   const [error, setError] = useState("");
 
-  const isActor = useMemo(() => {
-    const role = roleOf(
-      resolveSpec({
-        isGroup: node.type === "group",
-        kind: node.ether?.entity?.kind,
-      }),
-    );
-    return role === "actor";
-  }, [node]);
+  const isActor = roleOf(resolveSpec({ isGroup: false, kind: node.kind })) === "actor";
 
   // Node-keyed surfaces survive canvas switches; the ledger must not project
   // another canvas onto this seat or aim mutations at it. Unstamped
@@ -706,14 +697,14 @@ export function SeatDetailsButton({
   node,
   session,
 }: {
-  readonly node: CanvasNode;
+  readonly node: Seat;
   readonly session: SeatSession;
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [host, setHost] = useState<HTMLSpanElement | null>(null);
   const reveal = use$(sidebarSections$.reveal);
   useEffect(() => {
-    if (!host || reveal?.nodeId !== node.id || reveal.section !== SIGNALS_SECTION) return;
+    if (!host || reveal?.nodeId !== node.id || reveal?.section !== SIGNALS_SECTION) return;
     setAnchor(host);
     clearSectionReveal();
   }, [host, reveal, node.id]);

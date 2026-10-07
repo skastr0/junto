@@ -20,9 +20,8 @@ import {
   type AgentSeatState,
   type AgentSeatStateEvent,
 } from "@shared/agent-seat-state";
-import type { CanvasNode } from "@shared/canvas";
 import type { OccupancyClue, OccupancyHarnessState } from "@shared/occupancy";
-import { resolveTerminalBinding, type WorkSurfaceActivity } from "@shared/terminal";
+import { terminalBindingOf, type WorkSurfaceActivity } from "@shared/terminal";
 import { getJuntoApi } from "./junto-api";
 import { terminal$ } from "./terminal-state";
 
@@ -76,7 +75,7 @@ export const isBindingSurfaceOpen = (bindingId: string): boolean => {
   const open = terminal$.openByNodeId.peek();
   for (const node of Object.values(open)) {
     if (!node) continue;
-    const native = resolveTerminalBinding(node);
+    const native = terminalBindingOf(node);
     if (native?.kind === "native" && native.bindingId === bindingId) return true;
   }
   // Inventory join: nodeId → binding when surface was opened via node id key.
@@ -250,52 +249,11 @@ export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
   rememberNodeJoin(event.bindingId, session?.nodeId);
 };
 
-/** Document join: ether.terminal.bindingId on a native terminal node. */
-export const bindingIdForNode = (node: Pick<CanvasNode, "id" | "ether">): string | undefined => {
-  const native = resolveTerminalBinding(node as CanvasNode);
-  if (native?.kind === "native") return native.bindingId;
-  return agentSeat$.bindingIdByNodeId[node.id].peek();
-};
-
-export const seatEventForNode = (
-  node: Pick<CanvasNode, "id" | "ether">,
-): AgentSeatStateEvent | undefined => {
-  const bindingId = bindingIdForNode(node);
-  if (!bindingId) return undefined;
-  return agentSeat$.byBindingId[bindingId].peek();
-};
-
 export const seatEventForBinding = (
   bindingId: string | undefined,
 ): AgentSeatStateEvent | undefined => {
   if (!bindingId) return undefined;
   return agentSeat$.byBindingId[bindingId].peek();
-};
-
-/**
- * Build terminalStatusByNodeId for client region rollups from live seat store
- * + document terminal bindings / inventory joins.
- *
- * Uses the same binding resolution as card chrome (`bindingIdForNode`): native
- * `ether.terminal.bindingId` first, then inventory `bindingIdByNodeId`. That
- * keeps hotbar / region chips in lockstep with the canvas seat wave.
- */
-export const terminalStatusByNodeIdFromSeats = (
-  nodes: ReadonlyArray<Pick<CanvasNode, "id" | "ether">>,
-  seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
-  needsLookByBindingId: Readonly<Record<string, boolean | undefined>> = {},
-): Map<string, WorkSurfaceActivity> => {
-  const out = new Map<string, WorkSurfaceActivity>();
-  for (const node of nodes) {
-    const bindingId = bindingIdForNode(node);
-    if (!bindingId) continue;
-    const surface = workSurfaceFromSeat(
-      seats[bindingId],
-      needsLookByBindingId[bindingId] === true,
-    );
-    if (surface) out.set(node.id, surface);
-  }
-  return out;
 };
 
 // Singleton fan-out: main snapshot + onAgentSeatStateChanged → agentSeat$.

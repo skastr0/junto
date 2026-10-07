@@ -12,12 +12,12 @@
 
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
 import { nodesOf, regionMembers, type NodeOf, type Placed } from "@shared/model";
 import type { AgentSignalKind, SeatSignalRollup } from "@shared/agent-signals";
 import type { MemberSeverity } from "@shared/region-rollup";
 import { seatSignalRollups$ } from "./agent-signals-state";
-import { activityToneHex, minimapFill, signalMark } from "./signal-mark";
+import { activityToneHex, identityHueOf, signalMark } from "./signal-mark";
 import { seatAwareness$ } from "./seat-awareness";
 import { seatRollup, worseRollup, type SeatRollup, type SeatRollupTone } from "./seat-rollup";
 import { state$ } from "./state";
@@ -39,27 +39,27 @@ const STALE_REGION_FILL_ALPHA = 0.16;
  */
 const QUIET_SEAT_FILL_ALPHA = 0.7;
 
-const isAgentSeat = (node: CanvasNode): boolean =>
-  node.type !== "group" && node.ether?.entity?.kind === "agent";
+const isAgentSeat = (node: Node): boolean => node.kind === "agent";
 
 export const rollupToneHex = (tone: SeatRollupTone): string => activityToneHex(tone);
 
 /** Fill and outline for one minimap rectangle. */
 export const minimapNodeColors = (
-  node: CanvasNode | undefined,
+  node: Node | undefined,
   severity: MemberSeverity | undefined,
   seat: SeatRollup | undefined,
   ground: string,
 ): { readonly fill: string; readonly stroke: string } => {
   if (seat !== undefined) {
     const hue = rollupToneHex(seat.tone);
-    if (node?.type === "group") {
+    if (node?.kind === "region") {
       return { fill: withAlpha(hue, seat.stale ? STALE_REGION_FILL_ALPHA : REGION_FILL_ALPHA), stroke: hue };
     }
     return { fill: seat.stale ? withAlpha(hue, STALE_FILL_ALPHA) : hue, stroke: hue };
   }
   const quietSeat = node !== undefined && isAgentSeat(node) && (severity === undefined || severity === "idle");
-  const fill = minimapFill(node, severity);
+  const mark = signalMark(severity);
+  const fill = mark.kind === "idle" ? identityHueOf(node) : mark.hue;
   return {
     fill: quietSeat ? withAlpha(fill, QUIET_SEAT_FILL_ALPHA) : fill,
     stroke: severity && severity !== "idle" ? signalMark(severity).hue : withAlpha(ground, 0.85),

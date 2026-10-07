@@ -7,14 +7,13 @@
  * Renders nothing when the sidecar has no reading for the seat (off, no key,
  * not yet assessed, or nothing decisive).
  */
-import type { CanvasNode } from "@shared/canvas";
-import { bindingIdForNode } from "../../lib/agent-seat-state";
+import type { Seat } from "@shared/model";
 import { threadHealthSectionModel, useThreadHealth } from "../../lib/thread-health";
 import { Chip, StatusDot } from "../ui";
 import { DetailsGroup } from "./DetailsGroup";
 
-export function ThreadHealthSection({ node }: { readonly node: CanvasNode }) {
-  const view = useThreadHealth(bindingIdForNode(node));
+export function ThreadHealthSection({ node }: { readonly node: Seat }) {
+  const view = useThreadHealth(node.bindingId);
   if (view === undefined) return null;
   const model = threadHealthSectionModel(view);
   return (

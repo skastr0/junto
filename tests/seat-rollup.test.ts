@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
 import type { ThreadHealthValue } from "../src/shared/thread-health";
 import { THREAD_HEALTH_TONE, THREAD_HEALTH_VALUES } from "../src/shared/thread-health";
 import { controlFromActivity, seatRollup, worseRollup } from "../src/renderer/lib/seat-rollup";
 import { minimapNodeColors, seatRollupsForCanvas } from "../src/renderer/lib/minimap-seat-colors";
-import { canvasOf, region as regionNode, seat as seatNode } from "./support/model-nodes";
+import { canvasOf, region as regionNode, seat as seatNode, note as noteNode } from "./support/model-nodes";
 import { applySeatAwarenessEvent, resetSeatAwareness } from "../src/renderer/lib/seat-awareness";
 import { HUE, GREEN } from "../src/renderer/lib/theme";
 
@@ -92,12 +91,12 @@ describe("minimapNodeColors", () => {
   });
 
   it("draws an agent seat with nothing to say quietly, in its identity hue", () => {
-    const agent = { id: "a", type: "text", text: "a", x: 0, y: 0, width: 10, height: 10, ether: { entity: { kind: "agent", name: "a" } } } as CanvasNode;
+    const agent = seatNode("a");
     const quiet = minimapNodeColors(agent, undefined, undefined, ground);
     expect(quiet.fill).toContain("var(--color-orange)");
     expect(quiet.fill).not.toBe(HUE.orange);
     // Any other node keeps its identity at full strength.
-    const note = { id: "n", type: "text", text: "n", x: 0, y: 0, width: 10, height: 10, ether: { entity: { kind: "project", name: "p" } } } as CanvasNode;
+    const note = noteNode("n");
     expect(minimapNodeColors(note, undefined, undefined, ground).fill).toBe(HUE.amber);
   });
 
@@ -161,7 +160,7 @@ describe("seatRollupsForCanvas", () => {
     });
     expect(tinted.get("zone")).toMatchObject({ tone: "amber", source: "health" });
     expect(tinted.has("empty")).toBe(false);
-    const colors = minimapNodeColors({ id: "zone", type: "group", label: "zone", x: -50, y: -50, width: 600, height: 400 } as CanvasNode, "working", tinted.get("zone"), "#101010");
+    const colors = minimapNodeColors(regionNode("zone", { x: -50, y: -50, width: 600, height: 400 }), "working", tinted.get("zone"), "#101010");
     expect(colors.stroke).toBe(HUE.amber);
     expect(colors.fill).not.toBe(HUE.amber);
   });

@@ -15,7 +15,6 @@
 
 import type { Node } from "@shared/model";
 import type { MemberSeverity, MemberStatus } from "@shared/region-rollup";
-import type { CanvasNode } from "@shared/canvas";
 import type { ActivityMode, ActivityTone } from "./activity";
 import { ACTIVITY_TONE_HEX, SEVERITY_TONE } from "./activity";
 import { accentColor, HUE, withAlpha } from "./theme";
@@ -110,36 +109,13 @@ const KIND_HUE: Readonly<Record<string, string>> = {
   node: HUE.steel,
 };
 
-/** Identity color for a canvas node — accent first, then entity kind. */
-export const identityHue = (node: CanvasNode | undefined): string => {
-  if (!node) return HUE.steel;
-  if (node.color) return accentColor(node.color);
-  const entity = node.ether?.entity;
-  if (entity?.kind && KIND_HUE[entity.kind]) return KIND_HUE[entity.kind]!;
-  if (node.type === "group") return withAlpha(HUE.steel, 0.45);
-  return HUE.amber;
-};
-
-/** The same identity colour for a node as the store holds it. */
+/** Identity colour for a node: its own accent first, then its kind. */
 export const identityHueOf = (node: Pick<Node, "kind" | "color"> | undefined): string => {
   if (!node) return HUE.steel;
   if (node.color) return accentColor(node.color);
   if (KIND_HUE[node.kind]) return KIND_HUE[node.kind]!;
   if (node.kind === "region") return withAlpha(HUE.steel, 0.45);
   return HUE.amber;
-};
-
-/**
- * Minimap fill: signal hue when elevated, identity hue when idle.
- * Never paint elevated state as washed steel — idle is identity, not "white".
- */
-export const minimapFill = (
-  node: CanvasNode | undefined,
-  severity: MemberSeverity | undefined,
-): string => {
-  const mark = signalMark(severity);
-  if (mark.kind !== "idle") return mark.hue;
-  return identityHue(node);
 };
 
 export const activityToneHex = (tone: ActivityTone | "violet"): string =>

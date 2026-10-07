@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import type { CanvasNode } from "../src/shared/canvas";
 import {
   applyAgentSeatStateEvent,
   clueFromAgentSeat,
@@ -10,7 +9,6 @@ import {
   presentationForSeat,
   resetAgentSeatState,
   subscribeAgentSeatState,
-  terminalStatusByNodeIdFromSeats,
   workSurfaceFromSeat,
   agentSeat$,
 } from "../src/renderer/lib/agent-seat-state";
@@ -21,20 +19,6 @@ const event = (partial: Partial<AgentSeatStateEvent> & { bindingId: string; stat
   confidence: "high",
   at: 1_700_000_000_000,
   ...partial,
-});
-
-const terminalNode = (id: string, bindingId: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "terminal" },
-    terminal: { bindingId, label: id },
-  },
 });
 
 describe("decodeAgentSeatStateEvent", () => {
@@ -136,7 +120,7 @@ describe("harnessFromSeatState / clueFromAgentSeat", () => {
   });
 });
 
-describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
+describe("applyAgentSeatStateEvent + workSurfaceFromSeat", () => {
   beforeEach(() => {
     resetAgentSeatState();
   });
@@ -213,33 +197,21 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     });
   });
 
-  it("builds terminalStatusByNodeId from doc + seat map", () => {
-    const map = terminalStatusByNodeIdFromSeats(
-      [terminalNode("n1", "bind-a"), terminalNode("n2", "bind-b"), terminalNode("n3", "missing")],
-      {
-        "bind-a": event({ bindingId: "bind-a", state: "attention" }),
-        "bind-b": event({ bindingId: "bind-b", state: "gone" }),
-      },
-    );
-    expect(map.get("n1")).toEqual({
+  it("reads a work surface off each seat event, and none where there is no event", () => {
+    expect(workSurfaceFromSeat(event({ bindingId: "bind-a", state: "attention" }))).toEqual({
       session: "running",
       harness: "attention",
       source: "native",
     });
-    expect(map.get("n2")).toMatchObject({
+    expect(workSurfaceFromSeat(event({ bindingId: "bind-b", state: "gone" }))).toMatchObject({
       session: "exited",
       harness: "unknown",
     });
-    expect(map.has("n3")).toBe(false);
+    expect(workSurfaceFromSeat(undefined)).toBeUndefined();
   });
 
   it("projects idle unseen seats as harness idle + ready (never attention)", () => {
-    const map = terminalStatusByNodeIdFromSeats(
-      [terminalNode("n-ready", "bind-ready")],
-      { "bind-ready": event({ bindingId: "bind-ready", state: "idle" }) },
-      { "bind-ready": true },
-    );
-    expect(map.get("n-ready")).toEqual({
+    expect(workSurfaceFromSeat(event({ bindingId: "bind-ready", state: "idle" }), true)).toEqual({
       session: "running",
       harness: "idle",
       ready: true,
@@ -248,12 +220,7 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
   });
 
   it("drops ready once the operator has looked", () => {
-    const map = terminalStatusByNodeIdFromSeats(
-      [terminalNode("n-seen", "bind-seen")],
-      { "bind-seen": event({ bindingId: "bind-seen", state: "idle" }) },
-      { "bind-seen": false },
-    );
-    expect(map.get("n-seen")).toEqual({
+    expect(workSurfaceFromSeat(event({ bindingId: "bind-seen", state: "idle" }), false)).toEqual({
       session: "running",
       harness: "idle",
       source: "native",

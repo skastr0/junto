@@ -9,14 +9,14 @@
  * every typed prompt: a busy seat or a draft refuses it and says why.
  */
 import { useState } from "react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Seat } from "@shared/model";
 import { SEAT_ONBOARDING_LABEL } from "@shared/seat-onboarding-status";
-import { sendOnboardNudge, useSeatOnboarding } from "../../lib/seat-onboarding";
+import { sendOnboardNudge, useSeatOnboardingOf } from "../../lib/seat-onboarding";
 import { Button, StatusDot } from "../ui";
 import { DetailsGroup } from "./DetailsGroup";
 
-export function OnboardingSection({ node }: { readonly node: CanvasNode }) {
-  const status = useSeatOnboarding(node);
+export function OnboardingSection({ node }: { readonly node: Seat }) {
+  const status = useSeatOnboardingOf(node.bindingId);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
