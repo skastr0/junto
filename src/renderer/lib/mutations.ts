@@ -359,6 +359,17 @@ const documentAfter = (doc: CanvasDoc, before: Canvas, after: Canvas): CanvasDoc
 };
 
 /**
+ * The open canvas as it stands, read once: what the node store holds when it
+ * holds the canvas, else what the document describes. For a writer that is
+ * not one step, which reads, asks the operator, and only then says its
+ * commands through `commitCommands`.
+ */
+export const canvasAsItStands = (): Canvas => {
+  const name = state$.canvasName.peek();
+  return storeHolds(name) ? modelStore.canvasOf(name) : canvasFromDocument(name, state$.doc.peek());
+};
+
+/**
  * Do one act on the open canvas, said as commands. This is how a writer
  * changes the canvas: `edit` is given the canvas as it stands and answers the
  * commands (model-edits.ts makes them), which go out as one act, undone
