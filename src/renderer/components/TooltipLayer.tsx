@@ -295,8 +295,9 @@ export function TooltipLayer() {
     if (!active || !tooltip || !active.target.isConnected) return;
     const tip = tooltip.getBoundingClientRect();
     // A toolbar's own buttons may tip over it; only other chrome is kept clear.
+    // A toolbar under an open view is inert and unseen: nothing to keep clear of.
     const keepClear = [...document.querySelectorAll<HTMLElement>(KEEP_CLEAR_SELECTOR)]
-      .filter((element) => !element.contains(active.target))
+      .filter((element) => !element.contains(active.target) && !element.closest("[inert]"))
       .map((element) => element.getBoundingClientRect())
       .filter((rect) => rect.width > 0 && rect.height > 0);
     setPosition(placeTooltip(
