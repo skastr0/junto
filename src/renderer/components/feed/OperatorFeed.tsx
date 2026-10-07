@@ -20,6 +20,7 @@
 import {
   useEffect,
   useMemo,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -146,6 +147,7 @@ export function FeedCard({
   readonly onReviewCommit?: ((sha: string) => void) | undefined;
 }) {
   const ref = useRef<HTMLElement>(null);
+  const labelId = useId();
   useEffect(() => {
     if (selected && reveal) ref.current?.scrollIntoView({ block: "nearest" });
   }, [selected, reveal]);
@@ -167,7 +169,9 @@ export function FeedCard({
         data-item-id={item.itemId}
         data-kind={item.kind}
         aria-current={selected ? "true" : undefined}
-        aria-label={`${item.seat.name}, ${label}`}
+        // Named by who, what and its own sentence, so two cards from one seat
+        // are told apart on entry and their buttons can keep short names.
+        aria-labelledby={`${labelId}-name ${labelId}-kind ${labelId}-text`}
         // Select on click, not on press: selecting numbers the row's pills,
         // and a press that reshaped them would land its release elsewhere.
         onClick={onSelect}
@@ -186,15 +190,15 @@ export function FeedCard({
         </div>
         <div className="operator-feed__body">
           <header className="operator-feed__card-head">
-            <span className="operator-feed__name">{item.seat.name}</span>
-            <span className="operator-feed__kind">{label}</span>
+            <span id={`${labelId}-name`} className="operator-feed__name">{item.seat.name}</span>
+            <span id={`${labelId}-kind`} className="operator-feed__kind">{label}</span>
             {age ? (
               <time className="operator-feed__age" title={new Date(item.since!).toLocaleString()}>
                 {age}
               </time>
             ) : null}
           </header>
-          <p className="operator-feed__text">{item.text}</p>
+          <p id={`${labelId}-text`} className="operator-feed__text">{item.text}</p>
           {health ? (
             <p className="operator-feed__health" title="Jev's reading of the screen, not the agent's own claim">
               <StatusDot tone={THREAD_HEALTH_STATUS_TONE[health.tone]} />
