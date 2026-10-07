@@ -185,6 +185,10 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
 
   await page.getByTestId("rts-overseer").click();
   await expect(page.getByTestId("rts-overseer")).toHaveAttribute("data-overseer", "false");
-  await expect(granted.getByTestId("overseer-mark")).toHaveCount(0);
-  await expect(paused.getByTestId("overseer-mark")).toHaveText("OVERSEER");
+  // Revoking one seat's grant leaves the other's alone. On the canvas the
+  // role is the crest on the ring; the OVERSEER text is not on a card.
+  await expect(granted.getByTestId("overseer-crest")).toHaveCount(0);
+  await expect(granted.locator(".junto-node")).not.toHaveAttribute("data-overseer", "true");
+  await expect(paused.getByTestId("overseer-crest")).toBeVisible();
+  await expect(paused.locator(".junto-node")).toHaveAttribute("data-overseer", "true");
 });
