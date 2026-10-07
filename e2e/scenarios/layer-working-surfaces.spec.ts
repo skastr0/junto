@@ -14,20 +14,19 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import type { CanvasDoc } from "../../src/shared/canvas";
-import { agentTextNode, terminalTextNode, verbEdge } from "../harness/sandbox";
+import { modelFixture, modelRegion, modelSeat, modelTerminal, modelWire } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "layer-working-surfaces");
 const CANVAS = "working";
 
 const seats = ["ada", "bea", "cy"].map((id, index) =>
-  agentTextNode({ id: `seat-${id}`, key: `local:working-${id}`, label: id, x: 60 + index * 260, y: 80 }),
+  modelSeat({ id: `seat-${id}`, key: `local:working-${id}`, label: id, x: 60 + index * 260, y: 80 }),
 );
 const nodes = [
-  { id: "rg-lab", type: "group" as const, label: "lab", x: 20, y: 20, width: 860, height: 220 },
+  modelRegion({ id: "rg-lab", label: "lab", x: 20, y: 20, width: 860, height: 220 }),
   ...seats,
-  terminalTextNode({
+  modelTerminal({
     id: "term-1",
     bindingId: "local:working-term",
     label: "shell",
@@ -36,9 +35,9 @@ const nodes = [
     y: 300,
   }),
 ];
-const board: CanvasDoc = { nodes, edges: [verbEdge("e1", "seat-ada", "seat-bea", "messages", nodes)] };
+const board = modelFixture(nodes, [modelWire("e1", "seat-ada", "seat-bea", "messages", nodes)]);
 
-test.use({ juntoOptions: { seedCanvases: { [CANVAS]: board } } });
+test.use({ juntoOptions: { seedModels: { [CANVAS]: board } } });
 
 const WORKING_DIALOG = '[data-layer="working-dialog"]';
 

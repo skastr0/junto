@@ -8,8 +8,8 @@
  *   bun run test:e2e:fast e2e/scenarios/canvas-lod.spec.ts
  */
 import type { Page } from "@playwright/test";
-import type { CanvasEdge, CanvasNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, terminalTextNode, textNode, verbEdge } from "../harness/sandbox";
+import type { Node, Wire } from "../../src/shared/model";
+import { modelFixture, modelNote, modelRegion, modelSeat, modelTerminal, modelWire } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = "test-results/canvas-lod";
@@ -18,17 +18,17 @@ const REGIONS = 3;
 const SEATS_PER_REGION = 8;
 
 const buildBoard = () => {
-  const nodes: CanvasNode[] = [];
-  const edges: CanvasEdge[] = [];
+  const nodes: Node[] = [];
+  const edges: Wire[] = [];
   let seat = 0;
   for (let r = 0; r < REGIONS; r += 1) {
     const rx = r * 1_100;
-    nodes.push({ id: `rg${r}`, type: "group", label: `crew ${r + 1}`, x: rx, y: 0, width: 1_000, height: 460 });
+    nodes.push(modelRegion({ id: `rg${r}`, label: `crew ${r + 1}`, x: rx, y: 0, width: 1_000, height: 460 }));
     const members: string[] = [];
     for (let i = 0; i < SEATS_PER_REGION; i += 1) {
       const id = `s${seat}`;
       nodes.push(
-        agentTextNode({
+        modelSeat({
           id,
           key: `local:lod-${seat}`,
           label: `seat ${seat}`,
@@ -40,22 +40,22 @@ const buildBoard = () => {
       seat += 1;
     }
     for (let i = 0; i < members.length - 1; i += 1) {
-      edges.push(verbEdge(`e${r}-${i}`, members[i]!, members[i + 1]!, "messages", nodes));
+      edges.push(modelWire(`e${r}-${i}`, members[i]!, members[i + 1]!, "messages", nodes));
     }
     nodes.push({
-      ...textNode(`n${r}`, `# plan ${r + 1}\nShip the migration in two steps, then review.`, rx + 30, 280),
+      ...modelNote(`n${r}`, `# plan ${r + 1}\nShip the migration in two steps, then review.`, rx + 30, 280),
       width: 220,
       height: 110,
     });
-    nodes.push(terminalTextNode({ id: `t${r}`, bindingId: `local:lod-term-${r}`, label: `shell ${r + 1}`, x: rx + 300, y: 290 }));
+    nodes.push(modelTerminal({ id: `t${r}`, bindingId: `local:lod-term-${r}`, label: `shell ${r + 1}`, x: rx + 300, y: 290 }));
     nodes.push({
-      ...textNode(`k${r}`, `crew ${r + 1} lane`, rx + 560, 280),
+      ...modelNote(`k${r}`, `crew ${r + 1} lane`, rx + 560, 280),
       width: 220,
       height: 60,
-      ether: { entity: { kind: "label" } },
+      kind: "label",
     });
   }
-  return canvasDoc(nodes, edges);
+  return modelFixture(nodes, edges);
 };
 
 const SEATS = REGIONS * SEATS_PER_REGION;
@@ -137,7 +137,7 @@ const TIERS = [
 
 test("seats, instruments, notes and cards shed detail tier by tier", async () => {
   test.setTimeout(240_000);
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: buildBoard() } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: buildBoard() } });
   try {
     const { app, page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

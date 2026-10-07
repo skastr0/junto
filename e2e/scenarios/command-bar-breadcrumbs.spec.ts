@@ -14,8 +14,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import type { CanvasNode, GroupNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import type { Node, Region } from "../../src/shared/model";
+import { modelFixture, modelRegion, modelSeat } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "command-bar-breadcrumbs");
@@ -30,9 +30,8 @@ const region = (
   width: number,
   height: number,
   color?: string,
-): GroupNode => ({
+): Region => modelRegion({
   id,
-  type: "group",
   ...(label === undefined ? {} : { label }),
   ...(color === undefined ? {} : { color }),
   x,
@@ -41,8 +40,8 @@ const region = (
   height,
 });
 
-const seat = (id: string, x: number, y: number, label = id): CanvasNode =>
-  agentTextNode({ id, key: `local:e2e-crumb-${id}`, label, harness: "claude", x, y });
+const seat = (id: string, x: number, y: number, label = id): Node =>
+  modelSeat({ id, key: `local:e2e-crumb-${id}`, label, harness: "claude", x, y });
 
 // Five named regions, each inside the last: a path far wider than a row.
 const LONG = [
@@ -60,9 +59,10 @@ const longRegions = LONG.map((label, depth) =>
 // Two titles that compete with that path for the row: one that still fits,
 // one wider than the row itself.
 const FITS = "kit-holds-a-deliberately-long-seat-name-that-still-fits-its-row";
-const OVERLONG = `max-${"very-long-name-".repeat(20)}end`;
+// Stay inside the seat label limit while still exceeding the row's width.
+const OVERLONG = `max-${"very-long-name-".repeat(16)}end`;
 
-const nodes: ReadonlyArray<CanvasNode> = [
+const nodes: ReadonlyArray<Node> = [
   // Three deep: Ops > Staging > Db.
   region("r-ops", "Ops", 0, 0, 2000, 1200, "4"),
   region("r-staging", "Staging", 100, 200, 1700, 900, "5"),
@@ -92,7 +92,7 @@ const nodes: ReadonlyArray<CanvasNode> = [
   seat("max", 1300, 2700, OVERLONG),
 ];
 
-test.use({ juntoOptions: { seedCanvases: { [CANVAS]: canvasDoc([...nodes], []) } } });
+test.use({ juntoOptions: { seedModels: { [CANVAS]: modelFixture([...nodes], []) } } });
 
 const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => {
   await page.evaluate((mode) => window.junto!.settingsPatch({ appearance: { theme: mode } }), theme);
