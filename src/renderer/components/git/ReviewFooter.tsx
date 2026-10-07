@@ -5,7 +5,6 @@
  * takes (sendSeatMessage); nothing here writes into a terminal.
  */
 import { useState } from "react";
-import { gitReviewedState, type GitReviewView } from "@shared/git";
 import {
   reviewCandidateLabel,
   reviewCountLine,
@@ -41,8 +40,8 @@ export function ReviewFooter({
   readonly root: string;
   /** The repository's name, as the mail says it. */
   readonly repository: string;
-  /** What is on screen, so the mail can say what was reviewed. Absent while it loads. */
-  readonly reviewed: { readonly view: GitReviewView; readonly branch: string; readonly head?: string; readonly base?: string } | undefined;
+  /** What is on screen, as the one line the mail says was reviewed. Absent while it loads. */
+  readonly reviewed: string | undefined;
   /** The review's own recipient, by node id: the session it was opened from, or the one chosen. */
   readonly to: string | undefined;
   readonly onTo: (nodeId: string) => void;
@@ -65,7 +64,7 @@ export function ReviewFooter({
     const { mails, unaddressed } = reviewMails({
       review,
       defaultTo: to,
-      reviewed: gitReviewedState(reviewed),
+      reviewed,
       repository,
       nameOf,
     });

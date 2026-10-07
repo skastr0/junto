@@ -3,6 +3,8 @@ import { use$ } from "@legendapp/state/react";
 import { X } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import {
+  gitReviewedCommit,
+  gitReviewedState,
   gitReviewTitle,
   patchFilePath,
   splitPatchFiles,
@@ -19,7 +21,7 @@ import { reviewCandidates } from "@shared/review-candidates";
 import { state$ } from "../../lib/state";
 import { InspectorTabs } from "../chat/InspectorTabs";
 import { FocusSurface } from "../FocusSurface";
-import { DiffView, IconButton, OverlayHeader } from "../ui";
+import { IconButton, OverlayHeader } from "../ui";
 import { ReviewDiff } from "./ReviewDiff";
 import { ReviewFooter } from "./ReviewFooter";
 import "./git.css";
@@ -104,6 +106,7 @@ export function GitRepositoryDetail({
   cwd,
   title,
   initialView = "commits",
+  initialCommit,
   recipientNodeId,
   anchorNodeId,
   onClose,
@@ -112,6 +115,8 @@ export function GitRepositoryDetail({
   readonly title: string;
   /** The view it opens on: a seat's review opens on its uncommitted work, a git node on its commits. */
   readonly initialView?: GitDetailView;
+  /** The commit to open on, in the commits view: the one a needs-you card carries. */
+  readonly initialCommit?: string;
   /** The session the review was opened from, by node id: its comments go to that agent unless they mention another. */
   readonly recipientNodeId?: string;
   /** The node it was opened from (a seat, a git node): its region decides who can receive the review. */
@@ -141,12 +146,12 @@ export function GitRepositoryDetail({
     const node = doc.nodes.find((candidate) => candidate.id === nodeId);
     return node ? nodeTitle(node) : nodeId;
   };
-  const [view, setView] = useState<GitDetailView>(initialView);
+  const [view, setView] = useState<GitDetailView>(initialCommit ? "commits" : initialView);
   const [review, setReview] = useState<Extract<GitReviewResult, { ok: true }>>();
   const [activeFile, setActiveFile] = useState(0);
   const diffPane = useRef<HTMLDivElement>(null);
   const [commits, setCommits] = useState<ReadonlyArray<GitCommit>>([]);
-  const [selected, setSelected] = useState<string>();
+  const [selected, setSelected] = useState<string | undefined>(initialCommit);
   const [patch, setPatch] = useState<string>("");
   const [cut, setCut] = useState<{ readonly files?: number; readonly shownFiles: number }>();
   const [patchError, setPatchError] = useState<string>();
@@ -168,7 +173,10 @@ export function GitRepositoryDetail({
           return;
         }
         setCommits(result.commits);
-        setSelected(result.commits[0]?.sha);
+        // The commit asked for stays chosen, by its full id when the log holds it.
+        setSelected((asked) =>
+          asked ? (result.commits.find((commit) => commit.sha.startsWith(asked))?.sha ?? asked) : result.commits[0]?.sha,
+        );
       })
       .catch(() => {
         if (!live) return;
@@ -267,6 +275,8 @@ export function GitRepositoryDetail({
   const reviewing = view !== "commits";
   // What is on screen, said honestly: a folder's uncommitted work is not one session's.
   const showing = reviewing ? gitReviewTitle(view, review?.base) : undefined;
+  // A commit keeps its own pending review: its line numbers are that commit's, not the folder's.
+  const reviewKey = reviewing || !selected ? cwd : `${cwd}@${selected}`;
   const goToFile = (index: number): void => {
     setActiveFile(index);
     // Every file up to the chosen one must be mounted before it can be scrolled to.
@@ -377,18 +387,13 @@ export function GitRepositoryDetail({
               {fileDiffs.slice(0, mounted).map((file, index) => (
                 <FileDiffBoundary key={`${String(index)}:${file.slice(0, 200)}`} text={file}>
                   <div data-file-index={index} className="git-browser__file-diff">
-                    {reviewing ? (
-                      // A review's lines take comments; a single commit is read only.
-                      <ReviewDiff
-                        root={cwd}
-                        section={file}
-                        path={filePaths[index] ?? "file"}
-                        candidates={candidates}
-                        offline={offline}
-                      />
-                    ) : (
-                      <DiffView patch={file} />
-                    )}
+                    <ReviewDiff
+                      root={reviewKey}
+                      section={file}
+                      path={filePaths[index] ?? "file"}
+                      candidates={candidates}
+                      offline={offline}
+                    />
                   </div>
                 </FileDiffBoundary>
               ))}
@@ -411,19 +416,23 @@ export function GitRepositoryDetail({
           </div>
         </div>
       )}
-      {reviewing && !error ? (
+      {!error && (reviewing || selected) ? (
         <ReviewFooter
-          root={cwd}
+          root={reviewKey}
           repository={cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd}
           reviewed={
-            review
-              ? {
-                  view: review.view,
-                  branch: review.branch,
-                  ...(review.head ? { head: review.head } : {}),
-                  ...(review.base ? { base: review.base } : {}),
-                }
-              : undefined
+            reviewing
+              ? review
+                ? gitReviewedState({
+                    view: review.view,
+                    branch: review.branch,
+                    ...(review.head ? { head: review.head } : {}),
+                    ...(review.base ? { base: review.base } : {}),
+                  })
+                : undefined
+              : selected && !loadingPatch && !patchError
+                ? gitReviewedCommit({ sha: selected, subject: active?.subject })
+                : undefined
           }
           to={to}
           onTo={setTo}

@@ -216,6 +216,12 @@ export const gitReviewedState = (review: {
     : `commits on ${review.branch}${at} since ${review.base ?? "the base branch"}`;
 };
 
+/** One commit under review, as the mail names it: its short id and what it says. */
+export const gitReviewedCommit = (commit: { readonly sha: string; readonly subject?: string | undefined }): string => {
+  const subject = commit.subject?.trim();
+  return subject ? `commit ${commit.sha.slice(0, 7)}, "${subject}"` : `commit ${commit.sha.slice(0, 7)}`;
+};
+
 /** The path a file section of a patch is about: the new side, or the old side for a deleted file. */
 export const patchFilePath = (section: string): string => {
   const next = section.match(/^\+\+\+ (?:b\/)?(.+)$/mu)?.[1]?.trim();

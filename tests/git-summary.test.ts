@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import {
   chooseGitBase,
+  gitReviewedCommit,
   gitReviewedState,
   gitReviewTitle,
   gitSummaryParts,
@@ -117,6 +118,8 @@ describe("what a review says it is of", () => {
     expect(gitReviewTitle("base")).toBe("No base branch to compare with");
   });
   it("says the reviewed state in one line for the mail", () => {
+    expect(gitReviewedCommit({ sha: "0123abcdef0123", subject: " Trim the parts " })).toBe('commit 0123abc, "Trim the parts"');
+    expect(gitReviewedCommit({ sha: "0123abcdef0123" })).toBe("commit 0123abc");
     expect(gitReviewedState({ view: "working", branch: "feat/x", head: "0123abc" })).toBe(
       "uncommitted changes in the folder, on feat/x at 0123abc",
     );
