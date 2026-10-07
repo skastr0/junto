@@ -42,8 +42,9 @@ import { playCue } from "../../lib/sound";
 import type { ClaimedTask } from "../../lib/claimed-task";
 import { claimedTask$ } from "../../lib/claimed-task-index";
 import { state$ } from "../../lib/state";
-import { modelStore, useNodeValue, useOpenCanvas } from "../../lib/use-model";
+import { modelStore, useNodeOf, useNodeValue, useOpenCanvas } from "../../lib/use-model";
 import { titleOf } from "@shared/model/title";
+import type { NodeOf } from "@shared/model";
 import {
   deadStateCopy,
   killActionCopy,
@@ -76,14 +77,13 @@ import {
 import { ActivityMark } from "../ActivityMark";
 import { Button, Chip, Eyebrow, OverlayHeader } from "../ui";
 import { OverseerMark } from "../OverseerMark";
-import { isOverseerSeat } from "../../lib/overseer-set";
 import { RegionCrumb } from "../RegionCrumb";
 import { SeatGitLine } from "../git/SeatGitLine";
 import { regionTrail } from "../../lib/region-path";
 import { ActorRail } from "./ActorRail";
 import { SeatDetailsButton } from "./SeatDetails";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
-import { SeatRing } from "../SeatRing";
+import { SeatRingView, useSeatGlanceOf } from "../SeatRing";
 import { CustomizeAgentButton } from "../agent-editor/AgentEditor";
 import { START_PARAMS_SECTION_ID } from "../customize/ParamsSection";
 import { openAgentEditor } from "../../lib/agent-editor-state";
@@ -651,6 +651,20 @@ const measureHost = (
 /** xterm inset per presentation. Must match the `.xterm` inset in styles.css. */
 const XTERM_PAD = { x: XTERM_PAD_X, y: XTERM_PAD_Y } as const;
 const GRID_XTERM_PAD = { x: GRID_CELL_CHROME.padX, y: GRID_CELL_CHROME.padY } as const;
+
+/**
+ * The ring in the terminal's header: the seat as the node store holds it now,
+ * so its face, its state and its overseer crest follow the seat while the
+ * terminal is open. Nothing is drawn until the store holds the seat.
+ */
+function SurfaceSeatRing({ canvas, id, px }: { readonly canvas: string; readonly id: string; readonly px: number }) {
+  const seat = useNodeOf(canvas, id, "agent");
+  return seat === undefined ? null : <HeldSeatRing seat={seat} px={px} />;
+}
+
+function HeldSeatRing({ seat, px }: { readonly seat: NodeOf<"agent">; readonly px: number }) {
+  return <SeatRingView node={seat} px={px} glance={useSeatGlanceOf(seat)} />;
+}
 
 /**
  * Pinning (a surface docked beside the canvas) is behind PINNING_ENABLED and
@@ -1890,7 +1904,7 @@ export function TerminalSurface({
   const harness =
     shownHarness ??
     (typeof node.ether?.terminal?.harness === "string" ? node.ether.terminal.harness : undefined);
-  const overseer = agentSeat && (shownOverseer ?? isOverseerSeat(node));
+  const overseer = agentSeat && shownOverseer === true;
   const surfaceId = terminalSurfaceId(node.id);
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
   // mirror views park behind the front pane), one press. Views only.
@@ -2076,10 +2090,10 @@ export function TerminalSurface({
         style={grid ? { height: GRID_CELL_CHROME.headerPx } : undefined}
         leading={
           !agentSeat ? undefined : grid ? (
-            <SeatRing node={node} px={28} />
+            <SurfaceSeatRing canvas={canvasName} id={node.id} px={28} />
           ) : (
             <CustomizeAgentButton identity={node.id} name={label.split("\n")[0] ?? label} hint>
-              <SeatRing node={node} px={28} />
+              <SurfaceSeatRing canvas={canvasName} id={node.id} px={28} />
             </CustomizeAgentButton>
           )
         }
