@@ -98,9 +98,18 @@ const walkDoc = (innerSources?: ReadonlyArray<EnvSource>): CanvasDoc =>
 const shotsDir = (testInfo: TestInfo): string => process.env.ENV_WALK_SHOTS ?? testInfo.outputPath();
 
 /** Full page, stable name, one folder. */
+/** A focus surface fades in over 160 ms (styles.css, focus-surface-enter): a frame taken sooner shows the canvas through it. */
+const DIALOG_FADE_MS = 200;
+
+/** Wait out the fade whenever a dialog is up, so no frame catches it half drawn. */
+const settleDialogFade = async (page: Page): Promise<void> => {
+  if ((await page.locator("[role='dialog']").count()) > 0) await page.waitForTimeout(DIALOG_FADE_MS);
+};
+
 const shot = async (page: Page, testInfo: TestInfo, step: string, what: string): Promise<void> => {
   const dir = shotsDir(testInfo);
   await mkdir(dir, { recursive: true });
+  await settleDialogFade(page);
   await page.screenshot({ path: join(dir, `${step}-${what}.png`), fullPage: true });
 };
 
@@ -266,7 +275,7 @@ test("S1 entry: the key icon in the region toolbar opens a panel titled Environm
     await settled(dialog);
     await shot(page, testInfo, "S1", "panel-open");
 
-    await soft(dialog.locator("header").first(), "the panel's title").toContainText("Environment");
+    await soft(dialog.locator("header").first(), "the panel's title").toContainText("Environment and secrets");
     await soft(dialog.locator("header").first()).toContainText(`What seats inside ${INNER.label} get when they start`);
 
     // The panel fits the window.
@@ -298,6 +307,572 @@ test("S1 entry: the key icon in the region toolbar opens a panel titled Environm
     soft(heights.scrollTop, "and the panel scrolled").toBeGreaterThan(0);
     await shot(page, testInfo, "S1", "panel-scrolled-to-bottom");
     soft(await dialog.getByRole("button", { name: "done", exact: true }).isVisible(), "the footer stays in view while scrolled").toBe(true);
+  });
+});
+
+test("SH bottom bar: the region's Environment key", async ({}, testInfo) => {
+  test.setTimeout(180_000);
+  // Two regions side by side: one with nothing set, one that already has a source.
+  const BARE = { id: "bare", label: "Bare", x: 40, y: 60, width: 420, height: 260 } as const;
+  const STOCKED = { id: "stocked", label: "Stocked", x: 520, y: 60, width: 420, height: 260 } as const;
+  const doc = crewDoc([regionNode(BARE), regionNode({ ...STOCKED, sources: [plainValue("src-org", "ORG", "x")] })]);
+  // The key's name, and the toolbar key's tooltip. The strip key's own tooltip adds its state (RegionKey.tsx).
+  const TOOLTIP = "Environment and secrets";
+  const TOOLTIP_UNSET = `${TOOLTIP}: none yet`;
+  const TOOLTIP_SET = `${TOOLTIP}: set`;
+
+  await walk(testInfo, "SH", doc, async ({ page }) => {
+    // 1. Select a region: under REGION in the bottom bar's middle section, the key sits right after folder paths.
+    await selectRegion(page, BARE.id);
+    const strip = page.getByRole("toolbar", { name: "Region fields" });
+    const key = page.getByTestId("rts-region-environment");
+    await expect(key, "the bottom bar shows the region's Environment key").toBeVisible({ timeout: 10_000 });
+    await shot(page, testInfo, "SH", "1-bottom-bar-region-keys");
+    await soft(strip, "the keys sit in the region strip").toBeVisible();
+    await soft(page.locator(".rts-kind-surface--region .rts-kind-kind-label"), "the strip is headed REGION").toHaveText("region");
+    soft(
+      await key.evaluate((el) => {
+        const buttons = Array.from(el.closest("[role='toolbar']")?.querySelectorAll("button") ?? []);
+        const at = buttons.indexOf(el as HTMLButtonElement);
+        return at > 0 ? buttons[at - 1]!.getAttribute("aria-label") : null;
+      }),
+      "the key sits right after the folder paths key",
+    ).toBe("Folder paths");
+    soft((await key.locator("svg").first().getAttribute("class")) ?? "", "its icon is the key").toContain("key");
+    await soft(key, "its tooltip").toHaveAttribute("data-junto-tooltip", TOOLTIP_UNSET);
+    await soft(key, "its name").toHaveAttribute("aria-label", TOOLTIP);
+    await soft(key, "it says nothing is set").toHaveAttribute("data-state", "unset");
+    await soft(key, "it is not pressed: its screen is closed").toHaveAttribute("aria-pressed", "false");
+    await key.hover();
+    await soft(page.locator(".junto-tooltip[data-positioned='true']"), "hovering it shows the tooltip").toHaveText(TOOLTIP_UNSET);
+    await shot(page, testInfo, "SH", "1-key-hovered");
+
+    // 2. Press it: the same dialog the toolbar key opens, for the selected region.
+    await key.click();
+    const dialog = page.getByRole("dialog", { name: "Region environment" });
+    await expect(dialog.getByTestId("region-env")).toBeVisible();
+    await settled(dialog);
+    await soft(dialog, "one Environment dialog").toHaveCount(1);
+    await soft(dialog.locator("header").first(), "the dialog is the selected region's").toContainText(`What seats inside ${BARE.label} get when they start`);
+    await soft(key, "the key is pressed while its dialog is open").toHaveAttribute("aria-pressed", "true");
+    await soft(key, "its name does not change while open").toHaveAttribute("aria-label", TOOLTIP);
+    await shot(page, testInfo, "SH", "2-dialog-open-from-the-bottom-bar");
+    await closeRegionEnvironment(dialog);
+    await soft(key, "after done the key is no longer pressed").toHaveAttribute("aria-pressed", "false");
+    await soft(key).toHaveAttribute("aria-label", TOOLTIP);
+    await shot(page, testInfo, "SH", "2-closed-key-released");
+
+    // 3. The toolbar key above the selected region carries the same words.
+    const above = environmentButton(page);
+    await expect(above).toBeVisible({ timeout: 10_000 });
+    await soft(above, "the toolbar key above a region with nothing set").toHaveAttribute("data-junto-tooltip", TOOLTIP);
+    await soft(above).toHaveAttribute("aria-label", "Region environment");
+    await above.hover();
+    await soft(page.locator(".junto-tooltip[data-positioned='true']"), "hovering the toolbar key").toHaveText(TOOLTIP);
+    await shot(page, testInfo, "SH", "3-toolbar-key-nothing-set");
+
+    // And "(set)" on a region that already has a source.
+    await selectRegion(page, STOCKED.id);
+    const aboveSet = environmentButton(page);
+    await expect(aboveSet).toBeVisible({ timeout: 10_000 });
+    await soft(aboveSet, "the toolbar key above a region that has a source").toHaveAttribute("data-junto-tooltip", `${TOOLTIP} (set)`);
+    await soft(aboveSet).toHaveAttribute("aria-label", "Region environment (set)");
+    await aboveSet.hover();
+    await soft(page.locator(".junto-tooltip[data-positioned='true']"), "hovering it").toHaveText(`${TOOLTIP} (set)`);
+    await shot(page, testInfo, "SH", "3-toolbar-key-set");
+    // Set and pressed are two things: a region with a source reads "set", and is pressed only while its screen is open.
+    await soft(key, "the bottom bar key of a region with a source reads as set").toHaveAttribute("data-state", "set");
+    await soft(key, "and is not pressed while its screen is closed").toHaveAttribute("aria-pressed", "false");
+    await soft(key, "its tooltip says set").toHaveAttribute("data-junto-tooltip", TOOLTIP_SET);
+    await key.click();
+    const stocked = page.getByRole("dialog", { name: "Region environment" });
+    await expect(stocked.getByTestId("region-env")).toBeVisible();
+    await soft(stocked.locator("header").first(), "the dialog follows the selection").toContainText(`What seats inside ${STOCKED.label} get when they start`);
+    await soft(sourceRows(stocked), "and lists that region's source").toHaveCount(1);
+    await shot(page, testInfo, "SH", "3-dialog-for-the-region-with-a-source");
+    await closeRegionEnvironment(stocked);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SI and SJ: walks judged by eye. The frames are the deliverable; the checks
+// are soft and only record what the eye should confirm.
+// ---------------------------------------------------------------------------
+
+/** The bottom bar's middle section (RtsBottomBar.tsx: `.rts-panel__body.rts-mid-body`). */
+const MID = ".rts-mid-body";
+
+/** A tight crop of the bottom bar's middle section, with 8 px of margin. */
+const cropStrip = async (page: Page, testInfo: TestInfo, step: string, what: string): Promise<void> => {
+  const box = await page.locator(MID).first().boundingBox().catch(() => null);
+  if (box === null) {
+    note(testInfo, `${step}-${what}`, "no crop: the bottom bar's middle section has no box");
+    return;
+  }
+  const dir = shotsDir(testInfo);
+  await mkdir(dir, { recursive: true });
+  await settleDialogFade(page);
+  const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const x = Math.max(0, box.x - 8);
+  const y = Math.max(0, box.y - 8);
+  await page.screenshot({
+    path: join(dir, `${step}-${what}.png`),
+    clip: { x, y, width: Math.min(viewport.width - x, box.width + 16), height: Math.min(viewport.height - y, box.height + 16) },
+  });
+};
+
+type KeyFacts = {
+  readonly name: string | null;
+  readonly tooltip: string | null;
+  readonly caption: string;
+  readonly state: string;
+  readonly icon: string;
+  readonly width: number;
+  readonly height: number;
+  readonly pressed: string | null;
+  readonly dataState: string | null;
+  readonly captionOneLine: boolean;
+  readonly stateOneLine: boolean;
+  readonly clipped: boolean;
+  readonly iconColor: string;
+  readonly stateColor: string;
+  readonly borderColor: string;
+  readonly background: string;
+  readonly outline: string;
+  readonly boxShadow: string;
+  readonly focused: boolean;
+};
+
+/** Every key of the region strip, as it is drawn right now. */
+const stripKeys = (page: Page): Promise<ReadonlyArray<KeyFacts>> =>
+  page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>(".rts-region-keys .rts-region-key")).map((key) => {
+      const caption = key.querySelector<HTMLElement>(".rts-region-key__caption");
+      const state = key.querySelector<HTMLElement>(".rts-region-key__state");
+      const icon = key.querySelector<HTMLElement>(".rts-region-key__icon");
+      const box = key.getBoundingClientRect();
+      const style = getComputedStyle(key);
+      const oneLine = (el: HTMLElement | null): boolean => {
+        if (el === null) return false;
+        const line = Number.parseFloat(getComputedStyle(el).lineHeight) || Number.parseFloat(getComputedStyle(el).fontSize) * 1.2;
+        return el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().height <= line * 1.5;
+      };
+      return {
+        name: key.getAttribute("aria-label"),
+        tooltip: key.getAttribute("data-junto-tooltip") ?? key.getAttribute("title"),
+        caption: (caption?.textContent ?? "").trim(),
+        state: (state?.textContent ?? "").trim(),
+        icon: icon?.querySelector("svg")?.getAttribute("class") ?? "",
+        width: Math.round(box.width * 10) / 10,
+        height: Math.round(box.height * 10) / 10,
+        pressed: key.getAttribute("aria-pressed"),
+        dataState: key.getAttribute("data-state"),
+        captionOneLine: oneLine(caption),
+        stateOneLine: oneLine(state),
+        clipped: key.scrollWidth > key.clientWidth + 1 || key.scrollHeight > key.clientHeight + 1,
+        iconColor: icon ? getComputedStyle(icon).color : "",
+        stateColor: state ? getComputedStyle(state).color : "",
+        borderColor: style.borderTopColor,
+        background: style.backgroundColor,
+        outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor} offset ${style.outlineOffset}`,
+        boxShadow: style.boxShadow,
+        focused: document.activeElement === key,
+      };
+    }),
+  );
+
+/** The theme's amber and greys as computed, so the recorded colours can be read against them. */
+const themeColours = (page: Page): Promise<Record<string, string>> =>
+  page.evaluate(() => {
+    const out: Record<string, string> = {};
+    const probe = document.createElement("span");
+    document.body.append(probe);
+    for (const name of ["--color-amber", "--color-faint", "--color-dim", "--color-ink", "--color-crimson"]) {
+      probe.style.color = `var(${name})`;
+      out[name] = getComputedStyle(probe).color;
+    }
+    probe.remove();
+    return out;
+  });
+
+const KEY_ORDER = ["Briefing", "Folder paths", "Environment"] as const;
+const KEY_NAMES = ["Region briefing", "Folder paths", "Environment and secrets"] as const;
+
+test("SI region strip keys, by eye: three labelled keys, their hover, pressed, set and focus looks", async ({}, testInfo) => {
+  test.setTimeout(240_000);
+  const PLAIN = { id: "plain", label: "Plain", x: 40, y: 60, width: 420, height: 260 } as const;
+  const FULL = { id: "full", label: "Full", x: 520, y: 60, width: 420, height: 260 } as const;
+  // A briefing is `ether.region.instruction`, folder paths are
+  // `ether.region.defaults.paths` (host to path), an environment is
+  // `ether.region.environment`: all three are read off the group node by the
+  // strip (KindSurface.tsx, RegionKindSurface), so they are seeded in the canvas.
+  const full: GroupNode = {
+    ...regionNode(FULL),
+    ether: {
+      region: {
+        hold: true,
+        instruction: "Keep the build green and say when it is not.",
+        defaults: { paths: { local: "/tmp/junto-region-walk" } },
+        environment: { sources: [plainValue("src-org", "ORG", "x")] },
+      },
+    },
+  };
+  const tooltip = (page: Page): Locator => page.locator(".junto-tooltip[data-positioned='true']");
+
+  await walk(testInfo, "SI", crewDoc([regionNode(PLAIN), full]), async ({ page }) => {
+    const colours = await themeColours(page);
+    const keys = page.locator(".rts-region-keys .rts-region-key");
+
+    // ── I1: an empty region ────────────────────────────────────────────────
+    await selectRegion(page, PLAIN.id);
+    await expect(keys.first(), "the region strip shows its keys").toBeVisible({ timeout: 10_000 });
+    await page.mouse.move(4, 4);
+    await shot(page, testInfo, "SI", "I1-empty-region");
+    await cropStrip(page, testInfo, "SI", "I1-strip-crop");
+    const i1 = await stripKeys(page);
+    note(testInfo, "SI-I1", JSON.stringify({ label: await page.locator(".rts-kind-surface--region .rts-kind-kind-label").textContent().catch(() => null), colours, keys: i1 }));
+    soft(i1.slice(0, 3).map((key) => key.caption), "I1: three keys, left to right").toEqual([...KEY_ORDER]);
+    soft(i1.length === 3 || i1.length === 4, `I1: three keys, or four with Page defaults (${String(i1.length)})`).toBe(true);
+    soft(i1.map((key) => key.state), "I1: each says none yet").toEqual(i1.map(() => "none yet"));
+    soft(i1.map((key) => key.pressed), "I1: no key is pressed").toEqual(i1.map(() => "false"));
+    soft(i1.map((key) => key.dataState), "I1: no key reads set").toEqual(i1.map(() => "unset"));
+    for (const key of i1) {
+      soft(key.width, `I1: ${key.caption} is about 96 px wide`).toBeGreaterThanOrEqual(96);
+      soft(key.width, `I1: ${key.caption} is not much wider than 96 px`).toBeLessThan(140);
+      soft(key.captionOneLine && key.stateOneLine && !key.clipped, `I1: ${key.caption} fits on one line, nothing clipped`).toBe(true);
+      soft(key.icon, `I1: ${key.caption} has an icon`).not.toBe("");
+    }
+
+    // ── I2: hover each key ─────────────────────────────────────────────────
+    const hovered: Array<Record<string, unknown>> = [];
+    for (const [index, caption] of KEY_ORDER.entries()) {
+      const key = keys.nth(index);
+      await key.hover();
+      await soft(tooltip(page), `I2: ${caption}'s tooltip`).toHaveText(`${KEY_NAMES[index]!}: none yet`, { timeout: 5_000 });
+      // Let the border's transition finish before it is read and framed.
+      await page.waitForTimeout(250);
+      const slug = caption.toLowerCase().replace(/\s+/gu, "-");
+      await shot(page, testInfo, "SI", `I2-hover-${slug}`);
+      await cropStrip(page, testInfo, "SI", `I2-hover-${slug}-strip-crop`);
+      const facts = (await stripKeys(page))[index];
+      hovered.push({ caption, tooltipShown: await tooltip(page).textContent().catch(() => null), borderColor: facts?.borderColor, background: facts?.background });
+      soft(facts?.borderColor, `I2: ${caption}'s border changes on hover`).not.toBe(i1[index]?.borderColor);
+    }
+    note(testInfo, "SI-I2", JSON.stringify({ colours, restingBorder: i1[0]?.borderColor, hovered }));
+    await page.mouse.move(4, 4);
+
+    // ── I3: press Environment ──────────────────────────────────────────────
+    const environmentKey = page.getByTestId("rts-region-environment");
+    await environmentKey.click();
+    const dialog = page.getByRole("dialog", { name: "Region environment" });
+    await expect(dialog.getByTestId("region-env")).toBeVisible();
+    await settled(dialog);
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(250);
+    await shot(page, testInfo, "SI", "I3-screen-open");
+    await cropStrip(page, testInfo, "SI", "I3-strip-crop");
+    const open = (await stripKeys(page))[2];
+    soft(open?.pressed, "I3: the Environment key is pressed while its screen is open").toBe("true");
+    soft(open?.borderColor, "I3: its border is amber").toBe(colours["--color-amber"]);
+    await closeRegionEnvironment(dialog);
+    await page.waitForTimeout(250);
+    await shot(page, testInfo, "SI", "I3-after-done");
+    await cropStrip(page, testInfo, "SI", "I3-after-done-strip-crop");
+    const closed = (await stripKeys(page))[2];
+    soft(closed?.pressed, "I3: after done the key is no longer pressed").toBe("false");
+    note(testInfo, "SI-I3", JSON.stringify({ colours, whileOpen: open, afterDone: closed, keyCoveredByScreen: "see SI-I3-screen-open.png" }));
+
+    // ── I4: a region with a briefing, a folder path and a source ──────────
+    await selectRegion(page, FULL.id);
+    await expect(keys.first()).toBeVisible({ timeout: 10_000 });
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(250);
+    await shot(page, testInfo, "SI", "I4-all-set");
+    await cropStrip(page, testInfo, "SI", "I4-strip-crop");
+    const i4 = await stripKeys(page);
+    note(testInfo, "SI-I4", JSON.stringify({ colours, keys: i4 }));
+    soft(i4.slice(0, 3).map((key) => key.state), "I4: all three say set").toEqual(["set", "set", "set"]);
+    soft(i4.slice(0, 3).map((key) => key.dataState), "I4: all three read set").toEqual(["set", "set", "set"]);
+    soft(i4.slice(0, 3).map((key) => key.pressed), "I4: none looks pressed").toEqual(["false", "false", "false"]);
+    soft(i4.slice(0, 3).map((key) => key.tooltip), "I4: tooltips end in set").toEqual(KEY_NAMES.map((name) => `${name}: set`));
+    for (const key of i4.slice(0, 3)) {
+      soft(key.stateColor, `I4: ${key.caption}'s state word is amber`).toBe(colours["--color-amber"]);
+      soft(key.iconColor, `I4: ${key.caption}'s icon is amber`).toBe(colours["--color-amber"]);
+      soft(key.captionOneLine && key.stateOneLine && !key.clipped, `I4: ${key.caption} fits on one line, nothing clipped`).toBe(true);
+    }
+    soft(i1[2]?.stateColor, "I1 against I4: the state word is not amber while nothing is set").not.toBe(i4[2]?.stateColor);
+    soft(i1[2]?.iconColor, "I1 against I4: the icon is not amber while nothing is set").not.toBe(i4[2]?.iconColor);
+    await environmentKey.hover();
+    await soft(tooltip(page), "I4: the Environment key's tooltip").toHaveText("Environment and secrets: set", { timeout: 5_000 });
+    await page.waitForTimeout(250);
+    await shot(page, testInfo, "SI", "I4-hover-environment");
+    await page.mouse.move(4, 4);
+
+    // ── I5: the keyboard ───────────────────────────────────────────────────
+    // The key pressed in I3 keeps POINTER focus, and a pointer-focused key
+    // draws no ring. So focus is taken out of the strip for certain first,
+    // and the ring is judged only on a key the keyboard itself reached.
+    const openDialogs = page.getByRole("dialog");
+    if ((await openDialogs.count()) > 0) await page.keyboard.press("Escape");
+    await page.locator(".react-flow__pane").click({ position: { x: 12, y: 12 } });
+    await selectRegion(page, PLAIN.id);
+    await expect(keys.first()).toBeVisible({ timeout: 10_000 });
+    await page.mouse.move(4, 4);
+    const focusInStrip = (): Promise<boolean> => page.evaluate(() => document.activeElement?.closest(".rts-region-keys") != null);
+    let blurredByScript = false;
+    if (await focusInStrip()) {
+      // Selecting the region did not move focus: drop it, and say so.
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      blurredByScript = true;
+    }
+    const startedOutside = !(await focusInStrip());
+    soft(startedOutside, "I5: before any key is pressed, focus is not in the strip").toBe(true);
+    const startedOn = await page.evaluate(() => {
+      const active = document.activeElement;
+      return active ? `${active.tagName.toLowerCase()}${active.getAttribute("data-testid") ? `[${String(active.getAttribute("data-testid"))}]` : ""}` : "nothing";
+    });
+
+    /** The strip key that holds focus, and whether the browser counts that focus as the keyboard's. */
+    const focusedKey = (): Promise<{ readonly name: string | null; readonly focusVisible: boolean } | null> =>
+      page.evaluate(() => {
+        const active = document.activeElement;
+        return active instanceof HTMLElement && active.classList.contains("rts-region-key")
+          ? { name: active.getAttribute("aria-label"), focusVisible: active.matches(":focus-visible") }
+          : null;
+      });
+    let presses = 0;
+    let direction = "Tab";
+    let reached = null as Awaited<ReturnType<typeof focusedKey>>;
+    for (const key of ["Tab", "Shift+Tab"] as const) {
+      direction = key;
+      for (let step = 0; step < 80 && reached === null; step += 1) {
+        await page.keyboard.press(key);
+        presses += 1;
+        reached = await focusedKey();
+      }
+      if (reached !== null) break;
+    }
+    const how =
+      reached === null
+        ? `neither Tab nor Shift+Tab reached the strip in ${String(presses)} presses (focus began on ${startedOn})`
+        : `${direction} reached "${String(reached.name)}" after ${String(presses)} real presses (focus began on ${startedOn}${blurredByScript ? ", after a scripted blur" : ""})`;
+    soft(reached !== null && presses >= 1, `I5: the strip is reached with the keyboard (${how})`).toBe(true);
+    soft(reached?.focusVisible, "I5: the focused key matches :focus-visible").toBe(true);
+    await page.waitForTimeout(200);
+    await shot(page, testInfo, "SI", "I5-focus-ring");
+    await cropStrip(page, testInfo, "SI", "I5-strip-crop");
+    // region-keys.css:35-38: `.rts-region-key:focus-visible { outline: 2px solid var(--color-amber); outline-offset: 2px; }`
+    const ring = await page.evaluate(() => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || !active.classList.contains("rts-region-key")) return null;
+      const style = getComputedStyle(active);
+      return { width: style.outlineWidth, style: style.outlineStyle, colour: style.outlineColor, offset: style.outlineOffset, borderWidth: style.borderTopWidth };
+    });
+    soft(ring, "I5: a strip key holds the focus to read the ring from").not.toBeNull();
+    soft({ width: ring?.width, style: ring?.style, colour: ring?.colour, offset: ring?.offset }, "I5: a 2 px amber outline, 2 px clear of the key's border").toEqual({
+      width: "2px",
+      style: "solid",
+      colour: colours["--color-amber"],
+      offset: "2px",
+    });
+    const focusedFirst = (await stripKeys(page)).find((key) => key.focused);
+
+    // On to the Environment key, by the keyboard, then Enter.
+    let more = 0;
+    while ((await focusedKey())?.name !== "Environment and secrets" && more < 6) {
+      await page.keyboard.press(direction === "Shift+Tab" ? "Shift+Tab" : "Tab");
+      more += 1;
+    }
+    const onEnvironment = await focusedKey();
+    soft(onEnvironment?.name, "I5: the keyboard reaches the Environment key").toBe("Environment and secrets");
+    await page.waitForTimeout(200);
+    const focusedEnvironment = (await stripKeys(page)).find((key) => key.focused);
+    await shot(page, testInfo, "SI", "I5-focus-on-environment");
+    await cropStrip(page, testInfo, "SI", "I5-focus-on-environment-strip-crop");
+    await page.keyboard.press("Enter");
+    const byKeyboard = page.getByRole("dialog", { name: "Region environment" });
+    await soft(byKeyboard.getByTestId("region-env"), "I5: Enter on the focused key opens its screen").toBeVisible({ timeout: 10_000 });
+    await shot(page, testInfo, "SI", "I5-enter-opened-the-screen");
+    note(
+      testInfo,
+      "SI-I5",
+      JSON.stringify({ colours, how, startedOutside, blurredByScript, reached, ring, focusedFirst, onEnvironment, focusedEnvironment, pressesOnToEnvironment: more }),
+    );
+    if ((await byKeyboard.count()) > 0) await closeRegionEnvironment(byKeyboard);
+  });
+});
+
+test("SJ Environment screen, by eye: the empty state, the lead action, and the one alert that comes first", async ({}, testInfo) => {
+  test.setTimeout(240_000);
+  const PLAIN = { id: "plain", label: "Plain", x: 40, y: 60, width: 420, height: 260 } as const;
+  const EMPTY_SENTENCE =
+    "No sources yet. A source gives the seats in this region a variable or secret you already keep somewhere: a Keychain item, a 1Password field, an env file.";
+  const ALERT = "A required source is failing, so seats in this region will not start until it is fixed.";
+  // Made up, and looked up only: a read that finds nothing.
+  const item = `junto-e2e-no-such-item-${Math.random().toString(36).slice(2, 10)}`;
+
+  await walk(testInfo, "SJ", crewDoc([regionNode(PLAIN)]), async ({ page }) => {
+    /** What leads the screen, and how its first section sits. */
+    const layout = (dialog: Locator): Promise<Record<string, unknown>> =>
+      dialog.getByTestId("region-env").evaluate((scroller) => {
+        const first = scroller.firstElementChild as HTMLElement | null;
+        const section = scroller.querySelector<HTMLElement>("section.region-env__section");
+        const sectionStyle = section ? getComputedStyle(section) : undefined;
+        const alerts = Array.from(scroller.closest("[role='dialog']")?.querySelectorAll("[data-testid='region-env-blocks-launch']") ?? []);
+        const alert = alerts[0] as HTMLElement | undefined;
+        const alertStyle = alert ? getComputedStyle(alert) : undefined;
+        return {
+          firstChild: first ? (first.getAttribute("data-testid") ?? first.getAttribute("aria-label") ?? first.tagName.toLowerCase()) : null,
+          alertCount: alerts.length,
+          alertText: alert ? (alert.textContent ?? "").trim() : null,
+          alertHasIcon: alert ? alert.querySelector("svg") !== null : false,
+          alertColour: alertStyle?.color ?? null,
+          alertBackground: alertStyle?.backgroundColor ?? null,
+          alertBorder: alertStyle?.borderTopColor ?? null,
+          alertAboveSources: alert && section ? alert.getBoundingClientRect().bottom <= section.getBoundingClientRect().top + 1 : null,
+          firstSection: section?.getAttribute("aria-label") ?? null,
+          firstSectionBorderTop: sectionStyle ? `${sectionStyle.borderTopStyle} ${sectionStyle.borderTopWidth} ${sectionStyle.borderTopColor}` : null,
+          firstSectionPaddingTop: sectionStyle?.paddingTop ?? null,
+          // From the top of the scroller's content box to the first section.
+          firstSectionOffsetFromTop:
+            section === null
+              ? null
+              : Math.round(section.getBoundingClientRect().top - scroller.getBoundingClientRect().top - Number.parseFloat(getComputedStyle(scroller).paddingTop) + scroller.scrollTop),
+        };
+      });
+    const addButton = (dialog: Locator): Promise<Record<string, unknown>> =>
+      dialog.getByTestId("region-env-add-source").evaluate((button) => {
+        const style = getComputedStyle(button);
+        return { emphasis: button.getAttribute("data-emphasis"), colour: style.color, background: style.backgroundColor, border: style.borderTopColor };
+      });
+    const toTop = (dialog: Locator): Promise<void> => dialog.getByTestId("region-env").evaluate((scroller) => void (scroller.scrollTop = 0));
+    /** Where the keyboard is: the screen opens with it on Add source, never in the Folders field (eff71ed6e: data-autofocus). */
+    const focusNow = (): Promise<{ readonly testId: string | null; readonly label: string | null; readonly tag: string; readonly inFolders: boolean }> =>
+      page.evaluate(() => {
+        const active = document.activeElement;
+        return {
+          testId: active?.getAttribute("data-testid") ?? null,
+          label: active?.getAttribute("aria-label") ?? null,
+          tag: active?.tagName.toLowerCase() ?? "nothing",
+          inFolders: active?.closest("section[aria-label='Folders']") != null,
+        };
+      });
+    const checkOpeningFocus = async (step: string, which: string): Promise<Awaited<ReturnType<typeof focusNow>>> => {
+      await soft
+        .poll(async () => (await focusNow()).testId, { message: `${step}: on opening (${which}), the keyboard is on Add source`, timeout: 5_000 })
+        .toBe("region-env-add-source");
+      const focus = await focusNow();
+      soft(focus.inFolders, `${step}: on opening (${which}), the Folders field does not have the keyboard`).toBe(false);
+      soft(focus.testId, `${step}: nor is it the Folders input`).not.toBe("region-env-folder-input");
+      return focus;
+    };
+    const colours = await themeColours(page);
+
+    // ── J1: the empty region's screen ──────────────────────────────────────
+    await selectRegion(page, PLAIN.id);
+    await page.getByTestId("rts-region-environment").click();
+    const dialog = page.getByRole("dialog", { name: "Region environment" });
+    await expect(dialog.getByTestId("region-env")).toBeVisible();
+    await settled(dialog);
+    await page.mouse.move(4, 4);
+    const j1Focus = await checkOpeningFocus("J1", "an empty region");
+    await shot(page, testInfo, "SJ", "J1-empty-screen");
+    const header = dialog.locator("header").first();
+    await soft(header, "J1: the title").toContainText("Environment and secrets");
+    await soft(header, "J1: under the small word region").toContainText("region");
+    const sources = dialog.locator('section[aria-label="Sources"]');
+    await soft(sources.locator(".region-env__empty"), "J1: the one grey sentence under Sources").toHaveText(EMPTY_SENTENCE);
+    await soft(dialog.getByTestId("region-env-add-source"), "J1: Add source has the primary look").toHaveAttribute("data-emphasis", "primary");
+    await soft(resolved(dialog).locator(".region-env__empty"), 'J1: under "What a seat here gets"').toHaveText("Nothing yet.");
+    const j1Button = await addButton(dialog);
+    note(
+      testInfo,
+      "SJ-J1",
+      JSON.stringify({
+        colours,
+        header: ((await header.textContent().catch(() => "")) ?? "").replace(/\s+/gu, " ").trim(),
+        emptySentenceColour: await sources.locator(".region-env__empty").evaluate((el) => getComputedStyle(el).color).catch(() => null),
+        addSource: j1Button,
+        focusOnOpening: j1Focus,
+        layout: await layout(dialog),
+      }),
+    );
+
+    // ── J2: one plain value source ─────────────────────────────────────────
+    await addSource(dialog, "value", { name: "AWS_REGION", value: "eu-west-1" });
+    await settled(dialog);
+    await toTop(dialog);
+    await page.mouse.move(4, 4);
+    await shot(page, testInfo, "SJ", "J2-one-source");
+    await soft(sourceRows(dialog), "J2: the row appears").toHaveCount(1);
+    await soft(dialog.getByTestId("region-env-add-source"), "J2: Add source is back to the ordinary look").toHaveAttribute("data-emphasis", "quiet");
+    const j2Button = await addButton(dialog);
+    soft(j2Button.background, "J2: and it is drawn differently from the primary one").not.toBe(j1Button.background);
+    // Reopened on a region that now has a source: the keyboard lands in the same place.
+    await closeRegionEnvironment(dialog);
+    await page.getByTestId("rts-region-environment").click();
+    await expect(dialog.getByTestId("region-env")).toBeVisible();
+    await settled(dialog);
+    await page.mouse.move(4, 4);
+    const j2Focus = await checkOpeningFocus("J2", "a region with a source");
+    await shot(page, testInfo, "SJ", "J2-reopened-with-a-source");
+    note(testInfo, "SJ-J2", JSON.stringify({ colours, addSource: j2Button, addSourceWhenEmpty: j1Button, focusOnReopening: j2Focus }));
+
+    // ── J3: a required Keychain source that does not exist ─────────────────
+    const form = await openSourceForm(dialog, "keychain");
+    await form.getByTestId("region-env-field-name").fill("WALK_MISSING");
+    await form.getByTestId("region-env-field-service").fill(item);
+    const required = form.getByRole("switch", { name: "Required" });
+    await required.click();
+    await expect(required).toBeChecked();
+    await form.getByTestId("region-env-save-source").click();
+    await expect(form).toHaveCount(0);
+    const alert = dialog.getByTestId("region-env-blocks-launch");
+    await soft(alert.first(), "J3: the red block").toBeVisible({ timeout: 30_000 });
+    await settled(dialog);
+    await toTop(dialog);
+    await page.mouse.move(4, 4);
+    await shot(page, testInfo, "SJ", "J3-alert-leads-the-screen");
+    const j3 = await layout(dialog);
+    soft(j3.alertCount, "J3: the block appears exactly once in the whole dialog").toBe(1);
+    soft(j3.firstChild, "J3: it is the first thing on the screen").toBe("region-env-blocks-launch");
+    soft(j3.alertAboveSources, "J3: above Sources").toBe(true);
+    soft(j3.alertText, "J3: its sentence").toBe(ALERT);
+    soft(j3.alertHasIcon, "J3: with a warning triangle").toBe(true);
+    await soft(resolved(dialog), 'J3: it is not said again under "What a seat here gets"').not.toContainText(ALERT);
+    const row = sourceRows(dialog).filter({ hasText: "WALK_MISSING" });
+    await soft(row, "J3: the source's row").toHaveCount(1);
+    await soft(row, "J3: the row still says required").toContainText("required");
+    await soft(row, "J3: and Missing").toContainText("Missing");
+    const reason = ((await row.locator(".region-env__error").first().textContent().catch(() => "")) ?? "").trim();
+    soft(reason, "J3: with its own reason").not.toBe("");
+    await soft(variable(dialog, "WALK_MISSING"), "J3: the variable still says not set").toContainText("not set");
+    await resolved(dialog).scrollIntoViewIfNeeded();
+    await shot(page, testInfo, "SJ", "J3-row-and-variable");
+    note(testInfo, "SJ-J3", JSON.stringify({ colours, layout: j3, rowReason: reason, rowText: ((await row.textContent().catch(() => "")) ?? "").replace(/\s+/gu, " ").trim() }));
+
+    // ── J4: Required off ───────────────────────────────────────────────────
+    await dialog.getByRole("button", { name: "Edit WALK_MISSING" }).click();
+    const edit = dialog.getByTestId("region-env-form");
+    const requiredAgain = edit.getByRole("switch", { name: "Required" });
+    await requiredAgain.click();
+    await expect(requiredAgain).not.toBeChecked();
+    await edit.getByTestId("region-env-save-source").click();
+    await expect(edit).toHaveCount(0);
+    await soft(alert, "J4: the red block is gone").toHaveCount(0, { timeout: 30_000 });
+    await settled(dialog);
+    await toTop(dialog);
+    await page.mouse.move(4, 4);
+    await shot(page, testInfo, "SJ", "J4-required-off");
+    const j4 = await layout(dialog);
+    soft(j4.alertCount, "J4: no block anywhere in the dialog").toBe(0);
+    soft(j4.firstChild, "J4: Sources is the first thing on the screen").toBe("Sources");
+    soft(String(j4.firstSectionBorderTop ?? ""), "J4: with no divider line above it").toMatch(/^none|\s0px\s/u);
+    soft(j4.firstSectionOffsetFromTop, "J4: and it starts at the top").toBe(0);
+    await soft(row, "J4: the row no longer says required").not.toContainText("required");
+    await soft(row, "J4: it is still Missing").toContainText("Missing");
+    note(testInfo, "SJ-J4", JSON.stringify({ colours, layout: j4, withTheAlert: j3 }));
+    await closeRegionEnvironment(dialog);
   });
 });
 
