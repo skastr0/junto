@@ -57,6 +57,9 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
     "accessibility VoiceOver blind",
   ),
 
+  entry("briefing", "App briefing", "The text every agent reads when it starts", "AGENTS.md CLAUDE.md instructions import"),
+  entry("references", "New reference", "Named text an agent reads when it needs it", "knowledge notes import"),
+
   entry("feed", "New quick reply", "One-click answers offered when an agent is waiting on you"),
 
   entry("notifications", "Send notifications", "Whether Junto reaches you while it is in the background"),

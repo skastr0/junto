@@ -18,7 +18,9 @@ import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSect
 import { FieldRow, SettingBlock } from "./settings/FieldRow";
 import { radioGroupKeys, radioTabIndex } from "./settings/radio-keys";
 import { searchSettings, settingsIndex, type SettingHit } from "./settings/search-index";
+import { BriefingSettingsSection } from "./settings/BriefingSettingsSection";
 import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
+import { ReferencesSettingsSection } from "./settings/ReferencesSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { KeyboardSettingsSection } from "./settings/KeyboardSettingsSection";
@@ -57,7 +59,7 @@ import "./settings-panel.css";
  * Settings sections: preferences, the app update panel, and the experimental
  * features (stored under advanced, shown on their own tab).
  */
-type PanelSection = SettingsSectionKey | "updates" | "experimental" | "companion";
+type PanelSection = SettingsSectionKey | "updates" | "experimental" | "companion" | "briefing" | "references";
 
 const PROVIDERS_SECTION_ENABLED =
   USAGE_ENABLED || LIVE_OVERSEER_ENABLED || HERMES_INTEGRATION_ENABLED;
@@ -86,6 +88,8 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     label: "Notifications",
     blurb: "",
   },
+  { key: "briefing", group: "Agents", label: "Briefing", blurb: "Every agent reads this when it starts." },
+  { key: "references", group: "Agents", label: "References", blurb: "Named text an agent reads when it needs it." },
   { key: "feed", group: "Agents", label: "Quick replies", blurb: "" },
   { key: "offboard", group: "Agents", label: "Offboard", blurb: "" },
   ...(HARNESS_SETTINGS_ENABLED
@@ -1099,6 +1103,10 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <ExperimentalSettingsSection />;
     case "companion":
       return <CompanionSettingsSection />;
+    case "briefing":
+      return <BriefingSettingsSection />;
+    case "references":
+      return <ReferencesSettingsSection />;
     case "advanced":
       return <AdvancedSection />;
     case "kernel":
@@ -1112,7 +1120,12 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
  * (updates, experimental, companion) or are refused by main (Machine).
  */
 const resettableSection = (section: PanelSection): SettingsSectionKey | undefined =>
-  section === "updates" || section === "experimental" || section === "companion" || section === "station"
+  section === "updates" ||
+  section === "experimental" ||
+  section === "companion" ||
+  section === "station" ||
+  section === "briefing" ||
+  section === "references"
     ? undefined
     : section;
 

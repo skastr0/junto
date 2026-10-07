@@ -14,6 +14,8 @@ const PAGE_SOURCE: Readonly<Record<string, string>> = {
   appearance: "SettingsPanel.tsx",
   terminal: "settings/TerminalSettingsSection.tsx",
   feed: "settings/QuickRepliesSettingsSection.tsx",
+  briefing: "settings/BriefingSettingsSection.tsx",
+  references: "settings/ReferencesSettingsSection.tsx",
   notifications: "settings/NotificationSettingsSection.tsx",
   offboard: "settings/OffboardSettingsSection.tsx",
   companion: "settings/CompanionSettingsSection.tsx",

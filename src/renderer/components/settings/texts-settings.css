@@ -1,0 +1,97 @@
+/* Settings -> Briefing and References: text the operator writes for agents. */
+.texts-settings {
+  gap: 12px;
+}
+.texts-settings__editor {
+  width: 100%;
+  min-height: 420px;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-open);
+}
+.texts-settings__editor--body {
+  min-height: 320px;
+}
+.texts-settings__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.texts-settings__state {
+  margin-left: auto;
+  font-size: var(--text-body);
+  color: var(--color-dim);
+}
+.texts-settings__changed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in oklab, var(--color-amber) 40%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-amber) 10%, transparent);
+  font-size: var(--text-body-lg);
+  color: var(--color-ink);
+}
+.texts-settings__changed > span {
+  flex: 1;
+  min-width: 0;
+}
+/* The list of references: name, what it is for, how much text. */
+.texts-settings__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-overlay-3);
+}
+.texts-settings__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  width: 100%;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-overlay-3);
+  background: transparent;
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+.texts-settings__row:hover .texts-settings__name {
+  color: var(--color-amber-fg);
+}
+.texts-settings__row:focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+.texts-settings__name {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+.texts-settings__size {
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-dim);
+}
+.texts-settings__about {
+  grid-column: 1 / -1;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+  color: var(--color-dim);
+}
+.texts-settings__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 12px;
+}
+.texts-settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-body-lg);
+  color: var(--color-dim);
+}
