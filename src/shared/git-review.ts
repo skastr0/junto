@@ -84,6 +84,48 @@ export const quoteDiffLines = (
   return out;
 };
 
+/**
+ * The lines of a file's patch section that can take a comment, per side, in
+ * order: every line the diff shows. A comment started from the keyboard lands
+ * on the first changed line and can be moved to any of these.
+ */
+export const commentableLines = (
+  section: string,
+): { readonly additions: ReadonlyArray<number>; readonly deletions: ReadonlyArray<number>; readonly first: { readonly side: ReviewSide; readonly line: number } | undefined } => {
+  const additions: number[] = [];
+  const deletions: number[] = [];
+  let first: { side: ReviewSide; line: number } | undefined;
+  let oldLine = 0;
+  let newLine = 0;
+  let inHunk = false;
+  for (const raw of section.split("\n")) {
+    const hunk = raw.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/u);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      newLine = Number(hunk[2]);
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk || raw.startsWith("\\")) continue;
+    const mark = raw[0];
+    if (mark === "+") {
+      additions.push(newLine);
+      first ??= { side: "additions", line: newLine };
+      newLine += 1;
+    } else if (mark === "-") {
+      deletions.push(oldLine);
+      first ??= { side: "deletions", line: oldLine };
+      oldLine += 1;
+    } else if (mark === " ") {
+      additions.push(newLine);
+      deletions.push(oldLine);
+      oldLine += 1;
+      newLine += 1;
+    }
+  }
+  return { additions, deletions, first };
+};
+
 const lineRange = (comment: Pick<ReviewComment, "line" | "endLine" | "side">): string => {
   const what = comment.side === "additions" ? "" : " (removed text)";
   return comment.line === comment.endLine

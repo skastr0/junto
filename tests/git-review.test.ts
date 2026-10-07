@@ -6,6 +6,7 @@ import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import { reviewCandidates } from "../src/shared/review-candidates";
 import {
   applyMention,
+  commentableLines,
   filterMentionCandidates,
   mentionedIn,
   mentionQueryAt,
@@ -61,6 +62,18 @@ describe("quoting the diff lines a comment refers to", () => {
   it("reads a range given backwards, and gives nothing outside the hunks", () => {
     expect(quoteDiffLines(SECTION, "additions", 12, 11)).toEqual(["+const two = 22;", "+const three = 3;"]);
     expect(quoteDiffLines(SECTION, "additions", 200, 210)).toEqual([]);
+  });
+});
+
+describe("where a comment started from the keyboard can go", () => {
+  it("lands on the first changed line, and lists every line the diff shows per side", () => {
+    const lines = commentableLines(SECTION);
+    expect(lines.first).toEqual({ side: "deletions", line: 11 });
+    expect(lines.additions).toEqual([10, 11, 12, 13, 14, 41, 42]);
+    expect(lines.deletions).toEqual([10, 11, 12, 13, 40, 41]);
+  });
+  it("has nowhere to land in a section with no hunk", () => {
+    expect(commentableLines("diff --git a/x b/x\nBinary files differ\n")).toEqual({ additions: [], deletions: [], first: undefined });
   });
 });
 
