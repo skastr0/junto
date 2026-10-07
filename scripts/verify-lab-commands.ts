@@ -54,6 +54,13 @@ const evaluate = async <T>(expression: string): Promise<T> => {
   if (reply.error || reply.result.exceptionDetails) throw new Error(JSON.stringify(reply.error ?? reply.result.exceptionDetails).slice(0, 600));
   return reply.result.result.value as T;
 };
+const send = (method: string, params: object) => {
+  const id = next++;
+  return new Promise<any>((done) => {
+    waiting.set(id, done);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+};
 const name = JSON.stringify(canvas);
 type Row = Record<string, any>;
 const byId = (rows: ReadonlyArray<Row>) => new Map(rows.map((row) => [row.id as string, row]));
@@ -84,6 +91,27 @@ if (phase === "change") {
       newNameShown: document.body.innerText.toLowerCase().includes("renamed by the verifier"),
       cards: document.querySelectorAll(".react-flow__node").length,
     }))()`);
+  // The command bar draws a region's count of nodes from the window's own
+  // store. Open it on the region that holds the note to be deleted and keep
+  // that row mounted, so the count can be read before and after each command.
+  const countedRegion = note ? regionOf(note) : undefined;
+  const regionRow = () =>
+    countedRegion === undefined
+      ? Promise.resolve(null)
+      : evaluate<{ title: string; detail: string | null } | null>(`(() => {
+          const rows = [...document.querySelectorAll('[role="option"]')];
+          const row = rows.find((candidate) => candidate.querySelector(".command-bar__row-title")?.textContent?.trim() === ${JSON.stringify(String(countedRegion.label ?? ""))});
+          return row ? { title: row.querySelector(".command-bar__row-title").textContent.trim(), detail: row.querySelector(".command-bar__row-detail")?.textContent?.trim() ?? null } : null;
+        })()`);
+  if (countedRegion !== undefined) {
+    const key = { key: "k", code: "KeyK", windowsVirtualKeyCode: 75, modifiers: process.platform === "darwin" ? 4 : 2 };
+    await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+    await sleep(500);
+    await send("Input.insertText", { text: String(countedRegion.label ?? "") });
+    await sleep(800);
+    console.log(JSON.stringify({ commandBar: { open: await evaluate<boolean>(`document.querySelector('[data-testid="command-bar-input"]') !== null`), region: countedRegion.id, label: countedRegion.label ?? null, rowBefore: await regionRow() } }));
+  }
   console.log(JSON.stringify({ picked: { renamedSeat: renamed.id, itsRegion: regionOf(renamed)?.id ?? null, deletedNote: note?.id ?? null, itsRegion2: note ? (regionOf(note)?.id ?? null) : null, regions: regions.length, notes: notes.length }, screenBefore: await onScreen() }));
   // Count what the window is told while each command runs.
   await evaluate(`(() => {
@@ -178,7 +206,7 @@ if (phase === "change") {
     const seen = await evaluate<{ changed: object[]; canvases: number; marks: string[]; spans: string[] }>(`window.__verifyCut.take()`);
     // The command itself is one modelCommand invoke; anything else is the window asking main for more.
     const invokes = await takeInvokes();
-    results.push({ what, reply, events: seen.changed, invokesInMain: invokes, screen: await onScreen() });
+    results.push({ what, reply, events: seen.changed, invokesInMain: invokes, screen: await onScreen(), regionRowInCommandBar: await regionRow() });
     console.log(JSON.stringify(results.at(-1)));
   }
   await evaluate(`window.__verifyCut.stop()`);
