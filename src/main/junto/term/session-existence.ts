@@ -147,6 +147,8 @@ export const harnessSessionLocation = (
         return cursorSessionLocation(sessionId, probe.cwd, cursorDataRoot(probe, home));
       case "agy":
         return agySessionLocation(sessionId, home);
+      case "amp":
+        return ampSessionLocation(sessionId, home);
       default:
         return undefined;
     }
@@ -383,7 +385,39 @@ const piSessionLocation = (
 const primeAgentSessionLocation = (sessionId: string, home: string): string | undefined => {
   const root = join(home, ".prime", "agent", "sessions");
   if (!isDir(root)) return undefined;
+  // A session may also own a sidecar folder named by the bare id (artifacts).
+  // The transcript is the file: prefer it, so the answer is what an agent can
+  // read rather than whichever name sorts first.
+  const transcript = join(root, `${sessionId}.jsonl`);
+  if (isFile(transcript)) return transcript;
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return undefined;
+  }
+  const file = entries.find(
+    (name) => name.includes(sessionId) && isFile(join(root, name)),
+  );
+  if (file !== undefined) return join(root, file);
   return codexTreeFindSession(root, sessionId, 0);
+};
+
+/** Amp thread ids are `T-<uuid>`. */
+const isAmpThreadId = (value: string): boolean =>
+  /^T-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+/**
+ * Amp threads live on Amp's server; a thread that has run on this machine
+ * also has a local copy at `~/.local/share/amp/threads/<T-id>.json`. That
+ * copy is the only transcript there is to point at, and a thread with none
+ * is simply not located. Never used as resume proof: Amp's thread is
+ * provisioned through its own CLI, and that path does not come here.
+ */
+const ampSessionLocation = (sessionId: string, home: string): string | undefined => {
+  if (!isAmpThreadId(sessionId)) return undefined;
+  const path = join(home, ".local", "share", "amp", "threads", `${sessionId}.json`);
+  return isFile(path) ? path : undefined;
 };
 
 /**
