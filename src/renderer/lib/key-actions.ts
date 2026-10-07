@@ -1,4 +1,3 @@
-import type { CanvasNode } from "@shared/canvas";
 import { activateSelectedNodeSurface } from "./activate-node-surface";
 import { actorRailExpanded, actorRailMode, setActorRailExpanded } from "./actor-rail";
 import { cycleActorMirror } from "./actor-mirrors";
@@ -20,12 +19,13 @@ import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { state$ } from "./state";
 import { spacePressesControl, stepToNextAgent } from "./urgency-step";
+import { nodeAt } from "./use-model";
 
 // The node whose surface is in front, when one is open.
-const frontNode = (): CanvasNode | undefined => {
+const frontNode = (): { readonly id: string } | undefined => {
   const registry = dock$.registry.peek();
   const nodeId = focusMruNodeIds(registry.surfaces, registry.focusMru)[0];
-  return nodeId === undefined ? undefined : state$.doc.peek().nodes.find((node) => node.id === nodeId);
+  return nodeId === undefined ? undefined : nodeAt(state$.canvasName.peek(), nodeId);
 };
 
 // The terminal in front shows a list of connections. A raw shell, or an

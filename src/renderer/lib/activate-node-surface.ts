@@ -11,6 +11,7 @@ import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { formatNodeRef } from "@shared/node-ref";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { browser$ } from "./browser-state";
+import { storeNodeAsDocument } from "./store-document-node";
 import {
   openAgentChatSurface,
   openDockBrowser,
@@ -124,6 +125,6 @@ export function activateNodeSurface(node: CanvasNode): ActivateNodeSurfaceResult
  */
 export function activateSelectedNodeSurface(): ActivateNodeSurfaceResult {
   const id = state$.selectedNodeId.peek();
-  const node = id ? state$.doc.peek().nodes.find((candidate) => candidate.id === id) : undefined;
+  const node = id ? storeNodeAsDocument(state$.canvasName.peek(), id) : undefined;
   return node ? activateNodeSurface(node) : { opened: false, reason: "no-surface" };
 }

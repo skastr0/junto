@@ -1,4 +1,5 @@
 import { observable } from "@legendapp/state";
+import { storeNodeAsDocument } from "./store-document-node";
 import { state$ } from "./state";
 import { openAgentGridTerminals } from "./terminal-actions";
 import { closeGridTerminalSurfaces } from "./terminal-state";
@@ -19,11 +20,9 @@ export const openTerminalGrid = (
   nodeIds: ReadonlyArray<string>,
   choice: GridChoice = "auto",
 ): void => {
-  const wanted = new Set(nodeIds);
-  const nodes = state$.doc.peek().nodes.filter((node) => wanted.has(node.id));
-  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const canvas = state$.canvasName.peek();
   const ordered = nodeIds.flatMap((id) => {
-    const node = byId.get(id);
+    const node = storeNodeAsDocument(canvas, id);
     return node ? [node] : [];
   });
   const opened = openAgentGridTerminals(ordered);

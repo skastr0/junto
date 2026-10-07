@@ -1,4 +1,5 @@
 import type { CanvasNode } from "@shared/canvas";
+import { storeNodeAsDocument } from "./store-document-node";
 import { factoryPause$ } from "./factory-pause";
 import {
   multiPromptAgents,
@@ -39,10 +40,15 @@ export const planSeatMessage = (nodes: ReadonlyArray<CanvasNode>): SeatMessagePl
   };
 };
 
-/** The seats the operator is about to message, read fresh off the document. */
+/** The seats the operator is about to message, read fresh off the canvas. */
 export const planSeatMessageFor = (nodeIds: ReadonlyArray<string>): SeatMessagePlan => {
-  const wanted = new Set(nodeIds);
-  return planSeatMessage(state$.doc.peek().nodes.filter((node) => wanted.has(node.id)));
+  const canvas = state$.canvasName.peek();
+  return planSeatMessage(
+    [...new Set(nodeIds)].flatMap((id) => {
+      const node = storeNodeAsDocument(canvas, id);
+      return node ? [node] : [];
+    }),
+  );
 };
 
 /** Composer heading: "Message Cursor Agent", or "Message 3 agents". */

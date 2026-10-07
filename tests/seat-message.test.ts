@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import type { TerminalManagedPromptResult } from "../src/shared/ipc";
+import { asCanvasName } from "../src/shared/model";
+import { state$ } from "../src/renderer/lib/state";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { note as noteNode, seat as seatNode } from "./support/model-nodes";
 import {
   planSeatMessage,
+  planSeatMessageFor,
   seatMessageOutcome,
   seatMessageReach,
   seatMessageTitle,
@@ -108,5 +113,28 @@ describe("sendSeatMessage", () => {
     ]);
     expect(out.tone).toBe("queued");
     expect(out.line).toBe("Sent to 1 agent. Queued for Bo, who gets it as soon as it is up.");
+  });
+});
+
+describe("planSeatMessageFor", () => {
+  it("reads the seats by id from the canvas the store holds, each once, and skips what is not on it", () => {
+    const previous = state$.canvasName.peek();
+    const release = modelStore.adopt({
+      canvas: asCanvasName("plan"),
+      seq: 0,
+      nodes: [seatNode("a", { label: "Ada" }), seatNode("b", { label: "Bo" }), noteNode("n")],
+      wires: [],
+    });
+    state$.canvasName.set("plan");
+    try {
+      const plan = planSeatMessageFor(["b", "a", "b", "n", "gone"]);
+      expect(plan.targets.map((target) => target.nodeId)).toEqual(["b", "a"]);
+      expect(plan.targets[0]).toEqual({ nodeId: "b", bindingId: "binding-b", agentKey: "local:b" });
+      expect(plan.unreachable).toBe(0);
+      expect([...plan.names]).toEqual([["b", "Bo"], ["a", "Ada"]]);
+    } finally {
+      state$.canvasName.set(previous);
+      release();
+    }
   });
 });

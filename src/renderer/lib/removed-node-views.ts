@@ -1,8 +1,9 @@
-import type { CanvasNode } from "@shared/canvas";
+import { observe } from "@legendapp/state";
 import { closeTerminalView, closeWorkbenchSurface, dock$, nodeIdForSurface } from "./dock-state";
 import { state$ } from "./state";
 import { closeTerminalGrid, terminalGrid$ } from "./terminal-grid-state";
 import { terminalNodeIds } from "./terminal-state";
+import { modelStore } from "./use-model";
 
 /**
  * A view never outlives its node. When a node leaves the canvas, by the
@@ -35,25 +36,35 @@ export const closeViewsOfNodes = (gone: ReadonlySet<string>): void => {
 /** The nodes that were on the canvas and no longer are. */
 export const removedNodeIds = (
   before: ReadonlySet<string>,
-  after: ReadonlyArray<Pick<CanvasNode, "id">>,
+  after: ReadonlyArray<string>,
 ): Set<string> => {
   const gone = new Set(before);
-  for (const node of after) gone.delete(node.id);
+  for (const id of after) gone.delete(id);
   return gone;
 };
 
-/** Watch the canvas being shown and close the views of nodes that leave it. */
+/**
+ * Watch the canvas being shown and close the views of nodes that leave it.
+ * Only a canvas the store holds open says what is on it: while it is being
+ * read, or was not read, nothing is known to have left.
+ */
 export const installRemovedNodeViews = (): (() => void) => {
-  const idsNow = (): Set<string> => new Set(state$.doc.peek().nodes.map((node) => node.id));
-  let canvas = state$.canvasName.peek();
-  let known = idsNow();
-  return state$.doc.onChange(() => {
-    const name = state$.canvasName.peek();
-    const nodes = state$.doc.peek().nodes;
-    // Another canvas was opened: its nodes are a new set, nothing was removed.
-    const gone = name === canvas ? removedNodeIds(known, nodes) : new Set<string>();
-    canvas = name;
-    known = idsNow();
-    if (gone.size > 0) closeViewsOfNodes(gone);
-  });
+  let canvas = "";
+  let known: ReadonlySet<string> = new Set();
+  return observe(
+    () => {
+      const name = state$.canvasName.get();
+      if (name === "") return undefined;
+      const open$ = modelStore.canvas$(name);
+      return open$.status.get() === "open" ? { name, ids: open$.nodeIds.get() } : undefined;
+    },
+    ({ value: shown }) => {
+      if (shown === undefined) return;
+      // Another canvas was opened: its nodes are a new set, nothing was removed.
+      const gone = shown.name === canvas ? removedNodeIds(known, shown.ids) : new Set<string>();
+      canvas = shown.name;
+      known = new Set(shown.ids);
+      if (gone.size > 0) closeViewsOfNodes(gone);
+    },
+  );
 };

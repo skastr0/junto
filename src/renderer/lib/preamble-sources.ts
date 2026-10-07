@@ -16,8 +16,9 @@
 
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { AgentSignal, AgentSignalKind } from "@shared/agent-signals";
-import type { CanvasNode } from "@shared/canvas";
 import type { JuntoApi } from "@shared/ipc";
+import type { Node } from "@shared/model";
+import { titleOf as nodeTitleOf } from "@shared/model/title";
 import {
   normalizePreambleText,
   type PreambleEvent,
@@ -34,6 +35,7 @@ import { agentSignals$ } from "./agent-signals-state";
 import { showPreamble } from "./preamble-state";
 import { seatAwareness$ } from "./seat-awareness";
 import { state$ } from "./state";
+import { modelStore, nodeAt } from "./use-model";
 
 /** A change older than this is history (hydration, a restart), not news. */
 export const PREAMBLE_FRESH_MS = 15_000;
@@ -253,21 +255,21 @@ export const wirePreambles = (
 // --- wiring --------------------------------------------------------------------------
 
 const titleOf = (nodeId: string): string | undefined => {
-  const node = state$.doc.peek().nodes.find((n) => n.id === nodeId);
-  if (node === undefined) return undefined;
-  const first = node.type === "text" ? node.text.split("\n")[0]?.trim() : undefined;
-  return first || undefined;
+  const node = nodeAt(state$.canvasName.peek(), nodeId);
+  return node === undefined ? undefined : nodeTitleOf(node);
 };
 
-const bindingOf = (node: CanvasNode): string | undefined => {
-  const bound = node.ether?.terminal?.bindingId;
-  return typeof bound === "string" ? bound : agentSeat$.bindingIdByNodeId[node.id].peek();
-};
+const bindingOf = (node: Node): string | undefined =>
+  node.kind === "agent" || node.kind === "terminal"
+    ? node.bindingId
+    : agentSeat$.bindingIdByNodeId[node.id].peek();
 
 /** bindingId → nodeId for the open canvas, rebuilt per call (events are sparse). */
 const nodeByBinding = (): ReadonlyMap<string, string> => {
   const out = new Map<string, string>();
-  for (const node of state$.doc.peek().nodes) {
+  const canvas = state$.canvasName.peek();
+  if (canvas === "") return out;
+  for (const node of Object.values(modelStore.canvas$(canvas).nodes.peek())) {
     const binding = bindingOf(node);
     if (binding !== undefined) out.set(binding, node.id);
   }
