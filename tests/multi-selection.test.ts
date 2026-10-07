@@ -1,3 +1,5 @@
+import { agentKeysAmong, classifySelectionOf, seatIdsAmong, selectionLabelOf, surfaceKeyOf } from "../src/renderer/lib/multi-selection";
+import { note, region, seat, taskBoard } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import {
@@ -93,5 +95,35 @@ describe("labels", () => {
         surfaces: ["kind:agent", "type:text"],
       }),
     ).toBe("2 - mixed");
+  });
+});
+
+describe("the same classification of model nodes", () => {
+  it("keys a node in the words the document form gave", () => {
+    expect(surfaceKeyOf(region("r", { x: 0, y: 0, width: 400, height: 300 }))).toBe("region");
+    expect(surfaceKeyOf(seat("a"))).toBe("kind:agent");
+    expect(surfaceKeyOf(note("n"))).toBe("type:text");
+    expect(surfaceKeyOf(taskBoard("t"))).toBe("kind:task");
+  });
+
+  it("classifies empty, single, alike and mixed selections", () => {
+    const one = seat("a");
+    expect(classifySelectionOf([])).toEqual({ mode: "empty" });
+    expect(classifySelectionOf([one])).toEqual({ mode: "single", node: one });
+    const alike = [seat("a"), seat("b")];
+    expect(classifySelectionOf(alike)).toEqual({ mode: "homogeneous", surface: "kind:agent", nodes: alike });
+    expect(selectionLabelOf(classifySelectionOf(alike))).toBe("2 - agents");
+    const mixed = classifySelectionOf([seat("a"), note("n")]);
+    expect(mixed).toMatchObject({ mode: "heterogeneous", surfaces: ["kind:agent", "type:text"] });
+    expect(selectionLabelOf(mixed)).toBe("2 - mixed");
+  });
+
+  it("finds the seats in a selection, in order", () => {
+    const nodes = [note("n"), seat("b"), seat("a")];
+    expect(seatIdsAmong(nodes)).toEqual(["b", "a"]);
+    expect(agentKeysAmong(nodes)).toEqual([
+      { nodeId: "b", agentKey: "local:b" },
+      { nodeId: "a", agentKey: "local:a" },
+    ]);
   });
 });

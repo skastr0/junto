@@ -1,3 +1,5 @@
+import { multiPromptTargetsOf } from "../src/renderer/lib/multi-prompt";
+import { note as modelNote, seat as modelSeat } from "./support/model-nodes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import type { TerminalManagedPromptResult } from "../src/shared/ipc";
@@ -188,5 +190,14 @@ describe("formatMultiPromptStatus", () => {
         failed: [],
       }),
     ).toBe("sent 3 — queued 0 — failed 0");
+  });
+});
+
+describe("multiPromptTargetsOf", () => {
+  it("makes one target per seat from model nodes, by the seat's own binding", () => {
+    expect(multiPromptTargetsOf([modelNote("n"), modelSeat("a", { bindingId: "bind-a" as never }), modelSeat("b")])).toEqual([
+      { nodeId: "a", bindingId: "bind-a", agentKey: "local:a" },
+      { nodeId: "b", bindingId: "binding-b", agentKey: "local:b" },
+    ]);
   });
 });

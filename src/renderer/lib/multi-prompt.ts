@@ -1,4 +1,5 @@
 import type { CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
 import type {
   TerminalManagedPromptDisposition,
   TerminalManagedPromptResult,
@@ -70,6 +71,15 @@ export const multiPromptTargetsFromNodes = (
   }
   return out;
 };
+
+/**
+ * The same targets from nodes as the store holds them: every seat is one, since
+ * the model requires a binding and a harness of a seat.
+ */
+export const multiPromptTargetsOf = (nodes: ReadonlyArray<Node>): ReadonlyArray<MultiPromptTarget> =>
+  nodes.flatMap((node) =>
+    node.kind === "agent" ? [{ nodeId: node.id, bindingId: node.bindingId, agentKey: node.agentKey }] : [],
+  );
 
 const defaultOps = (): MultiPromptOps => ({
   writePrompt: async (input) => {
