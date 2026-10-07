@@ -237,7 +237,6 @@ const BoxActivityPolicyWithFleetLive = Layer.provideMerge(
   BoxActivityPolicyLive,
   Layer.mergeAll(
     BoxFleetLive,
-    CanvasesWithStateLive,
     StateRepositoriesLive,
   ),
 );

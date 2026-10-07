@@ -1,8 +1,12 @@
 import { Context, Effect, Layer, Queue, Semaphore } from "effect";
-import type { Task } from "@shared/canvas";
-import type { CanvasReadResult } from "@shared/ipc";
-import { resolveNodePlacement } from "@shared/physics";
-import { CanvasesService } from "../canvases";
+import type { Task } from "@shared/work-model";
+import { asNodeId, type Canvas } from "@shared/model";
+import type { ActorRef } from "@shared/work-reference";
+import { SqlClient } from "effect/unstable/sql";
+import { withSqlRead } from "../state/sql-read";
+import { ModelService } from "../model/service";
+import { ModelActorRefs } from "../model/actor-refs";
+import { WorkRepository } from "../work/repository";
 import { SettingsService } from "../settings/service";
 import { boxHostId, type BoxResource } from "./repository";
 import { BoxFleetService, type BoxFleetError } from "./service";
@@ -34,8 +38,14 @@ export interface BoxHostActivity {
  * owns an item whose claim has already started work. Submitted and terminal
  * items do not pin a machine.
  */
+export type BoxActivityRead = {
+  readonly canvas: Canvas;
+  readonly actorRefs: ReadonlyArray<ActorRef>;
+  readonly items: ReadonlyArray<Task>;
+};
+
 export const deriveBoxHostActivity = (
-  reads: Iterable<CanvasReadResult>,
+  reads: Iterable<BoxActivityRead>,
 ): BoxHostActivity => {
   const activeHostIds = new Set<string>();
   let hasUnresolvedActiveWork = false;
@@ -44,31 +54,21 @@ export const deriveBoxHostActivity = (
     const actorBySeat = new Map(
       read.actorRefs.map((actor) => [actor.seatId, actor]),
     );
-    const nodeById = new Map(read.doc.nodes.map((node) => [node.id, node]));
-
-    for (const node of read.doc.nodes) {
-      const items = [
-        ...(node.ether?.tasks?.items ?? []),
-        ...(node.ether?.requests?.items ?? []),
-      ];
-      for (const item of items) {
+    for (const item of read.items) {
         if (!isActiveWork(item)) continue;
         const actor =
           item.claimedBy === undefined
             ? undefined
             : actorBySeat.get(item.claimedBy);
         const actorNode =
-          actor === undefined ? undefined : nodeById.get(actor.nodeId);
+          actor === undefined ? undefined : read.canvas.nodes.get(asNodeId(actor.nodeId));
         const hostId =
-          actorNode === undefined
-            ? undefined
-            : resolveNodePlacement(actorNode).assignment;
+          actorNode?.kind === "agent" ? actorNode.host : undefined;
         if (hostId === undefined) {
           hasUnresolvedActiveWork = true;
         } else {
           activeHostIds.add(hostId);
         }
-      }
     }
   }
 
@@ -114,7 +114,7 @@ export interface BoxActivitySource {
   readonly listCanvasNames: Effect.Effect<ReadonlyArray<string>, unknown>;
   readonly readCanvas: (
     name: string,
-  ) => Effect.Effect<CanvasReadResult, unknown>;
+  ) => Effect.Effect<BoxActivityRead, unknown>;
   readonly listBoxes: Effect.Effect<ReadonlyArray<BoxResource>, unknown>;
   readonly setActivityDemand: (
     boxId: string,
@@ -299,7 +299,10 @@ export class BoxActivityPolicy extends Context.Service<BoxActivityPolicy,
 export const BoxActivityPolicyLive = Layer.effect(
   BoxActivityPolicy,
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
+    const model = yield* ModelService;
+    const actors = yield* ModelActorRefs;
+    const work = yield* WorkRepository;
+    const sql = yield* SqlClient.SqlClient;
     const settings = yield* SettingsService;
     const fleet = yield* BoxFleetService;
     const invalidations = yield* Queue.dropping<void>(1);
@@ -309,10 +312,16 @@ export const BoxActivityPolicyLive = Layer.effect(
         settings.get,
         (configuration) => configuration.station.role,
       ),
-      listCanvasNames: Effect.map(canvases.list, (summaries) =>
-        summaries.map((summary) => summary.name),
-      ),
-      readCanvas: (name) => canvases.read(name, "box.activityPolicy"),
+      listCanvasNames: model.listCanvases(),
+      readCanvas: Effect.fn("BoxActivity.read")(function* (name: string) {
+        return yield* withSqlRead(sql, Effect.gen(function* () {
+          return {
+            canvas: yield* model.canvas(name),
+            actorRefs: yield* actors.read(name),
+            items: (yield* work.attentionItems({ canvasName: name })).map((row) => row.item),
+          };
+        }));
+      }),
       listBoxes: fleet.list,
       setActivityDemand: (boxId, demanded) =>
         fleet.setActivityDemand(boxId, demanded),
@@ -329,16 +338,17 @@ export const BoxActivityPolicyLive = Layer.effect(
       reconciler.invalidate(canvasName);
       Queue.offerUnsafe(invalidations, undefined);
     };
-    // CanvasesService merges committed Work changes into this invalidation
-    // stream, so claims and terminal transitions need no second subscription.
-    // The name is the whole point: it scopes the next pass to one canvas.
-    const unsubscribe = canvases.subscribeChanges((name) => request(name));
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        admissionClosed = true;
-        unsubscribe();
-      }),
-    );
+    // Spatial changes and Work claims invalidate only their own canvas.
+    // Mail does not affect provider demand.
+    const offModel = model.subscribeChanges((event) => request(event.canvas));
+    const offCanvases = model.subscribeCanvasesChanges((event) => request(event.canvas));
+    const offWork = work.subscribeChanges((name, _node, kind) => {
+      if (kind !== "mail") request(name);
+    });
+    yield* Effect.addFinalizer(() => Effect.sync(() => {
+      admissionClosed = true;
+      offModel(); offCanvases(); offWork();
+    }));
 
     request();
 
