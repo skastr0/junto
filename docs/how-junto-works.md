@@ -20,8 +20,8 @@ Every session a seat runs is recorded in its history: which harness, which sessi
 
 The agent chooses its stopping point, and one of two modes:
 
-- **Offboard** (`junto offboard "<notes>"`), at a stopping point. Once the agent goes idle, Junto closes the session and the seat rests. Its next wake starts a fresh session that onboards with the notes.
-- **Offboard and continue** (`junto offboard "<notes>" --continue "<note>"`), mid-work. The continuation is a note for the next session: what to pick up and why. Once the agent goes idle, Junto starts a fresh session right away and mails it a kickoff. Its onboard leads with the note as a `handoff`, left for it by its previous session, and it carries on.
+- **Offboard** (`junto offboard "<notes>"`), at a stopping point. Junto closes the session at once, cutting the turn in flight, and the seat rests. Its next wake starts a fresh session that onboards with the notes.
+- **Offboard and continue** (`junto offboard "<notes>" --continue "<note>"`), mid-work. The continuation is a note for the next session: what to pick up and why. Junto closes the session at once and starts a fresh one as soon as the old process is gone, telling it in one line to read its handoff. Nothing is typed into the old session after the offboard: mail that arrives while it ends goes to the fresh one. Its onboard leads with the note as a `handoff`, left for it by its previous session, and it carries on.
 
 When the next session runs `junto onboard`, it gets the seat's past sessions, newest first. The latest five notes are included in full (`--past-notes` changes the count), and each older session comes with the paths to its notes and transcript. Onboard marks them as past sessions: context for continuity, not work to resume unless the agent's current instructions or mail ask for it. To look further back, the agent opens those files itself.
 

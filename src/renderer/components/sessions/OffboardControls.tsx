@@ -7,7 +7,7 @@ import { Button, StatusDot } from "../ui";
 
 // Offboard from the seat: ask the agent to end its session, to rest or to
 // continue in a fresh one. The agent writes the notes; Junto closes the
-// session once it goes idle. The steps below follow it through.
+// session the moment they are saved. The steps below follow it through.
 
 type Step = { readonly label: string; readonly done: boolean };
 

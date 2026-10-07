@@ -198,7 +198,7 @@ export const offboardCommand = Command.make(
     continuation: Flag.string("continue").pipe(
       Flag.optional,
       Flag.withDescription(
-        "Continue in a fresh session: a note for it, what to pick up and why (inline, @file, or - for stdin). Junto starts that session as soon as you go idle.",
+        "Continue in a fresh session: a note for it, what to pick up and why (inline, @file, or - for stdin). Junto starts that session right away.",
       ),
     ),
     timeout: timeoutOption,
@@ -215,9 +215,9 @@ export const offboardCommand = Command.make(
 ).pipe(
   Command.withDescription(
     [
-      "End this session with notes on what happened, what is relevant, and why it matters. You choose the stopping point.",
-      "At a stopping point: junto offboard \"<notes>\". When you go idle the session closes and the seat rests; its next wake starts a fresh session that reads your notes.",
-      "Mid-work: junto offboard \"<notes>\" --continue \"<note>\". When you go idle Junto starts a fresh session right away, and it reads your note first and carries on.",
+      "End this session with notes on what happened, what is relevant, and why it matters. You choose the stopping point. The session ends the moment this returns: run it last.",
+      "At a stopping point: junto offboard \"<notes>\". The session closes at once and the seat rests; its next wake starts a fresh session that reads your notes.",
+      "Mid-work: junto offboard \"<notes>\" --continue \"<note>\". The session closes at once and Junto starts a fresh one right away, which reads your note first and carries on.",
     ].join(" "),
   ),
 );

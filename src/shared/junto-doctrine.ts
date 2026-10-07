@@ -208,8 +208,10 @@ The answer arrives in this seat as operator mail; \`junto signal list\` shows yo
 
 \`junto offboard\` ends this session with notes for the next one: what happened, what is relevant, and why it matters. The first line sums the session up; \`@file\` or \`-\` for stdin also work. You choose the stopping point, and the mode:
 
-- At a stopping point: \`junto offboard "<notes>"\`. When you go idle, Junto closes this session and the seat rests. Its next wake starts a fresh session that reads your notes.
-- Mid-work: \`junto offboard "<notes>" --continue "<what to pick up next and why>"\`. When you go idle, Junto starts a fresh session right away. It reads your continuation first and carries on.
+- At a stopping point: \`junto offboard "<notes>"\`. Junto closes this session at once and the seat rests. Its next wake starts a fresh session that reads your notes.
+- Mid-work: \`junto offboard "<notes>" --continue "<what to pick up next and why>"\`. Junto closes this session at once and starts a fresh one right away. It reads your continuation first and carries on.
+
+Offboard is the last thing a session does: it ends the session the moment it returns, and nothing after it in your turn runs. Put everything in the notes before you call it.
 
 Offboarding is yours to decide: Junto never measures your context or asks you to. Offboard on your own:
 
@@ -217,7 +219,7 @@ Offboarding is yours to decide: Junto never measures your context or asks you to
 - before a long context grows stale: many turns in, early detail fading, re-reading what you already knew;
 - when switching topics: new work that does not need this session's history starts cleaner fresh.
 
-Use \`--continue\` when the work is unfinished and should go on now: the fresh session starts right away from your note. Use plain offboard when the stretch is done and the seat can rest until mail wakes it. The operator may also ask you to offboard. After offboarding, finish your turn and stop. Running it again before you go idle replaces the notes, and the latest mode wins.
+Use \`--continue\` when the work is unfinished and should go on now: the fresh session starts right away from your note. Use plain offboard when the stretch is done and the seat can rest until mail wakes it. The operator may also ask you to offboard.
 
 When \`junto onboard\` shows a \`handoff\`, your previous session left it for you: it is the one exception to past sessions being context only. Pick it up unless your current instructions or mail say otherwise.
 

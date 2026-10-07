@@ -471,7 +471,7 @@ export const offboardSchema: CommandSchemaContract = {
   command: "offboard",
   schema_id: "offboard.input/v1",
   description:
-    "End this session: markdown notes on what happened, what is relevant, and why it matters; the first line is the one-line summary. Plain markdown, @file, or - for stdin also work. Without continuation the session closes when you go idle and the seat rests until its next wake. With continuation (--continue on the command line), a note for the next session on what to pick up and why: Junto starts that session as soon as you go idle, and it reads the note first.",
+    "End this session: markdown notes on what happened, what is relevant, and why it matters; the first line is the one-line summary. Plain markdown, @file, or - for stdin also work. Offboard ends the session the moment it returns: run it last. Without continuation the seat rests until its next wake. With continuation (--continue on the command line), a note for the next session on what to pick up and why: Junto starts that session right away, and it reads the note first.",
   schema: OffboardArgs,
   input_modes: ["markdown", "inline-json", "@file", "stdin"],
 };

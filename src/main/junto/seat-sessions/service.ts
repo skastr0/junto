@@ -98,9 +98,9 @@ export type SeatOffboardEvent = {
 const offboardListeners = new Set<(event: SeatOffboardEvent) => void>();
 
 /**
- * Called whenever a seat's agent runs `junto offboard`. The write never
- * touches the running session; a listener (the offboard closer) closes it
- * once the agent is idle, in the mode the agent chose.
+ * Called once a seat's `junto offboard` has been answered: its notes are on
+ * disk and its reply has been written back. A listener (the offboard closer)
+ * ends the session at once, in the mode the agent chose.
  */
 export const subscribeSeatOffboard = (listener: (event: SeatOffboardEvent) => void): (() => void) => {
   offboardListeners.add(listener);

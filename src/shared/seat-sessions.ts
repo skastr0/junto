@@ -89,12 +89,12 @@ export const composeOffboardAsk = (mode: OffboardMode): string =>
     ? [
         "The operator asks you to offboard and continue in a fresh session.",
         'Finish the step you are on, then run `junto offboard "<notes>" --continue "<note for your next session>"`. The notes say what happened, what is relevant, and why it matters; the continuation says what to pick up next and why.',
-        "When you go idle, Junto starts a fresh session of this seat that reads your continuation first and carries on.",
+        "That command ends this session at once: do it last, with everything the next session needs in the notes. Junto starts a fresh session of this seat right away, and it reads your continuation first.",
       ].join("\n")
     : [
         "The operator asks you to offboard this session.",
         'Finish the step you are on, then run `junto offboard "<notes>"`: what happened, what is relevant, and why it matters, first line the summary.',
-        "When you go idle, Junto closes this session and the seat rests. Its next wake starts a fresh session that reads your notes.",
+        "That command ends this session at once: do it last, with everything worth keeping in the notes. The seat then rests, and its next wake starts a fresh session that reads your notes.",
       ].join("\n");
 
 /**
