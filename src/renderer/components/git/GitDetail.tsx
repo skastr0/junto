@@ -15,8 +15,10 @@ import {
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { claimFocus } from "../../lib/focus-ownership";
 import { getJuntoApi } from "../../lib/junto-api";
-import { agentSeat$, seatEventForNode } from "../../lib/agent-seat-state";
-import { nodeTitle } from "../../lib/presentation";
+import { agentSeat$, seatEventForBinding } from "../../lib/agent-seat-state";
+import { asNodeId } from "@shared/model";
+import { titleOf } from "@shared/model/title";
+import { useCanvas } from "../../lib/use-model";
 import { reviewCandidates } from "@shared/review-candidates";
 import { state$ } from "../../lib/state";
 import { InspectorTabs } from "../chat/InspectorTabs";
@@ -152,8 +154,8 @@ export function GitReviewBody({
   /** The node it was opened from (a seat, a git node): its region decides who can receive the review. */
   readonly anchorNodeId?: string;
 }) {
-  const doc = use$(state$.doc);
-  const candidates = useMemo(() => reviewCandidates(doc, anchorNodeId, nodeTitle), [doc, anchorNodeId]);
+  const canvas = useCanvas(use$(state$.canvasName));
+  const candidates = useMemo(() => reviewCandidates(canvas, anchorNodeId), [canvas, anchorNodeId]);
   // An agent with no live seat can still be mailed: mail wakes it. The pickers
   // say so quietly. Read from the seat plane, which knows every seat on the
   // canvas; a seat whose state is unknown for a moment is not called offline.
@@ -161,19 +163,19 @@ export function GitReviewBody({
   const offline = useMemo(() => {
     const out = new Set<string>();
     for (const candidate of candidates) {
-      const node = doc.nodes.find((entry) => entry.id === candidate.nodeId);
-      const state = node ? seatEventForNode(node)?.state : undefined;
+      const node = canvas.nodes.get(asNodeId(candidate.nodeId));
+      const state = node?.kind === "agent" ? seatEventForBinding(node.bindingId)?.state : undefined;
       if (state === undefined || state === "gone") out.add(candidate.nodeId);
     }
     return out;
     // The seat store mutates in place; its rev carries the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidates, doc, seatRev]);
+  }, [candidates, canvas, seatRev]);
   // Who the review goes to: the session it was opened from, until the operator chooses another.
   const [to, setTo] = useState<string | undefined>(recipientNodeId);
   const nameOf = (nodeId: string): string => {
-    const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-    return node ? nodeTitle(node) : nodeId;
+    const node = canvas.nodes.get(asNodeId(nodeId));
+    return node ? titleOf(node) : nodeId;
   };
   const [view, setView] = useState<GitDetailView>(initialCommit ? "commits" : initialView);
   const [review, setReview] = useState<Extract<GitReviewResult, { ok: true }>>();

@@ -2,7 +2,8 @@
  * A review's comments become one mail per recipient, each standing alone.
  */
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import { asNodeId, type Node } from "../src/shared/model";
+import { canvasOf, note, region, seat } from "./support/model-nodes";
 import { reviewCandidates } from "../src/shared/review-candidates";
 import {
   applyMention,
@@ -177,38 +178,34 @@ describe("one mail per recipient", () => {
 });
 
 describe("who a review can go to", () => {
-  const agent = (id: string, name: string, x: number, y: number): CanvasNode =>
-    ({ id, type: "text", text: name, x, y, width: 100, height: 60, ether: { entity: { kind: "agent", name: `local:${id}` } } }) as unknown as CanvasNode;
-  const doc = {
-    nodes: [
-      { id: "team", type: "group", label: "Team", x: 0, y: 0, width: 1000, height: 1000 },
-      { id: "sub", type: "group", label: "", x: 10, y: 10, width: 400, height: 400 },
-      agent("lead", "Lead", 600, 600),
-      agent("a", "Atlas", 50, 50),
-      agent("b", "Atlas", 200, 50),
-      agent("far", "Far", 5000, 5000),
-      { id: "note", type: "text", text: "A note", x: 60, y: 200, width: 50, height: 50 },
-      { id: "git", type: "text", text: "repo", x: 300, y: 300, width: 50, height: 50, ether: { entity: { kind: "git" } } },
-    ],
-    edges: [],
-  } as unknown as CanvasDoc;
-  const nameOf = (node: CanvasNode): string => (node.type === "text" ? node.text : node.id);
+  const agent = (id: string, name: string, x: number, y: number) =>
+    seat(id, { label: name as never, x, y, width: 100, height: 60 });
+  const doc = canvasOf([
+    region("team", { x: 0, y: 0, width: 1000, height: 1000 }, { label: "Team" as never }),
+    region("sub", { x: 10, y: 10, width: 400, height: 400 }),
+    agent("lead", "Lead", 600, 600),
+    agent("a", "Atlas", 50, 50),
+    agent("b", "Atlas", 200, 50),
+    agent("far", "Far", 5000, 5000),
+    note("note", "A note", { x: 60, y: 200, width: 50, height: 50 }),
+    { kind: "git", id: asNodeId("git"), cwd: "/repo", x: 300, y: 300, width: 50, height: 50, z: 0 } as Node,
+  ]);
 
   it("lists the innermost region's agents first, then each containing region's, never outsiders", () => {
-    const fromSeat = reviewCandidates(doc, "a", nameOf);
+    const fromSeat = reviewCandidates(doc, "a");
     expect(fromSeat.map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead"]);
     expect(fromSeat[0]?.regionPath).toEqual(["Team", "unnamed region"]);
     // Opened from a git node in the same region: the same agents.
-    expect(reviewCandidates(doc, "git", nameOf).map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead"]);
+    expect(reviewCandidates(doc, "git").map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead"]);
   });
 
   it("from the open field, or from nowhere, offers every agent on the canvas", () => {
-    expect(reviewCandidates(doc, "far", nameOf).map((candidate) => candidate.nodeId)).toEqual(["lead", "a", "b", "far"]);
-    expect(reviewCandidates(doc, undefined, nameOf)).toHaveLength(4);
+    expect(reviewCandidates(doc, "far").map((candidate) => candidate.nodeId)).toEqual(["lead", "a", "b", "far"]);
+    expect(reviewCandidates(doc, undefined)).toHaveLength(4);
   });
 
   it("adds the region path to a name only when two candidates share it", () => {
-    const all = reviewCandidates(doc, "a", nameOf);
+    const all = reviewCandidates(doc, "a");
     expect(all.map((candidate) => reviewCandidateLabel(candidate, all))).toEqual([
       "Atlas, Team / unnamed region",
       "Atlas, Team / unnamed region",

@@ -1,5 +1,5 @@
-import type { CanvasDoc, CanvasNode } from "./canvas";
-import { groupMembers, regionDisplayName, regionStack } from "./graph";
+import { asNodeId, inPaintOrder, regionMembers, regionName, regionStack, type Canvas, type Seat } from "./model";
+import { titleOf } from "./model/title";
 import type { ReviewCandidate } from "./git-review";
 
 /**
@@ -10,25 +10,23 @@ import type { ReviewCandidate } from "./git-review";
  * still a candidate: mail wakes it.
  */
 export const reviewCandidates = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   /** The node the review was opened from: a seat, or a git node. */
   anchorNodeId: string | undefined,
-  nameOf: (node: CanvasNode) => string,
 ): ReadonlyArray<ReviewCandidate> => {
-  const agents = doc.nodes.filter((node) => node.type !== "group" && node.ether?.entity?.kind === "agent");
-  const candidate = (node: CanvasNode): ReviewCandidate => ({
-    nodeId: node.id,
-    name: nameOf(node),
-    regionPath: regionStack(doc, node.id).map(regionDisplayName),
+  const agents = inPaintOrder(canvas).filter((node): node is Seat => node.kind === "agent");
+  const candidate = (seat: Seat): ReviewCandidate => ({
+    nodeId: seat.id,
+    name: titleOf(seat),
+    regionPath: regionStack(canvas, seat.id).map(regionName),
   });
-  const stack = anchorNodeId === undefined ? [] : regionStack(doc, anchorNodeId);
+  const stack = anchorNodeId === undefined ? [] : regionStack(canvas, asNodeId(anchorNodeId));
   if (stack.length === 0) return agents.map(candidate);
-  const members = groupMembers(doc);
   const out: ReviewCandidate[] = [];
   const seen = new Set<string>();
   // regionStack is outer to inner; walk it inner to outer.
   for (const region of [...stack].reverse()) {
-    const inside = new Set(members.get(region.id) ?? []);
+    const inside = new Set<string>(regionMembers(canvas, region).map((node) => node.id));
     for (const agent of agents) {
       if (seen.has(agent.id) || !inside.has(agent.id)) continue;
       seen.add(agent.id);
