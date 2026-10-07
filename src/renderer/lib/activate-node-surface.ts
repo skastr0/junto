@@ -5,15 +5,13 @@
  * Kind dispatch is closed to openable surfaces only. Notes, regions, gauges,
  * and other furniture return false (caller still focuses/selects).
  */
-import type { CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
+import { nodeToDocument } from "@shared/model/from-document";
 import { BROWSER_ENABLED, productNodeKindEnabled } from "@shared/features";
-import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { formatNodeRef } from "@shared/node-ref";
-import { resolveTerminalBinding } from "@shared/terminal";
 import { browser$ } from "./browser-state";
-import { storeNodeAsDocument } from "./store-document-node";
+import { nodeAt } from "./use-model";
 import {
-  openAgentChatSurface,
   openDockBrowser,
   openNoteSurface,
 } from "./dock-state";
@@ -28,7 +26,6 @@ export type ActivateNodeSurfaceResult =
 
 export type NodeSurfaceKind =
   | "terminal"
-  | "chat"
   | "work"
   | "note"
   | "page";
@@ -37,34 +34,13 @@ export type NodeSurfaceKind =
  * Pure classification: which surface would open for this node (if any).
  * Side-effect free — used by tests and UI affordance gates.
  */
-export function nodeSurfaceKind(node: CanvasNode): NodeSurfaceKind | null {
-  const kind = node.ether?.entity?.kind;
-  if (kind === "terminal" || kind === "agent") {
-    if (resolveTerminalBinding(node)?.kind === "native") return "terminal";
-    if (kind === "agent" && !ACP_CHAT_SURFACE_HIDDEN) return "chat";
-    return null;
-  }
-  if (
-    productNodeKindEnabled(kind) &&
-    (kind === "task" ||
-      kind === "requests" ||
-      kind === "artifacts" ||
-      kind === "board" ||
-      kind === "pad" ||
-      kind === "sheet" ||
-      kind === "git")
-  ) {
-    return "work";
-  }
-  if (
-    BROWSER_ENABLED &&
-    node.type === "link" &&
-    kind === "page" &&
-    Boolean(node.ether?.browser)
-  ) {
-    return "page";
-  }
-  if (node.type === "text" && !node.ether?.entity) return "note";
+export function nodeSurfaceKind(node: Node): NodeSurfaceKind | null {
+  if (node.kind === "terminal" || node.kind === "agent") return "terminal";
+  if (productNodeKindEnabled(node.kind) &&
+    (node.kind === "task" || node.kind === "requests" || node.kind === "artifacts" ||
+     node.kind === "board" || node.kind === "pad" || node.kind === "sheet" || node.kind === "git")) return "work";
+  if (BROWSER_ENABLED && node.kind === "page") return "page";
+  if (node.kind === "note") return "note";
   return null;
 }
 
@@ -72,7 +48,9 @@ export function nodeSurfaceKind(node: CanvasNode): NodeSurfaceKind | null {
  * Focus is the caller's job (hotkeys already call focusNode). This only opens
  * the model / work surface when one exists for the node.
  */
-export function activateNodeSurface(node: CanvasNode): ActivateNodeSurfaceResult {
+export function activateNodeSurface(nodeId: string): ActivateNodeSurfaceResult {
+  const node = nodeAt(state$.canvasName.peek(), nodeId);
+  if (!node) return { opened: false, reason: "no-surface" };
   const surface = nodeSurfaceKind(node);
   if (surface === null) {
     return { opened: false, reason: "no-surface" };
@@ -80,26 +58,25 @@ export function activateNodeSurface(node: CanvasNode): ActivateNodeSurfaceResult
 
   switch (surface) {
     case "terminal": {
-      void openTerminal(node);
+      // canvas-nodes owns this last inner boundary until openTerminal takes a native node.
+      void openTerminal(nodeToDocument(node));
       return { opened: true, kind: "terminal" };
-    }
-    case "chat": {
-      openAgentChatSurface(node);
-      return { opened: true, kind: "chat" };
     }
     case "work": {
       openWorkDetail(node.id);
       return { opened: true, kind: "work" };
     }
     case "note": {
-      openNoteSurface(node);
+      // The note workbench still takes the document form at this inner boundary.
+      openNoteSurface(nodeToDocument(node));
       return { opened: true, kind: "note" };
     }
     case "page": {
       const canvasName = state$.canvasName.peek();
-      const browser = node.ether?.browser;
-      const url = node.type === "link" ? node.url : "";
-      if (!canvasName || !browser) return { opened: false, reason: "unavailable" };
+      if (node.kind !== "page") return { opened: false, reason: "no-surface" };
+      const browser = { profile: node.profile, host: node.host, onRemove: node.onRemove };
+      const url = node.url;
+      if (!canvasName) return { opened: false, reason: "unavailable" };
       let pageRef: string;
       try {
         pageRef = formatNodeRef({ canvasName, nodeId: node.id });
@@ -125,6 +102,5 @@ export function activateNodeSurface(node: CanvasNode): ActivateNodeSurfaceResult
  */
 export function activateSelectedNodeSurface(): ActivateNodeSurfaceResult {
   const id = state$.selectedNodeId.peek();
-  const node = id ? storeNodeAsDocument(state$.canvasName.peek(), id) : undefined;
-  return node ? activateNodeSurface(node) : { opened: false, reason: "no-surface" };
+  return id ? activateNodeSurface(id) : { opened: false, reason: "no-surface" };
 }

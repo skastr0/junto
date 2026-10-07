@@ -1,3 +1,4 @@
+import { newGit } from "../src/renderer/lib/model-factories";
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { CanvasDoc, WELL_KNOWN_ENTITY_KINDS } from "../src/shared/canvas";
@@ -64,7 +65,7 @@ describe("git geography node", () => {
   });
 
   it("opens the work surface", () => {
-    expect(nodeSurfaceKind(makeGitNode(0, 0, "/tmp/repo"))).toBe("work");
+    expect(nodeSurfaceKind(newGit({ x: 0, y: 0, z: 0 }, "/tmp/repo"))).toBe("work");
   });
 
   it("sits in the work catalog", () => {

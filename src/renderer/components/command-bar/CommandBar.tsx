@@ -264,7 +264,7 @@ export function CommandBar() {
   const commit = (row: CommandBarRow, open: boolean): void => {
     if (row.kind === "node") {
       focusCanvasNode(row.node.id);
-      if (open || overModal) activateNodeSurface(row.node);
+      if (open || overModal) activateNodeSurface(row.node.id);
     } else {
       row.action.run();
     }

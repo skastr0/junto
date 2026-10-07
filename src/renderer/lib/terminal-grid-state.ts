@@ -1,5 +1,6 @@
 import { observable } from "@legendapp/state";
-import { storeNodeAsDocument } from "./store-document-node";
+import { nodeAt } from "./use-model";
+import { nodeToDocument } from "@shared/model/from-document";
 import { state$ } from "./state";
 import { openAgentGridTerminals } from "./terminal-actions";
 import { closeGridTerminalSurfaces } from "./terminal-state";
@@ -22,10 +23,11 @@ export const openTerminalGrid = (
 ): void => {
   const canvas = state$.canvasName.peek();
   const ordered = nodeIds.flatMap((id) => {
-    const node = storeNodeAsDocument(canvas, id);
+    const node = nodeAt(canvas, id);
     return node ? [node] : [];
   });
-  const opened = openAgentGridTerminals(ordered);
+  // canvas-nodes owns this last inner boundary until the grid opener takes native nodes.
+  const opened = openAgentGridTerminals(ordered.map(nodeToDocument));
   if (opened.length === 0) return;
   terminalGrid$.set({ nodeIds: [...opened], choice, page: 0 });
 };

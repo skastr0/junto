@@ -9,7 +9,6 @@ import { useEffect, useMemo } from "react";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { asNodeId, nodesOf, regionMembers, type Canvas, type Node } from "@shared/model";
-import { storeNodeAsDocument } from "./store-document-node";
 import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
 import { agentSeat$, seatEventForBinding } from "./agent-seat-state";
 import { chatCoarse$ } from "./chat-state";
@@ -44,7 +43,7 @@ import {
 import { digitLease, liveAttentionReasons, seatFactsForNode, type SeatFacts } from "./seat-projections";
 import { selectNodes, state$ } from "./state";
 import { terminal$ } from "./terminal-state";
-import { modelStore } from "./use-model";
+import { modelStore, nodeAt } from "./use-model";
 
 /** The open canvas as the store holds it now. Read, never followed. */
 const canvasNow = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
@@ -303,8 +302,8 @@ export const frameGroup = (nodeIds: ReadonlyArray<string>): void => {
 /** Focus then open the live surface when the node has one (actor model, etc.). */
 export const focusAndActivate = (nodeId: string): void => {
   focusNode(nodeId);
-  const node = storeNodeAsDocument(state$.canvasName.peek(), nodeId);
-  if (node) activateNodeSurface(node);
+  const node = nodeAt(state$.canvasName.peek(), nodeId);
+  if (node) activateNodeSurface(node.id);
 };
 
 /** Carry out one recall step from the command-group contract. */
@@ -368,7 +367,7 @@ export const recallSlot = (slotIndex: number): boolean => {
  * slot holds nothing that opens.
  */
 export const jumpToSlot = (slotIndex: number): boolean => {
-  // What opens is still asked in the document form: activate-node-surface
+  // What opens is asked of the native node: activate-node-surface
   // takes one. The node itself is the store's, read once here.
   const canvasName = state$.canvasName.peek();
   const registry = dock$.registry.peek();
@@ -377,7 +376,7 @@ export const jumpToSlot = (slotIndex: number): boolean => {
     slotIndex,
     recallContext(canvasNow()),
     (id) => {
-      const node = storeNodeAsDocument(canvasName, id);
+      const node = nodeAt(canvasName, id);
       return node !== undefined && nodeSurfaceKind(node) !== null;
     },
     focusMruNodeIds(registry.surfaces, registry.focusMru)[0] ?? null,

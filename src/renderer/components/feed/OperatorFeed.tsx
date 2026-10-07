@@ -100,7 +100,7 @@ const openSeat = (item: FeedItem, node: CanvasNode | undefined): void => {
   if (!node) return;
   closeOperatorFeed();
   if (item.signalId) requestSectionReveal(node.id, SIGNALS_SECTION);
-  activateNodeSurface(node);
+  activateNodeSurface(node.id);
 };
 
 /**

@@ -19,7 +19,6 @@ import { slotIndexOf, type HotbarSlot } from "./hotbar-slots";
 import type { SeatUrgency } from "./seat-line";
 import { seatUrgencyOf } from "../components/SeatRing";
 import { state$ } from "./state";
-import { storeNodeAsDocument } from "./store-document-node";
 import type { WorkSurface } from "./surface-registry";
 import { seatUrgencyOrder } from "./urgency-order";
 import { modelStore } from "./use-model";
@@ -193,9 +192,6 @@ export const commitFocusSwitcher = (): boolean => {
   const entry = session.entries[session.selectedIndex];
   cancelFocusSwitcher();
   if (!entry) return false;
-  // The terminal family still opens from a document node.
-  const node = storeNodeAsDocument(state$.canvasName.peek(), entry.nodeId);
-  if (!node) return false;
-  const result = activateNodeSurface(node);
+  const result = activateNodeSurface(entry.nodeId);
   return result.opened;
 };

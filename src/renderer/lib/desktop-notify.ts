@@ -18,7 +18,6 @@ import { useOperatorFeed } from "./operator-feed";
 import { openOperatorModal } from "./operator-modal";
 import { playNotificationCue } from "./sound";
 import { state$ } from "./state";
-import { storeNodeAsDocument } from "./store-document-node";
 import { terminal$ } from "./terminal-state";
 import { onTerminalEvent } from "./terminal-events";
 import { useCanvas } from "./use-model";
@@ -205,9 +204,7 @@ const useNotifyReport = (): NotifyReport | null => {
 export const openNotifyTarget = (target: NotifyTarget): void => {
   if (!target.canvasName) return;
   if (target.kind === "seat" && target.canvasName === state$.canvasName.peek()) {
-    // The terminal family still opens from a document node.
-    const node = storeNodeAsDocument(target.canvasName, target.nodeId);
-    if (node && activateNodeSurface(node).opened) return;
+    if (activateNodeSurface(target.nodeId).opened) return;
   }
   openOperatorModal("feed");
 };

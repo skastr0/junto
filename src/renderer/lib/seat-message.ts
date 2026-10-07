@@ -1,5 +1,6 @@
 import type { CanvasNode } from "@shared/canvas";
-import { storeNodeAsDocument } from "./store-document-node";
+import { nodeAt } from "./use-model";
+import { nodeToDocument } from "@shared/model/from-document";
 import { factoryPause$ } from "./factory-pause";
 import {
   multiPromptAgents,
@@ -43,10 +44,11 @@ export const planSeatMessage = (nodes: ReadonlyArray<CanvasNode>): SeatMessagePl
 /** The seats the operator is about to message, read fresh off the canvas. */
 export const planSeatMessageFor = (nodeIds: ReadonlyArray<string>): SeatMessagePlan => {
   const canvas = state$.canvasName.peek();
+  // canvas-nodes owns this last inner boundary until planSeatMessage takes native nodes.
   return planSeatMessage(
     [...new Set(nodeIds)].flatMap((id) => {
-      const node = storeNodeAsDocument(canvas, id);
-      return node ? [node] : [];
+      const node = nodeAt(canvas, id);
+      return node ? [nodeToDocument(node)] : [];
     }),
   );
 };

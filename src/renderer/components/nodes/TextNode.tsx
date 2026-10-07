@@ -623,7 +623,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             if (managedTerminal || isAgent || isWorkSurface) {
               const node = documentNodeAt(id);
               if (!node) return;
-              const result = activateNodeSurface(node);
+              const result = activateNodeSurface(node.id);
               if (result.opened) return;
               // Work surfaces also open via local state when the trigger path
               // is unavailable (tests / no work-detail bus).
