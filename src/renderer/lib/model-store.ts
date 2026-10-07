@@ -244,7 +244,7 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
     canvases$[canvas].delete();
   };
 
-  return {
+  const store = {
     /** The observable for one canvas. Read a field of it to hear only that field. */
     canvas$,
     node$: (canvas: string, id: string): Observable<Node | undefined> =>
@@ -282,31 +282,45 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
     ready: (canvas: string): Promise<void> => opening.get(canvas) ?? Promise.resolve(),
 
     /**
-     * Change something. The window shows the result at once where it can know
-     * it, and main's event settles it. A command main refuses is undone by
-     * reading the canvas again, and the refusal is returned to the caller.
+     * Show at once what a command will have done, where the window can know
+     * it. Returns whether anything was shown; main's event settles it either
+     * way.
      */
-    send: async (command: Command): Promise<void> => {
+    show: (command: Command): boolean => {
+      const canvas = command.canvas;
+      if ((users.get(canvas) ?? 0) === 0 || canvas$(canvas).status.peek() !== "open") return false;
+      const rows = rowsAfterCommand(canvas$(canvas).peek(), command);
+      if (rows === undefined) return false;
+      applyRows(canvas, rows);
+      return true;
+    },
+
+    /**
+     * Hand a command to main. A command main refuses is undone, when it was
+     * shown, by reading the canvas again, and the refusal goes to the caller.
+     */
+    deliver: async (command: Command, shown: boolean): Promise<void> => {
       const api = getApi();
       if (api === undefined) throw new Error("Junto is not available.");
-      const canvas = command.canvas;
-      const shown = (users.get(canvas) ?? 0) > 0 && canvas$(canvas).status.peek() === "open";
-      const rows = shown ? rowsAfterCommand(canvas$(canvas).peek(), command) : undefined;
-      if (rows !== undefined) applyRows(canvas, rows);
       try {
         await api.modelCommand(command);
       } catch (error) {
-        if (rows !== undefined && (users.get(canvas) ?? 0) > 0) void read(canvas);
+        if (shown && (users.get(command.canvas) ?? 0) > 0) void read(command.canvas);
         throw error;
       }
+    },
+
+    /** Show a command and hand it to main, in one call. */
+    send: async (command: Command): Promise<void> => {
+      if (getApi() === undefined) throw new Error("Junto is not available.");
+      await store.deliver(command, store.show(command));
     },
 
     applyChanged,
 
     /**
-     * Fill a canvas from rows the window already holds, without asking main.
-     * Temporary: it stands in for `modelOpen` until main serves it, and goes
-     * with the last reader of the document.
+     * Hold a canvas from rows the caller already has, without asking main: a
+     * test, or a view of a canvas that main does not serve.
      */
     adopt: (opened: Opened): (() => void) => {
       const canvas = opened.canvas;
@@ -322,6 +336,7 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
       };
     },
   };
+  return store;
 };
 
 export type ModelStore = ReturnType<typeof createModelStore>;

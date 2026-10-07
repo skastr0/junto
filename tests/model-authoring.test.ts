@@ -13,15 +13,20 @@ const name = asCanvasName("factory");
 const note = (id: string, over: Record<string, unknown> = {}): Node =>
   ({ kind: "note", id, x: 10, y: 20, width: 220, height: 84, z: 0, text: "hello", ...over }) as unknown as Node;
 
-/** A store that applies what it is sent, as main would, and can be told to refuse. */
+/**
+ * A store with a main behind it: what is shown is shown at once, main takes
+ * commands one at a time and can be told to refuse, and a refusal puts what
+ * is shown back to what main holds.
+ */
 const fakeStore = (nodes: Node[]) => {
-  let canvas: Canvas = canvasFromOpened({ canvas: name, seq: 0, nodes, wires: [] });
+  let main: Canvas = canvasFromOpened({ canvas: name, seq: 0, nodes, wires: [] });
+  let shown: Canvas = main;
   const sent: Command[] = [];
   let refuse: ((command: Command) => boolean) | undefined;
   let gate: Promise<void> = Promise.resolve();
   return {
     sent,
-    at: (id: string) => canvas.nodes.get(id as Node["id"]),
+    at: (id: string) => shown.nodes.get(id as Node["id"]),
     refuseWhen: (when: ((command: Command) => boolean) | undefined) => {
       refuse = when;
     },
@@ -29,12 +34,19 @@ const fakeStore = (nodes: Node[]) => {
       gate = until;
     },
     store: {
-      canvasOf: () => canvas,
-      send: async (command: Command) => {
+      canvasOf: () => shown,
+      show: (command: Command) => {
+        shown = canvasAfter(shown, command);
+        return true;
+      },
+      deliver: async (command: Command) => {
         await gate;
-        if (refuse?.(command)) throw new Error("refused");
+        if (refuse?.(command)) {
+          shown = main;
+          throw new Error("refused");
+        }
         sent.push(command);
-        canvas = canvasAfter(canvas, command);
+        main = canvasAfter(main, command);
       },
     },
   };
@@ -103,6 +115,28 @@ describe("authoring", () => {
     expect(await undone).toBe(true);
     expect(fake.at("a")?.color).toBeUndefined();
     expect(fake.at("b")?.color).toBe("3");
+  });
+
+  it("shows an edit when it is made, even while the one before is still on its way", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    let open: () => void = () => undefined;
+    fake.holdUntil(new Promise<void>((resolve) => {
+      open = resolve;
+    }));
+    const first = authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"));
+    const second = authoring.act(name, moved(fake.store.canvasOf(), new Map([["plan", { x: 300, y: 300 }]])));
+    // Neither has reached main, and both already show.
+    expect(fake.sent).toEqual([]);
+    expect(fake.at("plan")).toMatchObject({ text: "one", x: 300 });
+    open();
+    await Promise.all([first, second]);
+    expect(fake.sent.map((command) => command._tag)).toEqual(["Edit", "Move"]);
+    // Each is taken back to what it was made from.
+    expect(await authoring.undo(name)).toBe(true);
+    expect(fake.at("plan")).toMatchObject({ text: "one", x: 10 });
+    expect(await authoring.undo(name)).toBe(true);
+    expect(fake.at("plan")).toMatchObject({ text: "hello", x: 10 });
   });
 
   it("says when it is busy, and when everything sent has landed", async () => {

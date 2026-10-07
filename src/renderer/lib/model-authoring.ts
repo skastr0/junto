@@ -10,8 +10,10 @@ import { asOneAct, createEditHistory, type EditHistory, type UndoContext } from 
 export type AuthoringStore = {
   /** The canvas as the window holds it now. */
   readonly canvasOf: (canvas: string) => Canvas;
-  /** Send one command; rejects when main refuses it. */
-  readonly send: (command: Command) => Promise<void>;
+  /** Show at once what a command will do; says whether anything was shown. */
+  readonly show: (command: Command) => boolean;
+  /** Hand a command to main; rejects when main refuses it. */
+  readonly deliver: (command: Command, shown: boolean) => Promise<void>;
 };
 
 export type Authoring = {
@@ -75,7 +77,7 @@ export const createAuthoring = (
     return next;
   };
   const sendAll = async (commands: ReadonlyArray<Command>): Promise<void> => {
-    for (const command of commands) await store.send(command);
+    for (const command of commands) await store.deliver(command, store.show(command));
   };
 
   const turn = (canvas: string, direction: "undo" | "redo"): Promise<boolean> =>
@@ -95,19 +97,22 @@ export const createAuthoring = (
     });
 
   return {
-    act: (canvas, commands, options) =>
-      commands.length === 0
-        ? Promise.resolve()
-        : inTurn(async () => {
-            const before = store.canvasOf(canvas);
-            const ctx = context(canvas);
-            // Several commands are one act: main takes all of them or none.
-            const act = commands[0] === undefined ? commands : asOneAct(commands[0].canvas, commands);
-            await sendAll(act);
-            if (options?.remember === false) return;
-            historyOf(canvas).record(before, act, ctx);
-            changed(canvas);
-          }),
+    act: (canvas, commands, options) => {
+      if (commands.length === 0) return Promise.resolve();
+      // Worked out and shown now, whatever is still on its way: the operator
+      // sees an edit when it is made, not when its turn to be sent comes.
+      const before = store.canvasOf(canvas);
+      const ctx = context(canvas);
+      // Several commands are one act: main takes all of them or none.
+      const act = commands[0] === undefined ? commands : asOneAct(commands[0].canvas, commands);
+      const shown = act.map((command) => store.show(command));
+      return inTurn(async () => {
+        for (const [index, command] of act.entries()) await store.deliver(command, shown[index] === true);
+        if (options?.remember === false) return;
+        historyOf(canvas).record(before, act, ctx);
+        changed(canvas);
+      });
+    },
     undo: (canvas) => turn(canvas, "undo"),
     redo: (canvas) => turn(canvas, "redo"),
     canUndo: (canvas) => histories.get(canvas)?.canUndo() ?? false,
