@@ -171,3 +171,93 @@ describe("routeWire", () => {
     expect(routed!.path).not.toContain("M 82,0 L 82,292");
   });
 });
+
+describe("routeWire on a crowded canvas", () => {
+  /** The corners of a rounded path: where it starts, each turn, where it ends. */
+  const cornersOf = (path: string): Array<{ x: number; y: number }> => {
+    const out: Array<{ x: number; y: number }> = [];
+    for (const part of path.split(/(?=[MLQ])/u)) {
+      const numbers = part.slice(1).trim().split(/[ ,]+/u).map(Number);
+      // A turn is drawn as a curve whose control point is the corner itself.
+      if (part[0] === "Q") out[out.length - 1] = { x: numbers[0]!, y: numbers[1]! };
+      else out.push({ x: numbers[0]!, y: numbers[1]! });
+    }
+    return out;
+  };
+
+  const grid = (cols: number, rows: number) => {
+    const cards: Array<{ x: number; y: number; width: number; height: number }> = [];
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        cards.push({ x: col * 300, y: row * 130, width: 260, height: 96 });
+      }
+    }
+    return cards;
+  };
+
+  it("routes a wire across a whole grid of cards without crossing one", () => {
+    const cards = grid(13, 12);
+    const from = cards[0]!;
+    const to = cards[cards.length - 1]!;
+    const obstacles = cards.filter((card) => card !== from && card !== to);
+    const routed = routeWire({
+      source: { x: from.x + from.width, y: from.y + from.height / 2 },
+      target: { x: to.x, y: to.y + to.height / 2 },
+      obstacles,
+      padding: 14,
+      borderRadius: 8,
+      sourceDirection: "right",
+      targetDirection: "left",
+    });
+    expect(routed).not.toBeNull();
+    const corners = cornersOf(routed!.path);
+    expect(corners[0]).toEqual({ x: from.x + from.width, y: from.y + from.height / 2 });
+    expect(corners[corners.length - 1]).toEqual({ x: to.x, y: to.y + to.height / 2 });
+    expect(polylineHitsObstacles(corners, obstacles)).toBe(false);
+    // Every leg runs along one axis.
+    for (let i = 1; i < corners.length; i++) {
+      expect(corners[i]!.x === corners[i - 1]!.x || corners[i]!.y === corners[i - 1]!.y).toBe(true);
+    }
+  });
+
+  it("never draws a route through a card between its ends, over many scattered layouts", () => {
+    let seed = 20261007;
+    const next = (): number => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    const whole = (low: number, high: number): number => Math.floor(low + next() * (high - low + 1));
+    let routed = 0;
+    for (let layout = 0; layout < 400; layout++) {
+      // Every card lies in the box between the two ends: the router only
+      // looks at cards there, so a route is only promised clear of those.
+      const source = { x: 0, y: whole(0, 10) * 20 };
+      const target = { x: 1400, y: whole(60, 70) * 20 };
+      const obstacles = Array.from({ length: whole(1, 30) }, () => {
+        const width = whole(2, 16) * 20;
+        const height = whole(2, 8) * 20;
+        return {
+          x: whole(2, (1360 - width) / 20) * 20,
+          y: whole(source.y / 20, (target.y - height) / 20) * 20,
+          width,
+          height,
+        };
+      });
+      const result = routeWire({ source, target, obstacles, padding: 14, borderRadius: 8 });
+      if (!result) continue;
+      routed++;
+      const corners = cornersOf(result.path);
+      expect(corners[0], `layout ${String(layout)}`).toEqual(source);
+      expect(corners[corners.length - 1], `layout ${String(layout)}`).toEqual(target);
+      expect(polylineHitsObstacles(corners, obstacles), `layout ${String(layout)}`).toBe(false);
+    }
+    expect(routed).toBeGreaterThan(100);
+  });
+
+  it("gives up at once when an end is buried in a card", () => {
+    const card = { x: 100, y: 100, width: 200, height: 200 };
+    expect(
+      routeWire({ source: { x: 200, y: 200 }, target: { x: 600, y: 200 }, obstacles: [card], padding: 0 }),
+    ).toBeNull();
+  });
+});

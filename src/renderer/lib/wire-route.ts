@@ -273,6 +273,19 @@ function visibilityRoute(
       o.y <= cMaxY,
   );
   if (relevant.length === 0) return null;
+  // An end buried in a card's moat has no leg out of it: every step from it
+  // crosses that card. Say so now rather than after building the whole graph,
+  // which on a crowded canvas is what a dragged or tightly packed card costs.
+  // Only an end more than a unit inside counts: nearer the edge than that, a
+  // leg's last point can be simplified onto the edge and the route exists.
+  const buried = (point: WirePoint, rect: WireRect): boolean =>
+    point.x > rect.x + 1 &&
+    point.x < rect.x + rect.width - 1 &&
+    point.y > rect.y + 1 &&
+    point.y < rect.y + rect.height - 1;
+  if (relevant.some((obstacle) => buried(source, obstacle) || buried(target, obstacle))) {
+    return null;
+  }
 
   const pointsByKey = new Map<string, RoutePoint>();
   const addPoint = (x: number, y: number, force = false) => {
@@ -320,47 +333,255 @@ function visibilityRoute(
   type RouteStep = {
     readonly to: number;
     readonly points: WirePoint[];
+    /** The way the leg leaves its first point. */
+    readonly first: WireDirection;
+    /** The way it arrives. */
+    readonly last: WireDirection;
+    readonly length: number;
+    /** What the leg costs arriving the way it leaves, and arriving any other way. */
+    readonly plain: number;
+    readonly bent: number;
   };
-  const adjacency: RouteStep[][] = points.map(() => []);
-  const addStep = (from: number, to: number, candidate: ReadonlyArray<WirePoint>) => {
-    const path = simplifyPolyline(candidate);
-    if (path.length < 2 || polylineHitsObstacles(path, relevant)) return;
-    adjacency[from]!.push({ to, points: path.slice(1) });
+
+  // How far a straight run can go from a point, each way, before it would
+  // cross a card. Worked out once per point, it answers whether a leg is
+  // clear by comparing two numbers instead of asking every card again.
+  type Reach = { readonly left: number; readonly right: number; readonly up: number; readonly down: number };
+  const reaches: Array<Reach | undefined> = points.map(() => undefined);
+  const reachOf = (index: number): Reach => {
+    const held = reaches[index];
+    if (held) return held;
+    const point = points[index]!;
+    let left = -Infinity;
+    let right = Infinity;
+    let up = -Infinity;
+    let down = Infinity;
+    for (const rect of relevant) {
+      const rectRight = rect.x + rect.width;
+      const rectBottom = rect.y + rect.height;
+      if (point.y > rect.y && point.y < rectBottom) {
+        if (rectRight > point.x) right = Math.min(right, Math.max(rect.x, point.x));
+        if (rect.x < point.x) left = Math.max(left, Math.min(rectRight, point.x));
+      }
+      if (point.x > rect.x && point.x < rectRight) {
+        if (rectBottom > point.y) down = Math.min(down, Math.max(rect.y, point.y));
+        if (rect.y < point.y) up = Math.max(up, Math.min(rectBottom, point.y));
+      }
+    }
+    const reach = { left, right, up, down };
+    reaches[index] = reach;
+    return reach;
   };
-  for (let i = 0; i < points.length; i++) {
-    for (let j = i + 1; j < points.length; j++) {
-      const a = points[i]!;
-      const b = points[j]!;
-      if (a.x === b.x || a.y === b.y) {
-        addStep(i, j, [a, b]);
-        addStep(j, i, [b, a]);
+  /** A leg shorter than this on either axis is tested the long way: it may be simplified away. */
+  const SURE = 1;
+
+  // A leg runs along a card's edge only when it lies on that edge's own line,
+  // so the cards are looked up by the line instead of asked one by one.
+  const byHorizontalEdge = new Map<number, WireRect[]>();
+  const byVerticalEdge = new Map<number, WireRect[]>();
+  const index = (held: Map<number, WireRect[]>, line: number, rect: WireRect) => {
+    const rects = held.get(line);
+    if (rects) {
+      if (rects[rects.length - 1] !== rect) rects.push(rect);
+    } else held.set(line, [rect]);
+  };
+  for (const obstacle of relevant) {
+    index(byHorizontalEdge, obstacle.y, obstacle);
+    index(byHorizontalEdge, obstacle.y + obstacle.height, obstacle);
+    index(byVerticalEdge, obstacle.x, obstacle);
+    index(byVerticalEdge, obstacle.x + obstacle.width, obstacle);
+  }
+  const runsAlongAnyBoundary = (a: WirePoint, b: WirePoint): boolean => {
+    if (a.y === b.y) {
+      const rects = byHorizontalEdge.get(a.y);
+      if (rects?.some((rect) => runsAlongBoundary(a, b, rect))) return true;
+    }
+    if (a.x === b.x) {
+      const rects = byVerticalEdge.get(a.x);
+      if (rects?.some((rect) => runsAlongBoundary(a, b, rect))) return true;
+    }
+    return false;
+  };
+
+  const portPenalty = 180;
+  const bendPenalty = 72;
+  const shortSegmentPenalty = 120;
+  const boundaryPenalty = 260;
+  const minInternalSegment = Math.max(borderRadius * 2, 14);
+
+  /** What a leg costs, arriving at its first point heading `incoming`. */
+  const scoreLeg = (
+    from: number,
+    to: number,
+    legPoints: ReadonlyArray<WirePoint>,
+    incoming: WireDirection | null,
+  ): { cost: number; length: number; first: WireDirection | null; last: WireDirection | null } => {
+    let previousPoint: WirePoint = points[from]!;
+    let direction = incoming;
+    let first: WireDirection | null = null;
+    let stepCost = 0;
+    let stepLength = 0;
+    let stepIndex = 0;
+    for (const next of legPoints) {
+      const nextDirection = directionOf(previousPoint, next);
+      if (!nextDirection) {
+        stepIndex++;
+        previousPoint = next;
+        continue;
+      }
+      first ??= nextDirection;
+      const length = Math.hypot(next.x - previousPoint.x, next.y - previousPoint.y);
+      stepLength += length;
+      stepCost +=
+        length + (direction && direction !== nextDirection ? bendPenalty : 0);
+      if (runsAlongAnyBoundary(previousPoint, next)) {
+        // Padding-zero recovery is allowed to touch a boundary, but it is
+        // never preferred over an equally short path that stays in the
+        // open field. This keeps a wire from visually merging with a card.
+        stepCost += boundaryPenalty;
+      }
+      if (
+        length < minInternalSegment &&
+        from !== sourceIndex &&
+        !(to === targetIndex && stepIndex === legPoints.length - 1)
+      ) {
+        stepCost += shortSegmentPenalty;
+      }
+      if (
+        from === sourceIndex &&
+        stepIndex === 0 &&
+        input.sourceDirection &&
+        nextDirection !== input.sourceDirection
+      ) {
+        stepCost += portPenalty;
+      }
+      if (
+        to === targetIndex &&
+        stepIndex === legPoints.length - 1 &&
+        input.targetDirection &&
+        nextDirection !== opposite(input.targetDirection)
+      ) {
+        stepCost += portPenalty;
+      }
+      direction = nextDirection;
+      previousPoint = next;
+      stepIndex++;
+    }
+    return { cost: stepCost, length: stepLength, first, last: direction };
+  };
+
+  // The legs out of a point are worked out when the search first stands on
+  // it. The search stops at the first good arrival, so most points are never
+  // stood on and their legs never built. The order is the one a full build
+  // gives: a leg to every other point, in the points' own order. A leg's
+  // cost depends on the search only through whether it arrives heading the
+  // way the leg leaves, so both costs are worked out here, once.
+  const adjacency: Array<RouteStep[] | undefined> = points.map(() => undefined);
+  const stepsFrom = (from: number): RouteStep[] => {
+    const held = adjacency[from];
+    if (held) return held;
+    const steps: RouteStep[] = [];
+    const here = points[from]!;
+    const push = (to: number, legPoints: WirePoint[]) => {
+      const plain = scoreLeg(from, to, legPoints, null);
+      if (!plain.first || !plain.last || plain.length <= 0) return;
+      const turned: WireDirection = plain.first === "left" || plain.first === "right" ? "top" : "left";
+      steps.push({
+        to,
+        points: legPoints,
+        first: plain.first,
+        last: plain.last,
+        length: plain.length,
+        plain: plain.cost,
+        bent: scoreLeg(from, to, legPoints, turned).cost,
+      });
+    };
+    const addStep = (to: number, candidate: ReadonlyArray<WirePoint>) => {
+      const path = simplifyPolyline(candidate);
+      if (path.length < 2 || polylineHitsObstacles(path, relevant)) return;
+      push(to, path.slice(1));
+    };
+    const reach = reachOf(from);
+    for (let other = 0; other < points.length; other++) {
+      if (other === from) continue;
+      const there = points[other]!;
+      const dx = Math.abs(there.x - here.x);
+      const dy = Math.abs(there.y - here.y);
+      if (here.x === there.x || here.y === there.y) {
+        if (here.y === there.y && dx > SURE) {
+          if (there.x >= reach.left && there.x <= reach.right) push(other, [there]);
+        } else if (here.x === there.x && dy > SURE) {
+          if (there.y >= reach.up && there.y <= reach.down) push(other, [there]);
+        } else {
+          addStep(other, [here, there]);
+        }
         continue;
       }
       // Every shortest rectilinear route can turn at one of these obstacle
       // corners (or at a handle lead). Keep both L orientations when clear;
       // the Dijkstra score chooses the one that respects the port directions.
-      addStep(i, j, [a, { x: b.x, y: a.y }, b]);
-      addStep(i, j, [a, { x: a.x, y: b.y }, b]);
-      addStep(j, i, [b, { x: a.x, y: b.y }, a]);
-      addStep(j, i, [b, { x: b.x, y: a.y }, a]);
+      if (dx > SURE && dy > SURE) {
+        const far = reachOf(other);
+        // Along from here, then up or down into there.
+        if (
+          there.x >= reach.left && there.x <= reach.right &&
+          here.y >= far.up && here.y <= far.down
+        ) {
+          push(other, [{ x: there.x, y: here.y }, there]);
+        }
+        // Up or down from here, then along into there.
+        if (
+          there.y >= reach.up && there.y <= reach.down &&
+          here.x >= far.left && here.x <= far.right
+        ) {
+          push(other, [{ x: here.x, y: there.y }, there]);
+        }
+        continue;
+      }
+      addStep(other, [here, { x: there.x, y: here.y }, there]);
+      addStep(other, [here, { x: here.x, y: there.y }, there]);
     }
-  }
+    adjacency[from] = steps;
+    return steps;
+  };
 
   type State = {
     readonly point: number;
     readonly direction: WireDirection | null;
     readonly cost: number;
     readonly length: number;
+    /**
+     * What the queue is ordered by: the cost so far plus the least any route
+     * from here to the target can still cost, which is the straight distance
+     * along the two axes. Ordered this way the search heads for the target
+     * and stops without standing on the far side of the canvas, and the
+     * first arrival is still a cheapest one.
+     */
+    readonly rank: number;
+    readonly reach: number;
     readonly edgePoints: WirePoint[];
     readonly previous: State | null;
   };
-  const best = new Map<string, State>();
+  const remaining = points.map(
+    (point) => Math.abs(target.x - point.x) + Math.abs(target.y - point.y),
+  );
+  const outranks = (a: State, b: State): number => {
+    const delta = a.rank - b.rank;
+    if (Math.abs(delta) > 1e-6) return delta;
+    return a.reach - b.reach;
+  };
+  // The best state reached at each point heading each way, by number.
+  const best: Array<State | undefined> = [];
+  /** The best state queued so far for each, popped or not. */
+  const queued: Array<State | undefined> = [];
   const queue: State[] = [
     {
       point: sourceIndex,
       direction: null,
       cost: 0,
       length: 0,
+      rank: remaining[sourceIndex]!,
+      reach: remaining[sourceIndex]!,
       edgePoints: [],
       previous: null,
     },
@@ -370,7 +591,7 @@ function visibilityRoute(
     let index = queue.length - 1;
     while (index > 0) {
       const parent = Math.floor((index - 1) / 2);
-      if (compareScore(queue[parent]!, queue[index]!) <= 0) break;
+      if (outranks(queue[parent]!, queue[index]!) <= 0) break;
       [queue[parent], queue[index]] = [queue[index]!, queue[parent]!];
       index = parent;
     }
@@ -386,10 +607,10 @@ function visibilityRoute(
         const left = index * 2 + 1;
         const right = left + 1;
         let smallest = index;
-        if (left < queue.length && compareScore(queue[left]!, queue[smallest]!) < 0) {
+        if (left < queue.length && outranks(queue[left]!, queue[smallest]!) < 0) {
           smallest = left;
         }
-        if (right < queue.length && compareScore(queue[right]!, queue[smallest]!) < 0) {
+        if (right < queue.length && outranks(queue[right]!, queue[smallest]!) < 0) {
           smallest = right;
         }
         if (smallest === index) break;
@@ -400,20 +621,15 @@ function visibilityRoute(
     return first;
   };
 
-  const stateKey = (point: number, direction: WireDirection | null): string =>
-    `${point}:${direction ?? "none"}`;
-  const portPenalty = 180;
-  const bendPenalty = 72;
-  const shortSegmentPenalty = 120;
-  const boundaryPenalty = 260;
-  const minInternalSegment = Math.max(borderRadius * 2, 14);
-
+  const stateKey = (point: number, direction: WireDirection | null): number =>
+    point * 5 +
+    (direction === null ? 0 : direction === "left" ? 1 : direction === "right" ? 2 : direction === "top" ? 3 : 4);
   while (queue.length > 0) {
     const current = popQueue()!;
     const currentKey = stateKey(current.point, current.direction);
-    const recorded = best.get(currentKey);
+    const recorded = best[currentKey];
     if (recorded && compareScore(recorded, current) <= 0) continue;
-    best.set(currentKey, current);
+    best[currentKey] = current;
     if (current.point === targetIndex) {
       // The first target state is the best one under the same score ordering.
       const states: State[] = [];
@@ -455,67 +671,34 @@ function visibilityRoute(
       };
     }
 
-    for (const step of adjacency[current.point]!) {
-      let previousPoint: WirePoint = points[current.point]!;
-      let direction = current.direction;
-      let stepCost = 0;
-      let stepLength = 0;
-      let stepIndex = 0;
-      for (const next of step.points) {
-        const nextDirection = directionOf(previousPoint, next);
-        if (!nextDirection) {
-          stepIndex++;
-          previousPoint = next;
-          continue;
-        }
-        const length = Math.hypot(next.x - previousPoint.x, next.y - previousPoint.y);
-        stepLength += length;
-        stepCost +=
-          length + (direction && direction !== nextDirection ? bendPenalty : 0);
-        if (relevant.some((obstacle) => runsAlongBoundary(previousPoint, next, obstacle))) {
-          // Padding-zero recovery is allowed to touch a boundary, but it is
-          // never preferred over an equally short path that stays in the
-          // open field. This keeps a wire from visually merging with a card.
-          stepCost += boundaryPenalty;
-        }
-        if (
-          length < minInternalSegment &&
-          current.point !== sourceIndex &&
-          !(step.to === targetIndex && stepIndex === step.points.length - 1)
-        ) {
-          stepCost += shortSegmentPenalty;
-        }
-        if (
-          current.point === sourceIndex &&
-          stepIndex === 0 &&
-          input.sourceDirection &&
-          nextDirection !== input.sourceDirection
-        ) {
-          stepCost += portPenalty;
-        }
-        if (
-          step.to === targetIndex &&
-          stepIndex === step.points.length - 1 &&
-          input.targetDirection &&
-          nextDirection !== opposite(input.targetDirection)
-        ) {
-          stepCost += portPenalty;
-        }
-        direction = nextDirection;
-        previousPoint = next;
-        stepIndex++;
+    for (const step of stepsFrom(current.point)) {
+      const cost =
+        current.cost +
+        (current.direction && current.direction !== step.first ? step.bent : step.plain);
+      const length = current.length + step.length;
+      // Queue a state only when it beats everything already reached or queued
+      // for the same point and heading. Without this the same state is
+      // queued, and later popped and thrown away, tens of times over on a
+      // crowded canvas.
+      const key = stateKey(step.to, step.last);
+      const held = best[key] ?? queued[key];
+      if (held) {
+        const delta = cost - held.cost;
+        if (Math.abs(delta) > 1e-6 ? delta >= 0 : length >= held.length) continue;
       }
-      if (!direction || stepLength <= 0) continue;
+      const ahead = remaining[step.to]!;
       const nextState: State = {
         point: step.to,
-        direction,
-        cost: current.cost + stepCost,
-        length: current.length + stepLength,
+        direction: step.last,
+        cost,
+        length,
+        rank: cost + ahead,
+        reach: length + ahead,
         edgePoints: step.points,
         previous: current,
       };
-      const existing = best.get(stateKey(step.to, direction));
-      if (!existing || compareScore(nextState, existing) < 0) pushQueue(nextState);
+      queued[key] = nextState;
+      pushQueue(nextState);
     }
   }
   return null;
