@@ -1,18 +1,13 @@
-import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
+import type { CanvasNode, GroupNode } from "./canvas";
 import type { ActorRefResolver } from "./attention";
-import {
-  deriveExecutionGraph,
-  type ExecutionGraphContext,
-  type WorkItemsOf,
-  type LiveTrustViews,
+import type {
+  ExecutionGraphContext,
+  WorkItemsOf,
+  LiveTrustViews,
 } from "./execution-graph";
 import type { ActorRef } from "./work-protocol";
-import { canvasFromDocument } from "./model/from-document";
 
-// Derived state. Never persisted — recomputed from the document so the
-// authored canvas document cannot go incoherent.
-//
-// blockedEdgeIds is a thin wrapper over deriveExecutionGraph.
+// Derived state. Never persisted.
 
 /**
  * Build the strict canvas-scoped resolver used by pure graph projections.
@@ -63,34 +58,16 @@ export const executionGraphContextFromActorRefs = (
   ...trust,
 });
 
-export const blockedEdgeIds = (
-  doc: CanvasDoc,
-  context: ExecutionGraphContext,
-): ReadonlySet<string> =>
-  deriveExecutionGraph(canvasFromDocument(context.canvasName, doc), context).blockedEdgeIds;
-
 export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "group";
 
-// The single membership predicate (I9): a target is inside a region only when
-// its FULL bounding rect lies inside the region's rect — a rect partially
-// overlapping a region is out. Promoted from the kernel's stricter rule
-// (formerly duplicated center-point rules in kernel/cycle.ts and
-// renderer/lib/geometry.ts); every membership consumer — region rollups,
-// digest, work, authz, and renderer displays — derives from this one
-// predicate. Renderer keeps a separate, explicitly non-membership helper for
-// drag-hold interaction (center-point, includes nested regions).
+// A rectangle, as region membership reads one. Membership itself is the
+// model's: regionStack and regionMembers in shared/model/canvas.ts.
 export type RegionRect = {
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
 };
-
-const isFullyContained = (group: GroupNode, rect: RegionRect): boolean =>
-  rect.x >= group.x &&
-  rect.y >= group.y &&
-  rect.x + rect.width <= group.x + group.width &&
-  rect.y + rect.height <= group.y + group.height;
 
 /**
  * Region nesting is authoring-time-warned past this depth (UI only) — never a
@@ -109,48 +86,3 @@ export const UNNAMED_REGION = "unnamed region";
  */
 export const regionDisplayName = (group: GroupNode): string =>
   group.label?.trim() || UNNAMED_REGION;
-
-/**
- * Every group whose rect fully contains the target rect, sorted
- * area-descending (outer → inner; equal area ties break on node id).
- * Overlapping regions are allowed: the stack is ALL containers, not a tree
- * path. Works for plain nodes and for groups (region-in-region nesting); a
- * group is never in its own stack.
- */
-export const regionStack = (
-  doc: CanvasDoc,
-  target: string | RegionRect,
-): ReadonlyArray<GroupNode> => {
-  const selfId = typeof target === "string" ? target : undefined;
-  const rect =
-    typeof target === "string"
-      ? doc.nodes.find((node) => node.id === target)
-      : target;
-  if (!rect) return [];
-  return doc.nodes
-    .filter(isGroup)
-    .filter((group) => group.id !== selfId && isFullyContained(group, rect))
-    .sort(
-      (a, b) =>
-        b.width * b.height - a.width * a.height || a.id.localeCompare(b.id),
-    );
-};
-
-// Named geography: membership is full-rect containment inside the group rect.
-// Members are non-group nodes only; with nesting, a node inside an inner
-// region is a member of EVERY containing region. Region-in-region structure
-// is exposed via regionStack, not via members.
-export const groupMembers = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<string>> => {
-  const groups = doc.nodes.filter(isGroup);
-  const members = new Map<string, string[]>();
-  for (const group of groups) {
-    members.set(
-      group.id,
-      doc.nodes
-        .filter((node) => node.id !== group.id && !isGroup(node) && isFullyContained(group, node))
-        .map((node) => node.id),
-    );
-  }
-  return members;
-};
-

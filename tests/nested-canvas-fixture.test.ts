@@ -12,9 +12,16 @@ import {
   type NestedCanvasPresetName,
 } from "../e2e/harness/nested-canvas-fixture";
 import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
-import { isGroup, regionStack } from "../src/shared/graph";
+import { isGroup } from "../src/shared/graph";
+import { asNodeId, regionStack as modelRegionStack } from "../src/shared/model";
+import { canvasFromDocument } from "../src/shared/model/from-document";
 
 const members = (doc: CanvasDoc) => doc.nodes.filter((node) => !isGroup(node));
+/** Region membership is the model's, so the fixture is read as the canvas it seeds. */
+const stacksOf = (doc: CanvasDoc) => {
+  const canvas = canvasFromDocument("nested", doc);
+  return (id: string) => modelRegionStack(canvas, asNodeId(id));
+};
 
 describe("nested-region stress canvas", () => {
   it("builds the same document from the same seed, and a different one from another", () => {
@@ -54,11 +61,12 @@ describe("nested-region stress canvas", () => {
 
   it("puts every region inside its parent and every region member inside a region", () => {
     const { doc } = buildNestedCanvasFixture("nested");
+    const stack = stacksOf(doc);
     for (const group of doc.nodes.filter(isGroup)) {
       const level = group.id.split("-").length - 2;
-      expect(regionStack(doc, group.id)).toHaveLength(level);
+      expect(stack(group.id)).toHaveLength(level);
     }
-    const loose = members(doc).filter((node) => regionStack(doc, node.id).length === 0);
+    const loose = members(doc).filter((node) => stack(node.id).length === 0);
     expect(loose.map((node) => node.id)).toEqual(
       loose.filter((node) => node.id.startsWith("note-")).map((node) => node.id),
     );
@@ -67,7 +75,8 @@ describe("nested-region stress canvas", () => {
 
   it("wires within regions and across region boundaries", () => {
     const { doc } = buildNestedCanvasFixture("nested");
-    const innermost = (id: string) => regionStack(doc, id).at(-1)?.id;
+    const stack = stacksOf(doc);
+    const innermost = (id: string) => stack(id).at(-1)?.id;
     const crossing = doc.edges.filter((edge) => innermost(edge.fromNode) !== innermost(edge.toNode));
     expect(crossing.length).toBeGreaterThan(20);
     expect(doc.edges.length - crossing.length).toBeGreaterThan(100);
@@ -121,7 +130,7 @@ describe("real canvas shape from a database copy", () => {
     expect(stats).toMatchObject({ regions: 2, depth: 2, seats: 2, notes: 2, edges: 1 });
     expect(doc.nodes.map((node) => [node.x, node.y, node.width, node.height])).toContainEqual([1200, 200, 300, 400]);
     expect(doc.nodes.find((node) => node.id === "region-1")).toMatchObject({ color: "4", width: 2000 });
-    expect(regionStack(doc, "seat-1").map((group) => group.id)).toEqual(["region-1", "region-2"]);
+    expect(stacksOf(doc)("seat-1").map((group) => group.id)).toEqual(["region-1", "region-2"]);
     expect(JSON.stringify(doc)).not.toMatch(/secret/i);
     expect(Result.isSuccess(decodeCanvasDoc(doc))).toBe(true);
   });
