@@ -1523,6 +1523,12 @@ function ImpactSeedChip() {
 // still reads the retired role-pair grant rather than the verb table. So the
 // gesture is silent, and the colour under the cursor is the whole answer.
 
+// The bottom bar's two slots, made once. Neither takes a prop, and each
+// follows what it shows for itself, so a render of the canvas hands the bar the
+// same two elements and gives it no reason to render.
+const FIELD_TOOLS = <CanvasFieldTools />;
+const MINIMAP_STACK = <RtsMinimapStack />;
+
 function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
   // Dev always profiles; a packaged build profiles only when JUNTO_PERF armed
   // the harness, which is also what makes the recorder non-null.
@@ -1885,7 +1891,7 @@ function CanvasGraph() {
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
         <CountedSurface id="bottom-bar">
-          <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />
+          <RtsBottomBar tools={FIELD_TOOLS} minimap={MINIMAP_STACK} />
         </CountedSurface>
       </Panel>
     </ReactFlow>
