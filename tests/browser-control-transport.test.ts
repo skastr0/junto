@@ -1,4 +1,4 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, page as pageNode } from "./support/model-nodes";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
@@ -78,22 +78,11 @@ const resolvePageTarget: PageTargetResolver = async (ref) =>
     : { ok: false, code: "not_found", message: "page not found" };
 const listCanvasModels = async () => [{
   name: "work",
-  doc: canvasFromDocument("work", {
-    nodes: [{
-      id: "cli-node",
-      type: "link" as const,
-      url: "https://example.com/",
-      x: 0,
-      y: 0,
-      width: 400,
-      height: 300,
-      ether: {
-        entity: { kind: "page" as const },
-        browser: { profile: "personal" },
-      },
-    }],
-    edges: [],
-  }),
+  doc: canvasOf(
+    [pageNode("cli-node", { url: "https://example.com/", width: 400, height: 300, profile: "personal" })],
+    [],
+    "work",
+  ),
 }];
 
 /** Transport tests: admit every socket with a pre-minted internal lease. */

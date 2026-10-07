@@ -1,45 +1,27 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import type { ModelNodeReader } from "../src/main/junto/node-ref-resolver";
 import { ModelStorageError } from "../src/main/junto/model/records";
-import { asCanvasName } from "../src/shared/model";
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { asCanvasName, asNodeId, type Node } from "../src/shared/model";
+import { canvasOf, page as pageNode } from "./support/model-nodes";
 import { makePageTargetResolver } from "../src/main/junto/browser/page-target";
 
-const page = (
-  id: string,
-  url: string,
-  profile: string | null = "personal",
-  host?: string,
-): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "link",
-  url,
-  x: 0,
-  y: 0,
-  width: 400,
-  height: 300,
-  ether: {
-    entity: { kind: "page" },
-    ...(host === undefined ? {} : { host }),
-    ...(profile === null ? {} : { browser: { profile } }),
-  },
-});
+const page = (id: string, url: string, profile = "personal", host = "local"): Node =>
+  pageNode(id, { url, width: 400, height: 300, profile, host });
 
-const reader = (docs: Readonly<Record<string, CanvasDoc>>): ModelNodeReader => ({
-  listCanvases: () => Effect.succeed(Object.keys(docs).map(asCanvasName)),
-  canvas: (name) => docs[name] === undefined
+const reader = (held: Readonly<Record<string, ReadonlyArray<Node>>>): ModelNodeReader => ({
+  listCanvases: () => Effect.succeed(Object.keys(held).map(asCanvasName)),
+  canvas: (name) => held[name] === undefined
     ? Effect.fail(new ModelStorageError({ cause: "missing" }))
-    : Effect.succeed(canvasFromDocument(name, docs[name])),
+    : Effect.succeed(canvasOf(held[name], [], name)),
 });
 
 describe("canonical browser page target resolution", () => {
   it("uses the addressed canvas when node ids are duplicated across canvases", async () => {
     const resolve = makePageTargetResolver(
       reader({
-        work: { nodes: [page("same", "https://work.example.com", "work")], edges: [] },
-        home: { nodes: [page("same", "https://home.example.com", "personal")], edges: [] },
+        work: [page("same", "https://work.example.com", "work")],
+        home: [page("same", "https://home.example.com", "personal")],
       }),
     );
     expect(await resolve("junto://canvas/work?node=same")).toEqual({
@@ -54,16 +36,13 @@ describe("canonical browser page target resolution", () => {
     });
   });
 
-  it("derives host affinity from the current page node, including legacy local fallback", async () => {
+  it("derives host affinity from the current page node", async () => {
     const resolve = makePageTargetResolver(
       reader({
-        work: {
-          nodes: [
-            page("legacy", "https://legacy.example.com"),
-            page("remote", "https://remote.example.com", "work", "studio"),
-          ],
-          edges: [],
-        },
+        work: [
+          page("legacy", "https://legacy.example.com"),
+          page("remote", "https://remote.example.com", "work", "studio"),
+        ],
       }),
     );
 
@@ -78,7 +57,7 @@ describe("canonical browser page target resolution", () => {
   });
 
   it("rejects malformed and noncanonical refs before reading a canvas", async () => {
-    const resolve = makePageTargetResolver(reader({ work: { nodes: [], edges: [] } }));
+    const resolve = makePageTargetResolver(reader({ work: [] }));
     for (const ref of [
       "https://canvas/work?node=n1",
       "junto://canvas/WORK?node=n1",
@@ -90,7 +69,7 @@ describe("canonical browser page target resolution", () => {
   });
 
   it("returns not_found for a missing canvas or missing node", async () => {
-    const resolve = makePageTargetResolver(reader({ work: { nodes: [], edges: [] } }));
+    const resolve = makePageTargetResolver(reader({ work: [] }));
     expect(await resolve("junto://canvas/missing?node=n1")).toMatchObject({
       ok: false,
       code: "not_found",
@@ -104,26 +83,10 @@ describe("canonical browser page target resolution", () => {
   it("rejects non-page nodes and invalid browser profiles", async () => {
     const resolve = makePageTargetResolver(
       reader({
-        work: {
-          nodes: [
-            { id: "plain", type: "link", url: "https://plain.example.com", x: 0, y: 0, width: 1, height: 1 },
-            {
-              id: "text-page",
-              type: "text",
-              text: "not a browser target",
-              x: 0,
-              y: 0,
-              width: 1,
-              height: 1,
-              ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-            },
-            page("unbound", "https://unbound.example.com", null),
-            page("bad-profile", "https://profile.example.com", "../escape"),
-            page("duplicate", "https://one.example.com"),
-            page("duplicate", "https://two.example.com"),
-          ],
-          edges: [],
-        },
+        work: [
+          { kind: "link", id: asNodeId("plain"), url: "https://plain.example.com", x: 0, y: 0, z: 0, width: 1, height: 1 },
+          page("bad-profile", "https://profile.example.com", "../escape"),
+        ],
       }),
     );
     for (const id of ["plain", "bad-profile"]) {
