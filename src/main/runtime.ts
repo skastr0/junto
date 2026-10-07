@@ -116,6 +116,7 @@ import {
 import {
   StationLivePeerRegistryLive,
 } from "./junto/station/session-registry";
+import { WorkModelDependentsLive } from "./junto/work/model-dependents";
 import { ModelLive } from "./junto/model/layer";
 import {
   deferredUpdateHostHooks,
@@ -158,7 +159,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     BoxOwnershipRepositoryLive,
     makeContentServiceLive(),
   ),
-  Layer.provideMerge(ModelLive, Layer.mergeAll(StateEngineLive, InstallOpsLive)),
+  Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(StateEngineLive, InstallOpsLive)),
 );
 
 // Canvases projects durable work rows on reads while keeping its authority

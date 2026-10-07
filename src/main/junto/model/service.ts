@@ -17,6 +17,7 @@ import {
   type CanvasesChanged,
   type Opened,
 } from "@shared/model";
+import { ModelDependents } from "./dependents";
 import { normalizeNode } from "@shared/model/normalize";
 import { compileVerb } from "@shared/physics/verbs";
 import {
@@ -50,6 +51,7 @@ export class ModelService extends Context.Service<ModelService>()(
     make: Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const records = yield* ModelRecords;
+      const dependents = yield* ModelDependents;
       const held = new Map<string, Canvas>();
       const draftKey = Symbol("ModelService.canvases");
       // Slow subscribers reopen on a seq gap; they cannot stall a commit.
@@ -222,6 +224,7 @@ export class ModelService extends Context.Service<ModelService>()(
                   : Effect.void;
               if (command._tag === "RemoveCanvas") {
                 for (const node of current.nodes.values()) yield* mayChange(node);
+                yield* dependents.removeCanvas(command.canvas);
                 yield* records.removeCanvas(command.canvas);
                 yield* stage(command.canvas, null);
                 yield* afterSqlCommit(sql, () => {
@@ -499,6 +502,11 @@ export class ModelService extends Context.Service<ModelService>()(
                 const previous = yield* records.readSheet(command.canvas, id);
                 if (!isDeepStrictEqual(previous, grid)) grids.set(id, grid);
               }
+              const retiredIds = [...removedNodes, ...nodes.filter((node) => {
+                const previous = current.nodes.get(node.id);
+                return previous !== undefined && previous.kind !== node.kind;
+              }).map((node) => node.id)];
+              if (retiredIds.length) yield* dependents.removeNodes(command.canvas, retiredIds);
               for (const id of removedWires) yield* records.removeWire(command.canvas, id);
               for (const id of removedNodes) yield* records.removeNode(command.canvas, current.nodes.get(id)!);
               for (const node of nodes) {

@@ -5,6 +5,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
 import { Changed, Command, type SheetChanged } from "../src/shared/model";
 import { nodeFromRow } from "../src/main/junto/model/rows";
+import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelService } from "../src/main/junto/model/service";
 import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
@@ -62,6 +63,7 @@ const run = (
           yield* test(model, sql, db);
         }).pipe(
           Effect.provide(ModelService.layer),
+          Effect.provide(ModelDependents.empty),
           Effect.provideService(SqlClient.SqlClient, sql),
         );
       }),

@@ -6,6 +6,7 @@ import type { WorkErrorBody } from "@shared/work-control";
 import type { ActorRef } from "@shared/work-protocol";
 import type { StoredCanvasIntentDocument } from "./canvas-intent-identity";
 import { WorkProjectionReaderLive } from "./work/repository";
+import { WorkModelDependentsLive } from "./work/model-dependents";
 import { ModelLive } from "./model/layer";
 import { makeModelCanvases } from "./model/canvases";
 import { CanvasError } from "./canvas/domain";
@@ -258,6 +259,6 @@ export class CanvasesService extends Context.Service<CanvasesService,
   }>()("@junto/CanvasesService") {}
 
 export const CanvasesLive = Layer.effect(CanvasesService, makeModelCanvases).pipe(
-  Layer.provideMerge(ModelLive),
+  Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive)),
   Layer.provide(WorkProjectionReaderLive),
 );
