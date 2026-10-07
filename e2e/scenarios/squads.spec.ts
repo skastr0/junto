@@ -145,7 +145,10 @@ for (const theme of ["Dark", "Bright"] as const) test(`squads (${theme}): save f
   ]);
   expect(squadArt!.width).toBeCloseTo(catalogArt!.width, 1);
   expect(squadArt!.height).toBeCloseTo(catalogArt!.height, 1);
-  expect((await squadCard.boundingBox())?.width).toBeCloseTo((await catalogCard.boundingBox())!.width, 0);
+  // Both in one read: the picker is still scaling in, so two reads apart differ.
+  const [squadWidth, catalogWidth] = await page.evaluate(() =>
+    ["squad", "catalog"].map((kind) => document.querySelector(`[data-picker-card="${kind}"]`)!.getBoundingClientRect().width));
+  expect(squadWidth!).toBeCloseTo(catalogWidth!, 0);
   await page.screenshot({ path: `${shots}/3-picker-squads.png` });
   await card.click();
 
