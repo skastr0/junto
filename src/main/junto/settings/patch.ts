@@ -5,10 +5,12 @@ import {
   SettingsPatch,
   StationPatch,
   applySettingsPatch,
+  offboardRules,
   type Settings as SettingsValue,
   type SettingsPatch as SettingsPatchValue,
   type StationPatch as StationPatchValue,
 } from "@shared/settings";
+import { offboardRulesProblem } from "@shared/seat-offboard";
 
 const STRICT_DECODE_OPTIONS = {
   onExcessProperty: "error",
@@ -48,6 +50,14 @@ export const applyAndValidatePatch = (
   patch: SettingsPatchValue,
 ): Result.Result<SettingsValue, SettingsError> => {
   const merged = applySettingsPatch(current, patch);
+  // The offboard rules hang together (the nudge inside the cache window, the
+  // auto offboard at or after it), which a field-by-field schema cannot say.
+  if (patch.offboard !== undefined) {
+    const problem = offboardRulesProblem(offboardRules(merged));
+    if (problem !== undefined) {
+      return Result.fail(new SettingsError({ message: problem, code: "validation" }));
+    }
+  }
   return decodeSettings(merged).pipe(
     Result.mapError(
       (error) =>

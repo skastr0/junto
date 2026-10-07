@@ -1,5 +1,11 @@
 import { Schema } from "effect";
 import {
+  OffboardRules,
+  OffboardRulesPatch,
+  applyOffboardRulesPatch,
+  defaultOffboardRules,
+} from "./seat-offboard";
+import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "./browser-limits";
@@ -659,6 +665,10 @@ export const defaultNotifications = (): NotificationSettings => ({
 export const notificationSettings = (settings: Settings | undefined): NotificationSettings =>
   settings?.notifications ?? defaultNotifications();
 
+/** The offboard rules in force: the stored ones, or the defaults. */
+export const offboardRules = (settings: Settings | undefined): OffboardRules =>
+  settings?.offboard ?? defaultOffboardRules();
+
 /**
  * Typed lines -> the list to store: trimmed, inner whitespace collapsed,
  * empties and repeats (case-insensitive) dropped, clipped to the bounds.
@@ -906,6 +916,11 @@ export const Settings = Schema.Struct({
   /** Absent on rows written before desktop notifications; absent means the defaults. */
   notifications: Schema.optionalKey(NotificationSettings),
   /**
+   * Operator offboard rules (see shared/seat-offboard.ts). Absent on rows
+   * written before them; absent means the defaults. Read through offboardRules().
+   */
+  offboard: Schema.optionalKey(OffboardRules),
+  /**
    * Optional so rows written before the Providers settings surface still
    * decode. Absent ≡ nothing operator-configured; consumers fall back to env
    * vars and conventional credential files. Read it through the aggregate -
@@ -1113,6 +1128,7 @@ export const SettingsPatch = Schema.Struct({
   feed: Schema.optionalKey(FeedPatch),
   keyboard: Schema.optionalKey(KeyboardPatch),
   notifications: Schema.optionalKey(NotificationPatch),
+  offboard: Schema.optionalKey(OffboardRulesPatch),
   providers: Schema.optionalKey(ProvidersPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
@@ -1130,6 +1146,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "feed",
 "keyboard",
 "notifications",
+"offboard",
 "providers",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
@@ -1319,6 +1336,7 @@ export const defaultSettings = (): Settings => ({
   feed: defaultFeed(),
   keyboard: defaultKeyboard(),
   notifications: defaultNotifications(),
+  offboard: defaultOffboardRules(),
   providers: defaultProviders(),
 });
 
@@ -1352,6 +1370,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultKeyboard();
     case "notifications":
       return defaultNotifications();
+    case "offboard":
+      return defaultOffboardRules();
     case "providers":
       return defaultProviders();
   }
@@ -1510,6 +1530,9 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       ...next,
       notifications: mergeSection(notificationSettings(next), patch.notifications),
     };
+  }
+  if (patch.offboard) {
+    next = { ...next, offboard: applyOffboardRulesPatch(offboardRules(next), patch.offboard) };
   }
   if (patch.feed?.quickReplies !== undefined) {
     next = { ...next, feed: { quickReplies: sanitizeQuickReplies(patch.feed.quickReplies) } };

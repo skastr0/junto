@@ -1,3 +1,4 @@
+import { OffboardRules, defaultOffboardRules } from "@shared/seat-offboard";
 import { Schema } from "effect";
 import {
   AdvancedSettings,
@@ -77,6 +78,8 @@ export const StoredSettingsPreferences = Schema.Struct({
   keyboard: Schema.optionalKey(KeyboardSettings),
   /** Absent on rows written before desktop notifications; resolves to the defaults. */
   notifications: Schema.optionalKey(NotificationSettings),
+  /** Absent on rows written before the offboard rules; resolves to the defaults. */
+  offboard: Schema.optionalKey(OffboardRules),
   /** Absent on rows written before the Providers settings surface. */
   providers: Schema.optionalKey(ProvidersSettings),
   /**
@@ -139,6 +142,7 @@ export const preferencesFromSettings = (
   feed: settings.feed ?? defaultFeed(),
   keyboard: settings.keyboard ?? defaultKeyboard(),
   notifications: settings.notifications ?? defaultNotifications(),
+  offboard: settings.offboard ?? defaultOffboardRules(),
   providers: persistableProviders(settings.providers, options),
   ...(settings.portraits ? { portraits: settings.portraits } : {}),
 });
@@ -212,6 +216,7 @@ export const decodeStoredSettings = (
     feed: prefs.feed ?? defaultFeed(),
     keyboard: prefs.keyboard ?? defaultKeyboard(),
     notifications: prefs.notifications ?? defaultNotifications(),
+    offboard: prefs.offboard ?? defaultOffboardRules(),
     providers: prefs.providers ?? defaultProviders(),
     ...(prefs.portraits ? { portraits: prefs.portraits } : {}),
     station: decodedTopology.success,

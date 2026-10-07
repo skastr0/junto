@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
+import { OFFBOARD_BY, type OffboardBy } from "@shared/seat-offboard";
 import { SEAT_SESSION_NOTES_MAX_CHARS } from "@shared/seat-sessions";
 
 /** `~/.junto/seats`: one directory per seat, its session notes inside. */
@@ -44,6 +45,38 @@ export const markSessionOnboarded = (path: string, at: number): void => {
 };
 
 export const sessionOnboarded = (path: string): boolean => existsSync(path);
+
+/**
+ * `<seats root>/<seat>/sessions/<session>.ended.json`: who ended a session
+ * from outside it (the operator, an overseer, or the automatic rule) when it
+ * was closed without notes. An agent's own offboard writes none.
+ */
+export const endedPathOf = (notesPath: string): string => notesPath.replace(/\.md$/, ".ended.json");
+
+export type EndedMarker = { readonly by: OffboardBy; readonly at: number };
+
+export const writeEndedMarker = (notesPath: string, marker: EndedMarker): void => {
+  const path = endedPathOf(notesPath);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileSync(path, `${JSON.stringify({ by: marker.by, at: marker.at })}\n`, { mode: 0o600 });
+};
+
+/** The marker, or undefined when there is none or it cannot be read. */
+export const readEndedMarker = (notesPath: string): EndedMarker | undefined => {
+  try {
+    const parsed = JSON.parse(readFileSync(endedPathOf(notesPath), "utf8")) as {
+      by?: unknown;
+      at?: unknown;
+    };
+    return (OFFBOARD_BY as ReadonlyArray<unknown>).includes(parsed.by) &&
+      typeof parsed.at === "number" &&
+      Number.isFinite(parsed.at)
+      ? { by: parsed.by as OffboardBy, at: parsed.at }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /**
  * Replace a notes file whole: written beside it, then renamed over it, so a

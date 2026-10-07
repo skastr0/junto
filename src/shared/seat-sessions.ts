@@ -201,6 +201,13 @@ export type SeatOffboardProgress = {
   /** When the operator asked for this offboard; absent when the agent chose it. */
   readonly askedAt?: number;
   readonly message?: string;
+  /**
+   * Who ended the session. Absent: the seat's own agent, with `junto offboard`.
+   * Otherwise it was closed from outside the session (see shared/seat-offboard.ts).
+   */
+  readonly by?: "agent" | "operator" | "overseer" | "automatic";
+  /** False when the session was closed without notes. Absent: notes were written. */
+  readonly notes?: boolean;
 };
 
 export type SeatOffboardAskResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
