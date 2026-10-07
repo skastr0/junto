@@ -545,3 +545,82 @@ it("keeps empty region settings identical in events, held reads and persisted re
     expect((yield* model.open("factory")).seq).toBe(before);
   })),
 );
+
+
+it("restores a node's exact z through Move", () => run((model) => Effect.gen(function* () {
+  yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [node("a", "note", { z: -20 })], wires: [] }), "operator");
+  yield* model.command(decode({ _tag: "Restack", canvas: "factory", nodes: ["a"], to: "front" }), "operator");
+  yield* model.command(decode({ _tag: "Move", canvas: "factory", moves: [{ id: "a", x: 0, y: 0, z: -20 }] }), "operator");
+  expect((yield* model.open("factory")).nodes[0].z).toBe(-20);
+})));
+
+it("reseats a node without changing its wires and clears its old session and launch", () => run((model, _sql, db) => Effect.gen(function* () {
+  yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [seat, { ...seat, id: "peer", bindingId: "peer-binding" }], wires: [{ id: "mail", from: "seat", to: "peer", verb: "messages" }] }), "operator");
+  yield* model.command(decode({ _tag: "RecordSession", canvas: "factory", id: "seat", sessionId: "old-session" }), "runtime");
+  const wires = (yield* model.open("factory")).wires;
+  const reseat = { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:new-agent", bindingId: "new-binding", harness: "claude", host: "local" };
+  yield* model.command(decode(reseat), "operator");
+  const changed = (yield* model.open("factory")).nodes.find(({ id }) => id === "seat");
+  expect(changed).toMatchObject({ id: "seat", agentKey: "local:new-agent", bindingId: "new-binding", harness: "claude" });
+  expect(changed).not.toHaveProperty("sessionId");
+  expect(changed).not.toHaveProperty("launch");
+  expect((yield* model.open("factory")).wires).toEqual(wires);
+  expect(db.prepare("SELECT session_id FROM seats WHERE id='seat'").get()!.session_id).toBeNull();
+  expect((yield* model.command(decode({ ...reseat, bindingId: "peer-binding" }), "operator").pipe(Effect.result))._tag).toBe("Failure");
+  yield* model.command(decode({ _tag: "GrantOverseer", canvas: "factory", id: "seat", overseer: true }), "operator");
+  expect((yield* model.command(decode({ ...reseat, bindingId: "third-binding" }), "overseer").pipe(Effect.result))._tag).toBe("Failure");
+  yield* model.command(decode({ ...reseat, bindingId: "third-binding" }), "operator");
+  expect((yield* model.open("factory")).nodes.find(({ id }) => id === "seat")).toMatchObject({ overseer: true });
+})));
+
+it("applies a batch once, emits only its final rows and rolls back every failed step", () => run((model, sql, db) => Effect.gen(function* () {
+  const events: Changed[] = [];
+  const sheets: SheetChanged[] = [];
+  const stop = model.subscribeChanges((event) => events.push(event));
+  const stopSheets = model.subscribeSheetChanges((event) => sheets.push(event));
+  const add = { _tag: "Add", canvas: "factory", nodes: [node("a"), node("grid", "sheet")], wires: [] };
+  const move = { _tag: "Move", canvas: "factory", moves: [{ id: "a", x: 100, y: 20, z: 99 }] };
+  const edit = { _tag: "Edit", canvas: "factory", id: "a", change: { kind: "note", text: "after" } };
+  const grid = { columns: [{ id: "c", name: "V" }], rows: [{ id: "r", cells: { c: "value" } }] };
+  const write = { _tag: "WriteSheet", canvas: "factory", id: "grid", grid };
+  const batch = decode({ _tag: "Batch", canvas: "factory", steps: [add, move, edit, write] });
+  expect(yield* model.command(batch, "operator")).toEqual({ seq: 1 });
+  expect(events).toHaveLength(1);
+  expect(events[0].nodes).toHaveLength(2);
+  expect(events[0].nodes.find(({ id }) => id === "a")).toMatchObject({ x: 100, text: "after", z: 99 });
+  expect(sheets).toEqual([{ canvas: "factory", id: "grid" }]);
+  expect(yield* model.readSheet("factory", "grid")).toEqual(grid);
+  const before = db.prepare("SELECT * FROM notes").all();
+  const bad = decode({ _tag: "Batch", canvas: "factory", steps: [{ ...edit, change: { kind: "note", text: "must roll back" } }, { ...edit, id: "missing" }] });
+  expect((yield* model.command(bad, "operator").pipe(Effect.result))._tag).toBe("Failure");
+  expect(db.prepare("SELECT * FROM notes").all()).toEqual(before);
+  expect(events).toHaveLength(1);
+  expect((yield* model.command(decode({ _tag: "Batch", canvas: "factory", steps: [{ ...edit, canvas: "elsewhere" }] }), "operator").pipe(Effect.result))._tag).toBe("Failure");
+  expect((yield* sql.withTransaction(Effect.gen(function* () {
+    yield* model.command(decode({ _tag: "Batch", canvas: "factory", steps: [{ ...edit, change: { kind: "note", text: "outer rollback" } }] }), "operator");
+    expect(events).toHaveLength(1);
+    return yield* Effect.fail("abort");
+  })).pipe(Effect.result))._tag).toBe("Failure");
+  expect(db.prepare("SELECT * FROM notes").all()).toEqual(before);
+  expect(events).toHaveLength(1);
+  stop(); stopSheets();
+})));
+
+it("refuses authority and canvas operations inside batches and keeps cancelling steps inert", () => run((model, _sql, db) => Effect.gen(function* () {
+  for (const step of [
+    { _tag: "GrantOverseer", canvas: "factory", id: "seat", overseer: true },
+    { _tag: "RecordSession", canvas: "factory", id: "seat", sessionId: "s" },
+    { _tag: "CreateCanvas", canvas: "factory" },
+    { _tag: "Batch", canvas: "factory", steps: [] },
+  ]) expect(() => decode({ _tag: "Batch", canvas: "factory", steps: [step] })).toThrow();
+  const writes: string[] = [];
+  db.setAuthorizer((action, arg1) => { if ([18, 9, 23].includes(action)) writes.push(String(arg1)); return 0; });
+  try {
+    const reply = yield* model.command(decode({ _tag: "Batch", canvas: "factory", steps: [
+      { _tag: "Add", canvas: "factory", nodes: [node("temporary")], wires: [] },
+      { _tag: "Remove", canvas: "factory", nodes: ["temporary"], wires: [] },
+    ] }), "operator");
+    expect(reply).toEqual({ seq: 0 });
+    expect(writes).toEqual([]);
+  } finally { db.setAuthorizer(null); }
+})));

@@ -142,7 +142,6 @@ export class ModelService extends Context.Service<ModelService>()(
         const command = yield* Schema.decodeUnknownEffect(Command)(input, {
           onExcessProperty: "error",
         }).pipe(
-          Effect.map((command) => command._tag === "Add" ? { ...command, nodes: command.nodes.map(normalizeNode) } : command),
           Effect.mapError(() =>
             refused("Send a command that matches the model command schema."),
           ),
@@ -309,19 +308,15 @@ export class ModelService extends Context.Service<ModelService>()(
                 }
                 return { seq: replySeq };
               }
-              const nodes: Node[] = [];
-              const wires: Wire[] = [];
-              const removedNodes: Changed["removedNodes"][number][] = [];
-              const removedWires = new Set<Changed["removedWires"][number]>();
+              const sheetUpdates = new Map<Node["id"], SheetGrid>();
+              const writtenSheets = new Set<Node["id"]>();
               const saveNode = Effect.fn("ModelService.saveNode")(function* (
                 node: Node,
               ) {
                 const previous = yield* requireNode(node.id);
                 yield* mayChange(previous);
                 if (isDeepStrictEqual(previous, node)) return;
-                yield* records.updateNode(command.canvas, node);
                 nodesById.set(node.id, node);
-                nodes.push(node);
               });
               const validateWire = Effect.fn("ModelService.validateWire")(
                 function* (wire: Wire) {
@@ -376,9 +371,12 @@ export class ModelService extends Context.Service<ModelService>()(
                     refused("Use values allowed for this kind."),
                   ),
                 );
-              switch (command._tag) {
+              const steps = command._tag === "Batch" ? command.steps : [command];
+              for (const step of steps) {
+                if (step.canvas !== command.canvas) return yield* refused("Every batch step must name the same canvas.");
+                switch (step._tag) {
                 case "Add":
-                  for (const node of command.nodes) {
+                  for (const node of step.nodes.map(normalizeNode)) {
                     if (node.kind === "agent") yield* records.requireSeatHost(node.host);
                     if (
                       node.kind === "agent" &&
@@ -403,67 +401,56 @@ export class ModelService extends Context.Service<ModelService>()(
                         "A seat or terminal already uses this session binding on this canvas.",
                       );
                     }
-                    yield* records.insertNode(command.canvas, node);
-                    if (node.kind === "sheet")
-                      yield* records.writeSheet(command.canvas, node.id, {
-                        columns: [],
-                        rows: [],
-                      });
+                    if (node.kind === "sheet") sheetUpdates.set(node.id, { columns: [], rows: [] });
                     nodesById.set(node.id, node);
-                    nodes.push(node);
                   }
-                  for (const wire of command.wires) {
+                  for (const wire of step.wires) {
                     if (wiresById.has(wire.id))
                       return yield* refused("Use a new relationship id.");
                     yield* validateWire(wire);
-                    yield* records.insertWire(command.canvas, wire);
                     wiresById.set(wire.id, wire);
-                    wires.push(wire);
                   }
                   break;
                 case "Remove":
-                  for (const id of command.wires) {
+                  for (const id of step.wires) {
                     yield* requireWire(id);
-                    yield* records.removeWire(command.canvas, id);
                     wiresById.delete(id);
-                    removedWires.add(id);
                   }
-                  for (const id of command.nodes) {
+                  for (const id of step.nodes) {
                     const node = yield* requireNode(id);
                     yield* mayChange(node);
                     for (const wire of wiresById.values()) {
                       if (wire.from !== id && wire.to !== id) continue;
-                      yield* records.removeWire(command.canvas, wire.id);
                       wiresById.delete(wire.id);
-                      removedWires.add(wire.id);
                     }
-                    yield* records.removeNode(command.canvas, node);
                     nodesById.delete(id);
-                    removedNodes.push(id);
+                    sheetUpdates.delete(id);
+                    writtenSheets.delete(id);
                   }
                   break;
                 case "Move":
-                  for (const move of command.moves)
+                  for (const move of step.moves)
                     yield* saveNode(
                       yield* decodeNode({
                         ...(yield* requireNode(move.id)),
                         x: move.x,
                         y: move.y,
                         ...move.size,
+                        ...(move.z === undefined ? {} : { z: move.z }),
                       }),
                     );
                   break;
                 case "Restack": {
-                  const selected = new Set(command.nodes);
+                  const selected = new Set(step.nodes);
                   for (const id of selected) yield* requireNode(id);
-                  const moving = inPaintOrder(current).filter((node) =>
+                  const moving = inPaintOrder({ ...current, nodes: nodesById }).filter((node) =>
                     selected.has(node.id),
                   );
                   const extremes = [...nodesById.values()].map(
                     (node) => node.z,
                   );
                   let z =
-                    command.to === "front"
+                    step.to === "front"
                       ? Math.max(0, ...extremes) + 1
                       : Math.min(0, ...extremes) - moving.length;
                   for (const node of moving)
@@ -471,66 +458,59 @@ export class ModelService extends Context.Service<ModelService>()(
                   break;
                 }
                 case "Recolor":
-                  for (const id of command.nodes)
+                  for (const id of step.nodes)
                     yield* saveNode(
                       yield* decodeNode(
-                        patch(yield* requireNode(id), { color: command.color }),
+                        patch(yield* requireNode(id), { color: step.color }),
                       ),
                     );
                   break;
                 case "Edit": {
-                  const node = yield* requireNode(command.id);
-                  if (node.kind !== command.change.kind)
+                  const node = yield* requireNode(step.id);
+                  if (node.kind !== step.change.kind)
                     return yield* refused(
                       "Edit fields must belong to the object's kind.",
                     );
-                  const edited = yield* decodeNode(patch(node, command.change));
+                  const edited = yield* decodeNode(patch(node, step.change));
                   if (edited.kind === "agent" && node.kind === "agent" && edited.host !== node.host) yield* records.requireSeatHost(edited.host);
                   yield* saveNode(edited);
                   break;
                 }
                 case "RecordSession": {
-                  const node = yield* requireNode(command.id);
+                  const node = yield* requireNode(step.id);
                   if (node.kind !== "agent")
                     return yield* refused(
                       "This command requires an agent seat.",
                     );
                   yield* saveNode(
                     yield* decodeNode(
-                      patch(node, { sessionId: command.sessionId }),
+                      patch(node, { sessionId: step.sessionId }),
                     ),
                   );
                   break;
                 }
+                case "Reseat": {
+                  const node = yield* requireNode(step.id);
+                  if (node.kind !== "agent") return yield* refused("Reseat requires an agent seat.");
+                  yield* mayChange(node);
+                  if (node.bindingId === step.bindingId) return yield* refused("Reseat needs a fresh session binding.");
+                  if ([...nodesById.values()].some((other) => other.id !== node.id && (other.kind === "agent" || other.kind === "terminal") && other.bindingId === step.bindingId))
+                    return yield* refused("A seat or terminal already uses this session binding on this canvas.");
+                  yield* records.requireSeatHost(step.host);
+                  yield* saveNode(yield* decodeNode(patch(node, { agentKey: step.agentKey, bindingId: step.bindingId, harness: step.harness, host: step.host, launch: step.launch ?? null, sessionId: null })));
+                  break;
+                }
                 case "WriteSheet": {
-                  const node = yield* requireNode(command.id);
-                  if (node.kind !== "sheet")
-                    return yield* refused("Write a grid only to a sheet.");
-                  const previous = yield* records.readSheet(
-                    command.canvas,
-                    command.id,
-                  );
-                  if (isDeepStrictEqual(previous, command.grid))
-                    return { seq: current.seq };
-                  yield* records.writeSheet(
-                    command.canvas,
-                    command.id,
-                    command.grid,
-                  );
-                  yield* afterSqlCommit(sql, () => {
-                    const event: SheetChanged = {
-                      canvas: command.canvas,
-                      id: command.id,
-                    };
-                    notify(sheetListeners, event, command.grid);
-                    PubSub.publishUnsafe(sheetChanges, event);
-                  });
-                  return { seq: current.seq };
+                  const node = yield* requireNode(step.id);
+                  if (node.kind !== "sheet") return yield* refused("Write a grid only to a sheet.");
+                  sheetUpdates.set(step.id, step.grid);
+                  writtenSheets.add(step.id);
+                  break;
                 }
                 case "Rewire": {
-                  const previous = yield* requireWire(command.id);
+                  const previous = yield* requireWire(step.id);
                   const next = yield* Schema.decodeUnknownEffect(Wire)(
-                    patch(previous, command.change),
+                    patch(previous, step.change),
                     { onExcessProperty: "error" },
                   ).pipe(
                     Effect.mapError(() =>
@@ -539,19 +519,46 @@ export class ModelService extends Context.Service<ModelService>()(
                   );
                   if (isDeepStrictEqual(previous, next)) break;
                   yield* validateWire(next);
-                  yield* records.updateWire(command.canvas, next);
                   wiresById.set(next.id, next);
-                  wires.push(next);
                   break;
                 }
               }
-              if (
-                !nodes.length &&
-                !wires.length &&
-                !removedNodes.length &&
-                !removedWires.size
-              )
+              }
+              const nodes = [...nodesById.values()].filter((node) => !isDeepStrictEqual(current.nodes.get(node.id), node));
+              const wires = [...wiresById.values()].filter((wire) => !isDeepStrictEqual(current.wires.get(wire.id), wire));
+              const removedNodes = [...current.nodes.keys()].filter((id) => !nodesById.has(id));
+              const removedWires = [...current.wires.keys()].filter((id) => !wiresById.has(id));
+              const grids = new Map<Node["id"], SheetGrid>();
+              for (const [id, grid] of sheetUpdates) {
+                if (nodesById.get(id)?.kind !== "sheet") continue;
+                const previous = yield* records.readSheet(command.canvas, id);
+                if (!isDeepStrictEqual(previous, grid)) grids.set(id, grid);
+              }
+              for (const id of removedWires) yield* records.removeWire(command.canvas, id);
+              for (const id of removedNodes) yield* records.removeNode(command.canvas, current.nodes.get(id)!);
+              for (const node of nodes) {
+                const previous = current.nodes.get(node.id);
+                if (previous && previous.kind !== node.kind) yield* records.removeNode(command.canvas, previous);
+              }
+              for (const node of nodes) {
+                const previous = current.nodes.get(node.id);
+                if (previous?.kind === node.kind) yield* records.updateNode(command.canvas, node);
+                else yield* records.insertNode(command.canvas, node);
+              }
+              for (const wire of wires) {
+                if (current.wires.has(wire.id)) yield* records.updateWire(command.canvas, wire);
+                else yield* records.insertWire(command.canvas, wire);
+              }
+              for (const [id, grid] of grids) yield* records.writeSheet(command.canvas, id, grid);
+              const publishSheets = Effect.forEach([...grids].filter(([id]) => writtenSheets.has(id)), ([id, grid]) => afterSqlCommit(sql, () => {
+                const event: SheetChanged = { canvas: command.canvas, id };
+                notify(sheetListeners, event, grid);
+                PubSub.publishUnsafe(sheetChanges, event);
+              }), { discard: true });
+              if (!nodes.length && !wires.length && !removedNodes.length && !removedWires.length && (command._tag !== "Batch" || !grids.size)) {
+                yield* publishSheets;
                 return { seq: current.seq };
+              }
               const seq = yield* records.advanceSeq(command.canvas);
               const event: Changed = {
                 canvas: command.canvas,
@@ -568,6 +575,7 @@ export class ModelService extends Context.Service<ModelService>()(
                 );
               yield* stage(command.canvas, followed.canvas);
               yield* publishChange(event, current);
+              yield* publishSheets;
               return { seq };
             }),
           )

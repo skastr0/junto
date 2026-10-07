@@ -130,6 +130,7 @@ describe("commands", () => {
   it("has no command that carries a whole canvas", () => {
     expect(Object.keys(Command.cases).sort()).toEqual([
       "Add",
+      "Batch",
       "CreateCanvas",
       "Edit",
       "GrantOverseer",
@@ -139,6 +140,7 @@ describe("commands", () => {
       "Remove",
       "RemoveCanvas",
       "RenameCanvas",
+      "Reseat",
       "Restack",
       "Rewire",
       "WriteSheet",

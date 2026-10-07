@@ -12,6 +12,7 @@ import {
   OneLine,
   Page,
   PageOnRemove,
+  Seat,
   TerminalOnRemove,
   type NodeKind,
 } from "./kinds";
@@ -112,11 +113,12 @@ export const NodeMove = Schema.Struct({
   id: NodeId,
   x: Schema.Finite,
   y: Schema.Finite,
+  z: Schema.optionalKey(Schema.Int),
   size: Schema.optionalKey(Frame.mapFields(Struct.pick(["width", "height"]))),
 });
 export type NodeMove = typeof NodeMove.Type;
 
-export const Command = Schema.TaggedUnion({
+const canvasCommandFields = {
   /**
    * Put new nodes and wires on a canvas. Ids are minted by the sender. A seat
    * that was removed may be added back as it was, agent key and session binding
@@ -151,18 +153,6 @@ export const Command = Schema.TaggedUnion({
   },
   /** Change fields of one node. `change.kind` must be the node's kind. */
   Edit: { canvas: CanvasName, id: NodeId, change: NodeEdit },
-  /**
-   * Give or take away a seat's authority to administer the canvas. Its own
-   * command because it is the operator's decision alone: main admits it only
-   * from the operator, never from a seat and never as part of another edit.
-   */
-  GrantOverseer: { canvas: CanvasName, id: NodeId, overseer: Schema.Boolean },
-  /** Record the harness session a seat is now running, or that it has none. */
-  RecordSession: {
-    canvas: CanvasName,
-    id: NodeId,
-    sessionId: Schema.NullOr(Schema.String),
-  },
   /** Replace what a sheet holds. */
   WriteSheet: { canvas: CanvasName, id: NodeId, grid: SheetGrid },
   /** Change what a wire grants or where it attaches. Its ends are fixed. */
@@ -175,6 +165,38 @@ export const Command = Schema.TaggedUnion({
       fromSide: setOrClear(Side),
       toSide: setOrClear(Side),
     }),
+  },
+  /** Change the agent occupying the same node, keeping its wires and mailbox. */
+  Reseat: {
+    canvas: CanvasName,
+    id: NodeId,
+    agentKey: Seat.fields.agentKey,
+    bindingId: Seat.fields.bindingId,
+    harness: HarnessId,
+    host: HostId,
+    launch: Schema.optionalKey(Schema.NullOr(Launch)),
+  },
+} as const;
+
+/** The operations allowed inside one atomic per-canvas edit. */
+export const CanvasCommand = Schema.TaggedUnion(canvasCommandFields);
+export type CanvasCommand = typeof CanvasCommand.Type;
+
+export const Command = Schema.TaggedUnion({
+  ...canvasCommandFields,
+  /** Apply all steps or none, with one committed spatial change. */
+  Batch: { canvas: CanvasName, steps: Schema.Array(CanvasCommand) },
+  /**
+   * Give or take away a seat's authority to administer the canvas. Its own
+   * command because it is the operator's decision alone: main admits it only
+   * from the operator, never from a seat and never as part of another edit.
+   */
+  GrantOverseer: { canvas: CanvasName, id: NodeId, overseer: Schema.Boolean },
+  /** Record the harness session a seat is now running, or that it has none. */
+  RecordSession: {
+    canvas: CanvasName,
+    id: NodeId,
+    sessionId: Schema.NullOr(Schema.String),
   },
   CreateCanvas: { canvas: CanvasName },
   RemoveCanvas: { canvas: CanvasName },
