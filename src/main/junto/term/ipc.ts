@@ -419,7 +419,7 @@ export const registerTerminalIpc = (
   ipcMain.handle(IPC_CHANNELS.modelStop, async (event, input: Parameters<JuntoApi["modelStop"]>[0]) => {
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
-    await router.kill(node.bindingId, node.host);
+    await stopBinding(node.bindingId, node.host);
   });
 
   ipcMain.handle(
@@ -464,11 +464,15 @@ export const registerTerminalIpc = (
     },
   );
 
+  // Both trusted IPC stop commands use the same owned-session router capability.
+  const stopBinding = (bindingId: string, hostId?: string) =>
+    router.kill(bindingId, hostId);
+
   ipcMain.handle(
     IPC_CHANNELS.terminalKill,
     async (event, bindingId: string, hostId?: string) => {
       assertTrusted(event);
-      return router.kill(bindingId, hostId);
+      return stopBinding(bindingId, hostId);
     },
   );
 

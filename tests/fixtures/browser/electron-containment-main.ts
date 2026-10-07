@@ -5,9 +5,11 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { url as inspectorUrl } from "node:inspector";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
-import { Effect, Result, Layer, ManagedRuntime } from "effect";
+import { Effect, Result, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { CanvasesLive, CanvasesService } from "../../../src/main/junto/canvases";
+import { WorkModelDependentsLive } from "../../../src/main/junto/work/model-dependents";
+import { Command } from "../../../src/shared/model";
+import { canvasFromDocument } from "../../../src/shared/model/from-document";
 import {
   makeStateEngineLive,
   StateEngine,
@@ -128,7 +130,7 @@ const makeCanvasRuntime = () => {
   );
   return ManagedRuntime.make(
     Layer.provideMerge(
-      CanvasesLive,
+      Layer.provide(ModelService.layer, WorkModelDependentsLive),
       Layer.provideMerge(repositoriesLive, fleetLive),
     ),
   );
@@ -649,7 +651,7 @@ void app.whenReady().then(async () => {
     randomUUID,
     harness.targetAdmission,
   );
-  const canvases = await activeCanvasRuntime.runPromise(CanvasesService);
+  const model = await activeCanvasRuntime.runPromise(ModelService);
   const fixtureCanvas = decodeCanvasDoc(
     JSON.parse(Buffer.from(canvasPayload, "base64url").toString("utf8")),
   );
@@ -658,10 +660,13 @@ void app.whenReady().then(async () => {
       `dedicated browser probe canvas is invalid: ${fixtureCanvas.failure.message}`,
     );
   }
-  await activeCanvasRuntime.runPromise(
-    canvases.write(canvasName, fixtureCanvas.success),
-  );
-  const model = await activeCanvasRuntime.runPromise(ModelService);
+  const seed = canvasFromDocument(canvasName, fixtureCanvas.success);
+  await activeCanvasRuntime.runPromise(Effect.gen(function* () {
+    yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas: canvasName }), "operator");
+    yield* model.command(Schema.decodeUnknownSync(Command)({
+      _tag: "Add", canvas: canvasName, nodes: [...seed.nodes.values()], wires: [...seed.wires.values()],
+    }), "operator");
+  }));
   const listCanvasModels = async () => activeCanvasRuntime.runPromise(Effect.gen(function* () {
     const names = yield* model.listCanvases();
     return yield* Effect.forEach(names, (name) => Effect.map(model.canvas(name), (doc) => ({ name, doc })));

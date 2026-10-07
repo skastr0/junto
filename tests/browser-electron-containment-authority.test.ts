@@ -22,12 +22,12 @@ describe("browser Electron containment authority", () => {
 
     for (const source of [probe, fixture]) {
       expect(source).not.toMatch(
-        /\.canvas\b|JUNTO_CANVASES_DIR|\bcanvasesDir\b|\bcanvasPath\b/u,
+        /["'][^"'\n]*\.canvas["']|JUNTO_CANVASES_DIR|\bcanvasesDir\b|\bcanvasPath\b/u,
       );
     }
   });
 
-  it("seeds and enumerates the fixture through the SQLite-backed canvas service", async () => {
+  it("seeds and enumerates the fixture through the SQLite-backed model service", async () => {
     const [probe, fixture] = await sources();
 
     expect(probe).toContain("`--canvas-payload=${canvasPayload}`");
@@ -35,9 +35,12 @@ describe("browser Electron containment authority", () => {
       '["canvas document payload", options.canvasDocumentJson]',
     );
     expect(fixture).toContain('requiredArgument("canvas-payload")');
-    expect(fixture).toContain(
-      "canvases.write(canvasName, fixtureCanvas.success)",
-    );
-    expect(fixture).toContain("canvases.liveDocuments()");
+    expect(fixture).toContain("activeCanvasRuntime.runPromise(ModelService)");
+    expect(fixture).toContain('_tag: "CreateCanvas", canvas: canvasName');
+    expect(fixture).toContain('_tag: "Add", canvas: canvasName');
+    expect(fixture).toContain("model.listCanvases()");
+    expect(fixture).toContain("model.canvas(name)");
+    expect(fixture).not.toContain("CanvasesService");
+    expect(fixture).not.toContain("CanvasesLive");
   });
 });
