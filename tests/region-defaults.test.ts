@@ -1,11 +1,6 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
-import { Result } from "effect";
-import {
-  decodeCanvasDoc,
-  serializeCanvas,
-  type CanvasDoc,
-} from "../src/shared/canvas";
+import { Result, Schema } from "effect";
+import { Node } from "../src/shared/model";
 import {
   findContainingRegion,
   resolvePageSpawnDefaults,
@@ -13,103 +8,54 @@ import {
   stripEmptyRegionDefaults,
   stripEmptyRegionPaths,
 } from "../src/shared/region-defaults";
+import { canvasOf, region } from "./support/model-nodes";
 
-const baseDoc = (): CanvasDoc =>
-  Result.getOrThrow(
-    decodeCanvasDoc({
-      nodes: [
-        {
-          id: "outer",
-          type: "group",
-          label: "outer",
-          x: 0,
-          y: 0,
-          width: 800,
-          height: 600,
-          ether: {
-            region: {
-              hold: true,
-              defaults: {
-                page: { url: "https://outer.example", profile: "work", host: "studio" },
-                paths: {
-                  local: "/Users/op/outer",
-                  "remote-a": "/home/op/outer-remote",
-                },
-              },
-            },
-          },
-        },
-        {
-          id: "inner",
-          type: "group",
-          label: "inner",
-          x: 100,
-          y: 100,
-          width: 300,
-          height: 200,
-          ether: {
-            region: {
-              defaults: {
-                paths: {
-                  "remote-a": "/home/op/inner-project",
-                },
-              },
-            },
-          },
-        },
-        {
-          id: "page-only",
-          type: "group",
-          label: "page-only",
-          x: 500,
-          y: 100,
-          width: 200,
-          height: 150,
-          ether: {
-            region: {
-              defaults: {
-                page: { url: "https://page-only.example" },
-              },
-            },
-          },
-        },
-      ],
-      edges: [],
-    }),
-  );
+const outer = region("outer", { x: 0, y: 0, width: 800, height: 600 }, {
+  label: "outer",
+  hold: true,
+  defaults: {
+    page: { url: "https://outer.example", profile: "work", host: "studio" },
+    paths: {
+      local: "/Users/op/outer",
+      "remote-a": "/home/op/outer-remote",
+    },
+  },
+});
+
+const canvas = canvasOf([
+  outer,
+  region("inner", { x: 100, y: 100, width: 300, height: 200 }, {
+    label: "inner",
+    defaults: { paths: { "remote-a": "/home/op/inner-project" } },
+  }),
+  region("page-only", { x: 500, y: 100, width: 200, height: 150 }, {
+    label: "page-only",
+    defaults: { page: { url: "https://page-only.example" } },
+  }),
+]);
 
 describe("region spawn defaults", () => {
-  it("round-trips region.defaults through decode/serialize", () => {
-    const doc = baseDoc();
-    const again = Result.getOrThrow(decodeCanvasDoc(JSON.parse(serializeCanvas(doc))));
-    expect(again).toEqual(doc);
-    const outer = again.nodes.find((n) => n.id === "outer");
-    expect(outer?.type).toBe("group");
-    if (outer?.type === "group") {
-      expect(outer.ether?.region?.defaults?.page?.profile).toBe("work");
-      expect(outer.ether?.region?.defaults?.page?.host).toBe("studio");
-    }
+  it("a region with page and path defaults is a node the model accepts", () => {
+    const decoded = Schema.decodeUnknownResult(Node)(outer, { onExcessProperty: "error" });
+    expect(Result.isSuccess(decoded)).toBe(true);
   });
 
-
   it("walks out for page when inner has no page bag", () => {
-    const doc = baseDoc();
     // Inner has only path defaults — page resolves from outer.
-    const page = resolvePageSpawnDefaults(canvasFromDocument("factory", doc), 150, 150);
+    const page = resolvePageSpawnDefaults(canvas, 150, 150);
     expect(page).toEqual({
       url: "https://outer.example",
       profile: "work",
       host: "studio",
     });
-    expect(resolvePageSpawnDefaults(canvasFromDocument("factory", doc), 550, 120)).toEqual({
+    expect(resolvePageSpawnDefaults(canvas, 550, 120)).toEqual({
       url: "https://page-only.example",
     });
   });
 
   it("returns undefined outside any region with defaults", () => {
-    const doc = baseDoc();
-    expect(resolvePageSpawnDefaults(canvasFromDocument("factory", doc), -10, -10)).toBeUndefined();
-    expect(findContainingRegion(canvasFromDocument("factory", doc), -10, -10)).toBeUndefined();
+    expect(resolvePageSpawnDefaults(canvas, -10, -10)).toBeUndefined();
+    expect(findContainingRegion(canvas, -10, -10)).toBeUndefined();
   });
 
   it("stripEmptyRegionDefaults drops blank hosts and empty bags", () => {
@@ -131,16 +77,15 @@ describe("region spawn defaults", () => {
   });
 
   it("resolveRegionCwd is host-keyed and walks outward", () => {
-    const doc = baseDoc();
     // Inside inner: remote-a uses inner path; local walks out to outer.
-    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 150, 150, "remote-a")).toBe("/home/op/inner-project");
-    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 150, 150, "local")).toBe("/Users/op/outer");
+    expect(resolveRegionCwd(canvas, 150, 150, "remote-a")).toBe("/home/op/inner-project");
+    expect(resolveRegionCwd(canvas, 150, 150, "local")).toBe("/Users/op/outer");
     // Outside inner, still in outer.
-    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 50, 50, "local")).toBe("/Users/op/outer");
-    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 50, 50, "remote-a")).toBe("/home/op/outer-remote");
+    expect(resolveRegionCwd(canvas, 50, 50, "local")).toBe("/Users/op/outer");
+    expect(resolveRegionCwd(canvas, 50, 50, "remote-a")).toBe("/home/op/outer-remote");
     // Unknown host / outside region.
-    expect(resolveRegionCwd(canvasFromDocument("factory", doc), 50, 50, "studio")).toBeUndefined();
-    expect(resolveRegionCwd(canvasFromDocument("factory", doc), -10, -10, "local")).toBeUndefined();
+    expect(resolveRegionCwd(canvas, 50, 50, "studio")).toBeUndefined();
+    expect(resolveRegionCwd(canvas, -10, -10, "local")).toBeUndefined();
   });
 
   it("stripEmptyRegionPaths trims and drops blanks", () => {
@@ -150,27 +95,5 @@ describe("region spawn defaults", () => {
       local: "/a",
       remote: "/b",
     });
-  });
-
-  it("round-trips paths through decode/serialize", () => {
-    const doc = baseDoc();
-    const again = Result.getOrThrow(decodeCanvasDoc(JSON.parse(serializeCanvas(doc))));
-    const outer = again.nodes.find((n) => n.id === "outer");
-    expect(outer?.type).toBe("group");
-    if (outer?.type === "group") {
-      expect(outer.ether?.region?.defaults?.paths).toEqual({
-        local: "/Users/op/outer",
-        "remote-a": "/home/op/outer-remote",
-      });
-    }
-  });
-
-  it("stripping ether leaves valid JSON Canvas", () => {
-    const doc = baseDoc();
-    const stripped = {
-      nodes: doc.nodes.map(({ ether: _e, ...rest }) => rest),
-      edges: doc.edges,
-    };
-    expect(Result.isSuccess(decodeCanvasDoc(stripped))).toBe(true);
   });
 });
