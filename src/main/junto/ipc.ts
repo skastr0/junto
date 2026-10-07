@@ -73,7 +73,7 @@ import { SquadRepository, type SquadRepositoryError } from "./squads/repository"
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
 import { SeatGuidanceRepository } from "./seat-guidance/repository";
 import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
-import { SeatOffboardCloser } from "./seat-sessions/offboard-close";
+import { SeatOffboardCloser, seatClosable } from "./seat-sessions/offboard-close";
 import { ContinuationLedger } from "./seat-sessions/continuation-pending";
 import { makeOnboardNudgeInterject, watchSeatReadiness } from "./term/onboard-nudge-interject";
 import {
@@ -2096,7 +2096,13 @@ export const registerJuntoIpc = (): void => {
         locate: managedSeatOn,
         isRunning: (bindingId) =>
           !productAutomationSuspended && termPlane.host.get(bindingId)?.status === "running",
-        isIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
+        // Idle says nothing about the composer: a seat with the operator's
+        // draft in it reads idle too, and closing would throw the draft away.
+        isIdle: (bindingId) =>
+          seatClosable({
+            idle: seatStateRuntime.isSeatIdle(bindingId),
+            inputBoxHold: managedDrive.inputBoxHold(bindingId),
+          }),
         close: async (address, wake) => {
           // Name the generation that offboarded before it is replaced: the
           // fresh one may be up by the time the rotation returns.

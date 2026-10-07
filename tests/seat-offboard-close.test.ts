@@ -4,10 +4,12 @@
  * `--continue` starts the fresh session and mails it the kickoff. Also the
  * rotation sequence with and without the wake.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  OFFBOARD_CLOSE_TICK_MS,
   OFFBOARD_SETTLE_MS,
   SeatOffboardCloser,
+  seatClosable,
   type ClosingSeat,
   type OffboardClosePorts,
 } from "../src/main/junto/seat-sessions/offboard-close";
@@ -257,6 +259,184 @@ describe("rotateSeatSession wake", () => {
         stage: "failed",
         message: "The seat is no longer on its canvas.",
       });
+    });
+  });
+
+  describe("several seats offboarding at once", () => {
+    const SEATS = ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
+    /** Each close takes as long as a stubborn process takes to exit. */
+    const SLOW_CLOSE_MS = 10_000;
+
+    const many = (over: Partial<OffboardClosePorts> = {}) => {
+      vi.useFakeTimers({ now: 1_000 });
+      const closed: Array<{ seatId: string; at: number }> = [];
+      const progress: SeatOffboardProgress[] = [];
+      const idle = new Set<string>(SEATS);
+      const closer = new SeatOffboardCloser({
+        locate: async ({ seatId }) => ({ bindingId: `bind-${seatId}`, sessionId: "s1" }),
+        isRunning: () => true,
+        isIdle: (bindingId) => idle.has(bindingId.replace("bind-", "")),
+        close: async ({ seatId }, wake) => {
+          await new Promise((resolve) => setTimeout(resolve, SLOW_CLOSE_MS));
+          closed.push({ seatId, at: Date.now() });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+        kickoff: async () => true,
+        publish: (entry) => progress.push(entry),
+        now: () => Date.now(),
+        ...over,
+      });
+      const offboardAll = (seats: ReadonlyArray<string> = SEATS) => {
+        for (const seatId of seats) {
+          closer.offboarded({ seatId, canvasName: "c", sessionId: "s1", at: Date.now(), mode: "continue" });
+        }
+      };
+      /** The closer's own clock: a tick every second, as in the app. */
+      const run = async (ms: number) => {
+        for (let elapsed = 0; elapsed < ms; elapsed += OFFBOARD_CLOSE_TICK_MS) {
+          void closer.tick();
+          await vi.advanceTimersByTimeAsync(OFFBOARD_CLOSE_TICK_MS);
+        }
+      };
+      const stageOf = (seatId: string) => progress.filter((entry) => entry.seatId === seatId).at(-1)?.stage;
+      return { closer, closed, progress, idle, offboardAll, run, stageOf };
+    };
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("ten seats close together, not one after another", async () => {
+      const { closed, offboardAll, run, stageOf } = many();
+      const startedAt = Date.now();
+      offboardAll();
+      // Settle, then one slow close each, side by side.
+      await run(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
+      expect(closed.map((entry) => entry.seatId).sort()).toEqual(SEATS);
+      const last = Math.max(...closed.map((entry) => entry.at)) - startedAt;
+      // One after another this is over a minute and a half.
+      expect(last).toBeLessThanOrEqual(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
+      for (const seatId of SEATS) expect(stageOf(seatId)).toBe("started");
+    });
+
+    it("a seat that goes idle while others are still closing is not kept waiting for them", async () => {
+      const { closed, idle, offboardAll, run } = many();
+      idle.delete("s9");
+      offboardAll();
+      await run(OFFBOARD_SETTLE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
+      // Nine closes are in flight. The tenth finishes its turn now.
+      const idleAt = Date.now();
+      idle.add("s9");
+      await run(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
+      const late = closed.find((entry) => entry.seatId === "s9");
+      expect(late).toBeDefined();
+      expect(late!.at - idleAt).toBeLessThanOrEqual(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
+    });
+
+    it("one seat whose close never returns does not hold up the others", async () => {
+      const { closed, offboardAll, run, stageOf } = many({
+        close: async ({ seatId }, wake) => {
+          if (seatId === "s3") return new Promise(() => {});
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          closed.push({ seatId, at: Date.now() });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+      });
+      offboardAll();
+      await run(OFFBOARD_SETTLE_MS + 3 * OFFBOARD_CLOSE_TICK_MS);
+      expect(closed.map((entry) => entry.seatId).sort()).toEqual(SEATS.filter((seatId) => seatId !== "s3"));
+      expect(stageOf("s3")).toBe("saved");
+      expect(stageOf("s4")).toBe("started");
+    });
+
+    it("one seat whose close fails, or whose lookup throws, fails alone and says so", async () => {
+      const { closed, offboardAll, run, stageOf, progress } = many({
+        locate: async ({ seatId }) => {
+          if (seatId === "s5") throw new Error("canvas unreadable");
+          return { bindingId: `bind-${seatId}`, sessionId: "s1" };
+        },
+        close: async ({ seatId }, wake) => {
+          if (seatId === "s2") throw new Error("could not stop the process");
+          closed.push({ seatId, at: Date.now() });
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+      });
+      offboardAll();
+      await run(OFFBOARD_SETTLE_MS + 3 * OFFBOARD_CLOSE_TICK_MS);
+      expect(closed).toHaveLength(8);
+      expect(stageOf("s2")).toBe("failed");
+      expect(progress.find((entry) => entry.seatId === "s2" && entry.stage === "failed")?.message).toContain(
+        "could not stop the process",
+      );
+      expect(stageOf("s5")).toBe("failed");
+      expect(stageOf("s6")).toBe("started");
+    });
+
+    it("never closes the same seat twice, however many ticks pass while its close is in flight", async () => {
+      let closes = 0;
+      const { offboardAll, run } = many({
+        close: async (_seat, wake) => {
+          closes += 1;
+          await new Promise((resolve) => setTimeout(resolve, SLOW_CLOSE_MS));
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+      });
+      offboardAll(["s0"]);
+      await run(OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 3 * OFFBOARD_CLOSE_TICK_MS);
+      expect(closes).toBe(1);
+    });
+
+    it("an offboard that arrives for a seat while its close is in flight waits for that close", async () => {
+      const order: string[] = [];
+      const { closer, offboardAll, run } = many({
+        close: async (_seat, wake) => {
+          order.push("close:start");
+          await new Promise((resolve) => setTimeout(resolve, SLOW_CLOSE_MS));
+          order.push("close:end");
+          return { ok: true, ended: "s1", next: "s2", woke: wake };
+        },
+        // The fresh session is the one the node names once the close is done.
+        locate: async () => ({ bindingId: "bind-s0", sessionId: order.includes("close:end") ? "s2" : "s1" }),
+      });
+      offboardAll(["s0"]);
+      await run(OFFBOARD_SETTLE_MS + 2 * OFFBOARD_CLOSE_TICK_MS);
+      expect(order).toEqual(["close:start"]);
+      // The fresh session offboards too, before the first close has returned.
+      closer.offboarded({ seatId: "s0", canvasName: "c", sessionId: "s2", at: Date.now(), mode: "rest" });
+      await run(4 * OFFBOARD_CLOSE_TICK_MS);
+      expect(order).toEqual(["close:start"]);
+      await run(SLOW_CLOSE_MS + OFFBOARD_SETTLE_MS + SLOW_CLOSE_MS + 3 * OFFBOARD_CLOSE_TICK_MS);
+      expect(order).toEqual(["close:start", "close:end", "close:start", "close:end"]);
+    });
+  });
+
+  describe("an operator draft when the close comes due", () => {
+    it("a seat is closable only when idle with nothing of the operator's in its input box", () => {
+      expect(seatClosable({ idle: true, inputBoxHold: undefined })).toBe(true);
+      expect(seatClosable({ idle: true, inputBoxHold: "draft" })).toBe(false);
+      expect(seatClosable({ idle: true, inputBoxHold: "dialog" })).toBe(false);
+      // Junto types nothing to close a session: an unread box is no reason to
+      // wait, and for a harness with no probes it would be a wait for ever.
+      expect(seatClosable({ idle: true, inputBoxHold: "unreadable" })).toBe(true);
+      expect(seatClosable({ idle: false, inputBoxHold: undefined })).toBe(false);
+    });
+
+    it("the close waits while the draft is there, restarts its settle, and goes when it is gone", async () => {
+      const box = { hold: "draft" as "draft" | undefined };
+      const { h, closer } = harness({
+        isIdle: () => seatClosable({ idle: true, inputBoxHold: box.hold }),
+      });
+      closer.offboarded(offboard("rest"));
+      for (let i = 0; i < 5; i += 1) await settle(h, closer);
+      expect(h.closes).toEqual([]);
+      expect(h.progress.at(-1)).toMatchObject({ stage: "saved" });
+      // The operator sends or clears the draft.
+      box.hold = undefined;
+      await closer.tick();
+      expect(h.closes).toEqual([]);
+      h.now += OFFBOARD_SETTLE_MS;
+      await closer.tick();
+      expect(h.closes).toEqual([{ seatId: "a", wake: false }]);
     });
   });
 });

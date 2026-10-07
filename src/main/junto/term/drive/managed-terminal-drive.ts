@@ -770,6 +770,16 @@ export class ManagedTerminalDrive {
     return availability === "unreadable" ? "unreadable" : undefined;
   }
 
+  /**
+   * Why Junto would not type into this seat's input box right now, by the
+   * rule mail is written under, or undefined when it would. A read: it types
+   * nothing and arms nothing. For callers that must not act over the
+   * operator's draft without typing anything themselves (closing a session).
+   */
+  inputBoxHold(bindingId: string): ComposerHold | undefined {
+    return this.mailHold(bindingId);
+  }
+
   /** Hold this binding's mail and look again until the box is available. */
   private holdMail(bindingId: string, reason: ComposerHold): void {
     if (this.mailHeld.has(bindingId)) return;

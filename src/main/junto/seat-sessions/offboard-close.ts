@@ -30,7 +30,7 @@ export type OffboardClosePorts = {
   readonly locate: (seat: SeatAddress) => Promise<ClosingSeat | undefined>;
   /** The seat's process is running. */
   readonly isRunning: (bindingId: string) => boolean;
-  /** The seat is idle between turns, confirmed (the same gate mail typing uses). */
+  /** The seat can be closed now: idle between turns, no operator draft (see seatClosable). */
   readonly isIdle: (bindingId: string) => boolean;
   /** End the session and give the seat a fresh one; start it only when `wake`. */
   readonly close: (seat: SeatAddress, wake: boolean) => Promise<SeatRotateResult>;
@@ -42,6 +42,20 @@ export type OffboardClosePorts = {
   readonly now?: () => number;
   readonly log?: (message: string) => void;
 };
+
+/**
+ * May an offboarded session be closed now? Only between turns, and never
+ * over something the operator is in the middle of: a draft in the composer
+ * would be lost with the process, and a dialog is theirs to answer. An input
+ * box Junto cannot read is not a reason to wait: it types nothing here, and
+ * a harness whose box it can never read would otherwise never close.
+ */
+export const seatClosable = (input: {
+  /** Idle between turns, confirmed. */
+  readonly idle: boolean;
+  /** Why mail would be held for this seat's input box now, if it would. */
+  readonly inputBoxHold: "draft" | "dialog" | "unreadable" | undefined;
+}): boolean => input.idle && input.inputBoxHold !== "draft" && input.inputBoxHold !== "dialog";
 
 export const OFFBOARD_CLOSE_TICK_MS = 1_000;
 /**
@@ -69,7 +83,8 @@ export class SeatOffboardCloser {
   private readonly progress = new Map<string, SeatOffboardProgress>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private unsubscribeOffboard: (() => void) | undefined;
-  private running = false;
+  /** Seats a tick is looking at right now; a later tick leaves them alone. */
+  private readonly stepping = new Set<string>();
 
   constructor(private readonly ports: OffboardClosePorts) {}
 
@@ -139,17 +154,30 @@ export class SeatOffboardCloser {
     return [...this.progress.values()];
   }
 
-  /** One pass over every seat waiting to close. Overlapping ticks are skipped. */
+  /**
+   * One pass over every seat waiting to close. Each seat is its own: they
+   * are looked at side by side, a slow close (a process that takes its ten
+   * seconds to exit) delays no other seat, and a seat that fails, fails
+   * alone. Ticks may overlap; a seat already being looked at, or already
+   * closing, is skipped until that is done, so no seat is closed twice.
+   */
   async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
-    try {
-      for (const [key, entry] of [...this.pending]) {
-        await this.step(key, entry);
-      }
-    } finally {
-      this.running = false;
-    }
+    const due = [...this.pending].filter(([key]) => !this.stepping.has(key) && !this.closing.has(key));
+    await Promise.all(
+      due.map(async ([key, entry]) => {
+        this.stepping.add(key);
+        try {
+          await this.step(key, entry);
+        } catch (error) {
+          // Nothing a seat's ports throw may reach another seat's close.
+          this.pending.delete(key);
+          this.ports.log?.(`closing ${entry.seatId} failed: ${String(error)}`);
+          this.report(entry.seatId, entry.canvasName, entry.mode, "failed", String(error));
+        } finally {
+          this.stepping.delete(key);
+        }
+      }),
+    );
   }
 
   private async step(key: string, entry: Pending): Promise<void> {
@@ -174,6 +202,9 @@ export class SeatOffboardCloser {
       entry.idleSince ??= now;
       if (now - entry.idleSince < OFFBOARD_SETTLE_MS) return;
     }
+    // A newer offboard for this seat may have replaced this entry while the
+    // ports were being asked; it is that one's turn then, at a later tick.
+    if (this.pending.get(key) !== entry) return;
     this.pending.delete(key);
     this.closing.add(key);
     try {
