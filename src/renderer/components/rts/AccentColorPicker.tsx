@@ -18,7 +18,7 @@ import { HUE, accentColor } from "../../lib/theme";
 import "./AccentColorPicker.css";
 
 /**
- * Card and region colour: the JSON Canvas presets and the named palette in
+ * Card and region colour: the numbered presets and the named palette in
  * hue order (shared/canvas-colors.ts), then "+" for any colour by hex. A node
  * wearing a custom colour shows it on the "+" dot, lit.
  */

@@ -1,5 +1,5 @@
 /**
- * Image geography card — JSON Canvas `file` whose path is a content-store
+ * Image geography card: a file node whose path is a content-store
  * image URL. Plain workspace-path file furniture is retired; legacy docs still
  * decode but render as a delete-only stub (no authoring path).
  */

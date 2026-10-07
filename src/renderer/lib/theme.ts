@@ -61,7 +61,7 @@ export const CARD_FILL_HI = "var(--color-overlay-2)";
 export const STROKE = "var(--color-stroke)";
 export const STROKE_HI = "var(--color-stroke-hi)";
 
-// A node colour: a JSON Canvas preset digit or hex. Palette colours
+// A node colour: a preset digit or hex. Palette colours
 // (shared/canvas-colors.ts) resolve to CSS variable references so they follow
 // the active theme mode (dark/bright) instead of freezing to one shade; any
 // other hex is a custom colour and paints as stored.
@@ -73,7 +73,7 @@ export const accentColor = (color?: string): string => {
   return "var(--color-main)";
 };
 
-// Resolve a JSON Canvas color (preset digit or hex) to a border tint. Absent
+// Resolve a node colour (preset digit or hex) to a border tint. Absent
 // color falls back to stroke (ink-at-N%) which is defined per mode. Emphasized
 // state (selected/focused) uses the hi variant. Custom hex colors keep the old
 // withAlpha path so they remain usable with JS color manipulation.

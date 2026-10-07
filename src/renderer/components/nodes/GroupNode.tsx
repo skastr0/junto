@@ -210,7 +210,7 @@ export function GroupNode({ id, data, selected }: NodeProps<FlowNode>) {
     if (draft !== label) renameGroup(id, draft);
   };
 
-  // Selection chrome stays amber; unselected border + tint follow JSON Canvas
+  // Selection chrome stays amber; unselected border + tint follow the node's
   // `color`. Region plate images are retired — color wash only.
   //
   // The whole wrapper is pointer-transparent (see convert.ts) so rubber-band
