@@ -72,6 +72,7 @@ import {
   type TerminalObserverPlane,
 } from "./observer";
 import { seatStateRuntime } from "./agent-state";
+import { drainKeyOf } from "@shared/seat-drain";
 import {
   extractSessionIdFromText,
   recordCapturedSessionId,
@@ -343,6 +344,14 @@ type SessionRec = {
    * until its exit is actually witnessed.
    */
   unconfirmedStop: { readonly at: number; readonly cause: string } | undefined;
+  /**
+   * The seat offboarded and moved on; this process was detached from it and
+   * is finishing its turn in a world of its own. It is off the binding (the
+   * seat's next generation owns that), reads under its drain key, takes no
+   * input from anyone, holds no seat identity, and is stopped when the drain
+   * manager says so. `stopped` is why, once it has been told to stop.
+   */
+  draining: { readonly key: string; stopped: string | undefined } | undefined;
   /**
    * This generation used harness resume argv (`-r` / `--resume` / `resume`).
    * On proven resume failure we fail open to a fresh pin session once.
@@ -862,6 +871,7 @@ export class LocalSessionHost extends EventEmitter {
   private readonly allExitedWaiters = new Set<AllExitedWaiter>();
   /** Exact-generation deletion waiters; unrelated seats never hold these open. */
   private readonly recordExitWaiters = new Set<RecordExitWaiter>();
+  private readonly drainEndedListeners = new Set<(drainKey: string, code: number | undefined) => void>();
   private maintenanceLease: LocalTerminalMaintenanceLease | undefined;
   private shuttingDown = false;
   private shutdownFlight: Promise<LocalHostShutdownResult> | undefined;
@@ -1162,6 +1172,7 @@ export class LocalSessionHost extends EventEmitter {
       sessionCaptureTail: "",
       escalationTimer: undefined,
       unconfirmedStop: undefined,
+      draining: undefined,
       resumeAttempt: agentMeta?.resumeAttempt === true,
       resumeFailureSeen: false,
       failOpenUsed: agentMeta?.failOpenUsed === true,
@@ -1934,6 +1945,27 @@ export class LocalSessionHost extends EventEmitter {
     if (!this.liveRecords.has(rec) || rec.unconfirmedStop !== undefined) return;
     if (sessionStatusOf(rec) === "exited") return;
     rec.unconfirmedStop = { at: Date.now(), cause };
+    if (rec.draining !== undefined) {
+      // A detached session that will not die: there is no seat to release
+      // (it left it at the detach). Its drain is over all the same; the
+      // process stays tracked here until its exit is witnessed.
+      const { key } = rec.draining;
+      for (const cleanup of rec.listenerCleanups.splice(0)) {
+        try {
+          cleanup();
+        } catch {
+          // Listener disposal never weakens the exact central exit witness.
+        }
+      }
+      this.releaseDrainSurfaces(rec, key);
+      rec.phase = SessionPhase.Closed({ surface: "native", reason: "stop_unconfirmed" });
+      console.error(
+        `[term] stop unconfirmed for detached session ${key}` +
+          `${rec.pid === undefined ? "" : ` pid=${rec.pid}`} (${cause}): process still tracked`,
+      );
+      this.tellDrainEnded(key, undefined);
+      return;
+    }
     for (const cleanup of rec.listenerCleanups.splice(0)) {
       try {
         cleanup();
@@ -1981,6 +2013,131 @@ export class LocalSessionHost extends EventEmitter {
       status: "exited",
       pid: rec.pid,
     });
+  }
+
+  // ── Draining: a session that offboarded, detached from its seat ──────────
+
+  /**
+   * Detach the binding's running generation from its seat, without stopping
+   * it. The seat reads vacant at once, so its next generation can start; the
+   * old process lives on under a drain key: read, never written to, with no
+   * seat identity. Everything is one synchronous step, so nothing can reach
+   * the old process in between.
+   *
+   * Undefined, and nothing changed, when the binding has no running
+   * generation, the generation is already stopping, or its screen reading
+   * could not be moved (a process must never be drained blind; the caller
+   * stops it instead).
+   */
+  drain(bindingId: string): { readonly drainKey: string; readonly epoch: string; readonly pid?: number } | undefined {
+    const rec = this.sessions.get(bindingId.trim());
+    if (rec === undefined || rec.killed || rec.draining !== undefined) return undefined;
+    if (sessionStatusOf(rec) !== "running" || !this.liveRecords.has(rec)) return undefined;
+    const drainKey = drainKeyOf(rec.bindingId, rec.epoch);
+    // The grid moves whole (screen, title, modes): a reading that started
+    // empty mid-turn cannot tell when some harnesses finish.
+    if (!this.observerPlane.rekey(rec.bindingId, drainKey)) return undefined;
+    if (!seatStateRuntime.rekey(rec.bindingId, drainKey)) {
+      // No seat-state slot to move: its idle cannot be read, so only the
+      // drain's cap will end it. Said, not hidden.
+      console.warn(`[term] ${drainKey}: no seat state to move; this drain can only end at its cap`);
+    }
+    rec.draining = { key: drainKey, stopped: undefined };
+    // No input: the lease that could type into it is void, and the binding
+    // no longer leads here.
+    rec.controlLeaseId = undefined;
+    this.sessions.delete(rec.bindingId);
+    // Its seat identity goes, remembered as offboarded: a junto call from it
+    // is refused in plain words and can never act as the seat.
+    this.offboardProcessIdentities(rec);
+    this.clearPrimeAgentReporterHook(rec, "offboard_detached");
+    // For the seat, this generation has ended. Say so once, as an exit does,
+    // so every surface lets go of it now.
+    rec.seq = rec.seq + 1n;
+    this.safeEmitEvent({
+      type: "exit",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      seq: rec.seq,
+      code: undefined,
+      signal: undefined,
+    });
+    this.safeEmitEvent({
+      type: "session",
+      bindingId: rec.bindingId,
+      epoch: rec.epoch,
+      status: "exited",
+      pid: rec.pid,
+    });
+    return { drainKey, epoch: rec.epoch, ...(rec.pid === undefined ? {} : { pid: rec.pid }) };
+  }
+
+  /**
+   * Stop a detached session: TERM, then KILL, then the host's own bound, with
+   * its Prime Agent daemon torn down now and not before. False when no such
+   * session is draining or it was already told to stop.
+   */
+  stopDraining(drainKey: string, reason: string): boolean {
+    const rec = this.drainingRecord(drainKey);
+    if (rec === undefined || rec.draining === undefined || rec.draining.stopped !== undefined) return false;
+    rec.draining.stopped = reason;
+    this.requestStop(rec, `offboard_drain_${reason}`);
+    return true;
+  }
+
+  /** Told when a detached session's process is gone: its key and exit code. */
+  onDrainEnded(listener: (drainKey: string, code: number | undefined) => void): () => void {
+    this.drainEndedListeners.add(listener);
+    return () => {
+      this.drainEndedListeners.delete(listener);
+    };
+  }
+
+  /** Detached sessions still alive, for the record at quit. */
+  drainingKeys(): ReadonlyArray<string> {
+    return [...this.liveRecords]
+      .filter((rec) => rec.draining !== undefined && rec.unconfirmedStop === undefined)
+      .map((rec) => rec.draining!.key);
+  }
+
+  private drainingRecord(drainKey: string): SessionRec | undefined {
+    for (const rec of this.liveRecords) {
+      if (rec.draining?.key === drainKey) return rec;
+    }
+    return undefined;
+  }
+
+  private tellDrainEnded(drainKey: string, code: number | undefined): void {
+    for (const listener of [...this.drainEndedListeners]) {
+      try {
+        listener(drainKey, code);
+      } catch (error) {
+        console.error(`[term] drain listener failed for ${drainKey}:`, error);
+      }
+    }
+  }
+
+  /** Give up the grid and the seat-state slot a detached session held under its key. */
+  private releaseDrainSurfaces(rec: SessionRec, drainKey: string): void {
+    this.observerPlane.detach(drainKey, rec.epoch);
+    seatStateRuntime.unbind(drainKey, rec.epoch, "drain_ended");
+  }
+
+  /** Revoke the record's identities as offboarded (see process-identity). */
+  private offboardProcessIdentities(rec: SessionRec): void {
+    const identities = getProcessIdentityMap();
+    const bindings = [rec.daemonIdentityBinding, rec.ptyIdentityBinding].filter(
+      (binding): binding is ProcessIdentityBinding => binding !== undefined,
+    );
+    rec.daemonIdentityBinding = undefined;
+    rec.ptyIdentityBinding = undefined;
+    for (const binding of bindings) {
+      try {
+        identities.offboardGeneration(binding);
+      } catch (error) {
+        console.error(`[term] identity offboard failed for ${rec.bindingId}@${rec.epoch}:`, error);
+      }
+    }
   }
 
   /**
@@ -2305,6 +2462,14 @@ export class LocalSessionHost extends EventEmitter {
       !this.liveRecords.has(rec)
     ) return;
     rec.seq = rec.seq + 1n;
+    if (rec.draining !== undefined) {
+      // A detached session is read, and that is all: its bytes go to its own
+      // grid under its drain key. No journal for a surface, no event for the
+      // seat, and above all no session-id capture: the binding's capture now
+      // belongs to the fresh session, and this output must never name it.
+      this.observerPlane.feed(rec.draining.key, data, rec.seq);
+      return;
+    }
     this.pushJournal(rec, { seq: rec.seq, type: "output", data });
     // Single insertion point: every byte already flows here with a seq.
     this.observerPlane.feed(rec.bindingId, data, rec.seq);
@@ -2378,6 +2543,22 @@ export class LocalSessionHost extends EventEmitter {
     this.revokeProcessIdentities(rec);
     this.clearPrimeAgentReporterHook(rec, "terminal_exit");
     this.requestPrimeDaemonStop(rec, "terminal_exit");
+    if (rec.draining !== undefined) {
+      // The seat heard that this generation was gone when it was detached.
+      // This is the process itself ending, told only to whoever manages the drain.
+      const { key } = rec.draining;
+      if (rec.unconfirmedStop === undefined) this.releaseDrainSurfaces(rec, key);
+      if (this.liveRecords.delete(rec)) this.notifyQuiescentWaiters();
+      rec.phase = SessionPhase.Closed({
+        surface: "native",
+        reason: signal !== undefined ? `signal_${signal}` : `exit_${code ?? "null"}`,
+      });
+      rec.lease = undefined;
+      rec.exitWitness = undefined;
+      if (rec.unconfirmedStop === undefined) this.tellDrainEnded(key, code);
+      rec.unconfirmedStop = undefined;
+      return;
+    }
     this.removeLiveRecord(rec);
     if (rec.unconfirmedStop !== undefined) {
       // The seat was released when the stop went unconfirmed and its exit was

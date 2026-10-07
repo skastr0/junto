@@ -2380,4 +2380,244 @@ describe("LocalSessionHost", () => {
       expect(host.createAgentSeat(input).epoch).not.toBe(first.epoch);
     });
   });
+
+  describe("a session detached from its seat (offboard drain)", () => {
+    const agentSeat = (bindingId: string) => ({
+      bindingId,
+      harness: "codex" as const,
+      agentKey: `local:${bindingId}`,
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
+      canvasName: "factory",
+      nodeId: `${bindingId}-node`,
+    });
+
+    /** A host with its own observer plane, one running seat, and its event log. */
+    const seated = (options: { exitOnSignal?: "SIGTERM" | "SIGKILL" | false } = {}) => {
+      const plane = new TerminalObserverPlane();
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(71_000 + index),
+        exitOnSignal: options.exitOnSignal ?? "SIGTERM",
+      }));
+      const host = hostWith(fake, { observerPlane: plane, killGraceMs: 10, shutdownGraceMs: 10, lateExitGraceMs: 20 });
+      const events: Array<{ type: string; bindingId: string; epoch: string; status?: string; data?: string }> = [];
+      host.on("event", (event) => events.push(event as never));
+      const ended: Array<{ drainKey: string; code: number | undefined }> = [];
+      host.onDrainEnded((drainKey, code) => ended.push({ drainKey, code }));
+      const input = agentSeat("drain-seat");
+      const first = host.createAgentSeat(input);
+      return { plane, fake, host, events, ended, input, first };
+    };
+
+    it("leaves the seat at once and is not signalled: the binding reads vacant and a fresh generation starts beside it", () => {
+      const { fake, host, input, first } = seated();
+      const drained = host.drain(input.bindingId);
+      expect(drained).toEqual({ drainKey: `drain:${input.bindingId}:${first.epoch}`, epoch: first.epoch, pid: 71_000 });
+      // Not a stop: no signal of any kind.
+      expect(fake.controllers[0]?.signals).toEqual([]);
+      expect(host.get(input.bindingId)).toBeUndefined();
+
+      const second = host.createAgentSeat(input);
+      expect(second.epoch).not.toBe(first.epoch);
+      expect(second).toMatchObject({ status: "running" });
+      expect(second.stopping).toBeUndefined();
+      expect(fake.controllers).toHaveLength(2);
+      // Two processes are alive: the seat's, and the one winding down.
+      expect(host.runningCount()).toBe(2);
+      expect(host.drainingKeys()).toEqual([drained!.drainKey]);
+    });
+
+    it("tells the seat that generation ended, once, at the detach", () => {
+      const { host, events, input, first } = seated();
+      events.length = 0;
+      host.drain(input.bindingId);
+      expect(events.map((event) => [event.type, event.bindingId, event.epoch, event.status])).toEqual([
+        ["exit", input.bindingId, first.epoch, undefined],
+        ["session", input.bindingId, first.epoch, "exited"],
+      ]);
+    });
+
+    it("takes no input from anyone, ever", async () => {
+      const { fake, host, input } = seated();
+      const before = await host.attach({ bindingId: input.bindingId, mode: "control" });
+      expect(before.ok).toBe(true);
+      host.drain(input.bindingId);
+      // The lease the operator's view held on it is void.
+      if (before.ok) {
+        expect(host.write(before.lease, "typed into the old view")).toBe(false);
+        expect(host.resize(before.lease, 100, 40)).toBe(false);
+      }
+      // Junto's own writes follow the binding, which no longer leads to it.
+      expect(host.writeManagedSeat(input.bindingId, "mail")).toBe(false);
+      host.createAgentSeat(input);
+      expect(host.writeManagedSeat(input.bindingId, "mail for the fresh session")).toBe(true);
+      const after = await host.attach({ bindingId: input.bindingId, mode: "control" });
+      if (after.ok) expect(host.write(after.lease, "typed by the operator")).toBe(true);
+      expect(fake.controllers[0]?.writes).toEqual([]);
+      expect(fake.controllers[1]?.writes).toEqual(["mail for the fresh session", "typed by the operator"]);
+      // And it cannot be addressed by the binding to be stopped by accident.
+      expect(host.kill(input.bindingId)).toBe(true);
+      expect(fake.controllers[0]?.signals).toEqual([]);
+    });
+
+    it("is still read, under its own key, and nothing of it reaches the seat", async () => {
+      const { plane, fake, host, events, input, first } = seated();
+      fake.controllers[0]?.emitData("turn output before the offboard\r\n");
+      const drained = host.drain(input.bindingId)!;
+      // The grid moved whole: the binding has none until the fresh one starts.
+      expect(plane.get(input.bindingId)).toBeUndefined();
+      expect(plane.get(drained.drainKey)).toBeDefined();
+      host.createAgentSeat(input);
+      events.length = 0;
+
+      fake.controllers[0]?.emitData("the rest of its last turn\r\n");
+      fake.controllers[1]?.emitData("the fresh session\r\n");
+      const old = await plane.get(drained.drainKey)!.snapshot();
+      expect(old.text).toContain("turn output before the offboard");
+      expect(old.text).toContain("the rest of its last turn");
+      expect(old.text).not.toContain("the fresh session");
+      const fresh = await plane.get(input.bindingId)!.snapshot();
+      expect(fresh.text).toContain("the fresh session");
+      expect(fresh.text).not.toContain("the rest of its last turn");
+      // No event for the seat carries the old process's bytes or its epoch.
+      expect(events.filter((event) => event.epoch === first.epoch)).toEqual([]);
+      expect(events.some((event) => event.data?.includes("the rest of its last turn"))).toBe(false);
+    });
+
+    it("loses its seat identity at the detach, remembered as offboarded; the fresh process gets its own", () => {
+      const identities = makeSyntheticIdentityMap();
+      setProcessIdentityMapForTests(identities);
+      const { host, input } = seated();
+      expect(identities.snapshot().map((entry) => entry.pid)).toEqual([71_000]);
+      host.drain(input.bindingId);
+      expect(identities.snapshot()).toEqual([]);
+      host.createAgentSeat(input);
+      expect(identities.snapshot().map((entry) => entry.pid)).toEqual([71_001]);
+    });
+
+    it("never names the fresh session: a session id it prints after the detach is not captured", () => {
+      const { fake, host, input } = seated();
+      host.drain(input.bindingId);
+      host.createAgentSeat(input);
+      fake.controllers[0]?.emitData("Session: 11111111-2222-3333-4444-555555555555\n");
+      expect(getCapturedSessionId(input.bindingId)).toBeUndefined();
+    });
+
+    it("is stopped when asked, gracefully, and its end is told with its exit", async () => {
+      vi.useFakeTimers();
+      const { fake, host, ended, input } = seated();
+      const drained = host.drain(input.bindingId)!;
+      host.createAgentSeat(input);
+      expect(host.stopDraining(drained.drainKey, "settled")).toBe(true);
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ended).toEqual([{ drainKey: drained.drainKey, code: 0 }]);
+      expect(host.drainingKeys()).toEqual([]);
+      expect(host.runningCount()).toBe(1);
+      // Once: a second request finds nothing, and the fresh process is untouched.
+      expect(host.stopDraining(drained.drainKey, "cap")).toBe(false);
+      expect(fake.controllers[1]?.signals).toEqual([]);
+      expect(host.get(input.bindingId)).toMatchObject({ status: "running" });
+    });
+
+    it("one that ignores TERM is killed on the host's bound", async () => {
+      vi.useFakeTimers();
+      const { fake, host, ended, input } = seated({ exitOnSignal: "SIGKILL" });
+      const drained = host.drain(input.bindingId)!;
+      host.stopDraining(drained.drainKey, "cap");
+      await vi.advanceTimersByTimeAsync(9);
+      expect(ended).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ended).toHaveLength(1);
+    });
+
+    it("one that never reports exiting is declared ended at the bound and stays tracked", async () => {
+      vi.useFakeTimers();
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const { fake, host, ended, input } = seated({ exitOnSignal: false });
+      const drained = host.drain(input.bindingId)!;
+      host.stopDraining(drained.drainKey, "cap");
+      await vi.advanceTimersByTimeAsync(10 + 20);
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(ended).toEqual([{ drainKey: drained.drainKey, code: undefined }]);
+      expect(host.unconfirmedStops()).toEqual([expect.objectContaining({ pid: 71_000 })]);
+      // Its exit, when it finally comes, is not told a second time.
+      fake.controllers[0]?.exit(137);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ended).toHaveLength(1);
+      expect(host.unconfirmedStops()).toEqual([]);
+    });
+
+    it("its own exit, before anyone stopped it, is told with its code", async () => {
+      const { fake, host, ended, input } = seated();
+      const drained = host.drain(input.bindingId)!;
+      fake.controllers[0]?.exit(3);
+      await vi.waitFor(() => expect(ended).toEqual([{ drainKey: drained.drainKey, code: 3 }]));
+      expect(host.drainingKeys()).toEqual([]);
+    });
+
+    it("the fresh session can be detached too while the first still winds down", () => {
+      const { host, input, first } = seated();
+      const one = host.drain(input.bindingId)!;
+      const second = host.createAgentSeat(input);
+      const two = host.drain(input.bindingId)!;
+      expect(one.drainKey).toBe(`drain:${input.bindingId}:${first.epoch}`);
+      expect(two.drainKey).toBe(`drain:${input.bindingId}:${second.epoch}`);
+      expect(host.drainingKeys()).toEqual([one.drainKey, two.drainKey]);
+      expect(host.runningCount()).toBe(2);
+    });
+
+    it("does nothing, and says so, when there is nothing it can detach", () => {
+      const { host, input } = seated();
+      expect(host.drain("no-such-seat")).toBeUndefined();
+      host.kill(input.bindingId);
+      // Already being stopped: a stop is not turned into a drain.
+      expect(host.drain(input.bindingId)).toBeUndefined();
+    });
+
+    it("is never drained blind: with no grid to move it stays the seat's, for the caller to stop", () => {
+      const { plane, host, input, first } = seated();
+      plane.detach(input.bindingId, first.epoch);
+      expect(host.drain(input.bindingId)).toBeUndefined();
+      expect(host.get(input.bindingId)).toMatchObject({ epoch: first.epoch, status: "running" });
+      expect(host.drainingKeys()).toEqual([]);
+    });
+
+    it("at quit it is stopped with everything else and reported", async () => {
+      vi.useFakeTimers();
+      const { fake, host, input } = seated();
+      const drained = host.drain(input.bindingId)!;
+      host.createAgentSeat(input);
+      expect(host.drainingKeys()).toEqual([drained.drainKey]);
+      const shutdown = host.shutdownAll("quit");
+      await vi.advanceTimersByTimeAsync(40);
+      expect(await shutdown).toEqual({ clean: true, stragglers: [] });
+      expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+      expect(fake.controllers[1]?.signals).toEqual(["SIGTERM"]);
+    });
+
+    it("keeps a Prime Agent seat's daemon until the drain is stopped, not at the detach", async () => {
+      const daemons = makeFakeDaemons({ daemonPidBase: 72_500 });
+      const plane = new TerminalObserverPlane();
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(72_000 + index),
+        exitOnSignal: "SIGTERM",
+      }));
+      const host = hostWith(fake, { observerPlane: plane, primeDaemons: daemons.manager });
+      host.createAgentSeat({
+        bindingId: "prime-drain",
+        harness: "prime-agent",
+        agentKey: "local:prime-drain",
+        launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
+        canvasName: "factory",
+        nodeId: "prime-drain-node",
+      });
+      const drained = host.drain("prime-drain")!;
+      expect(drained).toBeDefined();
+      expect(daemons.records[0]?.stopReasons).toEqual([]);
+      host.stopDraining(drained.drainKey, "settled");
+      expect(daemons.records[0]?.stopReasons).toEqual(["offboard_drain_settled"]);
+    });
+  });
 });
