@@ -312,6 +312,77 @@ describe("the line is owed before the fresh session exists, and is never given u
     ]);
   });
 
+  it("mail for the fresh session waits for the line, and is let through the moment it is typed", async () => {
+    const { supervisor, typed, boot, state } = rig();
+    const cleared: string[] = [];
+    supervisor.subscribeContinuationCleared((bindingId) => cleared.push(bindingId));
+    await boot("e1");
+    supervisor.armContinuation(BINDING, "e1");
+    // The session that offboarded still takes its mail.
+    expect(supervisor.continuationHoldsMail(BINDING)).toBe(false);
+    state("gone");
+    await boot("e2", ["unknown"]);
+    expect(supervisor.continuationHoldsMail(BINDING)).toBe(true);
+    expect(cleared).toEqual([]);
+    state("idle");
+    await settled();
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
+    expect(cleared).toEqual([BINDING]);
+    expect(supervisor.continuationHoldsMail(BINDING)).toBe(false);
+  });
+
+  it("mail is not held hostage: a line that cannot land lets mail through after ten seconds", async () => {
+    vi.useFakeTimers();
+    const { supervisor, typed, boot, state } = rig();
+    supervisor.setNow(() => Date.now());
+    supervisor.setContinuationWriter(() => false);
+    const cleared: string[] = [];
+    supervisor.subscribeContinuationCleared((bindingId) => cleared.push(bindingId));
+    await boot("e1");
+    supervisor.armContinuation(BINDING, "e1");
+    state("gone");
+    await boot("e2");
+    expect(supervisor.continuationHoldsMail(BINDING)).toBe(true);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(supervisor.continuationHoldsMail(BINDING)).toBe(true);
+    expect(cleared).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(supervisor.continuationHoldsMail(BINDING)).toBe(false);
+    expect(cleared).toEqual([BINDING]);
+    // Still owed: it is typed when it can be.
+    expect(supervisor.continuationPending(BINDING)).toBe(true);
+    expect(typed).toEqual([]);
+  });
+
+  it("a seat owed nothing never holds its mail", async () => {
+    const { supervisor, boot } = rig();
+    await boot("e1");
+    expect(supervisor.continuationHoldsMail(BINDING)).toBe(false);
+  });
+
+  it("says on the seat why the line is held, once per reason: the operator's draft, a dialog, an unread box", async () => {
+    const { supervisor, typed, composer, boot, state } = rig();
+    const held: string[] = [];
+    supervisor.subscribeContinuationHeld((_b, hold) => held.push(hold));
+    await boot("e1");
+    supervisor.armContinuation(BINDING, "e1");
+    state("gone");
+    composer.verdict = "draft";
+    await boot("e2");
+    supervisor.onSnapshot({ bindingId: BINDING, epoch: "e2" } as never);
+    supervisor.onSnapshot({ bindingId: BINDING, epoch: "e2" } as never);
+    expect(held).toEqual(["draft"]);
+    state("attention");
+    composer.verdict = null;
+    supervisor.onSnapshot({ bindingId: BINDING, epoch: "e2" } as never);
+    state("idle");
+    expect(held).toEqual(["draft", "dialog", "unreadable"]);
+    // The operator sends or clears what they were writing: the line goes out.
+    composer.verdict = "empty";
+    supervisor.onSnapshot({ bindingId: BINDING, epoch: "e2" } as never);
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
+  });
+
   it("is owed from before the old process goes, so nothing can get in ahead of it", async () => {
     const { supervisor, boot, offboard, wake } = rig();
     const pendingAsFreshCameUp: boolean[] = [];

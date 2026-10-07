@@ -73,8 +73,13 @@ type SeatSupervision = {
 const MESSAGE_MIN_CHARS = 2;
 /** A turn that follows the operator's Enter starts within this; later ones are not theirs. */
 const SUBMIT_TO_TURN_MS = 15_000;
+/** Why the seat's input box is keeping the continuation line out. */
+export type ContinuationHold = "draft" | "dialog" | "unreadable";
+
 /** How soon a continuation line the terminal refused is offered again. */
 const CONTINUATION_RETRY_MS = 1_000;
+/** How long mail for a fresh session waits for its continuation line to go first. */
+const CONTINUATION_FIRST_MS = 10_000;
 
 /** Printable characters in operator bytes: escape sequences and controls are keys, not text. */
 const printableCount = (data: string): number =>
@@ -112,7 +117,13 @@ export class InjectionSupervisor {
    * Seats whose next generation continues an offboarded session, with the
    * generation that offboarded (never the one to tell).
    */
-  private readonly continuations = new Map<string, { readonly notEpoch: string | undefined }>();
+  private readonly continuations = new Map<
+    string,
+    { readonly notEpoch: string | undefined; freshSince?: number; holdTimer?: ReturnType<typeof setTimeout> }
+  >();
+  private readonly continuationClearedListeners = new Set<(bindingId: string) => void>();
+  private readonly continuationHolds = new Map<string, ContinuationHold>();
+  private readonly continuationHeldListeners = new Set<(bindingId: string, hold: ContinuationHold, line: string) => void>();
   private writer: NoticeWriter | undefined;
   private readonly continuationRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly continuationWaits = new Map<string, string>();
@@ -172,14 +183,14 @@ export class InjectionSupervisor {
 
   /** The close that owed a continuation failed: forget it, type nothing. */
   disarmContinuation(bindingId: string): void {
-    this.continuations.delete(bindingId);
+    this.dropContinuation(bindingId);
   }
 
   private settleContinuation(bindingId: string): void {
     if (this.continuationWaits.delete(bindingId)) {
       this.continuationLog?.(`${bindingId}: the continuation line is no longer waiting`);
     }
-    this.continuations.delete(bindingId);
+    this.dropContinuation(bindingId);
     try {
       this.continuationSettled?.(bindingId);
     } catch (error) {
@@ -434,6 +445,78 @@ export class InjectionSupervisor {
     return this.seats.get(bindingId)?.epoch;
   }
 
+  /**
+   * Mail for this seat waits, briefly, for its continuation line. The line
+   * was owed first and is the fresh session's first message; mail typed
+   * ahead of it starts a turn that can keep the line out for as long as the
+   * turn runs. Bounded: mail is never held hostage by a line that cannot land.
+   */
+  continuationHoldsMail(bindingId: string): boolean {
+    const armed = this.continuations.get(bindingId);
+    const seat = this.seats.get(bindingId);
+    // The generation that offboarded is never told, so its mail is not held.
+    // A fresh one the supervisor has not heard of yet is held all the same:
+    // mail can hear a seat come up first.
+    if (armed === undefined || (seat !== undefined && seat.epoch === armed.notEpoch)) return false;
+    if (armed.freshSince === undefined) {
+      armed.freshSince = this.now();
+      armed.holdTimer = setTimeout(() => this.tellContinuationCleared(bindingId), CONTINUATION_FIRST_MS);
+      armed.holdTimer.unref?.();
+    }
+    return this.now() - armed.freshSince < CONTINUATION_FIRST_MS;
+  }
+
+  /**
+   * Told when the continuation line is held by the seat's input box, once
+   * per reason, so the seat can say so the way it says held mail.
+   */
+  subscribeContinuationHeld(listener: (bindingId: string, hold: ContinuationHold, line: string) => void): () => void {
+    this.continuationHeldListeners.add(listener);
+    return () => {
+      this.continuationHeldListeners.delete(listener);
+    };
+  }
+
+  private tellContinuationHeld(bindingId: string, hold: ContinuationHold): void {
+    if (this.continuationHolds.get(bindingId) === hold) return;
+    this.continuationHolds.set(bindingId, hold);
+    for (const listener of [...this.continuationHeldListeners]) {
+      try {
+        listener(bindingId, hold, CONTINUATION_LINE);
+      } catch {
+        // A listener's failure is its own; the line is still owed.
+      }
+    }
+  }
+
+  /** Told when mail for a seat no longer waits for its continuation line. */
+  subscribeContinuationCleared(listener: (bindingId: string) => void): () => void {
+    this.continuationClearedListeners.add(listener);
+    return () => {
+      this.continuationClearedListeners.delete(listener);
+    };
+  }
+
+  private tellContinuationCleared(bindingId: string): void {
+    for (const listener of [...this.continuationClearedListeners]) {
+      try {
+        listener(bindingId);
+      } catch {
+        // A listener's failure is its own; the line's state is unchanged.
+      }
+    }
+  }
+
+  private dropContinuation(bindingId: string): boolean {
+    const armed = this.continuations.get(bindingId);
+    if (armed === undefined) return false;
+    if (armed.holdTimer !== undefined) clearTimeout(armed.holdTimer);
+    this.continuations.delete(bindingId);
+    this.continuationHolds.delete(bindingId);
+    this.tellContinuationCleared(bindingId);
+    return true;
+  }
+
   /** A fresh session is still waiting to be told to continue. */
   continuationPending(bindingId: string): boolean {
     return this.continuations.has(bindingId);
@@ -469,7 +552,20 @@ export class InjectionSupervisor {
     const composer = this.composerOf(bindingId);
     const typeable =
       (seat.state === "idle" && composer === "empty") || (seat.state === "working" && composer !== "draft");
-    if (!typeable) return wait(`its input box cannot take it (seat ${seat.state}, box ${composer})`);
+    if (!typeable) {
+      // Said on the seat as held mail is: the operator's draft, a dialog, or
+      // a box that cannot be read are theirs to clear.
+      const hold =
+        composer === "draft"
+          ? "draft"
+          : seat.state === "attention"
+            ? "dialog"
+            : seat.state === "idle" && composer === "unreadable"
+              ? "unreadable"
+              : undefined;
+      if (hold !== undefined) this.tellContinuationHeld(bindingId, hold);
+      return wait(`its input box cannot take it (seat ${seat.state}, box ${composer})`);
+    }
     const writer = this.continuationWriter;
     if (writer === undefined) return wait("nothing is wired to type it");
     seat.nudgeInFlight = true;

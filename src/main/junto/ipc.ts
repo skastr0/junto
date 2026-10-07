@@ -95,6 +95,7 @@ import {
   type SeatAddress,
   type SeatOffboardAskResult,
 } from "@shared/seat-sessions";
+import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic";
 import { seatGuidanceIndex } from "./seat-guidance/index-memory";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
@@ -2474,7 +2475,12 @@ export const registerJuntoIpc = (): void => {
           // A seat that has offboarded is not live for mail: what arrives
           // while its session ends waits for the fresh one.
           seatLive: (bindingId) =>
-            !productAutomationSuspended && !closingFence.sealed(bindingId) && mailReadyNow(bindingId),
+            !productAutomationSuspended &&
+            !closingFence.sealed(bindingId) &&
+            mailReadyNow(bindingId) &&
+            // A fresh session owed its continuation line gets that first
+            // (briefly): mail typed ahead of it starts a turn that keeps it out.
+            !injectionSupervisor.continuationHoldsMail(bindingId),
           // Mail to a seat that has not run `junto onboard` carries the
           // pointer on its own line.
           seatOnboarded: (bindingId) => injectionSupervisor.isOnboarded(bindingId),
@@ -2516,6 +2522,25 @@ export const registerJuntoIpc = (): void => {
               messageId,
             ),
         },
+      });
+      // The line went out, or its turn to go first is over: waiting mail goes.
+      injectionSupervisor.subscribeContinuationCleared((bindingId) => {
+        if (!productAutomationSuspended) messageDelivery.onSeatLive(bindingId);
+      });
+      // A continuation line held by the seat's input box is said on the seat
+      // the way held mail is.
+      injectionSupervisor.subscribeContinuationHeld((bindingId, hold, line) => {
+        const live = termPlane.host.get(bindingId);
+        if (!live?.canvasName || !live.nodeId) return;
+        broadcast(IPC_CHANNELS.wireTraffic, {
+          canvasName: live.canvasName,
+          toNodeId: live.nodeId,
+          kind: "notice",
+          messageId: `continuation:${bindingId}:${live.epoch}`,
+          preview: wireTrafficPreview(line),
+          at: Date.now(),
+          held: hold,
+        } satisfies WireTrafficEvent);
       });
       // Every message typed into a seat pulses its wire on the canvas.
       messageDelivery.subscribeDelivered((event) =>
