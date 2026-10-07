@@ -16,6 +16,7 @@
  *     comment, the file, the line, the quoted diff line, and what was reviewed;
  *     the overall note goes to the review's own recipient
  *   - the footer then says who it was sent to, and the comments are gone
+ *   - the plus pressed on a line and dragged over the next opens a comment on the whole range
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -57,14 +58,24 @@ const makeRepository = (repo: string): string => {
   return git("rev-parse", "--short", "HEAD");
 };
 
-/** Move to the plus the way a hand does, then press it. */
-const pressPlusOn = async (page: Page, detail: ReturnType<Page["getByTestId"]>, addedLine: number): Promise<void> => {
-  await detail.locator('code[data-additions] div[data-line][data-line-type="change-addition"]').nth(addedLine).hover();
-  const plus = detail.getByRole("button", { name: "Add comment", exact: true }).first();
+const addedLine = (detail: ReturnType<Page["getByTestId"]>, index: number) =>
+  detail.locator('code[data-additions] div[data-line][data-line-type="change-addition"]').nth(index);
+
+/** Move to the plus beside an added line the way a hand does; returns where it is. */
+const reachPlusOn = async (page: Page, detail: ReturnType<Page["getByTestId"]>, index: number): Promise<{ x: number; y: number }> => {
+  await addedLine(detail, index).hover();
+  const plus = detail.locator("[data-utility-button]").first();
   await expect(plus).toBeVisible();
   const box = (await plus.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 });
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.mouse.move(at.x, at.y, { steps: 6 });
+  return at;
+};
+
+/** A press on the plus: a comment on that line. */
+const pressPlusOn = async (page: Page, detail: ReturnType<Page["getByTestId"]>, index: number): Promise<void> => {
+  const at = await reachPlusOn(page, detail, index);
+  await page.mouse.click(at.x, at.y);
 };
 
 const reviewsIn = (stdin: string): number => (stdin.match(/Code review from the operator\./g) ?? []).length;
@@ -157,6 +168,30 @@ test("[fake-tui] a review's comments reach each agent as exactly one mail", asyn
     await send.click();
     await expect(status).toHaveText(/^Sent as one mail to Atlas, Brook at /, { timeout: 20_000 });
     await expect(detail.getByTestId("git-review-comment")).toHaveCount(0);
+
+    // The plus pressed on one line and dragged to the next: the comment covers both.
+    const from = await reachPlusOn(page, detail, 0);
+    const second = (await addedLine(detail, 1).boundingBox())!;
+    await page.mouse.down();
+    await page.mouse.move(from.x, second.y + second.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await expect(composer.locator(".git-review__anchor")).toContainText("parser.ts 3 to 4");
+    await expect(composer.locator("textarea")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(composer).toHaveCount(0);
+
+    // Remove takes a saved comment away at once, and keeps its words for that line.
+    await pressPlusOn(page, detail, 0);
+    await page.keyboard.type("To be removed");
+    await composer.getByRole("button", { name: "Add comment" }).click();
+    const saved = detail.getByTestId("git-review-comment");
+    await expect(saved).toHaveCount(1);
+    await saved.hover();
+    await saved.getByRole("button", { name: "Remove comment on parser.ts 3" }).click();
+    await expect(saved).toHaveCount(0);
+    await pressPlusOn(page, detail, 0);
+    await expect(composer.locator("textarea")).toHaveValue("To be removed");
+    await page.keyboard.press("Escape");
 
     const reviewed = `Reviewed: uncommitted changes in the folder, on feat/review at ${head}, repository ${basename(repo)}.`;
     const toAtlas = [
