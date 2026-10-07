@@ -12,6 +12,7 @@ import { state$ } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
 import { regionLabelDrag$ } from "../../lib/region-label-drag";
 import { regionUrgency$ } from "../../lib/region-urgency";
+import { useNodeFieldOf } from "../../lib/use-model";
 import {
   isMultiSelectGesture,
   stopNodeGestureUnlessMultiSelect,
@@ -138,25 +139,26 @@ function RegionLabel({
   );
 }
 
-export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
-  const node = data.node;
-  // Type is guaranteed "group" by React Flow nodeTypes routing — never early-
-  // return before hooks. Narrow label/background only where fields differ.
-  const label = node.type === "group" ? (node.label ?? "") : "";
-  const stroke = borderColor(node.color, selected);
-  const tint = accentColor(node.color);
+export function GroupNode({ id, data, selected }: NodeProps<FlowNode>) {
+  // The region is read from the node store one field at a time, so a move or
+  // a resize of the region does not re-render its chrome.
+  const canvasName = use$(state$.canvasName);
+  const label = useNodeFieldOf(canvasName, id, "region", (region) => region.label ?? "") ?? "";
+  const color = useNodeFieldOf(canvasName, id, "region", (region) => region.color);
+  const hold = useNodeFieldOf(canvasName, id, "region", (region) => region.hold) === true;
+  const hasEnvironment = useNodeFieldOf(canvasName, id, "region", (region) => region.environment !== undefined) === true;
+  const hasPaths = useNodeFieldOf(canvasName, id, "region", (region) =>
+    Object.values(region.defaults?.paths ?? {}).some((path) => path.trim().length > 0),
+  ) === true;
+  const stroke = borderColor(color, selected);
+  const tint = accentColor(color);
   const [editing, setEditing] = useState(false);
   const [pathsOpen, setPathsOpen] = useState(false);
   const [environmentOpen, setEnvironmentOpen] = useState(false);
-  const hasEnvironment = node.type === "group" && node.ether?.region?.environment !== undefined;
-  const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
-  const isPathsTarget = use$(() => state$.regionPathsNodeId.get() === node.id);
+  const isEditTarget = use$(() => state$.editNodeId.get() === id);
+  const isPathsTarget = use$(() => state$.regionPathsNodeId.get() === id);
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
-  const pathMap = node.type === "group" ? node.ether?.region?.defaults?.paths : undefined;
-  const hasPaths = Boolean(
-    pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),
-  );
   // Authoring-time-only warning (never a data rejection). Depth arrives with
   // the projection (convert.ts), so a resize (NodeResizer.onResizeEnd ->
   // resizeNode) repaints it without this card watching the whole document.
@@ -175,7 +177,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   // A seat that is blocked, needs the operator or has work for review tints
   // and frames the region holding it, and more quietly every region around
   // that (region-urgency.ts, canvas-lod-regions.css).
-  const urgency = use$(() => regionUrgency$[node.id].get());
+  const urgency = use$(() => regionUrgency$[id].get());
 
   // Seed and claim once per edit session. A label that changes under the
   // operator (live reload) must not reset the draft or re-select it.
@@ -191,18 +193,18 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     if (!isEditTarget) return;
     setEditing(true);
     state$.editNodeId.set("");
-  }, [isEditTarget, node.id]);
+  }, [isEditTarget, id]);
 
   // Create-time (and any openRegionPaths trigger): open host folder paths modal.
   useEffect(() => {
     if (!isPathsTarget) return;
     setPathsOpen(true);
     state$.regionPathsNodeId.set("");
-  }, [isPathsTarget, node.id]);
+  }, [isPathsTarget, id]);
 
   const commit = () => {
     setEditing(false);
-    if (draft !== label) renameGroup(node.id, draft);
+    if (draft !== label) renameGroup(id, draft);
   };
 
   // Selection chrome stays amber; unselected border + tint follow JSON Canvas
@@ -213,7 +215,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   // only movable chrome: it implements its own drag (React Flow never sees
   // wrapper events for this node) and click-select, and keeps the
   // shift-multi-select capture handlers for additive toggling.
-  const multiSelectCapture = useShiftMultiSelectDominance(node.id);
+  const multiSelectCapture = useShiftMultiSelectDominance(id);
   const rf = useReactFlow();
   const rfStore = useStoreApi();
   const regionDragRef = useRef<{
@@ -226,7 +228,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     if (event.button !== 0 || isMultiSelectGesture(event)) return;
     event.preventDefault();
     event.stopPropagation();
-    const flowNode = rf.getNode(node.id);
+    const flowNode = rf.getNode(id);
     if (flowNode === undefined) return;
     const startFlow = rf.screenToFlowPosition({
       x: event.clientX,
@@ -234,9 +236,9 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     });
     const startPos = { ...flowNode.position };
     const members = new Map<string, { readonly x: number; readonly y: number }>();
-    if (node.ether?.region?.hold) {
+    if (hold) {
       const doc = state$.doc.peek();
-      const regionDoc = doc.nodes.find((candidate) => candidate.id === node.id);
+      const regionDoc = doc.nodes.find((candidate) => candidate.id === id);
       if (regionDoc === undefined || regionDoc.type !== "group") return;
       for (const memberId of dragHoldMemberIds(doc, regionDoc)) {
         const member = rf.getNode(memberId);
@@ -251,7 +253,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       const now = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const dx = now.x - drag.startFlow.x;
       const dy = now.y - drag.startFlow.y;
-      rf.updateNode(node.id, {
+      rf.updateNode(id, {
         position: { x: drag.startPos.x + dx, y: drag.startPos.y + dy },
       });
       for (const [memberId, position] of drag.members) {
@@ -286,7 +288,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     if (isMultiSelectGesture(event)) return;
     event.preventDefault();
     event.stopPropagation();
-    rfStore.getState().addSelectedNodes([node.id]);
+    rfStore.getState().addSelectedNodes([id]);
   };
   const [frameHover, setFrameHover] = useState(false);
   // Window-frame grab: the perimeter and the title bar are the only chrome that
@@ -312,27 +314,27 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     data-region-depth={Math.min(nestingDepth, 3)}
     data-region-urgency={urgency?.urgency}
     data-region-reach={urgency?.reach}
-    data-region-colored={node.color ? "" : undefined}
+    data-region-colored={color ? "" : undefined}
     style={{
       border: `1px solid ${plateBorder}`,
       pointerEvents: "none",
-      "--region-fill": node.color
+      "--region-fill": color
         ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, color-mix(in oklab, var(--color-ground) 25%, transparent))`
         : "linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 22%, transparent), color-mix(in oklab, var(--color-ground) 12%, transparent))",
-      "--region-flat": node.color
+      "--region-flat": color
         ? withAlpha(tint, 0.07)
         : "color-mix(in oklab, var(--color-raise) 16%, transparent)",
       // The region's own colour for the zoomed-out tiers' fill, frame and
       // name; an uncoloured region wears the ink.
-      "--region-tint": node.color ? tint : "var(--color-ink)",
-      ...(node.color ? { "--region-name": withAlpha(tint, 0.22) } : {}),
+      "--region-tint": color ? tint : "var(--color-ink)",
+      ...(color ? { "--region-name": withAlpha(tint, 0.22) } : {}),
       boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
     } as React.CSSProperties}
   >
     {glanceable ? (
       <div
         className={`junto-region-glance${nestedGlance ? " junto-region-glance--nested" : ""}`}
-        data-testid={`region-glance-${node.id}`}
+        data-testid={`region-glance-${id}`}
         aria-hidden
         style={{
           ...(slot
@@ -347,11 +349,11 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       </div>
     ) : null}
     <div style={{ pointerEvents: "auto" }}>
-      <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="junto-resize-handle" lineClassName="junto-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="junto-resize-handle" lineClassName="junto-resize-line" onResizeEnd={(_event, params) => resizeNode(id, params)} />
     </div>
     <div style={{ pointerEvents: "auto" }}>
       <RegionToolbar
-        nodeId={node.id}
+        nodeId={id}
         selected={selected}
         onPaths={() => setPathsOpen(true)}
         hasPaths={hasPaths}
@@ -382,10 +384,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       onPointerLeave={() => setFrameHover(false)}
       {...frameGrab}
     >
-      <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} accent={node.color ? tint : undefined} />
+      <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} accent={color ? tint : undefined} />
       {/* The title bar names the region. Only a state that changes what a
           drag does earns a mark here; briefing and paths show on the kind strip. */}
-      {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
+      {hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
       {nestedTooDeep ? (
         <span
           title={`Nested ${nestingDepth} regions deep, past ${MAX_REGION_DEPTH} — still works, but consider flattening`}
@@ -395,7 +397,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
         </span>
       ) : null}
     </div>
-    {pathsOpen ? <div style={{ pointerEvents: "auto" }}><RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /></div> : null}
-    {environmentOpen ? <div style={{ pointerEvents: "auto" }}><RegionEnvironmentModal nodeId={node.id} onClose={() => setEnvironmentOpen(false)} /></div> : null}
+    {pathsOpen ? <div style={{ pointerEvents: "auto" }}><RegionPathsModal nodeId={id} onClose={() => setPathsOpen(false)} /></div> : null}
+    {environmentOpen ? <div style={{ pointerEvents: "auto" }}><RegionEnvironmentModal nodeId={id} onClose={() => setEnvironmentOpen(false)} /></div> : null}
   </div>;
 }
