@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import type { AgentChatCoarse, AgentChatState } from "../src/renderer/lib/chat-state";
 import {
   chatCoarse$,
@@ -12,34 +11,11 @@ import {
   clueFromChatCoarse,
 } from "../src/renderer/lib/occupancy-feed";
 
-type Node = CanvasDoc["nodes"][number];
-
 const coarse = (partial: Partial<AgentChatCoarse>): AgentChatCoarse => ({
   status: "idle",
   turnBusy: false,
   hasBusyTools: false,
   ...partial,
-});
-
-const agentNode = (id: string, agentKey: string): Node => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 40,
-  ether: { entity: { kind: "agent", name: agentKey } },
-});
-
-const plainNode = (id: string): Node => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 40,
 });
 
 describe("clueFromChatCoarse — ACP chat plane -> occupancy clue", () => {
@@ -119,8 +95,6 @@ describe("attentionCoarse$ — per-node subscription is keyed, not the whole map
     pendingPermission: { requestId },
   });
 
-  const seat = (agentKey: string): Node => agentNode(`node-${agentKey}`, agentKey);
-
   beforeEach(() => {
     chatCoarse$.set({});
   });
@@ -130,7 +104,7 @@ describe("attentionCoarse$ — per-node subscription is keyed, not the whole map
     const keyB = `B-${Math.random()}`;
     let notifiedB = 0;
     let notifiedWholeMap = 0;
-    const offB = attentionCoarse$(seat(keyB)).onChange(() => {
+    const offB = attentionCoarse$(keyB).onChange(() => {
       notifiedB += 1;
     });
     const offMap = chatCoarse$.onChange(() => {
@@ -150,8 +124,8 @@ describe("attentionCoarse$ — per-node subscription is keyed, not the whole map
   it("a subscriber keyed to an agent still receives that agent's own write", () => {
     const keyB = `B-${Math.random()}`;
     const observed: Array<string | undefined> = [];
-    const off = attentionCoarse$(seat(keyB)).onChange(() => {
-      observed.push(attentionCoarse$(seat(keyB)).peek()?.pendingPermissionId);
+    const off = attentionCoarse$(keyB).onChange(() => {
+      observed.push(attentionCoarse$(keyB).peek()?.pendingPermissionId);
     });
 
     setAgentChatState(keyB, permissionState("p2"));
@@ -163,9 +137,9 @@ describe("attentionCoarse$ — per-node subscription is keyed, not the whole map
   it("subscribing before the key exists still delivers the first write", () => {
     const keyC = `C-${Math.random()}`;
     // Nothing has ever written this agent — the slice is created lazily.
-    expect(attentionCoarse$(seat(keyC)).peek()).toBeUndefined();
+    expect(attentionCoarse$(keyC).peek()).toBeUndefined();
     let notified = 0;
-    const off = attentionCoarse$(seat(keyC)).onChange(() => {
+    const off = attentionCoarse$(keyC).onChange(() => {
       notified += 1;
     });
 
@@ -173,13 +147,13 @@ describe("attentionCoarse$ — per-node subscription is keyed, not the whole map
     off();
 
     expect(notified).toBe(1);
-    expect(attentionCoarse$(seat(keyC)).peek()?.pendingPermissionId).toBe("p3");
+    expect(attentionCoarse$(keyC).peek()?.pendingPermissionId).toBe("p3");
   });
 
-  it("a node with no agent key parks on the shared sentinel and stays quiet", () => {
+  it("a caller with no seat parks on the shared sentinel and stays quiet", () => {
     const keyA = `A-${Math.random()}`;
     let notified = 0;
-    const off = attentionCoarse$(plainNode("plain")).onChange(() => {
+    const off = attentionCoarse$(undefined).onChange(() => {
       notified += 1;
     });
 
@@ -187,25 +161,22 @@ describe("attentionCoarse$ — per-node subscription is keyed, not the whole map
     off();
 
     expect(notified).toBe(0);
-    // Same sentinel slice `useNodeOccupancyClue` already parks on — one
-    // no-agent key, not a second invented one.
-    expect(attentionCoarse$(plainNode("other"))).toBe(
-      attentionCoarse$(plainNode("plain")),
+    // The same sentinel slice useSeatOccupancyClue parks on: one no-agent
+    // key, not a second invented one.
+    expect(attentionCoarse$(undefined)).toBe(
+      attentionCoarse$(undefined),
     );
   });
 
   it("re-seating re-keys: the old agent stops mattering, the new one lands", () => {
     const keyOld = `old-${Math.random()}`;
     const keyNew = `new-${Math.random()}`;
-    const node = seat(keyOld);
-    const reseated: Node = { ...node, ether: { entity: { kind: "agent", name: keyNew } } };
-
     setAgentChatState(keyOld, permissionState("p5"));
-    expect(attentionCoarse$(node).peek()?.pendingPermissionId).toBe("p5");
-    expect(attentionCoarse$(reseated).peek()).toBeUndefined();
+    expect(attentionCoarse$(keyOld).peek()?.pendingPermissionId).toBe("p5");
+    expect(attentionCoarse$(keyNew).peek()).toBeUndefined();
 
     let notified = 0;
-    const off = attentionCoarse$(reseated).onChange(() => {
+    const off = attentionCoarse$(keyNew).onChange(() => {
       notified += 1;
     });
     setAgentChatState(keyOld, permissionState("p6"));
@@ -214,6 +185,6 @@ describe("attentionCoarse$ — per-node subscription is keyed, not the whole map
     off();
 
     expect(notified).toBe(1);
-    expect(attentionCoarse$(reseated).peek()?.pendingPermissionId).toBe("p7");
+    expect(attentionCoarse$(keyNew).peek()?.pendingPermissionId).toBe("p7");
   });
 });

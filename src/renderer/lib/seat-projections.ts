@@ -47,37 +47,11 @@ const attentionElevated = (facts: SeatFacts): boolean =>
   facts.seatState === "attention" ||
   (facts.attentionReasons?.length ?? 0) > 0;
 
-/** The node shape live attention reasons are read from. */
-export type AttentionNode = {
-  readonly ether?: {
-    readonly entity?: { readonly kind?: string; readonly name?: string };
-  };
-};
-
-/** This node's own agent key, or undefined when it is not an agent seat. */
-export function attentionAgentKey(node: AttentionNode): string | undefined {
-  return node.ether?.entity?.kind === "agent" ? node.ether?.entity?.name : undefined;
-}
-
 /**
- * Live attention reasons from a node plus **its own** coarse chat slice —
- * never the whole agent map. One agent's permission flip is one key's write,
- * so a per-node caller keyed to that one slice pays nothing for the other 95.
- */
-export function attentionReasonsForNode(
-  node: AttentionNode,
-  ownCoarse?: { readonly pendingPermissionId?: string },
-): ReadonlyArray<string> {
-  const reasons: string[] = [];
-  if (attentionAgentKey(node) && ownCoarse?.pendingPermissionId) {
-    reasons.push("permission:pending");
-  }
-  return reasons;
-}
-
-/**
- * The same reasons for a seat named by its agent key, for a caller that holds
- * the seat and no node. A caller with no seat passes undefined and gets none.
+ * Live attention reasons for a seat named by its agent key, from **its own**
+ * coarse chat slice, never the whole agent map. One agent's permission flip
+ * is one key's write, so a caller keyed to that one slice pays nothing for
+ * the others. A caller with no seat passes undefined and gets none.
  */
 export function attentionReasonsForSeat(
   agentKey: string | undefined,
@@ -86,33 +60,16 @@ export function attentionReasonsForSeat(
   return agentKey && ownCoarse?.pendingPermissionId ? ["permission:pending"] : [];
 }
 
-/** The whole-map form of attentionReasonsForSeat, for a caller projecting many seats at once. */
+/**
+ * The whole-map form, for a caller that already holds the map and projects
+ * many seats at once (RTS rows, the hotbar). A component rendered once per
+ * seat uses useSeatAttentionReasons instead (occupancy-feed.ts).
+ */
 export function liveAttentionReasonsForSeat(
   agentKey: string | undefined,
   chatByAgent?: Readonly<Record<string, { readonly pendingPermissionId?: string } | undefined>>,
 ): ReadonlyArray<string> {
   return attentionReasonsForSeat(agentKey, agentKey ? chatByAgent?.[agentKey] : undefined);
-}
-
-/**
- * Live attention reasons that are not harness seat-state (ACP permission,
- * sink input-required). Same list for card, digit lease, and notify.
- *
- * Whole-map form: for callers that already hold the map and project many
- * nodes at once (RTS rows, peer glances). A component rendered once per node
- * must use `useNodeAttentionReasons` instead — see occupancy-feed.ts.
- */
-export function liveAttentionReasons(
-  node: AttentionNode,
-  chatByAgent?: Readonly<
-    Record<string, { readonly pendingPermissionId?: string } | undefined>
-  >,
-): ReadonlyArray<string> {
-  const agentKey = attentionAgentKey(node);
-  return attentionReasonsForNode(
-    node,
-    agentKey ? chatByAgent?.[agentKey] : undefined,
-  );
 }
 
 /** Assemble one SeatFacts from the live planes a call site already holds. */

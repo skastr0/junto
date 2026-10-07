@@ -8,9 +8,6 @@ import {
   cardMark,
   digitHue,
   digitLease,
-  attentionAgentKey,
-  attentionReasonsForNode,
-  liveAttentionReasons,
   notifyItem,
   seatFactsForNode,
   type SeatFacts,
@@ -165,41 +162,25 @@ describe("one facts object drives card, digit, notify, and hue", () => {
   });
 });
 
-describe("attentionReasonsForNode — one node, its own coarse slice", () => {
-  it("permission on the node's own slice, with no map in sight", () => {
-    expect(
-      attentionReasonsForNode(
-        { ether: { entity: { kind: "agent", name: "local:pi" } } },
-        { pendingPermissionId: "p1" },
-      ),
-    ).toEqual(["permission:pending"]);
+describe("attentionReasonsForSeat — one seat, its own coarse slice", () => {
+  it("permission on the seat's own slice, with no map in sight", () => {
+    expect(attentionReasonsForSeat("local:pi", { pendingPermissionId: "p1" })).toEqual(["permission:pending"]);
   });
 
   it("no slice -> no permission reason", () => {
-    expect(
-      attentionReasonsForNode({
-        ether: { entity: { kind: "agent", name: "local:pi" } },
-      }),
-    ).toEqual([]);
+    expect(attentionReasonsForSeat("local:pi")).toEqual([]);
   });
 
-  it("attentionAgentKey names the one key a seat depends on", () => {
-    expect(
-      attentionAgentKey({ ether: { entity: { kind: "agent", name: "local:pi" } } }),
-    ).toBe("local:pi");
-    expect(attentionAgentKey({ ether: { entity: { kind: "terminal" } } })).toBeUndefined();
-    expect(attentionAgentKey({})).toBeUndefined();
+  it("a caller with no seat gets none, whatever the slice says", () => {
+    expect(attentionReasonsForSeat(undefined, { pendingPermissionId: "p1" })).toEqual([]);
   });
 });
 
-describe("liveAttentionReasons", () => {
+describe("liveAttentionReasonsForSeat", () => {
   it("collects a pending permission", () => {
-    expect(
-      liveAttentionReasons(
-        { ether: { entity: { kind: "agent", name: "local:pi" } } },
-        { "local:pi": { pendingPermissionId: "p1" } },
-      ),
-    ).toEqual(["permission:pending"]);
+    expect(liveAttentionReasonsForSeat("local:pi", { "local:pi": { pendingPermissionId: "p1" } })).toEqual([
+      "permission:pending",
+    ]);
   });
 });
 
@@ -231,10 +212,8 @@ describe("attention reasons of a seat named by its agent key", () => {
     expect(attentionReasonsForSeat("local:pi", { pendingPermissionId: "p1" })).toEqual(["permission:pending"]);
     expect(attentionReasonsForSeat("local:pi", {})).toEqual([]);
     expect(attentionReasonsForSeat(undefined, { pendingPermissionId: "p1" })).toEqual([]);
-    // The same answers the node form gives for the same seat.
-    const node = { ether: { entity: { kind: "agent", name: "local:pi" } } };
     const chat = { "local:pi": { pendingPermissionId: "p1" }, "local:other": {} };
-    expect(liveAttentionReasonsForSeat("local:pi", chat)).toEqual(liveAttentionReasons(node, chat));
+    expect(liveAttentionReasonsForSeat("local:pi", chat)).toEqual(["permission:pending"]);
     expect(liveAttentionReasonsForSeat("local:other", chat)).toEqual([]);
     expect(liveAttentionReasonsForSeat(undefined, chat)).toEqual([]);
   });
