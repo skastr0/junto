@@ -5,14 +5,15 @@
  * instructions, and the commands each connection allows. It stays short.
  * Every store, home, and socket lives under a temp root.
  */
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { encodeWorkFrame, workControlTokenPath } from "../src/shared/work-control";
+import { encodeWorkFrame } from "../src/shared/work-control";
+import { publishSeatCredential } from "./helpers/seat-credential";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
 import { WorkLive } from "../src/main/junto/work/service";
@@ -104,6 +105,7 @@ const doc = (peers: ReadonlyArray<string>): CanvasDoc => ({
 let root: string;
 let runtime: ReturnType<typeof makeRuntime>;
 let server: WorkControlServer;
+let seatCredential = "";
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-onboard-output-"));
@@ -128,6 +130,7 @@ beforeEach(async () => {
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });
+  seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
 });
 
 afterEach(async () => {
@@ -158,7 +161,7 @@ const call = (body: unknown): Promise<any> =>
     socket.on("error", reject);
   });
 
-const token = () => readFileSync(workControlTokenPath(process.env.JUNTO_WORK_HOME!), "utf8").trim();
+const token = () => seatCredential;
 const onboard = async () => {
   const response = await call({ token: token(), op: "onboard", args: {} });
   expect(response.ok).toBe(true);

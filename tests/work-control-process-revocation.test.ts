@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -6,10 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
-import {
-  encodeWorkFrame,
-  workControlTokenPath,
-} from "../src/shared/work-control";
+import { encodeWorkFrame } from "../src/shared/work-control";
 import {
   CanvasError,
   CanvasesService,
@@ -22,9 +19,13 @@ import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import {
   OFFBOARDED_SESSION_MESSAGE,
   makeProcessIdentityMap,
-  type ProcessIdentityMap,
   type ProcessPrincipal,
 } from "../src/main/junto/process-identity";
+import {
+  makeSeatCredentialRegistry,
+  mintSeatCredential,
+  type SeatCredentialRegistry,
+} from "../src/main/junto/work/seat-credentials";
 import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor";
 import {
   startWorkControlServer,
@@ -36,9 +37,6 @@ import {
 } from "./helpers/canvas-authority-material";
 
 const PEER_PID = 71_003;
-const NEAR_ANCHOR_PID = 71_002;
-const FAR_ANCHOR_PID = 71_001;
-const UNRELATED_PID = 72_001;
 
 const PRINCIPAL: ProcessPrincipal = Object.freeze({
   agentKey: "local:revocation-agent",
@@ -104,33 +102,27 @@ const makeDispatchGate = (): DispatchGate => {
   };
 };
 
-interface TrackedProcessMap {
-  readonly map: ProcessIdentityMap;
+interface TrackedRegistry {
+  readonly registry: SeatCredentialRegistry;
   readonly activeSubscribers: () => number;
   readonly deliveredNotifications: () => number;
   readonly subscribeCalls: () => number;
 }
 
-const makeTrackedProcessMap = (
-  parents: ReadonlyMap<number, number | undefined>,
-): TrackedProcessMap => {
-  const base = makeProcessIdentityMap({
-    processAlive: () => true,
-    readProcessStartKey: (pid) => `generation:${pid}`,
-    readParentPid: (pid) => parents.get(pid),
-  });
+const makeTrackedRegistry = (): TrackedRegistry => {
+  const base = makeSeatCredentialRegistry();
   let active = 0;
   let delivered = 0;
   let subscriptions = 0;
-  const map: ProcessIdentityMap = {
+  const registry: SeatCredentialRegistry = {
     ...base,
     subscribe: (listener) => {
       subscriptions += 1;
       active += 1;
       let subscribed = true;
-      const unsubscribeBase = base.subscribe((principal) => {
+      const unsubscribeBase = base.subscribe((event) => {
         delivered += 1;
-        listener(principal);
+        listener(event);
       });
       return () => {
         if (!subscribed) return;
@@ -141,7 +133,7 @@ const makeTrackedProcessMap = (
     },
   };
   return {
-    map,
+    registry,
     activeSubscribers: () => active,
     deliveredNotifications: () => delivered,
     subscribeCalls: () => subscriptions,
@@ -227,7 +219,8 @@ interface Rig {
   readonly root: string;
   readonly server: WorkControlServer;
   readonly runtime: DisposableRuntime;
-  readonly identities: TrackedProcessMap;
+  readonly credentials: TrackedRegistry;
+  readonly seatCredential: string;
   readonly mutations: () => number;
   readonly callDoctor: () => Promise<unknown>;
 }
@@ -263,21 +256,14 @@ const call = (socketPath: string, body: unknown): Promise<unknown> =>
 
 const startRig = async (options: {
   readonly gate?: DispatchGate;
-  readonly parents?: ReadonlyMap<number, number | undefined>;
-  readonly bind?: (map: ProcessIdentityMap) => void;
 } = {}): Promise<Rig> => {
   const root = await mkdtemp(join(tmpdir(), "junto-work-revocation-"));
   const workHome = join(root, "work");
   mkdirSync(workHome, { recursive: true });
 
-  const parents = options.parents ?? new Map([
-    [PEER_PID, NEAR_ANCHOR_PID],
-    [NEAR_ANCHOR_PID, undefined],
-  ]);
-  const identities = makeTrackedProcessMap(parents);
-  (options.bind ?? ((map) => {
-    expect(map.bind(NEAR_ANCHOR_PID, PRINCIPAL)).toBe(true);
-  }))(identities.map);
+  const credentials = makeTrackedRegistry();
+  const mint = mintSeatCredential();
+  expect(credentials.registry.publish(mint, PRINCIPAL)).toBe(true);
 
   let mutations = 0;
   const runtime = ManagedRuntime.make(
@@ -296,21 +282,23 @@ const startRig = async (options: {
     version: "revocation-test",
     home: root,
     workHome,
-    processMap: identities.map,
+    credentials: credentials.registry,
+    processMap: makeProcessIdentityMap(),
     readPeerPid: () => PEER_PID,
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });
   const callDoctor = () =>
     call(server.socketPath, {
-      token: readFileSync(workControlTokenPath(workHome), "utf8").trim(),
+      token: mint.credential,
       op: "doctor",
     });
   const rig: Rig = {
     root,
     server,
     runtime,
-    identities,
+    credentials,
+    seatCredential: mint.credential,
     mutations: () => mutations,
     callDoctor,
   };
@@ -331,31 +319,16 @@ afterEach(async () => {
 const nextTurn = (): Promise<void> =>
   new Promise((resolve) => setImmediate(resolve));
 
-describe("work control process revocation", () => {
-  it("interrupts a dispatch gate when the admitted principal is no longer current", async () => {
+describe("work control credential revocation", () => {
+  it("interrupts a dispatch gate when the admitted credential is revoked", async () => {
     const gate = makeDispatchGate();
-    const parents = new Map<number, number | undefined>([
-      [PEER_PID, NEAR_ANCHOR_PID],
-      [NEAR_ANCHOR_PID, FAR_ANCHOR_PID],
-      [FAR_ANCHOR_PID, undefined],
-    ]);
-    const rig = await startRig({
-      gate,
-      parents,
-      bind: (map) => {
-        expect(map.bind(FAR_ANCHOR_PID, {
-          ...PRINCIPAL,
-          bindingId: "replacement-binding",
-        })).toBe(true);
-        expect(map.bind(NEAR_ANCHOR_PID, PRINCIPAL)).toBe(true);
-      },
-    });
+    const rig = await startRig({ gate });
 
     const responsePromise = rig.callDoctor();
     await gate.entered;
-    expect(rig.identities.activeSubscribers()).toBe(1);
+    expect(rig.credentials.activeSubscribers()).toBe(1);
 
-    rig.identities.map.unbind(NEAR_ANCHOR_PID);
+    expect(rig.credentials.registry.revoke(rig.seatCredential, "offboarded")).toBe(true);
     await nextTurn();
     gate.release();
 
@@ -377,7 +350,7 @@ describe("work control process revocation", () => {
     expect(response.error.message).toMatch(/identity.*stale/i);
     expect(gate.interruptions()).toBe(1);
     expect(rig.mutations()).toBe(0);
-    expect(rig.identities.activeSubscribers()).toBe(0);
+    expect(rig.credentials.activeSubscribers()).toBe(0);
   });
 
   it("allows a normal operation and removes its revocation subscriber", async () => {
@@ -387,24 +360,23 @@ describe("work control process revocation", () => {
 
     expect(response.ok).toBe(true);
     expect(rig.mutations()).toBe(1);
-    expect(rig.identities.subscribeCalls()).toBe(1);
-    expect(rig.identities.activeSubscribers()).toBe(0);
+    expect(rig.credentials.subscribeCalls()).toBe(1);
+    expect(rig.credentials.activeSubscribers()).toBe(0);
 
-    const deliveredBeforeCleanupProbe =
-      rig.identities.deliveredNotifications();
-    expect(rig.identities.map.bind(UNRELATED_PID, {
+    const deliveredBeforeCleanupProbe = rig.credentials.deliveredNotifications();
+    const unrelated = mintSeatCredential();
+    expect(rig.credentials.registry.publish(unrelated, {
       agentKey: "local:unrelated-after-completion",
     })).toBe(true);
-    rig.identities.map.unbind(UNRELATED_PID);
-    expect(rig.identities.deliveredNotifications()).toBe(
-      deliveredBeforeCleanupProbe,
-    );
+    expect(rig.credentials.registry.revoke(unrelated.credential, "seat-closed")).toBe(true);
+    expect(rig.credentials.deliveredNotifications()).toBe(deliveredBeforeCleanupProbe);
   });
 
-  it("does not cancel for an unrelated principal lifecycle notification", async () => {
+  it("does not cancel for another generation's revocation", async () => {
     const gate = makeDispatchGate();
     const rig = await startRig({ gate });
-    expect(rig.identities.map.bind(UNRELATED_PID, {
+    const unrelated = mintSeatCredential();
+    expect(rig.credentials.registry.publish(unrelated, {
       agentKey: "local:unrelated",
     })).toBe(true);
 
@@ -414,34 +386,24 @@ describe("work control process revocation", () => {
     });
     await gate.entered;
 
-    rig.identities.map.unbind(UNRELATED_PID);
+    expect(rig.credentials.registry.revoke(unrelated.credential, "seat-closed")).toBe(true);
     await nextTurn();
     expect(settled).toBe(false);
-    expect(rig.identities.activeSubscribers()).toBe(1);
+    expect(rig.credentials.activeSubscribers()).toBe(1);
 
     gate.release();
     const response = await responsePromise as { readonly ok: boolean };
     expect(response.ok).toBe(true);
     expect(rig.mutations()).toBe(1);
     expect(gate.interruptions()).toBe(0);
-    expect(rig.identities.activeSubscribers()).toBe(0);
+    expect(rig.credentials.activeSubscribers()).toBe(0);
   });
 
-  it("keeps authority when one of two same-principal ancestry anchors is removed", async () => {
+  it("keeps authority when a second credential for the same principal is revoked", async () => {
     const gate = makeDispatchGate();
-    const parents = new Map<number, number | undefined>([
-      [PEER_PID, NEAR_ANCHOR_PID],
-      [NEAR_ANCHOR_PID, FAR_ANCHOR_PID],
-      [FAR_ANCHOR_PID, undefined],
-    ]);
-    const rig = await startRig({
-      gate,
-      parents,
-      bind: (map) => {
-        expect(map.bind(FAR_ANCHOR_PID, PRINCIPAL)).toBe(true);
-        expect(map.bind(NEAR_ANCHOR_PID, PRINCIPAL)).toBe(true);
-      },
-    });
+    const rig = await startRig({ gate });
+    const other = mintSeatCredential();
+    expect(rig.credentials.registry.publish(other, PRINCIPAL)).toBe(true);
 
     let settled = false;
     const responsePromise = rig.callDoctor().finally(() => {
@@ -449,41 +411,26 @@ describe("work control process revocation", () => {
     });
     await gate.entered;
 
-    rig.identities.map.unbind(NEAR_ANCHOR_PID);
+    expect(rig.credentials.registry.revoke(other.credential, "replaced")).toBe(true);
     await nextTurn();
     expect(settled).toBe(false);
-    expect(rig.identities.activeSubscribers()).toBe(1);
+    expect(rig.credentials.activeSubscribers()).toBe(1);
 
     gate.release();
     const response = await responsePromise as { readonly ok: boolean };
     expect(response.ok).toBe(true);
     expect(rig.mutations()).toBe(1);
     expect(gate.interruptions()).toBe(0);
-    expect(rig.identities.activeSubscribers()).toBe(0);
+    expect(rig.credentials.activeSubscribers()).toBe(0);
   });
 });
 
-describe("a draining session's process is refused in plain words", () => {
-  const FRESH_PID = 73_001;
-
+describe("a revoked generation is refused in plain words", () => {
   const startDrained = async () => {
-    // PEER (a tool shell) is a child of the old harness process NEAR_ANCHOR.
-    const parents = new Map<number, number | undefined>([
-      [PEER_PID, NEAR_ANCHOR_PID],
-      [NEAR_ANCHOR_PID, undefined],
-      [FRESH_PID, undefined],
-    ]);
-    let old: ReturnType<ProcessIdentityMap["bindGeneration"]>;
-    const rig = await startRig({
-      parents,
-      bind: (map) => {
-        old = map.bindGeneration(NEAR_ANCHOR_PID, PRINCIPAL);
-        expect(old).toBeDefined();
-      },
-    });
-    const callOp = (op: string) =>
+    const rig = await startRig();
+    const callOp = (op: string, credential = rig.seatCredential) =>
       call(rig.server.socketPath, {
-        token: readFileSync(workControlTokenPath(join(rig.root, "work")), "utf8").trim(),
+        token: credential,
         op,
       }) as Promise<{
         readonly ok: boolean;
@@ -493,7 +440,11 @@ describe("a draining session's process is refused in plain words", () => {
           readonly details?: { readonly retryable?: boolean; readonly next_step?: string };
         };
       }>;
-    return { rig, parents, callOp, offboard: () => rig.identities.map.offboardGeneration(old!) };
+    return {
+      rig,
+      callOp,
+      offboard: () => rig.credentials.registry.revoke(rig.seatCredential, "offboarded"),
+    };
   };
 
   it("refuses every op from the old process with the offboarded sentence", async () => {
@@ -520,24 +471,23 @@ describe("a draining session's process is refused in plain words", () => {
     expect(rig.mutations()).toBe(before);
   });
 
-  it("the fresh session's process resolves normally while the old one drains", async () => {
-    const { rig, parents, callOp, offboard } = await startDrained();
+  it("a fresh credential resolves while the revoked one is refused", async () => {
+    const { rig, callOp, offboard } = await startDrained();
     expect(offboard()).toBe(true);
-    expect(rig.identities.map.bindGeneration(FRESH_PID, PRINCIPAL)).toBeDefined();
+    const fresh = mintSeatCredential();
+    expect(rig.credentials.registry.publish(fresh, PRINCIPAL)).toBe(true);
 
-    // Still the old tree: refused.
     expect((await callOp("doctor")).error?.message).toBe(OFFBOARDED_SESSION_MESSAGE);
-    // The same call from under the fresh process is the seat.
-    parents.set(PEER_PID, FRESH_PID);
-    expect((await callOp("doctor")).ok).toBe(true);
+    expect((await callOp("doctor", fresh.credential)).ok).toBe(true);
   });
 
-  it("onboard from the old process does not mark the fresh session onboarded", async () => {
+  it("onboard from the revoked credential does not mark the fresh generation onboarded", async () => {
     const noteOnboarded = vi.spyOn(injectionSupervisor, "noteOnboarded");
     try {
       const { rig, callOp, offboard } = await startDrained();
       expect(offboard()).toBe(true);
-      expect(rig.identities.map.bindGeneration(FRESH_PID, PRINCIPAL)).toBeDefined();
+      const fresh = mintSeatCredential();
+      expect(rig.credentials.registry.publish(fresh, PRINCIPAL)).toBe(true);
 
       const response = await callOp("onboard");
       expect(response.ok).toBe(false);

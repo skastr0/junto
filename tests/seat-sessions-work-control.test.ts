@@ -5,14 +5,15 @@
  * latest notes inline, the paths to the rest, and the past-sessions framing.
  * Every store, home, and socket lives under a temp root.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { encodeWorkFrame, workControlTokenPath } from "../src/shared/work-control";
+import { encodeWorkFrame } from "../src/shared/work-control";
+import { publishSeatCredential } from "./helpers/seat-credential";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import {
   respondThen,
@@ -115,6 +116,7 @@ const seatDoc = (sessionId: string | undefined): CanvasDoc => ({
 let root: string;
 let runtime: ReturnType<typeof makeRuntime>;
 let server: WorkControlServer;
+let seatCredential = "";
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-seat-sessions-ctl-"));
@@ -140,6 +142,7 @@ beforeEach(async () => {
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });
+  seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
 });
 
 afterEach(async () => {
@@ -176,7 +179,7 @@ const call = (body: unknown): Promise<any> =>
     socket.on("error", reject);
   });
 
-const token = () => readFileSync(workControlTokenPath(process.env.JUNTO_WORK_HOME!), "utf8").trim();
+const token = () => seatCredential;
 const op = (name: string, args: unknown) => call({ token: token(), op: name, args });
 
 describe("junto offboard", () => {

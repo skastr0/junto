@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Result } from "effect";
-import { workControlDir, workControlSocketPath, workControlTokenPath } from "../src/shared/work-control";
+import { workControlDir, workControlSocketPath } from "../src/shared/work-control";
 import { controlSocketPath } from "../src/shared/browser-control";
 import {
   stationControlDir,
@@ -907,16 +907,13 @@ export const smokePackagedRuntime = async (
 
     const workHome = workControlDir(controlHome);
     const workSocket = workControlSocketPath(workHome);
-    const workToken = workControlTokenPath(workHome);
     await waitUntil("normal application controls", STARTUP_TIMEOUT_MS, async () => {
       if (lifecycle.terminal() !== undefined) throw new Error("Junto closed before normal application startup");
-      return await pathExists(workSocket) && await pathExists(workToken);
+      return await pathExists(workSocket);
     });
-    const [socketMetadata, tokenMetadata] = await Promise.all([lstat(workSocket), lstat(workToken)]);
+    const socketMetadata = await lstat(workSocket);
     if (!socketMetadata.isSocket() || socketMetadata.uid !== currentUid() ||
-        (socketMetadata.mode & 0o077) !== 0 ||
-        !tokenMetadata.isFile() || tokenMetadata.uid !== currentUid() ||
-        (tokenMetadata.mode & 0o077) !== 0) {
+        (socketMetadata.mode & 0o077) !== 0) {
       throw new Error("normal application controls are not protected by owner-local filesystem permissions");
     }
     const terminalAfterAdmission = lifecycle.terminal();

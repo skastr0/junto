@@ -15,9 +15,9 @@ import {
 import {
   WORK_HOME_ENV,
   WORK_PROTOCOL_VERSION,
+  WORK_TOKEN_ENV,
   decodeWorkRequest,
   workControlSocketPath,
-  workControlTokenPath,
 } from "../src/shared/work-control";
 import {
   allExamples,
@@ -75,7 +75,10 @@ const runCli = (
       env[feature.env] = tier === true ? "1" : tier === false ? "0" : "experimental";
     }
     if (options.home) env.JUNTO_HOME = options.home;
-    if (options.workHome) env[WORK_HOME_ENV] = options.workHome;
+    if (options.workHome) {
+      env[WORK_HOME_ENV] = options.workHome;
+      env[WORK_TOKEN_ENV] = "overseer-token";
+    }
     const child = spawn("bun", [join(repoRoot, "src/cli/main.ts"), ...args], {
       cwd: repoRoot,
       env,
@@ -108,7 +111,6 @@ const startFakeWorkSocket = async (
   roots.push(home);
   const workHome = join(home, ".junto", "work");
   await mkdir(workHome, { recursive: true });
-  await writeFile(workControlTokenPath(workHome), "overseer-token\n", { mode: 0o600 });
   const server = createServer((socket) => {
     let buffer = Buffer.alloc(0);
     socket.on("data", (chunk: Buffer) => {

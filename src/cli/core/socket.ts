@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { Context, Effect, Layer, Result } from "effect";
@@ -11,11 +10,12 @@ import {
   WORK_DEFAULT_TIMEOUT_MS,
   WORK_HOME_ENV,
   WORK_MAX_FRAME_BYTES,
+  WORK_TOKEN_ENV,
   decodeWorkResponse,
   encodeWorkFrame,
+  isSeatCredentialShape,
   workControlDir,
   workControlSocketPath,
-  workControlTokenPath,
   type WorkOpName,
   type WorkResponseEnvelope,
 } from "../../shared/work-control";
@@ -45,15 +45,25 @@ export class WorkSocket extends Context.Service<WorkSocket,
     ) => Effect.Effect<unknown, RuntimeDown | AuthError | WireError>;
   }>()("@junto/cli/WorkSocket") {}
 
-const readToken = (tokenPath: string) =>
-  Effect.tryPromise({
-    try: async () => (await readFile(tokenPath, "utf8")).trim(),
-    catch: () =>
-      new RuntimeDown({
-        message: "work control token unavailable — is Junto running?",
-        next_step: "launch Junto, then `junto doctor`",
-      }),
-  });
+/**
+ * Seat generation credential from the seat process environment. Main injects
+ * it at spawn; presenting it is what identifies the generation — no ancestry
+ * is checked. A seat child can still lack it when its harness filters the
+ * tool environment. The value is never printed, logged, or placed on argv.
+ */
+const readSeatCredential = (): Effect.Effect<string, AuthError> =>
+  Effect.sync(() => process.env[WORK_TOKEN_ENV]?.trim() ?? "").pipe(
+    Effect.flatMap((value) =>
+      value.length > 0
+        ? Effect.succeed(value)
+        : Effect.fail(
+            new AuthError({
+              message: "this process has no Junto seat credential",
+              next_step: `run the CLI from inside your Junto seat; if already inside one, check that the harness forwards ${WORK_TOKEN_ENV} to tool shells instead of filtering it`,
+            }),
+          ),
+    ),
+  );
 
 const mutatingOverseerOperation = (
   op: string,
@@ -264,15 +274,7 @@ export const WorkSocketLive = Layer.succeed(
     call: (op, args, timeoutMs) =>
       Effect.gen(function* () {
         const workHome = resolveWorkHome();
-        const token = yield* readToken(workControlTokenPath(workHome));
-        if (!token) {
-          return yield* Effect.fail(
-            new RuntimeDown({
-              message: "work control token empty — is Junto running?",
-              next_step: "launch Junto, then `junto doctor`",
-            }),
-          );
-        }
+        const token = yield* readSeatCredential();
         const envelope = yield* ndjsonCall(
           workControlSocketPath(workHome),
           token,
@@ -310,11 +312,15 @@ export const WorkSocketLive = Layer.succeed(
   }),
 );
 
-/** Local doctor checks without a full round-trip when socket is missing. */
+/**
+ * Local doctor checks without a full round-trip when socket is missing. This
+ * is the harness qualification probe contract: presence, shape, and (via the
+ * live ping in doctor) validity of the seat credential, without ever printing
+ * the value. A harness tool-exec path qualifies when all three hold here.
+ */
 export const localDoctorChecks = Effect.gen(function* () {
   const workHome = resolveWorkHome();
   const socketPath = workControlSocketPath(workHome);
-  const tokenPath = workControlTokenPath(workHome);
 
   const statMode = async (path: string): Promise<number | null> => {
     try {
@@ -327,17 +333,15 @@ export const localDoctorChecks = Effect.gen(function* () {
   };
 
   const socketMode = yield* Effect.promise(() => statMode(socketPath));
-  const tokenMode = yield* Effect.promise(() => statMode(tokenPath));
+  const credential = process.env[WORK_TOKEN_ENV]?.trim() ?? "";
 
   return {
     work_home: workHome,
     socket_path: socketPath,
-    token_path: tokenPath,
     socket_present: socketMode !== null,
-    token_present: tokenMode !== null,
+    credential_present: credential.length > 0,
+    credential_shape_ok: credential.length > 0 && isSeatCredentialShape(credential),
     socket_mode: socketMode,
-    token_mode: tokenMode,
     socket_mode_ok: socketMode === 0o600 || socketMode === null,
-    token_mode_ok: tokenMode === 0o600 || tokenMode === null,
   };
 });

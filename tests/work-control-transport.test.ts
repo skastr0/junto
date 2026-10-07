@@ -1,5 +1,5 @@
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
-import { chmodSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, unlinkSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import {
   createConnection,
@@ -14,7 +14,6 @@ import {
   WORK_PROTOCOL_VERSION,
   decodeWorkResponse,
   encodeWorkFrame,
-  workControlTokenPath,
 } from "../src/shared/work-control";
 import type { PreambleEvent } from "../src/shared/preamble";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
@@ -53,6 +52,11 @@ import {
   makeProcessIdentityMap,
   type ProcessIdentityMap,
 } from "../src/main/junto/process-identity";
+import {
+  makeSeatCredentialRegistry,
+  mintSeatCredential,
+  type SeatCredentialRegistry,
+} from "../src/main/junto/work/seat-credentials";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   createMainAuthoringGate,
@@ -244,6 +248,7 @@ const startTestServer = async (options: {
   readonly onOverseerLive?: WorkControlServerOptions["onOverseerLive"];
   readonly validateOverseerLive?: WorkControlServerOptions["validateOverseerLive"];
   readonly processMap?: ProcessIdentityMap;
+  readonly credentials?: SeatCredentialRegistry;
   readonly decorateRun?: (
     base: WorkControlServerOptions["run"],
   ) => WorkControlServerOptions["run"];
@@ -270,6 +275,7 @@ const startTestServer = async (options: {
     runtime.runPromise(effect);
 
   const processMap = options.processMap ?? makeProcessIdentityMap();
+  const credentials = options.credentials ?? makeSeatCredentialRegistry();
   processMap.bind(TEST_PEER_PID, {
     agentKey: "local:agent",
   });
@@ -280,6 +286,7 @@ const startTestServer = async (options: {
     version: "test",
     workHome,
     home: root,
+    credentials,
     processMap,
     readPeerPid: () => TEST_PEER_PID,
     run: options.decorateRun?.(baseRun) ?? baseRun,
@@ -322,9 +329,11 @@ afterEach(async () => {
   delete process.env.JUNTO_WORK_HOME;
 });
 
-const token = (): string => {
-  const workHome = process.env.JUNTO_WORK_HOME!;
-  return readFileSync(workControlTokenPath(workHome), "utf8").trim();
+const token = (server: WorkControlServer = servers.at(-1)!): string => {
+  const mint = mintSeatCredential();
+  const published = server.credentials.publish(mint, { agentKey: "local:agent" });
+  if (!published) throw new Error("test credential publish failed");
+  return mint.credential;
 };
 
 const projectedProcessActor = async (): Promise<ActorRef> => {
@@ -476,29 +485,38 @@ describe("work control transport", () => {
     };
   };
 
-  it("does not settle a revoked overseer dispatch until inner onOverseer cleanup finishes", async () => {
-    const inner = holdOverseerUntilRelease("succeed");
-    const processMap = makeProcessIdentityMap();
+  const trackCredentials = (): {
+    readonly registry: SeatCredentialRegistry;
+    readonly active: () => number;
+  } => {
+    const base = makeSeatCredentialRegistry();
     let activeWatchers = 0;
-    const tracked: ProcessIdentityMap = {
-      ...processMap,
+    const registry: SeatCredentialRegistry = {
+      ...base,
       subscribe: (listener) => {
         activeWatchers += 1;
-        const stop = processMap.subscribe(listener);
+        const stop = base.subscribe(listener);
         return () => {
           activeWatchers -= 1;
           stop();
         };
       },
     };
+    return { registry, active: () => activeWatchers };
+  };
+
+  it("does not settle a revoked overseer dispatch until inner onOverseer cleanup finishes", async () => {
+    const inner = holdOverseerUntilRelease("succeed");
+    const tracked = trackCredentials();
     const { server, authoringGate } = await startTestServer({
       onOverseer: inner.execute,
-      processMap: tracked,
+      credentials: tracked.registry,
     });
     await enableOverseer();
+    const credential = token(server);
     let settled = false;
     const responsePromise = call(server.socketPath, {
-      token: token(),
+      token: credential,
       op: "overseer",
       args: { operation: "status" },
     }).finally(() => {
@@ -506,9 +524,9 @@ describe("work control transport", () => {
     });
     await vi.waitFor(() => expect(inner.started()).toBe(1));
     expect(authoringGate.snapshot().activeLabels).toContain("control.overseer");
-    expect(activeWatchers).toBe(1);
+    expect(tracked.active()).toBe(1);
 
-    tracked.unbind(TEST_PEER_PID);
+    expect(server.credentials.revoke(credential, "offboarded")).toBe(true);
     await new Promise((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
     expect(inner.finished()).toBe(0);
@@ -526,39 +544,28 @@ describe("work control transport", () => {
     expect(inner.execute).toHaveBeenCalledTimes(1);
     expect(inner.finished()).toBe(1);
     expect(authoringGate.snapshot().activeLabels).toEqual([]);
-    expect(activeWatchers).toBe(0);
+    expect(tracked.active()).toBe(0);
   });
 
   it("does not settle a revoked overseer dispatch until inner onOverseer failure cleanup finishes", async () => {
     const inner = holdOverseerUntilRelease("fail");
-    const processMap = makeProcessIdentityMap();
-    let activeWatchers = 0;
-    const tracked: ProcessIdentityMap = {
-      ...processMap,
-      subscribe: (listener) => {
-        activeWatchers += 1;
-        const stop = processMap.subscribe(listener);
-        return () => {
-          activeWatchers -= 1;
-          stop();
-        };
-      },
-    };
+    const tracked = trackCredentials();
     const { server, authoringGate } = await startTestServer({
       onOverseer: inner.execute,
-      processMap: tracked,
+      credentials: tracked.registry,
     });
     await enableOverseer();
+    const credential = token(server);
     let settled = false;
     const responsePromise = call(server.socketPath, {
-      token: token(),
+      token: credential,
       op: "overseer",
       args: { operation: "status" },
     }).finally(() => {
       settled = true;
     });
     await vi.waitFor(() => expect(inner.started()).toBe(1));
-    tracked.unbind(TEST_PEER_PID);
+    expect(server.credentials.revoke(credential, "offboarded")).toBe(true);
     await new Promise((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
     expect(inner.finished()).toBe(0);
@@ -575,7 +582,7 @@ describe("work control transport", () => {
     expect(inner.execute).toHaveBeenCalledTimes(1);
     expect(inner.finished()).toBe(1);
     expect(authoringGate.snapshot().activeLabels).toEqual([]);
-    expect(activeWatchers).toBe(0);
+    expect(tracked.active()).toBe(0);
   });
 
   it("resolves process-bound callers to exactly one projected actor reference", () => {
@@ -619,12 +626,10 @@ describe("work control transport", () => {
     const recovered = await call(server.socketPath, { token: token(), op: "ping" }) as { ok: boolean };
     expect(recovered.ok).toBe(true);
   });
-  it("mints 0600 socket + token", async () => {
+  it("mints a 0600 socket", async () => {
     const server = servers[0]!;
     const sockMode = (await stat(server.socketPath)).mode & 0o777;
-    const tokMode = (await stat(server.tokenPath)).mode & 0o777;
     expect(sockMode).toBe(0o600);
-    expect(tokMode).toBe(0o600);
   });
 
   it("reports only a current owned listener, never stale paths or a foreign socket", async () => {
@@ -633,7 +638,6 @@ describe("work control transport", () => {
 
     await expect(server.close()).resolves.toMatchObject({ clean: true });
     expect(workControlReadiness.ready()).toBe(false);
-    await expect(stat(server.tokenPath)).resolves.toMatchObject({ mode: expect.any(Number) });
 
     const foreign = createNetServer();
     rogueServers.push(foreign);
@@ -708,7 +712,7 @@ describe("work control transport", () => {
 
     server.beginShutdown();
     socket.write(encodeWorkFrame({
-      token: readFileSync(server.tokenPath, "utf8").trim(),
+      token: token(server),
       op: "ping",
     }));
     await expect(server.drainOnQuit()).resolves.toMatchObject({ clean: true });
@@ -733,7 +737,7 @@ describe("work control transport", () => {
       socket.once("error", rejectConnect);
     });
     socket.write(encodeWorkFrame({
-      token: readFileSync(server.tokenPath, "utf8").trim(),
+      token: token(server),
       op: "ping",
     }));
     await dispatchStarted.promise;
@@ -776,7 +780,7 @@ describe("work control transport", () => {
       socket.once("error", rejectConnect);
     });
     socket.write(encodeWorkFrame({
-      token: readFileSync(server.tokenPath, "utf8").trim(),
+      token: token(server),
       op: "ping",
     }));
     await dispatchStarted.promise;
@@ -832,7 +836,7 @@ describe("work control transport", () => {
       socket.once("error", rejectConnect);
     });
     socket.write(encodeWorkFrame({
-      token: readFileSync(target.tokenPath, "utf8").trim(),
+      token: token(target),
       op: "ping",
     }));
 
@@ -1160,36 +1164,15 @@ describe("work control transport", () => {
     });
   });
 
-  it("denies an unbound peer", async () => {
-    // Spin a one-off server with empty process map.
-    const root = await mkdtemp(join(tmpdir(), "junto-work-unbound-"));
-    roots.push(root);
-    const workHome = join(root, "work");
-    const canvasesDir = join(root, "canvases");
-    mkdirSync(workHome, { recursive: true });
-    mkdirSync(canvasesDir, { recursive: true });
-    process.env.JUNTO_CANVASES_DIR = canvasesDir;
-    process.env.JUNTO_WORK_HOME = workHome;
-    const runtime = makeWorkTestRuntime(root);
-    runtimes.push(runtime);
-    await seedCanonicalWork(runtime);
-    const emptyMap = makeProcessIdentityMap();
-    const unboundServer = await startWorkControlServer({
-      version: "test",
-      workHome,
-      home: root,
-      processMap: emptyMap,
-      readPeerPid: () => 99_999,
-      run: (effect) => runtime.runPromise(effect),
-    });
-    servers.push(unboundServer);
-    const res = (await call(unboundServer.socketPath, {
-      token: readFileSync(workControlTokenPath(workHome), "utf8").trim(),
+  it("denies a credential the registry does not know", async () => {
+    const server = servers[0]!;
+    const res = (await call(server.socketPath, {
+      token: "junto-seat-" + "a".repeat(43),
       op: "ping",
     })) as { ok: false; error: { type: string; message: string } };
     expect(res.ok).toBe(false);
     expect(res.error.type).toBe("AuthError");
-    expect(res.error.message).toMatch(/not a registered|process/i);
+    expect(res.error.message).toMatch(/no live seat credential/);
   });
 
   it("rejects wrong token as AuthError", async () => {
@@ -1302,12 +1285,13 @@ describe("work control transport", () => {
 
   it("never echoes token in responses", async () => {
     const server = servers[0]!;
+    const credential = token(server);
     const res = await call(server.socketPath, {
-      token: token(),
+      token: credential,
       op: "onboard",
     });
     const raw = JSON.stringify(res);
-    expect(raw).not.toContain(token());
+    expect(raw).not.toContain(credential);
   });
 
   it("persists a prompt and hands it to the one mail path, which reports delivered", async () => {

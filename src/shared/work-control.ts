@@ -47,6 +47,16 @@ export const WORK_HOME_ENV = "JUNTO_WORK_HOME";
  * never appears on argv, in logs, or in committed source.
  */
 export const WORK_TOKEN_ENV = "JUNTO_WORK_TOKEN";
+
+/** Seat generation credential prefix: `junto-seat-` plus 43 base64url chars. */
+export const SEAT_CREDENTIAL_PREFIX = "junto-seat-";
+const SEAT_CREDENTIAL_BODY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+
+/** Shape check only; validity is always a registry lookup on main. */
+export const isSeatCredentialShape = (value: string): boolean => {
+  if (!value.startsWith(SEAT_CREDENTIAL_PREFIX)) return false;
+  return SEAT_CREDENTIAL_BODY_PATTERN.test(value.slice(SEAT_CREDENTIAL_PREFIX.length));
+};
 export const WORK_PROTOCOL_VERSION = "junto/work-control/v1";
 
 export const WORK_DEFAULT_BATCH_CONCURRENCY = 5;

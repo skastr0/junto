@@ -24,16 +24,12 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import type { ProcessPrincipal } from "../process-identity";
+import { SEAT_CREDENTIAL_PREFIX, isSeatCredentialShape } from "@shared/work-control";
 
-export const SEAT_CREDENTIAL_PREFIX = "junto-seat-";
+export { SEAT_CREDENTIAL_PREFIX, isSeatCredentialShape };
+
 const SEAT_CREDENTIAL_BYTES = 32;
-const SEAT_CREDENTIAL_BODY_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const DEFAULT_TOMBSTONE_CAP = 1024;
-
-export const isSeatCredentialShape = (value: string): boolean => {
-  if (!value.startsWith(SEAT_CREDENTIAL_PREFIX)) return false;
-  return SEAT_CREDENTIAL_BODY_PATTERN.test(value.slice(SEAT_CREDENTIAL_PREFIX.length));
-};
 
 export type SeatCredentialMint = {
   readonly credential: string;

@@ -2,7 +2,7 @@ import { access, constants as fsConstants, stat } from "node:fs/promises";
 // V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
-import { WORK_PROTOCOL_VERSION } from "../../shared/work-control";
+import { WORK_PROTOCOL_VERSION, WORK_TOKEN_ENV } from "../../shared/work-control";
 import { ONBOARD_PAST_NOTES_DEFAULT, ONBOARD_PAST_NOTES_MAX } from "../../shared/seat-sessions";
 import { loadOffboardArgs } from "../core/offboard-input";
 import { CLI_NAME, CLI_VERSION, DEFAULT_TIMEOUT_MS } from "../core/constants";
@@ -76,12 +76,12 @@ export const doctorCommand = Command.make(
             },
           },
           {
-            name: "work.token",
-            ok: local.token_present,
+            name: "work.credential",
+            ok: local.credential_present && local.credential_shape_ok,
             details: {
-              path: local.token_path,
-              mode: modeOctal(local.token_mode),
-              required_mode: "600",
+              present: local.credential_present,
+              shape_ok: local.credential_shape_ok,
+              source: WORK_TOKEN_ENV,
             },
           },
           {
@@ -89,16 +89,11 @@ export const doctorCommand = Command.make(
             ok: !local.socket_present || local.socket_mode_ok,
             details: { mode: modeOctal(local.socket_mode) },
           },
-          {
-            name: "work.token.perms",
-            ok: !local.token_present || local.token_mode_ok,
-            details: { mode: modeOctal(local.token_mode) },
-          },
         ];
 
         let protocol: unknown = null;
         let liveOk = false;
-        if (local.socket_present && local.token_present) {
+        if (local.socket_present && local.credential_present) {
           const socket = yield* WorkSocket;
           const live = yield* socket
             .call("doctor", {}, toUndefined(timeout))
@@ -126,7 +121,7 @@ export const doctorCommand = Command.make(
               ok: false,
               details: {
                 error: live.failure.message,
-                hint: "CLI must run under a live Junto agent process (process-bind)",
+                hint: "CLI must run inside a live Junto seat with its generation credential",
               },
             });
           }

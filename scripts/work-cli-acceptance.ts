@@ -5,7 +5,7 @@
  * Boots the real NDJSON work control daemon (WorkService + CanvasesService)
  * against a sandboxed work home, then drives the compiled CLI from a cwd
  * outside the repo. Proves doctor/onboard/capabilities/claim/batch/scope/
- * artifact/request + 0600 token + wrong-token AuthError without fighting
+ * artifact/request + 0600 socket + wrong-token AuthError without fighting
  * Electron's single-instance lock.
  *
  * The daemon uses node:sqlite, so run it under Node, not Bun:
@@ -36,6 +36,10 @@ import {
   startWorkControlServer,
   type WorkControlShutdownReceipt,
 } from "../src/main/junto/work/control";
+import {
+  makeSeatCredentialRegistry,
+  mintSeatCredential,
+} from "../src/main/junto/work/seat-credentials";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
@@ -60,7 +64,7 @@ import {
   SettingsLive,
   SettingsService,
 } from "../src/main/junto/settings/service";
-import { WORK_MAX_FRAME_BYTES } from "../src/shared/work-control";
+import { WORK_MAX_FRAME_BYTES, WORK_TOKEN_ENV } from "../src/shared/work-control";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 
 const REPO = process.cwd();
@@ -542,9 +546,15 @@ export const runWorkCliAcceptance = async () => {
       }),
     );
   }
-  // Bind the acceptance runner PID. CLI children walk PPID to this process.
+  // Ordinary admission is the generation credential. The process map remains
+  // only for the overseer live root-process proof.
   const processMap = makeProcessIdentityMap();
   processMap.bind(process.pid, { agentKey: "local:default" });
+  const credentials = makeSeatCredentialRegistry();
+  const mint = mintSeatCredential();
+  if (!credentials.publish(mint, { agentKey: "local:default" })) {
+    throw new Error("acceptance credential publish failed");
+  }
 
   let server: Awaited<ReturnType<typeof startWorkControlServer>> | undefined;
   let primaryFailed = false;
@@ -555,6 +565,7 @@ export const runWorkCliAcceptance = async () => {
       version: "acceptance",
       workHome,
       home: root,
+      credentials,
       processMap,
       run: (effect) => runtime.runPromise(effect),
     });
@@ -562,18 +573,15 @@ export const runWorkCliAcceptance = async () => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       JUNTO_WORK_HOME: workHome,
-      // Identity is process-bind — no JUNTO_NODE_REF.
+      [WORK_TOKEN_ENV]: mint.credential,
     };
 
     const sockMode = (await stat(server.socketPath)).mode & 0o777;
-    const tokMode = (await stat(server.tokenPath)).mode & 0o777;
     log(
       "A3 perms",
       JSON.stringify({
         socket: sockMode.toString(8),
-        token: tokMode.toString(8),
         socket_path: server.socketPath,
-        token_path: server.tokenPath,
       }),
     );
 
@@ -737,14 +745,14 @@ export const runWorkCliAcceptance = async () => {
           scope: scopeOk,
           artifact: artOk,
           auth: authOk,
-          token_0600: tokMode === 0o600,
+          socket_0600: sockMode === 0o600,
         },
         null,
         2,
       ),
     );
 
-    if (!doctorOk || !claimOk || !batchOk || !signalOk || !signalClearedOk || !scopeOk || !authOk || !artOk || tokMode !== 0o600) {
+    if (!doctorOk || !claimOk || !batchOk || !signalOk || !signalClearedOk || !scopeOk || !authOk || !artOk || sockMode !== 0o600) {
       throw new Error("work CLI acceptance verdict failed");
     }
   } catch (error) {

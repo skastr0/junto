@@ -1,4 +1,3 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -115,7 +114,6 @@ import {
   workOk,
   workControlDir,
   workControlSocketPath,
-  workControlTokenPath,
   type WorkErrorDetails,
   type WorkErrorBody,
   type WorkErrorType,
@@ -233,15 +231,17 @@ import {
 import { closingFence } from "../term/closing-fence";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import {
-  admitProcessIdentity,
   getProcessIdentityMap,
+  OFFBOARDED_SESSION_MESSAGE,
   type PeerPidReader,
-  type ProcessIdentityDenial,
   type ProcessIdentityMap,
-  type ProcessIdentityResult,
   type ProcessPrincipal,
   readUnixPeerPid,
 } from "../process-identity";
+import {
+  getSeatCredentialRegistry,
+  type SeatCredentialRegistry,
+} from "./seat-credentials";
 import {
   MainAuthoringRefused,
   mainAuthoringGate,
@@ -257,11 +257,10 @@ import {
   releaseControlListenerLease,
   removeObservedSocket,
   removeOwnedControlSocketPath,
-  rotateControlFileToken,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
 // Local work control plane for agents: NDJSON over a Unix domain socket at
-// ~/.junto/work/control.sock. Token + process-bind identity + edge authz;
+// ~/.junto/work/control.sock. Seat generation credential + edge authz;
 // mutations route through WorkService. One admission path, no second identity.
 
 // ---------------------------------------------------------------------------
@@ -272,10 +271,6 @@ export const resolveWorkHome = (home?: string, workHome?: string): string => {
   const env = process.env.JUNTO_WORK_HOME?.trim();
   if (env) return env;
   return workControlDir(home ?? resolveJuntoHome());
-};
-
-export const rotateWorkToken = (tokenPath: string): string => {
-  return rotateControlFileToken(tokenPath);
 };
 
 const systemdReadinessReceipt = (): { readonly generation: string; readonly path: string } | undefined => {
@@ -312,75 +307,66 @@ export const publishSystemdGenerationReadiness = (): void => {
   }
 };
 
-export const workTokenMatches = (
-  presented: string | undefined,
-  expected: string,
-): boolean => {
-  if (presented === undefined) return false;
-  const a = createHash("sha256").update(presented).digest();
-  const b = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(a, b);
-};
-
 // ---------------------------------------------------------------------------
-// Admission: the local work-file token proves reach; process-bind proves who.
+// Admission: the presented seat generation credential proves which live seat
+// calls. One path, one lookup — no process observation on admission.
 
 export type WorkIdentityAdmission =
   | {
       readonly ok: true;
-      readonly peerPid: number;
+      readonly credential: string;
+      readonly generationId: string;
       readonly principal: ProcessPrincipal;
     }
   | {
       readonly ok: false;
       readonly reason:
-        | "auth"
         | "process_unbound"
         | "process_offboarded"
-        | "peer_pid_unavailable";
+        | "seat_suspended";
       readonly message: string;
-      readonly denial?: ProcessIdentityDenial;
     };
 
 /**
- * Pure work identity admission. One path: the local work-file token proves the
- * caller reached us, and process-bind proves which seat it is. There is no
- * second admission — a caller with no live Junto process has no identity.
+ * Pure work identity admission. The frame token is the seat generation
+ * credential main issued at spawn: live credentials admit, suspended ones fail
+ * closed until canvas reattach, revoked ones hear the offboarded sentence,
+ * and unknown values are strangers. There is no second admission — a caller
+ * with no live credential has no identity.
  */
 export const admitWorkIdentity = (input: {
-  readonly localToken: string;
+  readonly credentials: SeatCredentialRegistry;
   readonly presentedToken: string;
-  readonly processIdentity: ProcessIdentityResult | (() => ProcessIdentityResult);
 }): WorkIdentityAdmission => {
-  if (workTokenMatches(input.presentedToken, input.localToken)) {
-    const identity =
-      typeof input.processIdentity === "function"
-        ? input.processIdentity()
-        : input.processIdentity;
-    if (!identity.ok) {
-      return {
-        ok: false,
-        reason:
-          identity.denial === "peer_pid_unavailable"
-            ? "peer_pid_unavailable"
-            : identity.denial === "process_offboarded"
-              ? "process_offboarded"
-              : "process_unbound",
-        message: identity.message,
-        denial: identity.denial,
-      };
-    }
+  const found = input.credentials.lookup(input.presentedToken);
+  if (found.status === "live") {
     return {
       ok: true,
-      peerPid: identity.peerPid,
-      principal: identity.principal,
+      credential: input.presentedToken,
+      generationId: found.generationId,
+      principal: found.principal,
     };
   }
-
+  if (found.status === "suspended") {
+    return {
+      ok: false,
+      reason: "seat_suspended",
+      message:
+        "this seat is detached from its canvas — reattach it on the canvas and retry",
+    };
+  }
+  if (found.status === "revoked") {
+    return {
+      ok: false,
+      reason: "process_offboarded",
+      message: OFFBOARDED_SESSION_MESSAGE,
+    };
+  }
   return {
     ok: false,
-    reason: "auth",
-    message: "invalid or missing work control token",
+    reason: "process_unbound",
+    message:
+      "connecting process presents no live seat credential — run the CLI from inside your Junto seat",
   };
 };
 
@@ -823,14 +809,14 @@ const requireTarget = (
   return { node: admitted.success.node };
 };
 
-/** Work-control caller resolved through the sole process-bind admission path. */
+/** Work-control caller resolved through the sole credential admission path. */
 type WorkCaller = {
   readonly canvasName: string;
   readonly nodeId: string;
   readonly workHome: string;
   /** Occupant label for proof stamps / logs. */
   readonly occupant: string;
-  /** Main-derived process incarnation; no client-supplied generation claims. */
+  /** Main-issued generation credential incarnation; no client-supplied generation claims. */
   readonly generation: string;
 };
 
@@ -854,7 +840,7 @@ const mailSenderStamp = (
 };
 
 /**
- * Resolve one process-bound actor node through the compiled execution
+ * Resolve one credential-admitted actor node through the compiled execution
  * projection. Node IDs remain routing/display facts; only ActorRef carries
  * work authority.
  */
@@ -1187,7 +1173,7 @@ const dispatchOp = (
       return {
         node: summarizeNode(self),
         harnesses: probeManagedHarnessInstalls(),
-        // Additive: derived factory role of the process-bound seat.
+        // Additive: derived factory role of the credentialed seat.
         role: factoryRoleOfNode(self),
         tools: overseer
           ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL]
@@ -1242,7 +1228,7 @@ const dispatchOp = (
         // This seat's earlier sessions: history for continuity, with the
         // latest offboard notes inline and paths to open for the rest.
         ...(history ? { sessions: history.sessions } : {}),
-        // Additive: derived factory role of the process-bound seat.
+        // Additive: derived factory role of the credentialed seat.
         role: factoryRoleOfNode(self),
         tools,
         overseer: { enabled: overseer, affectedByPause: false },
@@ -1327,7 +1313,7 @@ const dispatchOp = (
           details: { retryable: false },
         });
       }
-      // Seat identity is the process-bound caller, never an argument: a seat
+      // Seat identity is the credentialed caller, never an argument: a seat
       // writes only its own current session's notes.
       const self = findNode(board, caller.nodeId)!;
       // Not known yet: look once, now, before refusing.
@@ -2030,7 +2016,7 @@ const dispatchOp = (
       const decoded = decodeArgs(MsgReadArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const targetId = resolveMailboxTarget(decoded.success.target, caller);
-      // Own mailbox only — process-bind is the authority (not edge OptIn ports).
+      // Own mailbox only — the seat credential is the authority (not edge OptIn ports).
       if (targetId !== caller.nodeId) {
         return yield* Effect.fail({
           type: "ScopeError" as const,
@@ -2362,7 +2348,7 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      // Work control admits process-bound callers only. Renderer IPC publish
+      // Work control admits credentialed callers only. Renderer IPC publish
       // does not write stamps, so it cannot become a trust-plane side door.
       const authority = artifactPublishAuthority({
         canvasName: caller.canvasName,
@@ -2677,7 +2663,7 @@ const dispatchOp = (
 
 export interface WorkControlServer {
   readonly socketPath: string;
-  readonly tokenPath: string;
+  readonly credentials: SeatCredentialRegistry;
   readonly workHome: string;
   /** Synchronously closes transport admission before any async teardown. */
   beginShutdown(): void;
@@ -2710,7 +2696,9 @@ export interface WorkControlServerOptions {
   readonly version: string;
   readonly home?: string;
   readonly workHome?: string;
-  /** Test / alternate identity map (defaults to the shared main-process map). */
+  /** Seat credential registry (defaults to the shared main-process registry). */
+  readonly credentials?: SeatCredentialRegistry;
+  /** Retained for the overseer.live root-process proof only. */
   readonly processMap?: ProcessIdentityMap;
   /** Test seam for peer PID (defaults to Unix LOCAL_PEERPID / SO_PEERCRED). */
   readonly readPeerPid?: PeerPidReader;
@@ -2720,7 +2708,7 @@ export interface WorkControlServerOptions {
   readonly onPreamble?: (event: PreambleEvent) => void;
   /** Main-process delivery of a seat's raised or withdrawn agent signal. */
   readonly onAgentSignal?: (signal: AgentSignal) => void;
-  /** Called only after live process-bind and seat delegation admission. */
+  /** Called only after live credential and seat delegation admission. */
   readonly onOverseer?: (
     request: OverseerRequest,
     caller: Pick<WorkCaller, "canvasName" | "nodeId">,
@@ -2982,14 +2970,16 @@ const awaitOverseerPromise = (
 
 /**
  * Effect v4 calls its interruptible async constructor `callback`. The listener
- * re-resolves the kernel peer on every lifecycle notification: the retired PID
- * may have a second, identical main-minted ancestor, while the notification's
- * principal alone cannot prove whether this peer lost authority.
+ * re-reads this call's credential on every registry notification for its
+ * generation: a reanchor may have moved the principal, while any other
+ * generation's event cannot affect this call and is ignored. Termination is
+ * terminal: once revoked, no later event revives the watcher.
  */
-const watchProcessIdentityRevocation = (
-  processMap: ProcessIdentityMap,
-  peerPid: number,
+const watchSeatCredentialRevocation = (
+  credentials: SeatCredentialRegistry,
+  credential: string,
   principal: ProcessPrincipal,
+  generationId: string,
 ): Effect.Effect<WorkDispatchResult> =>
   Effect.callback<WorkDispatchResult>((resume) => {
     let active = true;
@@ -3002,7 +2992,7 @@ const watchProcessIdentityRevocation = (
       try {
         stop?.();
       } catch {
-        // Revocation is fail-closed; a test/alternate map cannot keep a
+        // Revocation is fail-closed; a test/alternate registry cannot keep a
         // completed watcher subscribed by throwing from its cleanup hook.
       }
     };
@@ -3017,7 +3007,12 @@ const watchProcessIdentityRevocation = (
       if (!active) return;
       let current: ProcessPrincipal | undefined;
       try {
-        current = processMap.resolveInTree(peerPid);
+        const found = credentials.lookup(credential);
+        if (found.status !== "live" || found.generationId !== generationId) {
+          finishRevoked();
+          return;
+        }
+        current = found.principal;
       } catch {
         finishRevoked();
         return;
@@ -3026,11 +3021,14 @@ const watchProcessIdentityRevocation = (
     };
 
     try {
-      const stop = processMap.subscribe(() => verifyCurrentIdentity());
+      const stop = credentials.subscribe((event) => {
+        if (event.generationId !== generationId) return;
+        verifyCurrentIdentity();
+      });
       if (active) {
         unsubscribe = stop;
       } else {
-        // A custom map may synchronously notify during subscribe.
+        // A custom registry may synchronously notify during subscribe.
         try {
           stop();
         } catch {
@@ -3043,7 +3041,7 @@ const watchProcessIdentityRevocation = (
 
     // Close the synchronous admission-to-subscription window as well. This is
     // deliberately after subscribe so any concurrent lifecycle change either
-    // notifies us or is visible in this resolve.
+    // notifies us or is visible in this lookup.
     verifyCurrentIdentity();
 
     // The race interrupts this watcher on operation success, failure, or outer
@@ -3058,9 +3056,8 @@ export const startWorkControlServer = async (
   const workHome = resolveWorkHome(options.home, options.workHome);
   prepareControlDirectory(workHome);
 
-  const tokenPath = workControlTokenPath(workHome);
   const socketPath = workControlSocketPath(workHome);
-  let token = "";
+  const credentials = options.credentials ?? getSeatCredentialRegistry();
   const processMap = options.processMap ?? getProcessIdentityMap();
   const readPeerPid = options.readPeerPid ?? readUnixPeerPid;
   const authoringGate = options.authoringGate ?? mainAuthoringGate;
@@ -3168,7 +3165,9 @@ export const startWorkControlServer = async (
     admittedClients.add(socket);
     let buffer = Buffer.alloc(0);
     let closed = false;
-    // Peer PID is stable for the life of the connection — read once.
+    // Peer PID is stable for the life of the connection — read once, and only
+    // for the overseer.live root-process proof. Ordinary admission never
+    // touches process observation.
     let cachedPeerPid: number | undefined | null = null;
     const readPeerOnce = (): number | undefined => {
       if (cachedPeerPid === null) {
@@ -3215,45 +3214,27 @@ export const startWorkControlServer = async (
         return;
       }
 
-      // The work-file token proves owner-local reach; process-bind is the sole
-      // caller identity.
+      // The frame token is the seat generation credential; the socket file
+      // permissions prove owner-local reach. Admission is one registry lookup.
       const admission = admitWorkIdentity({
-        localToken: token,
+        credentials,
         presentedToken: req.token,
-        processIdentity: () =>
-          admitProcessIdentity(socket, processMap, readPeerOnce),
       });
       if (!admission.ok) {
-        if (admission.reason === "auth") {
-          respond(
-            socket,
-            workErr(
-              "AuthError",
-              admission.message,
-              {
-                retryable: true,
-                next_step: "your token is invalid or stale; run `junto doctor`, and if Junto is not running ask the operator to start it",
-              },
-              req.op,
-              req.id,
-            ),
-          );
-          return;
-        }
         respond(
           socket,
           workErr(
             "AuthError",
             admission.message,
             {
-              retryable: admission.reason === "peer_pid_unavailable",
+              retryable: admission.reason === "seat_suspended",
               next_step:
                 admission.reason === "process_offboarded"
                   ? "finish what you are doing and stop; nothing more reaches this session and its junto calls are refused"
                   : admission.reason === "process_unbound"
-                    ? "this process was not launched by Junto; only agents started from the canvas can call work ops — ask the operator to start you from an agent node"
-                    : "run the CLI from inside your Junto terminal session, then retry",
-              missing: "process identity",
+                    ? "this process holds no live seat credential; only agents started from the canvas can call work ops — ask the operator to start you from an agent node"
+                    : "reattach the seat on the canvas, then retry",
+              missing: "seat credential",
             },
             req.op,
             req.id,
@@ -3331,19 +3312,14 @@ export const startWorkControlServer = async (
           }
           const occupant = occupantKeyForPrincipal(
             admission.principal,
-            `pid:${admission.peerPid}`,
+            `gen:${admission.generationId}`,
           );
           const caller: WorkCaller = {
             canvasName: callerResolved.caller.canvasName,
             nodeId: callerResolved.caller.nodeId,
             workHome,
             occupant,
-            generation: createHash("sha256").update(JSON.stringify(
-              processMap.snapshot()
-                .filter((entry) => samePrincipalAnchors(entry.principal, admission.principal))
-                .map((entry) => [entry.pid, entry.startKey])
-                .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
-            )).digest("hex"),
+            generation: admission.generationId,
           };
           admittedSeat = { canvasName: caller.canvasName, nodeId: caller.nodeId };
           const nativeController = isManagedAgentNode(callerResolved.caller.node) &&
@@ -3358,12 +3334,17 @@ export const startWorkControlServer = async (
             if (!nativeController || !isManagedAgentNode(node)) return undefined;
             // This protocol belongs to the actual managed host, not arbitrary
             // descendants which happen to inherit its ordinary Work identity.
+            // The peer read runs only here, once per connection: descendants
+            // share the seat credential, so only the kernel peer proves which
+            // process connected.
+            const peerPid = readPeerOnce();
+            if (peerPid === undefined) return undefined;
             const binding = processMap.snapshot().find((entry) =>
-              entry.pid === admission.peerPid && samePrincipalAnchors(entry.principal, admission.principal));
+              entry.pid === peerPid && samePrincipalAnchors(entry.principal, admission.principal));
             if (binding === undefined) return undefined;
             return {
               canvasName: caller.canvasName, nodeId: caller.nodeId,
-              bindingId: node.ether.terminal.bindingId, peerPid: admission.peerPid,
+              bindingId: node.ether.terminal.bindingId, peerPid,
               processGeneration: `${binding.pid}:${binding.startKey}`,
             };
           };
@@ -3476,10 +3457,11 @@ export const startWorkControlServer = async (
           ).pipe(Effect.result);
         });
 
-        const revocationWatcher = watchProcessIdentityRevocation(
-          processMap,
-          admission.peerPid,
+        const revocationWatcher = watchSeatCredentialRevocation(
+          credentials,
+          admission.credential,
           admission.principal,
+          admission.generationId,
         );
         const run = () =>
           retainOperation(
@@ -3699,7 +3681,6 @@ export const startWorkControlServer = async (
 
   const listenerLease = await acquireControlListenerLease(socketPath);
   try {
-    token = rotateWorkToken(tokenPath);
     await removeObservedSocket(listenerLease);
   } catch (error) {
     await releaseControlListenerLease(listenerLease);
@@ -4034,7 +4015,7 @@ export const startWorkControlServer = async (
 
   return {
     socketPath,
-    tokenPath,
+    credentials,
     workHome,
     beginShutdown,
     drainOnQuit,

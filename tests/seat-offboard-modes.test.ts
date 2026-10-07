@@ -5,14 +5,15 @@
  * handoff exactly once, and only to the session right after the one that
  * continued. Every store, home, and socket lives under a temp root.
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { encodeWorkFrame, workControlTokenPath } from "../src/shared/work-control";
+import { encodeWorkFrame } from "../src/shared/work-control";
+import { publishSeatCredential } from "./helpers/seat-credential";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import { startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
 import { WorkLive } from "../src/main/junto/work/service";
@@ -104,6 +105,7 @@ const seatDoc = (sessionId: string | undefined): CanvasDoc => ({
 let root: string;
 let runtime: ReturnType<typeof makeRuntime>;
 let server: WorkControlServer;
+let seatCredential = "";
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-offboard-modes-"));
@@ -129,6 +131,7 @@ beforeEach(async () => {
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });
+  seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
 });
 
 afterEach(async () => {
@@ -165,7 +168,7 @@ const call = (body: unknown): Promise<any> =>
     socket.on("error", reject);
   });
 
-const token = () => readFileSync(workControlTokenPath(process.env.JUNTO_WORK_HOME!), "utf8").trim();
+const token = () => seatCredential;
 const op = (name: string, args: unknown) => call({ token: token(), op: name, args });
 
 const NOTES = "# Parser shipped\n\n- why: nightly sync fails without it";

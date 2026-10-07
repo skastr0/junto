@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -6,10 +6,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
-import {
-  encodeWorkFrame,
-  workControlTokenPath,
-} from "../src/shared/work-control";
+import { encodeWorkFrame } from "../src/shared/work-control";
+import { publishSeatCredential } from "./helpers/seat-credential";
 import {
   CanvasError,
   CanvasesService,
@@ -190,7 +188,7 @@ describe("work control onboarding proof", () => {
     injectionSupervisor.clearForTest();
     expect(injectionSupervisor.isOnboarded(SEAT_BINDING)).toBe(false);
     const rig = await startRig();
-    const token = readFileSync(workControlTokenPath(join(rig.root, "work")), "utf8").trim();
+    const token = publishSeatCredential(rig.server.credentials, PRINCIPAL);
 
     const response = (await call(rig.server.socketPath, { token, op: "onboard" })) as {
       readonly ok: boolean;
@@ -203,7 +201,7 @@ describe("work control onboarding proof", () => {
   it("no other work-plane call onboards the seat", async () => {
     injectionSupervisor.clearForTest();
     const rig = await startRig();
-    const token = readFileSync(workControlTokenPath(join(rig.root, "work")), "utf8").trim();
+    const token = publishSeatCredential(rig.server.credentials, PRINCIPAL);
 
     for (const op of ["capabilities", "preamble"]) {
       const response = (await call(rig.server.socketPath, { token, op, args: { text: "checking in" } })) as {

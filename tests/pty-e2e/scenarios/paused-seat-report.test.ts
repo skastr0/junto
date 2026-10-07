@@ -4,7 +4,7 @@
  *
  * Wiring and fakes are documented in tests/pty-e2e/proto-harness.ts.
  */
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import { ProtoHarness } from "../proto-harness";
 import { startWorkControlServer, type WorkControlServer } from "../../../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../../../src/main/junto/main-authoring-gate";
 import { makeProcessIdentityMap } from "../../../src/main/junto/process-identity";
+import { publishSeatCredential } from "../../helpers/seat-credential";
 
 const seatNode = (id: string, bindingId?: string): CanvasDoc["nodes"][number] => ({
   id,
@@ -89,6 +90,7 @@ const controlSeedDoc = (): CanvasDoc => docWith(
 describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
   let harness: ProtoHarness;
   let server: WorkControlServer;
+  let seatCredential = "";
   const roots: string[] = [];
 
   beforeAll(async () => {
@@ -115,6 +117,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
       run: (effect) => harness.runtime.runPromise(effect as never),
       authoringGate: createMainAuthoringGate(),
     });
+    seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
   });
 
   afterAll(async () => {
@@ -135,7 +138,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     const state = harness.pause.stateFor("work-cli");
     expect(state.playing).toBe(false);
     const res = await call(server.socketPath, {
-      token: readFileSync(server.tokenPath, "utf8").trim(),
+      token: seatCredential,
       op: "capabilities",
     });
     expect(res.ok).toBe(true);
@@ -147,7 +150,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
 
   it("onboard for a paused seat lacks paused (expected paused:true + next_step)", async () => {
     const res = await call(server.socketPath, {
-      token: readFileSync(server.tokenPath, "utf8").trim(),
+      token: seatCredential,
       op: "onboard",
     });
     expect(res.ok).toBe(true);
@@ -157,7 +160,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
 
   it("gate sanity: a paused seat still refuses mutating ops with a Paused error (works today)", async () => {
     const res = await call(server.socketPath, {
-      token: readFileSync(server.tokenPath, "utf8").trim(),
+      token: seatCredential,
       op: "msg.send",
       args: { target: "peer", text: "sanity gate" },
     });

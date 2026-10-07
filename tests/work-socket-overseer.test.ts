@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,8 +6,8 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   WORK_MAX_FRAME_BYTES,
+  WORK_TOKEN_ENV,
   workControlSocketPath,
-  workControlTokenPath,
   type WorkOpName,
 } from "../src/shared/work-control";
 import {
@@ -31,7 +31,15 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   }
   delete process.env.JUNTO_WORK_HOME;
+  if (workTokenSaved) {
+    if (savedWorkToken === undefined) delete process.env[WORK_TOKEN_ENV];
+    else process.env[WORK_TOKEN_ENV] = savedWorkToken;
+    workTokenSaved = false;
+  }
 });
+
+let workTokenSaved = false;
+let savedWorkToken: string | undefined;
 
 const startFakeWorkServer = async (
   mode: FailureMode,
@@ -39,8 +47,12 @@ const startFakeWorkServer = async (
   const root = await mkdtemp(join(tmpdir(), "junto-overseer-socket-"));
   roots.push(root);
   process.env.JUNTO_WORK_HOME = root;
+  if (!workTokenSaved) {
+    savedWorkToken = process.env[WORK_TOKEN_ENV];
+    workTokenSaved = true;
+  }
+  process.env[WORK_TOKEN_ENV] = "test-token";
   await mkdir(root, { recursive: true });
-  await writeFile(workControlTokenPath(root), "test-token\n", { mode: 0o600 });
 
   let invocations = 0;
   const server = createServer((socket) => {
