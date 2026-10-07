@@ -8,6 +8,7 @@
  */
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "../../src/shared/canvas";
 import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+import type { Page } from "@playwright/test";
 import { expect, test } from "../harness/launch";
 
 const COLS = 10;
@@ -104,12 +105,45 @@ test("dense canvas: selection stays under interaction budget", async ({ junto })
   expect(median, `selection samples ms=${JSON.stringify(samples)}`).toBeLessThan(250);
 });
 
+/**
+ * A canvas places its camera when it opens: first on everything, then on the
+ * part that reads, with a short glide between. A card measured before that
+ * has finished is not where the measurement says by the time the mouse goes
+ * down, and the gesture lands on something else. Wait until the camera has
+ * held still for half a second.
+ */
+const cameraSettled = async (page: Page): Promise<void> => {
+  await page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const viewport = document.querySelector(".react-flow__viewport");
+        if (!viewport) {
+          resolve(false);
+          return;
+        }
+        let last = getComputedStyle(viewport).transform;
+        let still = 0;
+        const tick = (): void => {
+          const now = getComputedStyle(viewport).transform;
+          still = now === last ? still + 1 : 0;
+          last = now;
+          if (still >= 30) resolve(true);
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    undefined,
+    { timeout: 15_000 },
+  );
+};
+
 test("dense canvas: drag commits without mid-gesture snap-back", async ({ junto }) => {
   const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const node = page.getByTestId("rf__node-n1");
   await expect(node).toBeVisible({ timeout: 30_000 });
+  await cameraSettled(page);
 
   const before = await node.boundingBox();
   expect(before).toBeTruthy();
