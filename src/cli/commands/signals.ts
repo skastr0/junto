@@ -32,13 +32,35 @@ const detailOption = Flag.string("detail").pipe(
   Flag.withDescription("Longer markdown for the operator: inline, @file, or - for stdin"),
 );
 
-// One definition for all three kinds. Repeat the flag for each file.
-const attachOption = Flag.string("attach").pipe(
-  Flag.atLeast(0),
-  Flag.withDescription(
-    'A file to show the operator, of any kind and size: /path or "Caption=/path". Repeat for each file',
+// One definition for all three kinds. Repeat a flag for each thing attached.
+// On the card they come in this order, each in the order given: attach, code,
+// diff, compare, commit, video. The JSON attach list keeps its own order.
+const attachFlag = (name: string, description: string) =>
+  Flag.string(name).pipe(Flag.atLeast(0), Flag.withDescription(description));
+
+const attachOptions = {
+  attach: attachFlag(
+    "attach",
+    'A file to show the operator, of any kind and size: /path or "Caption=/path". Repeat for each. Card order: attach, code, diff, compare, commit, video',
   ),
-);
+  code: attachFlag(
+    "code",
+    'A code block: "ts:const a = 1", where the text may be @file or - for stdin; a caption goes first: "The guard=ts:..."',
+  ),
+  diff: attachFlag(
+    "diff",
+    'A diff, no repository needed: unified diff text, @file, or - for stdin (git diff | junto feedback "..." --diff -)',
+  ),
+  compare: attachFlag(
+    "compare",
+    'Two files read as a change: "before.ts,after.ts". For two texts typed inline use the JSON attach list',
+  ),
+  commit: attachFlag("commit", 'A commit in this folder: HEAD, a branch, or an id, as "The fix=HEAD"'),
+  video: attachFlag(
+    "video",
+    'A video at a web address: "https://host/run.mp4". The operator sees the address; nothing is fetched until they press play',
+  ),
+};
 
 const call = (op: WorkOpName, args: unknown, timeout?: number) =>
   Effect.gen(function* () {
@@ -49,8 +71,8 @@ const call = (op: WorkOpName, args: unknown, timeout?: number) =>
 const raiseCommand = (kind: AgentSignalKind, description: string) =>
   Command.make(
     kind,
-    { input: sentenceArg, detail: detailOption, attach: attachOption, timeout: timeoutOption },
-    ({ input, detail, attach, timeout }) =>
+    { input: sentenceArg, detail: detailOption, ...attachOptions, timeout: timeoutOption },
+    ({ input, detail, timeout, ...attach }) =>
       executeJsonCommand(
         kind,
         Effect.gen(function* () {

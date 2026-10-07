@@ -46,7 +46,6 @@ import {
   OnboardArgs,
   SignalClearArgs,
   SignalListArgs,
-  SignalRaiseCliArgs,
   RulingsArgs,
   TasksCheckCliArgs,
   TasksClaimArgs,
@@ -56,6 +55,7 @@ import {
   TasksShowArgs,
   TasksUpdateCliArgs,
 } from "../../shared/work-control";
+import { SignalRaiseCliInput } from "./signal-input";
 import { ContentStageArgs } from "../../shared/content-stage";
 import { envReportCapability, envReportExamples, envReportSchema } from "../commands/env";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
@@ -498,8 +498,8 @@ const signalRaiseSchema = (
   command: kind,
   schema_id: `signal.${kind}.input/v1`,
   description,
-  // What the agent writes: files by path. The CLI reads them and sends bytes.
-  schema: SignalRaiseCliArgs,
+  // What the agent writes: files by path, text inline. The CLI uploads them and sends references.
+  schema: SignalRaiseCliInput,
   input_modes: signalInputModes,
 });
 
@@ -1234,6 +1234,64 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
       "--attach",
       "After=/abs/shots/after.png",
     ],
+  },
+  {
+    command_id: "signal.feedback",
+    command: "feedback",
+    name: "ready for review, with a code block and a diff",
+    description:
+      "Text you type is attached as it is: a code block with its language, and any unified diff (no repository needed). Both show highlighted on the card. A diff can come from a pipe: git diff | junto feedback \"...\" --diff -",
+    input: {
+      text: "The retry guard is in; here is the change.",
+      attach: [
+        { code: "if (attempt > MAX_RETRIES) throw new GiveUp();", language: "ts", caption: "The guard" },
+        { diff: "--- a/retry.ts\n+++ b/retry.ts\n@@ -1 +1 @@\n-const MAX_RETRIES = 3;\n+const MAX_RETRIES = 5;\n", caption: "The change" },
+      ],
+    },
+    args: [
+      "feedback",
+      "The retry guard is in; here is the change.",
+      "--code",
+      "The guard=ts:if (attempt > MAX_RETRIES) throw new GiveUp();",
+      "--diff",
+      "The change=--- a/retry.ts\n+++ b/retry.ts\n@@ -1 +1 @@\n-const MAX_RETRIES = 3;\n+const MAX_RETRIES = 5;\n",
+    ],
+  },
+  {
+    command_id: "signal.escalate",
+    command: "escalate",
+    name: "two texts read as a change",
+    description:
+      "A before and an after, shown as a diff. From two files with --compare; two texts typed inline go in the JSON form.",
+    input: {
+      text: "Which wording do you want on the empty state?",
+      attach: [{ before: "Nothing here yet.", after: "No signals. You are all caught up.", language: "txt", caption: "Empty state" }],
+    },
+    args: ["escalate", "Which wording do you want on the empty state?", "--compare", "Empty state=/abs/before.txt,/abs/after.txt"],
+  },
+  {
+    command_id: "signal.feedback",
+    command: "feedback",
+    name: "ready for review, with the commit",
+    description:
+      "A commit in your folder, by anything git resolves (HEAD, a branch, an id). The card shows the commit and its diff.",
+    input: {
+      text: "The migration is committed and ready to review.",
+      attach: [{ commit: "HEAD", caption: "The migration" }],
+    },
+    args: ["feedback", "The migration is committed and ready to review.", "--commit", "The migration=HEAD"],
+  },
+  {
+    command_id: "signal.feedback",
+    command: "feedback",
+    name: "ready for review, with a video at a web address",
+    description:
+      "A video that lives somewhere else. The operator sees the whole address; nothing is fetched until they press play. A video file on disk is attached with --attach.",
+    input: {
+      text: "The recorded run is up.",
+      attach: [{ url: "https://media.example.com/runs/onboarding.mp4", caption: "The run" }],
+    },
+    args: ["feedback", "The recorded run is up.", "--video", "The run=https://media.example.com/runs/onboarding.mp4"],
   },
   {
     command_id: "signal.list",

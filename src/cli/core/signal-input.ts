@@ -1,15 +1,16 @@
-import { existsSync } from "node:fs";
-import { open, readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { Effect, Schema } from "effect";
-import type { AgentSignalKind } from "../../shared/agent-signals";
-import { ATTACHMENT_HEAD_BYTES, attachmentMediaType, attachmentName } from "../../shared/preview-bytes";
+import type { AgentSignalAttachmentInput, AgentSignalKind } from "../../shared/agent-signals";
+import type { SignalRaiseArgs } from "../../shared/work-control";
 import {
-  type SignalAttachCliInput,
-  SignalRaiseCliArgs,
-  type SignalAttachmentInput,
-  type SignalRaiseArgs,
-} from "../../shared/work-control";
-import { stageFile } from "./content-stage";
+  type AttachFlags,
+  liveAttachProbe,
+  planAttachFlags,
+  planAttachItems,
+  SignalAttachCliItem,
+  stageAttachPlans,
+  stdinUses,
+} from "./signal-attach";
 import { InputError } from "./errors";
 import { decodeJsonText } from "./json";
 
@@ -20,12 +21,10 @@ import { decodeJsonText } from "./json";
  * `--detail` is markdown given inline, `@file`, or `-` for stdin. Stdin feeds
  * at most one of them.
  *
- * `--attach` names a file to show the operator, once per file:
- * `--attach /abs/shot.png` or `--attach "Before=/abs/shot.png"`. The JSON
- * input takes the same list as `attach: [{path, caption?}]`. The CLI
- * uploads each file in pieces (`stageFile`) and the signal names it by the
- * reference that comes back: a path never crosses the socket, and a file of
- * any kind and size can be attached.
+ * What is attached (`--attach`, `--code`, `--diff`, `--compare`, `--commit`,
+ * `--video`, or the JSON input's `attach` list) is read and uploaded by
+ * `signal-attach.ts`; the signal names it by reference, so a path never
+ * crosses the socket and a file of any kind and size can be attached.
  */
 export type SignalSource =
   | { readonly kind: "stdin" }
@@ -88,85 +87,6 @@ export const planSignalInvocation = (
   };
 };
 
-/**
- * Pure: one `--attach` value as a file and its caption. A value that is a
- * file as written is that file; otherwise the text before the first `=` is
- * the caption, so a path with `=` in it is never misread.
- */
-export const parseAttachFlag = (
-  value: string,
-  isFile: (path: string) => boolean,
-): SignalAttachCliInput => {
-  const at = value.indexOf("=");
-  if (at <= 0 || isFile(value)) return { path: value };
-  const caption = value.slice(0, at).trim();
-  const path = value.slice(at + 1).trim();
-  return caption ? { path, caption } : { path };
-};
-
-const attachError = (path: string, message: string) =>
-  new InputError({
-    message: `${path}: ${message}`,
-    path: "--attach",
-    hint: 'attach a file by its path: --attach "Before=/abs/before.png"',
-  });
-
-const readHead = async (path: string, limit: number): Promise<Buffer> => {
-  const handle = await open(path, "r");
-  try {
-    const head = Buffer.alloc(limit);
-    let filled = 0;
-    // A read may come back short before the end of the file.
-    while (filled < limit) {
-      const { bytesRead } = await handle.read(head, filled, limit - filled, filled);
-      if (bytesRead === 0) break;
-      filled += bytesRead;
-    }
-    return head.subarray(0, filled);
-  } finally {
-    await handle.close();
-  }
-};
-
-/**
- * Look at every file's start to say what it is, then upload each one.
- * Nothing is uploaded unless all of them can be read. Any file goes, of any
- * kind, count and size: it is streamed from disk in pieces.
- */
-const stageAttachments = (attach: ReadonlyArray<SignalAttachCliInput>, timeoutMs?: number) =>
-  Effect.gen(function* () {
-    const judged = yield* Effect.forEach(attach, (item) =>
-      Effect.gen(function* () {
-        const name = attachmentName(item.path) || "file";
-        const mediaType = yield* Effect.tryPromise({
-          try: async () => {
-            // stat follows a link: what matters is that a regular file is read.
-            const info = await stat(item.path);
-            if (!info.isFile()) throw new Error("not a regular file");
-            const head = await readHead(item.path, Math.min(info.size, ATTACHMENT_HEAD_BYTES));
-            return attachmentMediaType(name, head);
-          },
-          catch: (cause) => attachError(item.path, cause instanceof Error ? cause.message : "read failed"),
-        });
-        return { item, name, mediaType };
-      }),
-    );
-    return yield* Effect.forEach(judged, ({ item, name, mediaType }) =>
-      stageFile(item.path, {
-        mediaType,
-        displayName: name,
-        ...(timeoutMs === undefined ? {} : { timeoutMs }),
-      }).pipe(
-        Effect.map(
-          (ref): SignalAttachmentInput => ({
-            ref: { sha256: ref.sha256, byteLength: ref.byteLength },
-            ...(item.caption === undefined ? {} : { caption: item.caption }),
-          }),
-        ),
-      ),
-    );
-  });
-
 const readStdin = Effect.tryPromise({
   try: () => new Response(Bun.stdin.stream()).text(),
   catch: (cause) =>
@@ -194,21 +114,70 @@ export const readSource = (source: SignalSource) => {
   }
 };
 
+/**
+ * What `junto escalate|blocked|feedback` takes as its JSON input: the one
+ * schema the CLI decodes with. The command name is the kind, so there is
+ * none here. `attach` is a list of items, each exactly one shape
+ * (`SignalAttachCliItem`).
+ */
+export const SignalRaiseCliInput = Schema.Struct({
+  text: Schema.String,
+  detail: Schema.optionalKey(Schema.String),
+  attach: Schema.optionalKey(Schema.Array(SignalAttachCliItem)),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type SignalRaiseCliInput = typeof SignalRaiseCliInput.Type;
+
+/** `signal.raise` as this CLI sends it: the sentence, the detail, and what is attached, by reference. */
+export type SignalRaiseRequest = Omit<SignalRaiseArgs, "attach"> & {
+  readonly attach?: ReadonlyArray<AgentSignalAttachmentInput>;
+};
+
+const ATTACH_FLAG_NAMES = ["attach", "code", "diff", "compare", "commit", "video"] as const;
+
 export const loadSignalRaiseArgs = (
   kind: AgentSignalKind,
   input: string,
   detail: string | undefined,
-  attachFlags: ReadonlyArray<string> = [],
+  /** The attachment flags; a bare list is `--attach` values. */
+  attachFlags: AttachFlags | ReadonlyArray<string> = {},
   timeoutMs?: number,
 ) =>
   Effect.gen(function* () {
+    const flags: AttachFlags = Array.isArray(attachFlags) ? { attach: attachFlags } : (attachFlags as AttachFlags);
     const planned = planSignalInvocation(input, detail);
     if (!planned.ok) return yield* Effect.fail(planned.error);
     const { plan } = planned;
+    const given = ATTACH_FLAG_NAMES.filter((name) => (flags[name]?.length ?? 0) > 0);
+    // Flags are checked before anything is read, so a bad one costs nothing.
+    const fromFlags = planAttachFlags(flags, liveAttachProbe);
+    if (!fromFlags.ok) return yield* Effect.fail(fromFlags.error);
     const body = yield* readSource(plan.input);
     const payload = plan.input.json
-      ? yield* decodeJsonText(SignalRaiseCliArgs, body, plan.input.kind)
+      ? yield* decodeJsonText(SignalRaiseCliInput, body, plan.input.kind)
       : { text: body };
+    if (given.length > 0 && payload.attach !== undefined) {
+      return yield* Effect.fail(
+        new InputError({
+          message: `attachments given twice: in the JSON input and in --${given[0]}`,
+          path: `--${given[0]}`,
+          hint: "use the flags or the JSON attach list, not both",
+        }),
+      );
+    }
+    const plans = payload.attach !== undefined ? planAttachItems(payload.attach) : fromFlags.plans;
+    // Stdin feeds one thing only: the sentence, the detail, or one attached text.
+    const piped = stdinUses(plans);
+    if (piped + (plan.input.kind === "stdin" ? 1 : 0) + (plan.detail?.kind === "stdin" ? 1 : 0) > 1) {
+      return yield* Effect.fail(
+        new InputError({
+          message: "stdin can feed one thing: the sentence, --detail, or one attached text",
+          path: "stdin",
+          hint: 'pipe one and write the others inline or from a file: git diff | junto feedback "..." --diff -',
+        }),
+      );
+    }
     const detailText = plan.detail ? yield* readSource(plan.detail) : undefined;
     if (detailText !== undefined && payload.detail !== undefined) {
       return yield* Effect.fail(
@@ -219,22 +188,19 @@ export const loadSignalRaiseArgs = (
       );
     }
     const resolvedDetail = detailText ?? payload.detail;
-    if (attachFlags.length > 0 && payload.attach !== undefined) {
-      return yield* Effect.fail(
-        new InputError({
-          message: "attachments given twice: in the JSON input and in --attach",
-          path: "--attach",
-        }),
-      );
-    }
+    const stdin = piped > 0 ? yield* readStdin : undefined;
     const attach =
-      payload.attach ?? attachFlags.map((value) => parseAttachFlag(value, existsSync));
-    const files = attach.length > 0 ? yield* stageAttachments(attach, timeoutMs) : [];
-    const args: SignalRaiseArgs = {
+      plans.length > 0
+        ? yield* stageAttachPlans(plans, {
+            ...(stdin === undefined ? {} : { stdin }),
+            ...(timeoutMs === undefined ? {} : { timeoutMs }),
+          })
+        : [];
+    const args: SignalRaiseRequest = {
       kind,
       text: payload.text,
       ...(resolvedDetail === undefined ? {} : { detail: resolvedDetail }),
-      ...(files.length > 0 ? { attach: files } : {}),
+      ...(attach.length > 0 ? { attach } : {}),
     };
     return args;
   });
