@@ -39,7 +39,8 @@ import {
 } from "../../lib/terminal-viewport";
 import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
 import { playCue } from "../../lib/sound";
-import { claimedTaskForActorNode } from "../../lib/claimed-task";
+import type { ClaimedTask } from "../../lib/claimed-task";
+import { claimedTask$ } from "../../lib/claimed-task-index";
 import { state$ } from "../../lib/state";
 import {
   deadStateCopy,
@@ -749,9 +750,9 @@ export function TerminalSurface({
    */
   const operatorStopped = useRef(false);
   const canvasName = use$(state$.canvasName);
-  const doc = use$(state$.doc);
-  const actorRefs = use$(state$.actorRefs);
-  const claimedTask = claimedTaskForActorNode(doc, actorRefs, node.id);
+  // One key of the canvas-wide claimed-task index, as the seat card reads it:
+  // an open terminal does not hear the whole document.
+  const claimedTask = use$(() => claimedTask$.byNodeId[node.id].get()) as ClaimedTask | undefined;
   const agentSeat = node.ether?.entity?.kind === "agent";
   // Control classification comes from the node kind, never optional binding
   // fields. The exact actor surface is validated separately before its
