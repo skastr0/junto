@@ -11,6 +11,7 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
 import { pauseWasResumed } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
@@ -1763,14 +1764,20 @@ export const registerJuntoIpc = (): void => {
         else broadcast(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
       });
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
-      // ONE edge-notification theory: canvas edge changes produce exactly one
-      // compact map-change notice per seat (added contracts inline, removals
-      // as a re-orient hint). The former msg.send-enable link notice was a
-      // second, equivalent notification from a parallel subsystem — removed.
-      canvases.subscribeChanges((name, detail) => {
-        void AppRuntime.runPromise(
-          onCanvasChangeForEdgeMap(name, detail),
-        );
+      // Keep the last model topology for compact connection-change notices.
+      const modelForNotices = yield* ModelService;
+      const noticeCanvases = new Map<string, Canvas>();
+      for (const name of yield* modelForNotices.listCanvases()) {
+        noticeCanvases.set(name, yield* modelForNotices.canvas(name));
+      }
+      modelForNotices.subscribeChanges((event, next) => {
+        const previous = noticeCanvases.get(event.canvas);
+        noticeCanvases.set(event.canvas, next);
+        void AppRuntime.runPromise(onCanvasChangeForEdgeMap(event.canvas, { previous, next }));
+      });
+      modelForNotices.subscribeCanvasesChanges((event, current) => {
+        if (event._tag === "Removed") noticeCanvases.delete(event.canvas);
+        else if (current) noticeCanvases.set(event.canvas, current);
       });
       // Seat sessions: each session id a seat is given joins its history, so
       // onboard can hand the next session what came before and where it is.

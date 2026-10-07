@@ -13,8 +13,7 @@
  * Never writes ~/.claude, ~/.codex, ~/.grok, ~/.hermes.
  */
 
-import { wireOfDocument } from "./model/from-document";
-import type { CanvasDoc } from "./canvas";
+import { asNodeId, type Canvas } from "./model";
 import type { Port } from "./physics/schema";
 import type { CommandFamily } from "./seat-onboarding";
 
@@ -82,57 +81,16 @@ export const composeEdgeMapChangeNotice = (change: EdgeMapChange): string => {
   return `Your connections changed. ${parts.join(" ")} Run \`junto capabilities\` for details.`;
 };
 
-/**
- * The complete input this diff reads out of a document: every node's kind by
- * id, first-occurrence-wins exactly as `Array.prototype.find` resolved it.
- *
- * Built once per document instead of re-walked per edge endpoint. The old
- * shape put `doc.nodes.find` inside the per-edge loop and then again inside
- * `isSeat`, so one commit cost O(edges x nodes) — on a 96-node board that is
- * tens of thousands of id comparisons for a diff that is almost always empty.
- */
-const kindsById = (doc: CanvasDoc): ReadonlyMap<string, string | undefined> => {
-  const out = new Map<string, string | undefined>();
-  for (const node of doc.nodes) {
-    // First occurrence wins: `find` returned the first match, and a document
-    // with a duplicated id must keep resolving to the same node it did.
-    if (out.has(node.id)) continue;
-    out.set(node.id, node.ether?.entity?.kind);
-  }
-  return out;
-};
-
-/**
- * True when the two documents carry the same adjacency input.
- *
- * `planEdgeMapChanges` reads exactly three things: the ordered edge endpoints,
- * and each node's id and entity kind in order. When all three match position
- * for position the diff is provably empty, which is why this can short-circuit
- * rather than merely hint. Positional (not set) comparison keeps it sound in
- * the other direction too: a reordered document simply falls through to the
- * full computation and gets the same answer it always did.
- *
- * This is the gate the recompute never had. A canvas commit fires the listener
- * for ANY authorial change, and the overwhelming majority of them are geometry
- * — a dragged node, a resized region — which cannot move a single edge grant.
- */
-const sameEdgeMapInput = (a: CanvasDoc, b: CanvasDoc): boolean => {
+/** Geometry and unrelated node fields cannot change the connection map. */
+const sameEdgeMapInput = (a: Canvas, b: Canvas): boolean => {
   if (a === b) return true;
-  if (a.edges.length !== b.edges.length) return false;
-  if (a.nodes.length !== b.nodes.length) return false;
-  for (let i = 0; i < a.edges.length; i += 1) {
-    const x = a.edges[i];
-    const y = b.edges[i];
-    if (x.fromNode !== y.fromNode || x.toNode !== y.toNode) return false;
-    // A verb swap moves the compiled grant without moving any endpoint, so
-    // the seat's edge map must be revised for it like any rewiring.
-    if (wireOfDocument(x)?.verb !== wireOfDocument(y)?.verb) return false;
+  if (a.wires.size !== b.wires.size || a.nodes.size !== b.nodes.size) return false;
+  for (const [id, wire] of a.wires) {
+    const other = b.wires.get(id);
+    if (!other || wire.from !== other.from || wire.to !== other.to || wire.verb !== other.verb) return false;
   }
-  for (let i = 0; i < a.nodes.length; i += 1) {
-    const x = a.nodes[i];
-    const y = b.nodes[i];
-    if (x.id !== y.id) return false;
-    if (x.ether?.entity?.kind !== y.ether?.entity?.kind) return false;
+  for (const [id, node] of a.nodes) {
+    if (node.kind !== b.nodes.get(id)?.kind) return false;
   }
   return true;
 };
@@ -142,26 +100,21 @@ const sameEdgeMapInput = (a: CanvasDoc, b: CanvasDoc): boolean => {
  * Pure — no I/O. Callers skip when `previous` is missing (open / first paint).
  */
 export const planEdgeMapChanges = (
-  previous: CanvasDoc,
-  next: CanvasDoc,
+  previous: Canvas,
+  next: Canvas,
 ): ReadonlyArray<EdgeMapChange> => {
   if (sameEdgeMapInput(previous, next)) return [];
 
-  const previousKinds = kindsById(previous);
-  const nextKinds = kindsById(next);
   const adjacency = (
-    doc: CanvasDoc,
-    kinds: ReadonlyMap<string, string | undefined>,
+    canvas: Canvas,
   ): Map<string, InjectionConnectedTarget[]> => {
     const out = new Map<string, InjectionConnectedTarget[]>();
-    for (const edge of doc.edges) {
+    for (const edge of canvas.wires.values()) {
       for (const [a, b] of [
-        [edge.fromNode, edge.toNode],
-        [edge.toNode, edge.fromNode],
+        [edge.from, edge.to],
+        [edge.to, edge.from],
       ] as const) {
-        // Absent node and node-without-kind were both `continue` before and
-        // stay both `continue` now: `get` returns undefined for either.
-        const kind = kinds.get(b);
+        const kind = canvas.nodes.get(b)?.kind;
         if (kind === undefined || KIND_TO_SLOT[kind] === undefined) continue;
         const list = out.get(a);
         const target: InjectionConnectedTarget = { id: b, ...(kind !== undefined ? { kind } : {}) };
@@ -172,16 +125,16 @@ export const planEdgeMapChanges = (
     return out;
   };
 
-  const before = adjacency(previous, previousKinds);
-  const after = adjacency(next, nextKinds);
+  const before = adjacency(previous);
+  const after = adjacency(next);
   const isSeat = (
-    kinds: ReadonlyMap<string, string | undefined>,
+    canvas: Canvas,
     id: string,
-  ): boolean => kinds.get(id) === "agent";
+  ): boolean => canvas.nodes.get(asNodeId(id))?.kind === "agent";
   const key = (t: InjectionConnectedTarget): string => `${t.kind ?? ""}:${t.id}`;
   const changes: EdgeMapChange[] = [];
   for (const seatId of new Set([...before.keys(), ...after.keys()])) {
-    if (!isSeat(nextKinds, seatId) && !isSeat(previousKinds, seatId)) continue;
+    if (!isSeat(next, seatId) && !isSeat(previous, seatId)) continue;
     const prev = new Set((before.get(seatId) ?? []).map(key));
     const nextSet = new Set((after.get(seatId) ?? []).map(key));
     const added = (after.get(seatId) ?? []).filter((t) => !prev.has(key(t)));

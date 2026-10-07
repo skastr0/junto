@@ -22,7 +22,7 @@
 
 import { Context, Effect } from "effect";
 import { ulid } from "ulid";
-import type { CanvasDoc } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
 import {
   composeEdgeMapChangeNotice,
   planEdgeMapChanges,
@@ -30,7 +30,6 @@ import {
   type InjectionConnectedTarget,
 } from "@shared/managed-terminal-injection";
 import { makeUserMessage } from "@shared/task";
-import type { CanvasChangeDetail } from "../canvases";
 import { WorkService } from "./service";
 
 /**
@@ -201,8 +200,8 @@ const flush = (
 
 export const deliverEdgeMapChangeNotices = (input: {
   readonly canvas: string;
-  readonly previous: CanvasDoc;
-  readonly next: CanvasDoc;
+  readonly previous: Canvas;
+  readonly next: Canvas;
 }): Effect.Effect<number, never, WorkService> =>
   Effect.gen(function* () {
     const changes = planEdgeMapChanges(input.previous, input.next);
@@ -221,7 +220,7 @@ export const deliverEdgeMapChangeNotices = (input: {
  */
 export const onCanvasChangeForEdgeMap = (
   canvas: string,
-  detail: CanvasChangeDetail | undefined,
+  detail: { readonly previous?: Canvas; readonly next?: Canvas } | undefined,
 ): Effect.Effect<number, never, WorkService> => {
   if (detail?.previous === undefined || detail.next === undefined) {
     return Effect.succeed(0);

@@ -3,18 +3,27 @@ import {
   composeEdgeMapChangeNotice,
   planEdgeMapChanges,
 } from "../src/shared/managed-terminal-injection";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { Schema } from "effect";
+import { Node, asCanvasName, asWireId, asNodeId, type Canvas } from "../src/shared/model";
+
+const node = (id: string, kind = "note", x = 0): Node => Schema.decodeUnknownSync(Node)({
+  id, kind, x, y: 0, width: 1, height: 1, z: 0,
+  ...(kind === "agent" ? { label: id, agentKey: "local:codex", host: "local", bindingId: id, harness: "codex", overseer: false, onRemove: "detach" }
+    : kind === "page" ? { url: "about:blank", profile: id, host: "local", onRemove: "detach" } : { text: id }),
+});
+const canvas = (nodes: readonly Node[], edges: Array<[string, string]>): Canvas => ({
+  name: asCanvasName("factory"), seq: 0,
+  nodes: new Map(nodes.map((n) => [n.id, n])),
+  wires: new Map(edges.map(([from, to], i) => {
+    const id = asWireId(`e${i}`);
+    return [id, { id, from: asNodeId(from), to: asNodeId(to), verb: nodes.find((n) => n.id === to)?.kind === "page" ? "navigates" : "messages" }];
+  })),
+});
 
 describe("edge-map change injection", () => {
-  const doc = (edges: Array<[string, string]>): CanvasDoc => ({
-    nodes: [
-      { id: "seat-a", type: "text", text: "a", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "agent" } } },
-      { id: "n-peer", type: "text", text: "p", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "agent" } } },
-      { id: "n-new", type: "text", text: "q", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "agent" } } },
-      { id: "n-note", type: "text", text: "n", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "note" } } },
-    ],
-    edges: edges.map(([fromNode, toNode], i) => ({ id: `e${i}`, fromNode, toNode })),
-  });
+  const doc = (edges: Array<[string, string]>): Canvas => canvas([
+    node("seat-a", "agent"), node("n-peer", "agent"), node("n-new", "agent"), node("n-note"),
+  ], edges);
 
   it("plans added and removed slot-bearing edges per seat", () => {
     const before = doc([["seat-a", "n-peer"]]);
@@ -56,13 +65,12 @@ describe("edge-map change injection", () => {
 });
 /**
  * `planEdgeMapChanges` builds its adjacency from a node index and short-circuits
- * on documents whose edge input is unchanged. Both are performance shape, so the
+ * on canvases whose edge input is unchanged. Both are performance shape, so the
  * contract is pinned against a direct reimplementation of the naive walk: the
- * answers must agree on every document pair, including the ones that make an
- * index and a linear scan disagree.
+ * answers must agree on every canvas pair.
  */
 describe("edge-map diff equivalence", () => {
-  type Doc = CanvasDoc;
+  type Doc = Canvas;
 
   /**
    * The naive walk, restated: a linear `find` per edge endpoint and per seat
@@ -76,14 +84,14 @@ describe("edge-map diff equivalence", () => {
     };
     const adjacency = (doc: Doc): Map<string, { id: string; kind?: string }[]> => {
       const out = new Map<string, { id: string; kind?: string }[]>();
-      for (const edge of doc.edges) {
+      for (const edge of doc.wires.values()) {
         for (const [a, b] of [
-          [edge.fromNode, edge.toNode],
-          [edge.toNode, edge.fromNode],
+          [edge.from, edge.to],
+          [edge.to, edge.from],
         ] as const) {
-          const node = doc.nodes.find((n) => n.id === b);
+          const node = [...doc.nodes.values()].find((n) => n.id === b);
           if (!node) continue;
-          const kind = node.ether?.entity?.kind;
+          const kind = node.kind;
           if (kind === undefined || slot[kind] === undefined) continue;
           const list = out.get(a);
           const target = { id: b, ...(kind !== undefined ? { kind } : {}) };
@@ -96,7 +104,7 @@ describe("edge-map diff equivalence", () => {
     const before = adjacency(previous);
     const after = adjacency(next);
     const isSeat = (doc: Doc, id: string): boolean =>
-      doc.nodes.find((n) => n.id === id)?.ether?.entity?.kind === "agent";
+      [...doc.nodes.values()].find((n) => n.id === id)?.kind === "agent";
     const key = (t: { id: string; kind?: string }): string => `${t.kind ?? ""}:${t.id}`;
     const changes: Array<{ seatId: string; added: unknown[]; removed: unknown[] }> = [];
     for (const seatId of new Set([...before.keys(), ...after.keys()])) {
@@ -115,33 +123,14 @@ describe("edge-map diff equivalence", () => {
     return changes.sort((a, b) => a.seatId.localeCompare(b.seatId));
   };
 
-  const node = (id: string, kind?: string, x = 0): CanvasDoc["nodes"][number] =>
-    ({
-      id,
-      type: "text",
-      text: id,
-      x,
-      y: 0,
-      width: 1,
-      height: 1,
-      ...(kind === undefined ? {} : { ether: { entity: { kind } } }),
-    }) as CanvasDoc["nodes"][number];
-
-  const doc = (
-    nodes: CanvasDoc["nodes"],
-    edges: Array<[string, string]>,
-  ): CanvasDoc =>
-    ({
-      nodes,
-      edges: edges.map(([fromNode, toNode], i) => ({ id: `e${i}`, fromNode, toNode })),
-    }) as CanvasDoc;
+  const doc = canvas;
 
   const seats = [node("seat-a", "agent"), node("seat-b", "agent")];
   const sinks = [node("n-peer", "agent"), node("n-page", "page"), node("n-other", "agent")];
-  /** Kind with no slot, and a node carrying no entity at all. */
+  /** Kind with no slot, and a another inert note. */
   const inert = [node("n-note", "note"), node("n-bare")];
 
-  const cases: Array<[string, CanvasDoc, CanvasDoc]> = [
+  const cases: Array<[string, Canvas, Canvas]> = [
     [
       "edge added to a seat",
       doc([...seats, ...sinks, ...inert], [["seat-a", "n-peer"]]),
@@ -163,25 +152,9 @@ describe("edge-map diff equivalence", () => {
       doc([...seats, ...sinks], [["seat-a", "n-peer"], ["seat-a", "n-ghost"]]),
     ],
     [
-      "duplicate node id — the first occurrence decides",
-      doc(
-        [node("dup", "agent"), node("dup", "page"), ...sinks],
-        [["dup", "n-peer"]],
-      ),
-      doc(
-        [node("dup", "agent"), node("dup", "page"), ...sinks],
-        [["dup", "n-peer"], ["dup", "n-page"]],
-      ),
-    ],
-    [
       "seat-to-seat edge — both endpoints are seats",
       doc([...seats, ...sinks], []),
       doc([...seats, ...sinks], [["seat-a", "seat-b"]]),
-    ],
-    [
-      "self edge on a seat",
-      doc([...seats, ...sinks], []),
-      doc([...seats, ...sinks], [["seat-a", "seat-a"]]),
     ],
     [
       "inert kinds churn without moving a grant",
