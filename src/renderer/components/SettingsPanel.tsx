@@ -16,6 +16,7 @@ import {
 } from "@shared/features";
 import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSection";
 import { FieldRow, SettingBlock } from "./settings/FieldRow";
+import { radioGroupKeys, radioTabIndex } from "./settings/radio-keys";
 import { searchSettings, settingsIndex, type SettingHit } from "./settings/search-index";
 import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
@@ -211,6 +212,7 @@ function ThemeModeButton({
       role="radio"
       aria-checked={active}
       aria-label={label}
+      tabIndex={radioTabIndex(active)}
       className={`settings-theme-mode${active ? " is-active" : ""}`}
       onClick={onSelect}
     >
@@ -244,7 +246,13 @@ function AppearanceSection() {
     <div className="settings-section settings-blocks">
       <SettingBlock label="Theme" hint="Auto follows your system's light or dark setting.">
         {({ hintId }) => (
-          <div className="settings-theme-modes" role="radiogroup" aria-label="Theme" aria-describedby={hintId}>
+          <div
+            className="settings-theme-modes"
+            role="radiogroup"
+            aria-label="Theme"
+            aria-describedby={hintId}
+            onKeyDown={radioGroupKeys(true)}
+          >
             {modes.map((mode) => (
               <ThemeModeButton
                 key={mode.key}
@@ -264,7 +272,14 @@ function AppearanceSection() {
         hint="Makes text, buttons and spacing larger or smaller together. The canvas keeps its own zoom."
       >
         {({ hintId }) => (
-          <div className="settings-choices" role="radiogroup" aria-label="Interface size" aria-describedby={hintId}>
+          <div
+            className="settings-choices"
+            role="radiogroup"
+            aria-label="Interface size"
+            aria-describedby={hintId}
+            // Arrows only move here: each size rescales the whole window.
+            onKeyDown={radioGroupKeys(false)}
+          >
             {INTERFACE_SCALES.map((scale) => {
               const active = interfaceScale === scale;
               return (
@@ -275,6 +290,7 @@ function AppearanceSection() {
                   aria-checked={active}
                   aria-label={`${String(scale)} percent${scale === DEFAULT_INTERFACE_SCALE ? ", standard" : ""}`}
                   data-testid={`interface-size-${String(scale)}`}
+                  tabIndex={radioTabIndex(active)}
                   className={`settings-choice${active ? " is-active" : ""}`}
                   onClick={() => void patchSettings({ appearance: { interfaceScale: scale } })}
                 >
@@ -295,6 +311,7 @@ function AppearanceSection() {
             role="radiogroup"
             aria-label="Agent terminal colours"
             aria-describedby={hintId}
+            onKeyDown={radioGroupKeys(true)}
           >
             {(
               [
@@ -317,6 +334,7 @@ function AppearanceSection() {
                   type="button"
                   role="radio"
                   aria-checked={active}
+                  tabIndex={radioTabIndex(active)}
                   className={`settings-option${active ? " is-active" : ""}`}
                   onClick={() =>
                     void patchSettings({
@@ -1180,9 +1198,11 @@ export function SettingsPanel() {
     row.scrollIntoView({ block: "center" });
     row.dataset.found = "";
     // The keyboard follows: the row's control, or the row itself when it has none.
-    const control = row.querySelector<HTMLElement>(
-      "input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [role='radio'], [role='switch']",
-    );
+    const control =
+      row.querySelector<HTMLElement>("[role='radio'][aria-checked='true']") ??
+      row.querySelector<HTMLElement>(
+        "input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])",
+      );
     if (!control) row.tabIndex = -1;
     claimFocus(control ?? row, "gesture");
     const timer = window.setTimeout(() => {
