@@ -133,15 +133,38 @@ type PartJson = {
   readonly caption: string | null;
 };
 
+const PART_KINDS: ReadonlySet<string> = new Set(["file", "compare", "commit", "link"]);
+
 // Written only by `raise` below, from values the wire schema already holds.
 // A part of a kind this build does not know is left out, not guessed at.
 const attachmentsOf = (json: string): ReadonlyArray<AgentSignalAttachment> =>
   (JSON.parse(json) as ReadonlyArray<PartJson>)
-    .filter((row) => row.kind === "file")
-    .map((row) => ({
-      ref: row.body as unknown as AgentSignalAttachment["ref"],
-      ...(row.caption === null ? {} : { caption: row.caption }),
-    }));
+    .filter((row) => PART_KINDS.has(row.kind))
+    .map(
+      (row) =>
+        ({
+          ...(row.kind === "file" ? { ref: row.body } : { kind: row.kind, ...row.body }),
+          ...(row.caption === null ? {} : { caption: row.caption }),
+        }) as unknown as AgentSignalAttachment,
+    );
+
+/** A part's kind and body as stored: a file's body is its reference, any other kind's is its own fields. */
+const partOf = (attachment: AgentSignalAttachment): { readonly kind: string; readonly body: string } => {
+  if (!("kind" in attachment)) {
+    const { ref } = attachment;
+    return {
+      kind: "file",
+      body: JSON.stringify({
+        sha256: ref.sha256,
+        byteLength: ref.byteLength,
+        mediaType: ref.mediaType,
+        displayName: ref.displayName ?? "file",
+      }),
+    };
+  }
+  const { kind, caption: _caption, ...body } = attachment;
+  return { kind, body: JSON.stringify(body) };
+};
 
 const withAttachments = (json: string): { readonly attachments?: ReadonlyArray<AgentSignalAttachment> } => {
   const attachments = attachmentsOf(json);
@@ -230,16 +253,10 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         VALUES (${signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null}, ${Date.now()}, 'open')
       `;
       for (const [position, attachment] of (input.attachments ?? []).entries()) {
-        const { ref } = attachment;
-        const body = JSON.stringify({
-          sha256: ref.sha256,
-          byteLength: ref.byteLength,
-          mediaType: ref.mediaType,
-          displayName: ref.displayName ?? "file",
-        });
+        const part = partOf(attachment);
         yield* sql`
           INSERT INTO agent_signal_parts(signal_id, position, kind, body_json, caption)
-          VALUES (${signalId}, ${position}, 'file', ${body}, ${attachment.caption ?? null})
+          VALUES (${signalId}, ${position}, ${part.kind}, ${part.body}, ${attachment.caption ?? null})
         `;
       }
       return (yield* readOne(signalId))!;

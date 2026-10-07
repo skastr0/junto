@@ -1,8 +1,12 @@
 import { open } from "node:fs/promises";
 import { Effect, Option } from "effect";
-import type { AgentSignal, AgentSignalAttachment } from "@shared/agent-signals";
-import { ATTACHMENT_HEAD_BYTES, attachmentMediaType, attachmentName } from "@shared/preview-bytes";
-import type { SignalAttachmentInput } from "@shared/work-control";
+import {
+  admitLinkUrl,
+  type AgentSignal,
+  type AgentSignalAttachment,
+  type AgentSignalAttachmentInput,
+} from "@shared/agent-signals";
+import { ATTACHMENT_HEAD_BYTES, attachmentMediaType, attachmentName, isTextHead } from "@shared/preview-bytes";
 import type { ContentOwner } from "../content/manifest";
 import { ContentService } from "../content/service";
 import { claimStagedContent } from "../content/stage";
@@ -12,7 +16,8 @@ import { claimStagedContent } from "../content/stage";
  *
  * The seat uploaded each file ahead of the signal (`content.stage`) and the
  * signal names it by reference. Admitted: any number of files, of any kind
- * and any size, each one uploaded by the calling seat. What a file is
+ * and any size, each one uploaded by the calling seat; the two texts of a
+ * compare the same way; a commit by its full id; a link by a web address. What a file is
  * recorded as (`attachmentMediaType`) is read here from the stored bytes and
  * the name main recorded at upload, never taken from the caller. A file is
  * held under the signal as owner, so it outlives the folder
@@ -57,55 +62,89 @@ const readHead = async (path: string, limit: number): Promise<Buffer> => {
 
 const refusal = (index: number, message: string): AttachmentRefusal => ({ path: `attach[${index}]`, message });
 
+type Stored = Extract<AgentSignalAttachment, { readonly ref: unknown }>["ref"];
+
 /**
- * Take the files a signal names from the seat's uploads and hold them under
- * the signal, in order. Fails with the file refused and why; whatever was
+ * Take what a signal names and hold it under the signal, in order: files and
+ * the two sides of a compare from the seat's uploads, a commit by its id, a
+ * link by its address. Fails with the one refused and why; whatever was
  * already taken for this signal is let go again, so a refused signal keeps
  * nothing.
  */
 export const claimSignalAttachments = (
   content: ContentService["Service"],
   signal: Pick<AgentSignal, "signalId" | "canvasName" | "nodeId">,
-  inputs: ReadonlyArray<SignalAttachmentInput>,
+  inputs: ReadonlyArray<AgentSignalAttachmentInput>,
 ): Effect.Effect<ReadonlyArray<AgentSignalAttachment>, AttachmentRefusal> => {
   const owner = signalAttachmentOwner(signal);
   // The same file named twice is held once: a signal owns its bytes, not a count of them.
-  const held = new Map<string, AgentSignalAttachment["ref"]>();
+  const held = new Map<string, { readonly ref: Stored; readonly text: boolean }>();
+  const take = (index: number, identity: { readonly sha256: string; readonly byteLength: number }) =>
+    Effect.gen(function* () {
+      const key = `${identity.sha256}:${identity.byteLength}`;
+      const known = held.get(key);
+      if (known !== undefined) return known;
+      const row = yield* claimStagedContent(content, {
+        canvasName: signal.canvasName,
+        nodeId: signal.nodeId,
+        ref: identity,
+        owner,
+      }).pipe(
+        Effect.mapError((error) =>
+          refusal(
+            index,
+            error instanceof Error && error.name === "NotStagedByCaller"
+              ? error.message
+              : "the file could not be taken from the store",
+          ),
+        ),
+      );
+      const name = attachmentName(row.ref.displayName ?? "") || "file";
+      const opened = yield* content.openForRead(row.ref).pipe(Effect.orElseSucceed(() => undefined));
+      if (opened?.state !== "verified") return yield* Effect.fail(refusal(index, `${name}: the file is not in the store`));
+      const head = yield* Effect.tryPromise({
+        try: () => readHead(opened.path, Math.min(row.ref.byteLength, ATTACHMENT_HEAD_BYTES)),
+        catch: () => refusal(index, `${name}: the file could not be read from the store`),
+      });
+      const taken = {
+        ref: { ...row.ref, mediaType: attachmentMediaType(name, head), displayName: name } as Stored,
+        text: isTextHead(head),
+      };
+      held.set(key, taken);
+      return taken;
+    });
   return Effect.forEach(inputs, (input, index) =>
     Effect.gen(function* () {
-      const key = `${input.ref.sha256}:${input.ref.byteLength}`;
-      let ref = held.get(key);
-      if (ref === undefined) {
-        const row = yield* claimStagedContent(content, {
-          canvasName: signal.canvasName,
-          nodeId: signal.nodeId,
-          ref: input.ref,
-          owner,
-        }).pipe(
-          Effect.mapError((error) =>
-            refusal(
-              index,
-              error instanceof Error && error.name === "NotStagedByCaller"
-                ? error.message
-                : "the file could not be taken from the store",
-            ),
-          ),
-        );
-        const name = attachmentName(row.ref.displayName ?? "") || "file";
-        const opened = yield* content.openForRead(row.ref).pipe(Effect.orElseSucceed(() => undefined));
-        if (opened?.state !== "verified") return yield* Effect.fail(refusal(index, `${name}: the file is not in the store`));
-        const head = yield* Effect.tryPromise({
-          try: () => readHead(opened.path, Math.min(row.ref.byteLength, ATTACHMENT_HEAD_BYTES)),
-          catch: () => refusal(index, `${name}: the file could not be read from the store`),
-        });
-        ref = { ...row.ref, mediaType: attachmentMediaType(name, head), displayName: name } as AgentSignalAttachment["ref"];
-        held.set(key, ref);
+      const said = input.caption?.replace(/\s+/gu, " ").trim() || undefined;
+      const caption = said === undefined ? {} : { caption: said };
+      if (!("kind" in input)) {
+        return { ref: (yield* take(index, input.ref)).ref, ...caption } as AgentSignalAttachment;
       }
-      const caption = input.caption?.replace(/\s+/gu, " ").trim() || undefined;
-      return {
-        ref,
-        ...(caption === undefined ? {} : { caption: caption as AgentSignalAttachment["caption"] }),
-      } satisfies AgentSignalAttachment;
+      if (input.kind === "compare") {
+        const before = yield* take(index, input.before);
+        const after = yield* take(index, input.after);
+        if (!before.text || !after.text) {
+          return yield* Effect.fail(refusal(index, "a compare takes two texts; one of these is not text"));
+        }
+        const name = attachmentName(input.name ?? "") || undefined;
+        return {
+          kind: "compare",
+          before: before.ref,
+          after: after.ref,
+          ...(name === undefined ? {} : { name }),
+          ...caption,
+        } as AgentSignalAttachment;
+      }
+      if (input.kind === "commit") {
+        const sha = input.sha.trim().toLowerCase();
+        if (!/^[a-f0-9]{40}$/u.test(sha)) {
+          return yield* Effect.fail(refusal(index, "a commit is named by its full id: forty hex characters"));
+        }
+        return { kind: "commit", sha, ...caption } as AgentSignalAttachment;
+      }
+      const link = admitLinkUrl(input.url);
+      if (!link.ok) return yield* Effect.fail(refusal(index, link.reason));
+      return { kind: "link", url: link.url, ...caption } as AgentSignalAttachment;
     }),
   ).pipe(Effect.tapError(() => content.releaseOwner(owner).pipe(Effect.ignore)));
 };

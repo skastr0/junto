@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentSignalAttachment } from "../src/shared/agent-signals";
 import { ContentManifest } from "../src/main/junto/content/manifest";
 import { contentStoreRoot } from "../src/main/junto/content/paths";
 import { ContentService, createContentService } from "../src/main/junto/content/service";
@@ -25,6 +26,10 @@ const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
 );
+const fileRef = (attachment: AgentSignalAttachment) => {
+  if ("kind" in attachment) throw new Error(`expected a file, got a ${attachment.kind}`);
+  return attachment.ref;
+};
 const sha = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
 const atlas = { canvasName: "factory", nodeId: "atlas" };
 const signal = { ...atlas, signalId: "s1" };
@@ -93,7 +98,7 @@ describe("claimSignalAttachments", () => {
 
     const big = Buffer.concat([PNG, Buffer.alloc(3 * 1024 * 1024)]);
     const taken = await claim([await stage("big.png", big)], { ...atlas, signalId: "s2" });
-    expect(Result.isSuccess(taken) && taken.success[0]?.ref.byteLength).toBe(big.length);
+    expect(Result.isSuccess(taken) && fileRef(taken.success[0]!).byteLength).toBe(big.length);
   }, 60_000);
 
   it("holds a file named twice once", async () => {
@@ -101,7 +106,7 @@ describe("claimSignalAttachments", () => {
     const first = await stage("before.png", PNG);
     await stage("after.png", PNG);
     const result = await claim([first, first]);
-    expect(Result.isSuccess(result) && result.success.map((attachment) => attachment.ref.displayName)).toEqual([
+    expect(Result.isSuccess(result) && result.success.map((attachment) => fileRef(attachment).displayName)).toEqual([
       "before.png",
       "before.png",
     ]);
@@ -119,18 +124,63 @@ describe("claimSignalAttachments", () => {
 
   it("takes a file of any kind as a file, and a caption of any length", async () => {
     const { stage, claim, owners } = await boot();
-    const zip = Buffer.from("PK");
+    const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0xff, 0xfe, 0x00, 0x01]);
     const words = "x".repeat(500);
     // Declared as an image: the bytes and the name decide, not the claim.
     const taken = await claim([
       await stage("build.zip", zip, "image/png"),
       { ...(await stage("fake.png", Buffer.from("text"))), caption: words },
     ]);
-    expect(Result.isSuccess(taken) && taken.success.map((attachment) => [attachment.ref.displayName, attachment.ref.mediaType, attachment.caption])).toEqual([
+    expect(Result.isSuccess(taken) && taken.success.map((attachment) => [fileRef(attachment).displayName, fileRef(attachment).mediaType, attachment.caption])).toEqual([
       ["build.zip", "application/octet-stream", undefined],
-      ["fake.png", "application/octet-stream", words],
+      // Text, whatever it is named.
+      ["fake.png", "text/plain", words],
     ]);
     expect(await owners(zip)).toEqual(["signal:s1"]);
+  });
+
+  it("takes a compare of two texts, a commit by its full id and a link by its address", async () => {
+    const { stage, claim, owners } = await boot();
+    const before = Buffer.from("const limit = 10;\n");
+    const after = Buffer.from("const limit = 20;\n");
+    const head = "a".repeat(40);
+    const taken = await claim([
+      { kind: "compare", before: (await stage("before.ts", before)).ref, after: (await stage("after.ts", after)).ref, name: "/tmp/rate-limit.ts", caption: "The limit" },
+      { kind: "commit", sha: head.toUpperCase(), caption: " The fix " },
+      { kind: "link", url: " https://media.example.com/demo/run.mp4?t=1 " },
+    ] as never);
+    expect(Result.isSuccess(taken) && taken.success).toEqual([
+      {
+        kind: "compare",
+        before: { sha256: sha(before), byteLength: before.length, mediaType: "text/plain", displayName: "before.ts" },
+        after: { sha256: sha(after), byteLength: after.length, mediaType: "text/plain", displayName: "after.ts" },
+        name: "rate-limit.ts",
+        caption: "The limit",
+      },
+      { kind: "commit", sha: head, caption: "The fix" },
+      { kind: "link", url: "https://media.example.com/demo/run.mp4?t=1" },
+    ]);
+    expect(await owners(before)).toEqual(["signal:s1"]);
+    expect(await owners(after)).toEqual(["signal:s1"]);
+  });
+
+  it("refuses a short commit id, an address that is not the web or carries a password, and a compare that is not text", async () => {
+    const { stage, claim, owners } = await boot();
+    const message = async (input: unknown): Promise<string | false> => {
+      const result = await claim([input] as never);
+      return Result.isFailure(result) && result.failure.message;
+    };
+    expect(await message({ kind: "commit", sha: "abc1234" })).toContain("forty hex");
+    expect(await message({ kind: "link", url: "ssh://box/home/me/run.mp4" })).toContain("http");
+    expect(await message({ kind: "link", url: "file:///etc/passwd" })).toContain("http");
+    expect(await message({ kind: "link", url: "https://me:secret@example.com/a.mp4" })).toContain("password");
+    expect(await message({ kind: "link", url: "not an address" })).toContain("not a web address");
+    const text = Buffer.from("text");
+    const picture = await stage("a.png", PNG);
+    expect(await message({ kind: "compare", before: (await stage("a.txt", text)).ref, after: picture.ref })).toContain("two texts");
+    // Refused: nothing of it is kept.
+    expect(await owners(text)).not.toContain("signal:s1");
+    expect(await owners(PNG)).not.toContain("signal:s1");
   });
 
   it("keeps nothing of a refused signal", async () => {

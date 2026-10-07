@@ -10,7 +10,7 @@
  *   file (see `src/main/junto/preview/read.ts`).
  */
 
-export type PreviewKind = "image" | "video" | "text" | "file";
+export type PreviewKind = "image" | "video" | "text" | "file" | "compare" | "commit" | "link";
 
 /** One local file named in a piece of agent text. */
 export type PreviewRef = {
@@ -27,6 +27,10 @@ export type PreviewRef = {
    * list. `path` is then only a key (`attachment:<index>`), never a location.
    */
   readonly attachment?: number;
+  /** A commit attachment's full id. The folder is the sending seat's, found by the app. */
+  readonly commit?: string;
+  /** A link attachment's address, shown whole before anything is fetched. */
+  readonly url?: string;
   /**
    * Read out of running prose (a bare path with spaces), so it may be no
    * path at all: when nothing is there, say nothing about it.
@@ -49,6 +53,18 @@ export const previewKindOf = (path: string): PreviewKind => {
   if (IMAGE_EXTENSIONS.has(extension)) return "image";
   if (TEXT_EXTENSIONS.has(extension)) return "text";
   return "file";
+};
+
+/**
+ * How a text file is drawn, read off its name: a unified diff, markdown,
+ * plain text (txt, log, or no extension), or code highlighted by its name.
+ */
+export const previewTextFace = (name: string): "diff" | "markdown" | "plain" | "code" => {
+  const extension = previewExtension(`/${name}`);
+  if (extension === "diff" || extension === "patch") return "diff";
+  if (extension === "md" || extension === "markdown") return "markdown";
+  if (extension === "" || extension === "txt" || extension === "log") return "plain";
+  return "code";
 };
 
 export const previewName = (path: string): string => {
@@ -219,26 +235,45 @@ export const previewLinkedMarkdown = (markdown: string, claimed: ReadonlySet<str
   return previewMarkdownText(linked);
 };
 
+/** What a link is called on its tile: the last piece of its path, or its host. */
+export const previewLinkName = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    const last = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() ?? "");
+    return last || parsed.host;
+  } catch {
+    return url;
+  }
+};
+
 /** A signal's attachments as preview refs, in the order the agent gave them. */
 export const previewRefsOfAttachments = (
-  attachments: ReadonlyArray<{
-    readonly ref: { readonly displayName?: string; readonly mediaType: string };
-    readonly caption?: string;
-  }>,
+  attachments: ReadonlyArray<
+    | { readonly ref: { readonly displayName?: string; readonly mediaType: string }; readonly caption?: string }
+    | { readonly kind: "compare"; readonly name?: string; readonly caption?: string }
+    | { readonly kind: "commit"; readonly sha: string; readonly caption?: string }
+    | { readonly kind: "link"; readonly url: string; readonly caption?: string }
+  >,
 ): ReadonlyArray<PreviewRef> =>
   attachments.map((attachment, index) => {
-    const name = attachment.ref.displayName ?? "file";
-    return {
+    const base = {
       path: `attachment:${index}`,
-      name,
-      kind: attachment.ref.mediaType.startsWith("image/")
-        ? "image"
-        : attachment.ref.mediaType.startsWith("video/")
-          ? "video"
-          : "text",
       attachment: index,
       ...(attachment.caption ? { caption: attachment.caption } : {}),
     };
+    if (!("kind" in attachment)) {
+      const { mediaType } = attachment.ref;
+      return {
+        ...base,
+        name: attachment.ref.displayName ?? "file",
+        kind: mediaType.startsWith("image/") ? "image" : mediaType.startsWith("video/") ? "video" : "text",
+      };
+    }
+    if (attachment.kind === "compare") return { ...base, name: attachment.name ?? "changes", kind: "compare" };
+    if (attachment.kind === "commit") {
+      return { ...base, name: attachment.sha.slice(0, 7), kind: "commit", commit: attachment.sha };
+    }
+    return { ...base, name: previewLinkName(attachment.url), kind: "link", url: attachment.url };
   });
 
 /** What main is asked for to preview a ref. */
@@ -306,6 +341,30 @@ export type PreviewResult =
       readonly text: string;
       /** The file is longer than what was read: only ever true of the small variant. */
       readonly truncated: boolean;
+    }
+  | {
+      /** Two texts to read as a change. */
+      readonly ok: true;
+      readonly kind: "compare";
+      /** A file name or an extension: what the texts are highlighted as. */
+      readonly name: string;
+      readonly byteLength: number;
+      readonly before: string;
+      readonly after: string;
+    }
+  | {
+      /** A commit in the sending seat's folder: its id only; the commit is read where it is drawn. */
+      readonly ok: true;
+      readonly kind: "commit";
+      readonly name: string;
+      readonly sha: string;
+    }
+  | {
+      /** A video at an address the agent named. Nothing was fetched to say this. */
+      readonly ok: true;
+      readonly kind: "link";
+      readonly name: string;
+      readonly url: string;
     }
   | {
       /** A file that exists and is not previewed: its name, type and size only. */

@@ -53,17 +53,20 @@ import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { contentObjectUrl } from "@shared/content-url";
+import type { ContentRef } from "@shared/content";
 import type { AgentSignal } from "@shared/agent-signals";
 import { messageDelivery } from "./work/message-delivery";
 import { AgentSignalRepository } from "./signals/repository";
 import {
   locatePreviewForReveal,
   readAttachmentPreview,
+  readComparePreview,
   readPreview,
   type PreviewThumbnailer,
 } from "./preview/read";
 import {
   PREVIEW_THUMB_EDGE,
+  previewLinkName,
   type PreviewRequest,
   type PreviewResult,
   type PreviewRevealResult,
@@ -808,9 +811,24 @@ export const registerJuntoIpc = (): void => {
     if (target?.kind === "attachment") {
       const attachment = Number.isInteger(target.index) ? signal?.attachments?.[target.index] : undefined;
       if (!attachment) return { ok: false, reason: "not-named" };
-      const opened = await AppRuntime.runPromise(
-        Effect.flatMap(ContentService, (content) => content.openForRead(attachment.ref)),
-      ).catch(() => undefined);
+      const open = (ref: ContentRef) =>
+        AppRuntime.runPromise(Effect.flatMap(ContentService, (content) => content.openForRead(ref))).catch(() => undefined);
+      if ("kind" in attachment) {
+        if (attachment.kind === "commit") {
+          return { ok: true, kind: "commit", name: attachment.sha.slice(0, 7), sha: attachment.sha };
+        }
+        if (attachment.kind === "link") {
+          return { ok: true, kind: "link", name: previewLinkName(attachment.url), url: attachment.url };
+        }
+        const [before, after] = await Promise.all([open(attachment.before), open(attachment.after)]);
+        if (before?.state !== "verified" || after?.state !== "verified") return { ok: false, reason: "missing" };
+        return readComparePreview({
+          beforePath: before.path,
+          afterPath: after.path,
+          name: attachment.name ?? attachment.after.displayName ?? "changes",
+        });
+      }
+      const opened = await open(attachment.ref);
       if (opened?.state !== "verified") return { ok: false, reason: "missing" };
       return readAttachmentPreview({
         objectPath: opened.path,

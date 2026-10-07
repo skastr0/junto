@@ -148,9 +148,13 @@ export const previewTile = (
   if (result.kind === "video") {
     return { state: "ready", src: result.poster, extension: previewExtension(`/${result.name}`), text: false, video: true };
   }
+  // A video somewhere else: no frame of it is fetched to draw a tile.
+  if (result.kind === "link") return { state: "ready", extension: "web", text: false, video: true };
+  if (result.kind === "commit") return { state: "ready", extension: result.name, text: true, video: false };
+  if (result.kind === "compare") return { state: "ready", extension: "diff", text: true, video: false };
   return {
     state: "ready",
-    extension: result.kind === "file" ? result.extension : previewExtension(ref.path),
+    extension: result.kind === "file" ? result.extension : previewExtension(`/${ref.name}`),
     text: result.kind === "text",
     video: false,
   };

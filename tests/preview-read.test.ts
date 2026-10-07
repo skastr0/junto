@@ -179,12 +179,18 @@ describe("attachmentMediaType", () => {
     expect(attachmentMediaType("a.svg", text('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toBe("image/svg+xml");
   });
 
+  it("says text by its bytes, whatever it is named: a source file is text", () => {
+    expect(attachmentMediaType("rate-limit.ts", text("export const limit = 10;"))).toBe("text/plain");
+    expect(attachmentMediaType("Makefile", text("all:\n\tbuild"))).toBe("text/plain");
+    expect(attachmentMediaType("fake.png", text("not an image"))).toBe("text/plain");
+    expect(attachmentMediaType("café.txt", new TextEncoder().encode("café"))).toBe("text/plain");
+  });
+
   it("refuses nothing: whatever else it is given is a file", () => {
-    expect(attachmentMediaType("fake.png", text("not an image"))).toBe("application/octet-stream");
-    expect(attachmentMediaType("build.zip", text("PK"))).toBe("application/octet-stream");
+    expect(attachmentMediaType("build.zip", new Uint8Array([0x50, 0x4b, 3, 4, 0xff, 0xfe]))).toBe("application/octet-stream");
     expect(attachmentMediaType("binary.txt", new Uint8Array([97, 0, 98]))).toBe("application/octet-stream");
     expect(attachmentMediaType("empty.txt", new Uint8Array())).toBe("text/plain");
-    expect(attachmentMediaType("id_rsa", text("PRIVATE"))).toBe("application/octet-stream");
+    expect(attachmentMediaType("empty.bin", new Uint8Array())).toBe("application/octet-stream");
   });
 });
 
@@ -204,7 +210,7 @@ describe("video", () => {
     expect(sniffVideoType(PNG)).toBeUndefined();
     expect(sniffVideoType(new TextEncoder().encode("not a film"), "fake.mp4")).toBeUndefined();
     expect(attachmentMediaType("walkthrough.bin", box("isom"))).toBe("video/mp4");
-    expect(attachmentMediaType("fake.mp4", new TextEncoder().encode("not a film"))).toBe("application/octet-stream");
+    expect(attachmentMediaType("fake.mp4", new TextEncoder().encode("not a film"))).toBe("text/plain");
   });
 
   it("is played from the app's own address when the app holds it, and is only a file when named by a path", async () => {

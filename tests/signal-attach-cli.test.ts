@@ -138,7 +138,8 @@ describe("--attach on the needs-you commands", () => {
   it("attaches a file of any kind, as a file", async () => {
     const args = await load("x", [at("build.zip")]);
     expect(args.attach).toEqual([{ ref: refOf(Buffer.from("PK")) }]);
-    expect(staged).toEqual([{ mediaType: "application/octet-stream", displayName: "build.zip", byteLength: 2 }]);
+    // Two letters are text; main and the preview judge the real bytes again.
+    expect(staged).toEqual([{ mediaType: "text/plain", displayName: "build.zip", byteLength: 2 }]);
   });
 
   it("sets no count of its own: fifty files go as fifty", async () => {

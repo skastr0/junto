@@ -77,6 +77,20 @@ const TEXT_MEDIA_TYPES: Readonly<Record<string, string>> = {
   log: "text/plain",
 };
 
+/**
+ * Whether a file's start reads as text: no NUL byte and valid UTF-8 (a
+ * character cut off at the end of the head is forgiven).
+ */
+export const isTextHead = (head: Uint8Array): boolean => {
+  if (hasNul(head)) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(head, { stream: true });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** A display name: the last segment only, nothing a terminal or a table would choke on. */
 export const attachmentName = (raw: string): string => {
   const last = raw.replace(/\\/gu, "/").split("/").filter(Boolean).pop() ?? "";
@@ -94,8 +108,8 @@ export const ATTACHMENT_OTHER_MEDIA_TYPE = "application/octet-stream";
  * any kind and any size: nothing is refused here. This only says how the
  * card will first offer it: a raster image by its bytes (PNG, JPEG, GIF,
  * WebP), a video by its bytes (MP4, QuickTime, WebM, Matroska), a drawing by
- * its svg name, text by its name (txt, md, markdown,
- * json, diff, patch, log) with no NUL byte at its start, anything else as a
+ * its svg name, text by its bytes (no NUL, valid UTF-8; a known
+ * name gives a closer type, any other is plain text), anything else as a
  * file. The preview read is what decides, from the bytes, what is drawn.
  */
 export const attachmentMediaType = (name: string, head: Uint8Array): string => {
@@ -105,6 +119,7 @@ export const attachmentMediaType = (name: string, head: Uint8Array): string => {
   if (video !== undefined) return video;
   const extension = previewExtension(`/${name}`);
   if (extension === "svg") return "image/svg+xml";
-  const text = TEXT_MEDIA_TYPES[extension];
-  return text !== undefined && !hasNul(head) ? text : ATTACHMENT_OTHER_MEDIA_TYPE;
+  if (!isTextHead(head)) return ATTACHMENT_OTHER_MEDIA_TYPE;
+  // Text of any name: a source file is text too, and its name says the language.
+  return TEXT_MEDIA_TYPES[extension] ?? (head.byteLength > 0 ? "text/plain" : ATTACHMENT_OTHER_MEDIA_TYPE);
 };

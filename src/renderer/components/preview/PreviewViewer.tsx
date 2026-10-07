@@ -10,7 +10,6 @@ import {
 import { ChevronLeft, ChevronRight, Columns2, Film, FolderOpen, Pause, Play, X } from "lucide-react";
 import {
   previewComparePair,
-  previewMarkdownText,
   type PreviewRef,
   type PreviewResult,
   type PreviewSource,
@@ -30,7 +29,7 @@ import {
   ThumbnailStrip,
   type MediaSize,
 } from "../ui";
-import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
+import { isPreviewBlock, PreviewBlock, type PreviewSeat } from "./PreviewBlock";
 import { formatPreviewBytes, previewTile, usePreviews, type PreviewLoad, type PreviewTileResult } from "./use-previews";
 
 const SLIDE_MS = 4000;
@@ -85,6 +84,8 @@ export function PreviewViewer({
   thumbs,
   load,
   source,
+  seat,
+  onReviewCommit,
   startAt,
   onClose,
 }: {
@@ -93,6 +94,9 @@ export function PreviewViewer({
   readonly thumbs: ReadonlyMap<string, PreviewTileResult>;
   readonly load: PreviewLoad;
   readonly source: PreviewSource;
+  /** The seat the card came from: what a commit is read against. */
+  readonly seat?: PreviewSeat | undefined;
+  readonly onReviewCommit?: ((sha: string) => void) | undefined;
   /** Path of the item to open on. */
   readonly startAt: string;
   readonly onClose: () => void;
@@ -272,7 +276,7 @@ export function PreviewViewer({
     if (image && size) {
       const scale = zoomed ? 1 : fitScale(size, space);
       facts.push(`${size.width} × ${size.height}`, formatPreviewBytes(image.byteLength), `${Math.round(scale * 100)}%`);
-    } else if (result?.ok) {
+    } else if (result?.ok && "byteLength" in result) {
       facts.push(formatPreviewBytes(result.byteLength));
       // Said where the eye already is, not after 64 KB of text.
       if (result.kind === "text" && result.truncated) {
@@ -286,14 +290,14 @@ export function PreviewViewer({
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        {result?.ok && result.kind === "text" ? (
+        {result?.ok && isPreviewBlock(result) ? (
           <div className="preview-viewer__text" data-testid="preview-text" tabIndex={0}>
-            {/* A file's own markdown images never load by themselves either. */}
-            {result.format === "markdown" ? (
-              <ArtifactMarkdown source={previewMarkdownText(result.text)} />
-            ) : (
-              <pre>{result.text}</pre>
-            )}
+            <PreviewBlock item={current} result={result} layout="stage" seat={seat} onReviewCommit={onReviewCommit} />
+          </div>
+        ) : result?.ok && result.kind === "link" ? (
+          <div className="preview-viewer__file" data-testid="preview-link">
+            <p className="preview-viewer__file-name">{result.url}</p>
+            <p className="preview-viewer__note">A video at this address. Nothing is fetched until you press play.</p>
           </div>
         ) : result?.ok && result.kind === "video" ? (
           <div key={current.path} className="preview-viewer__video" data-testid="preview-video">

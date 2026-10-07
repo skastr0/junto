@@ -150,6 +150,25 @@ describe("AgentSignalRepository", () => {
     expect(listed.find((signal) => signal.signalId === plain.signalId)).not.toHaveProperty("attachments");
   });
 
+  it("keeps every kind of attachment as it was given, in order", async () => {
+    const ref = (name: string, fill: string) =>
+      ({ sha256: fill.repeat(64), byteLength: 10, mediaType: "text/plain", displayName: name }) as never;
+    const attachments = [
+      { kind: "commit", sha: "c".repeat(40), caption: "The fix" },
+      { ref: ref("notes.txt", "a") },
+      { kind: "compare", before: ref("before.ts", "b"), after: ref("after.ts", "d"), name: "limit.ts" },
+      { kind: "link", url: "https://media.example.com/run.mp4", caption: "The run" },
+    ] as never;
+    const got = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        yield* r.raise({ ...seatA, kind: "feedback", text: "kinds", signalId: "sig-kinds", attachments });
+        return yield* r.get("sig-kinds");
+      }),
+    );
+    expect(got.attachments).toEqual(attachments);
+  });
+
   it("holds any number of attachments and a caption of any length", async () => {
     const attachments = Array.from({ length: 200 }, (_, n) => ({
       ref: { sha256: n.toString(16).padStart(64, "0"), byteLength: n, mediaType: "text/plain", displayName: `${n}.txt` } as never,

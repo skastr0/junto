@@ -1,8 +1,8 @@
-import { open, realpath, stat } from "node:fs/promises";
+import { open, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isInertSvg, sniffRasterType, sniffVideoType } from "@shared/preview-bytes";
+import { isInertSvg, isTextHead, sniffRasterType, sniffVideoType } from "@shared/preview-bytes";
 import {
   PREVIEW_TEXT_EXCERPT_BYTES,
   previewExtension,
@@ -181,6 +181,21 @@ const previewLocated = async (
         return { ok: true, kind: "image", name, byteLength, mediaType: "image/svg+xml", dataUrl: dataUrl("image/svg+xml", bytes) };
       }
     }
+    // What the app holds is text when its bytes say so, whatever it is named:
+    // a source file reads as code.
+    if (file.streamUrl !== undefined && isTextHead(start)) {
+      const head =
+        render.variant === "thumb" ? start.subarray(0, PREVIEW_TEXT_EXCERPT_BYTES) : await readHead(path, byteLength);
+      return {
+        ok: true,
+        kind: "text",
+        name,
+        byteLength,
+        format: "text",
+        text: head.toString("utf8"),
+        truncated: byteLength > head.length,
+      };
+    }
     return plain;
   } catch {
     return MISSING;
@@ -233,4 +248,28 @@ export const locatePreviewForReveal = async (
 ): Promise<string | undefined> => {
   const located = await locate(text, written);
   return "ok" in located ? undefined : located.path;
+};
+
+/**
+ * Read a compare a signal carries: its two texts, whole, from the content
+ * store's own files. The caller resolved both from the signal's own list.
+ */
+export const readComparePreview = async (input: {
+  readonly beforePath: string;
+  readonly afterPath: string;
+  readonly name: string;
+}): Promise<PreviewResult> => {
+  try {
+    const [before, after] = await Promise.all([readFile(input.beforePath), readFile(input.afterPath)]);
+    return {
+      ok: true,
+      kind: "compare",
+      name: input.name,
+      byteLength: before.byteLength + after.byteLength,
+      before: before.toString("utf8"),
+      after: after.toString("utf8"),
+    };
+  } catch {
+    return MISSING;
+  }
 };

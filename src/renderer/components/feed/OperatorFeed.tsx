@@ -217,6 +217,7 @@ export function FeedCard({
               markdown={item.detail}
               attachments={item.attachments}
               source={{ kind: "signal", signalId: item.signalId }}
+              seat={{ canvasName: item.canvasName, nodeId: item.seat.nodeId }}
               textClassName="operator-feed__detail"
             />
           ) : null}

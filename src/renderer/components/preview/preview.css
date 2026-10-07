@@ -9,6 +9,76 @@
   min-width: 0;
 }
 
+/* What is read in place on a card: a diff, a code block, a compare, a commit. */
+.preview-block {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.preview-block__open {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.preview-block__open:focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+.preview-block__caption {
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-amber);
+}
+
+.preview-block__name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  color: var(--color-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-block__open:hover .preview-block__name {
+  color: var(--color-ink);
+}
+
+/* A card stays a card: a long change scrolls inside its own box. */
+.preview-block__body {
+  min-width: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-well);
+  outline: none;
+}
+
+.preview-block__body:focus-visible {
+  border-color: var(--color-cyan);
+}
+
+.preview-block__body > pre {
+  margin: 0;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .preview-strip__gone {
   margin: 0;
   font-size: var(--text-body);

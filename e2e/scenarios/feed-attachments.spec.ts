@@ -21,7 +21,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
-import type { AgentSignal } from "../../src/shared/agent-signals";
+import type { AgentSignal, AgentSignalAttachment } from "../../src/shared/agent-signals";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewDoc,
@@ -31,6 +31,15 @@ import {
   crewSeatNode,
   installCrewSeatHarness,
 } from "../harness/crew-fixture";
+
+/** A file attachment's reference; these signals carry nothing else. */
+const fileRef = (attachment: AgentSignalAttachment) => {
+  if ("kind" in attachment) throw new Error(`expected a file, got a ${attachment.kind}`);
+  return attachment.ref;
+};
+
+/** Thirty-two bytes no reader takes for text. */
+const ZIP = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(28, 0xff)]);
 
 const SHOTS = join(process.cwd(), "test-results", "feed-attachments");
 const CANVAS = "feed-attachments";
@@ -86,7 +95,7 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
   const at = (name: string): string => join(dir, name);
   await writeFile(at("before.png"), png(900, 560, [222, 148, 52], 100));
   await writeFile(at("after.png"), png(900, 560, [222, 148, 52], 500));
-  await writeFile(at("build.zip"), "PK not something a preview shows");
+  await writeFile(at("build.zip"), ZIP);
 
   const junto = await launchJunto({
     seedCanvases: { [CANVAS]: crewDoc([seatNode]) },
@@ -122,7 +131,7 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
 
     await expect.poll(async () => (await signalsNow()).length, { timeout: 15_000 }).toBe(1);
     const signal = (await signalsNow())[0]!;
-    expect(signal.attachments?.map((attachment) => [attachment.caption, attachment.ref.displayName, attachment.ref.mediaType])).toEqual([
+    expect(signal.attachments?.map((attachment) => [attachment.caption, fileRef(attachment).displayName, fileRef(attachment).mediaType])).toEqual([
       ["Before", "before.png", "image/png"],
       ["After", "after.png", "image/png"],
     ]);
@@ -198,7 +207,7 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     await mkdir(dir, { recursive: true });
     const bigBytes = 20 * 1024 * 1024;
     await writeFile(at("run.log"), Buffer.alloc(bigBytes, "a line of the run's log\n"));
-    await writeFile(at("build.zip"), "PK not something a preview shows");
+    await writeFile(at("build.zip"), ZIP);
     // No kind of ours either: a file no preview draws rides along and shows by its name.
     const big = await ada.cli([
       "escalate",
@@ -213,7 +222,7 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
       .poll(async () => (await signalsNow()).filter((raisedSignal) => raisedSignal.state === "open").length, { timeout: 15_000 })
       .toBe(1);
     const bigSignal = (await signalsNow()).find((raisedSignal) => raisedSignal.state === "open")!;
-    expect(bigSignal.attachments?.map((attachment) => [attachment.caption, attachment.ref.displayName, attachment.ref.mediaType, attachment.ref.byteLength])).toEqual([
+    expect(bigSignal.attachments?.map((attachment) => [attachment.caption, fileRef(attachment).displayName, fileRef(attachment).mediaType, fileRef(attachment).byteLength])).toEqual([
       ["Run log", "run.log", "text/plain", bigBytes],
       [undefined, "build.zip", "application/octet-stream", 32],
     ]);
