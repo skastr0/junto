@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { asCanvasName } from "../src/shared/model";
 import { CanvasChrome } from "../src/renderer/components/CanvasChrome";
 import { FocusSwitcherHud } from "../src/renderer/components/FocusSwitcherHud";
+import { FeedCard } from "../src/renderer/components/feed/OperatorFeed";
+import type { FeedItem } from "../src/shared/operator-feed";
 import { focusSwitcher$ } from "../src/renderer/lib/focus-switcher";
 import { state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
@@ -81,4 +83,56 @@ it("the agent switcher draws each seat from the store, with the region it sits i
   expect(cards[0]!.querySelector(".focus-switcher__title")?.textContent).toBe("Scout");
   expect(cards[0]!.querySelector(".focus-switcher__region")?.textContent).toContain("Team");
   expect(cards[1]!.querySelector(".focus-switcher__region")).toBeNull();
+});
+
+const feedItem = (nodeId: string, name: string): FeedItem => ({
+  itemId: `item-${nodeId}`,
+  kind: "blocked",
+  urgency: 3,
+  canvasName: canvas,
+  seat: { nodeId, name, portraitIdentity: nodeId, harness: "claude" },
+  region: { regionId: null, label: "open field", path: [] },
+  text: "Needs a decision.",
+  since: 0,
+  ageMs: 0,
+});
+const NO_OP = (): void => undefined;
+const card = (item: FeedItem, node: Parameters<typeof FeedCard>[0]["node"]) => (
+  <FeedCard
+    item={item}
+    node={node}
+    nowMs={0}
+    quickReplies={[]}
+    selected={false}
+    reveal={false}
+    leaving={false}
+    replying={false}
+    expanded={false}
+    sending={null}
+    error={null}
+    onSelect={NO_OP}
+    onReply={NO_OP}
+    onQuickReply={NO_OP}
+    onToggleDetail={NO_OP}
+  />
+);
+
+it("a feed card draws a seat's ring or a card's kind mark from the store's node", async () => {
+  const scout = seat("scout", { label: "Scout" as never });
+  const jot = note("jot", "A note");
+  await act(async () =>
+    root.render(
+      <>
+        {card(feedItem("scout", "Scout"), scout)}
+        {card(feedItem("jot", "A note"), jot)}
+      </>,
+    ),
+  );
+  const cards = [...host.querySelectorAll<HTMLElement>(".operator-feed__portrait")];
+  expect(cards).toHaveLength(2);
+  // The seat's card offers its seat; the note's card shows a kind mark and offers the card.
+  expect(cards[0]!.querySelector(".operator-feed__node-mark")).toBeNull();
+  expect(cards[1]!.querySelector(".operator-feed__node-mark")).not.toBeNull();
+  expect(host.querySelector('[aria-label="Open seat Scout"]')).not.toBeNull();
+  expect(host.querySelector('[aria-label="Open A note"]')).not.toBeNull();
 });

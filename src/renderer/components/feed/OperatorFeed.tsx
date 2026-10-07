@@ -41,7 +41,7 @@ import {
   ScanEye,
   type LucideIcon,
 } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node, Seat } from "@shared/model";
 import {
   FEED_KIND_LABEL,
   needsOperatorCount,
@@ -67,11 +67,12 @@ import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal
 import { quickReplyForKey, useQuickReplies } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
+import { useCanvas } from "../../lib/use-model";
 import { accentColor } from "../../lib/theme";
 import { THREAD_HEALTH_STATUS_TONE } from "../../lib/thread-health";
 import { AgentPortrait } from "../AgentPortrait";
-import { NodeKindMark } from "../NodeKindMark";
-import { SeatRing } from "../SeatRing";
+import { KindMark } from "../NodeKindMark";
+import { SeatRingView, useSeatGlanceOf } from "../SeatRing";
 import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
@@ -96,7 +97,12 @@ const KIND_ICON: Readonly<Record<FeedItemKind, LucideIcon>> = {
 const regionStyle = (color: string | undefined): CSSProperties =>
   ({ "--feed-region": color ? accentColor(color) : "var(--color-steel)" }) as CSSProperties;
 
-const openSeat = (item: FeedItem, node: CanvasNode | undefined): void => {
+/** A seat's ring, live: its own component so only a seat's card follows a seat. */
+function LiveSeatRing({ seat }: { readonly seat: Seat }) {
+  return <SeatRingView node={seat} px={46} glance={useSeatGlanceOf(seat)} />;
+}
+
+const openSeat = (item: FeedItem, node: Node | undefined): void => {
   if (!node) return;
   closeOperatorFeed();
   if (item.signalId) requestSectionReveal(node.id, SIGNALS_SECTION);
@@ -127,7 +133,7 @@ export function FeedCard({
   onReviewCommit,
 }: {
   readonly item: FeedItem;
-  readonly node: CanvasNode | undefined;
+  readonly node: Node | undefined;
   readonly nowMs: number;
   readonly quickReplies: ReadonlyArray<string>;
   readonly selected: boolean;
@@ -153,7 +159,7 @@ export function FeedCard({
   }, [selected, reveal]);
   const label = FEED_KIND_LABEL[item.kind];
   const KindIcon = KIND_ICON[item.kind];
-  const isSeat = node === undefined || node.ether?.entity?.kind === "agent";
+  const isSeat = node === undefined || node.kind === "agent";
   const age = mailAgeLabel(nowMs, item.since);
   const health = item.kind === "health" ? undefined : item.health;
   // More to see than the sentence: the agent's longer text, or files it attached.
@@ -177,10 +183,10 @@ export function FeedCard({
         onClick={onSelect}
       >
         <div className="operator-feed__portrait">
-          {node && isSeat ? (
-            <SeatRing node={node} px={46} />
+          {node?.kind === "agent" ? (
+            <LiveSeatRing seat={node} />
           ) : node ? (
-            <NodeKindMark node={node} className="operator-feed__node-mark" iconSize={18} />
+            <KindMark node={node} className="operator-feed__node-mark" iconSize={18} />
           ) : (
             <AgentPortrait identity={item.seat.portraitIdentity} size={36} frame="round" outline={false} />
           )}
@@ -320,8 +326,7 @@ function FeedRegionSection({
 export function OperatorFeed() {
   const feed = useOperatorFeed();
   const quickReplies = useQuickReplies();
-  const doc = use$(state$.doc);
-  const nodesById = useMemo(() => new Map(doc.nodes.map((node) => [node.id, node] as const)), [doc]);
+  const nodesById: ReadonlyMap<string, Node> = useCanvas(use$(state$.canvasName)).nodes;
   // Coming back from a review opened on a card: the same card, the same
   // open details, the same scroll. Read as the feed mounts.
   const [place] = useState(() => operatorModalPlace("feed"));
