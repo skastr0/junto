@@ -1,20 +1,16 @@
-import { canvasDoc, textNode } from "../harness/sandbox";
+import { modelFixture, modelNode } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
-const worker = {
-  ...textNode("worker", "Scanner worker\nWatching the line", 0, 0),
-  ether: {
-    entity: { kind: "agent", name: "local:worker" },
-    // Actor-seat law: an agent node is a managed terminal seat. Without a
-    // bindingId + harness the portfolio compiler rejects the whole canvas.
-    terminal: { bindingId: "local:worker", harness: "codex" as const },
-  },
-};
+const worker = modelNode({
+  kind: "agent", id: "worker", agentKey: "local:worker", label: "Scanner worker",
+  bindingId: "local:worker", harness: "codex", host: "local", overseer: false, onRemove: "detach",
+  x: 0, y: 0, width: 240, height: 120, z: 0,
+});
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      scanner: canvasDoc([worker]),
+    seedModels: {
+      scanner: modelFixture([worker]),
     },
   },
 });

@@ -12,50 +12,26 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { CanvasNode, GroupNode } from "../../src/shared/canvas";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelNote, modelRegion } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "region-simplify");
 // Only a build made with this profile can promise the rules surface is gone.
 const SHIP_BUILD = process.env.JUNTO_FEATURE_PROFILE === "ship";
 
-const region: GroupNode = {
-  id: "region-1",
-  type: "group",
-  label: "release lane",
-  color: "4",
-  x: 40,
-  y: 40,
-  width: 720,
-  height: 420,
-  ether: {
-    region: {
-      hold: true,
-      instruction:
-        "Ship the signed build to the staging fleet. Keep every change behind a flag until the operator says go.",
-      defaults: { paths: { local: "/Users/operator/Projects/junto" } },
-      contract: {
-        rules: [{ id: "r-1", text: "cite the ticket in every commit" }],
-        rulings: [
-          { id: "p-1", text: "prices stay in BRL", pinnedAt: "2026-08-01T00:00:00.000Z" },
-        ],
-      },
-    },
+const region = modelRegion({
+  id: "region-1", label: "release lane", color: "4", x: 40, y: 40, width: 720, height: 420,
+  hold: true,
+  instruction: "Ship the signed build to the staging fleet. Keep every change behind a flag until the operator says go.",
+  defaults: { paths: { local: "/Users/operator/Projects/junto" } },
+  contract: {
+    rules: [{ id: "r-1", text: "cite the ticket in every commit" }],
+    rulings: [{ id: "p-1", text: "prices stay in BRL", pinnedAt: "2026-08-01T00:00:00.000Z" }],
   },
-};
+});
+const note = { ...modelNote("note-1", "staging checklist", 120, 140), height: 96 };
 
-const note: CanvasNode = {
-  id: "note-1",
-  type: "text",
-  text: "staging checklist",
-  x: 120,
-  y: 140,
-  width: 240,
-  height: 96,
-};
-
-test.use({ juntoOptions: { seedCanvases: { regions: canvasDoc([region, note]) } } });
+test.use({ juntoOptions: { seedModels: { regions: modelFixture([region, note]) } } });
 
 const shot = async (page: Page, name: string) => {
   await mkdir(SHOTS, { recursive: true });
@@ -88,7 +64,7 @@ const captureRegion = async (page: Page, theme: string) => {
   await page.getByRole("button", { name: "Region briefing" }).click();
   const briefing = page.getByRole("dialog", { name: "Briefing" });
   await expect(briefing.getByRole("textbox", { name: "Region briefing" })).toHaveValue(
-    region.ether!.region!.instruction!,
+    region.instruction!,
   );
   if (SHIP_BUILD) {
     await expect(briefing).not.toContainText("Region rules");

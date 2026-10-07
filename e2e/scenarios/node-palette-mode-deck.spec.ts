@@ -1,9 +1,8 @@
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import type { GroupNode } from "../../src/shared/canvas";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { ClaudeModelCacheEntry } from "../harness/agent-harness-fixture";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelRegion } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const REPO_ROOT = process.cwd();
@@ -37,16 +36,15 @@ const seededLaunch = (
     ...extras,
   });
 
-const containingRegion: GroupNode = {
+const containingRegion = modelRegion({
   id: "launch-region",
-  type: "group",
   label: "Launch zone",
   x: -600,
   y: -500,
   width: 2_000,
   height: 1_400,
-  ether: { region: { hold: false } },
-};
+  hold: false,
+});
 
 const openModeDeck = async (page: Page): Promise<Locator> => {
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -244,7 +242,7 @@ test("model and effort choices remain visually attached to the active agent row"
 
 test("starting-folder modal reuses live directory browsing and can save a containing-region default", async () => {
   const junto = await seededLaunch({
-    seedCanvases: { portfolio: canvasDoc([containingRegion]) },
+    seedModels: { portfolio: modelFixture([containingRegion]) },
   });
 
   try {
@@ -280,7 +278,7 @@ test("starting-folder modal reuses live directory browsing and can save a contai
 
 test("region-default promotion fails closed with actionable guidance outside a region", async () => {
   const junto = await seededLaunch({
-    seedCanvases: { portfolio: canvasDoc([]) },
+    seedModels: { portfolio: modelFixture([]) },
   });
 
   try {
@@ -302,7 +300,7 @@ test("region-default promotion fails closed with actionable guidance outside a r
 
 test("one agent-row click creates exactly one configured agent without a legacy location step", async () => {
   const junto = await seededLaunch({
-    seedCanvases: { portfolio: canvasDoc([]) },
+    seedModels: { portfolio: modelFixture([]) },
   });
 
   try {
@@ -356,7 +354,7 @@ test("one agent-row click creates exactly one configured agent without a legacy 
 
 test("a create attempt with no working directory opens the folder picker instead of minting a seat", async () => {
   const junto = await seededLaunch({
-    seedCanvases: { portfolio: canvasDoc([]) },
+    seedModels: { portfolio: modelFixture([]) },
     seedHarnessInstalls: [...SEEDED_HARNESSES, "kimi"],
   });
 
@@ -506,7 +504,7 @@ test("changing the search closes the cascade without resurrecting it on clear", 
 
 test("search Down and Enter browse results without creating nodes", async () => {
   const junto = await seededLaunch({
-    seedCanvases: { portfolio: canvasDoc([]) },
+    seedModels: { portfolio: modelFixture([]) },
   });
 
   try {
@@ -650,7 +648,7 @@ test("Escape dismisses a hover preview without changing search focus or query", 
 
 test("model search finds an offscreen model, selects its effort, and remembers the pick", async () => {
   const junto = await seededLaunch({
-    seedCanvases: { portfolio: canvasDoc([]) },
+    seedModels: { portfolio: modelFixture([]) },
   });
 
   try {
@@ -708,7 +706,7 @@ test("model search finds an offscreen model, selects its effort, and remembers t
 
 test("Use harness defaults creates one Kimi agent when no models are available", async () => {
   const junto = await seededLaunch({
-    seedCanvases: { portfolio: canvasDoc([]) },
+    seedModels: { portfolio: modelFixture([]) },
     seedHarnessInstalls: [...SEEDED_HARNESSES, "kimi"],
   });
 

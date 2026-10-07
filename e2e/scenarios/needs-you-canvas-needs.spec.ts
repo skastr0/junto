@@ -21,12 +21,11 @@ import { ModelService } from "../../src/main/junto/model/service";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type { Locator } from "@playwright/test";
-import type { GroupNode, TextNode } from "../../src/shared/canvas";
 import { ModelLive } from "../../src/main/junto/model/layer";
 import { ModelDependents } from "../../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../../src/main/junto/state/engine";
 import { SettingsLive } from "../../src/main/junto/settings/service";
-import { compileActorSeatRegistry } from "../../src/main/junto/station/actor-seat-compiler";
+import { deriveActorSeatId } from "../../src/main/junto/station/actor-seat-compiler";
 import { StationFleetTargetRepositoryLive } from "../../src/main/junto/station/fleet-target-repository";
 import { StationRepository, StationRepositoryLive } from "../../src/main/junto/station/repository";
 import {
@@ -35,7 +34,8 @@ import {
   WorkRepositoryLive,
 } from "../../src/main/junto/work/repository";
 import { IntentFactBasis } from "../../src/shared/work-protocol";
-import { agentTextNode, canvasDoc, verbEdge, type Sandbox } from "../harness/sandbox";
+import type { Sandbox } from "../harness/sandbox";
+import { modelFixture, modelNode, modelRegion, modelSeat, modelWire } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "needs-you-canvas";
@@ -44,30 +44,12 @@ const STOPPED_AT = Date.now() - 47 * 60_000;
 const ASKED_AT = Date.now() - 12 * 60_000;
 const iso = (ms: number): string => new Date(ms).toISOString();
 
-const ops: GroupNode = { id: "ops", type: "group", label: "Ops", x: 0, y: 0, width: 760, height: 360 };
-const atlas: TextNode = agentTextNode({ id: "atlas", key: "local:e2e-needs-atlas", label: "Atlas", harness: "claude", x: 40, y: 80 });
-const asks: TextNode = {
-  id: "asks",
-  type: "text",
-  text: "requests",
-  x: 1000,
-  y: 80,
-  width: 240,
-  height: 120,
-  ether: { entity: { kind: "requests" }, requests: { items: [] } },
-};
-const board: TextNode = {
-  id: "board",
-  type: "text",
-  text: "tasks",
-  x: 400,
-  y: 80,
-  width: 240,
-  height: 120,
-  ether: { entity: { kind: "task" }, host: "local", tasks: { items: [] } },
-};
+const ops = modelRegion({ id: "ops", label: "Ops", x: 0, y: 0, width: 760, height: 360 });
+const atlas = modelSeat({ id: "atlas", key: "local:e2e-needs-atlas", label: "Atlas", harness: "claude", x: 40, y: 80 });
+const asks = modelNode({ kind: "requests", id: "asks", x: 1000, y: 80, width: 240, height: 120, z: 0 });
+const board = modelNode({ kind: "task", id: "board", x: 400, y: 80, width: 240, height: 120, z: 0 });
 const nodes = [ops, atlas, board, asks];
-const doc = canvasDoc(nodes, [verbEdge("e-atlas-board", "atlas", "board", "contributes", nodes)]);
+const fixture = modelFixture(nodes, [modelWire("e-atlas-board", "atlas", "board", "contributes", nodes)]);
 
 /** Atlas's claimed task waiting on the operator, and an open request Atlas raised. */
 const seedWork = async (sandbox: Sandbox): Promise<void> => {
@@ -87,11 +69,8 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
         const basis = Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })({
           kind: "canvas", canvasName: CANVAS, seq: canvas.seq,
         });
-        const seat = compileActorSeatRegistry(new Map([[CANVAS, doc]]), new Map([["local", installationId]])).find(
-          (candidate) => candidate.refs.some((ref) => ref.nodeId === atlas.id),
-        );
-        if (!seat) throw new Error("fixture: Atlas did not compile to an actor seat");
-        const actor = { seatId: seat.seatId, canvasName: CANVAS, nodeId: atlas.id };
+        const seatId = deriveActorSeatId(installationId, atlas.bindingId);
+        const actor = { seatId, canvasName: CANVAS, nodeId: atlas.id };
         const boardSink = { canvasName: CANVAS, nodeId: board.id };
         const dependencyScope = createCanvasTaskDependencyScopeCapability({ canvas, authoringSink: boardSink });
         yield* work.createTask({
@@ -128,11 +107,11 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
         yield* work.createRequest({
           sink: { canvasName: CANVAS, nodeId: asks.id },
           basis,
-          raisedBy: { seatId: seat.seatId, canvasName: CANVAS, nodeId: atlas.id },
+          raisedBy: { seatId: seatId, canvasName: CANVAS, nodeId: atlas.id },
           request: {
             id: "req-staging-password",
             state: "input-required",
-            claimedBy: seat.seatId,
+            claimedBy: seatId,
             history: [
               {
                 messageId: "msg-req-staging-password",
@@ -152,7 +131,7 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
 };
 
 test("a work stoppage, the seat it holds up and a sink wanting input are feed rows, counted, and show when they truly began", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: doc }, afterSeed: seedWork });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture }, afterSeed: seedWork });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow__node", { hasText: "Atlas" })).toBeVisible({ timeout: 30_000 });

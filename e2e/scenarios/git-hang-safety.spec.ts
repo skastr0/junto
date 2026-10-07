@@ -8,8 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CanvasNode } from "../../src/shared/canvas";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelNode } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "git-hang-safety");
@@ -48,21 +47,21 @@ const makeBigRepo = (): string => {
   return repo;
 };
 
-const gitNode = (cwd: string): CanvasNode => ({
+const gitNode = (cwd: string) => modelNode({
   id: "git-e2e",
-  type: "text",
-  text: "fixture repo",
+  kind: "git",
+  label: "fixture repo",
   x: 80,
   y: 80,
   width: 176,
   height: 44,
-  ether: { entity: { kind: "git" }, git: { cwd } },
+  z: 0, cwd,
 });
 
 test("the commit browser opens a big commit cut to fit, without holding the renderer", async () => {
   await mkdir(SHOTS, { recursive: true });
   const repo = makeBigRepo();
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: canvasDoc([gitNode(repo)]) } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([gitNode(repo)]) } });
   try {
     const { page } = junto;
     const card = page.locator('.react-flow__node[data-id="git-e2e"]');

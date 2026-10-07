@@ -2,9 +2,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { oneReplyScenario, writeScenario } from "../fakes/hermes-scenario";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelNode } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
-import type { TextNode } from "../../src/shared/canvas";
 
 // Real spawn->terminal pipeline against a fake `hermes` on PATH — no demo
 // mode. The ACP chat surface is retired product (ACP_CHAT_SURFACE_HIDDEN),
@@ -15,28 +14,13 @@ import type { TextNode } from "../../src/shared/canvas";
 const AGENT_KEY = "local:default";
 const LABEL = "Fake Hermes Agent";
 
-/** Managed hermes seat — actor-seat law: kind "agent" carries
- * ether.terminal.bindingId + harness so the portfolio compiler admits it. */
+/** The native seat names a stable binding and its harness. */
 const hermesAgentNode = (input: {
-  readonly id: string;
-  readonly key: string;
-  readonly label: string;
-}): TextNode => ({
-  id: input.id,
-  type: "text",
-  text: input.label,
-  x: 0,
-  y: 0,
-  width: 240,
-  height: 96,
-  ether: {
-    entity: { kind: "agent", name: input.key },
-    host: "local",
-    terminal: {
-      bindingId: input.key,
-      harness: "hermes",
-    },
-  },
+  readonly id: string; readonly key: string; readonly label: string;
+}) => modelNode({
+  kind: "agent", id: input.id, agentKey: input.key, label: input.label,
+  bindingId: input.key, harness: "hermes", host: "local", overseer: false, onRemove: "detach",
+  x: 0, y: 0, width: 240, height: 96, z: 0,
 });
 
 test("double-clicking a fake hermes agent opens its managed terminal seat", async () => {
@@ -46,8 +30,8 @@ test("double-clicking a fake hermes agent opens its managed terminal seat", asyn
 
   const junto = await launchJunto({
     extraEnv: { FAKE_HERMES_SCENARIO: scenarioPath },
-    seedCanvases: {
-      chat: canvasDoc([hermesAgentNode({ id: "a1", key: AGENT_KEY, label: LABEL })]),
+    seedModels: {
+      chat: modelFixture([hermesAgentNode({ id: "a1", key: AGENT_KEY, label: LABEL })]),
     },
   });
   try {
