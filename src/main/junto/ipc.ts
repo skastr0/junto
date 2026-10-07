@@ -75,7 +75,7 @@ import { SeatGuidanceRepository } from "./seat-guidance/repository";
 import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
 import { SeatOffboardCloser } from "./seat-sessions/offboard-close";
 import { closingFence, fencedWriter } from "./term/closing-fence";
-import { ContinuationLedger } from "./seat-sessions/continuation-pending";
+import { ContinuationLedger, rotateOwing } from "./seat-sessions/continuation-pending";
 import { makeOnboardNudgeInterject, watchSeatReadiness } from "./term/onboard-nudge-interject";
 import {
   defaultSeatsRoot,
@@ -2098,7 +2098,6 @@ export const registerJuntoIpc = (): void => {
           }),
         );
       offboardCloser?.stop();
-      const offboardedGeneration = new Map<string, string | undefined>();
       // What a previous run still owed: a seat rotated on a paused canvas
       // that had not started when Junto quit.
       const continuationLedger = new ContinuationLedger(injectionSupervisor);
@@ -2111,22 +2110,23 @@ export const registerJuntoIpc = (): void => {
           // Name the generation that offboarded before it is replaced: the
           // fresh one may be up by the time the rotation returns.
           const seat = wake ? await managedSeatOn(address) : undefined;
-          if (seat !== undefined) {
-            offboardedGeneration.set(address.seatId, injectionSupervisor.generationOf(seat.bindingId));
-          }
-          return offboardAndRotate(address.seatId, { canvasName: address.canvasName, wake });
+          const rotate = () => offboardAndRotate(address.seatId, { canvasName: address.canvasName, wake });
+          if (seat === undefined) return rotate();
+          // Owed before the old process is touched: owed any later, the
+          // fresh session can be typed into and nudged before its line.
+          return rotateOwing({
+            ledger: continuationLedger,
+            seatId: address.seatId,
+            bindingId: seat.bindingId,
+            offboarded: injectionSupervisor.generationOf(seat.bindingId),
+            rotate,
+          });
         },
-        // The fresh session is told once, by the supervisor, when its
-        // composer is up and empty; the ledger keeps what is owed across a
-        // restart. This is the only caller: a seat started any other way
-        // opens to an empty composer and is told nothing.
-        kickoff: async (address) => {
-          const seat = await managedSeatOn(address);
-          if (seat === undefined) return false;
-          continuationLedger.owe(address.seatId, seat.bindingId, offboardedGeneration.get(address.seatId));
-          offboardedGeneration.delete(address.seatId);
-          return true;
-        },
+        // The line was owed when the close began (above); the supervisor
+        // types it when the fresh session can take it, and the ledger keeps
+        // what is owed across a restart. That is the only way in: a seat
+        // started any other way opens to an empty composer and is told nothing.
+        kickoff: async () => true,
         // The close failed before the process was stopped: the session goes
         // on, so it may be typed into again.
         release: (address) => {

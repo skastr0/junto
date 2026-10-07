@@ -29,6 +29,8 @@ type Pending = {
 export type ContinuationTarget = {
   readonly armContinuation: (bindingId: string, offboarded: string | undefined) => void;
   readonly setContinuationSettled: (listener: (bindingId: string) => void) => void;
+  /** Nothing is owed after all: forget it without typing anything. */
+  readonly disarmContinuation: (bindingId: string) => void;
 };
 
 const decode = (text: string): Pending | undefined => {
@@ -114,6 +116,15 @@ export class ContinuationLedger {
     return restored;
   }
 
+  /**
+   * The close that owed this did not go through: the old session goes on and
+   * no fresh one is coming, so nothing is owed.
+   */
+  forgive(bindingId: string): void {
+    this.target.disarmContinuation(bindingId);
+    this.settle(bindingId);
+  }
+
   /** The line was typed, or the session onboarded without it: nothing is owed. */
   private settle(bindingId: string): void {
     const path = this.owed.get(bindingId);
@@ -122,3 +133,30 @@ export class ContinuationLedger {
     rmSync(path, { force: true });
   }
 }
+
+/**
+ * Rotate a continuing seat with its line owed first.
+ *
+ * The line is owed before the old process is touched, naming the generation
+ * that offboarded. Owed any later, the fresh session can be up, typed into
+ * and nudged before Junto remembers it has something to say to it.
+ */
+export const rotateOwing = async <Result extends { readonly ok: boolean }>(input: {
+  readonly ledger: Pick<ContinuationLedger, "owe" | "forgive">;
+  readonly seatId: string;
+  readonly bindingId: string;
+  /** The generation that offboarded: never the one to tell. */
+  readonly offboarded: string | undefined;
+  readonly rotate: () => Promise<Result>;
+}): Promise<Result> => {
+  input.ledger.owe(input.seatId, input.bindingId, input.offboarded);
+  let result: Result;
+  try {
+    result = await input.rotate();
+  } catch (error) {
+    input.ledger.forgive(input.bindingId);
+    throw error;
+  }
+  if (!result.ok) input.ledger.forgive(input.bindingId);
+  return result;
+};

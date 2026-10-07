@@ -190,9 +190,10 @@ export const wireFactorySupervisor = (input: {
 }): (() => void) => {
   input.supervisor.setComposerLookup(input.composerVerdict);
   input.supervisor.setWriter(input.interject);
-  input.supervisor.setContinuationWriter((bindingId, text) =>
-    input.write(bindingId, text, { queueIfBusy: false }).then(outcomeWrotePhysical),
-  );
+  // The continuation line goes the way the nudge does, through the mail
+  // gate: it can land in a turn the operator's prompt already started, and a
+  // hold on it is announced when it clears.
+  input.supervisor.setContinuationWriter(input.interject);
   return input.subscribeSnapshots((snap) =>
     input.supervisor.onSnapshot(snap),
   );

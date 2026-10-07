@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ContinuationLedger } from "../src/main/junto/seat-sessions/continuation-pending";
+import { ContinuationLedger, rotateOwing } from "../src/main/junto/seat-sessions/continuation-pending";
 import {
   SeatOffboardCloser,
   type OffboardClosePorts,
@@ -37,16 +37,16 @@ const settled = async (): Promise<void> => {
  */
 const rig = () => {
   const supervisor = new InjectionSupervisor();
-  const typed: Array<{ epoch: string; via: "gated" | "interject"; text: string }> = [];
+  const typed: Array<{ epoch: string; via: "continuation" | "nudge"; text: string }> = [];
   const composer = { verdict: "empty" as ReturnType<ComposerLookup> };
   const epoch = { current: "e1" };
   supervisor.setComposerLookup(() => composer.verdict);
   supervisor.setWriter(vi.fn<NoticeWriter>((_b, text) => {
-    typed.push({ epoch: epoch.current, via: "interject", text });
+    typed.push({ epoch: epoch.current, via: "nudge", text });
     return true;
   }));
   supervisor.setContinuationWriter(vi.fn<NoticeWriter>((_b, text) => {
-    typed.push({ epoch: epoch.current, via: "gated", text });
+    typed.push({ epoch: epoch.current, via: "continuation", text });
     return true;
   }));
   const state = (value: AgentSeatStateEvent["state"], at = epoch.current) =>
@@ -58,19 +58,35 @@ const rig = () => {
     await settled();
   };
   const clock = { now: 1_000 };
-  let offboarded: string | undefined;
+  const seatsRoot = mkdtempSync(join(tmpdir(), "junto-continuation-rig-"));
+  roots.push(seatsRoot);
+  const ledger = new ContinuationLedger(supervisor, seatsRoot, () => clock.now);
+  /** What the fresh generation does as it comes up, and what happens to it meanwhile. */
+  const wake = { steps: ["unknown", "idle"] as ReadonlyArray<AgentSeatStateEvent["state"]>, during: () => {} };
+  const rotation = { ok: true };
   const ports: OffboardClosePorts = {
-    close: async (_seat, wake) => {
-      offboarded = supervisor.generationOf(BINDING);
-      state("gone");
-      // The fresh generation is already up when the rotation returns.
-      if (wake) await boot("e2");
-      return { ok: true, ended: "s1", next: "s2", woke: wake };
+    close: async (_seat, waking) => {
+      const rotate = async () => {
+        if (!rotation.ok) return { ok: false as const, reason: "could not give the seat a fresh session on its canvas" };
+        state("gone");
+        // The fresh generation is already up when the rotation returns.
+        if (waking) {
+          await boot("e2", wake.steps);
+          wake.during();
+          await settled();
+        }
+        return { ok: true as const, ended: "s1", next: "s2", woke: waking };
+      };
+      if (!waking) return rotate();
+      return rotateOwing({
+        ledger,
+        seatId: "a",
+        bindingId: BINDING,
+        offboarded: supervisor.generationOf(BINDING),
+        rotate,
+      });
     },
-    kickoff: async () => {
-      supervisor.armContinuation(BINDING, offboarded);
-      return true;
-    },
+    kickoff: async () => true,
     publish: () => {},
     now: () => clock.now,
   };
@@ -84,15 +100,21 @@ const rig = () => {
     state("working");
     state("idle");
   };
-  return { supervisor, typed, composer, epoch, state, boot, offboard, turn };
+  return { supervisor, typed, composer, epoch, state, boot, offboard, turn, wake, rotation };
 };
+
+const roots: string[] = [];
+afterEach(() => {
+  vi.useRealTimers();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 describe("continuing after junto offboard --continue", () => {
   it("delivers the line once into the fresh generation, and nothing else", async () => {
     const { supervisor, typed, boot, offboard, turn } = rig();
     await boot("e1");
     await offboard("continue");
-    expect(typed).toEqual([{ epoch: "e2", via: "gated", text: CONTINUATION_LINE }]);
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
     expect(supervisor.continuationPending(BINDING)).toBe(false);
     // The agent reads its handoff and carries on: nothing more is typed.
     supervisor.noteOnboarded(BINDING);
@@ -118,7 +140,7 @@ describe("continuing after junto offboard --continue", () => {
     expect(typed).toEqual([]);
     state("gone");
     await boot("e2");
-    expect(typed).toEqual([{ epoch: "e2", via: "gated", text: CONTINUATION_LINE }]);
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
   });
 
   it("waits for the composer: never on a dialog, never before the box is readable and empty", async () => {
@@ -138,7 +160,7 @@ describe("continuing after junto offboard --continue", () => {
     expect(typed).toEqual([]);
     composer.verdict = "empty";
     supervisor.onSnapshot({ bindingId: BINDING, epoch: "e2" } as never);
-    expect(typed).toEqual([{ epoch: "e2", via: "gated", text: CONTINUATION_LINE }]);
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
   });
 
   it("waits for a seat that did not start, and reaches it when it does", async () => {
@@ -151,7 +173,7 @@ describe("continuing after junto offboard --continue", () => {
     expect(typed).toEqual([]);
     expect(supervisor.continuationPending(BINDING)).toBe(true);
     await boot("e2");
-    expect(typed).toEqual([{ epoch: "e2", via: "gated", text: CONTINUATION_LINE }]);
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
   });
 
   it("a line the drive refused is tried again, and typed only once", async () => {
@@ -181,7 +203,95 @@ describe("continuing after junto offboard --continue", () => {
     expect(typed).toHaveLength(1);
     // The next turn that starts earns the first nudge, mid-turn.
     state("working");
-    expect(typed.slice(1)).toEqual([{ epoch: "e2", via: "interject", text: buildOnboardNudge() }]);
+    expect(typed.slice(1)).toEqual([{ epoch: "e2", via: "nudge", text: buildOnboardNudge() }]);
+  });
+});
+
+describe("the line is owed before the fresh session exists, and is never given up on", () => {
+  // The app, three seats continuing in the same half second: one fresh
+  // session came up to a clean empty prompt and was never told (SB g1).
+  it("a line refused at the fresh session's only idle moment is typed without waiting for another event", async () => {
+    vi.useFakeTimers();
+    const { supervisor, typed, boot, offboard } = rig();
+    let ready = false;
+    supervisor.setContinuationWriter((_b, text) => {
+      if (ready) typed.push({ epoch: "e2", via: "continuation", text });
+      return ready;
+    });
+    await boot("e1");
+    await offboard("continue");
+    expect(typed).toEqual([]);
+    // The terminal can take it a moment later. The seat sits idle at its
+    // empty prompt: no state event and no new screen will ever come.
+    ready = true;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
+    expect(supervisor.continuationPending(BINDING)).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(typed).toHaveLength(1);
+  });
+
+  // The operator typed in the open terminal in the moment after the
+  // offboard: the write was held for their keystrokes and never retried
+  // (SJ3-keys-continue).
+  it("held while the operator types, it is typed once they stop", async () => {
+    vi.useFakeTimers();
+    const { supervisor, typed, boot, offboard, wake } = rig();
+    let operatorTyping = true;
+    supervisor.setContinuationWriter((_b, text) => {
+      if (!operatorTyping) typed.push({ epoch: "e2", via: "continuation", text });
+      return !operatorTyping;
+    });
+    wake.during = () => supervisor.noteUserInput(BINDING, 1_000, "hijack-keys-one");
+    await boot("e1");
+    await offboard("continue");
+    expect(typed).toEqual([]);
+    operatorTyping = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
+  });
+
+  // The operator's prompt reached the fresh session first and started its
+  // turn: the session got the onboarding nudge and never its line
+  // (SJ2-prompt-continue).
+  it("a prompt that reaches the fresh session first does not cost it the line, and it is not nudged", async () => {
+    const { supervisor, typed, boot, offboard, wake, state } = rig();
+    // Queued while the seat was down, the prompt is typed the instant the
+    // fresh session is up, before it was ever seen idle; its turn starts.
+    wake.steps = ["unknown"];
+    wake.during = () => {
+      supervisor.noteMailWritten(BINDING);
+      state("working");
+    };
+    await boot("e1");
+    await offboard("continue");
+    // Mid-turn, like mail: the turn may run for hours.
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
+    // A second prompt in the same turn, and the turn's end: still no nudge.
+    supervisor.noteMailWritten(BINDING);
+    state("idle");
+    expect(typed).toHaveLength(1);
+  });
+
+  it("is owed from before the old process goes, so nothing can get in ahead of it", async () => {
+    const { supervisor, boot, offboard, wake } = rig();
+    const pendingAsFreshCameUp: boolean[] = [];
+    wake.during = () => pendingAsFreshCameUp.push(supervisor.continuationPending(BINDING));
+    wake.steps = ["unknown"];
+    await boot("e1");
+    await offboard("continue");
+    expect(pendingAsFreshCameUp).toEqual([true]);
+  });
+
+  it("a close that could not give the seat a fresh session owes nothing", async () => {
+    const { supervisor, typed, boot, offboard, rotation, turn } = rig();
+    rotation.ok = false;
+    await boot("e1");
+    await offboard("continue");
+    expect(supervisor.continuationPending(BINDING)).toBe(false);
+    // The old session goes on; it is never told to continue.
+    for (let i = 0; i < 3; i += 1) turn();
+    expect(typed.filter((entry) => entry.via === "continuation")).toEqual([]);
   });
 });
 
@@ -205,7 +315,7 @@ describe("nothing else starts a session with a message", () => {
     expect(typed).toEqual([]);
   });
 
-  it("the continuation has one way in: the offboard closer's kickoff", () => {
+  it("the continuation has one way in: the offboard closer's close, when the seat continues", () => {
     const root = fileURLToPath(new URL("../src", import.meta.url));
     const sources: string[] = [];
     const walk = (dir: string): void => {
@@ -229,11 +339,14 @@ describe("nothing else starts a session with a message", () => {
     expect(new Set(callersOf(/\.armContinuation\(/g).map((caller) => caller.file))).toEqual(
       new Set(["main/junto/seat-sessions/continuation-pending.ts"]),
     );
-    // A continuation becomes owed in exactly one place: the closer's kickoff
-    // port, which the closer reaches only after a rotation asked to wake.
-    const owing = callersOf(/continuationLedger\.owe\(/g);
+    // A continuation becomes owed in exactly one place: the closer's close
+    // port, for a rotation asked to wake, before that rotation starts.
+    expect(callersOf(/\.owe\(/g).map((caller) => caller.file)).toEqual([
+      "main/junto/seat-sessions/continuation-pending.ts",
+    ]);
+    const owing = callersOf(/\browing: *|\brotateOwing\(\{/g);
     expect(owing.map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
-    expect(owing[0]?.before).toMatch(/kickoff: async \(address\) => \{/);
+    expect(owing[0]?.before).toMatch(/const seat = wake \? await managedSeatOn\(address\) : undefined;/);
     expect(callersOf(/\bnew ContinuationLedger\(/g).map((caller) => caller.file)).toEqual(["main/junto/ipc.ts"]);
     // And the line itself is typed from one place.
     const users = sources

@@ -73,6 +73,8 @@ type SeatSupervision = {
 const MESSAGE_MIN_CHARS = 2;
 /** A turn that follows the operator's Enter starts within this; later ones are not theirs. */
 const SUBMIT_TO_TURN_MS = 15_000;
+/** How soon a continuation line the terminal refused is offered again. */
+const CONTINUATION_RETRY_MS = 1_000;
 
 /** Printable characters in operator bytes: escape sequences and controls are keys, not text. */
 const printableCount = (data: string): number =>
@@ -112,6 +114,7 @@ export class InjectionSupervisor {
    */
   private readonly continuations = new Map<string, { readonly notEpoch: string | undefined }>();
   private writer: NoticeWriter | undefined;
+  private readonly continuationRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private continuationWriter: NoticeWriter | undefined;
   private continuationSettled: ((bindingId: string) => void) | undefined;
   private composer: ComposerLookup | undefined;
@@ -134,6 +137,23 @@ export class InjectionSupervisor {
   /** Told when a seat is no longer owed its continuation line. */
   setContinuationSettled(listener: (bindingId: string) => void): void {
     this.continuationSettled = listener;
+  }
+
+  /** Ask again shortly for a continuation line the terminal would not take. */
+  private retryContinuation(bindingId: string): void {
+    if (this.continuationRetries.has(bindingId)) return;
+    const timer = setTimeout(() => {
+      this.continuationRetries.delete(bindingId);
+      const seat = this.seats.get(bindingId);
+      if (seat !== undefined && this.continuations.has(bindingId)) this.evaluate(bindingId, seat);
+    }, CONTINUATION_RETRY_MS);
+    timer.unref?.();
+    this.continuationRetries.set(bindingId, timer);
+  }
+
+  /** The close that owed a continuation failed: forget it, type nothing. */
+  disarmContinuation(bindingId: string): void {
+    this.continuations.delete(bindingId);
   }
 
   private settleContinuation(bindingId: string): void {
@@ -411,14 +431,26 @@ export class InjectionSupervisor {
       this.settleContinuation(bindingId);
       return false;
     }
-    if (seat.state !== "idle" || this.composerOf(bindingId) !== "empty") return true;
+    // Typed where mail would be: at an idle, empty box, or into a turn that
+    // something else already started (the operator's prompt can reach the
+    // fresh session first, and that turn may run for hours). Never on a
+    // dialog, a draft, or a box that cannot be read at rest.
+    const composer = this.composerOf(bindingId);
+    const typeable =
+      (seat.state === "idle" && composer === "empty") || (seat.state === "working" && composer !== "draft");
+    if (!typeable) return true;
     const writer = this.continuationWriter;
     if (writer === undefined) return true;
     seat.nudgeInFlight = true;
     const settle = (accepted: boolean): void => {
       if (this.seats.get(bindingId) !== seat) return;
       seat.nudgeInFlight = false;
-      if (!accepted) return;
+      if (!accepted) {
+        // Refused for now (the terminal is not ready, the operator is
+        // typing). A seat at rest tells nothing more, so ask again unprompted.
+        this.retryContinuation(bindingId);
+        return;
+      }
       this.settleContinuation(bindingId);
       // The session's first message, and the turn it starts. The nudge
       // policy counts from here: that turn is not one of its own.

@@ -143,11 +143,15 @@ describe("wireFactorySupervisor", () => {
     // The supervisor gates on the same composer reading the drive does.
     expect(composer?.("b1")).toBe("draft");
     expect(composer?.("b2")).toBe("empty");
-    // The continuation line opens a session: gated, and refused not queued.
+    // The continuation line goes the way the nudge does: interjected, so it
+    // can land in a turn already running, and never through the gated prompt.
     await expect(Promise.resolve(continuation?.("b1", "continue"))).resolves.toBe(true);
-    expect(drive.writes).toEqual([
-      { bindingId: "b1", text: "continue", options: { ready: true, queueIfBusy: false } },
+    await expect(Promise.resolve(continuation?.("b2", "continue"))).resolves.toBe(false);
+    expect(typed.slice(2)).toEqual([
+      { bindingId: "b1", text: "continue" },
+      { bindingId: "b2", text: "continue" },
     ]);
+    expect(drive.writes).toEqual([]);
     expect(snapshots).toEqual([{ text: "frame" }]);
     dispose();
     expect(closed).toEqual(["snapshots"]);
