@@ -1,16 +1,15 @@
 import type { CSSProperties, DragEvent, ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node, Seat } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { groupLabel } from "../../lib/command-groups";
 import { rollupToneHex } from "../../lib/minimap-seat-colors";
 import { modKeyGlyph } from "../../lib/platform";
-import { useDocumentNode } from "../../lib/document-node";
 import { state$ } from "../../lib/state";
-import { modelStore } from "../../lib/use-model";
+import { modelStore, useNode } from "../../lib/use-model";
 import type { SeatRollup } from "../../lib/seat-rollup";
-import { NodeKindMark } from "../NodeKindMark";
-import { SeatRing } from "../SeatRing";
+import { KindMark } from "../NodeKindMark";
+import { SeatRingView, useSeatGlanceOf } from "../SeatRing";
 import "./command-group-bar.css";
 
 /** Faces drawn on one chip before the rest are only counted. */
@@ -21,23 +20,27 @@ const FACE_PX = 22;
 export type CommandGroupTenure = "empty" | "fixed" | "group" | "leased" | "evicted";
 
 /**
- * One member's face. It follows its own node and no other, so a chip is not
- * redrawn because some other card moved. The ring and the kind mark still
- * take a document node; this reads the one they need.
+ * One member's face. It follows its own node in the store and no other, so a
+ * chip is not redrawn because some other card moved.
  */
 function ChipFace({ nodeId }: { readonly nodeId: string }) {
-  const node = useDocumentNode(nodeId);
+  const node = useNode(use$(state$.canvasName), nodeId);
   return node ? <ChipFaceOf node={node} /> : null;
 }
 
+/** A seat's live ring: its own component, so only a seat's face follows a seat. */
+function SeatFace({ seat }: { readonly seat: Seat }) {
+  return <SeatRingView node={seat} px={FACE_PX} glance={useSeatGlanceOf(seat)} />;
+}
+
 /** A face for a node already in hand. */
-function ChipFaceOf({ node }: { readonly node: CanvasNode }) {
-  return node.type !== "group" && node.ether?.entity?.kind === "agent" ? (
+function ChipFaceOf({ node }: { readonly node: Node }) {
+  return node.kind === "agent" ? (
     <span className="group-chip__face">
-      <SeatRing node={node} px={FACE_PX} />
+      <SeatFace seat={node} />
     </span>
   ) : (
-    <NodeKindMark node={node} className="group-chip__face group-chip__mark" iconSize={11} />
+    <KindMark node={node} className="group-chip__face group-chip__mark" iconSize={11} />
   );
 }
 
@@ -121,7 +124,7 @@ export function ScriptedCommandGroupChip({
   titles,
   ...props
 }: Omit<ChipProps, "memberIds"> & {
-  readonly members: ReadonlyArray<CanvasNode>;
+  readonly members: ReadonlyArray<Node>;
   readonly titles: ReadonlyArray<string>;
 }) {
   return (

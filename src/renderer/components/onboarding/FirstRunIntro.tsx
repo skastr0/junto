@@ -25,7 +25,7 @@ import type { FeedItem } from "@shared/operator-feed";
 import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { ScriptedCommandGroupChip } from "../command-groups/CommandGroupChip";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
 import { portraitFor } from "../SeatRing";
 import { PauseSwitchFace } from "../TopBar";
 import { squadsChapter } from "./tour-squads";
@@ -434,16 +434,25 @@ const CREW = [
 const seatSpec = (state: "working" | "idle") => terminalActivity({ seatState: state });
 
 /** The crew and a note as canvas nodes, for the real command group chips. */
-const CREW_NODES: ReadonlyArray<CanvasNode> = CREW.map((seat) => ({
-  id: seat.id,
-  type: "text" as const,
-  text: seat.name,
-  x: 0,
-  y: 0,
-  ...AGENT_NODE_SIZE,
-  ether: { entity: { kind: "agent", name: `tour:${seat.name}` }, terminal: { bindingId: `tour:${seat.name}`, harness: seat.harness } },
-}));
-const NOTES_NODE: CanvasNode = { id: "tour-notes", type: "text", text: "notes", x: 0, y: 0, width: 200, height: 80 };
+const CREW_NODES: ReadonlyArray<Node> = CREW.map(
+  (seat) =>
+    ({
+      kind: "agent",
+      id: seat.id,
+      label: seat.name,
+      agentKey: `tour:${seat.name}`,
+      host: "local",
+      bindingId: `tour:${seat.name}`,
+      harness: seat.harness,
+      overseer: false,
+      onRemove: "detach",
+      x: 0,
+      y: 0,
+      ...AGENT_NODE_SIZE,
+      z: 0,
+    }) as Node,
+);
+const NOTES_NODE = { kind: "note", id: "tour-notes", text: "notes", x: 0, y: 0, width: 200, height: 80, z: 0 } as Node;
 const CREW_TONE = { source: "control", tone: "cyan", stale: false, reason: "working" } as const;
 
 function OrganizeDemo() {

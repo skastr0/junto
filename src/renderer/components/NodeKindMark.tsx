@@ -19,8 +19,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Node } from "@shared/model";
-import type { CanvasNode } from "@shared/canvas";
-import { nodeTypeLabel } from "../lib/presentation";
 import { accentColor, HUE } from "../lib/theme";
 
 const KIND_ICONS: Record<string, LucideIcon> = {
@@ -37,13 +35,6 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   relay: GitBranch,
   git: GitBranch,
   label: Tag,
-};
-
-const TYPE_ICONS: Record<string, LucideIcon> = {
-  text: FileText,
-  file: File,
-  link: Link2,
-  group: SquareDashed,
 };
 
 // Each kind wears one hue from the token palette so a mixed list reads at a
@@ -68,41 +59,6 @@ const KIND_HUES: Record<string, string> = {
 
 // An uncoloured region has no hue of its own; it stays neutral, as on the map.
 const NEUTRAL_HUE = "var(--color-dim)";
-
-/** The node's hue: its own colour, else its kind's, neutral for a region. */
-export const nodeMarkHue = (node: CanvasNode): string => {
-  if (node.color) return accentColor(node.color);
-  if (node.type === "group") return NEUTRAL_HUE;
-  return KIND_HUES[nodeTypeLabel(node)] ?? HUE.steel;
-};
-
-/**
- * A node's kind as an icon in its hue, for any list of nodes that is not an
- * agent seat (a seat shows its face in its ring instead): cmd+K rows and the
- * command group chips. The caller's class draws the tile; `--mark-hue` carries
- * the hue.
- */
-export function NodeKindMark({
-  node,
-  className,
-  iconSize = 14,
-}: {
-  readonly node: CanvasNode;
-  readonly className: string;
-  readonly iconSize?: number;
-}) {
-  const Icon = KIND_ICONS[node.ether?.entity?.kind ?? ""] ?? TYPE_ICONS[node.type] ?? FileText;
-  return (
-    <span
-      className={className}
-      data-region={node.type === "group" ? "true" : undefined}
-      style={{ "--mark-hue": nodeMarkHue(node) } as CSSProperties}
-    >
-      <Icon size={iconSize} strokeWidth={1.75} />
-    </span>
-  );
-}
-
 
 /** A native node's kind and colour, with no document shape or extension bag. */
 export function KindMark({ node, className, iconSize = 14 }: {

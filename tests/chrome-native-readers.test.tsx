@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { asCanvasName } from "../src/shared/model";
 import { CanvasChrome } from "../src/renderer/components/CanvasChrome";
 import { FocusSwitcherHud } from "../src/renderer/components/FocusSwitcherHud";
+import { CommandGroupChip } from "../src/renderer/components/command-groups/CommandGroupChip";
 import { FeedCard } from "../src/renderer/components/feed/OperatorFeed";
 import type { FeedItem } from "../src/shared/operator-feed";
 import { focusSwitcher$ } from "../src/renderer/lib/focus-switcher";
@@ -135,4 +136,16 @@ it("a feed card draws a seat's ring or a card's kind mark from the store's node"
   expect(cards[1]!.querySelector(".operator-feed__node-mark")).not.toBeNull();
   expect(host.querySelector('[aria-label="Open seat Scout"]')).not.toBeNull();
   expect(host.querySelector('[aria-label="Open A note"]')).not.toBeNull();
+});
+
+it("a hotbar chip draws each member's face from that member's own node in the store", async () => {
+  hold([seat("scout", { label: "Scout" as never }), note("jot", "A note")]);
+  await act(async () =>
+    root.render(
+      <CommandGroupChip hotkey={1} testId="chip" tenure="group" memberIds={["scout", "jot", "gone"]} tone={undefined} selected={false} />,
+    ),
+  );
+  // A seat's face and a card's kind mark; a member the canvas no longer holds draws none.
+  expect(host.querySelectorAll(".group-chip__face")).toHaveLength(2);
+  expect(host.querySelectorAll(".group-chip__mark")).toHaveLength(1);
 });
