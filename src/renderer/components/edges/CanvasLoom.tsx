@@ -416,9 +416,29 @@ function collectObstacles(geometry: ReadonlyArray<LoomNode>): LoomObstacle[] {
   return obstacles;
 }
 
-function publishObstacles(obstacles: LoomObstacle[]): void {
-  const equal = !shouldPublishObstacles(loomObstacles$.peek(), obstacles);
+const boxOf = (obstacle: LoomObstacle) => ({ x: obstacle.x, y: obstacle.y, width: obstacle.width, height: obstacle.height });
+
+/** Which cards differ between two publications, for the armed recorder only. */
+function obstacleChanges(before: ReadonlyArray<LoomObstacle>, after: ReadonlyArray<LoomObstacle>) {
+  const was = new Map(before.map((obstacle) => [obstacle.nodeId, obstacle] as const));
+  const changed: Array<{ nodeId: string; before: ReturnType<typeof boxOf> | null; after: ReturnType<typeof boxOf> | null }> = [];
+  for (const obstacle of after) {
+    const old = was.get(obstacle.nodeId);
+    was.delete(obstacle.nodeId);
+    if (old && old.x === obstacle.x && old.y === obstacle.y && old.width === obstacle.width && old.height === obstacle.height) continue;
+    changed.push({ nodeId: obstacle.nodeId, before: old ? boxOf(old) : null, after: boxOf(obstacle) });
+  }
+  for (const gone of was.values()) changed.push({ nodeId: gone.nodeId, before: boxOf(gone), after: null });
+  return changed;
+}
+
+function publishObstacles(obstacles: LoomObstacle[], dragging: ReadonlyArray<string>): void {
+  const previous = loomObstacles$.peek();
+  const equal = !shouldPublishObstacles(previous, obstacles);
   canvasPerformance.recordObstaclePublication(equal);
+  if (!equal && canvasPerformance.armed()) {
+    canvasPerformance.recordObstacleChange({ dragging, changed: obstacleChanges(previous, obstacles) });
+  }
   // Equal geometry must not write — no subscriber fan-out on value-equal ticks.
   if (!equal) {
     loomObstacles$.set(obstacles);
@@ -567,7 +587,7 @@ function CanvasLoomBody({ edges }: { readonly edges: ReadonlyArray<FlowEdge> }) 
   useEffect(() => {
     canvasPerformance.recordLoomEffect();
     const obstacles = collectObstacles(geometry);
-    publishObstacles(obstacles);
+    publishObstacles(obstacles, geometry.filter((node) => node.dragging).map((node) => node.nodeId));
 
     const specsNow = specsRef.current;
     const activeIds = new Set(specsNow.map((spec) => spec.id));

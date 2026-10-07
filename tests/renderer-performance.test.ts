@@ -78,6 +78,27 @@ describe("canvas performance recorder", () => {
     expect(snapshot.processSampleCount).toBe(3);
   });
 
+  it("keeps which cards changed in the last differing obstacle publications, bounded", () => {
+    let now = 5;
+    const recorder = createCanvasPerformanceRecorder({ now: () => now });
+    const box = (x: number) => ({ x, y: 0, width: 216, height: 56 });
+    recorder.recordObstacleChange({ dragging: ["a"], changed: [{ nodeId: "a", before: box(10), after: box(40) }] });
+    now = 9;
+    recorder.recordObstacleChange({
+      dragging: [],
+      changed: Array.from({ length: 30 }, (_, index) => ({ nodeId: `n${index}`, before: box(index), after: box(index + 1) })),
+    });
+    const changes = recorder.snapshot().loomObstacleChanges;
+    expect(changes.map((change) => [change.atMs, change.dragging, change.count, change.changed.length])).toEqual([
+      [5, ["a"], 1, 1],
+      // The count is the whole publication; the list of boxes is capped.
+      [9, [], 30, 24],
+    ]);
+    expect(changes[0]!.changed[0]).toEqual({ nodeId: "a", before: box(10), after: box(40) });
+    for (let index = 0; index < 100; index += 1) recorder.recordObstacleChange({ dragging: [], changed: [] });
+    expect(recorder.snapshot().loomObstacleChanges).toHaveLength(64);
+  });
+
   it("separates equal publications from real loom writes", () => {
     const recorder = createCanvasPerformanceRecorder({ now: () => 0 });
     recorder.recordObstaclePublication(false);

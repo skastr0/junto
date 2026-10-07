@@ -39,6 +39,26 @@ export type RouteTrigger =
   | "edge-change"
   | "intentional-animation";
 
+type Box = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+
+/**
+ * One publication of the cards the wires route around that differed from the
+ * one before it: which cards' boxes changed, appeared or went, and whether a
+ * card was being dragged at that moment. Kept so a second plan after a drop
+ * can be read back to the card that moved late, instead of inferred.
+ */
+export type LoomObstacleChange = {
+  readonly atMs: number;
+  /** Ids of the cards React Flow reported as dragging when this was published. */
+  readonly dragging: ReadonlyArray<string>;
+  /** How many cards differed; `changed` holds the first of them. */
+  readonly count: number;
+  readonly changed: ReadonlyArray<{ readonly nodeId: string; readonly before: Box | null; readonly after: Box | null }>;
+};
+
+const MAX_OBSTACLE_CHANGES = 64;
+const MAX_CHANGED_PER_PUBLICATION = 24;
+
 export type PerformanceSnapshot = {
   readonly atMs: number;
   readonly reactRootCommits: number;
@@ -65,6 +85,8 @@ export type PerformanceSnapshot = {
   readonly routeWireByTrigger: Readonly<Record<RouteTrigger, number>>;
   readonly intentionalContinuousAnimation: number;
   readonly processSampleCount: number;
+  /** The last obstacle publications that differed, oldest first. Not part of a window's delta. */
+  readonly loomObstacleChanges: ReadonlyArray<LoomObstacleChange>;
 };
 
 export type PerformanceWindow = {
@@ -115,6 +137,7 @@ export type CanvasPerformanceRecorder = {
   readonly recordLoomEffect: () => void;
   readonly recordObstaclePublication: (equal: boolean) => void;
   readonly recordCorridorPublication: (equal: boolean) => void;
+  readonly recordObstacleChange: (change: Omit<LoomObstacleChange, "atMs" | "count">) => void;
   readonly recordLoomPlan: (durationMs: number) => void;
   readonly recordRouteWire: (edgeId: string, trigger: RouteTrigger) => void;
   readonly recordIntentionalContinuousAnimation: (count: number) => void;
@@ -175,6 +198,7 @@ type MutableCounters = {
   intentionalContinuousAnimation: number;
   processSampleCount: number;
   processSamples: ProcessSample[];
+  loomObstacleChanges: LoomObstacleChange[];
 };
 
 const ROUTE_TRIGGERS: readonly RouteTrigger[] = [
@@ -243,6 +267,7 @@ const emptyCounters = (): MutableCounters => ({
   intentionalContinuousAnimation: 0,
   processSampleCount: 0,
   processSamples: [],
+  loomObstacleChanges: [],
 });
 
 const cloneRecord = <T extends Record<string, number>>(record: T): Readonly<T> => ({ ...record });
@@ -345,6 +370,7 @@ export const createCanvasPerformanceRecorder = (options?: {
     routeWireByTrigger: cloneRecord(counters.routeWireByTrigger),
     intentionalContinuousAnimation: counters.intentionalContinuousAnimation,
     processSampleCount: counters.processSampleCount,
+    loomObstacleChanges: [...counters.loomObstacleChanges],
   });
 
   const recorder: CanvasPerformanceRecorder = {
@@ -396,6 +422,15 @@ export const createCanvasPerformanceRecorder = (options?: {
       counters.loomCorridorPublicationAttempts += 1;
       if (equal) counters.loomCorridorEqualPublications += 1;
       else counters.loomCorridorPublications += 1;
+    },
+    recordObstacleChange: (change) => {
+      counters.loomObstacleChanges.push({
+        atMs: now(),
+        dragging: change.dragging,
+        count: change.changed.length,
+        changed: change.changed.slice(0, MAX_CHANGED_PER_PUBLICATION),
+      });
+      if (counters.loomObstacleChanges.length > MAX_OBSTACLE_CHANGES) counters.loomObstacleChanges.shift();
     },
     recordLoomPlan: (durationMs) => {
       counters.loomReplans += 1;
@@ -517,6 +552,9 @@ export const canvasPerformance = {
   recordLoomEffect: (): void => activeRecorder?.recordLoomEffect(),
   recordObstaclePublication: (equal: boolean): void => activeRecorder?.recordObstaclePublication(equal),
   recordCorridorPublication: (equal: boolean): void => activeRecorder?.recordCorridorPublication(equal),
+  /** True while a recorder is installed: a caller with something costly to work out asks first. */
+  armed: (): boolean => activeRecorder !== undefined,
+  recordObstacleChange: (change: Omit<LoomObstacleChange, "atMs" | "count">): void => activeRecorder?.recordObstacleChange(change),
   recordLoomPlan: (durationMs: number): void => activeRecorder?.recordLoomPlan(durationMs),
   recordRouteWire: (edgeId: string, trigger: RouteTrigger): void => activeRecorder?.recordRouteWire(edgeId, trigger),
   recordIntentionalContinuousAnimation: (count: number): void => activeRecorder?.recordIntentionalContinuousAnimation(count),
