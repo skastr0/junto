@@ -75,7 +75,10 @@ describe("remote video", () => {
     const away = withFetch(() => new Response(null, { status: 302, headers: { Location: "https://elsewhere.example.net/x.mp4" } }));
     const refused = await ask(away.videos, away.videos.open("https://media.example.com/old.mp4"))!;
     expect(refused.status).toBe(502);
-    expect(await refused.text()).toContain("another site (elsewhere.example.net)");
+    const said = await refused.text();
+    expect(said).toContain("another site");
+    // The other site's name does not cross to the page side either.
+    expect(said).not.toContain("elsewhere");
     // The other site was never asked.
     expect(away.calls.map((call) => call.url)).toEqual(["https://media.example.com/old.mp4"]);
 
@@ -83,6 +86,17 @@ describe("remote video", () => {
     const port = withFetch(() => new Response(null, { status: 301, headers: { Location: "http://media.example.com/old.mp4" } }));
     expect((await ask(port.videos, port.videos.open("https://media.example.com/old.mp4"))!).status).toBe(502);
     expect(port.calls).toHaveLength(1);
+  });
+
+  it("passes on only what says it is media: a web page at the address is refused, not served", async () => {
+    for (const [type, status] of [["text/html; charset=utf-8", 502], ["application/json", 502], ["video/webm", 200], ["audio/mpeg", 200], ["application/octet-stream", 200]] as const) {
+      const { videos } = withFetch(() => new Response("<script>x</script>", { status: 200, headers: { "Content-Type": type } }));
+      const response = await ask(videos, videos.open("https://media.example.com/thing"))!;
+      expect([type, response.status]).toEqual([type, status]);
+      if (status === 502) expect(await response.text()).not.toContain("<script>");
+    }
+    const untyped = withFetch(() => new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
+    expect((await ask(untyped.videos, untyped.videos.open("https://media.example.com/thing"))!).status).toBe(502);
   });
 
   it("says so when the address does not answer with a file, and sends only GET and HEAD", async () => {

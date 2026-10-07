@@ -14,7 +14,8 @@ import { CONTENT_PROTOCOL_SCHEME } from "@shared/content-url";
  * - the app never follows the address anywhere else: a redirect to another
  *   origin is refused, and one within the same origin is followed by hand;
  * - the page learns nothing about the address but what plays: only the
- *   headers a player needs come back.
+ *   headers a player needs come back, and only a body that says it is media,
+ *   so an outside site never chooses a page the app's own origin serves.
  *
  * Only GET and HEAD are sent, with no cookies and no credentials.
  */
@@ -24,6 +25,12 @@ export const REMOTE_VIDEO_HOST = "remote";
 const MAX_OPEN = 64;
 const MAX_HOPS = 5;
 const PASSED_HEADERS = ["content-type", "content-length", "content-range", "accept-ranges", "last-modified", "etag"];
+
+/** What may be passed on: a video or sound, or bytes of no stated kind (many file servers say only that). */
+const isMediaType = (contentType: string | null): boolean => {
+  const type = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
+  return type.startsWith("video/") || type.startsWith("audio/") || type === "application/octet-stream";
+};
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -86,7 +93,7 @@ export const createRemoteVideos = (fetchImpl: Fetch) => {
               await upstream.body?.cancel().catch(() => undefined);
               // Never anywhere else: the same origin, or nothing.
               if (next === undefined || next.origin !== origin) {
-                return refuse(502, `the address sends the player to another site${next ? ` (${next.host})` : ""}; not followed`, method);
+                return refuse(502, "the address sends the player to another site; not followed", method);
               }
               url = next.href;
               continue;
@@ -94,6 +101,11 @@ export const createRemoteVideos = (fetchImpl: Fetch) => {
             if (upstream.status !== 200 && upstream.status !== 206) {
               await upstream.body?.cancel().catch(() => undefined);
               return refuse(502, `the address answered ${String(upstream.status)}`, method);
+            }
+            // The address chooses nothing else the app's own origin serves: media, or nothing.
+            if (!isMediaType(upstream.headers.get("content-type"))) {
+              await upstream.body?.cancel().catch(() => undefined);
+              return refuse(502, "the address did not answer with a video", method);
             }
             const headers = new Headers({
               "Cache-Control": "no-store",
