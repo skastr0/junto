@@ -26,11 +26,10 @@ export const Changed = Schema.Struct({
 });
 export type Changed = typeof Changed.Type;
 
-/** A canvas was made, removed or renamed. */
+/** A canvas was made or removed. */
 export const CanvasesChanged = Schema.TaggedUnion({
   Created: { canvas: CanvasName },
   Removed: { canvas: CanvasName },
-  Renamed: { from: CanvasName, to: CanvasName },
 });
 export type CanvasesChanged = typeof CanvasesChanged.Type;
 

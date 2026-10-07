@@ -148,8 +148,8 @@ export const makeModelCanvases = Effect.gen(function* () {
     emit(event.canvas, { previous, next });
   });
   const unwatchCanvases = model.subscribeCanvasesChanges((event, current) => {
-    if (event._tag === "Removed" || event._tag === "Renamed") {
-      const name = event._tag === "Removed" ? event.canvas : event.from;
+    if (event._tag === "Removed") {
+      const name = event.canvas;
       const previous = last.get(name);
       last.delete(name);
       lastCanvas.delete(name);

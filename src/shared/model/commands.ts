@@ -200,7 +200,6 @@ export const Command = Schema.TaggedUnion({
   },
   CreateCanvas: { canvas: CanvasName },
   RemoveCanvas: { canvas: CanvasName },
-  RenameCanvas: { canvas: CanvasName, to: CanvasName },
 });
 export type Command = typeof Command.Type;
 

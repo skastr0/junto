@@ -307,13 +307,6 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           ]);
         yield* sql`DELETE FROM canvases WHERE canvas_name=${canvas}`;
       }, failure("removeCanvas"));
-      const renameCanvas = Effect.fn("ModelRecords.renameCanvas")(
-        (canvas: string, to: string) =>
-          sql`UPDATE canvases SET canvas_name=${to},updated_at=${new Date().toISOString()} WHERE canvas_name=${canvas}`.pipe(
-            Effect.asVoid,
-            failure("renameCanvas"),
-          ),
-      );
       return {
         requireSeatHost,
         getCanvas,
@@ -337,7 +330,6 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         createCanvas,
         advanceSeq,
         removeCanvas,
-        renameCanvas,
       };
     }),
   },

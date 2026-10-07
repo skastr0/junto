@@ -139,7 +139,6 @@ describe("commands", () => {
       "RecordSession",
       "Remove",
       "RemoveCanvas",
-      "RenameCanvas",
       "Reseat",
       "Restack",
       "Rewire",

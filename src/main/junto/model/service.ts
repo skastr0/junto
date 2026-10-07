@@ -220,52 +220,17 @@ export class ModelService extends Context.Service<ModelService>()(
                       ),
                     )
                   : Effect.void;
-              if (
-                command._tag === "RemoveCanvas" ||
-                command._tag === "RenameCanvas"
-              ) {
-                for (const node of current.nodes.values())
-                  yield* mayChange(node);
-                if (
-                  command._tag === "RenameCanvas" &&
-                  command.canvas === command.to
-                )
-                  return { seq: current.seq };
-                if (command._tag === "RemoveCanvas")
-                  yield* records.removeCanvas(command.canvas);
-                else {
-                  if (yield* records.getCanvas(command.to))
-                    return yield* refused(
-                      "Choose a canvas name that does not already exist.",
-                    );
-                  yield* records.renameCanvas(command.canvas, command.to);
-                  yield* stage(command.to, { ...current, name: command.to });
-                }
+              if (command._tag === "RemoveCanvas") {
+                for (const node of current.nodes.values()) yield* mayChange(node);
+                yield* records.removeCanvas(command.canvas);
                 yield* stage(command.canvas, null);
                 yield* afterSqlCommit(sql, () => {
                   held.delete(command.canvas);
-                  if (command._tag === "RenameCanvas")
-                    held.set(command.to, { ...current, name: command.to });
-                  const event: CanvasesChanged =
-                    command._tag === "RemoveCanvas"
-                      ? { _tag: "Removed", canvas: command.canvas }
-                      : {
-                          _tag: "Renamed",
-                          from: command.canvas,
-                          to: command.to,
-                        };
-                  notify(
-                    canvasListeners,
-                    event,
-                    command._tag === "RenameCanvas"
-                      ? { ...current, name: command.to }
-                      : undefined,
-                  );
+                  const event: CanvasesChanged = { _tag: "Removed", canvas: command.canvas };
+                  notify(canvasListeners, event);
                   PubSub.publishUnsafe(canvasChanges, event);
                 });
-                return {
-                  seq: command._tag === "RemoveCanvas" ? 0 : current.seq,
-                };
+                return { seq: 0 };
               }
               if (command._tag === "GrantOverseer") {
                 const seat = yield* requireNode(command.id);

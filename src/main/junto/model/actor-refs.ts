@@ -94,11 +94,6 @@ export class ModelActorRefs extends Context.Service<ModelActorRefs>()(
             return Effect.sync(() => {
               PubSub.publishUnsafe(changed, { canvas: event.canvas, refs: [] });
             });
-          if (event._tag === "Renamed")
-            return Effect.gen(function* () {
-              PubSub.publishUnsafe(changed, { canvas: event.from, refs: [] });
-              yield* announce(event.to);
-            });
           return announce(event.canvas);
         }),
         Effect.forkScoped,
