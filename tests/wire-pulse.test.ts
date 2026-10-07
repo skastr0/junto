@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Message } from "../src/shared/canvas";
+import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension } from "../src/shared/crew";
 import {
   WIRE_TRAFFIC_PREVIEW_MAX,

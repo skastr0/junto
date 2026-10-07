@@ -1,4 +1,4 @@
-import type { EtherEdgeKind } from "@shared/canvas";
+import type { WirePhase } from "@shared/model";
 import { canvasSwatchFor } from "@shared/canvas-colors";
 import { themeRuntime, type ThemeMode } from "@shared/theme";
 
@@ -83,7 +83,7 @@ export const borderColor = (color?: string, emphasized = false): string => {
   return withAlpha(accentColor(color), emphasized ? 0.5 : 0.32);
 };
 
-export const EDGE_COLOR: Record<EtherEdgeKind, string> = {
+export const EDGE_COLOR: Record<WirePhase, string> = {
   blocks: "var(--color-crimson)",
   relates: "var(--color-steel)",
 };

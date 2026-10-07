@@ -1,6 +1,6 @@
 import { Result, Schema, Struct } from "effect";
 import { overseerOperationEnabled } from "./features";
-import { EnvSource } from "./canvas";
+import { EnvSource } from "./model/region";
 import { ContentIdentity, ContentRef } from "./content";
 import { Color } from "./model/base";
 import { NodeEdit, WireEdit } from "./model/commands";
@@ -640,7 +640,7 @@ const AgentOffboardStatus = Schema.Struct({ ...CanvasOptional, nodeIds: Offboard
 // Region environment --------------------------------------------------------
 
 /**
- * A source as a caller writes it: the canvas document's own `EnvSource`, with
+ * A source as a caller writes it: the model's own `EnvSource`, with
  * the id left to main when absent. Derived, never a second copy of the shape.
  */
 type WithOptionalId<Source> = Source extends { readonly id: string }

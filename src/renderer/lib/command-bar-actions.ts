@@ -1,5 +1,5 @@
 import { batch } from "@legendapp/state";
-import type { EtherEdgeKind } from "@shared/canvas";
+import type { WirePhase } from "@shared/model";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   CircleSlash,
@@ -111,7 +111,7 @@ const copySelectedNodeRef = async (): Promise<void> => {
 
 const cycleEdgeFilter = (): void => {
   const current = state$.edgeFilter.peek();
-  const next: EtherEdgeKind | "" =
+  const next: WirePhase | "" =
     current === "" ? "blocks" : current === "blocks" ? "relates" : "";
   state$.edgeFilter.set(next);
 };

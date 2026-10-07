@@ -1,5 +1,5 @@
 import type { Edge } from "@xyflow/react";
-import type { EdgePhase } from "@shared/canvas";
+import type { WirePhase } from "@shared/model";
 import type { Node, Wire } from "@shared/model";
 import type { Canvas } from "@shared/model/canvas";
 import { VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
@@ -16,7 +16,7 @@ const WIRE_Z = 16;
 
 export type ModelEdgeData = {
   readonly rippling: boolean;
-  readonly phase: EdgePhase;
+  readonly phase: WirePhase;
   readonly detail: string;
   /** Focus selection member (stoppage cone or direct connection neighborhood). */
   impact?: "in";
@@ -36,7 +36,7 @@ export type ModelFlowEdgeCache = Map<string, { readonly wire: Wire; readonly flo
 
 /** What the execution graph says of each wire, however it was worked out. */
 export type WirePhases = {
-  readonly phaseOf: (wireId: string) => EdgePhase;
+  readonly phaseOf: (wireId: string) => WirePhase;
   readonly detailOf: (wireId: string) => string;
   readonly rippling: (wireId: string) => boolean;
 };
