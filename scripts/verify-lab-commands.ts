@@ -1,11 +1,13 @@
 /**
- * Verifier lab check for the storage cut: a canvas made before the cut, read
- * and changed through the model after it.
+ * Verifier lab count: what one small command costs. Sends a move, a rename,
+ * a new wire and a delete through the model, one at a time, and records for
+ * each the change events the window is told and every call that reaches main,
+ * with how long main took and how much it sent back. The renamed seat and the
+ * deleted note are picked inside a region when one holds them, and that
+ * region's card is read off the screen before and after.
  *
- *   bun scripts/verify-lab-cut.ts snapshot --canvas NAME --file F   old build: save the document
- *   bun scripts/verify-lab-cut.ts compare  --canvas NAME --file F   new build: modelOpen against it
- *   bun scripts/verify-lab-cut.ts change   --canvas NAME --file F   new build: move, rename, wire, delete
- *   bun scripts/verify-lab-cut.ts confirm  --canvas NAME --file F   after a restart: the changes held
+ *   bun scripts/verify-lab-commands.ts change  --canvas NAME --file F   send the four commands
+ *   bun scripts/verify-lab-commands.ts confirm --canvas NAME --file F   after a restart: the changes held
  *
  * Run under the app-run lock against the lab app.
  */
@@ -19,8 +21,8 @@ const arg = (name: string, fallback: string): string => {
 const canvas = arg("canvas", "");
 const file = arg("file", "");
 const rendererPort = process.env.JUNTO_PERF_LAB_RENDERER_PORT ?? "9229";
-if (!["snapshot", "compare", "change", "confirm"].includes(phase) || canvas === "" || file === "") {
-  console.error("usage: verify-lab-cut.ts snapshot|compare|change|confirm --canvas NAME --file F");
+if (!["change", "confirm"].includes(phase) || canvas === "" || file === "") {
+  console.error("usage: verify-lab-commands.ts change|confirm --canvas NAME --file F");
   process.exit(64);
 }
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -57,53 +59,33 @@ type Row = Record<string, any>;
 const byId = (rows: ReadonlyArray<Row>) => new Map(rows.map((row) => [row.id as string, row]));
 const opened = () => evaluate<{ seq: number; nodes: Row[]; wires: Row[] }>(`window.junto.modelOpen({ canvas: ${name} })`);
 
-if (phase === "snapshot") {
-  const doc = await evaluate<{ nodes: Row[]; edges: Row[] }>(`window.junto.readCanvas(${name}).then((read) => read.doc)`);
-  writeFileSync(file, JSON.stringify({ doc }));
-  console.log(JSON.stringify({ phase, nodes: doc.nodes.length, edges: doc.edges.length }));
-}
-
-if (phase === "compare") {
-  const { doc } = JSON.parse(readFileSync(file, "utf8")) as { doc: { nodes: Row[]; edges: Row[] } };
-  const now = await opened();
-  const nodes = byId(now.nodes);
-  const wires = byId(now.wires);
-  const problems: string[] = [];
-  const kinds: Record<string, number> = {};
-  doc.nodes.forEach((old, index) => {
-    const node = nodes.get(old.id);
-    if (!node) return void problems.push(`node ${old.id} missing`);
-    kinds[node.kind] = (kinds[node.kind] ?? 0) + 1;
-    for (const field of ["x", "y", "width", "height"]) if (old[field] !== node[field]) problems.push(`${old.id}: ${field} ${String(old[field])} became ${String(node[field])}`);
-    const expectedKind = old.type === "group" ? "region" : (old.ether?.entity?.kind ?? "note");
-    if (node.kind !== expectedKind) problems.push(`${old.id}: kind ${expectedKind} became ${node.kind}`);
-    if (node.kind === "agent") {
-      if (node.bindingId !== old.ether.terminal.bindingId) problems.push(`${old.id}: bindingId changed`);
-      if (node.harness !== old.ether.terminal.harness) problems.push(`${old.id}: harness changed`);
-      if (node.label !== old.text) problems.push(`${old.id}: label ${JSON.stringify(old.text)} became ${JSON.stringify(node.label)}`);
-    }
-    if (node.kind === "region" && (node.label ?? "") !== (old.label ?? "")) problems.push(`${old.id}: region label changed`);
-    if (node.kind === "note" && node.text !== old.text) problems.push(`${old.id}: note text changed`);
-    // Paint order: the document's array order is the old z.
-    const later = doc.nodes[index + 1];
-    const laterNode = later ? nodes.get(later.id) : undefined;
-    if (laterNode && !(node.z < laterNode.z)) problems.push(`${old.id}: no longer paints under ${later!.id}`);
-  });
-  for (const old of doc.edges) {
-    const wire = wires.get(old.id);
-    if (!wire) { problems.push(`wire ${old.id} missing`); continue; }
-    if (wire.from !== old.fromNode || wire.to !== old.toNode || wire.verb !== old.ether?.verb) problems.push(`wire ${old.id}: ends or verb changed`);
-  }
-  const cards = await evaluate<number>(`document.querySelectorAll(".react-flow__node").length`);
-  console.log(JSON.stringify({ phase, seq: now.seq, before: { nodes: doc.nodes.length, wires: doc.edges.length }, after: { nodes: now.nodes.length, wires: now.wires.length }, kinds, cardsOnScreen: cards, problems: problems.length, first: problems.slice(0, 8) }));
-}
-
 if (phase === "change") {
   const before = await opened();
   const seats = before.nodes.filter((node) => node.kind === "agent");
-  const note = before.nodes.find((node) => node.kind === "note");
-  const [mover, renamed, from, to] = [seats[0]!, seats[1]!, seats[2]!, seats[40]!];
-  // Count what the window is told and what it re-reads while each command runs.
+  const regions = before.nodes.filter((node) => node.kind === "region");
+  // The smallest region whose box holds the node's centre, if any.
+  const regionOf = (node: Row): Row | undefined => {
+    const cx = node.x + (node.width ?? 0) / 2;
+    const cy = node.y + (node.height ?? 0) / 2;
+    return regions
+      .filter((region) => cx >= region.x && cx <= region.x + region.width && cy >= region.y && cy <= region.y + region.height)
+      .sort((left, right) => left.width * left.height - right.width * right.height)[0];
+  };
+  const notes = before.nodes.filter((node) => node.kind === "note");
+  const note = notes.find((candidate) => regionOf(candidate) !== undefined) ?? notes[0];
+  const mover = seats[0]!;
+  const renamed = seats.slice(1).find((seat) => regionOf(seat) !== undefined) ?? seats[1]!;
+  const [from, to] = [seats.find((seat) => seat.id !== mover.id && seat.id !== renamed.id)!, seats.at(-1)!];
+  const watched = [...new Set([regionOf(renamed)?.id, note ? regionOf(note)?.id : undefined].filter((id): id is string => id !== undefined))];
+  // What each watched region's card says on screen, and whether the new name is anywhere on screen.
+  const onScreen = () =>
+    evaluate<{ regions: Record<string, string | null>; newNameShown: boolean; cards: number }>(`(() => ({
+      regions: Object.fromEntries(${JSON.stringify(watched)}.map((id) => [id, document.querySelector('.react-flow__node[data-id="' + id + '"]')?.innerText?.replace(/\\s+/g, " ").slice(0, 240) ?? null])),
+      newNameShown: document.body.innerText.toLowerCase().includes("renamed by the verifier"),
+      cards: document.querySelectorAll(".react-flow__node").length,
+    }))()`);
+  console.log(JSON.stringify({ picked: { renamedSeat: renamed.id, itsRegion: regionOf(renamed)?.id ?? null, deletedNote: note?.id ?? null, itsRegion2: note ? (regionOf(note)?.id ?? null) : null, regions: regions.length, notes: notes.length }, screenBefore: await onScreen() }));
+  // Count what the window is told while each command runs.
   await evaluate(`(() => {
     window.__verifyCut?.stop();
     const tally = { changed: [], canvases: 0, marks: [], spans: [] };
@@ -194,10 +176,9 @@ if (phase === "change") {
     const reply = await evaluate<{ ok: boolean; seq?: number; error?: string }>(`window.junto.modelCommand(${JSON.stringify(command)}).then((value) => ({ ok: true, seq: value.seq }), (error) => ({ ok: false, error: String(error).slice(0, 300) }))`);
     await sleep(1_200);
     const seen = await evaluate<{ changed: object[]; canvases: number; marks: string[]; spans: string[] }>(`window.__verifyCut.take()`);
-    const count = (list: string[], key: string) => list.filter((item) => item === key).length;
     // The command itself is one modelCommand invoke; anything else is the window asking main for more.
     const invokes = await takeInvokes();
-    results.push({ what, reply, events: seen.changed, canvasChangedMarks: count(seen.marks, "canvasChanged"), readCanvasSpans: count(seen.spans, "reload.readCanvas"), invokesInMain: invokes });
+    results.push({ what, reply, events: seen.changed, invokesInMain: invokes, screen: await onScreen() });
     console.log(JSON.stringify(results.at(-1)));
   }
   await evaluate(`window.__verifyCut.stop()`);
