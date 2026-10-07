@@ -90,8 +90,8 @@ for (let tries = 0; tries < 14 && cards.length < select; tries += 1) {
 await sleep(800);
 cards = await seatsOnScreen();
 console.log(JSON.stringify({ zoomOutSteps: zoomSteps, seatCardsOnScreen: cards.length, viewport: await evaluate<string>(`document.querySelector(".react-flow__viewport")?.style.transform ?? ""`) }));
-if (cards.length < 3) {
-  console.error(`verify lab: only ${String(cards.length)} seat cards on screen, need at least 3`);
+if (cards.length < Math.min(3, select)) {
+  console.error(`verify lab: only ${String(cards.length)} seat cards on screen, need at least ${String(Math.min(3, select))}`);
   process.exit(1);
 }
 // Fewer on screen than asked for is reported, not fatal.
