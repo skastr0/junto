@@ -3621,13 +3621,8 @@ export const WorkLive = Layer.effect(
       workBoardList: (canvas, nodeId, topicId) =>
         asResult(
           Effect.gen(function* () {
-            const snap = yield* repository
-              .readSnapshot(canvas, nodeId)
+            const topics = yield* repository.boardTopics(canvas, nodeId, topicId)
               .pipe(Effect.mapError(toWorkServiceError));
-            const topics =
-              topicId === undefined
-                ? snap.board.topics
-                : snap.board.topics.filter((t) => t.topicId === topicId);
             const outcome = yield* local(
               Effect.succeed({ value: { topics } }),
             );
@@ -3819,10 +3814,9 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
-            const snap = yield* repository
-              .readSnapshot(canvas, nodeId)
+            const topics = yield* repository.boardTopics(canvas, nodeId, topicId)
               .pipe(Effect.mapError(toWorkServiceError));
-            const topic = snap.board.topics.find((t) => t.topicId === topicId);
+            const topic = topics[0];
             if (!topic) {
               return yield* Effect.fail(
                 new WorkServiceError({

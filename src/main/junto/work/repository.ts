@@ -3482,6 +3482,7 @@ const loadBoardPostsByTopic = Effect.fn("work.loadBoardPostsByTopic")(
   function* (
     reader: SqlClient.SqlClient,
     sink: SinkRefValue,
+    topicId?: string,
   ): Effect.fn.Return<
     ReadonlyMap<string, ReadonlyArray<BoardPostValue>>,
     WorkSqlFailure
@@ -3505,11 +3506,12 @@ const loadBoardPostsByTopic = Effect.fn("work.loadBoardPostsByTopic")(
         created_at
       FROM work_board_posts
       WHERE canvas_name = ? AND node_id = ?
+      ${topicId === undefined ? "" : "AND topic_id = ?"}
       ORDER BY topic_id, position
     `,
           bindings,
         ),
-    })([sink.canvasName, sink.nodeId]);
+    })([sink.canvasName, sink.nodeId, ...(topicId === undefined ? [] : [topicId])]);
     const byTopic = new Map<string, BoardPostValue[]>();
     for (const row of rows) {
       const tagsRaw =
@@ -3572,8 +3574,9 @@ const loadBoardTopics = Effect.fn("work.loadBoardTopics")(
   function* (
     reader: SqlClient.SqlClient,
     sink: SinkRefValue,
+    topicId?: string,
   ): Effect.fn.Return<ReadonlyArray<BoardTopicViewValue>, WorkSqlFailure> {
-    const postsByTopic = yield* loadBoardPostsByTopic(reader, sink);
+    const postsByTopic = yield* loadBoardPostsByTopic(reader, sink, topicId);
     const readCursors = yield* loadOperatorReadCursors(reader, sink);
     const rows = yield* SqlSchema.findAll({
       Request: WorkSqlBindings,
@@ -3595,11 +3598,12 @@ const loadBoardTopics = Effect.fn("work.loadBoardTopics")(
             created_at
           FROM work_board_topics
           WHERE canvas_name = ? AND node_id = ?
+          ${topicId === undefined ? "" : "AND topic_id = ?"}
           ORDER BY last_activity_at DESC, topic_id
         `,
           bindings,
         ),
-    })([sink.canvasName, sink.nodeId]);
+    })([sink.canvasName, sink.nodeId, ...(topicId === undefined ? [] : [topicId])]);
     return yield* Effect.try(() =>
       rows.map((row): BoardTopicViewValue => {
         const parts = parseJson(row.parts_json);
@@ -3625,7 +3629,6 @@ const loadBoardTopics = Effect.fn("work.loadBoardTopics")(
       }),
     );
   },
-  Effect.catch(() => Effect.succeed([])),
 );
 
 const loadArtifacts = Effect.fn("work.loadArtifacts")(function* (
@@ -8492,6 +8495,7 @@ export interface WorkRepositoryShape {
   readonly taskRowsByIds: (canvasName: string, ids: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly item: TaskValue }>, WorkRepositoryError>;
   /** Explicit full lane read for agent list commands. */
   readonly taskLane: (canvasName: string, nodeId: string, kind: "task" | "requests") => Effect.Effect<ReadonlyArray<TaskValue>, WorkRepositoryError>;
+  readonly boardTopics: (canvasName: string, nodeId: string, topicId?: string) => Effect.Effect<ReadonlyArray<BoardTopicViewValue>, WorkRepositoryError>;
   readonly artifactLane: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<ArtifactValue>, WorkRepositoryError>;
   readonly artifactItem: (canvasName: string, nodeId: string, id: string) => Effect.Effect<ArtifactValue | undefined, WorkRepositoryError>;
   readonly taskItem: (query: WorkItemQuery) => Effect.Effect<TaskValue | undefined, WorkRepositoryError>;
@@ -12223,6 +12227,10 @@ export const WorkRepositoryLive = Layer.effect(
       taskLane: Effect.fn("WorkRepository.taskLane")((canvasName: string, nodeId: string, kind: "task" | "requests") =>
         withSqlRead(sql, loadLaneTasks(sql, { canvasName, nodeId }, kind === "task" ? "task" : "request")).pipe(
           Effect.mapError((error) => toRepositoryError("work.tasks.list", error)),
+        )),
+      boardTopics: Effect.fn("WorkRepository.boardTopics")((canvasName: string, nodeId: string, topicId?: string) =>
+        withSqlRead(sql, loadBoardTopics(sql, { canvasName, nodeId }, topicId)).pipe(
+          Effect.mapError((error) => toRepositoryError("work.board.topics", error)),
         )),
       artifactLane: Effect.fn("WorkRepository.artifactLane")((canvasName: string, nodeId: string) =>
         withSqlRead(sql, loadArtifacts(sql, { canvasName, nodeId })).pipe(
