@@ -1,25 +1,20 @@
 /**
  * Playwright selectors and canvas seeds for the crew mail surfaces.
  */
-import type { CanvasEdge } from "../../src/shared/canvas";
+import type { Node, Wire } from "../../src/shared/model";
 import type { Port } from "../../src/shared/physics/schema";
-import { verbEdge } from "./sandbox";
+import { modelMessagesWire } from "./model";
 
 export const CREW_UI_SELECTORS = {
   mailRow: "actor-ledger-mail-row",
   ledger: "seat-details",
 } as const;
 
-/** `ether.mask` is the allow-list. Omitted grants the compile; empty grants none. */
-export const messagesEdgeWithMask = (
+/** A mask keeps only the named permissions. Omitted grants the relationship; empty grants none. */
+export const messagesWireWithMask = (
   id: string,
-  fromNode: string,
-  toNode: string,
-  kinds: Parameters<typeof verbEdge>[4],
+  from: string,
+  to: string,
+  nodes: ReadonlyArray<Node>,
   allowed: ReadonlyArray<Port> | undefined,
-): CanvasEdge => {
-  const edge = verbEdge(id, fromNode, toNode, "messages", kinds);
-  return allowed === undefined
-    ? edge
-    : { ...edge, ether: { verb: "messages", mask: [...allowed] } };
-};
+): Wire => modelMessagesWire(id, from, to, nodes, allowed);

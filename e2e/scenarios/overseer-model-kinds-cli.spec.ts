@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * The overseer commands that speak model kinds, typed in an overseer seat [fake-tui].
  *
@@ -39,17 +40,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { CanvasDoc } from "../../src/shared/canvas";
-import {
-  crewDoc,
-  crewOccupySeat,
-  crewPlayFactory,
-  crewSeat,
-  crewSeatNode,
-  installCrewSeatHarness,
-  type CrewCliResult,
-  type CrewSeat,
-} from "../harness/crew-fixture";
+import { Schema } from "effect";
+import { Node, Wire, Seq } from "../../src/shared/model";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewCliResult, type CrewSeat } from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 import { grantOverseer, readModelCanvas } from "../harness/model";
 
@@ -63,9 +56,6 @@ const soft = expect.configure({ soft: true });
 /** The harness the fake seats run under, and the second one planted for the re-seat. */
 const CREATE_HARNESS = "codex";
 const RESEAT_HARNESS = "grok";
-
-/** Key names of the old document shape: none may appear in any answer. */
-const OLD_KEYS = ["revision", "ether", "type", "fromNode", "toNode"] as const;
 
 // The sentences, each from the source that says it.
 /** cli/commands/overseer-retired.ts:18-23. */
@@ -87,10 +77,10 @@ const STALE_SAYS = ["is at seq", "read the canvas again before editing"] as cons
 // Canvas
 // ---------------------------------------------------------------------------
 
-const O = crewSeatNode({ id: "overseer", label: "Overseer", x: 480, y: 40 });
-const A = crewSeatNode({ id: "seat-a", label: "Ada", x: 480, y: 220 });
-const B = crewSeatNode({ id: "seat-b", label: "Bo", x: 820, y: 220 });
-const DOC: CanvasDoc = crewDoc([O, A, B]);
+const O = modelSeat({ id: "overseer", label: "Overseer", x: 480, y: 40 });
+const A = modelSeat({ id: "seat-a", label: "Ada", x: 480, y: 220 });
+const B = modelSeat({ id: "seat-b", label: "Bo", x: 820, y: 220 });
+const FIXTURE = modelFixture([O, A, B]);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -115,17 +105,20 @@ const jsonLine = (text: string): Record<string, unknown> | undefined => {
   return undefined;
 };
 
-/** Every key name anywhere in a value. */
-const keysOf = (value: unknown, out: Set<string> = new Set()): Set<string> => {
+/** Every returned row must satisfy its closed native schema, including nested batch results. */
+const validateRows = (value: unknown): void => {
   if (Array.isArray(value)) {
-    for (const item of value) keysOf(item, out);
+    value.forEach(validateRows);
   } else if (typeof value === "object" && value !== null) {
     for (const [key, item] of Object.entries(value)) {
-      out.add(key);
-      keysOf(item, out);
+      const strict = { onExcessProperty: "error" } as const;
+      if (key === "node") Schema.decodeUnknownSync(Node, strict)(item);
+      else if (key === "nodes") Schema.decodeUnknownSync(Schema.Array(Node), strict)(item);
+      else if (key === "wire") Schema.decodeUnknownSync(Wire, strict)(item);
+      else if (key === "wires") Schema.decodeUnknownSync(Schema.Array(Wire), strict)(item);
+      else validateRows(item);
     }
   }
-  return out;
 };
 
 type Ran = {
@@ -148,7 +141,7 @@ test("[fake-tui] the overseer's model-kind commands: read, node, wire, the retir
   const dir = process.env.MODEL_KINDS_CLI_DIR ?? testInfo.outputPath();
   await mkdir(dir, { recursive: true });
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: DOC },
+    seedModels: { [CANVAS]: FIXTURE },
     // Planted before afterSeed (harness/launch.ts), so the fake codex below is not overwritten.
     seedHarnessInstalls: [RESEAT_HARNESS],
     afterSeed: installCrewSeatHarness,
@@ -185,20 +178,17 @@ test("[fake-tui] the overseer's model-kind commands: read, node, wire, the retir
   };
   const input = (value: unknown): string => JSON.stringify(value);
 
-  /** A pass: exit 0, a success envelope on stdout, nothing on stderr, and none of the old document's keys anywhere in it. */
+  /** A pass: exit 0, a success envelope on stdout, nothing on stderr, and closed native rows. */
   const expectPass = (step: string, ran: Ran): void => {
     soft(ran.result.exitCode, `step ${step}: exit code`).toBe(0);
     soft(ran.out?.ok, `step ${step}: stdout is a success envelope: ${ran.result.stdout.trim().slice(0, 400)}`).toBe(true);
     soft(ran.err, `step ${step}: no failure envelope on stderr: ${ran.result.stderr.trim().slice(0, 400)}`).toBeUndefined();
-    const keys = keysOf(ran.out);
-    soft(
-      OLD_KEYS.filter((key) => keys.has(key)),
-      `FAIL TO REPORT (step ${step}): the answer carries a key of the old document shape (revision, ether, type, fromNode, toNode)`,
-    ).toEqual([]);
-    soft(
-      OLD_KEYS.filter((key) => ran.result.stdout.includes(`"${key}"`)),
-      `FAIL TO REPORT (step ${step}): the printed answer holds one of those names as a quoted string`,
-    ).toEqual([]);
+    if ("nodes" in ran.data && "wires" in ran.data) {
+      soft(() => Schema.decodeUnknownSync(Schema.Struct({
+        name: Schema.String, seq: Seq, nodes: Schema.Array(Node), wires: Schema.Array(Wire),
+      }), { onExcessProperty: "error" })(ran.data), `step ${step}: closed canvas read`).not.toThrow();
+    }
+    soft(() => validateRows(ran.out), `FAIL TO REPORT (step ${step}): the answer carries a row outside its native schema`).not.toThrow();
   };
   /** A refusal: exit 1, a failure envelope on stderr, nothing on stdout. */
   const expectRefusal = (step: string, ran: Ran): void => {

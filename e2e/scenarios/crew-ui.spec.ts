@@ -1,3 +1,4 @@
+import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
 /**
  * Crew UI journeys — the operator surfaces tell the same truth the wire
  * does. Seats are fake-tui where a seat must act; pure-surface journeys run
@@ -7,31 +8,22 @@
  *   1. the actor ledger shows each mail row as delivered once written into
  *      the seat, or waiting for a seat that is not running, with its kind;
  *   2. the relation surface renders the compiled port chips of a messages
- *      edge — granted vs masked — and a chip click rewrites ether.mask
+ *      edge — granted vs masked — and a chip click rewrites the wire mask
  *      through the normal operator path.
  */
 import { expect, launchJunto, test } from "../harness/launch";
-import {
-  crewMessagesEdge,
-  crewOccupySeat,
-  crewPlayFactory,
-  crewSeat,
-  crewSeatNode,
-  crewDoc,
-  installCrewSeatHarness,
-  type WorkEnvelope,
-} from "../harness/crew-fixture";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type WorkEnvelope } from "../harness/crew-fixture";
 import {
   CREW_UI_SELECTORS,
-  messagesEdgeWithMask,
+  messagesWireWithMask,
 } from "../harness/crew-ui-fixtures";
 
 const CANVAS = "crew-ui";
 const A = "seat-a";
 const B = "seat-b";
 
-const seatA = crewSeatNode({ id: A, x: 40, y: 40 });
-const seatB = crewSeatNode({ id: B, x: 360, y: 40 });
+const seatA = modelSeat({ id: A, x: 40, y: 40 });
+const seatB = modelSeat({ id: B, x: 360, y: 40 });
 
 const opData = (env: WorkEnvelope): Record<string, unknown> => {
   expect(env.ok, JSON.stringify(env)).toBe(true);
@@ -46,10 +38,10 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row", async () => {
   test.setTimeout(240_000);
   const junto = await launchJunto({
-    seedCanvases: {
-      [CANVAS]: crewDoc(
+    seedModels: {
+      [CANVAS]: modelFixture(
         [seatA, seatB],
-        [crewMessagesEdge("e-ab", A, B, [seatA, seatB])],
+        [modelMessagesWire("e-ab", A, B, [seatA, seatB])],
       ),
     },
     afterSeed: installCrewSeatHarness,
@@ -126,14 +118,14 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
 
 test("crew ui: the relation card shows no capability chips and keeps a stored mask", async () => {
   test.setTimeout(90_000);
-  const masked = messagesEdgeWithMask("e-ab", A, B, [seatA, seatB], [
+  const masked = messagesWireWithMask("e-ab", A, B, [seatA, seatB], [
     "msg.list",
     "msg.prompt",
     "seat.wait",
     "terminal.read",
   ]);
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: crewDoc([seatA, seatB], [masked]) },
+    seedModels: { [CANVAS]: modelFixture([seatA, seatB], [masked]) },
   });
   try {
     const { page } = junto;

@@ -1,3 +1,5 @@
+import { commandModel } from "../harness/model";
+import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
 /**
  * Crew waits + observe — bounded seat waits and read-only terminal
  * observation over a messages edge [fake-tui].
@@ -19,27 +21,17 @@
  *      port) is ScopeError, and removing the edge mid-follow ends it.
  */
 import { expect, launchJunto, test } from "../harness/launch";
-import {
-  crewOccupySeat,
-  crewPlayFactory,
-  crewMutateCanvas,
-  crewSeat,
-  crewSeatNode,
-  crewDoc,
-  crewMessagesEdge,
-  installCrewSeatHarness,
-  type WorkEnvelope,
-} from "../harness/crew-fixture";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type WorkEnvelope } from "../harness/crew-fixture";
 
 const CANVAS = "crew-wait";
 const A = "seat-a";
 const B = "seat-b";
 
-const seatA = crewSeatNode({ id: A, x: 40, y: 40 });
-const seatB = crewSeatNode({ id: B, x: 360, y: 40 });
-const waitDoc = crewDoc(
+const seatA = modelSeat({ id: A, x: 40, y: 40 });
+const seatB = modelSeat({ id: B, x: 360, y: 40 });
+const waitDoc = modelFixture(
   [seatA, seatB],
-  [crewMessagesEdge("e-ab", A, B, [seatA, seatB])],
+  [modelMessagesWire("e-ab", A, B, [seatA, seatB])],
 );
 
 const opData = (env: WorkEnvelope): Record<string, unknown> => {
@@ -50,7 +42,7 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 
 const launch = () =>
   launchJunto({
-    seedCanvases: { [CANVAS]: waitDoc },
+    seedModels: { [CANVAS]: waitDoc },
     afterSeed: installCrewSeatHarness,
   });
 
@@ -226,17 +218,17 @@ test("crew observe [fake-tui]: bounded follow returns on advance, duration, or e
 
 test("crew wait [fake-tui]: masked edge refuses wait and read as ScopeError", async () => {
   test.setTimeout(180_000);
-  const maskedDoc = crewDoc(
+  const maskedDoc = modelFixture(
     [seatA, seatB],
     [
       // Mail flows, but observe and wait are masked off the edge.
-      crewMessagesEdge("e-ab", A, B, [seatA, seatB], [
+      modelMessagesWire("e-ab", A, B, [seatA, seatB], [
         "msg.list", "msg.send", "msg.prompt",
       ]),
     ],
   );
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: maskedDoc },
+    seedModels: { [CANVAS]: maskedDoc },
     afterSeed: installCrewSeatHarness,
   });
   try {
@@ -264,10 +256,7 @@ test("crew wait [fake-tui]: removing the edge ends authority mid-scenario", asyn
     const before = await a.op("seat.wait", { target: B, until: "idle", timeoutMs: 15_000 });
     expect(before.ok).toBe(true);
 
-    await crewMutateCanvas(page, CANVAS, (doc) => ({
-      ...doc,
-      edges: doc.edges.filter((edge) => edge.id !== "e-ab"),
-    }));
+    await commandModel(page, { _tag: "Remove", canvas: CANVAS, nodes: [], wires: ["e-ab"] });
 
     // Same call now fails closed — authority is re-derived per op.
     const after = await a.op("seat.wait", { target: B, until: "idle", timeoutMs: 5_000 });

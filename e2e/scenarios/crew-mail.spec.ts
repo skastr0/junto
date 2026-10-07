@@ -1,3 +1,5 @@
+import { commandModel } from "../harness/model";
+import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
 import { readSeatMailbox } from "../harness/work-mail";
 /**
  * Mail — every message typed into the recipient seat at once, over a
@@ -27,34 +29,21 @@ import { readSeatMailbox } from "../harness/work-mail";
  * Seats are fake-tui: deterministic screen control, labelled honestly.
  */
 import type { Page } from "@playwright/test";
-import type { Message } from "../../src/shared/canvas";
+import type { Message } from "../../src/shared/work-model";
 import { readMailExtension } from "../../src/shared/crew";
 import { composeMessageDeliveryPayload, MAIL_ONBOARD_POINTER } from "../../src/shared/message-delivery";
 import { expect, launchJunto, test } from "../harness/launch";
-import {
-  crewMessageCount,
-  crewReceipts,
-  crewMutateCanvas,
-  crewOccupySeat,
-  crewPlayFactory,
-  crewSeat,
-  crewSeatNode,
-  crewDoc,
-  crewMessagesEdge,
-  installCrewSeatHarness,
-  type CrewSeat,
-  type WorkEnvelope,
-} from "../harness/crew-fixture";
+import { crewMessageCount, crewReceipts, crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewSeat, type WorkEnvelope } from "../harness/crew-fixture";
 
 const CANVAS = "crew-mail";
 const A = "seat-a";
 const B = "seat-b";
 
-const seatA = crewSeatNode({ id: A, x: 40, y: 40 });
-const seatB = crewSeatNode({ id: B, x: 360, y: 40 });
-const mailDoc = crewDoc(
+const seatA = modelSeat({ id: A, x: 40, y: 40 });
+const seatB = modelSeat({ id: B, x: 360, y: 40 });
+const mailDoc = modelFixture(
   [seatA, seatB],
-  [crewMessagesEdge("e-ab", A, B, [seatA, seatB])],
+  [modelMessagesWire("e-ab", A, B, [seatA, seatB])],
 );
 
 const opData = (env: WorkEnvelope): Record<string, unknown> => {
@@ -65,7 +54,7 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 
 const launch = () =>
   launchJunto({
-    seedCanvases: { [CANVAS]: mailDoc },
+    seedModels: { [CANVAS]: mailDoc },
     afterSeed: installCrewSeatHarness,
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
@@ -281,12 +270,12 @@ test("crew mail [fake-tui]: read and reply state stay truthful across the pair",
 test("crew mail [fake-tui]: masking msg.send off the edge refuses the send", async () => {
   test.setTimeout(180_000);
   const junto = await launchJunto({
-    seedCanvases: {
-      [CANVAS]: crewDoc(
+    seedModels: {
+      [CANVAS]: modelFixture(
         [seatA, seatB],
         // Observe stays granted; the send port is masked off.
         [
-          crewMessagesEdge("e-ab", A, B, [seatA, seatB], [
+          modelMessagesWire("e-ab", A, B, [seatA, seatB], [
             "msg.list",
             "terminal.read",
           ]),
@@ -333,10 +322,7 @@ test("crew mail [fake-tui]: removing the edge mid-flight closes further sends", 
     expect(opData(first).delivery).toBe("delivered");
 
     // Operator removes the edge through the real authoring path.
-    await crewMutateCanvas(page, CANVAS, (doc) => ({
-      ...doc,
-      edges: doc.edges.filter((edge) => edge.id !== "e-ab"),
-    }));
+    await commandModel(page, { _tag: "Remove", canvas: CANVAS, nodes: [], wires: ["e-ab"] });
 
     const second = await seatAHandle.op("msg.send", {
       target: B,
