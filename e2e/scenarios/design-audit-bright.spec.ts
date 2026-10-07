@@ -10,13 +10,9 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import {
-  agentTextNode,
-  canvasDoc,
-  verbEdge,
-} from "../harness/sandbox";
+import { modelSeat, modelFixture, modelNode, modelRegion, modelWire } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
-import type { CanvasEdge, CanvasNode, GroupNode } from "../../src/shared/canvas";
+import type { Node, Wire } from "../../src/shared/model";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit-bright");
 
@@ -25,64 +21,63 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: false });
 };
 
-const noteNode: CanvasNode = {
+const noteNode = modelNode({
   id: "note1",
-  type: "text",
-  text: "# Field notes\n\nThe **digest** stays deterministic.\n\n– relates edges are quiet\n– blockers paint crimson\n\n> the file is the agent API\n\n`bun run digest`",
+  kind: "note", z: 0,
+  text: "# Field notes\n\nThe **digest** stays deterministic.\n\n– relates edges are quiet\n– blockers paint crimson\n\n> agents read compiled projections\n\n`bun run digest`",
   x: 0,
   y: 0,
   width: 280,
   height: 230,
-};
+});
 
-const flaggedNote: CanvasNode = {
+const flaggedNote = modelNode({
   id: "note2",
-  type: "text",
+  kind: "note", z: 0,
   text: "release checklist",
   x: 340,
   y: 0,
   width: 220,
   height: 90,
   color: "1",
-};
+});
 
-const attentionNote: CanvasNode = {
+const attentionNote = modelNode({
   id: "note3",
-  type: "text",
+  kind: "note", z: 0,
   text: "copy review pending",
   x: 340,
   y: 140,
   width: 220,
   height: 90,
-};
+});
 
-const regionNode: GroupNode = {
+const regionNode = modelRegion({
   id: "region1",
-  type: "group",
   label: "forge orbit",
   x: -40,
   y: -60,
   width: 940,
   height: 400,
-  ether: { region: { hold: true } },
-};
+  hold: true,
+});
 
-const nodes: CanvasNode[] = [
+const nodes: Node[] = [
   regionNode,
   noteNode,
   flaggedNote,
   attentionNote,
-  agentTextNode({ id: "agent1", key: "local:default", label: "builder", x: 520, y: 400 }),
-  agentTextNode({ id: "agent2", key: "local:reviewer", label: "reviewer", x: 520, y: 560 }),
+  modelSeat({ id: "agent1", key: "local:default", label: "builder", x: 520, y: 400 }),
+  modelSeat({ id: "agent2", key: "local:reviewer", label: "reviewer", x: 520, y: 560 }),
 ];
 
-const edges: CanvasEdge[] = [
-  verbEdge("e1", "agent1", "agent2", "messages", nodes),
+const edges: Wire[] = [
+  modelWire("e1", "agent1", "agent2", "messages", nodes),
 ];
 
 test("capture key surfaces in bright mode", async () => {
   const junto = await launchJunto({
-    seedCanvases: { "design-audit-bright": canvasDoc(nodes, edges) },
+    seedModels: { "design-audit-bright": modelFixture(nodes, edges) },
   });
   try {
     const { page } = junto;

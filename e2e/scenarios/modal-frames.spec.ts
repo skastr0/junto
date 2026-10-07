@@ -9,26 +9,22 @@
  *   bun run test:e2e:fast e2e/scenarios/modal-frames.spec.ts
  */
 import type { Locator, Page } from "@playwright/test";
-import type { CanvasDoc } from "../../src/shared/canvas";
-import { agentTextNode, terminalTextNode } from "../harness/sandbox";
+import { modelSeat, modelTerminal, modelFixture, modelNode, modelRegion } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = "test-results/modal-frames";
 const CANVAS = "frames";
 
 const seats = ["ada", "bea", "cy"].map((id, index) =>
-  agentTextNode({ id: `seat-${id}`, key: `local:frames-${id}`, label: id, x: 60 + index * 260, y: 80 }),
+  modelSeat({ id: `seat-${id}`, key: `local:frames-${id}`, label: id, x: 60 + index * 260, y: 80 }),
 );
 
-const board: CanvasDoc = {
-  nodes: [
-    { id: "rg-lab", type: "group", label: "lab", x: 20, y: 20, width: 860, height: 220 },
+const board = modelFixture([
+    modelRegion({ id: "rg-lab", label: "lab", x: 20, y: 20, width: 860, height: 220 }),
     ...seats,
-    { id: "note-1", type: "text", text: "# Field notes\n\nThe operator draft stays put.", x: 60, y: 300, width: 260, height: 140 },
-    terminalTextNode({ id: "term-1", bindingId: "local:frames-term", label: "shell", x: 680, y: 300 }),
-  ],
-  edges: [],
-};
+    modelNode({ id: "note-1", kind: "note", z: 0, text: "# Field notes\n\nThe operator draft stays put.", x: 60, y: 300, width: 260, height: 140 }),
+    modelTerminal({ id: "term-1", bindingId: "local:frames-term", label: "shell", x: 680, y: 300 }),
+]);
 
 /** A nested frame is a fully bordered box covering this share of the dialog's own frame. */
 const NESTED_SHARE = 0.3;
@@ -197,7 +193,7 @@ const SURFACES: readonly Surface[] = [
 
 test("every modal and overlay is one frame", async () => {
   test.setTimeout(300_000);
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: board } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: board } });
   const findings: string[] = [];
   const missing: string[] = [];
   try {

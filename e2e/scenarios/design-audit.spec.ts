@@ -17,20 +17,9 @@ import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import type { LiveSnapshot } from "../../src/shared/overseer-live";
 import { IPC_CHANNELS } from "../../src/shared/ipc";
-import {
-  agentTextNode,
-  canvasDoc,
-  terminalTextNode,
-  textNode,
-  verbEdge,
-} from "../harness/sandbox";
+import { modelSeat, modelFixture, modelNode, modelRegion, modelTerminal, modelNote, modelWire } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
-import type {
-  CanvasEdge,
-  CanvasNode,
-  GroupNode,
-  LinkNode,
-} from "../../src/shared/canvas";
+import type { Node, Wire } from "../../src/shared/model";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -51,12 +40,12 @@ const liveAuditSnapshot: LiveSnapshot = {
 test("capture live conversation with isolated provider and media fixtures", async () => {
   test.setTimeout(90_000);
   await mkdir(SHOTS, { recursive: true });
-  const seat = agentTextNode({ id: "live-overseer", key: "local:overseer", label: "Factory Overseer", harness: "junto-overseer", x: 60, y: 60 });
+  const seat = modelSeat({ id: "live-overseer", key: "local:overseer", label: "Factory Overseer", harness: "junto-overseer", x: 60, y: 60 });
   const world = await launchJunto({
     offline: true,
-    seedCanvases: { "live-audit": canvasDoc([
+    seedModels: { "live-audit": modelFixture([
       seat,
-      textNode("release-note", "Release notes", 420, 60),
+      modelNote("release-note", "Release notes", 420, 60),
     ]) },
   });
   try {
@@ -184,64 +173,59 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: false });
 };
 
-const noteNode: CanvasNode = {
+const noteNode = modelNode({
   id: "note1",
-  type: "text",
+  kind: "note", z: 0,
   text: "# Field notes\n\nThe **digest** stays deterministic.\n\n– relates edges are quiet\n– blockers paint crimson\n\n> agents read compiled projections\n\n`bun run digest`",
   x: 0,
   y: 0,
   width: 280,
   height: 230,
-};
+});
 
-const flaggedNote: CanvasNode = {
+const flaggedNote = modelNode({
   id: "note2",
-  type: "text",
+  kind: "note", z: 0,
   text: "release checklist",
   x: 340,
   y: 0,
   width: 220,
   height: 90,
   color: "1",
-};
+});
 
-const attentionNote: CanvasNode = {
+const attentionNote = modelNode({
   id: "note3",
-  type: "text",
+  kind: "note", z: 0,
   text: "copy review pending",
   x: 340,
   y: 140,
   width: 220,
   height: 90,
-};
+});
 
-const linkNode: LinkNode = {
+const linkNode = modelNode({
   id: "link1",
-  type: "link",
-  url: "https://jsoncanvas.org",
+  kind: "page", z: 0,
+  url: "https://example.org",
   // Keep this interactive page card outside the held-region overlay so its
   // kind fields remain reachable in the visual audit.
   x: 920,
   y: 0,
   width: 240,
   height: 90,
-  ether: {
-    entity: { kind: "page" },
-    host: "local",
-    browser: { profile: "personal" },
-  },
-};
+  host: "local", profile: "personal", onRemove: "kill-session",
+});
 
-const regionNode: GroupNode = {
+const regionNode = modelRegion({
   id: "region1",
-  type: "group",
   label: "forge orbit",
   x: -40,
   y: -60,
   width: 940,
   height: 460,
-  ether: { region: { hold: true } },
-};
+  hold: true,
+});
 
 const LAUNCH = {
   kind: "command" as const,
@@ -252,27 +236,27 @@ const LAUNCH = {
   ],
 };
 
-const nodes: CanvasNode[] = [
+const nodes: Node[] = [
   regionNode,
   noteNode,
   flaggedNote,
   attentionNote,
   linkNode,
-  agentTextNode({
+  modelSeat({
     id: "agent1",
     key: "local:default",
     label: "builder",
     x: 520,
     y: 460,
   }),
-  agentTextNode({
+  modelSeat({
     id: "agent2",
     key: "local:reviewer",
     label: "reviewer",
     x: 520,
     y: 620,
   }),
-  terminalTextNode({
+  modelTerminal({
     id: "term1",
     bindingId: "audit-term-binding",
     label: "audit native term",
@@ -282,8 +266,8 @@ const nodes: CanvasNode[] = [
   }),
 ];
 
-const edges: CanvasEdge[] = [
-  verbEdge("e1", "agent1", "agent2", "messages", nodes),
+const edges: Wire[] = [
+  modelWire("e1", "agent1", "agent2", "messages", nodes),
 ];
 
 test("capture every surface for design review", async () => {
@@ -294,7 +278,7 @@ test("capture every surface for design review", async () => {
   await mkdir(SHOTS, { recursive: true });
 
   const junto = await launchJunto({
-    seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
+    seedModels: { "design-audit": modelFixture(nodes, edges) },
     // The add-item palette lists only installed harnesses; the sandbox PATH
     // carries none, so plant the one whose card and model cascade are captured.
     seedHarnessInstalls: ["claude"],
@@ -478,7 +462,7 @@ test("capture every surface for design review", async () => {
 
 test("capture the empty field state", async () => {
   const junto = await launchJunto({
-    seedCanvases: { empty: canvasDoc([]) },
+    seedModels: { empty: modelFixture([]) },
   });
   try {
     const { page } = junto;
