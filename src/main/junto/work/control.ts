@@ -119,7 +119,6 @@ import {
   type WorkOpName as WorkOp,
   type WorkResponseEnvelope,
 } from "@shared/work-control";
-import { CanvasesService } from "../canvases";
 import { ContentService } from "../content/service";
 import { handleContentStage } from "./content-stage";
 import { handleSeatReferences, onboardReferenceFields } from "../references/seat-reads";
@@ -723,7 +722,7 @@ const rulingsForRegionStack = (doc: Canvas, nodeId: string) =>
 // Dispatch
 
 type RunEffect = <A, E>(
-  effect: Effect.Effect<A, E, WorkService | CanvasesService | PausePlane>,
+  effect: Effect.Effect<A, E, WorkService | PausePlane>,
 ) => Promise<A>;
 
 const PREAMBLE_TOOL = Object.freeze({
@@ -1089,10 +1088,9 @@ const dispatchOp = (
 ): Effect.Effect<
   unknown,
   WorkErrorBody,
-  WorkService | CanvasesService | PausePlane
+  WorkService | PausePlane
 > =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
     const work = yield* WorkService;
     const pausePlane = yield* PausePlane;
 
@@ -3260,7 +3258,7 @@ export const startWorkControlServer = async (
         const liveAuthorityAndDispatch: Effect.Effect<
           WorkDispatchResult,
           never,
-          WorkService | CanvasesService | PausePlane
+          WorkService | PausePlane
         > = Effect.gen(function* () {
           const liveDocsResult = yield* Effect.flatMap(
             WorkService,
