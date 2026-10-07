@@ -157,6 +157,7 @@ import { injectionSupervisor } from "./term/injection-supervisor";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import { handleSeatOffboardRun, handleSeatOffboardStatus } from "./seat-sessions/operator-offboard-ipc";
 import { startOperatorOffboard } from "./seat-sessions/operator-offboard-live";
+import { cutBeforeMail } from "./seat-sessions/operator-offboard";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
   scheduleManagedPulseReady,
@@ -2490,6 +2491,13 @@ export const registerJuntoIpc = (): void => {
           // Mail to a seat that has not run `junto onboard` carries the
           // pointer on its own line.
           seatOnboarded: (bindingId) => injectionSupervisor.isOnboarded(bindingId),
+          // Auto offboard: a running, idle seat about to be given a turn on
+          // a session that has gone cold gets a fresh session first, and this
+          // mail wakes it there. One seat, at its own delivery; never a timer.
+          cutColdSession: (_bindingId, canvas, nodeId) =>
+            productAutomationSuspended
+              ? Promise.resolve(false)
+              : cutBeforeMail({ canvasName: canvas, seatId: nodeId }),
           // The kernel wake owns locality, the pause law, and the restart
           // budget. A generation already starting needs no second wake.
           wakeSeat: (bindingId, canvas, nodeId) => {
