@@ -51,6 +51,25 @@ describe("buildManagedAgentSeat / reseatManagedAgentNode", () => {
     expect(next.ether?.host).toBe("local");
   });
 
+  it("leaves the session of a pinning harness to main: none on the node, none in the launch", () => {
+    // A fresh seat of a pinning harness carries the session it will resume.
+    const fresh = makeManagedAgentNode(0, 0, { harness: "claude", host: "local" });
+    const freshTerminal = fresh.ether?.terminal;
+    expect(typeof freshTerminal?.sessionId).toBe("string");
+    expect(freshTerminal?.launch?.argv).toContain("--session-id");
+
+    // Re-seated, the new agent is started by main, which mints and records
+    // its session; one made here would ride in the launch and be recorded nowhere.
+    for (const harness of ["claude", "grok"] as const) {
+      const next = reseatManagedAgentNode(fresh, { harness });
+      const terminal = next.ether?.terminal;
+      expect(terminal?.harness).toBe(harness);
+      expect(terminal?.sessionId).toBeUndefined();
+      expect(terminal?.launch?.argv).not.toContain("--session-id");
+      expect(terminal?.bindingId).not.toBe(freshTerminal?.bindingId);
+    }
+  });
+
   it("preserves launch cwd when reseating with prior path", () => {
     const original = makeManagedAgentNode(0, 0, {
       harness: "codex",

@@ -114,6 +114,8 @@ export type ManagedAgentSeatOptions = {
   readonly extraArgs?: readonly string[];
   readonly cwd?: string;
   readonly label?: string;
+  /** Leave the session to main (seat-parts.ts): set for a re-seat. */
+  readonly sessionFromMain?: boolean;
 };
 
 export type ManagedAgentSeatFields = {
@@ -195,7 +197,8 @@ export const reseatManagedAgentNode = (
     (typeof node.ether.host === "string" && node.ether.host.trim().length > 0
       ? node.ether.host
       : "local");
-  const seat = buildManagedAgentSeat({ ...options, host });
+  // The session of the new agent is main's to mint and record when it starts.
+  const seat = buildManagedAgentSeat({ ...options, host, sessionFromMain: true });
   const label = seatNameOf(node);
   return {
     ...node,

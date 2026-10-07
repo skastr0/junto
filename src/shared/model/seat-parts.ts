@@ -42,6 +42,13 @@ export type SeatChoices = {
   readonly extraArgs?: readonly string[];
   readonly cwd?: string;
   readonly label?: string;
+  /**
+   * Leave the session to main. A new agent in a seat that already exists (a
+   * re-seat) is started by main, which mints and records the session of a
+   * pinning harness itself; a session id made here would be carried in the
+   * launch and recorded nowhere.
+   */
+  readonly sessionFromMain?: boolean;
 };
 
 /** Everything that says which agent runs in a seat and how it is started. */
@@ -52,7 +59,10 @@ export type SeatParts = {
   readonly bindingId: BindingId;
   readonly harness: HarnessId;
   readonly launch: Launch;
-  /** Minted here for a harness that pins its session, so every wake resumes that one. */
+  /**
+   * Minted here for a harness that pins its session, so every wake resumes
+   * that one. Absent when the session is left to main (`sessionFromMain`).
+   */
   readonly sessionId?: string;
 };
 
@@ -70,7 +80,8 @@ export const seatParts = (choices: SeatChoices): SeatParts => {
   const template = templateFor(choices.harness);
   const extraArgs = sanitizeExtraArgs(choices.harness, choices.extraArgs).args;
   // A pinning harness wants a UUID for its session flag, and refuses a ULID.
-  const sessionId = template.capabilityBadges.sessionId === "pin" ? crypto.randomUUID() : undefined;
+  const sessionId =
+    template.capabilityBadges.sessionId === "pin" && choices.sessionFromMain !== true ? crypto.randomUUID() : undefined;
   const resolved = resolveManagedLaunch(
     choices.harness,
     {
