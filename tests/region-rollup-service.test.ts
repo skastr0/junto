@@ -16,9 +16,6 @@ import {
 import { SnapshotsService } from "../src/main/junto/snapshots";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 import { spawnedLocalAcp } from "./helpers/acp-child";
-import {
-  canvasAuthorityMaterialFixture,
-} from "./helpers/canvas-authority-material";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
