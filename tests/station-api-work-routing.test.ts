@@ -94,6 +94,7 @@ const document = (connected: boolean) =>
         text: "Remote actor",
         ether: {
           entity: { kind: "agent", name: "remote:builder" },
+          terminal: { bindingId: "binding-remote-builder", harness: "claude" },
           host: "remote",
         },
       },
@@ -107,6 +108,7 @@ const document = (connected: boolean) =>
         text: "Command Center actor",
         ether: {
           entity: { kind: "agent", name: "local:operator" },
+          terminal: { bindingId: "binding-local-operator", harness: "claude" },
           host: "local",
         },
       },
@@ -120,6 +122,7 @@ const document = (connected: boolean) =>
         text: "Command Center recipient",
         ether: {
           entity: { kind: "agent", name: "local:recipient" },
+          terminal: { bindingId: "binding-local-recipient", harness: "claude" },
           host: "local",
         },
       },
@@ -281,6 +284,7 @@ const remoteOverseerTopology = (
         text: "Remote overseer",
         ether: {
           entity: { kind: "agent", name: "remote:overseer" },
+          terminal: { bindingId: "binding-remote-overseer", harness: "claude" },
           host: "remote",
           overseer: seat.overseer === true,
         },

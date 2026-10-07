@@ -27,9 +27,16 @@ const textNode = (
   y,
   width: 120,
   height: 48,
-  ...(kind !== undefined
-    ? { ether: { entity: { kind } } }
-    : {}),
+  ...(kind === "agent"
+    ? {
+        ether: {
+          entity: { kind, name: `local:${id}` },
+          terminal: { bindingId: `binding-${id}`, harness: "claude" as const },
+        },
+      }
+    : kind !== undefined
+      ? { ether: { entity: { kind } } }
+      : {}),
 });
 
 const pageNode = (id: string, x = 200, y = 0): CanvasDoc["nodes"][number] => ({

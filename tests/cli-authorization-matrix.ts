@@ -129,7 +129,14 @@ const textNode = (id: string, kind: WellKnownKind, x: number): CanvasNode => ({
   y: 0,
   width: 160,
   height: 80,
-  ether: { entity: { kind } },
+  // A seat is an agent with a binding and a harness; the model holds no other.
+  ether:
+    kind === "agent"
+      ? {
+          entity: { kind, name: `local:${id}` },
+          terminal: { bindingId: `binding-${id}`, harness: "claude" },
+        }
+      : { entity: { kind } },
 });
 
 /**

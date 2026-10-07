@@ -1,12 +1,9 @@
 import { HashMap, HashSet, Option } from "effect";
-import {
-  compileEdgeGrant,
-  edgeKindIndex,
-  type CanvasDoc,
-  type CanvasNode,
-} from "../canvas";
+import type { CanvasDoc, CanvasNode } from "../canvas";
 import { productNodeKindEnabled } from "../features";
 import { groupMembers, isGroup } from "../graph";
+import { nodeOfDocument, wireOfDocument } from "../model/from-document";
+import { wireGrant } from "../model/wire";
 import type { CapabilityView, NodeMeta } from "./admit";
 import { directedEdgeKey, undirectedEdgeKey } from "./admit";
 import {
@@ -92,7 +89,14 @@ export const canvasDocToCapabilityView = (
   // independent capability; possession is additive, ocap-style). `allows()`
   // in admit.ts still intersects the resulting grant with target offers, so
   // the union can never smuggle a port the target does not offer.
-  const kinds = edgeKindIndex(doc);
+  // A region is geography and holds no end of a grant; of two nodes with
+  // one id the first is the one a wire reaches.
+  const kinds = new Map<string, string>();
+  doc.nodes.forEach((node, z) => {
+    if (isGroup(node) || kinds.has(node.id)) return;
+    const kind = nodeOfDocument("", node, z)?.kind;
+    if (kind !== undefined) kinds.set(node.id, kind);
+  });
   const pairPorts = new Map<string, HashSet.HashSet<Port>>();
   let directedEdgePortMask = HashMap.empty<string, HashSet.HashSet<Port>>();
   let claimable = HashSet.empty<string>();
@@ -104,11 +108,12 @@ export const canvasDocToCapabilityView = (
     addAdj(b, a);
 
     const key = undirectedEdgeKey(edge.fromNode, edge.toNode);
-    const grant = compileEdgeGrant(edge, kinds);
+    const wire = wireOfDocument(edge);
+    const grant = wire === undefined ? undefined : wireGrant(wire, kinds);
     const ports = HashSet.fromIterable(
       (grant?.ports ?? []).filter((port) => port !== "verdict.post"),
     );
-    if (edge.ether?.verb === "reviews" && grant?.ports.includes("verdict.post")) {
+    if (wire?.verb === "reviews" && grant?.ports.includes("verdict.post")) {
       const directedKey = directedEdgeKey(edge.fromNode, edge.toNode);
       const prior = HashMap.get(directedEdgePortMask, directedKey);
       directedEdgePortMask = HashMap.set(

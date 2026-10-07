@@ -136,7 +136,7 @@ describe("work authz — edges as capability", () => {
     width: 100,
     height: 40,
     text: id,
-    ether: { entity: { kind: "agent", name: `local:${id}` } },
+    ether: { entity: { kind: "agent", name: `local:${id}` }, terminal: { bindingId: `binding-${id}`, harness: "claude" as const } },
   });
   const board = doc(
     [

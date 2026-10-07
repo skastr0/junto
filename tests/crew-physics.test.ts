@@ -6,7 +6,7 @@ import { admitPure, asNodeId, canvasDocToCapabilityView, type Port } from "../sr
 const docWith = (edges: readonly CanvasEdge[]): CanvasDoc => ({
   nodes: ["author", "reviewer"].map((id) => ({
     id, type: "text" as const, text: id, x: 0, y: 0, width: 200, height: 100,
-    ether: { entity: { kind: "agent", name: id } },
+    ether: { entity: { kind: "agent", name: id }, terminal: { bindingId: `binding-${id}`, harness: "claude" as const } },
   })),
   edges,
 });

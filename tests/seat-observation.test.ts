@@ -521,7 +521,8 @@ describe("seat.wait", () => {
     const exit = await Effect.runPromiseExit(
       harness.service.waitSeat({ target: "peer", until: "idle", timeoutMs: 1_000 }, caller),
     );
-    expect(failure(exit)?.type).toBe("UnknownTarget");
+    // An agent with no binding is not a seat, so no wire to it grants anything.
+    expect(failure(exit)?.type).toBe("ScopeError");
   });
 
   it("refuses a managed seat that runs on another host", async () => {

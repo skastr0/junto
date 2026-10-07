@@ -30,7 +30,7 @@ describe("crew work wire contract", () => {
     const doc: CanvasDoc = {
       nodes: ["author", "peer"].map((id) => ({
         id, type: "text", text: id, x: 0, y: 0, width: 200, height: 100,
-        ether: { entity: { kind: "agent", name: id } },
+        ether: { entity: { kind: "agent", name: id }, terminal: { bindingId: `binding-${id}`, harness: "claude" as const } },
       })),
       edges: [
         { id: "m", fromNode: "author", toNode: "peer", ether: { verb: "messages", mask: ["terminal.read"] } },
