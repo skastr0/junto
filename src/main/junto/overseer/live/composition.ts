@@ -4,6 +4,8 @@ import { isManagedAgentNode } from "@shared/actor-surface";
 import { serializeCanvas } from "@shared/canvas";
 import { resolveNodeHostId } from "@shared/station";
 import { CanvasesService } from "../../canvases";
+import type { ModelActorRefs } from "../../model/actor-refs";
+import type { ModelService } from "../../model/service";
 import { canvasBodySha256Of } from "../../canvas-intent-identity";
 import { getProcessIdentityMap } from "../../process-identity";
 import { SettingsService } from "../../settings/service";
@@ -16,7 +18,7 @@ import { buildLiveContext } from "./context";
 import { makeLiveRepository } from "./repository";
 import { createLiveSessionService } from "./service";
 
-type Services = CanvasesService | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | WorkProjectionReader;
+type Services = CanvasesService | ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | WorkProjectionReader;
 export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
 
 /** The revision of one stored canvas, read from what the canvas service holds. */

@@ -1,3 +1,5 @@
+import type { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import type { ModelService } from "../src/main/junto/model/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -158,8 +160,8 @@ describe("overseer composition canvas hook with live grant", () => {
       ...origin, overseer: true, expectedRevision: ops.revision,
     }));
 
-    const run = <A, E>(effect: Effect.Effect<A, E, CanvasesService | StationRepository>) =>
-      runtime!.runPromise(effect.pipe(Effect.delay("5 millis")));
+    const run = <A, E>(effect: Effect.Effect<A, E, ModelService | ModelActorRefs | StationRepository>) =>
+      runtime!.runPromise(effect.pipe(Effect.delay("5 millis")) as never) as Promise<A>;
     const localGrant = createDispatchGrant(run, undefined);
     const wrongSourceGrant = createDispatchGrant(run, Schema.decodeUnknownSync(InstallationId)("wrong-installation"));
     expect(await Promise.all([localGrant(origin), wrongSourceGrant(origin)]))

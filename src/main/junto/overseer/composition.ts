@@ -17,7 +17,8 @@ import type {
 } from "@shared/overseer-control";
 import type { InstallationId } from "@shared/station-api";
 import type { WorkErrorBody } from "@shared/work-control";
-import { CanvasesService } from "../canvases";
+import type { ModelActorRefs } from "../model/actor-refs";
+import type { ModelService } from "../model/service";
 import { ChatServiceContext } from "../chat/service";
 import { ActorSeatOccupy } from "../term/actor-seat-occupy";
 import { termPlane } from "../term/plane";
@@ -53,7 +54,6 @@ import { readPortfolio, type OverseerStores } from "./portfolio";
 import type { WorkService } from "../work/service";
 
 type OverseerServices =
-  | CanvasesService
   | OverseerStores
   | ChatServiceContext
   | ActorSeatOccupy
@@ -225,7 +225,7 @@ export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "in
  * originating async context, so process-global / ALS stores are not enough.
  */
 export const createDispatchGrant = (
-  run: <A, E>(effect: Effect.Effect<A, E, CanvasesService | StationRepository>) => Promise<A>,
+  run: <A, E>(effect: Effect.Effect<A, E, ModelService | ModelActorRefs | StationRepository>) => Promise<A>,
   sourceInstallationId: InstallationId | undefined,
   live?: OverseerLiveExecutionConstraint,
 ): ((caller: OverseerCaller) => Promise<boolean>) =>

@@ -1,32 +1,39 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer, Result, Schema } from "effect";
-import type { CanvasReadResult } from "../src/shared/ipc";
+import type { CanvasDoc } from "../src/shared/canvas";
+import { asCanvasName, type Changed } from "../src/shared/model";
+import { canvasFromDocument, nodeFromDocument } from "../src/shared/model/from-document";
 import { InstallationId } from "../src/shared/installation-id";
 import { CommandCenterConfiguration } from "../src/shared/station-api";
-import { CanvasesService, type CanvasChangeDetail } from "../src/main/junto/canvases";
+import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelService } from "../src/main/junto/model/service";
 import { StationRepository } from "../src/main/junto/station/repository";
 import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
-import { resolveOverseerActor, watchOverseerRevocation } from "../src/main/junto/overseer/admission";
+import {
+  resolveOverseerActor,
+  watchOverseerRevocation,
+  type OverseerSeatRead,
+} from "../src/main/junto/overseer/admission";
 
 const local = Schema.decodeUnknownSync(InstallationId)("cc-test");
 const remote = Schema.decodeUnknownSync(InstallationId)("remote-test");
 const caller = { canvasName: "factory", nodeId: "planner" };
-const fixture = (home = remote): CanvasReadResult => ({
+type DocNode = CanvasDoc["nodes"][number];
+const planner = (ether: DocNode["ether"]): DocNode => ({
+  id: "planner", type: "text", text: "Planner", x: 17, y: -29, width: 300, height: 200, ether,
+});
+const seatEther = {
+  entity: { kind: "agent", name: "remote:planner" },
+  host: "remote", overseer: true,
+  terminal: { bindingId: "planner-binding", harness: "claude" },
+} as const;
+/** The canvas as the model reads a document whose one node carries this. */
+const canvasOf = (ether: DocNode["ether"]) =>
+  canvasFromDocument("factory", { nodes: [planner(ether)], edges: [] });
+const fixture = (home = remote, ether: DocNode["ether"] = seatEther): OverseerSeatRead => ({
   name: "factory",
-  revision: "revision",
-  workRevision: "0",
   actorRefs: [{ ...caller, seatId: deriveActorSeatId(home, "planner-binding") }],
-  doc: {
-    nodes: [{
-      id: "planner", type: "text", text: "Planner", x: 17, y: -29, width: 300, height: 200,
-      ether: {
-        entity: { kind: "agent", name: "remote:planner" },
-        host: "remote", overseer: true,
-        terminal: { bindingId: "planner-binding", harness: "claude" },
-      },
-    }],
-    edges: [],
-  },
+  canvas: canvasOf(ether),
 });
 
 describe("overseer installation admission", () => {
@@ -45,13 +52,12 @@ describe("overseer installation admission", () => {
 
   it("requires the live human grant, a complete actor, and exact canvas identity", () => {
     for (const ether of [
-      { ...fixture().doc.nodes[0]!.ether, overseer: false },
-      { ...fixture().doc.nodes[0]!.ether, overseer: undefined },
-      { ...fixture().doc.nodes[0]!.ether, entity: { kind: "terminal", name: "remote:planner" } },
-      { ...fixture().doc.nodes[0]!.ether, terminal: undefined },
+      { ...seatEther, overseer: false },
+      { ...seatEther, overseer: undefined },
+      { ...seatEther, entity: { kind: "terminal", name: "remote:planner" } },
+      { ...seatEther, terminal: undefined },
     ]) {
-      const read = fixture();
-      const changed = { ...read, doc: { nodes: [{ ...read.doc.nodes[0]!, ether }], edges: [] } };
+      const changed = fixture(remote, ether as DocNode["ether"]);
       expect(Result.isFailure(resolveOverseerActor(caller, changed, remote))).toBe(true);
     }
     expect(Result.isFailure(resolveOverseerActor(caller, { ...fixture(), name: "another" }, remote))).toBe(true);
@@ -68,21 +74,21 @@ describe("overseer installation admission", () => {
     }
   });
 
-  it("rechecks Work invalidations without revoking, but latches rapid off/on authorial changes", async () => {
+  it("rechecks on a change that leaves the seat as it was, and latches a rapid off and on", async () => {
     const read = fixture();
-    let listener: ((name: string, detail?: CanvasChangeDetail) => void) | undefined;
+    let listener: ((event: Changed) => void) | undefined;
     let reads = 0;
     let settled = false;
     const layers = Layer.mergeAll(
-      Layer.mock(CanvasesService, {
-        start: () => {},
-        read: () => Effect.sync(() => { reads++; return read; }),
-        subscribeChanges: (callback) => {
+      Layer.succeed(ModelService, {
+        canvas: () => Effect.sync(() => { reads++; return read.canvas; }),
+        subscribeChanges: (callback: (event: Changed) => void) => {
           listener = callback;
           return () => { listener = undefined; };
         },
-        announceInstalledProjection: () => {},
-      }),
+        subscribeCanvasesChanges: () => () => undefined,
+      } as never),
+      Layer.succeed(ModelActorRefs, { read: () => Effect.succeed(read.actorRefs) } as never),
       Layer.mock(StationRepository, {
         installationId: Effect.succeed(local),
         configuration: Effect.succeed({
@@ -93,6 +99,16 @@ describe("overseer installation admission", () => {
         }),
       }),
     );
+    /** One committed change to the canvas that carries the seat as given. */
+    let seq = 0;
+    const changed = (ether?: DocNode["ether"]): Changed => ({
+      canvas: asCanvasName("factory"),
+      seq: ++seq,
+      nodes: ether === undefined ? [] : [nodeFromDocument("factory", planner(ether), 0)],
+      wires: [],
+      removedNodes: [],
+      removedWires: [],
+    } as Changed);
     const abort = new AbortController();
     const watching = Effect.runPromise(
       watchOverseerRevocation(caller, read.actorRefs[0]!, remote).pipe(
@@ -103,27 +119,22 @@ describe("overseer installation admission", () => {
     ).then((result) => { settled = true; return result; });
     try {
       await vi.waitFor(() => expect(reads).toBe(1));
-      listener!(caller.canvasName);
+      // Another node changed.
+      listener!(changed());
       await vi.waitFor(() => expect(reads).toBe(2));
       expect(settled).toBe(false);
-      listener!(caller.canvasName, { previous: read.doc, next: read.doc });
+      // The seat itself was written again, the same seat.
+      listener!(changed(seatEther));
       await vi.waitFor(() => expect(reads).toBe(3));
       expect(settled).toBe(false);
-      const revoked = {
-        ...read.doc,
-        nodes: read.doc.nodes.map((node) => ({
-          ...node, ether: { ...node.ether, overseer: false },
-        })),
-      };
       // The next live read already sees the restored grant. The commit event
       // must still cancel the command that held the old grant.
-      listener!(caller.canvasName, { previous: read.doc, next: revoked });
-      listener?.(caller.canvasName, { previous: revoked, next: read.doc });
+      listener!(changed({ ...seatEther, overseer: false }));
+      listener?.(changed(seatEther));
       expect(await watching).toMatchObject({ _tag: "Failure", failure: { type: "ScopeError" } });
       expect(listener).toBeUndefined();
     } finally {
       abort.abort();
-      await watching.catch(() => {});
     }
   });
 });

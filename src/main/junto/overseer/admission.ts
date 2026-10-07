@@ -1,24 +1,39 @@
 import { Effect, Queue, Result } from "effect";
-import { isManagedAgentNode } from "@shared/actor-surface";
-import type { CanvasReadResult } from "@shared/ipc";
+import { asNodeId, type Canvas, type Seat } from "@shared/model";
 import type { OverseerCaller } from "@shared/overseer-control";
-import { resolveNodeHostId } from "@shared/station";
 import type { InstallationId } from "@shared/station-api";
 import type { ActorRef } from "@shared/work-reference";
 import type { WorkErrorBody } from "@shared/work-control";
-import { CanvasesService } from "../canvases";
+import { ModelActorRefs } from "../model/actor-refs";
+import { ModelService } from "../model/service";
 import { deriveActorSeatId } from "../station/actor-seat-compiler";
 import { StationRepository } from "../station/repository";
+
+/** One canvas as the model holds it, with the actor references compiled for it. */
+export type OverseerSeatRead = {
+  readonly name: string;
+  readonly canvas: Pick<Canvas, "nodes">;
+  readonly actorRefs: ReadonlyArray<ActorRef>;
+};
+
+/** The caller's seat when it is a seat the operator made an overseer. */
+const overseerSeatOf = (
+  caller: OverseerCaller,
+  read: OverseerSeatRead,
+): Seat | undefined => {
+  if (read.name !== caller.canvasName) return undefined;
+  const node = read.canvas.nodes.get(asNodeId(caller.nodeId));
+  return node?.kind === "agent" && node.overseer ? node : undefined;
+};
 
 /** Installation evidence comes from local process admission or a paired peer. */
 export const resolveOverseerActor = (
   caller: OverseerCaller,
-  read: CanvasReadResult,
+  read: OverseerSeatRead,
   sourceInstallationId: InstallationId,
 ): Result.Result<ActorRef, WorkErrorBody> => {
-  const node = read.doc.nodes.find((candidate) => candidate.id === caller.nodeId);
-  if (read.name !== caller.canvasName || node === undefined ||
-    !isManagedAgentNode(node) || node.ether.overseer !== true) {
+  const seat = overseerSeatOf(caller, read);
+  if (seat === undefined) {
     return Result.fail({
       type: "ScopeError",
       message: "the caller no longer has human-granted overseer authority",
@@ -27,7 +42,7 @@ export const resolveOverseerActor = (
   }
   const refs = read.actorRefs.filter((actor) =>
     actor.canvasName === caller.canvasName && actor.nodeId === caller.nodeId);
-  const expectedSeat = deriveActorSeatId(sourceInstallationId, node.ether.terminal.bindingId);
+  const expectedSeat = deriveActorSeatId(sourceInstallationId, seat.bindingId);
   if (refs.length !== 1 || refs[0]!.seatId !== expectedSeat) {
     return Result.fail({
       type: "ScopeError",
@@ -38,12 +53,13 @@ export const resolveOverseerActor = (
   return Result.succeed(refs[0]!);
 };
 
-/** Re-evaluated for every invocation and after authorial change notifications. */
+/** Re-evaluated for every invocation and after every change to the caller's canvas. */
 export const admitOverseer = Effect.fn("overseer.admit")(function* (
   caller: OverseerCaller,
   sourceInstallationId?: InstallationId,
 ) {
-  const canvases = yield* CanvasesService;
+  const model = yield* ModelService;
+  const actors = yield* ModelActorRefs;
   const stations = yield* StationRepository;
   const configuration = yield* stations.configuration.pipe(
     Effect.mapError((error): WorkErrorBody => ({ type: "RuntimeDown", message: error.message })),
@@ -62,18 +78,23 @@ export const admitOverseer = Effect.fn("overseer.admit")(function* (
     });
   }
   const installationId = sourceInstallationId ?? localInstallationId;
-  const read = yield* canvases.read(caller.canvasName, "work.control").pipe(
-    Effect.mapError((error): WorkErrorBody => ({ type: "StaleNodeRef", message: error.message })),
-  );
+  const stale = (error: { readonly message: string }): WorkErrorBody =>
+    ({ type: "StaleNodeRef", message: error.message });
+  const read: OverseerSeatRead = {
+    name: caller.canvasName,
+    canvas: yield* model.canvas(caller.canvasName).pipe(Effect.mapError(stale)),
+    actorRefs: yield* actors.read(caller.canvasName).pipe(Effect.mapError(stale)),
+  };
   const actor = yield* Effect.fromResult(resolveOverseerActor(caller, read, installationId));
-  const node = read.doc.nodes.find((candidate) => candidate.id === caller.nodeId)!;
+  const seat = overseerSeatOf(caller, read)!;
   return {
     actor,
     installationId,
     localInstallationId,
     configuration: configuration.configuration,
-    hostId: resolveNodeHostId(node),
-    bindingId: node.ether!.terminal!.bindingId,
+    hostId: seat.host,
+    bindingId: seat.bindingId,
+    agentKey: seat.agentKey,
   };
 });
 
@@ -85,31 +106,43 @@ export const watchOverseerRevocation = (
   caller: OverseerCaller,
   expectedActor: ActorRef,
   sourceInstallationId?: InstallationId,
-): Effect.Effect<never, WorkErrorBody, CanvasesService | StationRepository> =>
+): Effect.Effect<never, WorkErrorBody, ModelService | ModelActorRefs | StationRepository> =>
   Effect.scoped(Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
+    const model = yield* ModelService;
     const changes = yield* Queue.dropping<void>(1);
     let revoked = false;
+    // The seat as the command was admitted on; a change that leaves another
+    // agent, session or host in it revokes, the same as taking the grant away.
+    let admitted: { readonly agentKey: string; readonly bindingId: string; readonly hostId: string } | undefined;
     yield* Effect.acquireRelease(
-      Effect.sync(() => canvases.subscribeChanges((name, detail) => {
-        if (name === caller.canvasName && detail !== undefined) {
-          const next = detail.next?.nodes.find((node) => node.id === caller.nodeId);
-          const previous = detail.previous?.nodes.find((node) => node.id === caller.nodeId);
-          // Latch revocation: a fast off/on sequence must not revive an
-          // in-flight command. Work invalidations carry no authorial diff;
-          // they trigger a live recheck rather than revoking the grant.
-          if (next === undefined || !isManagedAgentNode(next) ||
-            next.ether.overseer !== true || previous === undefined ||
-            previous.ether?.entity?.name !== next.ether.entity.name ||
-            previous.ether?.terminal?.bindingId !== next.ether.terminal.bindingId ||
-            resolveNodeHostId(previous) !== resolveNodeHostId(next)) revoked = true;
-        }
-        Queue.offerUnsafe(changes, undefined);
-      })),
+      Effect.sync(() => {
+        const unsubscribeNodes = model.subscribeChanges((event) => {
+          if (event.canvas === caller.canvasName) {
+            const next = event.nodes.find((node) => node.id === caller.nodeId);
+            // Latch revocation: a fast off/on sequence must not revive an
+            // in-flight command.
+            if (event.removedNodes.some((id) => id === caller.nodeId)) revoked = true;
+            else if (next !== undefined && (
+              next.kind !== "agent" || !next.overseer ||
+              (admitted !== undefined && (
+                next.agentKey !== admitted.agentKey ||
+                next.bindingId !== admitted.bindingId ||
+                next.host !== admitted.hostId))
+            )) revoked = true;
+          }
+          Queue.offerUnsafe(changes, undefined);
+        });
+        const unsubscribeCanvases = model.subscribeCanvasesChanges((event) => {
+          if (event._tag === "Removed" && event.canvas === caller.canvasName) revoked = true;
+          Queue.offerUnsafe(changes, undefined);
+        });
+        return () => { unsubscribeNodes(); unsubscribeCanvases(); };
+      }),
       (unsubscribe) => Effect.sync(unsubscribe).pipe(Effect.andThen(Queue.shutdown(changes))),
     );
     while (true) {
       const current = yield* admitOverseer(caller, sourceInstallationId);
+      admitted ??= current;
       if (revoked || current.actor.seatId !== expectedActor.seatId) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "ScopeError", message: "overseer authority was revoked or replaced during the command",
