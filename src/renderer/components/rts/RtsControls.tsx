@@ -1,5 +1,5 @@
 import { useRtsNodes, withCurrentRtsNode, useRtsValue, useRtsWire } from "../../lib/rts-selection";
-import { wireOfDocument } from "@shared/model/from-document";
+import { asWireId, type Wire } from "@shared/model";
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -26,7 +26,7 @@ import {
   Timer,
   Trash2,
 } from "lucide-react";
-import type { CanvasEdge, CanvasNode } from "@shared/canvas";
+import type { CanvasNode } from "@shared/canvas";
 import type { TaskAdmission, TasksContract, TasksIncoming } from "@shared/work-model";
 import { resolveTaskAdmission } from "@shared/work-model";
 import {
@@ -70,7 +70,8 @@ import {
   WatcherEditor,
 } from "../InspectorFields";
 import { formatWait, normalizeBoardSettings } from "../rules";
-import { commitDoc, setBoardSettings } from "../../lib/mutations";
+import { reverbed } from "../../lib/model-edits";
+import { commitCommands, setBoardSettings } from "../../lib/mutations";
 import { Button } from "../ui";
 import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import { AgentReseatControl } from "./AgentReseatControl";
@@ -140,12 +141,12 @@ type EdgeVerbView = {
 };
 
 /** Selected relationship labels follow native endpoints, never the whole graph. */
-const edgeVerbView = (canvasName: string, edge: CanvasEdge): EdgeVerbView => {
-  const fromNode = modelStore.node$(canvasName, edge.fromNode).get();
-  const toNode = modelStore.node$(canvasName, edge.toNode).get();
-  const fromLabel = fromNode ? titleOf(fromNode) : edge.fromNode;
-  const toLabel = toNode ? titleOf(toNode) : edge.toNode;
-  const verb = wireOfDocument(edge)?.verb;
+const edgeVerbView = (canvasName: string, edge: Wire): EdgeVerbView => {
+  const fromNode = modelStore.node$(canvasName, edge.from).get();
+  const toNode = modelStore.node$(canvasName, edge.to).get();
+  const fromLabel = fromNode ? titleOf(fromNode) : edge.from;
+  const toLabel = toNode ? titleOf(toNode) : edge.to;
+  const verb = edge.verb;
   const sibling = verb === undefined
     ? undefined
     : verbsForPair(fromNode?.kind, toNode?.kind)
@@ -164,13 +165,7 @@ const edgeVerbView = (canvasName: string, edge: CanvasEdge): EdgeVerbView => {
  * the write is the whole decision and there is nothing left to validate.
  */
 const swapEdgeVerb = (edgeId: string, verb: Verb): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    edges: doc.edges.map((edge) =>
-      edge.id === edgeId ? { ...edge, ether: { verb } } : edge,
-    ),
-  });
+  commitCommands((canvas) => reverbed(canvas, asWireId(edgeId), verb));
 };
 
 /**
@@ -755,7 +750,7 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
  * Middle-bar relation surface: the verb, the sentence it makes of the two
  * ends, and — only when the pair admits a second verb — the swap to it.
  */
-export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
+export function EdgePairStrip({ edge }: { readonly edge: Wire }) {
   const canvasName = use$(state$.canvasName);
   const view = useRtsValue(() => edgeVerbView(canvasName, edge));
   const sibling = view.sibling;
@@ -779,84 +774,6 @@ export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
           </Button>
         ) : null}
       </div>
-    </div>
-  );
-}
-
-/**
- * Middle-bar kind surface: selected node's kind-specific actions (agent /
- * terminal / tasks / requests / watcher / timer), or the selected
- * relation's pair controls. Empty selection and geography get a quiet cue —
- * never invent controls for a kind that has none.
- */
-export function KindStrip() {
-  const doc = use$(state$.doc);
-  const selectedNodeId = use$(state$.selectedNodeId);
-  const selectedNodeIds = use$(state$.selectedNodeIds);
-  const selectedEdgeId = use$(state$.selectedEdgeId);
-
-  if (selectedNodeIds.length > 1) {
-    // KindSurface owns multi-select kind chrome (incl. multi-prompt).
-    return null;
-  }
-
-  if (selectedEdgeId) {
-    const edge = doc.edges.find((candidate) => candidate.id === selectedEdgeId);
-    return edge ? (
-      <EdgePairStrip edge={edge} />
-    ) : (
-      <div className="rts-quiet rts-quiet--compact"></div>
-    );
-  }
-
-  if (!selectedNodeId) {
-    return (
-      <div className="rts-quiet rts-quiet--compact"></div>
-    );
-  }
-
-  const node = doc.nodes.find((candidate) => candidate.id === selectedNodeId);
-  if (!node) {
-    return (
-      <div className="rts-quiet rts-quiet--compact"></div>
-    );
-  }
-
-  if (node.type === "group") {
-    // KindSurface owns the region field strip; this legacy KindStrip path
-    // only surfaces when KindSurface is not mounted.
-    return (
-      <div className="rts-quiet rts-quiet--compact">
-        Region — command card has ops — kind surface has fields
-      </div>
-    );
-  }
-
-  const kind = node.ether?.entity?.kind;
-  if (!kind) {
-    return (
-      <div className="rts-quiet rts-quiet--compact">No kind actions for this node</div>
-    );
-  }
-  if (
-    ![
-      "agent",
-      "terminal",
-      "task",
-      "requests",
-      "watcher",
-      "timer",
-    ].includes(kind)
-  ) {
-    return (
-      <div className="rts-quiet rts-quiet--compact">No kind actions for this node</div>
-    );
-  }
-
-  return (
-    <div className="rts-kind-strip" role="toolbar" aria-label={`${kind} actions`}>
-      <span className="rts-kind-strip__label">{kind}</span>
-      <KindActions nodeId={node.id} />
     </div>
   );
 }

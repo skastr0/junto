@@ -31,7 +31,7 @@ import {
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
 import { physicsKind, roleOfKind } from "../lib/model-kind";
-import { useCanvas, useNodeValue } from "../lib/use-model";
+import { useCanvas, useNode, useNodeValue } from "../lib/use-model";
 import { asNodeId as asModelNodeId, wireGrant, wireKinds } from "@shared/model";
 import { LOCAL_HOST } from "@shared/model/base";
 import { titleOf } from "@shared/model/title";
@@ -52,18 +52,18 @@ type CapabilityNeighbor = {
 };
 
 /** Actor: "reaches"; sink: "reached by" — plain inventory, no physics lecture. */
-export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode }) {
+export function NodeCapabilityInventory({ nodeId }: { readonly nodeId: string }) {
   // Who a node reaches depends on every wire and every region, so the canvas
   // is followed whole; this is mounted only while a node is inspected.
   const canvas = useCanvas(use$(state$.canvasName));
 
   const inventory = useMemo(() => {
-    const self = canvas.nodes.get(asModelNodeId(node.id));
+    const self = canvas.nodes.get(asModelNodeId(nodeId));
     if (!self) return null;
     const selfRole = roleOfKind(self.kind);
     if (selfRole !== "actor" && selfRole !== "sink") return null;
     const view = canvasToCapabilityView(canvas);
-    const neighbors = HashMap.get(view.connected, asNodeId(node.id));
+    const neighbors = HashMap.get(view.connected, asNodeId(nodeId));
     if (Option.isNone(neighbors) || HashSet.size(neighbors.value) === 0) {
       return { role: selfRole, rows: [] as CapabilityNeighbor[] };
     }
@@ -83,7 +83,7 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
     }
     rows.sort((a, b) => a.title.localeCompare(b.title));
     return { role: selfRole, rows };
-  }, [canvas, node.id]);
+  }, [canvas, nodeId]);
 
   if (!inventory) return null;
 
@@ -115,9 +115,9 @@ const placementTone = (runtimeTag: "Cc" | "Station"): ChipTone =>
  * Placement chips — where the node runs, and nothing more. Placement is data:
  * it names the host, it never gates a port.
  */
-export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
+export function NodePlacementSection({ nodeId }: { readonly nodeId: string }) {
   // The machine a node runs on is the one field of it this reads.
-  const host = useNodeValue(use$(state$.canvasName), node.id, (held) =>
+  const host = useNodeValue(use$(state$.canvasName), nodeId, (held) =>
     held !== undefined && "host" in held ? held.host : LOCAL_HOST,
   );
   const placement = useMemo(() => resolveHostPlacement(host), [host]);
@@ -144,35 +144,27 @@ export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
-  const textValue = node.type === "text" ? node.text : "";
-  const gitCwdValue = node.ether?.git?.cwd ?? "";
+export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
+  const node = useNode(use$(state$.canvasName), nodeId);
+  const textValue = node && "text" in node ? node.text : node && "label" in node ? node.label ?? "" : "";
+  const gitCwdValue = node?.kind === "git" ? node.cwd : "";
   const [textDraft, setTextDraft] = useState(textValue);
   const [gitCwdDraft, setGitCwdDraft] = useState(gitCwdValue);
   useEffect(() => {
     setTextDraft(textValue);
     setGitCwdDraft(gitCwdValue);
-  }, [gitCwdValue, node.id, textValue]);
+  }, [gitCwdValue, nodeId, textValue]);
 
-  const commitText = () => { if (node.type === "text" && textDraft !== textValue) editText(node.id, textDraft); };
+  const commitText = () => { if (node && ["note", "label", "agent", "terminal", "pad", "sheet"].includes(node.kind) && textDraft !== textValue) editText(nodeId, textDraft); };
 
   return <>
     {/* Work sinks / schedulers rename via kind-strip pencil — no fat label field. */}
-    {node.type === "text" &&
-    node.ether?.entity?.kind !== "task" &&
-    node.ether?.entity?.kind !== "requests" &&
-    node.ether?.entity?.kind !== "artifacts" &&
-    node.ether?.entity?.kind !== "board" &&
-    node.ether?.entity?.kind !== "cron" &&
-    node.ether?.entity?.kind !== "timer" &&
-    node.ether?.entity?.kind !== "watcher" &&
-    node.ether?.entity?.kind !== "relay" &&
-    node.ether?.entity?.kind !== "git" ? (
+    {node && ["note", "label", "agent", "terminal", "pad", "sheet"].includes(node.kind) ? (
       <label className="inspector-editor">
-        <span>{node.ether?.entity ? "label" : "note text"}</span>
+        <span>{node?.kind !== "note" ? "label" : "note text"}</span>
         <textarea
           data-focus-owner="canvas-draft"
-          aria-label={node.ether?.entity ? "Node label" : "Note text"}
+          aria-label={node?.kind !== "note" ? "Node label" : "Note text"}
           value={textDraft}
           onChange={(event) => setTextDraft(event.target.value)}
           onBlur={commitText}
@@ -185,7 +177,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         />
       </label>
     ) : null}
-    {node.ether?.entity?.kind === "git" ? (
+    {node?.kind === "git" ? (
       <label className="inspector-editor">
         <span>repository folder</span>
         <input
@@ -193,11 +185,11 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
           aria-label="Git repository folder"
           value={gitCwdDraft}
           onChange={(event) => setGitCwdDraft(event.target.value)}
-          onBlur={() => setGitCwd(node.id, gitCwdDraft)}
+          onBlur={() => setGitCwd(nodeId, gitCwdDraft)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              setGitCwd(node.id, gitCwdDraft);
+              setGitCwd(nodeId, gitCwdDraft);
               releaseFocus(event.currentTarget, "gesture");
             }
             if (event.key === "Escape") {
@@ -208,7 +200,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         />
       </label>
     ) : null}
-    {node.ether?.entity?.kind === "agent"
+    {node?.kind === "agent"
       ? <div className="inspector-section">
           <div className="inspector-section__label">machine</div>
           <div className="inspector-detail">
@@ -216,7 +208,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
           </div>
         </div>
       : null}
-    <KernelFieldEditors node={node} />
+    <KernelFieldEditors nodeId={nodeId} />
   </>;
 }
 
@@ -337,14 +329,16 @@ export function PageUrlControl({ nodeId }: { readonly nodeId: string }) {
 // reads as one branch per concern instead of more node-type ternaries
 // stacked onto an already-dense dispatcher. Regions never reach this form:
 // their fields open from the region kind strip.
-function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
+function KernelFieldEditors({ nodeId }: { readonly nodeId: string }) {
+  const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
+  if (!node) return null;
   const kind = node.ether?.entity?.kind;
   return <>
     {RELAY_ENABLED && kind === "watcher" ? <WatcherEditor node={node} /> : null}
     {CRON_ENABLED && (kind === "timer" || kind === "cron") ? <TimerEditor node={node} /> : null}
     {RELAY_ENABLED && kind === "relay" ? <RelayEditor node={node} /> : null}
 
-    {kind === "agent" ? <AgentMessagesPane node={node} /> : null}
+    {kind === "agent" ? <AgentMessagesPane nodeId={nodeId} /> : null}
   </>;
 }
 

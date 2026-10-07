@@ -3,7 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Schema } from "effect";
-import { Node, Wire } from "../src/shared/model";
+import { asCanvasName, Node, Wire } from "../src/shared/model";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 import { dock$ } from "../src/renderer/lib/dock-state";
@@ -14,6 +14,9 @@ import { ArtifactLibrary, RequestInbox } from "../src/renderer/components/work/W
 import { BoardDetail } from "../src/renderer/components/work/WorkSurfaces";
 import { ConnectEditor } from "../src/renderer/components/rts/ConnectEditor";
 import { PadPinThread } from "../src/renderer/components/pad/PadPinThread";
+import { KindSurface } from "../src/renderer/components/rts/KindSurface";
+import { NodeFieldEditors } from "../src/renderer/components/InspectorFields";
+import { flushPendingCanvasSave, undo } from "../src/renderer/lib/mutations";
 import { PadPin } from "../src/shared/pad";
 import type { Artifact, BoardTopicView, Task } from "../src/shared/work-model";
 import type { WorkSinkQuery } from "../src/shared/work-sinks";
@@ -34,6 +37,7 @@ let tasks: ReadonlyArray<Task>;
 let artifacts: ReadonlyArray<Artifact>;
 let topics: ReadonlyArray<BoardTopicView>;
 let create: ReturnType<typeof vi.fn>;
+let releaseCanvas: (() => void) | undefined;
 const decodeNode = Schema.decodeUnknownSync(Node);
 const decodeWire = Schema.decodeUnknownSync(Wire);
 const agent = (label: string) => ({
@@ -91,12 +95,15 @@ beforeEach(() => {
   // native rows or the separately paged work store.
   state$.doc.set({ nodes: [], edges: [] });
   state$.actorRefs.set([]);
+  state$.selectedNodeId.set(""); state$.selectedNodeIds.set([]);
+  state$.selectedEdgeId.set("");
   host = document.createElement("div"); document.body.append(host);
   root = createRoot(host);
 });
 
 afterEach(async () => {
   await act(async () => { root.unmount(); await flush(); });
+  releaseCanvas?.(); releaseCanvas = undefined;
   host.remove();
   modelStore.canvas$(canvas).nodes.set({});
   modelStore.canvas$(canvas).wires.set({});
@@ -234,4 +241,49 @@ it("lists connection targets and follows native names and wires without a docume
   });
   expect(document.querySelector('[data-node-id="peer"]')).toBeNull();
   expect(document.body.textContent).toContain("Already connected to every agent");
+});
+
+it("opens the bar's fields by id and follows native folder changes without a document mirror", async () => {
+  publish("repo", { kind: "git", label: "Repository", cwd: "/before" });
+  state$.selectedNodeId.set("repo"); state$.selectedNodeIds.set(["repo"]);
+  await mount(<KindSurface />);
+  await click('[aria-label="Open fields"]');
+  expect(document.querySelector<HTMLInputElement>('[aria-label="Git repository folder"]')?.value).toBe("/before");
+  await act(async () => {
+    publish("repo", { kind: "git", label: "Repository", cwd: "/after" }); await flush();
+  });
+  expect(document.querySelector<HTMLInputElement>('[aria-label="Git repository folder"]')?.value).toBe("/after");
+  expect(state$.doc.peek().nodes).toEqual([]);
+});
+
+it("reads note fields by id and updates the draft when native text changes", async () => {
+  publish("note", { kind: "note", text: "Before" });
+  await mount(<NodeFieldEditors nodeId="note" />);
+  expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Note text"]')?.value).toBe("Before");
+  await act(async () => { publish("note", { kind: "note", text: "After" }); await flush(); });
+  expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Note text"]')?.value).toBe("After");
+});
+
+it("changes a native wire verb as one undoable command and returns the old mask", async () => {
+  publish("source", agent("Planner")); publish("peer", agent("Reviewer"));
+  const nativeWire = decodeWire({ id: "connection", from: "source", to: "peer", verb: "messages", mask: ["msg.send"] });
+  releaseCanvas = modelStore.adopt({
+    canvas: asCanvasName(canvas), seq: 0,
+    nodes: Object.values(modelStore.canvas$(canvas).nodes.peek()), wires: [nativeWire],
+  });
+  state$.selectedEdgeId.set("connection");
+  const modelCommand = vi.fn(async () => ({ seq: 1 }));
+  (window as unknown as { junto: unknown }).junto = { ...window.junto, modelCommand };
+  await mount(<KindSurface />);
+  expect(document.body.textContent).toContain("Planner messages Reviewer");
+  await click('[aria-label="Change to reviews"]');
+  await act(async () => { await flushPendingCanvasSave(); await flush(); });
+  expect(modelCommand).toHaveBeenCalledOnce();
+  expect(modelCommand).toHaveBeenCalledWith({
+    _tag: "Rewire", canvas, id: "connection", change: { verb: "reviews", mask: null },
+  });
+  expect(modelStore.wire$(canvas, "connection").peek()?.verb).toBe("reviews");
+  await act(async () => { undo(); await flushPendingCanvasSave(); await flush(); });
+  expect(modelCommand).toHaveBeenCalledTimes(2);
+  expect(modelStore.wire$(canvas, "connection").peek()).toMatchObject({ verb: "messages", mask: ["msg.send"] });
 });

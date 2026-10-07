@@ -964,9 +964,9 @@ export function BoardDetail({
   );
 }
 
-export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
+export function AgentMessagesPane({ nodeId }: { readonly nodeId: string }) {
   const canvas = use$(state$.canvasName) || "";
-  const mail = useWorkMail(canvas, node.id);
+  const mail = useWorkMail(canvas, nodeId);
   const items = mail.items.map((item) => item.message);
 
   return (

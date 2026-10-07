@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode, CanvasEdge } from "@shared/canvas";
-import { nodeToDocument, wireToDocument } from "@shared/model/from-document";
+import type { CanvasNode } from "@shared/canvas";
+import { nodeToDocument } from "@shared/model/from-document";
+import type { Wire } from "@shared/model";
 import { modelStore } from "./use-model";
 import { state$ } from "./state";
 
@@ -45,8 +46,5 @@ export function useRtsNodes(canvas: string, ids: ReadonlyArray<string>): Readonl
   }), [canvas, key]);
 }
 
-export const useRtsWire = (canvas: string, id: string): CanvasEdge | null =>
-  useRtsValue(() => {
-    const wire = modelStore.wire$(canvas, id).get();
-    return wire ? wireToDocument(wire) : null;
-  });
+export const useRtsWire = (canvas: string, id: string): Wire | null =>
+  useRtsValue(() => modelStore.wire$(canvas, id).get() ?? null);

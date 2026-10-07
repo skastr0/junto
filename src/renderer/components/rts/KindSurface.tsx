@@ -103,12 +103,14 @@ function AgentSeatGlance({ node }: { readonly node: CanvasNode }) {
 }
 
 function NodeFormFocus({
-  node,
+  nodeId,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
 }) {
+  const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
+  if (!node) return null;
   const kind = node.ether?.entity?.kind;
   const isLabel = kind === "label";
   return (
@@ -161,7 +163,7 @@ function NodeFormFocus({
         kind !== "git" &&
         node.type !== "group" &&
         Boolean(node.ether?.entity) ? (
-          <NodePlacementSection node={node} />
+          <NodePlacementSection nodeId={nodeId} />
         ) : null}
         {!isLabel &&
         kind !== "terminal" &&
@@ -176,7 +178,7 @@ function NodeFormFocus({
         kind !== "page" &&
         kind !== "git" &&
         Boolean(node.ether?.entity) ? (
-          <NodeCapabilityInventory node={node} />
+          <NodeCapabilityInventory nodeId={nodeId} />
         ) : null}
         {node.ether?.entity && !isLabel && nodeDetail(node) ? (
           <div className="inspector-detail">{nodeDetail(node)}</div>
@@ -184,7 +186,7 @@ function NodeFormFocus({
         {isLabel ? (
           <div className="inspector-detail">Bare map text — color and size from the canvas controls</div>
         ) : null}
-        <NodeFieldEditors node={node} />
+        <NodeFieldEditors nodeId={nodeId} />
       </div>
     </FocusSurface>
   );
@@ -598,7 +600,5 @@ export function KindSurface() {
 }
 
 function SelectedNodeForm({ nodeId, onClose }: { readonly nodeId: string; readonly onClose: () => void }) {
-  const doc = use$(state$.doc);
-  const node = doc.nodes.find(candidate => candidate.id === nodeId);
-  return node ? <NodeFormFocus node={node} onClose={onClose} /> : null;
+  return <NodeFormFocus nodeId={nodeId} onClose={onClose} />;
 }

@@ -96,10 +96,10 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
       ) : null}
       {!isLabel ? <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} /> : null}
       {!isLabel && node.type !== "group" ? (
-        <NodePlacementSection key={`place:${node.id}`} node={node} />
+        <NodePlacementSection key={`place:${node.id}`} nodeId={node.id} />
       ) : null}
-      {!isLabel ? <NodeCapabilityInventory key={`cap:${node.id}`} node={node} /> : null}
-      <NodeFieldEditors node={node} />
+      {!isLabel ? <NodeCapabilityInventory key={`cap:${node.id}`} nodeId={node.id} /> : null}
+      <NodeFieldEditors nodeId={node.id} />
 
     </div>
   </aside>;
