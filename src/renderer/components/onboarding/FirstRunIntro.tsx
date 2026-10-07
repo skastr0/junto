@@ -24,7 +24,7 @@ import { FeedCard } from "../feed/OperatorFeed";
 import type { FeedItem } from "@shared/operator-feed";
 import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
 import { ActivityMarkFromSpec } from "../ActivityMark";
-import { CommandGroupChip } from "../command-groups/CommandGroupChip";
+import { ScriptedCommandGroupChip } from "../command-groups/CommandGroupChip";
 import type { CanvasNode } from "@shared/canvas";
 import { portraitFor } from "../SeatRing";
 import { PauseSwitchFace } from "../TopBar";
@@ -508,12 +508,13 @@ function OrganizeDemo() {
           const group = index === 0 && saved;
           const fixed = index === 1;
           return (
-            <CommandGroupChip
+            <ScriptedCommandGroupChip
               key={index}
               hotkey={index + 1}
               testId={`hotbar-slot-${index + 1}`}
               tenure={group ? "group" : fixed ? "fixed" : "empty"}
               members={group ? CREW_NODES : fixed ? [NOTES_NODE] : []}
+              titles={group ? CREW.map((seat) => seat.name) : fixed ? ["notes"] : []}
               tone={group ? CREW_TONE : undefined}
               selected={group && phase === 3}
             />

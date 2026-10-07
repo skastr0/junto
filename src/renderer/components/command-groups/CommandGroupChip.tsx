@@ -1,9 +1,13 @@
-import type { CSSProperties, DragEvent } from "react";
+import type { CSSProperties, DragEvent, ReactNode } from "react";
+import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
+import { titleOf } from "@shared/model/title";
 import { groupLabel } from "../../lib/command-groups";
 import { rollupToneHex } from "../../lib/minimap-seat-colors";
 import { modKeyGlyph } from "../../lib/platform";
-import { nodeTitle } from "../../lib/presentation";
+import { useDocumentNode } from "../../lib/document-node";
+import { state$ } from "../../lib/state";
+import { modelStore } from "../../lib/use-model";
 import type { SeatRollup } from "../../lib/seat-rollup";
 import { NodeKindMark } from "../NodeKindMark";
 import { SeatRing } from "../SeatRing";
@@ -16,49 +20,70 @@ const FACE_PX = 22;
 
 export type CommandGroupTenure = "empty" | "fixed" | "group" | "leased" | "evicted";
 
-const isAgentSeat = (node: CanvasNode): boolean =>
-  node.type !== "group" && node.ether?.entity?.kind === "agent";
+/**
+ * One member's face. It follows its own node and no other, so a chip is not
+ * redrawn because some other card moved. The ring and the kind mark still
+ * take a document node; this reads the one they need.
+ */
+function ChipFace({ nodeId }: { readonly nodeId: string }) {
+  const node = useDocumentNode(nodeId);
+  return node ? <ChipFaceOf node={node} /> : null;
+}
 
-function ChipFaces({ members }: { readonly members: ReadonlyArray<CanvasNode> }) {
-  const shown = members.slice(0, FACES_MAX);
-  const more = members.length - shown.length;
+/** A face for a node already in hand. */
+function ChipFaceOf({ node }: { readonly node: CanvasNode }) {
+  return node.type !== "group" && node.ether?.entity?.kind === "agent" ? (
+    <span className="group-chip__face">
+      <SeatRing node={node} px={FACE_PX} />
+    </span>
+  ) : (
+    <NodeKindMark node={node} className="group-chip__face group-chip__mark" iconSize={11} />
+  );
+}
+
+function ChipFaces({ count, children }: { readonly count: number; readonly children: ReactNode }) {
+  const more = count - Math.min(count, FACES_MAX);
   return (
     <span className="group-chip__faces" aria-hidden>
-      {shown.map((node) =>
-        isAgentSeat(node) ? (
-          <span key={node.id} className="group-chip__face">
-            <SeatRing node={node} px={FACE_PX} />
-          </span>
-        ) : (
-          <NodeKindMark key={node.id} node={node} className="group-chip__face group-chip__mark" iconSize={11} />
-        ),
-      )}
+      {children}
       {more > 0 ? <span className="group-chip__more">+{more}</span> : null}
     </span>
   );
 }
 
+/** Split character no title holds. */
+const TITLE_SPLIT = "";
+
+/**
+ * What the members are called now. The selector answers one string, so the
+ * chip is redrawn when a name changes and not when a member only moved.
+ */
+const useMemberTitles = (memberIds: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const joined = use$(() => {
+    const canvasName = state$.canvasName.get();
+    return memberIds
+      .map((id) => {
+        const node = modelStore.node$(canvasName, id).get();
+        return node === undefined ? id : titleOf(node);
+      })
+      .join(TITLE_SPLIT);
+  });
+  return memberIds.length === 0 ? [] : joined.split(TITLE_SPLIT);
+};
+
 /**
  * One command group chip: its digit (none past nine), its members' faces in
  * their live rings, a short name, and the group's worst tone as its colour.
  */
-export function CommandGroupChip({
-  hotkey,
-  testId,
-  tenure,
-  members,
-  tone,
-  selected,
-  onActivate,
-  onOpen,
-  onForget,
-  dragProps,
-}: {
+export type CommandGroupChipProps = ChipProps;
+
+type ChipProps = {
   /** 1 to 9, or undefined past nine. */
   readonly hotkey: number | undefined;
   readonly testId: string;
   readonly tenure: CommandGroupTenure;
-  readonly members: ReadonlyArray<CanvasNode>;
+  /** The members the canvas still holds, in the group's order. */
+  readonly memberIds: ReadonlyArray<string>;
   readonly tone: SeatRollup | undefined;
   readonly selected: boolean;
   readonly onActivate?: () => void;
@@ -71,14 +96,66 @@ export function CommandGroupChip({
     readonly onDragOver: (event: DragEvent) => void;
     readonly onDrop: () => void;
   };
+};
+
+/**
+ * One command group chip on the live canvas: it follows what its members are
+ * called and draws each member's face from that member's own node.
+ */
+export function CommandGroupChip(props: ChipProps) {
+  const titles = useMemberTitles(props.memberIds);
+  return (
+    <CommandGroupChipView
+      {...props}
+      titles={titles}
+      faces={props.memberIds.slice(0, FACES_MAX).map((id) => (
+        <ChipFace key={id} nodeId={id} />
+      ))}
+    />
+  );
+}
+
+/** The same chip over nodes a caller scripted, held in no store: the tour's. */
+export function ScriptedCommandGroupChip({
+  members,
+  titles,
+  ...props
+}: Omit<ChipProps, "memberIds"> & {
+  readonly members: ReadonlyArray<CanvasNode>;
+  readonly titles: ReadonlyArray<string>;
 }) {
+  return (
+    <CommandGroupChipView
+      {...props}
+      memberIds={members.map((node) => node.id)}
+      titles={titles}
+      faces={members.slice(0, FACES_MAX).map((node) => (
+        <ChipFaceOf key={node.id} node={node} />
+      ))}
+    />
+  );
+}
+
+function CommandGroupChipView({
+  hotkey,
+  testId,
+  tenure,
+  memberIds,
+  titles,
+  faces,
+  tone,
+  selected,
+  onActivate,
+  onOpen,
+  onForget,
+  dragProps,
+}: ChipProps & { readonly titles: ReadonlyArray<string>; readonly faces: ReactNode }) {
   const mod = modKeyGlyph();
-  const titles = members.map(nodeTitle);
   const label = groupLabel(titles);
   const detail = titles.join(", ");
   const kind =
     tenure === "group"
-      ? `group of ${members.length}`
+      ? `group of ${memberIds.length}`
       : tenure === "leased"
         ? "busy, placed automatically"
         : tenure === "evicted"
@@ -86,7 +163,7 @@ export function CommandGroupChip({
           : "pinned";
   const state = tone ? `, ${tone.reason}` : "";
 
-  if (tenure === "empty" || members.length === 0) {
+  if (tenure === "empty" || memberIds.length === 0) {
     return (
       <button
         type="button"
@@ -120,7 +197,7 @@ export function CommandGroupChip({
       data-tone={tone?.tone}
       data-stale={tone?.stale ? "true" : undefined}
       data-hotkey={hotkey ?? "none"}
-      data-node-id={members.length === 1 ? members[0]!.id : undefined}
+      data-node-id={memberIds.length === 1 ? memberIds[0] : undefined}
       data-testid={testId}
       style={style}
       aria-pressed={selected}
@@ -142,7 +219,7 @@ export function CommandGroupChip({
       {...dragProps}
     >
       {hotkey !== undefined ? <span className="group-chip__key">{hotkey}</span> : null}
-      <ChipFaces members={members} />
+      <ChipFaces count={memberIds.length}>{faces}</ChipFaces>
       <span className="group-chip__label">{label}</span>
     </button>
   );

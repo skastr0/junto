@@ -13,15 +13,15 @@
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
-import { groupMembers } from "@shared/graph";
+import { nodesOf, regionMembers, type NodeOf, type Placed } from "@shared/model";
 import type { AgentSignalKind, SeatSignalRollup } from "@shared/agent-signals";
 import type { MemberSeverity } from "@shared/region-rollup";
-import { bindingIdForNode } from "./agent-seat-state";
 import { seatSignalRollups$ } from "./agent-signals-state";
 import { activityToneHex, minimapFill, signalMark } from "./signal-mark";
 import { seatAwareness$ } from "./seat-awareness";
 import { seatRollup, worseRollup, type SeatRollup, type SeatRollupTone } from "./seat-rollup";
 import { state$ } from "./state";
+import { modelStore } from "./use-model";
 import { threadHealthMark, threadHealthView, useHealthClock } from "./thread-health";
 import { withAlpha } from "./theme";
 
@@ -72,19 +72,19 @@ export const minimapNodeColors = (
  * control severity and its worst member seat (membership is the canvas's own,
  * full-rect containment). A region with no rolled-up seat keeps its colours.
  */
-export const seatRollupsForNodes = (
-  nodes: ReadonlyArray<CanvasNode>,
+export const seatRollupsForCanvas = (
+  canvas: Placed,
   input: {
     readonly now: number;
     readonly severityByNodeId: Readonly<Record<string, string>>;
     readonly signalsByNodeId: Readonly<Record<string, SeatSignalRollup | undefined>>;
-    readonly bindingOf?: (node: CanvasNode) => string | undefined;
+    /** The session a seat's thread health is read from; its own by default. */
+    readonly bindingOf?: (seat: NodeOf<"agent">) => string | undefined;
   },
 ): ReadonlyMap<string, SeatRollup> => {
-  const bindingOf = input.bindingOf ?? bindingIdForNode;
+  const bindingOf = input.bindingOf ?? ((seat: NodeOf<"agent">) => seat.bindingId);
   const out = new Map<string, SeatRollup>();
-  for (const node of nodes) {
-    if (!isAgentSeat(node)) continue;
+  for (const node of nodesOf(canvas, "agent")) {
     const signal: AgentSignalKind | undefined = input.signalsByNodeId[node.id]?.kind;
     const view = threadHealthView(bindingOf(node), input.now);
     const health =
@@ -100,25 +100,25 @@ export const seatRollupsForNodes = (
   }
   if (out.size === 0) return out;
   const regions = new Map<string, SeatRollup>();
-  // Membership reads only the nodes; the rest of the document is not needed.
-  for (const [regionId, memberIds] of groupMembers({ nodes } as Parameters<typeof groupMembers>[0])) {
+  for (const region of nodesOf(canvas, "region")) {
     let worst: SeatRollup | undefined;
-    for (const id of memberIds) worst = worseRollup(worst, out.get(id));
+    for (const member of regionMembers(canvas, region)) worst = worseRollup(worst, out.get(member.id));
     if (worst === undefined) continue;
-    const own = seatRollup({ control: input.severityByNodeId[regionId] as MemberSeverity | undefined });
-    regions.set(regionId, worseRollup(own, worst)!);
+    const own = seatRollup({ control: input.severityByNodeId[region.id] as MemberSeverity | undefined });
+    regions.set(region.id, worseRollup(own, worst)!);
   }
   for (const [id, rollup] of regions) out.set(id, rollup);
   return out;
 };
 
-const encode = (rollups: ReadonlyMap<string, SeatRollup>): string => {
+/** Rollups as one string, so a selector can answer them and be compared by value. */
+export const encodeRollups = (rollups: ReadonlyMap<string, SeatRollup>): string => {
   const parts: string[] = [];
   for (const [id, r] of rollups) parts.push(`${id}\u0001${r.source}\u0001${r.tone}\u0001${r.stale ? 1 : 0}\u0001${r.reason}`);
   return parts.join("\u0002");
 };
 
-const decode = (key: string): ReadonlyMap<string, SeatRollup> => {
+export const decodeRollups = (key: string): ReadonlyMap<string, SeatRollup> => {
   const out = new Map<string, SeatRollup>();
   if (key === "") return out;
   for (const part of key.split("\u0002")) {
@@ -137,19 +137,24 @@ const decode = (key: string): ReadonlyMap<string, SeatRollup> => {
 /**
  * Seat rollups for the open canvas, keyed by node id. The selector returns a
  * string, so a store change that leaves every seat's tone where it was (a new
- * awareness window, an unrelated document edit) does not re-render the caller.
+ * awareness window, a card moved where no region gains or loses it) does not
+ * re-render the caller.
  */
 export const useSeatRollups = (): ReadonlyMap<string, SeatRollup> => {
   const now = useHealthClock();
   const key = use$(() => {
     seatAwareness$.rev.get();
-    return encode(
-      seatRollupsForNodes(state$.doc.get().nodes, {
+    const canvasName = state$.canvasName.get();
+    // Follow the canvas's nodes: a rollup reads which seats there are and
+    // which regions hold them.
+    modelStore.canvas$(canvasName).nodes.get();
+    return encodeRollups(
+      seatRollupsForCanvas(modelStore.canvasOf(canvasName), {
         now,
         severityByNodeId: state$.regionSeverityByNodeId.get(),
         signalsByNodeId: seatSignalRollups$.get(),
       }),
     );
   });
-  return useMemo(() => decode(key), [key]);
+  return useMemo(() => decodeRollups(key), [key]);
 };

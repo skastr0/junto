@@ -8,13 +8,11 @@
 import { useEffect } from "react";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { groupMembers } from "@shared/graph";
-import { isHarnessId } from "@shared/managed-terminal-templates";
+import { asNodeId, nodesOf, regionMembers, type Canvas, type Node } from "@shared/model";
 import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
-import { agentSeat$, bindingIdForNode, seatEventForNode } from "./agent-seat-state";
+import { agentSeat$, seatEventForBinding } from "./agent-seat-state";
 import { chatCoarse$ } from "./chat-state";
-import { focusCanvasNode, isHotbarLeaseActor } from "./command-bar";
+import { focusCanvasNode } from "./command-bar";
 import {
   canvasCommandGroups,
   currentSelectionIds,
@@ -45,32 +43,31 @@ import {
 import { digitLease, liveAttentionReasons, seatFactsForNode, type SeatFacts } from "./seat-projections";
 import { selectNodes, state$ } from "./state";
 import { terminal$ } from "./terminal-state";
+import { modelStore, useNodeIds } from "./use-model";
 
-const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string }> }): string[] =>
-  doc.nodes.map((n) => n.id);
+/** The open canvas as the store holds it now. Read, never followed. */
+const canvasNow = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
+
+const liveNodeIds = (canvas: Canvas): string[] => [...canvas.nodes.keys()];
 
 /**
- * Opportunistic hotbar leases are **actors only** (crew role).
- * Well-known: `agent`. Notes, tasks, regions, pages, etc. never auto-lease.
- * Operator fixed slots (⌘1–9) remain unrestricted. Shared with the command
- * bar via lib/command-bar so focus commits lease identically everywhere.
+ * Opportunistic hotbar leases are **actors only** (crew role): a seat. Notes,
+ * tasks, regions, pages and the rest never auto-lease. Operator fixed slots
+ * (⌘1–9) remain unrestricted.
  */
-const leaseEligibleActorIds = (nodes: ReadonlyArray<CanvasNode>): Set<string> => {
-  const out = new Set<string>();
-  for (const node of nodes) {
-    if (isHotbarLeaseActor(node)) out.add(node.id);
-  }
-  return out;
-};
+export const isLeaseActor = (node: Node | undefined): boolean => node?.kind === "agent";
 
-const managedSeatOf = (node: CanvasNode): boolean => {
-  const harness = node.ether?.terminal?.harness;
-  return typeof harness === "string" && isHarnessId(harness);
-};
+const leaseEligibleActorIds = (canvas: Canvas): Set<string> =>
+  new Set(nodesOf(canvas, "agent").map((seat) => seat.id as string));
 
-/** One seat's control facts from the live stores, read without subscribing. */
+/** The session a node's live seat state is read from. */
+export const seatBindingOf = (node: Node): string | undefined =>
+  node.kind === "agent" || node.kind === "terminal"
+    ? node.bindingId
+    : agentSeat$.bindingIdByNodeId[node.id].peek();
+
 export const seatFactsOf = (
-  node: CanvasNode,
+  node: Node,
   extra: {
     readonly graphBlocked?: boolean;
     readonly chatByAgent?: Readonly<
@@ -79,15 +76,20 @@ export const seatFactsOf = (
     readonly needsLook?: boolean;
   } = {},
 ): SeatFacts => {
-  const bindingId = bindingIdForNode(node);
+  const bindingId = seatBindingOf(node);
   const session = bindingId ? terminal$.sessionByBindingId[bindingId].peek() : undefined;
   return seatFactsForNode({
     nodeId: node.id,
-    seatEvent: seatEventForNode(node),
+    seatEvent: seatEventForBinding(bindingId),
     session,
     graphBlocked: extra.graphBlocked,
-    attentionReasons: liveAttentionReasons(node, extra.chatByAgent),
-    managedSeat: managedSeatOf(node),
+    // seat-projections reads a document node for the agent key and nothing
+    // else. This literal is all it reads; it goes when that file takes the key.
+    attentionReasons:
+      node.kind === "agent"
+        ? liveAttentionReasons({ ether: { entity: { kind: "agent", name: node.agentKey } } }, extra.chatByAgent)
+        : [],
+    managedSeat: node.kind === "agent",
     needsLook: extra.needsLook,
   });
 };
@@ -96,14 +98,13 @@ export const seatFactsOf = (
  * Actors that keep a hard lease while busy: only working or attention. Idle
  * demotes to an idle soft-hold.
  */
-const stickyWorkingNodeIds = (nodes: ReadonlyArray<CanvasNode>): string[] => {
+const stickyWorkingNodeIds = (canvas: Canvas): string[] => {
   const chatByAgent = chatCoarse$.peek() as
     | Record<string, { readonly pendingPermissionId?: string } | undefined>
     | undefined;
   const out: string[] = [];
-  for (const node of nodes) {
-    if (!isHotbarLeaseActor(node)) continue;
-    if (digitLease(seatFactsOf(node, { chatByAgent }))) out.push(node.id);
+  for (const seat of nodesOf(canvas, "agent")) {
+    if (digitLease(seatFactsOf(seat, { chatByAgent }))) out.push(seat.id);
   }
   return out;
 };
@@ -139,7 +140,7 @@ export const promoteExtraGroupTo = (extraIndex: number, slotIndex: number): void
     extraGroupsNow(),
     extraIndex,
     slotIndex,
-    liveNodeIds(state$.doc.peek()),
+    liveNodeIds(canvasNow()),
   );
   batch(() => {
     state$.hotbarSlots.set(next.slots);
@@ -152,9 +153,9 @@ export const promoteExtraGroupTo = (extraIndex: number, slotIndex: number): void
 
 /** Recompute leases after fixed mutations, activity MRU, or seat sticky set changes. */
 export const recomputeHotbar = (): void => {
-  const doc = state$.doc.peek();
-  const live = liveNodeIds(doc);
-  const actors = leaseEligibleActorIds(doc.nodes);
+  const canvas = canvasNow();
+  const live = liveNodeIds(canvas);
+  const actors = leaseEligibleActorIds(canvas);
   // Focus MRU orders fill among sticky actors only — it does not pin hard leases.
   let mru: ReadonlyArray<string> = filterLeaseCandidateIds(state$.hotbarActiveMru.peek(), actors);
   const selected = state$.selectedNodeId.peek();
@@ -162,7 +163,7 @@ export const recomputeHotbar = (): void => {
     mru = touchActiveMru(mru, selected);
   }
   state$.hotbarActiveMru.set([...mru]);
-  const sticky = stickyWorkingNodeIds(doc.nodes);
+  const sticky = stickyWorkingNodeIds(canvas);
   const next = purgeNonEligibleSoftSlots(
     resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru, sticky),
     actors,
@@ -178,17 +179,19 @@ export const recomputeHotbar = (): void => {
 };
 
 /**
- * Keep the board current: prune dead ids and refresh leases on document,
- * selection, and seat changes (idle seats demote to soft-hold, not vanish),
+ * Keep the board current: prune dead ids and refresh leases when a node comes
+ * or goes, on selection, and on seat changes (idle seats demote to soft-hold, not vanish),
  * and remember the operator's slots per canvas for a switch back.
  */
 export const useCommandGroupUpkeep = (): void => {
-  const doc = use$(state$.doc);
+  // Which nodes there are is all the board keeps of the canvas: a card that
+  // moves or is renamed changes no lease, so it wakes nothing here.
+  const nodeIds = useNodeIds(use$(state$.canvasName));
   const selectedNodeId = use$(state$.selectedNodeId);
   const seatRev = use$(agentSeat$.rev);
   useEffect(() => {
     recomputeHotbar();
-  }, [doc, selectedNodeId, seatRev]);
+  }, [nodeIds, selectedNodeId, seatRev]);
   useEffect(
     () =>
       state$.hotbarSlots.onChange(({ value }) => {
@@ -230,7 +233,7 @@ export const saveSelectionToCommandGroup = (
   selectedIds: ReadonlyArray<string>,
   target: number | "new",
 ): boolean => {
-  const documentNodeIds = liveNodeIds(state$.doc.peek());
+  const documentNodeIds = liveNodeIds(canvasNow());
   const slots = state$.hotbarSlots.peek();
   if (target === "new") {
     const next = saveSelectionAsNewGroup(slots, extraGroupsNow(), selectedIds, documentNodeIds);
@@ -298,10 +301,13 @@ const runRecallStep = (step: RecallStep): void => {
   }
 };
 
-const recallContext = (doc: CanvasDoc): RecallContext => ({
-  documentNodeIds: liveNodeIds(doc),
-  regionIds: new Set(doc.nodes.filter((n) => n.type === "group").map((n) => n.id)),
-  regionMembers: (regionId) => groupMembers(doc).get(regionId) ?? [],
+const recallContext = (canvas: Canvas): RecallContext => ({
+  documentNodeIds: liveNodeIds(canvas),
+  regionIds: new Set(nodesOf(canvas, "region").map((region) => region.id as string)),
+  regionMembers: (regionId) => {
+    const region = canvas.nodes.get(asNodeId(regionId));
+    return region?.kind === "region" ? regionMembers(canvas, region).map((member) => member.id as string) : [];
+  },
 });
 
 let retap: CommandGroupRetap | null = null;
@@ -323,7 +329,7 @@ export const recallSlot = (slotIndex: number): boolean => {
   const { step, memory } = recallCommandGroup(
     state$.hotbarSlots.peek(),
     slotIndex,
-    recallContext(state$.doc.peek()),
+    recallContext(canvasNow()),
     retap,
     performance.now(),
   );
@@ -339,13 +345,14 @@ export const recallSlot = (slotIndex: number): boolean => {
  * slot holds nothing that opens.
  */
 export const jumpToSlot = (slotIndex: number): boolean => {
-  const doc = state$.doc.peek();
-  const byId = new Map(doc.nodes.map((node) => [node.id, node]));
+  // What opens is still asked of the document node: activate-node-surface
+  // takes one. Read once here, never followed.
+  const byId = new Map(state$.doc.peek().nodes.map((node) => [node.id, node]));
   const registry = dock$.registry.peek();
   const nodeId = jumpCommandGroup(
     state$.hotbarSlots.peek(),
     slotIndex,
-    recallContext(doc),
+    recallContext(canvasNow()),
     (id) => {
       const node = byId.get(id);
       return node !== undefined && nodeSurfaceKind(node) !== null;

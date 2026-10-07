@@ -3,7 +3,8 @@ import type { CanvasNode } from "../src/shared/canvas";
 import type { ThreadHealthValue } from "../src/shared/thread-health";
 import { THREAD_HEALTH_TONE, THREAD_HEALTH_VALUES } from "../src/shared/thread-health";
 import { controlFromActivity, seatRollup, worseRollup } from "../src/renderer/lib/seat-rollup";
-import { minimapNodeColors, seatRollupsForNodes } from "../src/renderer/lib/minimap-seat-colors";
+import { minimapNodeColors, seatRollupsForCanvas } from "../src/renderer/lib/minimap-seat-colors";
+import { canvasOf, region as regionNode, seat as seatNode } from "./support/model-nodes";
 import { applySeatAwarenessEvent, resetSeatAwareness } from "../src/renderer/lib/seat-awareness";
 import { HUE, GREEN } from "../src/renderer/lib/theme";
 
@@ -105,22 +106,11 @@ describe("minimapNodeColors", () => {
   });
 });
 
-describe("seatRollupsForNodes", () => {
+describe("seatRollupsForCanvas", () => {
   afterEach(() => resetSeatAwareness());
 
-  const seat = (id: string, bindingId: string): CanvasNode => ({
-    id,
-    type: "text",
-    text: id,
-    x: 0,
-    y: 0,
-    width: 200,
-    height: 80,
-    ether: {
-      entity: { kind: "agent", name: `local:${id}` },
-      terminal: { bindingId, harness: "claude", launch: { kind: "harness", argv: ["claude"] } },
-    },
-  });
+  const seat = (id: string, bindingId: string) =>
+    seatNode(id, { width: 200, height: 80, bindingId: bindingId as never });
 
   it("joins the signal, control and Jev stores into one rollup per seat", () => {
     const now = Date.now();
@@ -151,11 +141,10 @@ describe("seatRollupsForNodes", () => {
       },
     });
     const nodes = [seat("thrash", "b-thrash"), seat("busy", "b-busy"), seat("quiet", "b-quiet")];
-    const rollups = seatRollupsForNodes(nodes, {
+    const rollups = seatRollupsForCanvas(canvasOf(nodes), {
       now,
       severityByNodeId: { thrash: "working", busy: "working" },
       signalsByNodeId: {},
-      bindingOf: (node) => node.ether?.terminal?.bindingId,
     });
     expect(rollups.get("thrash")).toMatchObject({ source: "health", tone: "amber", reason: "AI reads thrashing" });
     expect(rollups.get("busy")).toMatchObject({ source: "control", tone: "cyan" });
@@ -163,17 +152,16 @@ describe("seatRollupsForNodes", () => {
 
     // A region takes its worst member seat, as a tint, and a region with no
     // rolled-up seat keeps its own colours.
-    const region = (id: string, x: number): CanvasNode =>
-      ({ id, type: "group", label: id, x, y: -50, width: 600, height: 400 }) as unknown as CanvasNode;
-    const tinted = seatRollupsForNodes([...nodes, region("zone", -50), region("empty", 5_000)], {
+    const region = (id: string, x: number) =>
+      regionNode(id, { x, y: -50, width: 600, height: 400 }, { label: id });
+    const tinted = seatRollupsForCanvas(canvasOf([...nodes, region("zone", -50), region("empty", 5_000)]), {
       now,
       severityByNodeId: { thrash: "working", busy: "working", zone: "working" },
       signalsByNodeId: {},
-      bindingOf: (node) => node.ether?.terminal?.bindingId,
     });
     expect(tinted.get("zone")).toMatchObject({ tone: "amber", source: "health" });
     expect(tinted.has("empty")).toBe(false);
-    const colors = minimapNodeColors(region("zone", -50), "working", tinted.get("zone"), "#101010");
+    const colors = minimapNodeColors({ id: "zone", type: "group", label: "zone", x: -50, y: -50, width: 600, height: 400 } as CanvasNode, "working", tinted.get("zone"), "#101010");
     expect(colors.stroke).toBe(HUE.amber);
     expect(colors.fill).not.toBe(HUE.amber);
   });
