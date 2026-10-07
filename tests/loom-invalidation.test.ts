@@ -245,7 +245,10 @@ describe("renderer subscription contract (static)", () => {
     );
     expect(src).toMatch(/shouldPublishObstacles/);
     expect(src).toMatch(/loomRoutes\$/);
-    expect(src).toMatch(/planStandaloneRoutes/);
+    // Standalone routes go through the one tick planner, which routes nothing
+    // while a node is dragging.
+    expect(src).toMatch(/routesForTick/);
+    expect(src).not.toMatch(/planStandaloneRoutes/);
     // Must not unconditionally set obstacles without equality gate.
     expect(src).toMatch(/if\s*\(\s*!equal\s*\)/);
   });

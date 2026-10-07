@@ -17,7 +17,9 @@ import {
   loomObstacles$,
   loomRoutes$,
   loomStrands$,
-  planStandaloneRoutes,
+  edgesTouchedByMove,
+  movedObstacles,
+  routesForTick,
   pruneKeyedLoomEntries,
   publishKeyedLanes,
   publishKeyedRoutes,
@@ -413,6 +415,8 @@ function publishStrands(planStrands: ReadonlyMap<string, LoomStrand>): void {
  * - Full plan (`scopeIds` omitted): next map is complete; orphans deleted.
  * - Scoped (drag): only those edge ids are written/deleted.
  */
+const NOT_DRAGGING: ReadonlySet<string> = new Set();
+
 function publishStandaloneRoutes(
   inputs: ReadonlyArray<LoomEdgeInput>,
   obstacles: ReadonlyArray<LoomObstacle>,
@@ -420,15 +424,13 @@ function publishStandaloneRoutes(
   strandIds: ReadonlySet<string>,
   scopeIds?: ReadonlySet<string>,
 ): void {
-  const candidates = scopeIds
-    ? inputs.filter((edge) => scopeIds.has(edge.id))
-    : inputs;
-
-  const routes = planStandaloneRoutes({
-    edges: candidates,
+  const { routes } = routesForTick({
+    dragging: NOT_DRAGGING,
+    edges: inputs,
     obstacles,
     corridors,
     strandIds,
+    ...(scopeIds ? { scope: scopeIds } : {}),
     routeWire,
     onRouteWire: (edgeId) => canvasPerformance.recordRouteWire(edgeId, "geometry"),
   });
@@ -475,6 +477,12 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
   const freezeRef = useRef<string | null>(null);
   // Geometry and topology the standing plan was built from.
   const plannedRef = useRef<{ geometry: LoomNode[]; specsKey: string } | null>(null);
+  // The cards and topology the standing standalone routes were worked out
+  // against. Kept through a drag, so the plan on drop can tell which wires a
+  // moved card can have changed.
+  const routedRef = useRef<{ obstacles: LoomObstacle[]; specsKey: string } | null>(null);
+  // Wires a drag took the planned route from, owed a route at the next plan.
+  const freshlyDropped = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     canvasPerformance.recordLoomEffect();
@@ -489,9 +497,8 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
     const dragging = geometry.filter((node) => node.dragging).map((node) => node.nodeId);
 
     if (dragging.length > 0) {
-      // Frozen fan plan during drag. Incident edges drop strands once, then
-      // receive scoped standalone routes every geometry tick so they stay
-      // attached without notifying unrelated edges.
+      // Frozen fan plan during drag. Incident edges drop their strand once and
+      // their planned route once, and are not routed again until the drop.
       const signature = dragging.join(",");
       const moving = new Set(dragging);
       if (freezeRef.current !== signature) {
@@ -506,21 +513,25 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
         });
         plannedRef.current = null;
       }
-      const incident = new Set(
-        specsNow
-          .filter(
-            (spec) => moving.has(spec.sourceNodeId) || moving.has(spec.targetNodeId),
-          )
-          .map((spec) => spec.id),
-      );
-      if (incident.size === 0) return;
       const { inputs, lanes } = buildInputs(specsNow, geometry);
       publishKeyedLanes(lanes);
-      // Standing corridors from last full plan (or empty) — stoppage clearance.
-      const corridors = loomCorridors$.peek();
-      // During drag, no edge in incident set should keep a strand (deleted above
-      // or never had one). Route them all as standalone with live anchors.
-      publishStandaloneRoutes(inputs, obstacles, corridors, new Set(), incident);
+      // Nothing is routed while the pointer is down. A wire touching a moving
+      // card gives up its planned route once and draws as the plain elbow on
+      // its live ends; the route around obstacles is worked out on drop.
+      const { drop } = routesForTick({
+        dragging: moving,
+        edges: inputs,
+        obstacles,
+        corridors: loomCorridors$.peek(),
+        strandIds: NOT_DRAGGING,
+      });
+      const heldRoutes = loomRoutes$.peek();
+      batch(() => {
+        for (const id of drop) {
+          freshlyDropped.current.add(id);
+          if (heldRoutes[id]) loomRoutes$[id]!.delete();
+        }
+      });
       return;
     }
 
@@ -540,11 +551,31 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
       Math.max(0, (globalThis.performance?.now?.() ?? Date.now()) - planStartedAt),
     );
 
+    const wasStrand = new Set(Object.keys(loomStrands$.peek()));
+    const corridorsChanged = shouldPublishCorridors(loomCorridors$.peek(), plan.corridors);
     publishStrands(plan.strands);
     publishCorridors(plan.corridors);
 
     const strandIds = new Set(plan.strands.keys());
-    publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds);
+    const routed = routedRef.current;
+    if (routed && routed.specsKey === specsKey) {
+      // Same wires as last time: only a wire a moved card can have changed is
+      // routed again. Every other wire keeps the route it has.
+      const scope = edgesTouchedByMove(inputs, movedObstacles(routed.obstacles, obstacles));
+      // A wire the drag took its route from is owed one, moved or not.
+      for (const id of freshlyDropped.current) scope.add(id);
+      for (const edge of inputs) {
+        // In or out of a cable since the last plan.
+        if (strandIds.has(edge.id) !== wasStrand.has(edge.id)) scope.add(edge.id);
+        // Blocked wires route around the cables' corridors as well.
+        if (corridorsChanged && edge.blocked) scope.add(edge.id);
+      }
+      publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds, scope);
+    } else {
+      publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds);
+    }
+    freshlyDropped.current = new Set();
+    routedRef.current = { obstacles, specsKey };
 
     plannedRef.current = { geometry, specsKey };
   }, [geometry, specsKey]);

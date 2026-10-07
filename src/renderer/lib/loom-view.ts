@@ -231,6 +231,123 @@ export function planStandaloneRoutes(input: {
 }
 
 /**
+ * How far from a wire's own box a card can sit and still shape its route: the
+ * router looks 40 beyond the box between the two ends, at cards grown by the
+ * 14 of clearance a standalone wire asks for.
+ */
+export const ROUTE_REACH = 56;
+
+/** Wires with an end on one of these nodes. */
+export function incidentEdgeIds(
+  edges: ReadonlyArray<Pick<LoomEdgeInput, "id" | "sourceNodeId" | "targetNodeId">>,
+  nodeIds: ReadonlySet<string>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const edge of edges) {
+    if (nodeIds.has(edge.sourceNodeId) || nodeIds.has(edge.targetNodeId)) out.add(edge.id);
+  }
+  return out;
+}
+
+/** The cards that are not where, or what, they were: each with both rects. */
+export function movedObstacles(
+  before: ReadonlyArray<LoomObstacle>,
+  after: ReadonlyArray<LoomObstacle>,
+): Array<{ readonly nodeId: string; readonly rects: ReadonlyArray<WireRect> }> {
+  const was = new Map(before.map((rect) => [rect.nodeId, rect] as const));
+  const out: Array<{ nodeId: string; rects: WireRect[] }> = [];
+  for (const rect of after) {
+    const prior = was.get(rect.nodeId);
+    was.delete(rect.nodeId);
+    if (
+      prior &&
+      prior.x === rect.x &&
+      prior.y === rect.y &&
+      prior.width === rect.width &&
+      prior.height === rect.height
+    ) {
+      continue;
+    }
+    out.push({ nodeId: rect.nodeId, rects: prior ? [prior, rect] : [rect] });
+  }
+  // What is left was there before and is gone now.
+  for (const [nodeId, prior] of was) out.push({ nodeId, rects: [prior] });
+  return out;
+}
+
+/**
+ * The wires whose route can have changed because these cards moved: a wire
+ * with an end on one, and a wire whose own box a moved card was in or is in
+ * now. Every other wire routes between the same ends past the same cards, so
+ * its route stands.
+ */
+export function edgesTouchedByMove(
+  edges: ReadonlyArray<LoomEdgeInput>,
+  moved: ReadonlyArray<{ readonly nodeId: string; readonly rects: ReadonlyArray<WireRect> }>,
+): Set<string> {
+  const out = new Set<string>();
+  if (moved.length === 0) return out;
+  const movedIds = new Set(moved.map((entry) => entry.nodeId));
+  for (const edge of edges) {
+    if (movedIds.has(edge.sourceNodeId) || movedIds.has(edge.targetNodeId)) {
+      out.add(edge.id);
+      continue;
+    }
+    const minX = Math.min(edge.sourceAnchor.x, edge.targetAnchor.x) - ROUTE_REACH;
+    const maxX = Math.max(edge.sourceAnchor.x, edge.targetAnchor.x) + ROUTE_REACH;
+    const minY = Math.min(edge.sourceAnchor.y, edge.targetAnchor.y) - ROUTE_REACH;
+    const maxY = Math.max(edge.sourceAnchor.y, edge.targetAnchor.y) + ROUTE_REACH;
+    const near = moved.some((entry) =>
+      entry.rects.some(
+        (rect) =>
+          rect.x + rect.width >= minX &&
+          rect.x <= maxX &&
+          rect.y + rect.height >= minY &&
+          rect.y <= maxY,
+      ),
+    );
+    if (near) out.add(edge.id);
+  }
+  return out;
+}
+
+/**
+ * The standalone routes one geometry tick asks for.
+ *
+ * While a node is dragging nothing is routed: the wires touching it give up
+ * their planned route (`drop`) and draw as the plain elbow on their live ends,
+ * which costs nothing per move. The obstacle-avoiding route is worked out once
+ * the drag ends, and then only for the wires in `scope` when one is given.
+ */
+export function routesForTick(input: {
+  readonly dragging: ReadonlySet<string>;
+  readonly edges: ReadonlyArray<LoomEdgeInput>;
+  readonly obstacles: ReadonlyArray<LoomObstacle>;
+  readonly corridors: ReadonlyArray<WireRect>;
+  readonly strandIds: ReadonlySet<string>;
+  /** Only these wires are routed; every wire when absent. */
+  readonly scope?: ReadonlySet<string>;
+  readonly routeWire?: RouteWireFn;
+  readonly onRouteWire?: (edgeId: string) => void;
+}): { readonly routes: Map<string, LoomRoute>; readonly drop: ReadonlySet<string> } {
+  if (input.dragging.size > 0) {
+    return { routes: new Map(), drop: incidentEdgeIds(input.edges, input.dragging) };
+  }
+  const scope = input.scope;
+  return {
+    routes: planStandaloneRoutes({
+      edges: scope ? input.edges.filter((edge) => scope.has(edge.id)) : input.edges,
+      obstacles: input.obstacles,
+      corridors: input.corridors,
+      strandIds: input.strandIds,
+      ...(input.routeWire ? { routeWire: input.routeWire } : {}),
+      ...(input.onRouteWire ? { onRouteWire: input.onRouteWire } : {}),
+    }),
+    drop: new Set(),
+  };
+}
+
+/**
  * Diff keyed routes against held state: preserve identity for equal paths,
  * collect sets/deletes without replacing the whole record.
  */
