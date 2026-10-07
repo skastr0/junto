@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
-import { identityHints } from "../shared/connections";
-import type { CanvasDoc } from "@shared/canvas";
+import { seatIdentityHints } from "../shared/connections";
 import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { modelStore } from "./lib/use-model";
@@ -103,11 +102,12 @@ const refreshList = async () => {
   state$.canvases.set(await window.junto.modelCanvases());
 };
 
-const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
+/** Ask for fresh snapshots of the agents the open canvas seats. */
+const refreshSnapshotsSoft = async () => {
   if (!HERMES_INTEGRATION_ENABLED || !window.junto?.refreshSnapshots) return;
   try {
     const snapshots = await Promise.race([
-      window.junto.refreshSnapshots(identityHints([doc], state$.snapshots.peek())),
+      window.junto.refreshSnapshots(seatIdentityHints([modelStore.canvasOf(state$.canvasName.peek())])),
       new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1500)),
     ]);
     if (snapshots) state$.snapshots.set(snapshots);
@@ -216,7 +216,7 @@ const openCanvas = async (name: string) => {
       clearAbandonedCanvas(name);
       showHeld(name, held);
       state$.error.set("");
-      await refreshSnapshotsSoft(state$.doc.peek());
+      await refreshSnapshotsSoft();
     } catch (error) {
       if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
     } finally {
@@ -256,7 +256,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
     state$.focusNodeId.set(event.nodeId);
     state$.canvasLoading.set(false);
     state$.error.set("");
-    void refreshSnapshotsSoft(state$.doc.peek());
+    void refreshSnapshotsSoft();
   },
   onFailure: (error) => {
     state$.canvasLoading.set(false);
@@ -287,7 +287,7 @@ const createCanvas = async (name: string) => {
       }
       showHeld(result.name, held);
       state$.error.set("");
-      await refreshSnapshotsSoft(state$.doc.peek());
+      await refreshSnapshotsSoft();
     } catch (error) {
       if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
     } finally {

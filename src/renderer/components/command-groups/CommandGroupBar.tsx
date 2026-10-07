@@ -77,7 +77,7 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
         continue;
       }
       if (isAgentSeat(node)) continue;
-      const severity = hotbarNodeSeverity(node, {
+      const severity = hotbarNodeSeverity(node.type === "group", {
         work: work.glances[id], items: work.items[id],
         regionSeverity: regionSeverity[id] as MemberSeverity | undefined,
         liveSeverity:

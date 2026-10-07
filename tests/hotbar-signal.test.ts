@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
 import {
   hotbarNodeSeverity,
   liveActivitySeverity,
@@ -7,25 +6,21 @@ import {
 } from "../src/renderer/lib/hotbar-signal";
 import { digitHue } from "../src/renderer/lib/seat-projections";
 
-const base = { id: "n", x: 0, y: 0, width: 120, height: 80 } as const;
 
 describe("hotbarNodeSeverity", () => {
   it("uses region rollup severity for groups", () => {
-    const group = { ...base, type: "group", label: "ops" } as CanvasNode;
-    expect(hotbarNodeSeverity(group, { regionSeverity: "blocked" })).toBe("blocked");
-    expect(hotbarNodeSeverity(group)).toBe("idle");
+    expect(hotbarNodeSeverity(true, { regionSeverity: "blocked" })).toBe("blocked");
+    expect(hotbarNodeSeverity(true)).toBe("idle");
   });
 
   it("prefers member map severity for free nodes", () => {
-    const node = { ...base, type: "text", text: "worker" } as CanvasNode;
-    expect(hotbarNodeSeverity(node, { memberSeverity: "working" })).toBe("working");
+    expect(hotbarNodeSeverity(false, { memberSeverity: "working" })).toBe("working");
   });
 
   it("merges live seat severity over stale idle member map", () => {
     // Freestanding / lagging rollup said idle; canvas seat is working.
-    const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
     expect(
-      hotbarNodeSeverity(node, {
+      hotbarNodeSeverity(false, {
         memberSeverity: "idle",
         liveSeverity: "working",
       }),
@@ -33,9 +28,8 @@ describe("hotbarNodeSeverity", () => {
   });
 
   it("keeps worse rollup severity when live is only working", () => {
-    const node = { ...base, type: "text", text: "worker" } as CanvasNode;
     expect(
-      hotbarNodeSeverity(node, {
+      hotbarNodeSeverity(false, {
         memberSeverity: "blocked",
         liveSeverity: "working",
       }),
@@ -43,8 +37,7 @@ describe("hotbarNodeSeverity", () => {
   });
 
   it("reads live severity alone for freestanding agents", () => {
-    const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
-    expect(hotbarNodeSeverity(node, { liveSeverity: "attention" })).toBe("attention");
+    expect(hotbarNodeSeverity(false, { liveSeverity: "attention" })).toBe("attention");
   });
 });
 
@@ -64,19 +57,17 @@ describe("liveActivitySeverity", () => {
   });
 
   it("keeps ready under a live working seat and over a quiet rollup", () => {
-    const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
-    expect(hotbarNodeSeverity(node, { memberSeverity: "idle", liveSeverity: "ready" })).toBe("ready");
-    expect(hotbarNodeSeverity(node, { memberSeverity: "working", liveSeverity: "ready" })).toBe("working");
+    expect(hotbarNodeSeverity(false, { memberSeverity: "idle", liveSeverity: "ready" })).toBe("ready");
+    expect(hotbarNodeSeverity(false, { memberSeverity: "working", liveSeverity: "ready" })).toBe("working");
     // A seat that went quiet again drops a stale ready from the rollup.
-    expect(hotbarNodeSeverity(node, { memberSeverity: "ready", liveSeverity: "idle" })).toBe("idle");
+    expect(hotbarNodeSeverity(false, { memberSeverity: "ready", liveSeverity: "idle" })).toBe("idle");
   });
 });
 
 describe("hotbarNodeSeverity seat quiet demotion", () => {
   it("demotes lagging rollup attention when seat is idle", () => {
-    const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
     expect(
-      hotbarNodeSeverity(node, {
+      hotbarNodeSeverity(false, {
         memberSeverity: "attention",
         liveSeverity: "idle",
       }),
@@ -84,9 +75,8 @@ describe("hotbarNodeSeverity seat quiet demotion", () => {
   });
 
   it("keeps graph blocked even when seat is idle", () => {
-    const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
     expect(
-      hotbarNodeSeverity(node, {
+      hotbarNodeSeverity(false, {
         memberSeverity: "blocked",
         liveSeverity: "idle",
       }),
@@ -110,17 +100,8 @@ describe("actor chip hue is digitHue, not hotbarNodeSeverity", () => {
   });
 
   it("does not merge rollup severity into actor hue — facts only", () => {
-    const node = {
-      id: "n",
-      x: 0,
-      y: 0,
-      width: 120,
-      height: 80,
-      type: "text",
-      text: "Pi",
-    } as CanvasNode;
     // Groups / free furniture read the rollup via hotbarNodeSeverity.
-    expect(hotbarNodeSeverity(node, { memberSeverity: "attention" })).toBe("attention");
+    expect(hotbarNodeSeverity(false, { memberSeverity: "attention" })).toBe("attention");
     // Actor chips ignore that merge and use digitHue on assembled facts.
     expect(digitHue({ nodeId: "n", seatState: "working" })).toBe("working");
   });

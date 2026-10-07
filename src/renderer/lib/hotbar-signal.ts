@@ -1,12 +1,11 @@
 /**
  * Hotbar chip signal for any slotted node (region or free node).
- * Reuses MemberSeverity + attentionOf — does not re-derive execution graph.
+ * Reuses MemberSeverity; it does not re-derive the execution graph.
  */
 
 import type { AgentSeatState } from "@shared/agent-seat-state";
 import type { WorkSinkGlance } from "@shared/work-attention";
 import type { Task } from "@shared/work-model";
-import type { CanvasNode } from "@shared/canvas";
 import type { MemberSeverity } from "@shared/region-rollup";
 
 const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
@@ -52,7 +51,8 @@ export function liveActivitySeverity(input: {
  * outside every region or rollup lags inventory joins.
  */
 export function hotbarNodeSeverity(
-  node: CanvasNode,
+  /** A region's chip is its rollup and nothing else. */
+  isRegion: boolean,
   options: {
     readonly regionSeverity?: MemberSeverity;
     readonly memberSeverity?: MemberSeverity;
@@ -61,7 +61,7 @@ export function hotbarNodeSeverity(
     readonly items?: ReadonlyArray<Task>;
   } = {},
 ): MemberSeverity {
-  if (node.type === "group") {
+  if (isRegion) {
     return options.regionSeverity ?? "idle";
   }
 
