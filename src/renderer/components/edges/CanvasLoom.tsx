@@ -17,7 +17,8 @@ import {
   loomObstacles$,
   loomRoutes$,
   loomStrands$,
-  routesOwed,
+  routesOwedWithCause,
+  type RouteCause,
   routesForTick,
   pruneKeyedLoomEntries,
   publishKeyedLanes,
@@ -454,13 +455,17 @@ function publishStrands(planStrands: ReadonlyMap<string, LoomStrand>): void {
  */
 const NOT_DRAGGING: ReadonlySet<string> = new Set();
 
+const TRIGGER_OF = { moved: "geometry", changed: "edge-change", dragged: "drag" } as const;
+
 function publishStandaloneRoutes(
   inputs: ReadonlyArray<LoomEdgeInput>,
   obstacles: ReadonlyArray<LoomObstacle>,
   corridors: ReadonlyArray<WireRect>,
   strandIds: ReadonlySet<string>,
-  scopeIds?: ReadonlySet<string>,
+  /** The wires to route, each with why; every wire, as a first plan, when absent. */
+  scope?: ReadonlyMap<string, RouteCause>,
 ): void {
+  const scopeIds = scope ? new Set(scope.keys()) : undefined;
   const { routes } = routesForTick({
     dragging: NOT_DRAGGING,
     edges: inputs,
@@ -469,7 +474,11 @@ function publishStandaloneRoutes(
     strandIds,
     ...(scopeIds ? { scope: scopeIds } : {}),
     routeWire,
-    onRouteWire: (edgeId) => canvasPerformance.recordRouteWire(edgeId, "geometry"),
+    // The counters keep why each wire was routed, under the names they
+    // already have: a card moved (geometry), the wire itself changed
+    // (edge-change), a drag had taken its route (drag), or a first plan.
+    onRouteWire: (edgeId) =>
+      canvasPerformance.recordRouteWire(edgeId, scope ? TRIGGER_OF[scope.get(edgeId) ?? "moved"] : "initial"),
   });
 
   const held = loomRoutes$.peek();
@@ -633,7 +642,7 @@ function CanvasLoomBody({ edges }: { readonly edges: ReadonlyArray<FlowEdge> }) 
     if (routed) {
       // Only the wires this plan owes a route are routed. Every other wire
       // keeps the route it has.
-      const scope = routesOwed({
+      const scope = routesOwedWithCause({
         edges: inputs,
         specsBefore: routed.specs,
         specsNow: specsById,

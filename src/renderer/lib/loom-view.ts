@@ -321,7 +321,16 @@ export function edgesTouchedByMove(
  * sides of the wires it carries and must not send every other wire back
  * through the router.
  */
-export function routesOwed(input: {
+/** Why a settled plan owes a wire a route. The first that applies is the one named. */
+export type RouteCause =
+  /** A card moved: one of the wire's ends, or a card in or out of its way. */
+  | "moved"
+  /** The wire itself is new or not what it was, or it joined or left a cable, or the corridors it avoids changed. */
+  | "changed"
+  /** Nothing about it changed, but a drag had taken its planned route away. */
+  | "dragged";
+
+export function routesOwedWithCause(input: {
   readonly edges: ReadonlyArray<LoomEdgeInput>;
   /** Each wire as it stood at the last plan, by id. */
   readonly specsBefore: ReadonlyMap<string, string>;
@@ -335,19 +344,30 @@ export function routesOwed(input: {
   readonly strandsBefore: ReadonlySet<string>;
   readonly strandsNow: ReadonlySet<string>;
   readonly corridorsChanged: boolean;
-}): Set<string> {
-  const owed = edgesTouchedByMove(
+}): Map<string, RouteCause> {
+  const owed = new Map<string, RouteCause>();
+  const note = (id: string, cause: RouteCause): void => {
+    if (!owed.has(id)) owed.set(id, cause);
+  };
+  for (const id of edgesTouchedByMove(
     input.edges,
     movedObstacles(input.obstaclesBefore, input.obstaclesNow),
-  );
-  for (const id of incidentEdgeIds(input.edges, input.movedNodeIds)) owed.add(id);
-  for (const id of input.dropped) owed.add(id);
-  for (const edge of input.edges) {
-    if (input.specsBefore.get(edge.id) !== input.specsNow.get(edge.id)) owed.add(edge.id);
-    if (input.strandsNow.has(edge.id) !== input.strandsBefore.has(edge.id)) owed.add(edge.id);
-    if (input.corridorsChanged && edge.blocked) owed.add(edge.id);
+  )) {
+    note(id, "moved");
   }
+  for (const id of incidentEdgeIds(input.edges, input.movedNodeIds)) note(id, "moved");
+  for (const edge of input.edges) {
+    if (input.specsBefore.get(edge.id) !== input.specsNow.get(edge.id)) note(edge.id, "changed");
+    if (input.strandsNow.has(edge.id) !== input.strandsBefore.has(edge.id)) note(edge.id, "changed");
+    if (input.corridorsChanged && edge.blocked) note(edge.id, "changed");
+  }
+  for (const id of input.dropped) note(id, "dragged");
   return owed;
+}
+
+/** The same wires, without the reasons. */
+export function routesOwed(input: Parameters<typeof routesOwedWithCause>[0]): Set<string> {
+  return new Set(routesOwedWithCause(input).keys());
 }
 
 /**

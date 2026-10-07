@@ -11,6 +11,7 @@ import {
   planStandaloneRoutes,
   routesForTick,
   routesOwed,
+  routesOwedWithCause,
 } from "../src/renderer/lib/loom-view";
 import type { LoomEdgeInput, LoomObstacle } from "../src/renderer/lib/wire-loom";
 import { routeWire } from "../src/renderer/lib/wire-route";
@@ -202,6 +203,22 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
     // A region is not in the obstacle list; its wires still move with it.
     expect(routesOwed({ ...base, movedNodeIds: new Set([first!.sourceNodeId]) }))
       .toEqual(incidentEdgeIds(edges, new Set([first!.sourceNodeId])));
+    // Each wire is owed for the first reason that applies, and says which.
+    const far = edges[edges.length - 1]!;
+    expect(
+      routesOwedWithCause({
+        ...base,
+        movedNodeIds: new Set([first!.sourceNodeId]),
+        specsNow: new Map([...same, [far.id, "other sides"]]),
+        dropped: new Set([first!.id, third!.id]),
+      }),
+    ).toEqual(
+      new Map<string, string>([
+        ...[...incidentEdgeIds(edges, new Set([first!.sourceNodeId]))].map((id) => [id, "moved"] as const),
+        [far.id, "changed"],
+        [third!.id, "dragged"],
+      ]),
+    );
     // Corridors only matter to a blocked wire.
     expect(routesOwed({ ...base, corridorsChanged: true }).size).toBe(0);
     expect(routesOwed({ ...base, corridorsChanged: true, edges: [{ ...first!, blocked: true }] }))
