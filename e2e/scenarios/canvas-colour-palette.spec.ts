@@ -10,27 +10,27 @@
  */
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { CanvasDoc, CanvasNode } from "../../src/shared/canvas";
+import type { Node } from "../../src/shared/model";
 import { CANVAS_SWATCHES } from "../../src/shared/canvas-colors";
-import { canvasDoc, textNode } from "../harness/sandbox";
+import { modelFixture, modelNote, modelRegion } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "canvas-colour-palette");
 const CUSTOM = "#b0527a";
 
 /** One named region per palette colour, and one custom, four to a row, each holding a card. */
-const regions: CanvasNode[] = [
+const regions: Node[] = [
   ...CANVAS_SWATCHES.map((swatch) => ({ color: swatch.value, label: swatch.label })),
   { color: CUSTOM, label: "custom" },
 ].flatMap(({ color, label }, index) => {
   const x = (index % 4) * 1_000;
   const y = Math.floor(index / 4) * 760;
   return [
-    { id: `region-${label}`, type: "group", label, color, x, y, width: 900, height: 660 },
-    { ...textNode(`card-${label}`, `${label} card`, x + 80, y + 120), color },
-  ] as CanvasNode[];
+    modelRegion({ id: `region-${label}`, label, color, x, y, width: 900, height: 660 }),
+    { ...modelNote(`card-${label}`, `${label} card`, x + 80, y + 120), color },
+  ] as Node[];
 });
-const doc = canvasDoc([...regions, textNode("note", "Colour me", -600, 0)]);
+const doc = modelFixture([...regions, modelNote("note", "Colour me", -600, 0)]);
 
 const setTheme = async (page: Page, theme: "dark" | "bright") => {
   await page.evaluate(async (next) => {
@@ -81,7 +81,7 @@ test("the colour palette offers a clear yellow and remembers custom colours", as
   test.setTimeout(240_000);
   const junto = await launchJunto({
     windowContentSize: { width: 1600, height: 1000 },
-    seedCanvases: { portfolio: doc },
+    seedModels: { portfolio: doc },
   });
   try {
     const { page } = junto;

@@ -1,4 +1,4 @@
-import { installFixtureDocument } from "../harness/model";
+import { installModelFixture, modelFixture, modelRegion, modelSeat, modelWire } from "../harness/model";
 /**
  * Squads in the real app: save selected agent seats as a squad from the
  * multi-select menu, find it in the add picker, place it inside a region,
@@ -9,29 +9,17 @@ import { installFixtureDocument } from "../harness/model";
  * Capture and placement rules are unit-tested in tests/squads.test.ts.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/squads.spec.ts`
  */
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const shotsDir = process.env.JUNTO_SHOTS_DIR ?? "test-results/squads";
 
-const fixtureDoc = canvasDoc(
-  [
-    agentTextNode({ id: "seat-a", key: "local:alpha", label: "alpha", x: 0, y: 0 }),
-    agentTextNode({ id: "seat-b", key: "local:beta", label: "beta", x: 420, y: 0 }),
-    agentTextNode({ id: "seat-c", key: "local:gamma", label: "gamma", x: 210, y: 320 }),
-    {
-      id: "rg-lab",
-      type: "group",
-      label: "lab",
-      x: 1000,
-      y: -40,
-      width: 900,
-      height: 560,
-      ether: { region: { defaults: { paths: { local: "/tmp" } } } },
-    },
-  ],
-  [{ id: "e-ab", fromNode: "seat-a", toNode: "seat-b", ether: { verb: "messages" } }],
-);
+const nodes = [
+  modelSeat({ id: "seat-a", key: "local:alpha", label: "alpha", x: 0, y: 0 }),
+  modelSeat({ id: "seat-b", key: "local:beta", label: "beta", x: 420, y: 0 }),
+  modelSeat({ id: "seat-c", key: "local:gamma", label: "gamma", x: 210, y: 320 }),
+  modelRegion({ id: "rg-lab", label: "lab", x: 1000, y: -40, width: 900, height: 560, defaults: { paths: { local: "/tmp" } } }),
+];
+const fixtureDoc = modelFixture(nodes, [modelWire("e-ab", "seat-a", "seat-b", "messages", nodes)]);
 
 /** A node's box once it has stopped moving (the camera settles after load). */
 const stableBox = async (locator: import("@playwright/test").Locator) => {
@@ -48,7 +36,7 @@ const stableBox = async (locator: import("@playwright/test").Locator) => {
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  await installFixtureDocument(page, fixtureDoc, "squads");
+  await installModelFixture(page, fixtureDoc, "squads");
 };
 
 const setTheme = async (page: import("@playwright/test").Page, theme: "Dark" | "Bright") => {

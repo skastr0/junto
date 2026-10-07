@@ -1,4 +1,4 @@
-import { installFixtureDocument } from "../harness/model";
+import { installModelFixture, modelFixture, modelRegion, modelNote, type ModelFixture } from "../harness/model";
 /**
  * Region glance capture — the pulled-back camera must still name the regions.
  *
@@ -8,8 +8,7 @@ import { installFixtureDocument } from "../harness/model";
  *
  * Run: `bun run test:e2e:fast e2e/scenarios/region-glance.spec.ts` (after a build).
  */
-import type { CanvasDoc, CanvasNode } from "../../src/shared/canvas";
-import { canvasDoc, textNode } from "../harness/sandbox";
+import type { Node } from "../../src/shared/model";
 import { expect, test } from "../harness/launch";
 
 const region = (
@@ -18,9 +17,8 @@ const region = (
   x: number,
   y: number,
   color?: string,
-): CanvasNode => ({
+): Node => modelRegion({
   id,
-  type: "group",
   label,
   x,
   y,
@@ -29,13 +27,13 @@ const region = (
   ...(color ? { color } : {}),
 });
 
-const card = (id: string, text: string, x: number, y: number): CanvasNode => ({
-  ...textNode(id, text, x, y),
+const card = (id: string, text: string, x: number, y: number): Node => ({
+  ...modelNote(id, text, x, y),
   width: 240,
   height: 120,
 });
 
-const fixtureDoc: CanvasDoc = canvasDoc([
+const fixtureDoc: ModelFixture = modelFixture([
   region("r-build", "Build floor", 0, 0, "4"),
   card("b1", "PTY parser\nsubagent counter", 60, 90),
   card("b2", "Fleet presents\nWebGL lease", 360, 90),
@@ -61,7 +59,7 @@ const fixtureDoc: CanvasDoc = canvasDoc([
 
 const install = async (page: import("@playwright/test").Page): Promise<string> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  const name = await installFixtureDocument(page, fixtureDoc, "glance");
+  const name = await installModelFixture(page, fixtureDoc, "glance");
   return name;
 };
 

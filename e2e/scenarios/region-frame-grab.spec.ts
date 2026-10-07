@@ -1,4 +1,4 @@
-import { installFixtureDocument } from "../harness/model";
+import { installModelFixture, modelFixture, modelRegion, modelSeat } from "../harness/model";
 /**
  * Region window-frame grab.
  *
@@ -8,21 +8,19 @@ import { installFixtureDocument } from "../harness/model";
  *
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/region-frame-grab.spec.ts`
  */
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const fixtureDoc = canvasDoc([
-  agentTextNode({ id: "seat-a", key: "local:alpha", label: "alpha", x: 320, y: 60 }),
-  agentTextNode({ id: "seat-b", key: "local:beta", label: "beta", x: 600, y: 60 }),
-  {
+const fixtureDoc = modelFixture([
+  modelSeat({ id: "seat-a", key: "local:alpha", label: "alpha", x: 320, y: 60 }),
+  modelSeat({ id: "seat-b", key: "local:beta", label: "beta", x: 600, y: 60 }),
+  modelRegion({
     id: "rg-main",
-    type: "group",
     label: "main",
     x: 280,
     y: 0,
     width: 600,
     height: 260,
-  },
+  }),
 ]);
 
 const stableBox = async (
@@ -48,7 +46,7 @@ const stableBox = async (
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  await installFixtureDocument(page, fixtureDoc, "frame");
+  await installModelFixture(page, fixtureDoc, "frame");
 };
 
 test("clicking the frame selects the region, dragging it moves the region", async ({

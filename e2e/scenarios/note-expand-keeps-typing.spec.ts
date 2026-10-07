@@ -6,17 +6,14 @@
  * never commits on its own. The editor must open on what was typed, and the
  * saved note must hold it after done.
  */
-import type { CanvasDoc } from "../../src/shared/canvas";
+import { modelFixture, modelNote } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "note-expand";
-const document: CanvasDoc = {
-  nodes: [{ id: "note-1", type: "text", text: "Field notes", x: 0, y: 0, width: 320, height: 220 }],
-  edges: [],
-};
+const fixture = modelFixture([{ ...modelNote("note-1", "Field notes"), width: 320, height: 220 }]);
 
 test("Expand carries a note's in-place typing into the editor and the saved note", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: document } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
     const note = page.locator('.react-flow__node[data-id="note-1"]');

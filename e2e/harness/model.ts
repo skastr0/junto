@@ -121,6 +121,20 @@ export const readFixtureDocument = async (page: Page, name: string): Promise<Can
 export const commandModel = async (page: Page, input: unknown) =>
   page.evaluate((command) => window.junto!.modelCommand(command), decodeCommand(input));
 
+/** Replace an isolated scenario's topology through one native command batch. */
+export const installModelFixture = async (page: Page, fixture: ModelFixture, fallbackName = "fixture"): Promise<string> => {
+  const names = await page.evaluate(() => window.junto!.modelCanvases());
+  const name = names[0]?.name ?? fallbackName;
+  if (names.length === 0) await commandModel(page, { _tag: "CreateCanvas", canvas: name });
+  const current = await readModelCanvas(page, name);
+  await commandModel(page, { _tag: "Batch", canvas: name, steps: [
+    ...(current.nodes.length ? [{ _tag: "Remove", canvas: name, nodes: current.nodes.map((node) => node.id), wires: [] }] : []),
+    { _tag: "Add", canvas: name, nodes: fixture.nodes, wires: fixture.wires },
+    ...Object.entries(fixture.sheets ?? {}).map(([id, grid]) => ({ _tag: "WriteSheet", canvas: name, id, grid })),
+  ] });
+  return name;
+};
+
 export const readModelSeat = async (page: Page, canvas: string, id: string): Promise<Seat | undefined> => {
   const node = await readModelNode(page, canvas, id);
   return node?.kind === "agent" ? node : undefined;
