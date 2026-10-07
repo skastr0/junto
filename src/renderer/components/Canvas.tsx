@@ -50,7 +50,9 @@ import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes } from "../lib/mutations";
 import { addEdge, canConnect, connectAllToTarget, connectMesh, deleteEdges, disconnectWithin, meshPlanOn, wireIdsWithin } from "../lib/edge-mutations";
-import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
+import { agentCountLabel, seatIdsAmong } from "../lib/multi-selection";
+import type { Node as ModelNode } from "@shared/model";
+import { inPaintOrder, type Canvas } from "@shared/model/canvas";
 import { openAgentEditor } from "../lib/agent-editor-state";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
 import { planSeatMessageFor } from "../lib/seat-message";
@@ -186,6 +188,10 @@ const withEdgeImpact = (
   const { impact: _drop, ...rest } = data;
   return rest;
 };
+
+/** The nodes of a canvas named by `ids`, in paint order. */
+const selectedOn = (canvas: Canvas, ids: ReadonlySet<string>): ReadonlyArray<ModelNode> =>
+  inPaintOrder(canvas).filter((node) => ids.has(node.id));
 
 const NO_WORK_ITEMS: ReadonlyArray<Task> = [];
 
@@ -1095,17 +1101,17 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
     setPosition(anchor.kind === "rect" ? placeBesideRect(anchor.rect, size, viewport) : placeAtPoint(anchor, size, viewport));
   }, [anchor, composing]);
 
-  const doc = state$.doc.peek();
   const selectedIds = new Set(selectionKey.split(" ").filter(Boolean));
   const count = selectedIds.size;
-  const agentIds = agentSeatIds(doc.nodes.filter((node) => selectedIds.has(node.id)));
-  const agents = agentCountLabel(agentIds.length);
-  // What a mesh would add and what already runs between them, from the canvas
-  // the store holds.
+  // The selection as the store holds it, in paint order: its seats, what a
+  // mesh between them would add, what already runs between them, and who a
+  // broadcast would reach.
   const held = modelStore.canvasOf(state$.canvasName.peek());
+  const agentIds = seatIdsAmong(selectedOn(held, selectedIds));
+  const agents = agentCountLabel(agentIds.length);
   const meshAdds = meshPlanOn(held, agentIds).toAdd.length;
   const innerEdges = wireIdsWithin(held, agentIds).length;
-  const broadcast = planAgentBroadcast(doc.nodes.filter((node) => agentIds.includes(node.id)));
+  const broadcast = planAgentBroadcast(selectedOn(held, new Set(agentIds)));
   const reachable = planSeatMessageFor(agentIds).targets.length;
 
   const run = (mutate: (ids: ReadonlyArray<string>) => void) => {
@@ -1114,7 +1120,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   };
   const runOnAgents = (act: (agentIds: ReadonlyArray<string>) => void) => () => {
     const live = new Set(rf.getNodes().filter((node) => node.selected).map((node) => node.id));
-    act(agentSeatIds(state$.doc.peek().nodes.filter((node) => live.has(node.id))));
+    act(seatIdsAmong(selectedOn(modelStore.canvasOf(state$.canvasName.peek()), live)));
     onClose();
   };
   const broadcastEntry = (kind: AgentBroadcastKind, icon: ReactNode): MultiMenuEntry | null => {
@@ -1128,7 +1134,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       icon,
       disabled: broadcast.live.length === 0,
       onSelect: runOnAgents((ids) => {
-        void broadcastToSelection(kind, state$.doc.peek().nodes.filter((node) => ids.includes(node.id)));
+        void broadcastToSelection(kind, selectedOn(modelStore.canvasOf(state$.canvasName.peek()), new Set(ids)));
       }),
     };
   };
