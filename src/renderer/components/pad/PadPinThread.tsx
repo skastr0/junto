@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Send } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
 import type { Canvas } from "@shared/model";
 import { use$ } from "@legendapp/state/react";
 import { useCanvas } from "../../lib/use-model";
@@ -39,7 +38,6 @@ export function PadPinThread({
   onCommit,
 }: {
   readonly pin: PadPin;
-  readonly nodes: ReadonlyArray<CanvasNode>;
   readonly actors: ReadonlyArray<BoardConnectedActor>;
   readonly onCommit: (patches: ReadonlyArray<PadPatch>) => Promise<boolean>;
 }) {

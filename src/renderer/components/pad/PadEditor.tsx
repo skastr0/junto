@@ -22,7 +22,7 @@ import {
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
 import { resolvePadInboundActors } from "@shared/board-actors";
-import { canvasFromDocument } from "@shared/model/from-document";
+import { useCanvas } from "../../lib/use-model";
 import type { ContentRef } from "@shared/content";
 import { contentObjectUrl } from "@shared/content-url";
 import {
@@ -355,9 +355,9 @@ export function PadEditor({
   const theme = use$(themeMode$);
   const pal = useMemo(() => padSvgPalette(theme), [theme]);
   const inkColor = defaultInkColor(theme);
-  const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName) || "";
-  const mentionActors = resolvePadInboundActors(canvasFromDocument(canvasName, doc), padNodeId);
+  const canvas = useCanvas(canvasName);
+  const mentionActors = resolvePadInboundActors(canvas, padNodeId);
   const selectedPin = selectedId ? pinById(pad, selectedId) : undefined;
 
   const selected = selectedId
@@ -1356,7 +1356,6 @@ export function PadEditor({
       {selectedPin ? (
         <PadPinThread
           pin={selectedPin}
-          nodes={doc.nodes}
           actors={mentionActors}
           onCommit={commit}
         />

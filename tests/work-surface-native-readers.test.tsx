@@ -215,7 +215,7 @@ it("resolves pad post authors from native nodes instead of a document node list"
     posts: [{ postId: "post", author: { kind: "actor", nodeId: "worker", label: "Old name" },
       parts: [{ kind: "text", text: "Ready" }] }],
   });
-  await mount(<PadPinThread pin={pin} nodes={[]} actors={[]} onCommit={async () => true} />);
+  await mount(<PadPinThread pin={pin} actors={[]} onCommit={async () => true} />);
   expect(document.querySelector(".board-post strong")?.textContent).toBe("Planner");
   await act(async () => { publish("worker", agent("Reviewer")); await flush(); });
   expect(document.querySelector(".board-post strong")?.textContent).toBe("Reviewer");

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CanvasNode } from "@shared/canvas";
+import type { NodeOf } from "@shared/model";
+import { use$ } from "@legendapp/state/react";
 import {
   describeCronExpression,
-  expressionFromEveryMinutes,
   isValidCronExpression,
   nextCronOccurrence,
 } from "@shared/cron-expression";
-import { canvasFromDocument } from "@shared/model/from-document";
+import { titleOf } from "@shared/model/title";
+import { useCanvas, useNodeOf } from "../../lib/use-model";
 import { collectEffectEdgesFrom } from "@shared/scheduler-effects";
 import { setNodeTimer } from "../../lib/mutations";
-import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { DIM, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
@@ -50,17 +50,9 @@ const WEEKDAYS: ReadonlyArray<{ readonly value: string; readonly label: string }
   { value: "0", label: "Sunday" },
 ];
 
-const resolveExpression = (
-  timer:
-    | { readonly expression?: string; readonly everyMinutes?: number }
-    | undefined,
-): string => {
-  const expr = timer?.expression?.trim();
-  if (expr && isValidCronExpression(expr)) return expr.replace(/\s+/g, " ");
-  if (typeof timer?.everyMinutes === "number" && timer.everyMinutes > 0) {
-    return expressionFromEveryMinutes(timer.everyMinutes);
-  }
-  return "*/30 * * * *";
+const resolveExpression = (expression: string | undefined): string => {
+  const expr = expression?.trim();
+  return expr && isValidCronExpression(expr) ? expr.replace(/\s+/g, " ") : "*/30 * * * *";
 };
 
 const expressionFromFriendly = (input: {
@@ -149,10 +141,19 @@ export function CronScheduleSurface({
   node,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly node: { readonly id: string };
   readonly onClose: () => void;
 }) {
-  const initialExpr = resolveExpression(node.ether?.timer);
+  const current = useNodeOf(use$(state$.canvasName), node.id, "cron");
+  return current ? <CronScheduleBody key={current.id} node={current} onClose={onClose} /> : null;
+}
+
+function CronScheduleBody({ node, onClose }: {
+  readonly node: NodeOf<"cron">;
+  readonly onClose: () => void;
+}) {
+  const canvas = useCanvas(use$(state$.canvasName));
+  const initialExpr = resolveExpression(node.expression);
   const initial = friendlyFromExpression(initialExpr);
 
   const [mode, setMode] = useState<FriendlyMode>(initial.mode);
@@ -166,7 +167,7 @@ export function CronScheduleSurface({
   const [fireStatus, setFireStatus] = useState("");
 
   useEffect(() => {
-    const expr = resolveExpression(node.ether?.timer);
+    const expr = resolveExpression(node.expression);
     const next = friendlyFromExpression(expr);
     setMode(next.mode);
     setHour(next.hour);
@@ -176,7 +177,7 @@ export function CronScheduleSurface({
     setAdvancedOpen(next.mode === "custom");
     setError("");
     setFireStatus("");
-  }, [node.id, node.ether?.timer?.expression, node.ether?.timer?.everyMinutes]);
+  }, [node.id, node.expression]);
 
   const expression = useMemo(
     () =>
@@ -231,10 +232,10 @@ export function CronScheduleSurface({
 
   // Fire now scopes to this cron only — its outbound does wires, nothing else.
   const effectCount = collectEffectEdgesFrom(
-    canvasFromDocument(state$.canvasName.peek(), state$.doc.peek()),
+    canvas,
     node.id,
   ).length;
-  const cronLabel = nodeTitle(node);
+  const cronLabel = titleOf(node);
   const fireHint =
     effectCount === 0
       ? "Nothing connected yet. Connect this cron to what it should act on."
