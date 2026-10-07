@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { asCanvasName, type Node, type Wire } from "../src/shared/model";
 import { ActorRail } from "../src/renderer/components/terminal/ActorRail";
+import { SeatCollaborationBlock } from "../src/renderer/components/terminal/SeatCollaborationBlock";
 import { state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { board, seat, wire } from "./support/model-nodes";
@@ -77,4 +78,14 @@ it("a seat connected to nothing has no rail", async () => {
   hold([seat("solo")], []);
   await act(async () => root.render(<ActorRail node={{ id: "solo" }} />));
   expect(host.querySelector('[data-testid="actor-rail"]')).toBeNull();
+});
+
+it("the collaboration block finds its seat among the store's seats", async () => {
+  hold([seat("builder", { label: "Builder" as never }), seat("iris", { label: "Iris" as never })], []);
+  await act(async () => root.render(<SeatCollaborationBlock nodeId="builder" />));
+  // With the document empty a document reader would find no source seat and draw nothing.
+  expect(host.innerHTML).not.toBe("");
+
+  await act(async () => root.render(<SeatCollaborationBlock nodeId="nobody" />));
+  expect(host.innerHTML).toBe("");
 });

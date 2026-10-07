@@ -15,7 +15,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import type { Node, Seat } from "../src/shared/model";
+import { note, seat } from "./support/model-nodes";
 import {
   collaborationRequestMetadata,
   collaborationThreads,
@@ -50,33 +51,23 @@ import {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const mailboxes = new WeakMap<CanvasNode, readonly import("../src/shared/work-model").Message[]>();
-const threadsOf = (doc: Pick<CanvasDoc, "nodes">) => collaborationThreads(Object.fromEntries(doc.nodes.map((node) => [node.id, mailboxes.get(node) ?? []])));
+/** The nodes of a canvas, as these cases list them. */
+type Fleet = { readonly nodes: ReadonlyArray<Node> };
+
+const mailboxes = new WeakMap<Node, readonly import("../src/shared/work-model").Message[]>();
+const threadsOf = (doc: Fleet) => collaborationThreads(Object.fromEntries(doc.nodes.map((node) => [node.id, mailboxes.get(node) ?? []])));
 const agentNode = (input: {
   readonly id: string;
   readonly bindingId: string;
   readonly label: string;
   readonly messages?: ReadonlyArray<unknown>;
-}): CanvasNode => {
-  const node = ({
-    id: input.id,
-    type: "text",
-    x: 0,
-    y: 0,
-    width: 200,
-    height: 120,
-    text: input.label,
-    ether: {
-      entity: { kind: "agent" },
-      terminal: { bindingId: input.bindingId },
-    },
-  }) as unknown as CanvasNode;
+}): Node => {
+  const node = seat(input.id, { bindingId: input.bindingId as never, label: input.label as never });
   mailboxes.set(node, (input.messages ?? []) as readonly import("../src/shared/work-model").Message[]);
   return node;
 };
 
-const noteNode = (id: string): CanvasNode =>
-  ({ id, type: "text", x: 0, y: 0, width: 100, height: 80, text: "note" }) as unknown as CanvasNode;
+const noteNode = (id: string): Node => note(id, "note");
 
 const seatEvent = (
   bindingId: string,
@@ -116,11 +107,16 @@ const assessment = (input: {
   }) as unknown as SeatAwarenessAssessment;
 
 const fleetOf = (
-  doc: CanvasDoc,
+  doc: Fleet,
   seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
   awareness: Readonly<Record<string, SeatAwarenessAssessment | undefined>> = {},
 ): readonly CollaborationSeatFacts[] =>
-  collaborationFleet({ doc, seatByBindingId: seats, awarenessByBindingId: awareness, mailboxes: Object.fromEntries(doc.nodes.map((node) => [node.id, mailboxes.get(node) ?? []])) });
+  collaborationFleet({
+    seats: doc.nodes.filter((node): node is Seat => node.kind === "agent"),
+    seatByBindingId: seats,
+    awarenessByBindingId: awareness,
+    mailboxes: Object.fromEntries(doc.nodes.map((node) => [node.id, mailboxes.get(node) ?? []])),
+  });
 
 const draft = (over: Partial<SeatCollaborationDraft> = {}): SeatCollaborationDraft => ({
   canvas: "main",
@@ -214,7 +210,7 @@ describe("collaboration threads", () => {
   });
 
   it("reads the request from the peer mailbox and the reply from the asking seat", () => {
-    const doc: CanvasDoc = {
+    const doc: Fleet = {
       nodes: [
         agentNode({
           id: "iris",
@@ -229,7 +225,6 @@ describe("collaboration threads", () => {
           messages: [reply("01REP0000000000000000000000", "01REQ0000000000000000000000", "retries keep the id")],
         }),
       ],
-      edges: [],
     };
     const threads = threadsOf(doc);
     expect(threads).toHaveLength(1);
@@ -246,7 +241,7 @@ describe("collaboration threads", () => {
   });
 
   it("holds a thread open until the reply actually lands", () => {
-    const doc: CanvasDoc = {
+    const doc: Fleet = {
       nodes: [
         agentNode({
           id: "iris",
@@ -256,7 +251,6 @@ describe("collaboration threads", () => {
         }),
         agentNode({ id: "builder", bindingId: "b-builder", label: "Builder" }),
       ],
-      edges: [],
     };
     const threads = threadsOf(doc);
     expect(threads[0]?.status).toBe("asked");
@@ -266,7 +260,7 @@ describe("collaboration threads", () => {
   });
 
   it("ignores mail that is not a collaboration request", () => {
-    const doc: CanvasDoc = {
+    const doc: Fleet = {
       nodes: [
         agentNode({
           id: "iris",
@@ -279,7 +273,6 @@ describe("collaboration threads", () => {
         }),
         noteNode("note-1"),
       ],
-      edges: [],
     };
     expect(threadsOf(doc)).toEqual([]);
   });
@@ -290,39 +283,30 @@ describe("collaboration threads", () => {
 // ---------------------------------------------------------------------------
 
 describe("collaboration fleet", () => {
-  it("sees only agent seats with a binding, labelled as the card labels them", () => {
-    const doc: CanvasDoc = {
+  it("sees the seats and nothing else, each by its binding and its name", () => {
+    const doc: Fleet = {
       nodes: [
-        agentNode({ id: "builder", bindingId: "b-builder", label: "Builder\nsecond line" }),
+        agentNode({ id: "builder", bindingId: "b-builder", label: "Builder" }),
         agentNode({ id: "iris", bindingId: "b-iris", label: "Iris" }),
         noteNode("note-1"),
-        {
-          id: "unbound",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 10,
-          height: 10,
-          text: "Unbound",
-          ether: { entity: { kind: "agent" } },
-        } as unknown as CanvasNode,
+        agentNode({ id: "quiet", bindingId: "b-quiet", label: "Quiet" }),
       ],
-      edges: [],
     };
     const fleet = fleetOf(doc, {
       "b-builder": seatEvent("b-builder", "working"),
       "b-iris": seatEvent("b-iris", "idle"),
     });
-    expect(fleet.map((seat) => seat.nodeId)).toEqual(["builder", "iris", "unbound"]);
+    expect(fleet.map((seat) => seat.nodeId)).toEqual(["builder", "iris", "quiet"]);
     expect(fleet[0]?.label).toBe("Builder");
+    expect(fleet[0]?.bindingId).toBe("b-builder");
     expect(fleet[0]?.state).toBe("working");
     expect(fleet[1]?.state).toBe("idle");
-    expect(fleet[2]?.bindingId).toBeUndefined();
+    // A seat nothing has been heard from is unknown, not offline.
     expect(fleet[2]?.state).toBe("unknown");
   });
 
   it("carries the awareness judgment and the recent mailbox text", () => {
-    const doc: CanvasDoc = {
+    const doc: Fleet = {
       nodes: [
         agentNode({
           id: "iris",
@@ -333,7 +317,6 @@ describe("collaboration fleet", () => {
           ],
         }),
       ],
-      edges: [],
     };
     const fleet = fleetOf(
       doc,

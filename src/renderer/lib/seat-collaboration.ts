@@ -14,7 +14,8 @@
  */
 
 import { observable } from "@legendapp/state";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { Seat } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
   normalizeSeatCollaborationAsk,
@@ -172,19 +173,6 @@ const intersection = (
   b: ReadonlySet<string>,
 ): readonly string[] => [...a].filter((token) => b.has(token));
 
-/** First non-empty line of the node's text, else the spawn label. */
-export const collaborationSeatLabel = (node: CanvasNode): string => {
-  const firstLine =
-    node.type === "text"
-      ? (node.text.split("\n")[0] ?? "").trim()
-      : "";
-  const spawnLabel =
-    typeof node.ether?.terminal?.label === "string"
-      ? node.ether.terminal.label.trim()
-      : "";
-  return firstLine || spawnLabel || node.id;
-};
-
 const MAILBOX_LOOKBACK = 40;
 
 const controlStateOf = (
@@ -200,7 +188,8 @@ const controlStateOf = (
 
 /** Agent seats on one canvas, as collaboration sees them. */
 export const collaborationFleet = (input: {
-  readonly doc: Pick<CanvasDoc, "nodes">;
+  /** The seats on the canvas, in the order they are listed. */
+  readonly seats: ReadonlyArray<Seat>;
   readonly mailboxes?: Readonly<Record<string, ReadonlyArray<import("@shared/work-model").Message>>>;
   readonly seatByBindingId: Readonly<Record<string, AgentSeatStateEvent | undefined>>;
   readonly awarenessByBindingId: Readonly<
@@ -208,13 +197,8 @@ export const collaborationFleet = (input: {
   >;
 }): readonly CollaborationSeatFacts[] => {
   const fleet: CollaborationSeatFacts[] = [];
-  for (const node of input.doc.nodes) {
-    if (node.ether?.entity?.kind !== "agent") continue;
-    const bindingId =
-      typeof node.ether?.terminal?.bindingId === "string" &&
-      node.ether.terminal.bindingId.trim() !== ""
-        ? node.ether.terminal.bindingId
-        : undefined;
+  for (const node of input.seats) {
+    const bindingId: string | undefined = node.bindingId;
     const event = bindingId === undefined ? undefined : input.seatByBindingId[bindingId];
     const assessment =
       bindingId === undefined ? undefined : input.awarenessByBindingId[bindingId];
@@ -224,7 +208,7 @@ export const collaborationFleet = (input: {
     fleet.push({
       nodeId: node.id,
       bindingId,
-      label: collaborationSeatLabel(node),
+      label: titleOf(node),
       state: controlStateOf(event),
       detail: typeof event?.reason === "string" ? event.reason : undefined,
       activity: assessment?.activity ?? null,

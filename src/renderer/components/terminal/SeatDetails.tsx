@@ -7,7 +7,7 @@ import { useWorkMail } from "../../lib/use-work-mail";
  * then, kept out of the way behind one button in the agent modal's header.
  * The seat's AI reading and onboarding status, its signals, its standing with
  * the work kernel (task, escalations, raised tasks, artifacts, board) and its
- * mail. Work rows project from the canvas doc (no IPC reads; operator actions
+ * mail. Work rows project from the canvas (no IPC reads; operator actions
  * go through the work IPC mutations).
  *
  * Canvas binding: terminal surfaces are node-keyed and survive canvas
@@ -21,7 +21,7 @@ import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskState } from "@shared/work-model";
-import { isGroup } from "@shared/graph";
+import { asNodeId, inPaintOrder, type Node } from "@shared/model";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
   mailAgeLabel,
@@ -326,10 +326,14 @@ const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
 ];
 
 /** Renders only for actor-role nodes: every actor has a mailbox with the kernel. */
+/** The contract a task board holds its tasks to, when the node is one. */
+const contractOf = (node: Node | undefined) => (node?.kind === "task" ? node.contract : undefined);
+
 function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly session: SeatSession }) {
-  const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
+  // The canvas the store holds: the seat's wires, its boards and who its mail is from.
+  const held = useCanvas(canvas);
   const boundCanvas = use$(terminal$.canvasByNodeId[node.id]);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(
@@ -340,7 +344,7 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
   const isActor = useMemo(() => {
     const role = roleOf(
       resolveSpec({
-        isGroup: isGroup(node),
+        isGroup: node.type === "group",
         kind: node.ether?.entity?.kind,
       }),
     );
@@ -348,12 +352,12 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
   }, [node]);
 
   // Node-keyed surfaces survive canvas switches; the ledger must not project
-  // another canvas's doc onto this seat or aim mutations at it. Unstamped
+  // another canvas onto this seat or aim mutations at it. Unstamped
   // surfaces (pre-existing sessions) keep the old permissive behavior.
   const canvasMatches = boundCanvas === undefined || boundCanvas === canvas;
   const live = isActor && canvasMatches;
 
-  // The prop node is the open-time snapshot; work containers live on the doc.
+  // The prop node is the open-time snapshot; work containers live on the canvas.
   const seatId = useMemo(
     () => seatIdForActorNode(actorRefs, node.id),
     [actorRefs, node.id],
@@ -364,10 +368,10 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
   const artifactPage = useActorPage("artifacts", live ? canvas : "", seatId);
   const peerBoardIds = useMemo(() => {
     if (!live) return [];
-    const peerIds = new Set(doc.edges.flatMap((edge) =>
-      edge.fromNode === node.id ? [edge.toNode] : edge.toNode === node.id ? [edge.fromNode] : []));
-    return doc.nodes.filter((entry) => peerIds.has(entry.id) && entry.ether?.entity?.kind === "board").map((entry) => entry.id);
-  }, [doc, node.id, live]);
+    const peerIds = new Set<string>([...held.wires.values()].flatMap((wire) =>
+      wire.from === node.id ? [wire.to] : wire.to === node.id ? [wire.from] : []));
+    return inPaintOrder(held).filter((entry) => peerIds.has(entry.id) && entry.kind === "board").map((entry) => entry.id as string);
+  }, [held, node.id, live]);
   const boardPages = usePeerBoards(live ? canvas : "", peerBoardIds);
   const claim = useMemo(
     () => live ? claimedTaskRow(attentionRows, actorRefs, node.id) : undefined,
@@ -379,8 +383,8 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
   );
   const raisedTasks = useMemo(
     () => live && seatId !== undefined && taskPage.page.kind === "task"
-      ? raisedTaskRowsForSeat(taskPage.page.items, (nodeId) => doc.nodes.find((entry) => entry.id === nodeId)?.ether?.tasks?.contract, seatId) : [],
-    [doc, taskPage.page, seatId, live],
+      ? raisedTaskRowsForSeat(taskPage.page.items, (nodeId) => contractOf(held.nodes.get(asNodeId(nodeId))), seatId) : [],
+    [held, taskPage.page, seatId, live],
   );
   const artifacts = useMemo(
     () => live && seatId !== undefined && artifactPage.page.kind === "artifacts"
@@ -400,11 +404,9 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
     0,
   );
   const mail = useWorkMail(canvas, node.id, live);
-  // Who each letter is from is named off the canvas the store holds.
-  const mailCanvas = useCanvas(canvas);
   const rows = useMemo(
-    () => (live ? mailboxRows(mailCanvas, mail.items.map((item) => item.message)) : []),
-    [mailCanvas, mail.items, live],
+    () => (live ? mailboxRows(held, mail.items.map((item) => item.message)) : []),
+    [held, mail.items, live],
   );
   const counts = useMemo(() => mailboxCounts(rows), [rows]);
 

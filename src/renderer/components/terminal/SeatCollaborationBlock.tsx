@@ -15,7 +15,7 @@ import { useWorkspaceMail } from "../../lib/use-work-mail";
  * appends ordinary crew mail; nothing is sent without the click.
  */
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
@@ -41,7 +41,9 @@ import {
 } from "../../lib/seat-collaboration";
 import type { SeatAwarenessAssessment } from "../../lib/seat-awareness-contract";
 import { seatAwareness$ } from "../../lib/seat-awareness";
+import { inPaintOrder, type Seat } from "@shared/model";
 import { state$ } from "../../lib/state";
+import { useCanvas } from "../../lib/use-model";
 import { Button, Chip, Eyebrow } from "../ui";
 
 const truncate = (text: string, max: number): string =>
@@ -54,8 +56,10 @@ export function SeatCollaborationBlock({
   readonly nodeId: string;
   readonly className?: string | undefined;
 }): ReactNode {
-  const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
+  const canvas = useCanvas(canvasName);
+  // The seats on the canvas, in the order they are drawn.
+  const seats = useMemo(() => inPaintOrder(canvas).filter((node): node is Seat => node.kind === "agent"), [canvas]);
   const seatByBindingId = use$(
     agentSeat$.byBindingId,
   ) as unknown as Readonly<Record<string, AgentSeatStateEvent | undefined>>;
@@ -68,8 +72,9 @@ export function SeatCollaborationBlock({
   const sentThreads = use$(seatCollaborationSent$.byRequestId) as unknown as Readonly<
     Record<string, SeatCollaborationThread>
   >;
-  const mailboxes = useWorkspaceMail(canvasName, doc.nodes.filter((node) => node.ether?.entity?.kind === "agent").map((node) => node.id));
-  const fleet = collaborationFleet({ doc, seatByBindingId, awarenessByBindingId, mailboxes });
+  const seatIds = useMemo(() => seats.map((seat) => seat.id), [seats]);
+  const mailboxes = useWorkspaceMail(canvasName, seatIds);
+  const fleet = collaborationFleet({ seats, seatByBindingId, awarenessByBindingId, mailboxes });
   const source = fleet.find((seat: CollaborationSeatFacts) => seat.nodeId === nodeId);
   if (source === undefined) return null;
   const threads = collaborationThreadsForSource(
