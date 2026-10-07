@@ -252,7 +252,7 @@ test.describe("a task path between two boards", () => {
     const { page } = junto;
     await ready(page, ["build", "review"]);
     const made = await page.evaluate(
-      (canvas) => window.junto!.workTaskCreate(canvas, "build", "Ship the wire spec", { title: "Ship the wire spec", details: "" }),
+      (canvas) => window.junto!.workTaskCreate(canvas, "build", "Ship the wire spec", { title: "Ship the wire spec", details: "A task on Build, so removing its path has something to say." }),
       CANVAS,
     );
     expect(made.ok).toBe(true);
