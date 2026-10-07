@@ -38,7 +38,7 @@ describe("model", () => {
   });
 
   it("refuses a field the kind does not have", () => {
-    const bagged = { ...seat, ether: { messages: { items: [] } } };
+    const bagged = { ...seat, extension: { messages: { items: [] } } };
     expect(Exit.isFailure(run(decodeNode(bagged)))).toBe(true);
     expect(Exit.isFailure(run(decodeNode({ ...seat, messages: [] })))).toBe(true);
   });
