@@ -9,9 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { Canvas } from "../src/shared/model";
+import type { ActorRef } from "../src/shared/work-protocol";
+import { seat } from "./support/model-nodes";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
   SettingsLive,
@@ -66,7 +69,7 @@ const makeRuntime = (root: string) => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(
     WorkLive,
     Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
@@ -74,34 +77,21 @@ const makeRuntime = (root: string) => {
   return ManagedRuntime.make(workLive as never);
 };
 
-const agentDoc = (): CanvasDoc => ({
-  nodes: [
-    {
-      id: "agent",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 120,
-      height: 48,
-      text: "agent",
-      ether: {
-        entity: { kind: "agent", name: "local:agent" },
-        terminal: {
-          bindingId: "bind-agent",
-          harness: "claude",
-          launch: { kind: "harness", argv: ["claude"] },
-        },
-      },
-    },
-  ],
-  edges: [],
-});
+const agentNodes = () => [
+  seat("agent", {
+    width: 120,
+    height: 48,
+    bindingId: "bind-agent" as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  }),
+];
 
-const authorialBasis = (generation: string, contentSha256: string) =>
+/** The canvas the mail was written against, by its sequence. */
+const authorialBasis = (seq: number) =>
   Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })({
     kind: "canvas",
     canvasName: "mail",
-    seq: Number(generation),
+    seq,
   });
 
 describe("mailbox message read receipts", () => {
@@ -120,13 +110,13 @@ describe("mailbox message read receipts", () => {
         supervisedPreferred: true,
       }),
     );
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("mail", agentDoc()));
+    await runtime.runPromise(seedCanvas("mail", agentNodes()) as never);
     const repository = await runtime.runPromise(WorkRepository);
-    const { intentWitness: witness } = await runtime.runPromise(canvases.readWithIntentWitness("mail"));
-    const basis = authorialBasis(witness.generation, witness.contentSha256);
-    const read = await runtime.runPromise(canvases.read("mail"));
-    const actor = read.actorRefs.find((a) => a.nodeId === "agent");
+    const basis = authorialBasis(((await runtime.runPromise(readSeeded("mail") as never)) as Canvas).seq);
+    const refs = (await runtime.runPromise(
+      Effect.flatMap(ModelActorRefs, (actors) => actors.read("mail")) as never,
+    )) as ReadonlyArray<ActorRef>;
+    const actor = refs.find((a) => a.nodeId === "agent");
     expect(actor).toBeDefined();
     const sink = { canvasName: "mail", nodeId: "agent" };
     const messageId = "mail-read-1";
@@ -196,13 +186,13 @@ describe("mailbox message read receipts", () => {
         supervisedPreferred: true,
       }),
     );
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("mail", agentDoc()));
+    await runtime.runPromise(seedCanvas("mail", agentNodes()) as never);
     const repository = await runtime.runPromise(WorkRepository);
-    const { intentWitness: witness } = await runtime.runPromise(canvases.readWithIntentWitness("mail"));
-    const basis = authorialBasis(witness.generation, witness.contentSha256);
-    const read = await runtime.runPromise(canvases.read("mail"));
-    const actor = read.actorRefs.find((a) => a.nodeId === "agent");
+    const basis = authorialBasis(((await runtime.runPromise(readSeeded("mail") as never)) as Canvas).seq);
+    const refs = (await runtime.runPromise(
+      Effect.flatMap(ModelActorRefs, (actors) => actors.read("mail")) as never,
+    )) as ReadonlyArray<ActorRef>;
+    const actor = refs.find((a) => a.nodeId === "agent");
     expect(actor).toBeDefined();
     const sink = { canvasName: "mail", nodeId: "agent" };
     const messageId = "mail-read-2";
