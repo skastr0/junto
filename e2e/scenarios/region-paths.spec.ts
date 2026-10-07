@@ -83,7 +83,7 @@ test("region folder paths — empty, save, escape", async ({ junto }) => {
   await expect(dialog.getByText("Folder paths", { exact: true })).toBeVisible();
   // Empty bag seeds one local host row + host directory picker (not a bare text field).
   await expect(dialog.getByRole("listbox", { name: "Hosts with paths" })).toBeVisible();
-  await expect(dialog.getByRole("textbox", { name: /Working directory for /i })).toBeVisible();
+  await expect(dialog.getByRole("combobox", { name: /Working directory for /i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /use this folder/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /add host/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /save/i })).toBeVisible();
@@ -94,14 +94,14 @@ test("region folder paths — empty, save, escape", async ({ junto }) => {
     fullPage: false,
   });
 
-  const pathInput = dialog.getByRole("textbox", { name: /Working directory for /i });
+  const pathInput = dialog.getByRole("combobox", { name: /Working directory for /i });
   await pathInput.fill("/Users/operator/Projects/forge");
   await dialog.getByRole("button", { name: /^save$/i }).click();
   await expect(dialog).toHaveCount(0);
 
   dialog = await openRegionPaths(page, regionEmpty.id);
   await expect(
-    dialog.getByRole("textbox", { name: /Working directory for /i }),
+    dialog.getByRole("combobox", { name: /Working directory for /i }),
   ).toHaveValue("/Users/operator/Projects/forge");
   await page.screenshot({
     path: join(SHOTS, "21-region-paths-saved.png"),
@@ -124,11 +124,11 @@ test("region folder paths — multi-host seed + remove", async ({ junto }) => {
   await expect(dialog.getByRole("listbox", { name: "Hosts with paths" })).toBeVisible();
   // The picker shows the selected host only — local is the first stored key.
   await expect(
-    dialog.getByRole("textbox", { name: /Working directory for /i }),
+    dialog.getByRole("combobox", { name: /Working directory for /i }),
   ).toHaveValue("/Users/operator/Projects/junto");
   await dialog.getByRole("option", { name: /remote-a/i }).click();
   await expect(
-    dialog.getByRole("textbox", { name: /Working directory for remote-a/i }),
+    dialog.getByRole("combobox", { name: /Working directory for remote-a/i }),
   ).toHaveValue("/home/operator/junto");
   await expect(dialog.getByRole("button", { name: /use this folder/i }).first()).toBeVisible();
   await page.screenshot({
@@ -143,7 +143,7 @@ test("region folder paths — multi-host seed + remove", async ({ junto }) => {
 
   dialog = await openRegionPaths(page, regionFilled.id);
   await expect(
-    dialog.getByRole("textbox", { name: /Working directory for /i }),
+    dialog.getByRole("combobox", { name: /Working directory for /i }),
   ).toHaveValue("/Users/operator/Projects/junto");
   await expect(dialog.getByRole("option", { name: /remote-a/i })).toHaveCount(0);
 });

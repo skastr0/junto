@@ -192,7 +192,7 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, regions, and Mach
     await expect(paths).toBeVisible();
     await expect(paths.getByRole("option", { name: /local|this machine/i })).toBeVisible();
     await paths.getByRole("option", { name: /remote-a/i }).click();
-    await expect(paths.getByRole("textbox", { name: /Working directory for remote-a/i })).toHaveValue("/tmp/remote-a");
+    await expect(paths.getByRole("combobox", { name: /Working directory for remote-a/i })).toHaveValue("/tmp/remote-a");
     await shot(page, "06-region-paths-ship");
     await page.keyboard.press("Escape");
     await expect(paths).toHaveCount(0);
