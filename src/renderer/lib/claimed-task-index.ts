@@ -1,29 +1,9 @@
-/**
- * One claimed-task projection for the open canvas, rebuilt once per document
- * change and read per seat.
- *
- * Before this existed, every ClaimedTaskStrip subscribed to `state$.doc` and
- * ran its own nodes x tasks scan, so a single unrelated write (one keystroke
- * in a rename box) cost instances x nodes x tasks comparisons and re-rendered
- * every strip on the canvas. This is the incremental-view-maintenance shape
- * the region rollups and the kernel projection already use here: derive once,
- * publish per key, and leave a key untouched when its projection did not
- * change so that key's subscribers never re-render.
- *
- * Rebuild policy — `commitDoc` replaces the document identity wholesale, so
- * identity is not evidence that claims changed, and any cheaper "did claims
- * change?" fingerprint would have to walk the same nodes x tasks to compute
- * it. So the scan runs once per document change (never missing a change), and
- * the *publish* is what is gated: a key is written only when the exact facts
- * this strip renders changed. Cost per unrelated write is therefore one scan,
- * not one scan per mounted strip, and zero re-renders.
- */
-
 import { batch, observable, observe } from "@legendapp/state";
-import type { CanvasDoc } from "@shared/canvas";
-import { claimedByOf, taskBrief } from "@shared/task";
+import type { WorkLaneRow } from "@shared/work-sinks";
+import { workAttentionStore } from "./use-work-sink";
+import { claimedByOf } from "@shared/task";
 import type { ActorRef } from "@shared/work-protocol";
-import { isActiveClaim, type ClaimedTask } from "./claimed-task";
+import { claimedTaskBrief, isActiveClaim, type ClaimedTask } from "./claimed-task";
 import { state$ } from "./state";
 
 /**
@@ -34,19 +14,13 @@ export const claimedTask$ = observable<{
   byNodeId: Record<string, ClaimedTask | undefined>;
 }>({ byNodeId: {} });
 
-/**
- * Whole-canvas claimed-task projection in one pass.
- *
- * Match order is the document order + item order that `claimedTaskForActorNode`
- * walks, and one node resolves through the first `ActorRef` carrying it, so
- * the map answers exactly what the per-node scan answered.
- */
+/** Join compact claim rows by compiled seat identity. First active claim wins. */
 export const buildClaimedTaskIndex = (
-  doc: CanvasDoc | undefined,
+  rows: ReadonlyArray<WorkLaneRow>,
   actorRefs: ReadonlyArray<ActorRef>,
 ): Record<string, ClaimedTask> => {
   const index: Record<string, ClaimedTask> = {};
-  if (actorRefs.length === 0 || !Array.isArray(doc?.nodes)) return index;
+  if (actorRefs.length === 0) return index;
 
   // First ref per node wins, mirroring the `find` the per-node scan used.
   const actorBySeatId = new Map<string, ActorRef>();
@@ -57,17 +31,13 @@ export const buildClaimedTaskIndex = (
     if (!actorBySeatId.has(actor.seatId)) actorBySeatId.set(actor.seatId, actor);
   }
 
-  for (const node of doc.nodes) {
-    for (const task of node.ether?.tasks?.items ?? []) {
-      if (!isActiveClaim(task)) continue;
-      const seatId = claimedByOf(task);
-      if (seatId === undefined) continue;
-      const actor = actorBySeatId.get(seatId);
-      if (actor === undefined) continue;
-      // First active claim wins, exactly like the per-node scan's early return.
-      if (index[actor.nodeId] !== undefined) continue;
-      index[actor.nodeId] = { task, sinkNodeId: node.id, actor };
-    }
+  for (const { nodeId: sinkNodeId, item: task } of rows) {
+    if (!isActiveClaim(task)) continue;
+    const seatId = claimedByOf(task);
+    if (seatId === undefined) continue;
+    const actor = actorBySeatId.get(seatId);
+    if (actor === undefined || index[actor.nodeId] !== undefined) continue;
+    index[actor.nodeId] = { task, sinkNodeId, actor };
   }
   return index;
 };
@@ -93,7 +63,7 @@ const samePaintedClaim = (
   return (
     previous.task.id === next.task.id &&
     previous.task.state === next.task.state &&
-    taskBrief(previous.task) === taskBrief(next.task)
+    claimedTaskBrief(previous.task) === claimedTaskBrief(next.task)
   );
 };
 
@@ -120,27 +90,30 @@ export const publishClaimedTaskIndex = (
   });
 };
 
-/** Rebuild from the live document + compiled seat projection, then publish. */
+/** Compact claim rows and actor identities change independently of geometry. */
 export const refreshClaimedTaskIndex = (): void => {
-  publishClaimedTaskIndex(
-    buildClaimedTaskIndex(
-      state$.doc.peek() as CanvasDoc,
-      state$.actorRefs.peek() as ReadonlyArray<ActorRef>,
-    ),
-  );
+  const canvasName = state$.canvasName.peek();
+  const items = workAttentionStore.state(canvasName).claimItemsByNodeId.peek();
+  publishClaimedTaskIndex(buildClaimedTaskIndex(
+    Object.entries(items).flatMap(([nodeId, tasks]) => (tasks ?? []).map((item) => ({ nodeId, item }))),
+    state$.actorRefs.peek() as ReadonlyArray<ActorRef>,
+  ));
 };
 
 let stop: (() => void) | undefined;
+let releaseCanvas: (() => void) | undefined;
 
-/**
- * Single canvas-wide subscriber, started on import so the index exists before
- * the first strip renders and no strip has to hold a document subscription of
- * its own. Idempotent.
- */
 export const startClaimedTaskIndex = (): (() => void) => {
   if (stop === undefined) {
+    let retainedCanvas = "";
     stop = observe(() => {
-      state$.doc.get();
+      const canvasName = state$.canvasName.get();
+      if (canvasName !== retainedCanvas) {
+        releaseCanvas?.();
+        retainedCanvas = canvasName;
+        releaseCanvas = canvasName ? workAttentionStore.retain(canvasName) : undefined;
+      }
+      workAttentionStore.state(canvasName).claimItemsByNodeId.get();
       state$.actorRefs.get();
       refreshClaimedTaskIndex();
     });
@@ -148,10 +121,9 @@ export const startClaimedTaskIndex = (): (() => void) => {
   return stopClaimedTaskIndex;
 };
 
-/** Tear down the subscriber (tests / renderer teardown). */
 export const stopClaimedTaskIndex = (): void => {
-  stop?.();
-  stop = undefined;
+  stop?.(); stop = undefined;
+  releaseCanvas?.(); releaseCanvas = undefined;
 };
 
 startClaimedTaskIndex();

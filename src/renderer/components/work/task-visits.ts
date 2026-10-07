@@ -3,7 +3,7 @@
  *
  * A task's `visits` travel with the row, but each visit's interior (claim
  * receipts, check results, defect note) stays on the board row it was
- * recorded at. This builder re-joins them from the live document so the
+ * recorded at. This builder re-joins them from independently queried rows so the
  * operator sees every board; seats never receive this composition.
  */
 
@@ -106,8 +106,7 @@ export type TaskVisitsView = {
 const nodeById = (doc: CanvasDoc, nodeId: string): CanvasNode | undefined =>
   doc.nodes.find((node) => node.id === nodeId);
 
-const rowAt = (doc: CanvasDoc, nodeId: string, taskId: string): Task | undefined =>
-  nodeById(doc, nodeId)?.ether?.tasks?.items.find((item) => item.id === taskId);
+export type TaskAt = (nodeId: string, taskId: string) => Task | undefined;
 
 export const boardLabel = (doc: CanvasDoc, nodeId: string): string =>
   tasksNodeName(nodeById(doc, nodeId), nodeId);
@@ -136,6 +135,7 @@ const defectOf = (
   task: Task,
   visit: Visit,
   currentNodeId: string,
+  rowAt: TaskAt,
 ): {
   readonly summary: string;
   readonly refs: ReadonlyArray<string>;
@@ -144,7 +144,7 @@ const defectOf = (
 } | undefined => {
   if (visit.exit !== "sent-back" || visit.next === undefined) return undefined;
   const row =
-    visit.next === currentNodeId ? task : rowAt(doc, visit.next, task.id);
+    visit.next === currentNodeId ? task : rowAt(visit.next, task.id);
   const marker = `defect from "${visit.board}": `;
   for (let index = (row?.history.length ?? 0) - 1; index >= 0; index -= 1) {
     const text = (row?.history[index]?.parts ?? [])
@@ -260,6 +260,7 @@ export const buildTaskVisits = (
   task: Task,
   /** Tasks node the open row lives at — its visit reads the live task, not the doc copy. */
   currentNodeId: string,
+  rowAt: TaskAt,
 ): TaskVisitsView => {
   const epoch = taskEpoch(task);
   const visits = task.visits ?? [];
@@ -267,11 +268,11 @@ export const buildTaskVisits = (
   const defects = taskDefects(task);
   const layers = visits.map((visit, index) => {
     const row =
-      visit.board === currentNodeId ? task : rowAt(doc, visit.board, task.id);
+      visit.board === currentNodeId ? task : rowAt(visit.board, task.id);
     const isCompleted = visit.exit === "sent-on" || visit.exit === "completed";
     const isLatestCompleted = latestCompleted.get(visit.board) === visit;
     const receipts = receiptsAt(doc, task, visit, row, isLatestCompleted);
-    const defect = defectOf(doc, task, visit, currentNodeId);
+    const defect = defectOf(doc, task, visit, currentNodeId, rowAt);
     const live = visit.exit === undefined && index === visits.length - 1;
     const responseIsLive = isCompleted
       ? claimIsLive(task, visits, visit)

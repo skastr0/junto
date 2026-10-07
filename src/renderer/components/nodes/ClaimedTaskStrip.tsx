@@ -1,5 +1,5 @@
 import { use$ } from "@legendapp/state/react";
-import { taskBrief } from "@shared/task";
+import { claimedTaskBrief } from "../../lib/claimed-task";
 import type { ClaimedTask } from "../../lib/claimed-task";
 import { claimedTask$ } from "../../lib/claimed-task-index";
 import { INK } from "../../lib/theme";
@@ -27,11 +27,11 @@ export function ClaimedTaskStrip({ nodeId }: { readonly nodeId: string }) {
     <div
       className="mt-1 truncate text-[10px] leading-snug"
       style={{ color: INK }}
-      title={taskBrief(claimed.task)}
+      title={claimedTaskBrief(claimed.task)}
       data-testid="claimed-task"
     >
       <span style={{ color: stateHue(claimed.task.state) }}>●</span>{" "}
-      {taskBrief(claimed.task)}
+      {claimedTaskBrief(claimed.task)}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useCanvasWorkAttention } from "../../lib/use-work-sink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Plus } from "lucide-react";
@@ -43,6 +44,8 @@ const isAgentSeat = (node: CanvasNode): boolean =>
  */
 function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRollup> {
   const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName);
+  const work = useCanvasWorkAttention(canvasName);
   const now = useHealthClock();
   const signals = use$(seatSignalRollups$);
   const awarenessRev = use$(seatAwareness$.rev);
@@ -75,6 +78,7 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
       }
       if (isAgentSeat(node)) continue;
       const severity = hotbarNodeSeverity(node, {
+        work: work.glances[id], items: work.items[id],
         regionSeverity: regionSeverity[id] as MemberSeverity | undefined,
         liveSeverity:
           node.type === "group"
@@ -89,7 +93,7 @@ function useBarTones(nodeIds: ReadonlyArray<string>): ReadonlyMap<string, SeatRo
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- key stands for nodeIds; revs stamp the stores
-  }, [key, doc, now, signals, awarenessRev, seatRev, execution, executionRev, regionSeverity, chatByAgent]);
+  }, [key, doc, now, signals, awarenessRev, seatRev, execution, executionRev, regionSeverity, chatByAgent, work.glances, work.items]);
 }
 
 /** The worst tone among a chip's members. */

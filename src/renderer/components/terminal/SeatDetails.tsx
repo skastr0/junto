@@ -1,3 +1,5 @@
+import { useActorPage, useAttentionRows, usePeerBoards } from "../../lib/use-actor-work";
+import { WorkPageControls } from "../work/WorkPageControls";
 import { useWorkMail } from "../../lib/use-work-mail";
 /**
  * Seat details: everything about one agent seat that is worth a look now and
@@ -356,25 +358,38 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
     () => seatIdForActorNode(actorRefs, node.id),
     [actorRefs, node.id],
   );
+  const attentionRows = useAttentionRows(live ? canvas : "");
+  const requestPage = useActorPage("requests", live ? canvas : "", seatId);
+  const taskPage = useActorPage("task", live ? canvas : "", seatId);
+  const artifactPage = useActorPage("artifacts", live ? canvas : "", seatId);
+  const peerBoardIds = useMemo(() => {
+    if (!live) return [];
+    const peerIds = new Set(doc.edges.flatMap((edge) =>
+      edge.fromNode === node.id ? [edge.toNode] : edge.toNode === node.id ? [edge.fromNode] : []));
+    return doc.nodes.filter((entry) => peerIds.has(entry.id) && entry.ether?.entity?.kind === "board").map((entry) => entry.id);
+  }, [doc, node.id, live]);
+  const boardPages = usePeerBoards(live ? canvas : "", peerBoardIds);
   const claim = useMemo(
-    () => (live ? claimedTaskRow(doc, actorRefs, node.id) : undefined),
-    [doc, actorRefs, node.id, live],
+    () => live ? claimedTaskRow(attentionRows, actorRefs, node.id) : undefined,
+    [attentionRows, actorRefs, node.id, live],
   );
   const requests = useMemo(
-    () => (live && seatId !== undefined ? requestRowsForSeat(doc, seatId) : []),
-    [doc, seatId, live],
+    () => live && seatId !== undefined && requestPage.page.kind === "requests" ? requestRowsForSeat(requestPage.page.items, seatId) : [],
+    [requestPage.page, seatId, live],
   );
   const raisedTasks = useMemo(
-    () => (live && seatId !== undefined ? raisedTaskRowsForSeat(doc, seatId) : []),
-    [doc, seatId, live],
+    () => live && seatId !== undefined && taskPage.page.kind === "task"
+      ? raisedTaskRowsForSeat(taskPage.page.items, (nodeId) => doc.nodes.find((entry) => entry.id === nodeId)?.ether?.tasks?.contract, seatId) : [],
+    [doc, taskPage.page, seatId, live],
   );
   const artifacts = useMemo(
-    () => (live && seatId !== undefined ? artifactRowsForSeat(doc, seatId) : []),
-    [doc, seatId, live],
+    () => live && seatId !== undefined && artifactPage.page.kind === "artifacts"
+      ? artifactRowsForSeat(artifactPage.page.items, seatId) : [],
+    [artifactPage.page, seatId, live],
   );
   const boards = useMemo(
-    () => (live ? boardRowsForActor(doc, node.id) : []),
-    [doc, node.id, live],
+    () => live ? boardRowsForActor(boardPages.boards) : [],
+    [boardPages.boards, live],
   );
   const boardTopics = useMemo(
     () => boards.flatMap((board) => board.topics),
@@ -459,6 +474,11 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
         </div>
       ) : null}
       {signalsSection}
+      <WorkPageControls {...requestPage} />
+      <WorkPageControls {...taskPage} />
+      <WorkPageControls {...artifactPage} />
+      {boardPages.error ? <p role="status">{boardPages.error}</p> : null}
+      {boardPages.hasMore ? <Button size="xs" variant="subtle" disabled={boardPages.loading} onClick={() => void boardPages.loadMore()}>Load older board topics</Button> : null}
       {claim ? (
         <DetailsGroup
           title="task"

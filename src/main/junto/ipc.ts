@@ -1,4 +1,4 @@
-import { WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
+import { WorkItemQuery, WorkActorQuery, WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Result, Schema, Stream } from "effect";
@@ -1505,6 +1505,18 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
+  privilegedIpc.handle(IPC_CHANNELS.workItem, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(WorkItemQuery, { onExcessProperty: "error" })(input);
+      return yield* (yield* WorkRepository).taskItem(query);
+    })),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.workActorPage, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(WorkActorQuery, { onExcessProperty: "error" })(input);
+      return yield* (yield* WorkRepository).actorPage(query);
+    })),
+  );
   privilegedIpc.handle(IPC_CHANNELS.workAttention, (_event, input: unknown) =>
     AppRuntime.runPromise(Effect.gen(function* () {
       const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, { onExcessProperty: "error" })(input);

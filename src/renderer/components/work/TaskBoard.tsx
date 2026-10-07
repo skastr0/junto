@@ -1,3 +1,4 @@
+import { useWorkItems } from "../../lib/use-work-item";
 import { WorkPageControls } from "./WorkPageControls";
 import { useTaskItems } from "../../lib/use-work-sink";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -2321,15 +2322,10 @@ export function TaskBoard({
   const [activeLane, setActiveLane] = useState<LaneId | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => {
-    if (
-      initialItemId &&
-      items.some((task) => task.id === initialItemId)
-    ) {
-      return initialItemId;
-    }
-    return null;
-  });
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(initialItemId ?? null);
+  const detailRows = useWorkItems(selectedTaskId ? [{
+    canvasName: canvasName(), nodeId: node.id, kind: "task", itemId: selectedTaskId,
+  }] : []);
   /** Multi-select for column bulk actions (independent of detail focus). */
   const [selectedTaskIds, setSelectedTaskIds] = useState<ReadonlySet<string>>(
     () => (initialItemId ? new Set([initialItemId]) : new Set()),
@@ -2458,7 +2454,7 @@ export function TaskBoard({
 
   const activeTask = activeTaskId ? items.find((task) => task.id === activeTaskId) : undefined;
   const selectedTask = selectedTaskId
-    ? items.find((task) => task.id === selectedTaskId)
+    ? detailRows[0]?.item ?? items.find((task) => task.id === selectedTaskId)
     : undefined;
   const selectedBulkItems = useMemo(() => {
     if (selectedTaskIds.size === 0) return [];

@@ -43,11 +43,12 @@ it("counts a whole sink while excluding unrelated work contents and old-kind row
   } finally { database.close(); }
 });
 
-it("returns every human wait and active claim without reading a history", async () => {
+it("returns every human wait and active claim with only their first-line brief", async () => {
   const database = new DatabaseSync(":memory:");
   database.exec(`
     CREATE TABLE task_boards(canvas_name TEXT,id TEXT);
     CREATE TABLE request_boards(canvas_name TEXT,id TEXT);
+    CREATE TABLE work_task_messages(canvas_name TEXT,node_id TEXT,parent_lane TEXT,item_id TEXT,position INT,parts_json TEXT);
     CREATE TABLE work_tasks(canvas_name TEXT,node_id TEXT,task_id TEXT,state TEXT,actor_seat_id TEXT,metadata_json TEXT,origin_at TEXT);
     CREATE TABLE work_requests(canvas_name TEXT,node_id TEXT,request_id TEXT,state TEXT,actor_seat_id TEXT,metadata_json TEXT,origin_at TEXT);
     INSERT INTO task_boards VALUES ('factory','tasks');
@@ -59,6 +60,9 @@ it("returns every human wait and active claim without reading a history", async 
   insert.run("tasks", "needs-input", "input-required", seat);
   insert.run("tasks", "needs-auth", "auth-required", seat);
   insert.run("tasks", "claim", "working", seat);
+  database.prepare("INSERT INTO work_task_messages VALUES ('factory','tasks','task','claim',0,?)").run(JSON.stringify([{ kind: "url", url: "https://example.test" }, { kind: "text", text: "First line\nFull body" }]));
+  database.prepare("INSERT INTO work_task_messages VALUES ('factory','tasks','task','claim',1,?)").run("invalid later history");
+
   insert.run("tasks", "unclaimed", "working", null);
   insert.run("retired-node", "orphan", "input-required", seat);
   try {
@@ -66,6 +70,7 @@ it("returns every human wait and active claim without reading a history", async 
       const sql = yield* makeSqliteClient(database);
       const rows = yield* readWorkAttention(sql, { canvasName: "factory" });
       expect(rows.map((row) => row.item.id).sort()).toEqual(["claim", "needs-auth", "needs-input"]);
+      expect(rows.find((row) => row.item.id === "claim")?.item.metadata?.title).toBe("First line");
       expect(rows.every((row) => row.item.history.length === 0 && row.item.claimedBy === seat)).toBe(true);
     })).pipe(Effect.provide(Reactivity.layer)));
   } finally { database.close(); }

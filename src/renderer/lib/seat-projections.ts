@@ -51,12 +51,6 @@ const attentionElevated = (facts: SeatFacts): boolean =>
 export type AttentionNode = {
   readonly ether?: {
     readonly entity?: { readonly kind?: string; readonly name?: string };
-    readonly tasks?: {
-      readonly items?: ReadonlyArray<{ readonly state: string }>;
-    };
-    readonly requests?: {
-      readonly items?: ReadonlyArray<{ readonly state: string }>;
-    };
   };
 };
 
@@ -75,19 +69,6 @@ export function attentionReasonsForNode(
   ownCoarse?: { readonly pendingPermissionId?: string },
 ): ReadonlyArray<string> {
   const reasons: string[] = [];
-  const kind = node.ether?.entity?.kind;
-  if (kind === "task" || kind === "requests") {
-    const items =
-      kind === "task"
-        ? node.ether?.tasks?.items
-        : node.ether?.requests?.items;
-    for (const item of items ?? []) {
-      if (item.state === "input-required" || item.state === "auth-required") {
-        reasons.push(`work:${item.state}`);
-        break;
-      }
-    }
-  }
   if (attentionAgentKey(node) && ownCoarse?.pendingPermissionId) {
     reasons.push("permission:pending");
   }

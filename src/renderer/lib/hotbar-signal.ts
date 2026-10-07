@@ -4,7 +4,8 @@
  */
 
 import type { AgentSeatState } from "@shared/agent-seat-state";
-import { attentionOf } from "@shared/attention";
+import type { WorkSinkGlance } from "@shared/work-attention";
+import type { Task } from "@shared/work-model";
 import type { CanvasNode } from "@shared/canvas";
 import type { MemberSeverity } from "@shared/region-rollup";
 
@@ -56,6 +57,8 @@ export function hotbarNodeSeverity(
     readonly regionSeverity?: MemberSeverity;
     readonly memberSeverity?: MemberSeverity;
     readonly liveSeverity?: MemberSeverity;
+    readonly work?: WorkSinkGlance;
+    readonly items?: ReadonlyArray<Task>;
   } = {},
 ): MemberSeverity {
   if (node.type === "group") {
@@ -65,26 +68,8 @@ export function hotbarNodeSeverity(
   let severity: MemberSeverity | undefined = options.memberSeverity;
 
   if (severity === undefined) {
-    const kind = node.ether?.entity?.kind;
-    if (kind === "task") {
-      const items = node.ether?.tasks?.items ?? [];
-      if (items.some((t) => t.state === "input-required" || t.state === "auth-required")) {
-        severity = "attention";
-      } else if (items.some((t) => t.state === "working")) {
-        severity = "working";
-      }
-    } else if (kind === "requests") {
-      const items = node.ether?.requests?.items ?? [];
-      if (items.some((t) => t.state === "input-required" || t.state === "auth-required")) {
-        severity = "attention";
-      }
-    }
-
-    if (severity === undefined) {
-      // Document+graph glance — graph omitted (chip does not own execution tick).
-      const attention = attentionOf(node, undefined);
-      if (attention === "fire") severity = "attention";
-    }
+    if (options.work?.needsHuman) severity = "attention";
+    else if (options.items?.some((item) => item.state === "working")) severity = "working";
   }
 
   if (options.liveSeverity !== undefined) {

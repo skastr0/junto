@@ -1,4 +1,6 @@
-import type { CanvasDoc } from "@shared/canvas";
+import type { WorkLaneRow } from "@shared/work-sinks";
+import type { Artifact, BoardGlanceTopic } from "@shared/work-model";
+import type { TasksContract } from "@shared/work-model";
 import type { ActorSeatId } from "@shared/actor-seat";
 import type {
   Message,
@@ -15,8 +17,7 @@ import { claimedTaskForActorNode } from "./claimed-task";
 /**
  * Pure projections of an actor's work-kernel standing for ledger-style UI:
  * the task it currently holds, the tasks it raised, and the requests
- * (escalations) it raised. Everything derives from the canvas doc — no IPC.
- * Total and defensive: missing ether containers yield empty results.
+ * (escalations) it raised. The caller supplies independently queried Work rows.
  */
 
 export type ClaimedTaskRow = {
@@ -104,7 +105,7 @@ const detailsBeyondTitle = (
 
 /** taskBrief falls back to the task id when the brief has no text; map that to the fallback. */
 const taskTitle = (task: Task, fallback: string): string => {
-  const line = taskBrief(task).split(/\r?\n/, 1)[0]?.trim();
+  const line = (metadataTitle(task) ?? taskBrief(task)).split(/\r?\n/, 1)[0]?.trim();
   return line === undefined || line === "" || line === task.id ? fallback : line;
 };
 
@@ -124,11 +125,11 @@ export const seatIdForActorNode = (
 
 /** The one active task an actor node holds, shaped for a ledger row. */
 export const claimedTaskRow = (
-  doc: CanvasDoc,
+  rows: ReadonlyArray<WorkLaneRow>,
   actorRefs: ReadonlyArray<ActorRef>,
   nodeId: string,
 ): ClaimedTaskRow | undefined => {
-  const claimed = claimedTaskForActorNode(doc, actorRefs, nodeId);
+  const claimed = claimedTaskForActorNode(rows, actorRefs, nodeId);
   if (claimed === undefined) return undefined;
   return {
     taskId: claimed.task.id,
@@ -150,13 +151,13 @@ const compareRaisedTaskRows = (a: RaisedTaskRow, b: RaisedTaskRow): number => {
 
 /** Tasks this seat raised, across every tasks sink in the doc. */
 export const raisedTaskRowsForSeat = (
-  doc: CanvasDoc,
+  entries: ReadonlyArray<WorkLaneRow>,
+  contractOf: (nodeId: string) => TasksContract | undefined,
   seatId: ActorSeatId,
 ): ReadonlyArray<RaisedTaskRow> => {
   const rows: RaisedTaskRow[] = [];
-  for (const node of doc.nodes) {
-    const contract = node.ether?.tasks?.contract;
-    for (const task of node.ether?.tasks?.items ?? []) {
+  for (const { nodeId, item: task } of entries) {
+      const contract = contractOf(nodeId);
       if (task.raisedBy?.seatId !== seatId) continue;
       const title = taskTitle(task, "Untitled task");
       const details =
@@ -164,7 +165,7 @@ export const raisedTaskRowsForSeat = (
         detailsBeyondTitle(fullText(task.history[0]), title);
       rows.push({
         taskId: task.id,
-        sinkNodeId: node.id,
+        sinkNodeId: nodeId,
         state: task.state,
         title,
         awaitingApproval:
@@ -175,7 +176,6 @@ export const raisedTaskRowsForSeat = (
         dependsOnCount: task.dependsOn?.length ?? 0,
         hasFinishCriteria: task.finishCriteria !== undefined,
       });
-    }
   }
   return rows.sort(compareRaisedTaskRows);
 };
@@ -194,12 +194,11 @@ const compareRequestRows = (a: RequestRow, b: RequestRow): number => {
  * identity, including on resolved requests.
  */
 export const requestRowsForSeat = (
-  doc: CanvasDoc,
+  entries: ReadonlyArray<WorkLaneRow>,
   seatId: ActorSeatId,
 ): ReadonlyArray<RequestRow> => {
   const rows: RequestRow[] = [];
-  for (const node of doc.nodes) {
-    for (const request of node.ether?.requests?.items ?? []) {
+  for (const { nodeId, item: request } of entries) {
       if (request.claimedBy !== seatId) continue;
       const title = metadataTitle(request) ?? taskTitle(request, "Untitled request");
       const details =
@@ -207,7 +206,7 @@ export const requestRowsForSeat = (
         detailsBeyondTitle(fullText(request.history[0]), title);
       rows.push({
         requestId: request.id,
-        sinkNodeId: node.id,
+        sinkNodeId: nodeId,
         state: request.state,
         title,
         needsInput: request.state === "input-required",
@@ -215,7 +214,6 @@ export const requestRowsForSeat = (
         ...(request.response !== undefined ? { response: request.response } : {}),
         ...(details !== undefined ? { details } : {}),
       });
-    }
   }
   return rows.sort(compareRequestRows);
 };
@@ -232,22 +230,13 @@ const isoMs = (value: string): number | undefined => {
  * operator-local count when known.
  */
 export const boardRowsForActor = (
-  doc: CanvasDoc,
-  nodeId: string,
+  entries: ReadonlyArray<{ readonly nodeId: string; readonly board: { readonly topics: ReadonlyArray<BoardGlanceTopic>; readonly unread?: number } }>,
 ): ReadonlyArray<BoardRow> => {
-  const peerIds = new Set<string>();
-  for (const edge of doc.edges) {
-    if (edge.fromNode === nodeId) peerIds.add(edge.toNode);
-    else if (edge.toNode === nodeId) peerIds.add(edge.fromNode);
-  }
   const rows: BoardRow[] = [];
-  for (const node of doc.nodes) {
-    if (!peerIds.has(node.id)) continue;
-    const board = node.ether?.board;
-    if (board === undefined) continue;
+  for (const { nodeId, board } of entries) {
     const topics = [...board.topics]
       .map((topic) => ({
-        sinkNodeId: node.id,
+        sinkNodeId: nodeId,
         topicId: topic.topicId,
         title: topic.title,
         open: topic.state === "open",
@@ -261,7 +250,7 @@ export const boardRowsForActor = (
         if (a.open !== b.open) return a.open ? -1 : 1;
         return (b.lastActivityAtMs ?? 0) - (a.lastActivityAtMs ?? 0);
       });
-    rows.push({ sinkNodeId: node.id, unread: board.unread, topics });
+    rows.push({ sinkNodeId: nodeId, unread: board.unread, topics });
   }
   return rows;
 };
@@ -282,24 +271,22 @@ const firstTextPart = (parts: ReadonlyArray<Part>): string | undefined => {
  * (never durable row data). Newest first; archived excluded.
  */
 export const artifactRowsForSeat = (
-  doc: CanvasDoc,
+  entries: ReadonlyArray<{ readonly nodeId: string; readonly item: Artifact }>,
   seatId: ActorSeatId,
 ): ReadonlyArray<ArtifactRow> => {
   const rows: ArtifactRow[] = [];
-  for (const node of doc.nodes) {
-    for (const artifact of node.ether?.artifacts?.items ?? []) {
+  for (const { nodeId, item: artifact } of entries) {
       if (artifact.metadata?.["publishedBySeatId"] !== seatId) continue;
       const archived = isArtifactArchived(artifact);
       if (archived) continue;
       rows.push({
         artifactId: artifact.artifactId,
-        sinkNodeId: node.id,
+        sinkNodeId: nodeId,
         name: artifact.name?.trim() || artifact.artifactId,
         partCount: artifact.parts.length,
         textPreview: firstTextPart(artifact.parts),
         archived,
       });
-    }
   }
   return rows.sort((a, b) => b.artifactId.localeCompare(a.artifactId));
 };

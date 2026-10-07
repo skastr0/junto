@@ -1,3 +1,4 @@
+import { useWorkItems } from "../../lib/use-work-item";
 import { WorkPageControls } from "./WorkPageControls";
 import { useArtifactItems, useRequestItems } from "../../lib/use-work-sink";
 import { useEffect, useMemo, useState } from "react";
@@ -22,7 +23,6 @@ import {
   X,
 } from "lucide-react";
 import type { Artifact, CanvasNode, Part, Task, TaskState, WorkMetadata } from "@shared/canvas";
-import type { TaskRef } from "@shared/work-reference";
 import type { WorkOpResult } from "@shared/ipc";
 import { isArtifactArchived } from "@shared/work";
 import { isAttentionTaskState, isTerminalTaskState, taskBrief } from "@shared/task";
@@ -452,7 +452,16 @@ export function RequestInbox({
   readonly initialItemId?: string;
 }) {
   const work = useRequestItems(use$(state$.canvasName) || "", node.id);
-  const items = useMemo(() => [...work.items].sort(compareRequestsNewestFirst), [work.items]);
+  const [selectedId, setSelectedId] = useState<string | null>(initialItemId ?? null);
+  const detailRows = useWorkItems(selectedId ? [{
+    canvasName: canvasName(), nodeId: node.id, kind: "requests", itemId: selectedId,
+  }] : []);
+  const selectedRow = detailRows[0]?.item;
+  const items = useMemo(() => {
+    const rows = new Map(work.items.map((item) => [item.id, item]));
+    if (selectedRow) rows.set(selectedRow.id, selectedRow);
+    return [...rows.values()].sort(compareRequestsNewestFirst);
+  }, [work.items, selectedRow]);
   // Honest accounting: attention = input-required + auth-required (anything
   // that still waits on the operator); resolved = terminal states only.
   // Intermediate states (submitted / working) get their own section so
@@ -463,12 +472,6 @@ export function RequestInbox({
     (request) => !needsHuman(request) && !isTerminalTaskState(request.state),
   );
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(() => {
-    if (initialItemId && items.some((request) => request.id === initialItemId)) {
-      return initialItemId;
-    }
-    return attentionItems[0]?.id ?? null;
-  });
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const api = getJuntoApi();
@@ -897,20 +900,18 @@ export function ArtifactLibrary({
     );
   };
 
-  /** Resolve an artifact's TaskRef to its task row in the current doc. */
-  const resolveTaskRef = (ref: TaskRef): Task | undefined => {
-    if (ref.sink.canvasName !== name) return undefined;
-    const sinkNode = doc.nodes.find((entry) => entry.id === ref.sink.nodeId);
-    return sinkNode?.ether?.tasks?.items.find((task) => task.id === ref.itemId);
-  };
-
   const deleteArtifact = (artifact: Artifact): void => {
+    void confirmArtifactDelete(artifact).catch((error) => setError(error instanceof Error ? error.message : String(error)));
+  };
+  const confirmArtifactDelete = async (artifact: Artifact): Promise<void> => {
     if (!api) return;
     const label = artifact.name?.trim() || artifact.artifactId;
+    const source = artifact.task;
+    const sourceTask = source === undefined || source.sink.canvasName !== name ? undefined
+      : await api.workItem({ ...source.sink, kind: "task", itemId: source.itemId });
     const warning = artifactDeletionWarning({
-      artifact,
-      sinkNodeId: node.id,
-      resolveTask: resolveTaskRef,
+      artifact, sinkNodeId: node.id,
+      resolveTask: (ref) => ref.itemId === source?.itemId && ref.sink.nodeId === source.sink.nodeId ? sourceTask : undefined,
     });
     void askConfirm({
       source: "artifact-delete",
@@ -939,17 +940,14 @@ export function ArtifactLibrary({
       return;
     }
     const sinkNode = doc.nodes.find((entry) => entry.id === ref.sink.nodeId);
-    const task = sinkNode?.ether?.tasks?.items.find(
-      (entry) => entry.id === ref.itemId,
-    );
-    if (sinkNode === undefined || task === undefined) {
+    if (sinkNode === undefined) {
       setError(
         `Source task ${ref.itemId} is no longer on ${ref.sink.canvasName}/${ref.sink.nodeId}.`,
       );
       return;
     }
     onClose();
-    openWorkDetail(sinkNode.id, { itemId: task.id });
+    openWorkDetail(sinkNode.id, { itemId: ref.itemId });
   };
 
   return (

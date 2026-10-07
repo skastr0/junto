@@ -15,6 +15,7 @@ export const createWorkAttentionStore = (getApi: () => AttentionApi | undefined)
     state: observable({
       byNodeId: {} as Record<string, WorkSinkGlance | undefined>,
       itemsByNodeId: {} as Record<string, ReadonlyArray<Task> | undefined>,
+      claimItemsByNodeId: {} as Record<string, ReadonlyArray<Task> | undefined>,
       loading: false, error: "",
     }),
     pending: new Set<string | undefined>(),
@@ -31,9 +32,14 @@ export const createWorkAttentionStore = (getApi: () => AttentionApi | undefined)
   const publish = (entry: Entry, snapshot: WorkAttentionSnapshot, nodeId?: string) => {
     const glances = new Map(snapshot.glances.map((glance) => [glance.nodeId, glance]));
     const items = new Map<string, Task[]>();
+    const claims = new Map<string, Task[]>();
     for (const row of snapshot.items) {
       const lane = items.get(row.nodeId) ?? [];
       lane.push(row.item); items.set(row.nodeId, lane);
+      if (row.kind === "task") {
+        const held = claims.get(row.nodeId) ?? [];
+        held.push(row.item); claims.set(row.nodeId, held);
+      }
     }
     const keys = nodeId === undefined
       ? new Set([...Object.keys(entry.state.byNodeId.peek()), ...Object.keys(entry.state.itemsByNodeId.peek()), ...glances.keys(), ...items.keys()])
@@ -43,6 +49,8 @@ export const createWorkAttentionStore = (getApi: () => AttentionApi | undefined)
         const glance = glances.get(key);
         const previous = entry.state.byNodeId[key].peek();
         if (JSON.stringify(previous) !== JSON.stringify(glance)) entry.state.byNodeId[key].set(glance);
+        const nextClaims = claims.get(key);
+        if (JSON.stringify(entry.state.claimItemsByNodeId[key].peek()) !== JSON.stringify(nextClaims)) entry.state.claimItemsByNodeId[key].set(nextClaims);
         const nextItems = items.get(key);
         if (JSON.stringify(entry.state.itemsByNodeId[key].peek()) !== JSON.stringify(nextItems)) entry.state.itemsByNodeId[key].set(nextItems);
       }

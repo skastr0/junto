@@ -1,6 +1,6 @@
 import { readWorkGlances } from "./glance";
 import type { WorkAttentionSnapshot } from "@shared/work-attention";
-import { WorkAttentionQuery, type WorkAttentionRow, WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
+import { WorkItemQuery, WorkActorQuery, type WorkActorPage, type WorkLaneRow, WorkAttentionQuery, type WorkAttentionRow, WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
 import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/work-mail";
 import { Buffer } from "node:buffer";
 import { workProjectionChanges } from "./projection-changes";
@@ -4225,24 +4225,78 @@ export const readWorkAttention = Effect.fn("work.attention")(function* (
   const query = yield* Schema.decodeUnknownEffect(WorkAttentionQuery, strictDecode)(input);
   const rows = yield* SqlSchema.findAll({
     Request: WorkSqlBindings,
-    Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String,
+    Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String, kind: Schema.Literals(["task", "requests"]),
       state: Schema.Literals(["working", "input-required", "auth-required"]),
       actor_seat_id: Schema.NullOr(ActorSeatIdSchema),
-      metadata_json: Schema.NullOr(Schema.String), origin_at: Schema.String }),
+      metadata_json: Schema.NullOr(Schema.String), origin_at: Schema.String, brief: Schema.NullOr(Schema.String) }),
     execute: (bindings) => reader.unsafe(["work_tasks", "work_requests"].map((table) => `
-      SELECT work.node_id, ${table === "work_tasks" ? "task_id" : "request_id"} AS item_id,
-        state, actor_seat_id, metadata_json, origin_at
+      SELECT work.node_id, '${table === "work_tasks" ? "task" : "requests"}' AS kind, ${table === "work_tasks" ? "task_id" : "request_id"} AS item_id,
+        work.state, work.actor_seat_id, work.metadata_json, work.origin_at,
+        (SELECT json_extract(part.value, '$.text') FROM json_each(
+          (SELECT message.parts_json FROM work_task_messages AS message
+            WHERE message.canvas_name = work.canvas_name AND message.node_id = work.node_id
+              AND message.parent_lane = '${table === "work_tasks" ? "task" : "request"}'
+              AND message.item_id = work.${table === "work_tasks" ? "task_id" : "request_id"}
+            ORDER BY message.position LIMIT 1)
+        ) AS part WHERE json_extract(part.value, '$.kind') = 'text' ORDER BY part.key LIMIT 1) AS brief
       FROM ${table} AS work JOIN ${table === "work_tasks" ? "task_boards" : "request_boards"} AS node
         ON node.canvas_name = work.canvas_name AND node.id = work.node_id
       WHERE work.canvas_name = ?
         ${query.nodeId === undefined ? "" : "AND work.node_id = ?"}
         AND (state IN ('input-required','auth-required') OR (state = 'working' AND actor_seat_id IS NOT NULL))`).join(" UNION ALL "), bindings),
   })([0, 1].flatMap(() => [query.canvasName, ...(query.nodeId === undefined ? [] : [query.nodeId])]));
-  return rows.map((row) => ({ nodeId: row.node_id, item: {
+  return rows.map((row) => ({ nodeId: row.node_id, kind: row.kind, item: {
     id: row.item_id, state: row.state, history: [],
+    ...(row.brief === null ? {} : { metadata: { title: row.brief.split(/\r?\n/, 1)[0] ?? row.item_id } }),
     ...(row.actor_seat_id === null ? {} : { claimedBy: row.actor_seat_id }),
     stateSince: rowStateSince(row),
   }}));
+});
+
+/** Seat ledger pages hydrate only the selected rows, across live sinks. */
+export const readWorkActorPage = Effect.fn("work.actor.page")(function* (
+  reader: SqlClient.SqlClient, input: WorkActorQuery,
+): Effect.fn.Return<WorkActorPage, WorkSqlFailure> {
+  const query = yield* Schema.decodeUnknownEffect(WorkActorQuery, strictDecode)(input);
+  const [table, nodes, id] = query.kind === "task" ? ["work_tasks", "task_boards", "task_id"]
+    : query.kind === "requests" ? ["work_requests", "request_boards", "request_id"]
+    : ["work_artifacts", "artifact_boards", "artifact_id"];
+  const limit = query.limit ?? WORK_SINK_PAGE_SIZE;
+  const rows = yield* SqlSchema.findAll({
+    Request: WorkSqlBindings,
+    Result: Schema.Struct({ node_id: Schema.String, item_id: Schema.String }),
+    execute: (bindings) => reader.unsafe(`
+      SELECT work.node_id, work.${id} AS item_id
+      FROM ${table} AS work JOIN ${nodes} AS node
+        ON node.canvas_name = work.canvas_name AND node.id = work.node_id
+      WHERE work.canvas_name = ? AND ${query.kind === "task"
+        ? `json_extract(work.metadata_json, '$."junto.tasks".raisedBy.seatId') = ? AND work.state != 'archived'`
+        : "work.actor_seat_id = ?"}
+      ${query.beforeId === undefined ? "" : `AND (work.${id} < ? OR (work.${id} = ? AND work.node_id > ?))`}
+      ORDER BY work.${id} DESC, work.node_id LIMIT ?`, bindings),
+  })([query.canvasName, query.seatId, ...(query.beforeId === undefined ? [] : [query.beforeId, query.beforeId, query.beforeNodeId ?? ""]), limit + 1]);
+  const selected = rows.slice(0, limit);
+  const next = rows.length > limit ? { nextBeforeId: selected.at(-1)!.item_id, nextBeforeNodeId: selected.at(-1)!.node_id } : {};
+  const grouped = new Map<string, string[]>();
+  for (const row of selected) {
+    const ids = grouped.get(row.node_id) ?? []; ids.push(row.item_id); grouped.set(row.node_id, ids);
+  }
+  if (query.kind === "artifacts") {
+    const items = [];
+    for (const [nodeId, ids] of grouped) {
+      for (const item of yield* loadArtifacts(reader, { canvasName: query.canvasName, nodeId }, ids))
+        items.push({ nodeId, item });
+    }
+    items.sort((a, b) => b.item.artifactId.localeCompare(a.item.artifactId));
+    return { kind: "artifacts", items, ...next };
+  }
+  const items: WorkLaneRow[] = [];
+  for (const [nodeId, ids] of grouped) {
+    for (const item of yield* loadLaneTasks(reader, { canvasName: query.canvasName, nodeId }, query.kind === "task" ? "task" : "request", ids))
+      items.push({ nodeId, item });
+  }
+  items.sort((a, b) => b.item.id.localeCompare(a.item.id) || a.nodeId.localeCompare(b.nodeId));
+  return { kind: query.kind, items, ...next };
 });
 
 /** Read one kind's page without assembling a canvas or unrelated work lanes. */
@@ -8434,6 +8488,8 @@ export type CurrentTaskClaim = {
 };
 
 export interface WorkRepositoryShape {
+  readonly taskItem: (query: WorkItemQuery) => Effect.Effect<TaskValue | undefined, WorkRepositoryError>;
+  readonly actorPage: (query: WorkActorQuery) => Effect.Effect<WorkActorPage, WorkRepositoryError>;
   readonly attentionSnapshot: (query: WorkAttentionQuery) => Effect.Effect<WorkAttentionSnapshot, WorkRepositoryError>;
   readonly attentionItems: (query: WorkAttentionQuery) => Effect.Effect<ReadonlyArray<WorkAttentionRow>, WorkRepositoryError>;
   readonly sinkPage: (query: WorkSinkQuery) => Effect.Effect<WorkSinkPage, WorkRepositoryError>;
@@ -12134,6 +12190,19 @@ export const WorkRepositoryLive = Layer.effect(
     };
 
     return WorkRepository.of({
+      taskItem: Effect.fn("WorkRepository.taskItem")((input: WorkItemQuery) =>
+        withSqlRead(sql, Effect.gen(function* () {
+          const query = yield* Schema.decodeUnknownEffect(WorkItemQuery, strictDecode)(input);
+          return (yield* loadLaneTasks(sql, query, query.kind === "task" ? "task" : "request", [query.itemId]))[0];
+        })).pipe(
+          Effect.provideService(StateTransactionOperation, "work.item"),
+          Effect.mapError((error) => toRepositoryError("work.item", error)),
+        )),
+      actorPage: Effect.fn("WorkRepository.actorPage")((query: WorkActorQuery) =>
+        withSqlRead(sql, readWorkActorPage(sql, query)).pipe(
+          Effect.provideService(StateTransactionOperation, "work.actor.page"),
+          Effect.mapError((error) => toRepositoryError("work.actor.page", error)),
+        )),
       attentionSnapshot: Effect.fn("WorkRepository.attentionSnapshot")((query: WorkAttentionQuery) =>
         withSqlRead(sql, Effect.gen(function* () {
           const glances = yield* readWorkGlances(sql, query);

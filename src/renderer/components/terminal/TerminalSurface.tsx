@@ -8,7 +8,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { JuntoTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding, type TerminalOutputBatch } from "@shared/terminal";
 import { terminalSettings, type TerminalSettings } from "@shared/settings";
-import { taskBrief } from "@shared/task";
+import { claimedTaskBrief } from "../../lib/claimed-task";
 import { MONO_CELL } from "../../lib/focus-measure";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -2179,7 +2179,7 @@ export function TerminalSurface({
             Claimed task
           </span>
           <strong className="min-w-0 flex-1 truncate text-ink">
-            {taskBrief(claimedTask.task)}
+            {claimedTaskBrief(claimedTask.task)}
           </strong>
           {releaseError ? (
             <span className="max-w-[32ch] truncate text-crimson-fg" title={releaseError}>

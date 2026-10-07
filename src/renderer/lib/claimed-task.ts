@@ -1,7 +1,7 @@
-import type { CanvasDoc } from "@shared/canvas";
+import type { WorkLaneRow } from "@shared/work-sinks";
 import type { Task } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
-import { claimedByOf } from "@shared/task";
+import { taskBrief, claimedByOf } from "@shared/task";
 
 export type ClaimedTask = {
   readonly task: Task;
@@ -20,20 +20,22 @@ export const isActiveClaim = (task: Task): boolean =>
  * projection. Node identity alone is never claim authority.
  */
 export const claimedTaskForActorNode = (
-  doc: CanvasDoc,
+  rows: ReadonlyArray<WorkLaneRow>,
   actorRefs: ReadonlyArray<ActorRef>,
   nodeId: string,
 ): ClaimedTask | undefined => {
   const actor = actorRefs.find((candidate) => candidate.nodeId === nodeId);
   if (actor === undefined) return undefined;
-  if (!Array.isArray(doc?.nodes)) return undefined;
 
-  for (const node of doc.nodes) {
-    for (const task of node.ether?.tasks?.items ?? []) {
-      if (isActiveClaim(task) && claimedByOf(task) === actor.seatId) {
-        return { task, sinkNodeId: node.id, actor };
-      }
+  for (const { nodeId: sinkNodeId, item: task } of rows) {
+    if (isActiveClaim(task) && claimedByOf(task) === actor.seatId) {
+      return { task, sinkNodeId, actor };
     }
   }
   return undefined;
 };
+
+
+/** Attention rows carry a first-line title without fetching the full thread. */
+export const claimedTaskBrief = (task: Task): string =>
+  typeof task.metadata?.title === "string" ? task.metadata.title : taskBrief(task);

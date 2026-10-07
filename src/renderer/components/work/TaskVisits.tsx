@@ -1,3 +1,4 @@
+import { useWorkItems } from "../../lib/use-work-item";
 import { Fragment, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -215,9 +216,13 @@ export function TaskVisits({
   readonly nodeId: string;
 }) {
   const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName);
+  const rows = useWorkItems([...new Set((task.visits ?? []).flatMap((visit) => [visit.board, ...(visit.next === undefined ? [] : [visit.next])]))]
+    .filter((board) => board !== nodeId)
+    .map((board) => ({ canvasName, nodeId: board, kind: "task", itemId: task.id })));
   const visits = useMemo(
-    () => buildTaskVisits(doc, task, nodeId),
-    [doc, task, nodeId],
+    () => buildTaskVisits(doc, task, nodeId, (board, id) => rows.find((row) => row.query.nodeId === board && row.query.itemId === id)?.item),
+    [doc, task, nodeId, rows],
   );
   if (visits.layers.length === 0) return null;
 

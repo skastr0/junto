@@ -47,3 +47,21 @@ describe("work attention store", () => {
     release();
   });
 });
+
+it("keeps raised requests out of the seat's claimed-task projection", async () => {
+  const store = createWorkAttentionStore(() => ({
+    workAttention: async () => ({
+      glances: [],
+      items: [
+        { nodeId: "asks", kind: "requests", item: { id: "request", state: "input-required", history: [] } },
+        { nodeId: "tasks", kind: "task", item: { id: "task", state: "working", history: [] } },
+      ],
+    }),
+    onWorkSinkChanged: () => () => {},
+  }));
+  const release = store.retain("factory"); await flush();
+  expect(store.state("factory").itemsByNodeId.asks.peek()?.[0]?.id).toBe("request");
+  expect(store.state("factory").claimItemsByNodeId.asks.peek()).toBeUndefined();
+  expect(store.state("factory").claimItemsByNodeId.tasks.peek()?.[0]?.id).toBe("task");
+  release();
+});
