@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { vitestFileLanes } from "./vitest-file-lanes";
+import { unitTestEnvironment } from "./unit-test-environment";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const VITEST = join(ROOT, "node_modules", ".bin", "vitest");
@@ -26,7 +27,7 @@ const run = (
     {
       cwd: ROOT,
       stdio: "inherit",
-      env: process.env,
+      env: unitTestEnvironment(process.env),
     },
   );
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
