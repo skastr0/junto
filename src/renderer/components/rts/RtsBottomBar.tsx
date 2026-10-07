@@ -1,6 +1,6 @@
 import {
+  memo,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -12,7 +12,6 @@ import {
   Crosshair,
   ExternalLink,
   Eye,
-  HardHat,
   Hash,
   Link2,
   LocateFixed,
@@ -38,7 +37,7 @@ import {
   classifyMultiSelection,
   multiSelectionLabel,
 } from "../../lib/multi-selection";
-import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
+import { nodeTitle } from "../../lib/presentation";
 import {
   commandSelectionKind,
   hotbarSlotIndexOf,
@@ -47,7 +46,7 @@ import {
   type PrimaryCommandAction,
 } from "../../lib/command-card";
 import { HUE } from "../../lib/theme";
-import { useAlertAttention } from "../../lib/alert-attention";
+import { collectAlertSignals, useAlertSignals } from "../../lib/alert-attention";
 import { kernel$ } from "../../lib/kernel-view";
 import { specOf } from "../../lib/node-spec";
 import { roleOf } from "@shared/physics";
@@ -61,8 +60,9 @@ import { RollCall } from "./RollCall";
 import { claimFocus } from "../../lib/focus-ownership";
 import { AccentColorSwatches } from "./AccentColorPicker";
 import "./RtsBottomBar.css";
-import { canvasFromDocument } from "@shared/model/from-document";
-import { useCanvasWorkItems } from "../../lib/use-work-sink";
+import { modelStore } from "../../lib/use-model";
+import { workAttentionStore } from "../../lib/use-work-sink";
+import { useRtsNodes, useRtsValue, useSelectedNodeIds } from "../../lib/rts-selection";
 
 /** Compact square RTS key — fixed size, never stretches. */
 function CmdKey({
@@ -103,9 +103,9 @@ function CmdKey({
 const ICON = 12;
 
 function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup }) {
-  const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName);
   const selectedNodeId = use$(state$.selectedNodeId);
-  const selectedNodeIds = use$(state$.selectedNodeIds);
+  const selectedNodeIds = useSelectedNodeIds();
   const selectedEdgeId = use$(state$.selectedEdgeId);
   // Multi is authoritative only when the multi set is live and not desynced
   // from a later single-id write (selectedNodeId alone after add/focus).
@@ -115,9 +115,8 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   const singleId = !multi
     ? selectedNodeId || (selectedNodeIds.length === 1 ? (selectedNodeIds[0] ?? "") : "")
     : "";
-  const node = singleId
-    ? doc.nodes.find((candidate) => candidate.id === singleId)
-    : undefined;
+  const nodes = useRtsNodes(canvasName, multi ? selectedNodeIds : singleId ? [singleId] : []);
+  const node = nodes[0];
 
   // Relation selected: general edge controls left; pair controls live middle.
   if (!multi && !node && selectedEdgeId) {
@@ -125,10 +124,8 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   }
 
   if (multi) {
-    const selectedNodes = selectedNodeIds
-      .map((id) => doc.nodes.find((n) => n.id === id))
-      .filter((n): n is CanvasNode => n !== undefined);
-    // Live selection ids only — same document ether.flags truth as the card rail.
+    const selectedNodes = nodes;
+    // Actions apply only to selected rows that still exist.
     const liveIds = selectedNodes.map((n) => n.id);
     const classified = classifyMultiSelection(selectedNodes);
     const colorsMatch =
@@ -190,8 +187,7 @@ function RegionCommandCard({
   readonly regionRollup: RegionRollup;
 }) {
   const hold = Boolean(node.ether?.region?.hold);
-  const hotbarSlots = use$(state$.hotbarSlots);
-  const slot = hotbarSlotIndexOf(hotbarSlots, node.id);
+  const slot = use$(() => hotbarSlotIndexOf(state$.hotbarSlots.get(), node.id));
   const primary = primaryCommandActions("region");
   const title = regionRollup.label || "unnamed region";
   const [renaming, setRenaming] = useState(false);
@@ -319,19 +315,14 @@ function RegionCommandCard({
 }
 
 function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
-  const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
-  const itemsOf = useCanvasWorkItems(canvasName);
-  const snapshots = use$(state$.snapshots);
-  const actorRefs = use$(state$.actorRefs);
-  const execution = use$(kernel$.execution);
-  const executionRev = use$(kernel$.executionRev);
-  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+  const node = useRtsNodes(canvasName, [nodeId])[0];
+  useEffect(() => canvasName ? workAttentionStore.retain(canvasName) : undefined, [canvasName]);
   const [connectOpen, setConnectOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
   const copyRequest = useRef(0);
-  const hotbarSlots = use$(state$.hotbarSlots);
+  const slot = use$(() => hotbarSlotIndexOf(state$.hotbarSlots.get(), nodeId));
 
   useEffect(() => {
     copyRequest.current += 1;
@@ -340,16 +331,21 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     setConnectOpen(false);
   }, [canvasName, nodeId]);
 
-  const blockerCause = useMemo(() => {
-    if (!node) return null;
-    const canvas = canvasFromDocument(canvasName, doc);
+  const blockerCause = useRtsValue(() => {
+    const execution = kernel$.execution.get();
+    if (execution && !execution.blocked.includes(nodeId)) return null;
+    const rows = modelStore.canvas$(canvasName);
+    rows.nodes.get(); rows.wires.get();
+    const canvas = modelStore.canvasOf(canvasName);
+    if (!canvas.nodes.has(nodeId as import("@shared/model").NodeId)) return null;
+    const actorRefs = state$.actorRefs.get();
+    const itemsOf = (id: string) => (workAttentionStore.state(canvasName).itemsByNodeId[id].get() ?? []) as ReadonlyArray<import("@shared/work-model").Task>;
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
     const graph = executionGraphForImpact(canvas, execution, context);
-    if (!graph.blocked.has(node.id)) return null;
-    const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === node.id)?.seatId;
-    return resolveBlockerCause(canvas, graph, node.id, { blockedActorSeatId, itemsOf });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev is the kernel tick
-  }, [actorRefs, canvasName, doc, execution, executionRev, node, itemsOf]);
+    if (!graph.blocked.has(nodeId)) return null;
+    const blockedActorSeatId = context.resolveActorRef({ canvasName, nodeId })?.seatId;
+    return resolveBlockerCause(canvas, graph, nodeId, { blockedActorSeatId, itemsOf });
+  });
 
   if (!node) {
     return (
@@ -377,10 +373,10 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     copyRequest.current = request;
     const currentCanvasName = state$.canvasName.peek();
     const currentNodeId = nodeId;
-    const matches = state$.doc.peek().nodes.filter((candidate) => candidate.id === currentNodeId);
+    const exists = modelStore.node$(currentCanvasName, currentNodeId).peek() !== undefined;
 
     try {
-      if (state$.selectedNodeId.peek() !== currentNodeId || matches.length !== 1) {
+      if (state$.selectedNodeId.peek() !== currentNodeId || !exists) {
         throw new Error("node is no longer the current unique selection");
       }
       const ref = formatNodeRef({ canvasName: currentCanvasName, nodeId: currentNodeId });
@@ -403,8 +399,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
       setCopyDetail(error instanceof Error ? error.message : String(error));
     }
   };
-
-  const slot = hotbarSlotIndexOf(hotbarSlots, nodeId);
 
   // Kind-specific primaries + slot cue (any node). Entity actions live mid-strip.
   const renderPrimary = (action: PrimaryCommandAction) => {
@@ -517,7 +511,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
         {connectOpen ? (
           <div className="rts-cmd-pop">
-            <ConnectEditor node={node} doc={doc} onClose={() => setConnectOpen(false)} />
+            <SelectedConnectEditor nodeId={nodeId} onClose={() => setConnectOpen(false)} />
           </div>
         ) : null}
       </div>
@@ -525,8 +519,14 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   );
 }
 
+function SelectedConnectEditor({ nodeId, onClose }: { readonly nodeId: string; readonly onClose: () => void }) {
+  const doc = use$(state$.doc);
+  const node = doc.nodes.find(candidate => candidate.id === nodeId);
+  return node ? <ConnectEditor node={node} doc={doc} onClose={onClose} /> : null;
+}
+
 /** Middle third: kind surface only — region chips live on the strip above. */
-function KindMiddle() {
+const KindMiddle = memo(function KindMiddle() {
   return (
     <div className="rts-panel rts-panel--mid">
       <div className="rts-panel__body rts-mid-body">
@@ -534,27 +534,10 @@ function KindMiddle() {
       </div>
     </div>
   );
-}
+});
 
 function MinimapChrome({ children }: { readonly children: ReactNode }) {
   return <div className="rts-minimap-wrap">{children}</div>;
-}
-
-/** Severity index for minimap nodeColor — built from latest rollups. */
-function useSeverityByNodeId(rollups: ReadonlyArray<RegionRollup>): ReadonlyMap<string, MemberSeverity> {
-  return useMemo(() => {
-    const map = new Map<string, MemberSeverity>();
-    for (const rollup of rollups) {
-      for (const member of rollup.members) {
-        const prev = map.get(member.nodeId);
-        if (!prev || severityRank(member.severity) < severityRank(prev)) {
-          map.set(member.nodeId, member.severity);
-        }
-      }
-      map.set(rollup.regionId, rollup.severity);
-    }
-    return map;
-  }, [rollups]);
 }
 
 const severityRank = (s: MemberSeverity): number =>
@@ -568,25 +551,31 @@ const severityRank = (s: MemberSeverity): number =>
           ? 3
           : 4;
 
-export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
-  const rollups = useRegionRollups();
-  useAlertAttention(rollups);
-  const byId = useMemo(() => new Map(rollups.map((r) => [r.regionId, r])), [rollups]);
-  const severityMap = useSeverityByNodeId(rollups);
-
-  // Publish into state$ so MiniMap can subscribe (React data path, not a module ref).
-  useEffect(() => {
-    const next: Record<string, string> = {};
-    for (const [id, severity] of severityMap) next[id] = severity;
-    state$.regionSeverityByNodeId.set(next);
-    // Region tallies ride along for the overview tier's region plates.
-    const counts: Record<string, RegionRollup["counts"]> = {};
-    for (const rollup of rollups) counts[rollup.regionId] = rollup.counts;
-    state$.regionCountsByNodeId.set(counts);
-  }, [severityMap, rollups]);
-
+export const RtsBottomBar = memo(function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
   const selectedNodeId = use$(state$.selectedNodeId);
-  const selectedRegion = selectedNodeId ? byId.get(selectedNodeId) : undefined;
+  const view = useRegionRollups(rollups => {
+    const severities: Record<string, MemberSeverity> = {};
+    const counts: Record<string, RegionRollup["counts"]> = {};
+    for (const rollup of [...rollups].sort((a, b) => a.regionId.localeCompare(b.regionId))) {
+      for (const member of [...rollup.members].sort((a, b) => a.nodeId.localeCompare(b.nodeId))) {
+        const previous = severities[member.nodeId];
+        if (!previous || severityRank(member.severity) < severityRank(previous)) severities[member.nodeId] = member.severity;
+      }
+      severities[rollup.regionId] = rollup.severity;
+      counts[rollup.regionId] = rollup.counts;
+    }
+    return {
+      selectedRegion: rollups.find(row => row.regionId === selectedNodeId) ?? null,
+      severities, counts,
+      signals: [...collectAlertSignals(rollups)].sort((a, b) => a.id.localeCompare(b.id)),
+    };
+  });
+  useAlertSignals(view.signals);
+  useEffect(() => {
+    if (JSON.stringify(state$.regionSeverityByNodeId.peek()) !== JSON.stringify(view.severities)) state$.regionSeverityByNodeId.set(view.severities);
+    if (JSON.stringify(state$.regionCountsByNodeId.peek()) !== JSON.stringify(view.counts)) state$.regionCountsByNodeId.set(view.counts);
+  }, [view]);
+  const selectedRegion = view.selectedRegion ?? undefined;
 
   return (
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
@@ -603,4 +592,4 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
       </div>
     </div>
   );
-}
+});

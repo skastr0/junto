@@ -12,6 +12,7 @@
  * briefing, page defaults, folder paths. No plate, no placement.
  */
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRtsNodes, useRtsWire, useSelectedNodeIds } from "../../lib/rts-selection";
 import { use$ } from "@legendapp/state/react";
 import {
   FolderOpen,
@@ -474,10 +475,12 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
  * Full kind middle surface: glance + actions + Fields focus form.
  */
 export function KindSurface() {
-  const doc = use$(state$.doc);
+  const canvasName = use$(state$.canvasName);
   const selectedNodeId = use$(state$.selectedNodeId);
-  const selectedNodeIds = use$(state$.selectedNodeIds);
+  const selectedNodeIds = useSelectedNodeIds();
   const selectedEdgeId = use$(state$.selectedEdgeId);
+  const nodes = useRtsNodes(canvasName, selectedNodeIds.length > 1 ? selectedNodeIds : selectedNodeId ? [selectedNodeId] : []);
+  const edge = useRtsWire(canvasName, selectedEdgeId);
   const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
@@ -485,14 +488,10 @@ export function KindSurface() {
   }, [selectedNodeId, selectedEdgeId, selectedNodeIds.length]);
 
   if (selectedNodeIds.length > 1) {
-    const selectedNodes = selectedNodeIds
-      .map((id) => doc.nodes.find((n) => n.id === id))
-      .filter((n): n is CanvasNode => n !== undefined);
-    return <MultiKindSurface nodes={selectedNodes} />;
+    return <MultiKindSurface nodes={nodes} />;
   }
 
   if (selectedEdgeId) {
-    const edge = doc.edges.find((candidate) => candidate.id === selectedEdgeId);
     if (!edge) {
       return <div className="rts-quiet rts-quiet--compact"></div>;
     }
@@ -509,7 +508,7 @@ export function KindSurface() {
     return <div className="rts-quiet rts-quiet--compact"></div>;
   }
 
-  const node = doc.nodes.find((candidate) => candidate.id === selectedNodeId);
+  const node = nodes[0];
   if (!node) {
     return <div className="rts-quiet rts-quiet--compact"></div>;
   }
@@ -592,8 +591,14 @@ export function KindSurface() {
       </div>
 
       {formOpen && showFieldsKey ? (
-        <NodeFormFocus node={node} onClose={() => setFormOpen(false)} />
+        <SelectedNodeForm nodeId={node.id} onClose={() => setFormOpen(false)} />
       ) : null}
     </div>
   );
+}
+
+function SelectedNodeForm({ nodeId, onClose }: { readonly nodeId: string; readonly onClose: () => void }) {
+  const doc = use$(state$.doc);
+  const node = doc.nodes.find(candidate => candidate.id === nodeId);
+  return node ? <NodeFormFocus node={node} onClose={onClose} /> : null;
 }

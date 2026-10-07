@@ -1,19 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
-import { executionGraphContextFromActorRefs } from "@shared/graph";
+import { useEffect, useMemo } from "react";
+import { observable, observe } from "@legendapp/state";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
-import { deriveRegionRollups } from "@shared/region-rollup";
-import { use$ } from "@legendapp/state/react";
 import { agentSeat$, workSurfaceFromSeat } from "./agent-seat-state";
 import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
 import { chatCoarse$ } from "./chat-state";
 import { modelStore } from "./use-model";
-import { useCanvasWorkItems } from "./use-work-sink";
-
-// Coarse poll of window.junto.regionRollups for main-process graph enrichment.
-// Client always re-derives with the live seat + chat planes so chips match the
-// cards (same status source). Live IPC never blanks them.
+import { workAttentionStore } from "./use-work-sink";
+import { createRegionRollupStore } from "./region-rollup-store";
+import { useRtsValue } from "./rts-selection";
+import { use$ } from "@legendapp/state/react";
 
 const DEBOUNCE_MS = 300;
 
@@ -118,140 +114,62 @@ export const fuseRegionRollups = (
   return out;
 };
 
-export function useRegionRollups(): ReadonlyArray<RegionRollup> {
+const localRollups = createRegionRollupStore({
+  model: modelStore,
+  actorRefs: () => state$.actorRefs.get(),
+  items: (canvas, id) => (workAttentionStore.state(canvas).itemsByNodeId[id].get() ?? []) as ReadonlyArray<import("@shared/work-model").Task>,
+  agentActivity: key => {
+    const slot = chatCoarse$[key].get();
+    return {
+      sessionLive: slot?.status === "live" || slot?.status === "connecting" || slot?.turnBusy === true,
+      permissionPending: slot?.pendingPermissionId !== undefined,
+    };
+  },
+  surface: binding => workSurfaceFromSeat(agentSeat$.byBindingId[binding].get(), agentSeat$.needsLookByBindingId[binding].get() === true),
+});
+
+export function useRegionRollups<T = ReadonlyArray<RegionRollup>>(
+  select: (rows: ReadonlyArray<RegionRollup>) => T = rows => rows as T,
+): T {
   const canvasName = use$(state$.canvasName);
-  const canvas = use$(() => {
-    modelStore.canvas$(canvasName).seq.get();
-    return modelStore.canvasOf(canvasName);
-  });
-  const itemsOf = useCanvasWorkItems(canvasName);
-  const actorRefs = use$(state$.actorRefs);
-  const docVersion = use$(state$.docVersion);
-  const docEpoch = use$(state$.docEpoch);
-  const snapshots = use$(state$.snapshots);
-  const executionRev = use$(kernel$.executionRev);
-  // Coarse chat only — streaming tokens never reach this subscriber.
-  const chat = use$(chatCoarse$) as Record<
-    string,
-    { status?: string; pendingPermissionId?: string; turnBusy?: boolean }
-  >;
-  const chatKey = chatCoarseKey(chat ?? {});
-  // ACP chat plane for hermes agent nodes (keyed by agent key).
-  const agentActivity = useMemo(() => {
-    const m = new Map<string, { sessionLive?: boolean; permissionPending?: boolean }>();
-    for (const [key, slot] of Object.entries(chat ?? {})) {
-      m.set(key, {
-        sessionLive: slot.status === "live" || slot.status === "connecting" || slot.turnBusy === true,
-        permissionPending: slot.pendingPermissionId !== undefined,
-      });
-    }
-    return m;
-  }, [chatKey]);
+  const live = useMemo(() => observable<ReadonlyArray<RegionRollup>>([]), [canvasName]);
+  useEffect(() => {
+    if (!canvasName) return;
+    const releaseAttention = workAttentionStore.retain(canvasName);
+    const releaseLocal = localRollups.retain(canvasName);
+    let generation = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Main still supplies permission state after reload until ChatChrome lands.
+    // Keep that bridge outside React: unchanged rollups must not commit chrome.
+    const stop = observe(() => {
+      modelStore.canvas$(canvasName).seq.get();
+      state$.snapshots.get(); kernel$.executionRev.get();
+      chatCoarseKey(chatCoarse$.get());
+      const current = ++generation;
+      clearTimeout(timer);
+      const api = typeof window === "undefined" ? undefined : window.junto;
+      if (!api?.regionRollups) return;
+      timer = setTimeout(() => {
+        void api.regionRollups(canvasName).then(next => {
+          if (current === generation && JSON.stringify(live.peek()) !== JSON.stringify(next)) live.set(next);
+        }).catch(() => {});
+      }, DEBOUNCE_MS);
+    });
+    return () => { ++generation; clearTimeout(timer); stop(); releaseLocal(); releaseAttention(); };
+  }, [canvasName, live]);
 
-  // Managed-terminal seat state (bindingId → event) for native terminal nodes.
-  const seatByBinding = use$(agentSeat$.byBindingId) as Record<
-    string,
-    { state?: string; at?: number } | undefined
-  >;
-  const needsLookByBinding = use$(agentSeat$.needsLookByBindingId) as Record<
-    string,
-    boolean | undefined
-  >;
-  const seatKey = useMemo(
-    () =>
-      Object.entries(seatByBinding ?? {})
-        .map(([id, e]) => `${id}:${e?.state ?? ""}:${e?.at ?? 0}`)
-        .sort()
-        .join("|"),
-    [seatByBinding],
-  );
-  const needsLookKey = useMemo(
-    () =>
-      Object.entries(needsLookByBinding ?? {})
-        .map(([id, value]) => `${id}:${value === true ? 1 : 0}`)
-        .sort()
-        .join("|"),
-    [needsLookByBinding],
-  );
-  const terminalStatusByNodeId = useMemo(
-    () => {
-      const map = new Map<string, ReturnType<typeof workSurfaceFromSeat> & {}>();
-      const seats = agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>;
-      const needsLook = agentSeat$.needsLookByBindingId.peek() as Record<string, boolean | undefined>;
-      for (const node of canvas?.nodes.values() ?? []) {
-        if (node.kind !== "agent" && node.kind !== "terminal") continue;
-        const surface = workSurfaceFromSeat(seats[node.bindingId], needsLook[node.bindingId] === true);
-        if (surface) map.set(node.id, surface);
+  return useRtsValue(() => {
+    const state = localRollups.state(canvasName);
+    const client = state.regionIds.get().map(id => state.byRegionId[id].get()).filter((row): row is RegionRollup => !!row);
+    const vacant = new Set<string>();
+    for (const row of client) for (const member of row.members) {
+      const node = modelStore.node$(canvasName, member.nodeId).peek();
+      if (node?.kind === "agent" || node?.kind === "terminal") {
+        if (workSurfaceFromSeat(agentSeat$.byBindingId[node.bindingId].get(), agentSeat$.needsLookByBindingId[node.bindingId].get() === true)?.session === "exited") vacant.add(node.id);
       }
-      return map;
-    },
-    // seatKey captures state changes; docVersion/docEpoch capture node binds.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvas, docVersion, docEpoch, seatKey, needsLookKey],
-  );
-  const vacantSeatNodeIds = useMemo(
-    () =>
-      new Set(
-        [...terminalStatusByNodeId.entries()]
-          .filter(([, activity]) => activity.session === "exited")
-          .map(([nodeId]) => nodeId),
-      ),
-    [terminalStatusByNodeId],
-  );
-
-  // Client derive — always has chat/flags/seat; no IPC required for those.
-  const client = useMemo(
-    () =>
-      canvas ? deriveRegionRollups({
-        canvas,
-        ...executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf),
-        agentActivity,
-        terminalStatusByNodeId,
-      }) : [],
-    // docVersion/docEpoch bound doc identity; chat/seat via maps above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvas, itemsOf, actorRefs, docVersion, docEpoch, canvasName, agentActivity, terminalStatusByNodeId],
-  );
-
-  const [live, setLive] = useState<ReadonlyArray<RegionRollup>>([]);
-  const genRef = useRef(0);
-
-  useEffect(() => {
-    if (!canvasName || !window.junto?.regionRollups) {
-      setLive([]);
-      return;
     }
-    const api = window.junto;
-    if (!api?.regionRollups) {
-      setLive([]);
-      return;
-    }
-    const gen = ++genRef.current;
-    const timer = window.setTimeout(() => {
-      const apply = (next: ReadonlyArray<RegionRollup>) => {
-        if (gen !== genRef.current) return;
-        setLive(next);
-      };
-      void api
-        .regionRollups(canvasName)
-        .then(apply)
-        .catch(() => {
-          if (gen !== genRef.current) return;
-        });
-    }, DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [canvasName, docEpoch, snapshots, executionRev, chatKey]);
-
-  useEffect(() => {
-    if (canvasName) return;
-    setLive([]);
-  }, [canvasName]);
-
-  // Fuse: live can win on graph severity; client always contributes seat/chat.
-  return useMemo(
-    () => fuseRegionRollups(client, live, vacantSeatNodeIds),
-    [client, live, vacantSeatNodeIds],
-  );
+    return select(fuseRegionRollups(client, live.get(), vacant));
+  });
 }
 
 /**

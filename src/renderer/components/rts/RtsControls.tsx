@@ -1,3 +1,4 @@
+import { useRtsValue, useRtsWire } from "../../lib/rts-selection";
 import { wireOfDocument } from "@shared/model/from-document";
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -25,7 +26,7 @@ import {
   Timer,
   Trash2,
 } from "lucide-react";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
+import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import type { TaskAdmission, TasksContract, TasksIncoming } from "@shared/work-model";
 import { resolveTaskAdmission } from "@shared/work-model";
 import {
@@ -37,8 +38,8 @@ import {
   productVerbEnabled,
 } from "@shared/features";
 import { verbsForPair, type Verb } from "@shared/physics";
-import { isTaskSinkNode } from "@shared/flow-graph";
-import { tasksNodeIdentity } from "@shared/tasks-node-identity";
+import { titleOf } from "@shared/model/title";
+import { modelStore } from "../../lib/use-model";
 import { verbSentence as formatWireSentence } from "../../lib/verb-sentence";
 import {
   ADMISSION_ORDER,
@@ -138,42 +139,22 @@ type EdgeVerbView = {
   readonly sentence: string;
 };
 
-/**
- * What to call an end of a relationship: the name its card wears.
- *
- * A task sink's live items overwrite its node text, so the plain title of one
- * is whichever task happens to sit at the top of it — the sentence would say
- * an agent manages "Ship the verb cut" while the card it points at says
- * "Backlog". `tasksNodeIdentity` is the one board-name projection every other
- * Tasks surface already reads; the edge readout owes the same word.
- */
-const endLabel = (node: CanvasNode | undefined, fallbackId: string): string => {
-  if (!node) return fallbackId;
-  return isTaskSinkNode(node) ? tasksNodeIdentity(node).name : nodeTitle(node);
-};
-
-const edgeVerbView = (doc: CanvasDoc, edge: CanvasEdge): EdgeVerbView => {
-  const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
-  const toNode = doc.nodes.find((n) => n.id === edge.toNode);
-  const fromLabel = endLabel(fromNode, edge.fromNode);
-  const toLabel = endLabel(toNode, edge.toNode);
+/** Selected relationship labels follow native endpoints, never the whole graph. */
+const edgeVerbView = (canvasName: string, edge: CanvasEdge): EdgeVerbView => {
+  const fromNode = modelStore.node$(canvasName, edge.fromNode).get();
+  const toNode = modelStore.node$(canvasName, edge.toNode).get();
+  const fromLabel = fromNode ? titleOf(fromNode) : edge.fromNode;
+  const toLabel = toNode ? titleOf(toNode) : edge.toNode;
   const verb = wireOfDocument(edge)?.verb;
-  const sibling =
-    verb === undefined
-      ? undefined
-      : verbsForPair(
-          fromNode?.ether?.entity?.kind,
-          toNode?.ether?.entity?.kind,
-        ).find((candidate) => candidate !== verb && productVerbEnabled(candidate));
+  const sibling = verb === undefined
+    ? undefined
+    : verbsForPair(fromNode?.kind, toNode?.kind)
+      .find(candidate => candidate !== verb && productVerbEnabled(candidate));
   return {
-    verb,
-    sibling,
-    fromLabel,
-    toLabel,
-    sentence:
-      verb === undefined
-        ? `${fromLabel} → ${toLabel}`
-        : formatWireSentence(verb, fromLabel, toLabel),
+    verb, sibling, fromLabel, toLabel,
+    sentence: verb === undefined
+      ? `${fromLabel} → ${toLabel}`
+      : formatWireSentence(verb, fromLabel, toLabel),
   };
 };
 
@@ -197,14 +178,12 @@ const swapEdgeVerb = (edgeId: string, verb: Verb): void => {
  * the verb sentence when the kernel is quiet), and delete.
  */
 export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
-  const doc = use$(state$.doc);
-  const execution = use$(kernel$.execution);
-  const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  if (!edge) return null;
-
-  const view = edgeVerbView(doc, edge);
-  const livePhase = execution?.phaseByEdgeId[edgeId];
-  const liveDetail = execution?.detailByEdgeId[edgeId];
+  const canvasName = use$(state$.canvasName);
+  const edge = useRtsWire(canvasName, edgeId);
+  const view = useRtsValue(() => edge ? edgeVerbView(canvasName, edge) : null);
+  const livePhase = use$(() => kernel$.execution.phaseByEdgeId[edgeId].get());
+  const liveDetail = use$(() => kernel$.execution.detailByEdgeId[edgeId].get());
+  if (!edge || !view) return null;
   // The sentence is the card; only a live block (a task waiting on the
   // operator) replaces it, in crimson.
   const blocking = livePhase === "blocks";
@@ -774,8 +753,8 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
  * ends, and — only when the pair admits a second verb — the swap to it.
  */
 export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
-  const doc = use$(state$.doc);
-  const view = edgeVerbView(doc, edge);
+  const canvasName = use$(state$.canvasName);
+  const view = useRtsValue(() => edgeVerbView(canvasName, edge));
   const sibling = view.sibling;
 
   return (

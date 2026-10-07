@@ -1,3 +1,5 @@
+import { modelStore } from "../src/renderer/lib/use-model";
+import { canvasFromDocument } from "@shared/model/from-document";
 // @vitest-environment jsdom
 /**
  * Cues fire on real transitions only.
@@ -78,7 +80,12 @@ beforeEach(() => {
   resetAlertQueue();
   play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
   state$.canvasName.set("idle-board");
-  state$.doc.set({ nodes: [seatNode("a"), seatNode("b")], edges: [] });
+  const doc = { nodes: [seatNode("a"), seatNode("b")], edges: [] };
+  state$.doc.set(doc);
+  const canvas = canvasFromDocument("idle-board", doc);
+  modelStore.canvas$("idle-board").nodes.set(Object.fromEntries(canvas.nodes));
+  modelStore.canvas$("idle-board").nodeIds.set([...canvas.nodes.keys()]);
+  modelStore.canvas$("idle-board").status.set("open");
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -92,6 +99,11 @@ afterEach(() => {
   resetAgentSeatState();
   resetAlertQueue();
   state$.doc.set({ nodes: [], edges: [] });
+  modelStore.canvas$("idle-board").nodes.set({});
+  modelStore.canvas$("idle-board").nodeIds.set([]);
+  modelStore.canvas$("other-board").status.set("closed");
+  modelStore.canvas$("other-board").nodes.set({});
+  modelStore.canvas$("other-board").nodeIds.set([]);
   state$.canvasName.set("");
 });
 
@@ -161,7 +173,11 @@ describe("nothing new is not heard", () => {
     play.mockClear();
     act(() => {
       state$.canvasName.set("other-board");
-      state$.doc.set({ nodes: [seatNode("c")], edges: [] });
+      const doc = { nodes: [seatNode("c")], edges: [] };
+      state$.doc.set(doc);
+      modelStore.canvas$("other-board").nodes.set(Object.fromEntries(canvasFromDocument("other-board", doc).nodes));
+      modelStore.canvas$("other-board").nodeIds.set(["c"]);
+      modelStore.canvas$("other-board").status.set("open");
     });
     expect(cues()).toEqual([]);
     // And a real change there is heard.

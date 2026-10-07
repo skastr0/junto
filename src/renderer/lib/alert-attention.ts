@@ -7,7 +7,7 @@
  * the next agent is the shared urgency order's (lib/urgency-step.ts).
  */
 
-import { use$ } from "@legendapp/state/react";
+import { observe } from "@legendapp/state";
 import { useEffect, useRef } from "react";
 import type { CanvasNode } from "@shared/canvas";
 import type { RegionRollup } from "@shared/region-rollup";
@@ -29,6 +29,8 @@ import { SEAT_URGENCY, type SeatUrgency } from "./seat-line";
 import { playCue } from "./sound";
 import { ALERT_CUE } from "./sound/director";
 import { state$ } from "./state";
+import { modelStore } from "./use-model";
+import { nodeToDocument } from "@shared/model/from-document";
 
 /**
  * How urgent each kind is, on the one table every surface reads: the rise
@@ -176,27 +178,24 @@ export const heldSeatSignalIds = (
   return held;
 };
 
-const observeLive = (rollups: ReadonlyArray<RegionRollup>): void => {
+const liveSeatNodes = (): ReadonlyArray<CanvasNode> =>
+  Object.values(modelStore.canvas$(state$.canvasName.peek()).nodes.peek())
+    .filter(node => node.kind === "agent" || node.kind === "terminal")
+    .map(nodeToDocument);
+
+const observeLive = (signals: ReadonlyArray<AlertSignal>): void => {
   const seats = agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>;
-  observeAlertSignals(collectLiveAlertSignals(rollups), {
-    settled: agentSeat$.hydrated.peek(),
+  observeAlertSignals(collectLiveAlertSignals(signals), {
+    settled: agentSeat$.hydrated.peek() && modelStore.canvas$(state$.canvasName.peek()).status.peek() === "open",
     scope: state$.canvasName.peek(),
-    held: heldSeatSignalIds(state$.doc.peek().nodes, seats),
+    held: heldSeatSignalIds(liveSeatNodes(), seats),
   });
 };
 
-/** Changes whenever any seat's needs-look flag does (the operator looked). */
-const needsLookKey = (needsLook: Readonly<Record<string, boolean | undefined>>): string =>
-  Object.entries(needsLook)
-    .filter(([, value]) => value === true)
-    .map(([bindingId]) => bindingId)
-    .sort()
-    .join("|");
-
 const collectLiveAlertSignals = (
-  rollups: ReadonlyArray<RegionRollup>,
+  signals: ReadonlyArray<AlertSignal>,
 ): ReadonlyArray<AlertSignal> => {
-  const nodes = state$.doc.peek().nodes;
+  const nodes = liveSeatNodes();
   const seats = agentSeat$.byBindingId.peek() as Record<
     string,
     AgentSeatStateEvent | undefined
@@ -206,7 +205,7 @@ const collectLiveAlertSignals = (
     boolean | undefined
   >;
   return mergeAlertSignals(
-    collectAlertSignals(rollups),
+    signals,
     collectReadyWorkingSignals(nodes, seats, needsLook),
   );
 };
@@ -217,31 +216,33 @@ const collectLiveAlertSignals = (
  * the live stores, so a freestanding seat is heard too.
  */
 export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
-  const rollupsRef = useRef(rollups);
-  rollupsRef.current = rollups;
-  // Re-run observe when a seat changes, the operator looks at one, the seats
-  // load, or the canvas does. The seat stores mutate in place, so their
-  // object identity never changes: follow the apply counter and a key.
-  const seatRev = use$(agentSeat$.rev);
-  const lookKey = use$(() => needsLookKey(agentSeat$.needsLookByBindingId.get()));
-  const hydrated = use$(agentSeat$.hydrated);
-  const canvasName = use$(state$.canvasName);
-  const docNodes = use$(state$.doc.nodes);
+  useAlertSignals(collectAlertSignals(rollups));
+}
 
+export function useAlertSignals(signals: ReadonlyArray<AlertSignal>): void {
+  const signalsRef = useRef(signals);
+  signalsRef.current = signals;
   useEffect(() => {
-    observeLive(rollupsRef.current);
-
-    return () => {
-      // Full unmount of RTS chrome only. Must NOT run when `rollups` identity
-      // changes: the parent re-creates the array every fuse, and a wipe would
-      // re-baseline, so the next real rise would go unheard.
-      resetAlertQueue();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- rollups via ref; see comment above
+    // This hook performs sounds only. Observe its inputs without committing
+    // React chrome for a seat timestamp, movement or unchanged signal.
+    const stop = observe(() => {
+      const canvas = state$.canvasName.get();
+      const model = modelStore.canvas$(canvas);
+      model.status.get();
+      const nodes = model.nodes.get();
+      for (const node of Object.values(nodes)) {
+        if (node.kind !== "agent" && node.kind !== "terminal") continue;
+        agentSeat$.byBindingId[node.bindingId].state.get();
+        agentSeat$.needsLookByBindingId[node.bindingId].get();
+      }
+      agentSeat$.hydrated.get();
+      observeLive(signalsRef.current);
+    });
+    return () => { stop(); resetAlertQueue(); };
   }, []);
 
   // Re-observe when rollups or the seat plane change without wiping baseline.
   useEffect(() => {
-    observeLive(rollupsRef.current);
-  }, [rollups, seatRev, lookKey, hydrated, canvasName, docNodes]);
+    observeLive(signalsRef.current);
+  }, [signals]);
 }
