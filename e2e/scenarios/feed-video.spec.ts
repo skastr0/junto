@@ -223,6 +223,9 @@ test("[fake-tui] a video at a web address plays only after play is pressed, and 
     await expect(viewer.getByTestId("preview-link-address")).toHaveText(good);
     await expect(viewer).toContainText("Nothing is fetched until you press play");
     await page.screenshot({ path: join(SHOTS, "remote-address-dark.png") });
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
+    await page.screenshot({ path: join(SHOTS, "remote-address-bright.png") });
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
     // Shown, on the card and in the viewer, and still nothing was asked of the server.
     expect(host.asked).toEqual([]);
 

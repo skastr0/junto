@@ -10,6 +10,8 @@
  *     caption and name; nothing is a bare tile
  *   - the commit is read from the seat's own folder: its subject and its diff
  *   - any of them opens large in the viewer
+ *   - Review this commit opens the full review in place of the feed, and
+ *     closing it comes back to the same card with its details still open
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
@@ -149,6 +151,19 @@ test("[fake-tui] a seat attaches code, a diff, a compare and a commit, and the c
     await page.keyboard.press("ArrowRight");
     await expect(viewer.getByTestId("preview-text")).toContainText("Name the retry limit and raise it to five", { timeout: 20_000 });
     await page.screenshot({ path: join(SHOTS, "viewer-commit-dark.png") });
+
+    // Review this commit: the full review opens in place of the feed, and closing it
+    // comes back to the same card with its details still open.
+    await page.keyboard.press("Escape");
+    await expect(viewer).toHaveCount(0);
+    await blocks.nth(3).getByRole("button", { name: "Review this commit" }).click();
+    await expect(feed).toHaveCount(0);
+    await expect(page.getByTestId("git-detail")).toBeVisible({ timeout: 20_000 });
+    await page.screenshot({ path: join(SHOTS, "review-from-card-dark.png") });
+    await page.keyboard.press("Escape");
+    await expect(feed).toBeVisible({ timeout: 10_000 });
+    await expect(card.getByTestId("preview-block")).toHaveCount(4, { timeout: 20_000 });
+    await expect(card).toHaveAttribute("aria-current", "true");
   } finally {
     await junto.close();
     await rm(repo, { recursive: true, force: true });
