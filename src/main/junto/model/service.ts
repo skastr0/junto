@@ -276,6 +276,7 @@ export class ModelService extends Context.Service<ModelService>()(
                 }
                 return { seq: replySeq };
               }
+              const reseatedBindings = new Set<string>();
               const sheetUpdates = new Map<Node["id"], SheetGrid>();
               const writtenSheets = new Set<Node["id"]>();
               const saveNode = Effect.fn("ModelService.saveNode")(function* (
@@ -465,7 +466,8 @@ export class ModelService extends Context.Service<ModelService>()(
                   if ([...nodesById.values()].some((other) => other.id !== node.id && (other.kind === "agent" || other.kind === "terminal") && other.bindingId === step.bindingId))
                     return yield* refused("A seat or terminal already uses this session binding on this canvas.");
                   yield* records.requireSeatHost(step.host);
-                  yield* saveNode(yield* decodeNode(patch(node, { agentKey: step.agentKey, bindingId: step.bindingId, harness: step.harness, host: step.host, launch: step.launch ?? null, sessionId: null })));
+                  reseatedBindings.add(JSON.stringify([node.host, node.bindingId]));
+                  yield* saveNode(yield* decodeNode(patch(node, { agentKey: step.agentKey, bindingId: step.bindingId, harness: step.harness, host: step.host, launch: step.launch ?? null, sessionId: null, overseer: false })));
                   break;
                 }
                 case "WriteSheet": {
@@ -491,6 +493,27 @@ export class ModelService extends Context.Service<ModelService>()(
                   break;
                 }
               }
+              }
+              if (reseatedBindings.size) {
+                const revoked = (node: Node): node is Extract<Node, { readonly kind: "agent" }> => node.kind === "agent" && node.overseer
+                  && reseatedBindings.has(JSON.stringify([node.host, node.bindingId]));
+                for (const node of nodesById.values()) {
+                  if (revoked(node)) nodesById.set(node.id, { ...node, overseer: false });
+                }
+                for (const name of yield* records.listCanvases()) {
+                  if (name === command.canvas) continue;
+                  const aliasCanvas = yield* canvas(name);
+                  const updates = [...aliasCanvas.nodes.values()].filter(revoked)
+                    .map((node) => ({ ...node, overseer: false }));
+                  if (!updates.length) continue;
+                  for (const node of updates) yield* records.updateNode(name, node);
+                  const seq = yield* records.advanceSeq(name);
+                  const event: Changed = { canvas: aliasCanvas.name, seq, nodes: updates, wires: [], removedNodes: [], removedWires: [] };
+                  const applied = follow(aliasCanvas, event);
+                  if (applied._tag !== "Applied") return yield* refused("The canvas sequence changed unexpectedly.");
+                  yield* stage(name, applied.canvas);
+                  yield* publishChange(event, aliasCanvas);
+                }
               }
               const nodes = [...nodesById.values()].filter((node) => !isDeepStrictEqual(current.nodes.get(node.id), node));
               const wires = [...wiresById.values()].filter((wire) => !isDeepStrictEqual(current.wires.get(wire.id), wire));

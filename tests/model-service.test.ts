@@ -572,7 +572,7 @@ it("reseats a node without changing its wires and clears its old session and lau
   yield* model.command(decode({ _tag: "GrantOverseer", canvas: "factory", id: "seat", overseer: true }), "operator");
   expect((yield* model.command(decode({ ...reseat, bindingId: "third-binding" }), "overseer").pipe(Effect.result))._tag).toBe("Failure");
   yield* model.command(decode({ ...reseat, bindingId: "third-binding" }), "operator");
-  expect((yield* model.open("factory")).nodes.find(({ id }) => id === "seat")).toMatchObject({ overseer: true });
+  expect((yield* model.open("factory")).nodes.find(({ id }) => id === "seat")).toMatchObject({ overseer: false });
 })));
 
 it("applies a batch once, emits only its final rows and rolls back every failed step", () => run((model, sql, db) => Effect.gen(function* () {
@@ -625,4 +625,36 @@ it("refuses authority and canvas operations inside batches and keeps cancelling 
     expect(reply).toEqual({ seq: 0 });
     expect(writes).toEqual([]);
   } finally { db.setAuthorizer(null); }
+})));
+
+
+it("reseating revokes authority on every alias atomically and a refused batch retains the grant", () => run((model, sql, db) => Effect.gen(function* () {
+  yield* model.command(decode({ _tag: "CreateCanvas", canvas: "alias" }), "operator");
+  yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [seat], wires: [] }), "operator");
+  yield* model.command(decode({ _tag: "Add", canvas: "alias", nodes: [{ ...seat, id: "alias-seat" }], wires: [] }), "operator");
+  yield* model.command(decode({ _tag: "GrantOverseer", canvas: "factory", id: "seat", overseer: true }), "operator");
+  const events: Changed[] = [];
+  const grantedAtEvent: unknown[] = [];
+  const stop = model.subscribeChanges((event) => {
+    events.push(event);
+    grantedAtEvent.push(db.prepare("SELECT count(*) AS count FROM seats WHERE overseer=1").get()!.count);
+  });
+  const reseat = { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:replacement", bindingId: "replacement-binding", harness: "claude", host: "local" };
+  const refused = yield* model.command(decode({ _tag: "Batch", canvas: "factory", steps: [reseat, { _tag: "Move", canvas: "factory", moves: [{ id: "missing", x: 0, y: 0 }] }] }), "operator").pipe(Effect.result);
+  expect(refused._tag).toBe("Failure");
+  expect(events).toHaveLength(0);
+  expect(db.prepare("SELECT count(*) AS count FROM seats WHERE overseer=1").get()!.count).toBe(2);
+  const rollback = yield* sql.withTransaction(model.command(decode(reseat), "operator").pipe(
+    Effect.flatMap(() => Effect.fail("rollback")),
+  )).pipe(Effect.result);
+  expect(rollback._tag).toBe("Failure");
+  expect(events).toHaveLength(0);
+  expect((yield* model.open("alias")).nodes[0]).toMatchObject({ overseer: true });
+  expect((yield* model.open("factory")).nodes[0]).toMatchObject({ overseer: true });
+  yield* model.command(decode(reseat), "operator");
+  expect(grantedAtEvent).toEqual([0, 0]);
+  expect(events.map((event) => [event.canvas, event.nodes.length])).toEqual([["alias", 1], ["factory", 1]]);
+  expect((yield* model.open("alias")).nodes[0]).toMatchObject({ bindingId: "binding", overseer: false });
+  expect((yield* model.open("factory")).nodes[0]).toMatchObject({ bindingId: "replacement-binding", overseer: false });
+  stop();
 })));
