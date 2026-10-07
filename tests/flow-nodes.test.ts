@@ -8,6 +8,7 @@ import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import { asCanvasName, type Node } from "../src/shared/model";
 import { canvasFromOpened, inPaintOrder } from "../src/shared/model/canvas";
 import { nodeFromDocument } from "../src/shared/model/from-document";
+import { titleOf } from "../src/shared/model/title";
 import { toFlow } from "../src/renderer/lib/convert";
 import { flowNodesFromModel, type ModelFlowCache } from "../src/renderer/lib/flow-nodes";
 
@@ -66,11 +67,11 @@ describe("React Flow nodes from the model", () => {
       expect({
         id: now.id, type: now.type, position: now.position, style: now.style, zIndex: now.zIndex,
         connectable: now.connectable, selectable: now.selectable, draggable: now.draggable,
-        focusable: now.focusable, ariaLabel: now.ariaLabel,
+        focusable: now.focusable,
       }).toEqual({
         id: was.id, type: was.type, position: was.position, style: was.style, zIndex: was.zIndex,
         connectable: was.connectable, selectable: was.selectable, draggable: was.draggable,
-        focusable: was.focusable, ariaLabel: was.ariaLabel,
+        focusable: was.focusable,
       });
       expect({
         blocked: now.data.blocked, regionDepth: now.data.regionDepth, nameSlot: now.data.nameSlot,
@@ -80,6 +81,14 @@ describe("React Flow nodes from the model", () => {
         ringCap: was.data.ringCap, seatRegion: was.data.seatRegion, parentRegion: was.data.parentRegion,
       });
     }
+  });
+
+  it("names each node as the model names it", () => {
+    const { canvas, nodes } = model(doc);
+    const names = new Map(flowNodesFromModel(canvas, nodes, new Set()).map((node) => [node.id, node.ariaLabel]));
+    for (const node of nodes) expect(names.get(node.id)).toBe(titleOf(node));
+    expect(names.get("lead")).toBe("lead");
+    expect(names.get("outer")).toBe("canvas");
   });
 
   it("carries the canvas, id and kind, and no node", () => {

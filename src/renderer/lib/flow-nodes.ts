@@ -1,7 +1,8 @@
 import type { Node as FlowNodeOf } from "@xyflow/react";
 import type { CSSProperties } from "react";
 import type { Node, NodeKind, Region } from "@shared/model";
-import { regionName, regionStack, type Canvas } from "@shared/model/canvas";
+import { regionStack, type Canvas } from "@shared/model/canvas";
+import { titleOf } from "@shared/model/title";
 import { INSTRUMENT_KINDS, INSTRUMENT_RING_PX, renderedNodeSize, SEAT_RING_PX } from "./node-geometry";
 import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name-slot";
 import { evenRingCaps, seatRingCaps, type RoomNode } from "./seat-ring-room";
@@ -43,36 +44,6 @@ export type ModelFlowCache = Map<string, { readonly key: string; readonly flow: 
 /** Which React Flow component draws a kind (components/nodes/index.ts). */
 const flowType = (kind: NodeKind): "group" | "file" | "link" | "text" =>
   kind === "region" ? "group" : kind === "file" ? "file" : kind === "link" || kind === "page" ? "link" : "text";
-
-const firstLine = (text: string | undefined): string =>
-  (text ?? "").split("\n")[0]?.replace(/^#+\s*/, "") ?? "";
-
-/** What a node is called where it has to be named in a word or two. */
-export const nodeName = (node: Node): string => {
-  switch (node.kind) {
-    case "region":
-      return regionName(node);
-    case "artifacts":
-      return "artifacts";
-    case "task":
-    case "requests":
-      return node.name?.trim() || node.kind;
-    case "note":
-    case "label":
-      return firstLine(node.text) || "untitled";
-    case "file":
-      return node.path.split("/").filter(Boolean).pop() ?? node.path;
-    case "link":
-    case "page":
-      try {
-        return new URL(node.url).host;
-      } catch {
-        return node.url;
-      }
-    default:
-      return firstLine(node.label) || "untitled";
-  }
-};
 
 const ringPxOf = (kind: NodeKind): number | undefined =>
   kind === "agent" ? SEAT_RING_PX : INSTRUMENT_KINDS.has(kind) ? INSTRUMENT_RING_PX : undefined;
@@ -185,7 +156,7 @@ export const flowNodesFromModel = (
     const parentRegion = region ? parentOf.get(node.id) : undefined;
     const isBlocked = blocked.has(node.id);
     const size = renderedNodeSize(node.kind, node);
-    const name = nodeName(node);
+    const name = titleOf(node);
     // Everything the flow node says. A field of the node that is not here
     // (colour, a seat's harness, a note's text) never remints it.
     const key = [
