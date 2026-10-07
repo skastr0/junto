@@ -156,7 +156,7 @@ export function NoteSurface({
       <div className="note-edit-modal nowheel">
         <OverlayHeader
           eyebrow="note"
-          title={<span title={payload.title}>{payload.title.replace(/^#+\s*/, "") || "untitled"}</span>}
+          title={payload.title.replace(/^#+\s*/, "") || "untitled"}
           actions={
             <>
               {PINNING_ENABLED ? (
