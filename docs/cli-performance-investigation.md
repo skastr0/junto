@@ -1,6 +1,6 @@
 # CLI performance investigation
 
-Captured 7 October 2026 UTC. This is an investigation and proposed implementation sequence, not a claim that the subsystem has been fixed.
+Captured 7 October 2026 UTC. This document records the historical diagnosis and architecture discussion. The completed, scoped agent CLI performance pass and its measured qualification are in [CLI performance completion](cli-performance-completion.md). The later architecture ideas below are not pending work for that pass.
 
 Follow-up: [cross-harness environment identity qualification](cli-harness-identity-qualification.md) records launch tests, installed Codex/Prime/Pi execution probes, daemon forwarding requirements, and the remaining live-generation checks.
 
