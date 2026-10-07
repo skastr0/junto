@@ -151,6 +151,29 @@ test.describe("canvas pan flicker evidence", () => {
     await page.locator('[data-testid="node-toolbar-focus"]').first().click();
     await expect(page.locator(".react-flow.connection-focus-mode")).toBeAttached({ timeout: 10_000 });
 
+    // Entering focus mode eases the cards outside the cone down to their dim
+    // look. That easing is the focus engaging, not the camera, so let it
+    // finish before sampling: every card's filter holds for half a second.
+    await page.waitForFunction(
+      () =>
+        new Promise<boolean>((resolve) => {
+          const cards = [...document.querySelectorAll(".react-flow__node")].slice(0, 3);
+          const read = (): string => cards.map((card) => getComputedStyle(card).filter).join("|");
+          let last = read();
+          let still = 0;
+          const tick = (): void => {
+            const now = read();
+            still = now === last ? still + 1 : 0;
+            last = now;
+            if (still >= 30) resolve(true);
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+      undefined,
+      { timeout: 15_000 },
+    );
+
     // Sample computed filters of three cards (selected, near, far) on a rAF
     // loop while panning. Appearance never changes with the camera: each
     // card's filter must hold exactly one value.
