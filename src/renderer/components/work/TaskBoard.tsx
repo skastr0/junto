@@ -119,7 +119,6 @@ import { IconButton } from "../ui/IconButton";
 import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { tasksNodeIdentity, tasksNodeName } from "@shared/tasks-node-identity";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
@@ -476,16 +475,9 @@ const latestText = (task: WorkTask): string | undefined => {
 
 const canvasName = (): string => state$.canvasName.peek() || "";
 
-const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
-  if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
-  return result;
-};
-
-const runWorkCanvasMutation = <T,>(
-  canvas: string,
+const runWorkMutation = <T,>(
   operation: () => Promise<WorkOpResult<T>>,
-): Promise<WorkOpResult<T> | undefined> =>
-  runCanvasAuthoringOperation(async () => acceptWorkResult(canvas, await operation()));
+): Promise<WorkOpResult<T> | undefined> => runCanvasAuthoringOperation(operation);
 
 const targetState = (laneId: LaneId): TaskState | undefined =>
   ALL_LANES.find((lane) => lane.id === laneId)?.state;
@@ -2515,7 +2507,7 @@ export function TaskBoard({
         title: title.trim(),
         details: details.trim(),
       };
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         api.workTaskCreate(
           name,
           node.id,
@@ -2569,7 +2561,7 @@ export function TaskBoard({
     setError("");
     setPendingTaskId(task.id);
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         api.workTaskTransition(name, node.id, task.id, state, note),
       );
       if (result === undefined) return false;
@@ -2665,7 +2657,7 @@ export function TaskBoard({
     setError("");
     setPendingTaskId(task.id);
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         api.workTaskPromote(name, node.id, task.id, note?.trim() || undefined),
       );
       if (result === undefined) return;
@@ -2715,7 +2707,7 @@ export function TaskBoard({
     setError("");
     setPendingTaskId(task.id);
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         api.workTaskTransition(
           name,
           node.id,
@@ -2775,7 +2767,7 @@ export function TaskBoard({
     setError("");
     setPendingTaskId(task.id);
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         api.workTaskTransition(
           name,
           node.id,
@@ -2819,7 +2811,7 @@ export function TaskBoard({
     setError("");
     setPendingTaskId(task.id);
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         api.workTaskPromote(name, node.id, task.id, undefined),
       );
       if (result === undefined) return;
@@ -2847,7 +2839,7 @@ export function TaskBoard({
     setError("");
     setPendingTaskId(task.id);
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         describe(name, node.id, task.id, nextBrief.trim()),
       );
       if (result === undefined) return;
@@ -2873,7 +2865,7 @@ export function TaskBoard({
     setError("");
     setPendingTaskId(task.id);
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         api.workTaskRespond(name, node.id, task.id, responseText.trim(), disposition),
       );
       if (result === undefined) return false;
@@ -2906,7 +2898,7 @@ export function TaskBoard({
     setError("");
     setPendingTaskId(task.id);
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation( () =>
         api.workTaskComment(name, node.id, task.id, text.trim()),
       );
       if (result === undefined) return false;

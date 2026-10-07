@@ -41,7 +41,6 @@ import {
   type RequestRow,
 } from "../../lib/actor-ledger-work";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
 import { terminal$ } from "../../lib/terminal-state";
 import { SIGNALS_SECTION, useSeatSignals } from "../../lib/agent-signals-view";
@@ -434,7 +433,6 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
     try {
       const result = await runCanvasAuthoringOperation(async () => {
         const outcome = await operation();
-        if (outcome.ok) applyWorkCanvasWrite(canvas, outcome.doc, outcome.revision);
         return outcome;
       });
       if (result !== undefined && !result.ok) setError(result.message);

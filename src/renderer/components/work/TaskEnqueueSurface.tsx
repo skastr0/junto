@@ -12,7 +12,6 @@ import {
   pinWorkbenchSurface,
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
@@ -26,16 +25,10 @@ import "./task-board.css";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
 
-const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
-  if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
-  return result;
-};
-
-const runWorkCanvasMutation = <T,>(
-  canvas: string,
+const runWorkMutation = <T,>(
   operation: () => Promise<WorkOpResult<T>>,
-): Promise<WorkOpResult<T> | undefined> =>
-  runCanvasAuthoringOperation(async () => acceptWorkResult(canvas, await operation()));
+): Promise<WorkOpResult<T> | undefined> => runCanvasAuthoringOperation(operation);
+
 
 /**
  * Workbench pane: quick enqueue for a tasks sink.
@@ -102,7 +95,7 @@ export function TaskEnqueueSurface({
         title: title.trim(),
         details: details.trim(),
       };
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation(() =>
         api.workTaskCreate(
           name,
           nodeId,

@@ -105,7 +105,7 @@ it("requires and accepts prior-board claims from separate Work rows on terminal 
   const current: Task = { ...task(), rules: [{ id: "rule", text: "tested", board: "a" }],
     visits: [{ board: "a", enteredAt: "2026-10-07", exitedAt: "2026-10-07", epoch: 0, exit: "sent-on", next: "b" }, { board: "b", enteredAt: "2026-10-07", epoch: 0 }] };
   expect(() => workTaskTransition(rows([["b", current]]), topology(false), "c", "b", "t", "completed", "done", ids)).toThrow(/no claim/);
-  const prior: Task = { ...task("completed"), completionEvidence: { claims: [{ ruleId: "rule", text: "passed" }] } };
+  const prior: Task = { ...task("completed"), completionEvidence: { artifacts: [], claims: [{ ruleId: "rule", text: "passed" }] } };
   const result = workTaskTransition(rows([["a", prior], ["b", current]]), topology(false), "c", "b", "t", "completed", "done", ids);
   expect(result.task.state).toBe("completed");
 });

@@ -2,7 +2,6 @@ import { TASKS_ENABLED } from "@shared/features";
 import type { Task } from "@shared/work-model";
 import type { WorkOpResult } from "@shared/ipc";
 import { runCanvasAuthoringOperation } from "./canvas-editor-flush";
-import { applyWorkCanvasWrite } from "./mutations";
 import { getJuntoApi } from "./junto-api";
 
 /** Operator release: one WorkService transition atomically requeues + unclaims. */
@@ -35,7 +34,6 @@ export const releaseTaskToQueue = async (
       taskId,
       "submitted",
     );
-    if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
     return result;
   });
 };

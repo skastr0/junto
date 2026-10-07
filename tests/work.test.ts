@@ -185,6 +185,7 @@ describe("WorkService — mail", () => {
     const sender = await actorOf(name, "sender");
     const authorialBefore = await workRuntime.runPromise(canvases.read(name));
 
+    const canvasRead = vi.spyOn(canvases, "read");
     const appended = await workRuntime.runPromise(
       work.workMessageAppend(name, "recipient", null, mail("inbox-lane-1", "start"), sender)
     );
@@ -192,6 +193,10 @@ describe("WorkService — mail", () => {
       throw new Error(`${appended.code}: ${appended.message}`);
     }
 
+    expect(appended).not.toHaveProperty("doc");
+    expect(appended).not.toHaveProperty("revision");
+    expect(canvasRead).not.toHaveBeenCalled();
+    canvasRead.mockRestore();
     const messages = await workRuntime.runPromise(repository.mailbox(name, "recipient"));
     expect(
       messages

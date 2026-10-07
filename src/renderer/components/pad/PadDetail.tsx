@@ -6,7 +6,6 @@ import type { WorkOpResult } from "@shared/ipc";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -15,11 +14,6 @@ import { PadEditor } from "./PadEditor";
 import "./pad-editor.css";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
-
-const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
-  if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
-  return result;
-};
 
 export function PadDetail({
   node,
@@ -110,7 +104,7 @@ export function PadDetail({
       commitInFlightRef.current = true;
       try {
         const result = await runCanvasAuthoringOperation(async () =>
-          acceptWorkResult(canvasName(), await api.workPadPatch(canvasName(), node.id, patches)),
+          api.workPadPatch(canvasName(), node.id, patches),
         );
         if (!result) {
           return { ok: false, message: "Junto work plane is unavailable." };

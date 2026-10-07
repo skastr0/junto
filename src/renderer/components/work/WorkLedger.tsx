@@ -36,7 +36,6 @@ import { Input, Textarea } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { state$ } from "../../lib/state";
@@ -55,16 +54,10 @@ import { keyAria, keyIs } from "../../lib/key-match";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
 
-const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
-  if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
-  return result;
-};
-
-const runWorkCanvasMutation = <T,>(
-  canvas: string,
+const runWorkMutation = <T,>(
   operation: () => Promise<WorkOpResult<T>>,
-): Promise<WorkOpResult<T> | undefined> =>
-  runCanvasAuthoringOperation(async () => acceptWorkResult(canvas, await operation()));
+): Promise<WorkOpResult<T> | undefined> => runCanvasAuthoringOperation(operation);
+
 
 const metadataText = (
   metadata: WorkMetadata | undefined,
@@ -503,7 +496,7 @@ export function RequestInbox({
     setPendingId(request.id);
     setError("");
     try {
-      const result = await runWorkCanvasMutation(name, () =>
+      const result = await runWorkMutation(() =>
         api.workRequestResolve(name, node.id, request.id, response, disposition),
       );
       if (result === undefined) return;
@@ -883,7 +876,7 @@ export function ArtifactLibrary({
     setPendingId(artifactId);
     setError("");
     try {
-      const result = await runWorkCanvasMutation(name, operation);
+      const result = await runWorkMutation(operation);
       if (result === undefined) return;
       if (!result.ok) setError(result.message);
     } catch (cause) {

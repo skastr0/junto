@@ -611,14 +611,11 @@ export type WorkErrorCode =
   | "wrong_home"
   | "operator_owned";
 
-/** Success carries the written document + revision so the renderer can
- *  baseline without racing canvasChanged → flush → recovery-canvas. */
+/** Work commands return their result; scoped events refresh the affected rows. */
 export type WorkOpResult<T> =
   | {
       readonly ok: true;
       readonly data: T;
-      readonly doc: CanvasDoc;
-      readonly revision: string;
       readonly disposition: "applied" | "queued";
       /** Human-readable context for an idempotent or otherwise notable mutation. */
       readonly message?: string;

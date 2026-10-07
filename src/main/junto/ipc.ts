@@ -1713,17 +1713,9 @@ export const registerJuntoIpc = (): void => {
                   ? latestBoardPostExcerpt(topic)
                   : `${listed.data.topics.length} topics on the board`,
               });
-              // Post-delivery projection: the response carries the doc as it
-              // stands after the wake, not the preflight read.
-              const after = yield* work.workBoardList(canvas, nodeId, topicId);
-              const projection = after.ok
-                ? { doc: after.doc, revision: after.revision }
-                : { doc: listed.doc, revision: listed.revision };
               return {
                 ok: true as const,
                 data: { wakeCount },
-                doc: projection.doc,
-                revision: projection.revision,
                 disposition: "applied" as const,
               };
             }),
@@ -1744,15 +1736,12 @@ export const registerJuntoIpc = (): void => {
           // stale pinId degrades to a plain read without acknowledging
           // anything.
           if (result.ok && pinId !== undefined && result.data.lookHere !== undefined) {
-            const marked = yield* work.workPadMarkRead(
+            yield* work.workPadMarkRead(
               canvas,
               nodeId,
               pinId,
               "operator",
             );
-            if (marked.ok) {
-              return { ...result, doc: marked.doc, revision: marked.revision };
-            }
           }
           return result;
         }),

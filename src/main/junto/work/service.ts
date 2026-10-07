@@ -221,8 +221,6 @@ export type WorkOpResult<T> =
   | {
       readonly ok: true;
       readonly data: T;
-      readonly doc: CanvasDoc;
-      readonly revision: string;
       readonly disposition: "applied" | "queued";
       /** Human-readable context for an idempotent or otherwise notable mutation. */
       readonly message?: string;
@@ -326,21 +324,16 @@ type WorkMutationOutcome<T> = {
   readonly message?: string;
 };
 
-type WorkApplyOk<T> = WorkMutationOutcome<T> & {
-  readonly doc: CanvasDoc;
-  readonly revision: string;
-};
+type WorkApplyOk<T> = WorkMutationOutcome<T>;
 
 const asResult = <T>(
   effect: Effect.Effect<WorkApplyOk<T>, WorkServiceError>,
 ): Effect.Effect<WorkOpResult<T>> =>
   effect.pipe(
     Effect.map(
-      ({ value, doc, revision, disposition, message }): WorkOpResult<T> => ({
+      ({ value, disposition, message }): WorkOpResult<T> => ({
         ok: true,
         data: value,
-        doc,
-        revision,
         disposition,
         ...(message === undefined ? {} : { message }),
       }),
@@ -1018,17 +1011,7 @@ export const WorkLive = Layer.effect(
         externalizeMessage(message, owner),
       ).pipe(Effect.map((history) => ({ ...task, history })));
 
-    const complete = <T>(
-      canvasName: string,
-      outcome: WorkMutationOutcome<T>,
-    ): Effect.Effect<WorkApplyOk<T>, WorkServiceError> =>
-      readCanvas(canvasName).pipe(
-        Effect.map((read) => ({
-          ...outcome,
-          doc: read.doc,
-          revision: read.revision,
-        })),
-      );
+    const complete = <T>(outcome: WorkMutationOutcome<T>): Effect.Effect<WorkApplyOk<T>> => Effect.succeed(outcome);
 
     const reviewForTask = (
       read: CanvasReadResult & { readonly topology: Canvas },
@@ -1641,7 +1624,7 @@ export const WorkLive = Layer.effect(
                 sentBackTask: policy.sentBack.task,
                 review: { verdict: plan.verdict },
               }).pipe(Effect.mapError(toWorkServiceError));
-              return yield* complete(canvas, {
+              return yield* complete({
                 value: { ...result, effect: "rejected" as const, newEpoch: taskEpoch(moved.value.sentBack) },
                 disposition: "applied",
               });
@@ -1661,7 +1644,7 @@ export const WorkLive = Layer.effect(
                 details: { reason: posted.rejected, retryable: posted.rejected === "stale-subject" },
               });
             }
-            return yield* complete(canvas, { value: result, disposition: "applied" });
+            return yield* complete({ value: result, disposition: "applied" });
           }),
         ),
       workTaskHome: (canvas, nodeId, taskId) =>
@@ -1730,7 +1713,7 @@ export const WorkLive = Layer.effect(
                 task,
                 admin,
               );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -1769,7 +1752,7 @@ export const WorkLive = Layer.effect(
                 { operation: "task.describe", taskId, message },
                 policy.task,
               );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -1910,7 +1893,7 @@ export const WorkLive = Layer.effect(
                   ...(localReceiptAuthor === undefined ? {} : { receiptAuthor: localReceiptAuthor }),
                 }),
               );
-              return yield* complete(canvas, {
+              return yield* complete({
                 ...moved,
                 value: moved.value.completed,
               });
@@ -1931,7 +1914,7 @@ export const WorkLive = Layer.effect(
                   sentBackTask: sentBack.task,
                 }),
               );
-              return yield* complete(canvas, {
+              return yield* complete({
                 ...returned,
                 value: returned.value.rejected,
               });
@@ -1982,7 +1965,7 @@ export const WorkLive = Layer.effect(
                 action,
                 policy.task,
               );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -2046,7 +2029,7 @@ export const WorkLive = Layer.effect(
                     `task "${taskId}" is already approved; the supplied note was not recorded`,
                 });
               }
-              return yield* complete(canvas, {
+              return yield* complete({
                 value: task,
                 disposition: "applied" as const,
               });
@@ -2083,7 +2066,7 @@ export const WorkLive = Layer.effect(
                 ...(message === undefined ? {} : { message }),
               }),
             );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -2382,7 +2365,7 @@ export const WorkLive = Layer.effect(
                 results: stamped,
               }),
             );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -2439,7 +2422,7 @@ export const WorkLive = Layer.effect(
                 policy.task,
                 admin,
               );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -2485,7 +2468,7 @@ export const WorkLive = Layer.effect(
               sourceTask.state === "working" &&
               sourceTask.claimedBy === actor.seatId
             ) {
-              return yield* complete(canvas, {
+              return yield* complete({
                 value: sourceTask,
                 disposition: "applied",
                 message:
@@ -2526,7 +2509,7 @@ export const WorkLive = Layer.effect(
                   command.body.actor.seatId === actor.seatId,
               );
               if (existingClaim) {
-                return yield* complete(canvas, {
+                return yield* complete({
                   value: sourceTask,
                   disposition: "queued",
                   message:
@@ -2713,7 +2696,7 @@ export const WorkLive = Layer.effect(
                 disposition: "queued",
               };
             }
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -2842,7 +2825,7 @@ export const WorkLive = Layer.effect(
                 }
               }).pipe(Effect.catch(() => Effect.succeed(undefined)));
             }
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3011,7 +2994,7 @@ export const WorkLive = Layer.effect(
                 }
               }).pipe(Effect.catch(() => Effect.succeed(undefined)));
             }
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3081,7 +3064,7 @@ export const WorkLive = Layer.effect(
                 outcome.value,
               );
             }
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3132,7 +3115,7 @@ export const WorkLive = Layer.effect(
               .acceptedDeliveryAt(sink, deliveryId)
               .pipe(Effect.mapError(toWorkServiceError));
             if (existingAt !== undefined) {
-              return yield* complete(canvas, {
+              return yield* complete({
                 disposition: "applied" as const,
                 value: { messageId: trimmed, readAt: existingAt },
               });
@@ -3190,7 +3173,7 @@ export const WorkLive = Layer.effect(
                   disposition: "applied" as const,
                 })),
               );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3246,7 +3229,7 @@ export const WorkLive = Layer.effect(
               .acceptedDeliveryAt(sink, deliveryId)
               .pipe(Effect.mapError(toWorkServiceError));
             if (existingAt !== undefined) {
-              return yield* complete(canvas, {
+              return yield* complete({
                 disposition: "applied" as const,
                 value: { messageId: trimmed, reaction, reactedAt: existingAt },
               });
@@ -3307,7 +3290,7 @@ export const WorkLive = Layer.effect(
                   disposition: "applied" as const,
                 })),
               );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3371,7 +3354,7 @@ export const WorkLive = Layer.effect(
                 policy.task,
                 admin,
               );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3396,7 +3379,7 @@ export const WorkLive = Layer.effect(
               // write is in flight. Absorb the duplicate as an idempotent
               // settle: the current doc is truth and the surfaces refresh
               // from it via applyWorkCanvasWrite, so no error banner.
-              return yield* complete(canvas, {
+              return yield* complete({
                 value: before,
                 disposition: "applied",
                 message:
@@ -3444,7 +3427,7 @@ export const WorkLive = Layer.effect(
                 action,
                 policy.task,
               );
-            const completed = yield* complete(canvas, outcome);
+            const completed = yield* complete(outcome);
             if (
               outcome.disposition === "applied" &&
               before?.claimedBy !== undefined
@@ -3573,7 +3556,7 @@ export const WorkLive = Layer.effect(
                   materializedArtifact,
                   admin,
                 );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3590,7 +3573,7 @@ export const WorkLive = Layer.effect(
                 })
                 .pipe(Effect.map((artifact) => ({ value: artifact }))),
             );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3606,7 +3589,7 @@ export const WorkLive = Layer.effect(
                 })
                 .pipe(Effect.map((value) => ({ value }))),
             );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3635,7 +3618,7 @@ export const WorkLive = Layer.effect(
               })
               .pipe(Effect.mapError(toWorkServiceError));
             const outcome = yield* local(Effect.succeed({ value: feed }));
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3654,7 +3637,7 @@ export const WorkLive = Layer.effect(
             const outcome = yield* local(
               Effect.succeed({ value: { topics } }),
             );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3746,7 +3729,7 @@ export const WorkLive = Layer.effect(
                   },
                   { topic, notify },
                 );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3825,7 +3808,7 @@ export const WorkLive = Layer.effect(
                   },
                   { post },
                 );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3872,7 +3855,7 @@ export const WorkLive = Layer.effect(
                 })
                 .pipe(Effect.map(() => ({ value: { topicId } }))),
             );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -3924,7 +3907,7 @@ export const WorkLive = Layer.effect(
                 },
               }),
             );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -4059,7 +4042,7 @@ export const WorkLive = Layer.effect(
                 }).catch(() => undefined);
               }
             }
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 
@@ -4088,7 +4071,7 @@ export const WorkLive = Layer.effect(
                 })
                 .pipe(Effect.map(() => ({ value: { pinId } }))),
             );
-            return yield* complete(canvas, outcome);
+            return yield* complete(outcome);
           }),
         ),
 

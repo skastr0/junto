@@ -28,7 +28,7 @@ import { Button } from "../ui/Button";
 import { Input, Textarea } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { applyWorkCanvasWrite, editText, renameRequestsNode, renameTasksNode } from "../../lib/mutations";
+import { editText, renameRequestsNode, renameTasksNode } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { boardAuthorLabel } from "../../lib/board-author";
@@ -140,16 +140,9 @@ const boardTopicPreview = (topic: BoardTopic): string => {
   return boardTextOf(latestPost?.parts ?? topic.parts ?? []).trim();
 };
 
-const acceptWorkResult = <T,>(canvas: string, result: WorkOpResult<T>): WorkOpResult<T> => {
-  if (result.ok) applyWorkCanvasWrite(canvas, result.doc, result.revision);
-  return result;
-};
-
-const runWorkCanvasMutation = <T,>(
-  canvas: string,
+const runWorkMutation = <T,>(
   operation: () => Promise<WorkOpResult<T>>,
-): Promise<WorkOpResult<T> | undefined> =>
-  runCanvasAuthoringOperation(async () => acceptWorkResult(canvas, await operation()));
+): Promise<WorkOpResult<T> | undefined> => runCanvasAuthoringOperation(operation);
 
 /** One task-state palette, so a task reads the same wherever it is drawn. */
 export const stateHue = (state: TaskState): string => {
@@ -537,10 +530,8 @@ export function BoardDetail({
   }, [api, canvas, node.id]);
 
   const refreshQueued = useRef(false);
-  // Live board: scoped work events refresh this board when the write
-  // came from an agent. Coalesce bursts into one trailing refresh; keep the
-  // operator's selection and draft. Refreshing is a read — it must not run
-  // through applyWorkCanvasWrite.
+  // Scoped Work events coalesce into one board read while preserving the
+  // operator's selection and draft.
   useEffect(() => {
     if (!api) return;
     let cancelled = false;
@@ -571,7 +562,7 @@ export function BoardDetail({
     }
     let result: WorkOpResult<T> | undefined;
     try {
-      result = await runWorkCanvasMutation(canvas, op);
+      result = await runWorkMutation(op);
     } catch {
       setMutationError("Operation failed");
       return undefined;
