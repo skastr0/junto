@@ -205,7 +205,7 @@ describe("buildOperatorFeed", () => {
     const items = feed.sections.flatMap((s) => s.items);
     // a: its proven attention is as urgent, so the canvas need stays out, and
     // the AI reading stays out because the seat is already listed.
-    expect(items.filter((i) => i.seat.nodeId === "a").map((i) => i.itemId)).toEqual(["attention:a:5000"]);
+    expect(items.filter((i) => i.seat.nodeId === "a").map((i) => i.itemId)).toEqual(["attention:a"]);
     // b: blocked outranks its feedback, so both show; the seat's region is kept.
     expect(items.filter((i) => i.seat.nodeId === "b").map((i) => i.kind)).toEqual(["blocked", "feedback"]);
     expect(items.find((i) => i.itemId === "blocked:b")?.region.regionId).toBe("inner");

@@ -96,7 +96,8 @@ export const subjectsFromFeed = (feed: OperatorFeed): ReadonlyArray<NotifySubjec
         ? []
         : [
             {
-              key: item.itemId,
+              // A seat's attention row keeps one id; each new ask is its own subject.
+              key: item.kind === "attention" ? `${item.itemId}:${item.since ?? 0}` : item.itemId,
               category: FEED_CATEGORY[item.kind],
               canvasName: item.canvasName,
               nodeId: item.seat.nodeId,

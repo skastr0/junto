@@ -174,8 +174,10 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
 
   for (const entry of input.seats) {
     if (!entry.attention) continue;
+    // One row per seat: the id holds while the seat asks again, so the row
+    // stays put instead of leaving and coming back.
     push(entry, {
-      itemId: `attention:${entry.seat.nodeId}:${entry.attention.at}`,
+      itemId: `attention:${entry.seat.nodeId}`,
       kind: "attention",
       text: attentionText(entry.attention.reason),
       since: entry.attention.at,
