@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import type { AgentSignalKind } from "../../shared/agent-signals";
-import { ATTACHMENT_HEAD_BYTES, attachmentName, classifyAttachment } from "../../shared/preview-bytes";
+import { ATTACHMENT_HEAD_BYTES, attachmentMediaType, attachmentName } from "../../shared/preview-bytes";
 import {
   type SignalAttachCliInput,
   SignalRaiseCliArgs,
@@ -25,8 +25,7 @@ import { decodeJsonText } from "./json";
  * input takes the same list as `attach: [{path, caption?}]`. The CLI
  * uploads each file in pieces (`stageFile`) and the signal names it by the
  * reference that comes back: a path never crosses the socket, and a file of
- * any size can be attached. The checks below only fail fast; main is the
- * authority on what is admitted.
+ * any kind and size can be attached.
  */
 export type SignalSource =
   | { readonly kind: "stdin" }
@@ -109,7 +108,7 @@ const attachError = (path: string, message: string) =>
   new InputError({
     message: `${path}: ${message}`,
     path: "--attach",
-    hint: 'attach an image or a text file: --attach "Before=/abs/before.png"',
+    hint: 'attach a file by its path: --attach "Before=/abs/before.png"',
   });
 
 const readHead = async (path: string, limit: number): Promise<Buffer> => {
@@ -130,27 +129,26 @@ const readHead = async (path: string, limit: number): Promise<Buffer> => {
 };
 
 /**
- * Judge every file from its start, refusing early what main would refuse
- * anyway, then upload each one. Nothing is uploaded unless all of them pass.
- * No count and no size of ours: a file is streamed from disk in pieces.
+ * Look at every file's start to say what it is, then upload each one.
+ * Nothing is uploaded unless all of them can be read. Any file goes, of any
+ * kind, count and size: it is streamed from disk in pieces.
  */
 const stageAttachments = (attach: ReadonlyArray<SignalAttachCliInput>, timeoutMs?: number) =>
   Effect.gen(function* () {
     const judged = yield* Effect.forEach(attach, (item) =>
       Effect.gen(function* () {
         const name = attachmentName(item.path) || "file";
-        const kind = yield* Effect.tryPromise({
+        const mediaType = yield* Effect.tryPromise({
           try: async () => {
             // stat follows a link: what matters is that a regular file is read.
             const info = await stat(item.path);
             if (!info.isFile()) throw new Error("not a regular file");
             const head = await readHead(item.path, Math.min(info.size, ATTACHMENT_HEAD_BYTES));
-            return classifyAttachment(name, head, info.size);
+            return attachmentMediaType(name, head);
           },
           catch: (cause) => attachError(item.path, cause instanceof Error ? cause.message : "read failed"),
         });
-        if (!kind.ok) return yield* Effect.fail(attachError(item.path, kind.reason));
-        return { item, name, mediaType: kind.mediaType };
+        return { item, name, mediaType };
       }),
     );
     return yield* Effect.forEach(judged, ({ item, name, mediaType }) =>

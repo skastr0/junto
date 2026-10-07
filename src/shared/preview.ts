@@ -243,12 +243,12 @@ export const previewTargetOf = (ref: PreviewRef): PreviewTarget =>
 
 // --- the read contract -------------------------------------------------------
 
-/** Whole-file cap for an image, in bytes. */
-export const PREVIEW_MAX_IMAGE_BYTES = 25 * 1024 * 1024;
-/** An SVG is text that a parser walks: a far smaller cap. */
-export const PREVIEW_MAX_SVG_BYTES = 2 * 1024 * 1024;
-/** How much of a text file a preview reads, in bytes. */
-export const PREVIEW_MAX_TEXT_BYTES = 64 * 1024;
+/**
+ * A file's size never decides whether it is shown: an image or a text file
+ * of any size opens whole. Only the small variant is cut down: an image to
+ * PREVIEW_THUMB_EDGE, a text file to its first PREVIEW_TEXT_EXCERPT_BYTES.
+ */
+export const PREVIEW_TEXT_EXCERPT_BYTES = 64 * 1024;
 /** Longest edge of a thumbnail, in device pixels. */
 export const PREVIEW_THUMB_EDGE = 480;
 
@@ -267,7 +267,7 @@ export type PreviewTarget =
 export type PreviewRequest = {
   readonly source: PreviewSource;
   readonly target: PreviewTarget;
-  /** `thumb`: an image scaled down in main. `full`: the image as it is. */
+  /** `thumb`: an image scaled down in main, a text file's start. `full`: the file as it is. */
   readonly variant: "thumb" | "full";
 };
 
@@ -290,7 +290,7 @@ export type PreviewResult =
       readonly byteLength: number;
       readonly format: PreviewTextFormat;
       readonly text: string;
-      /** The file is longer than what was read. */
+      /** The file is longer than what was read: only ever true of the small variant. */
       readonly truncated: boolean;
     }
   | {

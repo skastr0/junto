@@ -117,20 +117,27 @@ describe("claimSignalAttachments", () => {
     expect(Result.isFailure(never) && never.failure.message).toContain("not uploaded by this seat");
   });
 
-  it("refuses by naming the file and the reason, and keeps nothing of a refused signal", async () => {
+  it("takes a file of any kind as a file, and a caption of any length", async () => {
     const { stage, claim, owners } = await boot();
     const zip = Buffer.from("PK");
+    const words = "x".repeat(500);
     // Declared as an image: the bytes and the name decide, not the claim.
-    const refused = await claim([await stage("a.png", PNG), await stage("build.zip", zip, "image/png")]);
-    expect(Result.isFailure(refused) && refused.failure).toMatchObject({ path: "attach[1]" });
-    expect(Result.isFailure(refused) && refused.failure.message).toContain("build.zip: only images");
-    expect(await owners(PNG)).not.toContain("signal:s1");
-    expect(await owners(zip)).not.toContain("signal:s1");
+    const taken = await claim([
+      await stage("build.zip", zip, "image/png"),
+      { ...(await stage("fake.png", Buffer.from("text"))), caption: words },
+    ]);
+    expect(Result.isSuccess(taken) && taken.success.map((attachment) => [attachment.ref.displayName, attachment.ref.mediaType, attachment.caption])).toEqual([
+      ["build.zip", "application/octet-stream", undefined],
+      ["fake.png", "application/octet-stream", words],
+    ]);
+    expect(await owners(zip)).toEqual(["signal:s1"]);
+  });
 
-    const fake = await claim([await stage("fake.png", Buffer.from("text"))]);
-    expect(Result.isFailure(fake) && fake.failure.message).toContain("fake.png");
-    const caption = await claim([{ ...(await stage("b.png", PNG)), caption: "x".repeat(121) }]);
-    expect(Result.isFailure(caption) && caption.failure.message).toContain("caption");
+  it("keeps nothing of a refused signal", async () => {
+    const { stage, claim, owners } = await boot();
+    const refused = await claim([await stage("a.png", PNG), { ref: { sha256: "0".repeat(64), byteLength: 3 } } as never]);
+    expect(Result.isFailure(refused) && refused.failure).toMatchObject({ path: "attach[1]" });
+    expect(await owners(PNG)).not.toContain("signal:s1");
   });
 });
 

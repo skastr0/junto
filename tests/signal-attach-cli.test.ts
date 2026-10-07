@@ -121,10 +121,9 @@ describe("--attach on the needs-you commands", () => {
     expect(frames).toEqual([]);
   });
 
-  it("refuses, naming the file: a missing one, a folder, a type no preview shows, given twice", async () => {
+  it("refuses, naming the file: a missing one, a folder, given twice", async () => {
     await expect(load("x", [at("gone.png")])).rejects.toThrow(/gone\.png/);
     await expect(load("x", [at("folder.png")])).rejects.toThrow(/folder\.png: not a regular file/);
-    await expect(load("x", [at("build.zip")])).rejects.toThrow(/build\.zip: only images/);
     await expect(
       load(JSON.stringify({ text: "x", attach: [{ path: at("before.png") }] }), [at("after.png")]),
     ).rejects.toThrow(/attachments given twice/);
@@ -132,8 +131,14 @@ describe("--attach on the needs-you commands", () => {
   });
 
   it("uploads nothing when one of the files is refused", async () => {
-    await expect(load("x", [at("before.png"), at("build.zip")])).rejects.toThrow(/build\.zip: only images/);
+    await expect(load("x", [at("before.png"), at("gone.png")])).rejects.toThrow(/gone\.png/);
     expect(frames).toEqual([]);
+  });
+
+  it("attaches a file of any kind, as a file", async () => {
+    const args = await load("x", [at("build.zip")]);
+    expect(args.attach).toEqual([{ ref: refOf(Buffer.from("PK")) }]);
+    expect(staged).toEqual([{ mediaType: "application/octet-stream", displayName: "build.zip", byteLength: 2 }]);
   });
 
   it("sets no count of its own: fifty files go as fifty", async () => {

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { classifyAttachment, isInertSvg, sniffRasterType } from "@shared/preview-bytes";
+import { attachmentMediaType, isInertSvg, sniffRasterType } from "@shared/preview-bytes";
 import { locatePreviewForReveal, readPreview, resolvePreviewPath } from "../src/main/junto/preview/read";
 
 const PNG = Buffer.from(
@@ -86,7 +86,7 @@ describe("readPreview kinds", () => {
     expect(await read(at("bad.svg"), at("bad.svg"))).toMatchObject({ ok: true, kind: "file", extension: "svg" });
   });
 
-  it("serves the head of a text file and says when there is more", async () => {
+  it("serves a text file whole, and only its start as the small variant", async () => {
     expect(await read(at("notes.md"), at("notes.md"))).toEqual({
       ok: true,
       kind: "text",
@@ -97,8 +97,11 @@ describe("readPreview kinds", () => {
       truncated: false,
     });
     const long = await read(at("long.log"), at("long.log"));
-    expect(long).toMatchObject({ ok: true, kind: "text", truncated: true, byteLength: 70_000 });
-    expect(long.ok && long.kind === "text" && long.text.length).toBe(64 * 1024);
+    expect(long).toMatchObject({ ok: true, kind: "text", truncated: false, byteLength: 70_000 });
+    expect(long.ok && long.kind === "text" && long.text.length).toBe(70_000);
+    const excerpt = await read(at("long.log"), at("long.log"), "thumb");
+    expect(excerpt).toMatchObject({ ok: true, kind: "text", truncated: true, byteLength: 70_000 });
+    expect(excerpt.ok && excerpt.kind === "text" && excerpt.text.length).toBe(64 * 1024);
   });
 
   it("gives only name, type and size for anything else", async () => {
@@ -165,23 +168,22 @@ describe("preview helpers", () => {
   });
 });
 
-describe("classifyAttachment", () => {
+describe("attachmentMediaType", () => {
   const text = (value: string): Uint8Array => new TextEncoder().encode(value);
 
-  it("admits an image by its bytes and text by its name", () => {
-    expect(classifyAttachment("shot.png", PNG)).toEqual({ ok: true, kind: "image", mediaType: "image/png" });
-    expect(classifyAttachment("renamed.bin", PNG)).toEqual({ ok: true, kind: "image", mediaType: "image/png" });
-    expect(classifyAttachment("notes.md", text("# hi"))).toEqual({ ok: true, kind: "text", mediaType: "text/markdown" });
-    expect(classifyAttachment("change.patch", text("--- a"))).toEqual({ ok: true, kind: "text", mediaType: "text/x-diff" });
-    expect(classifyAttachment("a.svg", text('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toMatchObject({ ok: true, kind: "image" });
+  it("says an image by its bytes, a drawing and text by their names", () => {
+    expect(attachmentMediaType("shot.png", PNG)).toBe("image/png");
+    expect(attachmentMediaType("renamed.bin", PNG)).toBe("image/png");
+    expect(attachmentMediaType("notes.md", text("# hi"))).toBe("text/markdown");
+    expect(attachmentMediaType("change.patch", text("--- a"))).toBe("text/x-diff");
+    expect(attachmentMediaType("a.svg", text('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toBe("image/svg+xml");
   });
 
-  it("refuses what a preview cannot show", () => {
-    expect(classifyAttachment("fake.png", text("not an image")).ok).toBe(false);
-    expect(classifyAttachment("a.svg", text("<svg><script/></svg>")).ok).toBe(false);
-    expect(classifyAttachment("build.zip", text("PK")).ok).toBe(false);
-    expect(classifyAttachment("binary.txt", new Uint8Array([97, 0, 98])).ok).toBe(false);
-    expect(classifyAttachment("empty.png", new Uint8Array()).ok).toBe(false);
-    expect(classifyAttachment("id_rsa", text("PRIVATE")).ok).toBe(false);
+  it("refuses nothing: whatever else it is given is a file", () => {
+    expect(attachmentMediaType("fake.png", text("not an image"))).toBe("application/octet-stream");
+    expect(attachmentMediaType("build.zip", text("PK"))).toBe("application/octet-stream");
+    expect(attachmentMediaType("binary.txt", new Uint8Array([97, 0, 98]))).toBe("application/octet-stream");
+    expect(attachmentMediaType("empty.txt", new Uint8Array())).toBe("text/plain");
+    expect(attachmentMediaType("id_rsa", text("PRIVATE"))).toBe("application/octet-stream");
   });
 });

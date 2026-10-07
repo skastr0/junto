@@ -36,7 +36,7 @@ const detailOption = Flag.string("detail").pipe(
 const attachOption = Flag.string("attach").pipe(
   Flag.atLeast(0),
   Flag.withDescription(
-    'A file to show the operator, an image or text: /path or "Caption=/path". Repeat for each file',
+    'A file to show the operator, of any kind and size: /path or "Caption=/path". Repeat for each file',
   ),
 );
 

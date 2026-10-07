@@ -1,4 +1,4 @@
-import { PREVIEW_MAX_SVG_BYTES, previewExtension, previewKindOf } from "./preview";
+import { previewExtension } from "./preview";
 
 /**
  * What a file is, judged by its bytes. One judge for every door a file comes
@@ -45,8 +45,7 @@ const hasNul = (bytes: Uint8Array): boolean => bytes.includes(0);
 const decodeUtf8 = (bytes: Uint8Array): string => new TextDecoder("utf-8").decode(bytes);
 
 /** An inert SVG's bytes are an image; anything else in SVG clothing is not. */
-export const isInertSvgBytes = (bytes: Uint8Array): boolean =>
-  bytes.byteLength <= PREVIEW_MAX_SVG_BYTES && !hasNul(bytes) && isInertSvg(decodeUtf8(bytes));
+export const isInertSvgBytes = (bytes: Uint8Array): boolean => !hasNul(bytes) && isInertSvg(decodeUtf8(bytes));
 
 const TEXT_MEDIA_TYPES: Readonly<Record<string, string>> = {
   md: "text/markdown",
@@ -58,59 +57,31 @@ const TEXT_MEDIA_TYPES: Readonly<Record<string, string>> = {
   log: "text/plain",
 };
 
-export type AttachmentKind =
-  | { readonly ok: true; readonly kind: "image" | "text"; readonly mediaType: string }
-  | { readonly ok: false; readonly reason: string };
-
 /** A display name: the last segment only, nothing a terminal or a table would choke on. */
 export const attachmentName = (raw: string): string => {
   const last = raw.replace(/\\/gu, "/").split("/").filter(Boolean).pop() ?? "";
   return last.replace(/[\u0000-\u001f\u007f]/gu, "").trim().slice(0, 255);
 };
 
-/**
- * How much of a file's start `classifyAttachment` needs: a whole SVG (one
- * larger than this is never shown as a drawing), and more than enough of
- * anything else.
- */
-export const ATTACHMENT_HEAD_BYTES = PREVIEW_MAX_SVG_BYTES;
+/** How much of a file's start `attachmentMediaType` looks at. */
+export const ATTACHMENT_HEAD_BYTES = 64 * 1024;
+
+/** A file a preview shows by its name only. */
+export const ATTACHMENT_OTHER_MEDIA_TYPE = "application/octet-stream";
 
 /**
- * Whether a file may ride on a signal: only what a preview can show. An
- * image by its bytes (PNG, JPEG, GIF, WebP, or an SVG that is only a
- * drawing), or text by its name (txt, md, markdown, json, diff, patch, log)
- * with no NUL byte in it.
- *
- * Judged from the file's start (`head`, its first ATTACHMENT_HEAD_BYTES at
- * least) and its whole length, so a file of any size is judged without
- * being read through. The file's size is no reason to refuse it.
+ * What an attached file is recorded as. Any file may ride on a signal, of
+ * any kind and any size: nothing is refused here. This only says how the
+ * card will first offer it: a raster image by its bytes (PNG, JPEG, GIF,
+ * WebP), a drawing by its svg name, text by its name (txt, md, markdown,
+ * json, diff, patch, log) with no NUL byte at its start, anything else as a
+ * file. The preview read is what decides, from the bytes, what is drawn.
  */
-export const classifyAttachment = (
-  name: string,
-  head: Uint8Array,
-  byteLength: number = head.byteLength,
-): AttachmentKind => {
-  const bytes = head;
-  if (byteLength === 0) return { ok: false, reason: "the file is empty" };
-  const raster = sniffRasterType(bytes);
-  if (raster !== undefined) return { ok: true, kind: "image", mediaType: raster };
+export const attachmentMediaType = (name: string, head: Uint8Array): string => {
+  const raster = sniffRasterType(head);
+  if (raster !== undefined) return raster;
   const extension = previewExtension(`/${name}`);
-  if (extension === "svg") {
-    return byteLength <= PREVIEW_MAX_SVG_BYTES && isInertSvgBytes(bytes)
-      ? { ok: true, kind: "image", mediaType: "image/svg+xml" }
-      : { ok: false, reason: "the SVG carries script, an event handler or an outside reference, or is too large to be checked" };
-  }
-  if (previewKindOf(`/${name}`) === "image") {
-    return { ok: false, reason: `the bytes are not a ${extension} image` };
-  }
+  if (extension === "svg") return "image/svg+xml";
   const text = TEXT_MEDIA_TYPES[extension];
-  if (text !== undefined) {
-    return hasNul(bytes)
-      ? { ok: false, reason: "the file is not text" }
-      : { ok: true, kind: "text", mediaType: text };
-  }
-  return {
-    ok: false,
-    reason: "only images (png, jpg, jpeg, gif, webp, svg) and text (txt, md, markdown, json, diff, patch, log) can be attached",
-  };
+  return text !== undefined && !hasNul(head) ? text : ATTACHMENT_OTHER_MEDIA_TYPE;
 };

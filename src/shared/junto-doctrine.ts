@@ -198,7 +198,7 @@ Every seat can signal the operator; no edge is needed. One sentence says what yo
 - \`junto blocked "..."\` — you cannot continue without the operator. Stop and wait.
 - \`junto feedback "..."\` — you are not blocked; the work is ready for the operator to review.
 
-To show the operator a file, attach it; do not write its path in the text. Repeat \`--attach\` for each file, with a caption if you like: \`junto feedback "The rail is ready to review." --attach "Before=/abs/before.png" --attach "After=/abs/after.png"\`. Images and text files show on the card as pictures the operator can open and compare, as many as you need, and they are kept even if your folder is cleaned.
+To show the operator a file, attach it; do not write its path in the text. Repeat \`--attach\` for each file, with a caption if you like: \`junto feedback "The rail is ready to review." --attach "Before=/abs/before.png" --attach "After=/abs/after.png"\`. Any file can be attached, as many and as large as you need: images and text show on the card as pictures the operator can open and compare, anything else by its name, and they are kept even if your folder is cleaned.
 
 The answer arrives in this seat as operator mail; \`junto signal list\` shows your signals and their answers. When one no longer applies, withdraw it: \`junto signal clear <id>\` (no id clears all yours). Do not use these for progress chatter; \`preamble\` is for that.
 

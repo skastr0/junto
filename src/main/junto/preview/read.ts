@@ -4,9 +4,7 @@ import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isInertSvg, sniffRasterType } from "@shared/preview-bytes";
 import {
-  PREVIEW_MAX_IMAGE_BYTES,
-  PREVIEW_MAX_SVG_BYTES,
-  PREVIEW_MAX_TEXT_BYTES,
+  PREVIEW_TEXT_EXCERPT_BYTES,
   previewExtension,
   previewKindOf,
   previewName,
@@ -26,12 +24,12 @@ import {
  *   fetch. Symlinks are resolved first and the target is what gets judged;
  * - a regular file only;
  * - an image when its bytes say so (PNG, JPEG, GIF, WebP by signature; SVG by
- *   its root element), whatever the extension claims, up to
- *   PREVIEW_MAX_IMAGE_BYTES (SVG: PREVIEW_MAX_SVG_BYTES). An SVG that carries
- *   script, foreignObject, an event handler, or any reference outside itself
- *   is not served as an image;
+ *   its root element), whatever the extension claims and whatever its
+ *   size. An SVG that carries script, foreignObject, an event handler, or
+ *   any reference outside itself is not served as an image;
  * - text when the resolved file's extension is txt, md, markdown, json, diff,
- *   patch or log and the bytes hold no NUL: the first PREVIEW_MAX_TEXT_BYTES;
+ *   patch or log and the bytes hold no NUL: the whole file, or its first
+ *   PREVIEW_TEXT_EXCERPT_BYTES for the small variant;
  * - for any other file: its name, extension and size. No bytes.
  *
  * It never writes, never lists a directory, and returns no path the caller
@@ -72,6 +70,9 @@ const TEXT_FORMATS: Readonly<Record<string, PreviewTextFormat>> = {
   log: "text",
 };
 
+/** Where an SVG's root element is looked for before the whole file is read. */
+const SVG_START_BYTES = 64 * 1024;
+
 const dataUrl = (mediaType: string, bytes: Buffer): string =>
   `data:${mediaType};base64,${bytes.toString("base64")}`;
 
@@ -79,8 +80,14 @@ const readHead = async (path: string, limit: number): Promise<Buffer> => {
   const handle = await open(path, "r");
   try {
     const buffer = Buffer.alloc(limit);
-    const { bytesRead } = await handle.read(buffer, 0, limit, 0);
-    return buffer.subarray(0, bytesRead);
+    let filled = 0;
+    // A read may come back short before the end of the file.
+    while (filled < limit) {
+      const { bytesRead } = await handle.read(buffer, filled, limit - filled, filled);
+      if (bytesRead === 0) break;
+      filled += bytesRead;
+    }
+    return buffer.subarray(0, filled);
   } finally {
     await handle.close();
   }
@@ -124,7 +131,10 @@ const previewLocated = async (
   const plain: PreviewResult = { ok: true, kind: "file", name, byteLength, extension: previewExtension(judgedAs) };
   try {
     if (previewKindOf(judgedAs) === "text") {
-      const head = await readHead(path, PREVIEW_MAX_TEXT_BYTES);
+      const head = await readHead(
+        path,
+        render.variant === "thumb" ? Math.min(byteLength, PREVIEW_TEXT_EXCERPT_BYTES) : byteLength,
+      );
       if (head.includes(0)) return plain;
       return {
         ok: true,
@@ -136,7 +146,7 @@ const previewLocated = async (
         truncated: byteLength > head.length,
       };
     }
-    if (!tryImage || byteLength > PREVIEW_MAX_IMAGE_BYTES) return plain;
+    if (!tryImage) return plain;
 
     const signature = await readHead(path, 16);
     const raster = sniffRasterType(signature);
@@ -150,7 +160,9 @@ const previewLocated = async (
       }
       return { ok: true, kind: "image", name, byteLength, mediaType: raster, dataUrl: dataUrl(raster, bytes) };
     }
-    if (byteLength <= PREVIEW_MAX_SVG_BYTES) {
+    // Read through to be judged a drawing only when its start says it may be one.
+    const start = await readHead(path, Math.min(byteLength, SVG_START_BYTES));
+    if (!start.includes(0) && /<svg[\s>]/iu.test(start.toString("utf8"))) {
       const bytes = await readHead(path, byteLength);
       if (!bytes.includes(0) && isInertSvg(bytes.toString("utf8"))) {
         return { ok: true, kind: "image", name, byteLength, mediaType: "image/svg+xml", dataUrl: dataUrl("image/svg+xml", bytes) };
@@ -181,7 +193,7 @@ export const readPreview = async (
  * Read one preview of a file a signal carries as an attachment. The caller
  * resolved it from the signal's own attachment list to its object in the
  * content store: there is no path from the agent here at all. The same
- * limits and the same judging by bytes apply as for a path.
+ * judging by bytes applies as for a path.
  */
 export const readAttachmentPreview = async (
   input: {

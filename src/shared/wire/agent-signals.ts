@@ -38,8 +38,6 @@ export const AgentSignalText = boundedText(AGENT_SIGNAL_MAX_TEXT_LENGTH);
 export const AgentSignalDetail = boundedText(AGENT_SIGNAL_MAX_DETAIL_LENGTH);
 export const AgentSignalResponseText = boundedText(AGENT_SIGNAL_MAX_RESPONSE_LENGTH);
 
-/** The agent's words beside a file ("Before"). */
-export const AGENT_SIGNAL_MAX_CAPTION_LENGTH = 120;
 
 /**
  * A file the agent attached. The bytes live in the content store under
@@ -48,7 +46,8 @@ export const AGENT_SIGNAL_MAX_CAPTION_LENGTH = 120;
  */
 export const AgentSignalAttachment = Schema.Struct({
   ref: ContentRef,
-  caption: Schema.optionalKey(boundedText(AGENT_SIGNAL_MAX_CAPTION_LENGTH)),
+  /** The agent's words beside a file ("Before"). */
+  caption: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
 });
 export type AgentSignalAttachment = typeof AgentSignalAttachment.Type;
 

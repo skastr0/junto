@@ -1,11 +1,7 @@
 import { open } from "node:fs/promises";
 import { Effect, Option } from "effect";
-import {
-  AGENT_SIGNAL_MAX_CAPTION_LENGTH,
-  type AgentSignal,
-  type AgentSignalAttachment,
-} from "@shared/agent-signals";
-import { ATTACHMENT_HEAD_BYTES, attachmentName, classifyAttachment } from "@shared/preview-bytes";
+import type { AgentSignal, AgentSignalAttachment } from "@shared/agent-signals";
+import { ATTACHMENT_HEAD_BYTES, attachmentMediaType, attachmentName } from "@shared/preview-bytes";
 import type { SignalAttachmentInput } from "@shared/work-control";
 import type { ContentOwner } from "../content/manifest";
 import { ContentService } from "../content/service";
@@ -15,11 +11,11 @@ import { claimStagedContent } from "../content/stage";
  * Files attached to a signal: main is the authority on what is admitted.
  *
  * The seat uploaded each file ahead of the signal (`content.stage`) and the
- * signal names it by reference. Admitted: any number of files of any size,
- * each one uploaded by the calling seat and something a preview can show
- * (`classifyAttachment`: an image by its bytes, or text by its name), judged
- * here from the stored bytes and the name main recorded at upload. A file
- * that passes is held under the signal as owner, so it outlives the folder
+ * signal names it by reference. Admitted: any number of files, of any kind
+ * and any size, each one uploaded by the calling seat. What a file is
+ * recorded as (`attachmentMediaType`) is read here from the stored bytes and
+ * the name main recorded at upload, never taken from the caller. A file is
+ * held under the signal as owner, so it outlives the folder
  * it came from; it is let go when the signal closes and collected by the
  * store's own garbage collection after its grace.
  */
@@ -73,14 +69,6 @@ export const claimSignalAttachments = (
   inputs: ReadonlyArray<SignalAttachmentInput>,
 ): Effect.Effect<ReadonlyArray<AgentSignalAttachment>, AttachmentRefusal> => {
   const owner = signalAttachmentOwner(signal);
-  const captions: Array<string | undefined> = [];
-  for (const [index, input] of inputs.entries()) {
-    const caption = input.caption?.replace(/\s+/gu, " ").trim() || undefined;
-    if (caption !== undefined && caption.length > AGENT_SIGNAL_MAX_CAPTION_LENGTH) {
-      return Effect.fail(refusal(index, `a caption is at most ${AGENT_SIGNAL_MAX_CAPTION_LENGTH} characters`));
-    }
-    captions.push(caption);
-  }
   // The same file named twice is held once: a signal owns its bytes, not a count of them.
   const held = new Map<string, AgentSignalAttachment["ref"]>();
   return Effect.forEach(inputs, (input, index) =>
@@ -110,12 +98,10 @@ export const claimSignalAttachments = (
           try: () => readHead(opened.path, Math.min(row.ref.byteLength, ATTACHMENT_HEAD_BYTES)),
           catch: () => refusal(index, `${name}: the file could not be read from the store`),
         });
-        const kind = classifyAttachment(name, head, row.ref.byteLength);
-        if (!kind.ok) return yield* Effect.fail(refusal(index, `${name}: ${kind.reason}`));
-        ref = { ...row.ref, mediaType: kind.mediaType, displayName: name } as AgentSignalAttachment["ref"];
+        ref = { ...row.ref, mediaType: attachmentMediaType(name, head), displayName: name } as AgentSignalAttachment["ref"];
         held.set(key, ref);
       }
-      const caption = captions[index];
+      const caption = input.caption?.replace(/\s+/gu, " ").trim() || undefined;
       return {
         ref,
         ...(caption === undefined ? {} : { caption: caption as AgentSignalAttachment["caption"] }),
