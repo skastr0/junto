@@ -32,6 +32,9 @@ import type { Command } from "@shared/model";
 import { authoring } from "./authoring";
 import { documentEdits, UnholdableEdit } from "@shared/model/document-edits";
 import { createDocumentProjection } from "./document-projection";
+import { canvasAfter } from "./model-undo";
+import { inPaintOrder, type Canvas } from "@shared/model/canvas";
+import { canvasFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
 import { topZ } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
@@ -333,6 +336,83 @@ export const commitDoc = (next: CanvasDoc, structural = true, remember = structu
     syncHistoryState();
   }
   sendAct(name, commands, remember);
+};
+
+/**
+ * The document after an edit, when there is no store to work it out from: the
+ * canvas with the commands applied, in the old shape, keeping the document's
+ * own node and edge wherever the edit did not touch the row under it.
+ */
+const documentAfter = (doc: CanvasDoc, before: Canvas, after: Canvas): CanvasDoc => {
+  const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
+  const edgeById = new Map(doc.edges.map((edge) => [edge.id, edge] as const));
+  return {
+    nodes: inPaintOrder(after).map((row) => {
+      const held = nodeById.get(row.id);
+      return held !== undefined && before.nodes.get(row.id) === row ? held : nodeToDocument(row);
+    }),
+    edges: [...after.wires.values()].map((wire) => {
+      const held = edgeById.get(wire.id);
+      return held !== undefined && before.wires.get(wire.id) === wire ? held : wireToDocument(wire);
+    }),
+  };
+};
+
+/**
+ * Do one act on the open canvas, said as commands. This is how a writer
+ * changes the canvas: `edit` is given the canvas as it stands and answers the
+ * commands (model-edits.ts makes them), which go out as one act, undone
+ * together unless `remember` is false. Nothing happens on a Remote station,
+ * once the window has closed admission for quitting, or for a canvas being
+ * removed. A command main refuses shows the refusal line and the canvas is
+ * read again.
+ *
+ * Where the node store holds the canvas, which is always in the app, the
+ * commands go to it and the document follows. Where nothing holds it (a view
+ * with no main, a unit rig that never opened a canvas) the commands are
+ * applied to the document itself, so the same writer works in both and a rig
+ * may assert on either.
+ */
+export const commitCommands = (
+  edit: (canvas: Canvas) => ReadonlyArray<Command>,
+  options: { readonly remember?: boolean } = {},
+): void => {
+  if (state$.settings.station.role.peek() === "remote") return;
+  if (!canvasMutationAdmissionOpen) return;
+  const name = state$.canvasName.peek();
+  if (abandonedNames.has(name)) return;
+  const remember = options.remember ?? true;
+  const held = storeHolds(name);
+  const doc = state$.doc.peek();
+  let canvas: Canvas;
+  let commands: ReadonlyArray<Command>;
+  try {
+    canvas = held ? modelStore.canvasOf(name) : canvasFromDocument(name, doc);
+    commands = edit(canvas);
+  } catch (error) {
+    state$.saveState.set("error");
+    state$.error.set(`canvas "${name}" did not take that change: ${messageOf(error)}`);
+    return;
+  }
+  if (commands.length === 0) return;
+  if (held && bridged()) {
+    sendAct(name, commands, remember);
+    return;
+  }
+  // No main, or no store: the commands are applied here.
+  const after = commands.reduce((current, command) => canvasAfter(current, command), canvas);
+  if (held) for (const command of commands) modelStore.show(command);
+  batch(() => {
+    state$.doc.set(documentAfter(doc, canvas, after));
+    state$.docVersion.set(state$.docVersion.peek() + 1);
+    state$.docEpoch.set(state$.docEpoch.peek() + 1);
+  });
+  if (remember && !bridged()) {
+    shownBefore.push(doc);
+    shownAfter.length = 0;
+    syncHistoryState();
+  }
+  if (bridged() && name) sendAct(name, commands, remember);
 };
 
 export interface LoadDocOptions {

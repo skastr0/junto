@@ -10,6 +10,7 @@ import { flushCanvasEdits, registerCanvasDraftCommit } from "../src/renderer/lib
 import {
   applyManagedAgentReseat,
   clearAbandonedCanvas,
+  commitCommands,
   commitDoc,
   flushPendingCanvasSave,
   hasPendingCanvasChanges,
@@ -267,6 +268,26 @@ describe("the window changes a canvas by sending commands", () => {
     expect(state$.error.peek()).toContain("did not take that change");
     expect(state$.error.peek()).toContain('"s"');
     expect(state$.canUndo.peek()).toBe(false);
+  });
+
+  it("sends a writer's commands as one act, shows them through the store, and takes them back together", async () => {
+    commitCommands((held) => {
+      expect(held.nodes.has("note" as never)).toBe(true);
+      return [
+        { _tag: "Edit", canvas: "alpha", id: "note", change: { kind: "note", text: "by command" } },
+        { _tag: "Move", canvas: "alpha", moves: [{ id: "note", x: 80, y: 0 }] },
+      ] as never;
+    });
+    // Shown in the same turn, through the store and the document that follows it.
+    expect(shownText()).toBe("by command");
+    expect(state$.doc.peek().nodes.find((node) => node.id === "note")).toMatchObject({ x: 80 });
+    await flushPendingCanvasSave();
+    expect(sent().map((command) => command._tag)).toEqual(["Batch"]);
+    expect(state$.canUndo.peek()).toBe(true);
+    undo();
+    await flushPendingCanvasSave();
+    expect(shownText()).toBe("base");
+    expect(state$.doc.peek().nodes.find((node) => node.id === "note")).toMatchObject({ x: 0 });
   });
 
   it("does not remember an act that is not the operator's to take back", async () => {
