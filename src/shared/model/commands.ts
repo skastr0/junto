@@ -118,6 +118,18 @@ export const NodeMove = Schema.Struct({
 });
 export type NodeMove = typeof NodeMove.Type;
 
+/**
+ * What may be changed on a wire after it is made: its verb, the ports taken
+ * away from what the verb grants, and the sides it attaches to. `null` clears.
+ */
+export const WireEdit = Schema.Struct({
+  verb: set(Verb),
+  mask: setOrClear(Schema.Array(Port)),
+  fromSide: setOrClear(Side),
+  toSide: setOrClear(Side),
+});
+export type WireEdit = typeof WireEdit.Type;
+
 const canvasCommandFields = {
   /**
    * Put new nodes and wires on a canvas. Ids are minted by the sender. A seat
@@ -156,16 +168,7 @@ const canvasCommandFields = {
   /** Replace what a sheet holds. */
   WriteSheet: { canvas: CanvasName, id: NodeId, grid: SheetGrid },
   /** Change what a wire grants or where it attaches. Its ends are fixed. */
-  Rewire: {
-    canvas: CanvasName,
-    id: WireId,
-    change: Schema.Struct({
-      verb: set(Verb),
-      mask: setOrClear(Schema.Array(Port)),
-      fromSide: setOrClear(Side),
-      toSide: setOrClear(Side),
-    }),
-  },
+  Rewire: { canvas: CanvasName, id: WireId, change: WireEdit },
   /** Change the agent occupying the same node, keeping its wires and mailbox. */
   Reseat: {
     canvas: CanvasName,
