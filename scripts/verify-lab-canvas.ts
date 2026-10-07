@@ -6,6 +6,7 @@
  *   bun scripts/verify-lab-canvas.ts --canvas NAME [--cards 46]
  *   bun scripts/verify-lab-canvas.ts --canvas NAME --remove
  */
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { agentTextNode, canvasDoc } from "../e2e/harness/sandbox";
 import { formatNodeRef } from "../src/shared/node-ref";
@@ -117,6 +118,31 @@ const nodes = Array.from({ length: cards }, (_, i) => {
     y: Math.floor(i / 5) * 130,
   });
 });
+// --layout FILE places nodes and wires exactly as a JSON file says, for a
+// canvas shaped like a real one: {nodes: [{kind, x, y, w, h, hold}], wires:
+// [[from, to]]} by index. It carries geometry only; names and bindings are
+// made here. Anything that is not a seat or a region becomes a note.
+const layoutPath = arg("layout", "");
+type LaidOut = { kind: string; x: number; y: number; w: number; h: number; hold?: boolean };
+const layout = layoutPath === "" ? undefined : (JSON.parse(readFileSync(layoutPath, "utf8")) as { nodes: LaidOut[]; wires: Array<[number, number]> });
+let layoutEdges: Array<{ id: string; fromNode: string; toNode: string; ether: { verb: string } }> = [];
+if (layout) {
+  nodes.length = 0;
+  layout.nodes.forEach((item, i) => {
+    const id = `verify-${item.kind === "agent" ? "seat" : item.kind}-${String(i + 1).padStart(3, "0")}-${tag}`;
+    if (item.kind === "agent") {
+      nodes.push({ ...agentTextNode({ id, key: `local:${id}`, label: id, harness: "claude", cwd: root, x: item.x, y: item.y }), width: item.w, height: item.h } as never);
+    } else if (item.kind === "region") {
+      nodes.push({ id, type: "group", label: `region ${String(i + 1)}`, x: item.x, y: item.y, width: item.w, height: item.h, ether: { region: { hold: item.hold === true } } } as never);
+    } else {
+      nodes.push({ id, type: "text", text: `note ${String(i + 1)}`, x: item.x, y: item.y, width: item.w, height: item.h } as never);
+    }
+  });
+  layoutEdges = layout.wires
+    .map(([from, to], i) => ({ id: `verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, fromNode: nodes[from]!.id, toNode: nodes[to]!.id, ether: { verb: "messages" } }))
+    .filter((edge) => edge.fromNode !== edge.toNode && edge.fromNode.includes("-seat-") && edge.toNode.includes("-seat-"));
+}
+
 // --regions, --notes and --wires fill the canvas out to the shape of a real
 // one: regions drawn around pairs of seats, loose notes, and message wires
 // between neighbouring seats. Regions go first so they paint underneath.
@@ -144,7 +170,7 @@ const edges = Array.from({ length: wires }, (_, i) => {
   const from = seatsOnly[i % seatsOnly.length]!;
   const to = seatsOnly[(i + 1 + Math.floor(i / seatsOnly.length) * 3) % seatsOnly.length]!;
   return { id: `verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, fromNode: from.id, toNode: to.id, ether: { verb: "messages" } };
-}).filter((edge) => edge.fromNode !== edge.toNode);
+}).filter((edge) => edge.fromNode !== edge.toNode).concat(layoutEdges);
 
 // --sinks adds one task board, one bulletin board and one pad beside the seats,
 // for measuring work changes other than mail.
