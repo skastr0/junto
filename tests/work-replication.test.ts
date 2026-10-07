@@ -365,9 +365,9 @@ describe("WorkRepository v2 report reconciliation", () => {
     const inboxIds = async () =>
       (
         await commandCenter.runtime.runPromise(
-          commandCenter.repository.readSnapshot(sink.canvasName, sink.nodeId),
+          commandCenter.repository.mailbox(sink.canvasName, sink.nodeId),
         )
-      ).messages.items.map((item) => item.messageId);
+      ).map((item) => item.messageId);
     expect(await inboxIds()).toEqual(["local-outbound"]);
 
     const accepted = await commandCenter.runtime.runPromise(

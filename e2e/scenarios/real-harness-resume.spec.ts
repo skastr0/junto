@@ -84,6 +84,7 @@ const ESCAPES =
 
 type Api = {
   listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
+  workMailPage: import("../../src/shared/ipc").JuntoApi["workMailPage"];
   readCanvas: (n: string) => Promise<{ doc: CanvasDoc; revision: string }>;
   writeCanvas: (n: string, d: CanvasDoc, r: string) => Promise<unknown>;
   terminalGet: (b: string) => Promise<TerminalSessionSummary | undefined>;
@@ -291,10 +292,8 @@ for (const c of CASES) {
         async ([id, name, node]) => {
           const api = (window as unknown as { junto: Api }).junto;
           const states = (await api.agentSeatStateSnapshot()).filter((s) => s.bindingId === id);
-          const read = await api.readCanvas(name!);
-          const mail = (read.doc.nodes.find((n) => n.id === node)?.ether?.messages?.items ?? []).map(
-            (m) => ({ id: m.messageId, meta: m.metadata }),
-          );
+          const page = await api.workMailPage({ canvasName: name!, nodeId: node!, limit: 200 });
+          const mail = page.items.map(({ message: m }) => ({ id: m.messageId, meta: m.metadata }));
           return JSON.stringify({ states, mail }, null, 1);
         },
         [bindingId, canvas, seatId] as const,

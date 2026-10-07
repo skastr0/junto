@@ -190,11 +190,10 @@ describe.each([
     expect(next.ether?.entity).toEqual({ kind: "agent", name: "local:grok" });
   });
 
-  it("the rest of the seat stays: its overseer mark and its mailbox", () => {
-    const mail = { items: [{ messageId: "01A", role: "user" as const, parts: [{ kind: "text" as const, text: "hello" }] }] };
-    const before = named("cli-identity", { ether: { overseer: true, messages: mail } as TextNode["ether"] });
+  it("reseating preserves the overseer mark without carrying mail", () => {
+    const before = named("cli-identity", { ether: { overseer: true } as TextNode["ether"] });
     const next = reseat(before, "grok");
     expect(next.ether?.overseer).toBe(true);
-    expect(next.ether?.messages).toEqual(mail);
+    expect(next.ether).not.toHaveProperty("messages");
   });
 });

@@ -621,8 +621,6 @@ export type EtherRequests = WorkRequests;
 export const EtherArtifacts = WorkArtifacts;
 export type EtherArtifacts = WorkArtifacts;
 
-export const EtherMessages = WorkMessages;
-export type EtherMessages = WorkMessages;
 
 /**
  * One immutable work read model, addressed by the same composite identity the
@@ -634,7 +632,6 @@ export const WorkSnapshot = Schema.Struct({
   nodeId: Schema.String,
   tasks: WorkTasks,
   requests: WorkRequests,
-  messages: WorkMessages,
   artifacts: WorkArtifacts,
   board: WorkBoard,
   pad: Schema.optionalKey(EtherPad),

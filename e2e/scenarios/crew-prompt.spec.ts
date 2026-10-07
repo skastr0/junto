@@ -1,3 +1,4 @@
+import { readSeatMailbox } from "../harness/work-mail";
 /**
  * Prompt mail — the full body typed into the recipient seat at once, over a
  * messages edge [fake-tui].
@@ -93,13 +94,7 @@ const readSeat = async (
 
 /** The stored prompt as the app projects it on B's mailbox. */
 const projectedMessage = async (page: Page, messageId: string): Promise<Message> => {
-  const doc = await page.evaluate(
-    async (name) => (await window.junto!.readCanvas(name)).doc,
-    CANVAS,
-  );
-  const message = doc.nodes
-    .find((node) => node.id === B)
-    ?.ether?.messages?.items.find((item) => item.messageId === messageId);
+  const message = (await readSeatMailbox(page, CANVAS, B)).find((item) => item.messageId === messageId);
   if (message === undefined) throw new Error(`Missing projected prompt ${messageId}`);
   return message;
 };

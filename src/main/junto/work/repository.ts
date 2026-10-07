@@ -4686,7 +4686,6 @@ const loadSnapshot = Effect.fn("work.loadSnapshot")(function* (
       ),
     },
     requests: { items: yield* loadLaneTasks(reader, sink, "request") },
-    messages: { items: [] },
     artifacts: { items: yield* loadArtifacts(reader, sink) },
     board: { topics: yield* loadBoardTopics(reader, sink) },
     ...(pad === undefined ? {} : { pad }),

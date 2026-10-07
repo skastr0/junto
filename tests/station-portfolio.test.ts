@@ -91,7 +91,6 @@ const workProjectionCases = [
     "requests",
     { requests: { items: [{ id: "req-1", state: "submitted", history: [] }] } },
   ],
-  ["messages", { messages: { items: [] } }],
   ["artifacts", { artifacts: { items: [] } }],
   ["board", { board: { topics: [] } }],
   ["pad", { pad: { revision: 0, shapeCount: 0, unreadPinCount: 0 } }],

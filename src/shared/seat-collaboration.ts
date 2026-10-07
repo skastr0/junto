@@ -23,7 +23,6 @@
  * return path.
  */
 
-import type { CanvasDoc, CanvasNode } from "./canvas";
 import { messageBriefText, messageIdTimeMs } from "./message-delivery";
 import type { Message } from "./work-model";
 

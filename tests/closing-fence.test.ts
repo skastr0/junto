@@ -198,7 +198,6 @@ describe("mail that arrives between the offboard and the exit", () => {
         ether: {
           entity: { kind: "agent", name: "local:claude" },
           terminal: { bindingId: BINDING, harness: "claude" },
-          messages: { items: messages },
         },
       }],
       edges: [],
@@ -211,6 +210,8 @@ describe("mail that arrives between the offboard and the exit", () => {
     const store: MessageDeliveryStore = {
       listCanvasNames: async () => [CANVAS],
       readDoc: async () => doc,
+      readMessage: async (_canvas, _node, messageId) => messages.find((message) => message.messageId === messageId),
+      listMail: async () => messages,
       acceptMessageDelivery: async (_canvas, _node, messageId) => {
         const index = messages.findIndex((message) => message.messageId === messageId);
         messages[index] = { ...messages[index]!, metadata: { ...messages[index]!.metadata, deliveredAt: Date.now() } };

@@ -75,8 +75,7 @@ const openFixture = async () => {
   const basis = Schema.decodeUnknownSync(IntentFactBasis)({ kind: "authorial-intent", ...witness });
   const read = async () => (await runtime.runPromise(canvases.read(CANVAS))).doc;
   const message = async (id: string) => {
-    const found = (await read()).nodes.find((node) => node.id === mailSink.nodeId)
-      ?.ether?.messages?.items.find((item) => item.messageId === id);
+    const found = await runtime.runPromise(work.mailMessage(CANVAS, mailSink.nodeId, id));
     expect(found, `projected mailbox message ${id}`).toBeDefined();
     return found!;
   };

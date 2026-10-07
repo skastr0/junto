@@ -1,3 +1,4 @@
+import { readSeatMailbox } from "../harness/work-mail";
 /**
  * Isolated real-Devin mail observation [real-harness]. A real Devin seat
  * settles at an empty prompt, then receives fresh mail, then a second notice
@@ -107,10 +108,7 @@ const runtimeProvenance = () => {
 };
 
 const projectedMessages = async (page: Page): Promise<ReadonlyArray<Message>> => {
-  const read = await page.evaluate(async (name) => window.junto!.readCanvas(name), ISOLATED_DEVIN_MAIL_CANVAS);
-  const node = read.doc.nodes.find((entry) => entry.id === ISOLATED_DEVIN_RECEIVER_ID);
-  if (node === undefined) throw new Error("The isolated Devin mailbox sink is missing from readCanvas");
-  return node.ether?.messages?.items ?? [];
+  return readSeatMailbox(page, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_RECEIVER_ID);
 };
 
 const readDevin = async (sender: CrewSeat): Promise<SeatReadResult> => {

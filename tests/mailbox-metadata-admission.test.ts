@@ -164,12 +164,7 @@ const projectedMessage = async (
   sink: { canvasName: string; nodeId: string },
   messageId: string,
 ) => {
-  const snapshot = await runtime.runPromise(
-    repository.readSnapshot(sink.canvasName, sink.nodeId),
-  );
-  const message = snapshot.messages.items.find(
-    (item) => item.messageId === messageId,
-  );
+  const message = await runtime.runPromise(repository.mailMessage(sink.canvasName, sink.nodeId, messageId));
   expect(message).toBeDefined();
   return message!;
 };

@@ -7,6 +7,28 @@ const page = (id: string, position: number, nextBeforePosition?: number): WorkMa
 });
 const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
 describe("seat mailbox store", () => {
+  it("rebases older pages when new mail moves the first page boundary", async () => {
+    let notify!: (event: WorkMailChanged) => void;
+    let positions = [6, 5, 4, 3, 2, 1];
+    const read = vi.fn(async (query: WorkMailQuery): Promise<WorkMailPage> => {
+      const remaining = positions.filter((position) => query.beforePosition === undefined || position < query.beforePosition);
+      const items = remaining.slice(0, 2).map((position) => page(String(position), position).items[0]!);
+      return { items, ...(remaining.length > 2 ? { nextBeforePosition: items.at(-1)!.position } : {}) };
+    });
+    const store = createWorkMailStore(() => ({ workMailPage: read, onWorkMailChanged: (listener) => { notify = listener; return () => {}; } }));
+    const release = store.retain("factory", "a");
+    await flush();
+    await store.loadMore("factory", "a");
+    positions = [10, 9, 8, 7, ...positions];
+    read.mockClear();
+    notify({ canvasName: "factory", nodeId: "a" });
+    await flush();
+    expect(read.mock.calls.map(([query]) => query.beforePosition)).toEqual([undefined, 9]);
+    expect(store.state("factory", "a").items.peek().map((item) => item.position)).toEqual([10, 9, 8, 7]);
+    await store.loadMore("factory", "a");
+    expect(store.state("factory", "a").items.peek().map((item) => item.position)).toEqual([10, 9, 8, 7, 6, 5]);
+    release();
+  });
   it("refreshes only the addressed subscribed seat and stops listening on release", async () => {
     let notify!: (event: WorkMailChanged) => void;
     const off = vi.fn();

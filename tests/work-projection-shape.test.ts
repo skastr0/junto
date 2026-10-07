@@ -164,7 +164,7 @@ describe("work projection shape", () => {
     const seen = projection.snapshots.map((snapshot) => snapshot.nodeId).sort();
     expect(seen).toEqual([]);
     const snapshot = await runtime.runPromise(repository.readSnapshot("factory", "agent-1"));
-    expect(snapshot.messages.items).toEqual([]);
+    expect(snapshot).not.toHaveProperty("messages");
     expect(() => Schema.decodeUnknownSync(WorkSnapshot, strict)(snapshot)).not.toThrow();
 
     // The gate. Every constructed snapshot must satisfy the schema the read

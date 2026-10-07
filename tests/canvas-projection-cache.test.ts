@@ -173,9 +173,7 @@ const seedCanvas = (
     }),
   );
 
-const mailOf = (doc: CanvasDoc) =>
-  doc.nodes.find((node) => node.id === LOCAL_AGENT)?.ether?.messages?.items ??
-  [];
+const mail = Effect.flatMap(WorkRepository, (repository) => repository.mailbox(CANVAS, LOCAL_AGENT));
 
 /** Append one mailbox message to the local agent seat. */
 const appendMailEffect = Effect.fn(function* (messageId: string) {
@@ -382,7 +380,7 @@ describe("canvas projection memo — what a read must still see", () => {
         yield* appendMailEffect("rolled-back-mail");
         const pending = yield* canvases.read(CANVAS);
         expect(pending.doc.nodes.find((node) => node.id === NOTE)).toMatchObject({ text: "uncommitted" });
-        expect(mailOf(pending.doc).map((message) => message.messageId)).toEqual(["rolled-back-mail"]);
+        expect((yield* mail).map((message) => message.messageId)).toEqual(["rolled-back-mail"]);
         return yield* Effect.fail("rollback");
       })).pipe(Effect.result);
       expect(rolledBack).toMatchObject({ _tag: "Failure", failure: "rollback" });
@@ -396,7 +394,7 @@ describe("canvas projection memo — what a read must still see", () => {
       yield* appendMailEffect("committed-mail");
       const committed = yield* canvases.read(CANVAS);
       expect(committed.doc.nodes.find((node) => node.id === NOTE)).toMatchObject({ text: "committed" });
-      expect(mailOf(committed.doc).map((message) => message.messageId)).toEqual(["committed-mail"]);
+      expect((yield* mail).map((message) => message.messageId)).toEqual(["committed-mail"]);
     }));
   });
 
@@ -417,7 +415,7 @@ describe("canvas projection memo — what a read must still see", () => {
   it("sees mail appended through the work fact journal", async () => {
     const runtime = await openRuntime();
     const seeded = await seedCanvas(runtime, { withLocalAgent: true });
-    expect(mailOf(seeded.doc)).toEqual([]);
+    expect((await runtime.runPromise(mail))).toEqual([]);
 
     await appendMail(runtime, "mail-1");
     const after = await runtime.runPromise(
@@ -426,8 +424,8 @@ describe("canvas projection memo — what a read must still see", () => {
         return yield* canvases.read(CANVAS);
       }),
     );
-    expect(mailOf(after.doc).map((m) => m.messageId)).toEqual(["mail-1"]);
-    expect(after.workRevision).not.toBe(seeded.workRevision);
+    expect((await runtime.runPromise(mail)).map((m) => m.messageId)).toEqual(["mail-1"]);
+    expect(after.doc).toEqual(seeded.doc);
   });
 
   it("sees an authorial write even when no work row moved", async () => {
@@ -601,7 +599,7 @@ describe("node-scoped read — what the wake path may rely on", () => {
         return yield* canvases.read(CANVAS);
       }),
     );
-    expect(mailOf(projected.doc)).toHaveLength(1);
+    expect((await runtime.runPromise(mail))).toHaveLength(1);
 
     for (const node of projected.doc.nodes) {
       const scoped = await runtime.runPromise(
@@ -625,7 +623,7 @@ describe("node-scoped read — what the wake path may rely on", () => {
       // And it carries no Work lane at all — a routing caller that reached
       // for one would read undefined, never a stale value.
       for (const structural of scoped!.structure.nodes) {
-        expect(structural.ether?.messages).toBeUndefined();
+        expect(structural.ether ?? {}).not.toHaveProperty("messages");
       }
     }
   });

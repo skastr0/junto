@@ -1,3 +1,4 @@
+import { readSeatMailbox } from "./work-mail";
 /**
  * Crew fixture — deterministic generated-canvas crews for the local crew
  * surface (crew contract deleted by operator ruling 2026-09-16): mail, immediate prompts, seat
@@ -847,10 +848,7 @@ const crewMessages = async (
   canvas: string,
   nodeId: string,
 ): Promise<ReadonlyArray<Message>> => {
-  const doc = await crewCanvas(page, canvas);
-  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-  if (node === undefined) throw new Error(`Missing projected crew sink ${canvas}/${nodeId}`);
-  return node.ether?.messages?.items ?? [];
+  return readSeatMailbox(page, canvas, nodeId);
 };
 
 export const crewMessageCount = async (

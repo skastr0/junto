@@ -24,7 +24,7 @@ import { ALL_PORTS, type Port } from "./physics/schema";
 import {
   EtherArtifacts,
   EtherBoard,
-  EtherMessages,
+  WorkMessages,
   EtherPad,
   EtherRequests,
   EtherTasks,
@@ -140,7 +140,7 @@ const ETHER_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
   board: EtherBoard,
   pad: EtherPad,
   sheet: EtherSheet,
-  agent: EtherMessages,
+  agent: WorkMessages,
   page: EtherBrowser,
   terminal: EtherTerminal,
   cron: EtherTimer,

@@ -7,7 +7,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type {
   CanvasDoc,
@@ -35,7 +35,6 @@ import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import {
-  WorkRepository,
   WorkRepositoryLive,
 } from "../../src/main/junto/work/repository";
 import {
@@ -46,13 +45,6 @@ import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
 } from "../../src/main/junto/station/fleet-target-repository";
-import {
-  compileActorSeatRegistry,
-} from "../../src/main/junto/station/actor-seat-compiler";
-import {
-  IntentFactBasis,
-  type ActorRef,
-} from "../../src/shared/work-protocol";
 export interface Sandbox {
   readonly root: string;
   readonly userDataDir: string;
@@ -172,7 +164,6 @@ export const writeFixtureCanvas = async (
     await runtime.runPromise(
       Effect.gen(function* () {
         const canvasService = yield* CanvasesService;
-        const workRepository = yield* WorkRepository;
         const stations = yield* StationRepository;
         const settings = yield* SettingsService;
         const fleetTargets = yield* StationFleetTargetRepository;
@@ -212,71 +203,7 @@ export const writeFixtureCanvas = async (
           installationByHostId.set(host, installationId);
         }
 
-        const authorialDoc: CanvasDoc = {
-          ...doc,
-          nodes: doc.nodes.map((node) => {
-            const ether = node.ether;
-            if (ether === undefined) return node;
-            const { messages: _messages, ...authorialEther } = ether;
-            return { ...node, ether: authorialEther };
-          }),
-        };
-        yield* canvasService.write(name, authorialDoc);
-        const authority = yield* canvasService.authorityMaterialSnapshot();
-        const basis = Schema.decodeUnknownSync(IntentFactBasis, {
-          onExcessProperty: "error",
-        })({
-          kind: "authorial-intent",
-          generation: authority.generation,
-          contentSha256: authority.intentSha256,
-        });
-
-        const actorRefs: ReadonlyArray<ActorRef> =
-          compileActorSeatRegistry(
-            new Map([[name, doc]]),
-            installationByHostId,
-          ).flatMap((seat) =>
-            seat.refs.map((ref) => ({
-              seatId: seat.seatId,
-              canvasName: ref.canvasName,
-              nodeId: ref.nodeId,
-            }))
-          );
-        const adjacentActor = (sinkNodeId: string): ActorRef => {
-          const adjacentNodeIds = new Set(
-            doc.edges.flatMap((edge) =>
-              edge.fromNode === sinkNodeId
-                ? [edge.toNode]
-                : edge.toNode === sinkNodeId
-                  ? [edge.fromNode]
-                  : []
-            ),
-          );
-          const candidates = actorRefs.filter(
-            (actor) =>
-              actor.nodeId === sinkNodeId ||
-              adjacentNodeIds.has(actor.nodeId),
-          );
-          if (candidates.length !== 1) {
-            throw new Error(
-              `fixture ${JSON.stringify(name)} sink ${JSON.stringify(sinkNodeId)} ` +
-                `requires exactly one local compiled actor, found ${String(candidates.length)}`,
-            );
-          }
-          return candidates[0]!;
-        };
-        for (const node of doc.nodes) {
-          const sink = { canvasName: name, nodeId: node.id };
-          for (const message of node.ether?.messages?.items ?? []) {
-            yield* workRepository.appendMessage({
-              sink,
-              basis,
-              message,
-              sentBy: adjacentActor(node.id),
-              destination: { kind: "mailbox" },
-            });
-          }
-        }
+        yield* canvasService.write(name, doc);
       }),
     );
   } finally {

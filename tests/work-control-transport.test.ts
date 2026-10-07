@@ -1340,8 +1340,7 @@ describe("work control transport", () => {
     const runtime = runtimes.at(-1)!;
     const canvases = await addPromptPeer(runtime);
     const deliver = vi.spyOn(messageDelivery, "deliver").mockImplementation(async (canvas, nodeId, messageId) => {
-      const read = await runtime.runPromise(canvases.read(canvas));
-      const row = read.doc.nodes.find((node) => node.id === nodeId)?.ether?.messages?.items.find((item) => item.messageId === messageId);
+      const row = await runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.mailMessage(canvas, nodeId, messageId)));
       expect(row?.parts).toEqual([{ kind: "text", text: "Review the patch" }]);
       expect(row?.metadata).toMatchObject({ mailKind: "prompt", senderNodeId: "agent" });
       expect(row?.metadata?.fromSeat).toMatch(/^seat_[a-f0-9]{64}$/);
@@ -1368,8 +1367,7 @@ describe("work control transport", () => {
       }) as { ok: true; data: { messageId: string; delivery: string } };
       expect(sent.ok).toBe(true);
       expect(sent.data.delivery).toBe("waiting");
-      const read = await runtime.runPromise(canvases.read("work-cli"));
-      expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items).toHaveLength(1);
+      expect(await runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.mailbox("work-cli", "peer")))).toHaveLength(1);
     } finally { deliver.mockRestore(); }
   });
 

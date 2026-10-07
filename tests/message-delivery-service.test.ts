@@ -40,7 +40,6 @@ const seatNode = (messages: Message[]) => ({
   ether: {
     entity: { kind: "agent" as const, name: "local:claude" },
     terminal: { bindingId, harness: "claude" },
-    messages: { items: messages },
   },
 });
 

@@ -192,12 +192,9 @@ describe("WorkService — mail", () => {
       throw new Error(`${appended.code}: ${appended.message}`);
     }
 
-    const snapshots = await workRuntime.runPromise(
-      repository.snapshotsForCanvas(name)
-    );
+    const messages = await workRuntime.runPromise(repository.mailbox(name, "recipient"));
     expect(
-      snapshots.find((snapshot) => snapshot.nodeId === "recipient")?.messages
-        .items
+      messages
     ).toEqual([expect.objectContaining({ messageId: "inbox-lane-1" })]);
     const authorialAfter = await workRuntime.runPromise(canvases.read(name));
     expect(authorialAfter.revision).toBe(authorialBefore.revision);
@@ -295,12 +292,9 @@ describe("WorkService — mail", () => {
         "must originate on the installation that owns actor"
       );
     }
-    const snapshots = await workRuntime.runPromise(
-      repository.snapshotsForCanvas(name)
-    );
+    const messages = await workRuntime.runPromise(repository.mailbox(name, "recipient"));
     expect(
-      snapshots.find((snapshot) => snapshot.nodeId === "recipient")?.messages
-        .items ?? []
+      messages
     ).toEqual([]);
   });
 

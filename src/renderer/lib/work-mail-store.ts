@@ -32,12 +32,17 @@ export const createWorkMailStore = (getApi: () => MailApi | undefined) => {
           entry.dirty = false;
           const api = getApi();
           if (!api) return;
-          const cursors = entry.pages.size === 0 ? [undefined] : [...entry.pages.keys()];
-          for (const beforePosition of cursors) {
+          const depth = Math.max(1, entry.pages.size);
+          const pages = new Map<number | undefined, WorkMailPage>();
+          let beforePosition: number | undefined;
+          for (let index = 0; index < depth; index += 1) {
             const page = await api.workMailPage({ canvasName: entry.canvasName, nodeId: entry.nodeId,
               ...(beforePosition === undefined ? {} : { beforePosition }) });
-            entry.pages.set(beforePosition, page);
+            pages.set(beforePosition, page);
+            beforePosition = page.nextBeforePosition;
+            if (beforePosition === undefined) break;
           }
+          entry.pages = pages;
           publish(entry);
           entry.state.error.set("");
         }
