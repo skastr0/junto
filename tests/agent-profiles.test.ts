@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TextNode } from "../src/shared/canvas";
+import { asNodeId, type NodeOf } from "../src/shared/model";
 import {
   PROFILE_NAME_MAX,
   decodeProfileBody,
@@ -9,19 +9,17 @@ import {
 } from "../src/shared/agent-profiles";
 import { SEAT_SOUL_MAX } from "../src/shared/seat-guidance";
 import { portraitCharacter } from "../src/shared/agent-portrait";
-import { nodeFromDocument } from "../src/shared/model/from-document";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { newSeat } from "../src/renderer/lib/model-factories";
 import { note, terminal } from "./support/model-nodes";
 import {
-  profileBodyFromSeat,
   profileBodyOfSeat,
   resolvedPortrait,
   seatFromProfile,
 } from "../src/renderer/lib/agent-profiles";
 
-const claude = (id: string): TextNode => ({
-  ...makeManagedAgentNode(0, 0, { harness: "claude", host: "local", cwd: "~/work", label: "Ada", model: "opus", effort: "high" }),
-  id,
+const claude = (id: string): NodeOf<"agent"> => ({
+  ...newSeat({ x: 0, y: 0, z: 0 }, { harness: "claude", host: "local", cwd: "~/work", label: "Ada", model: "opus", effort: "high" }),
+  id: asNodeId(id),
 });
 
 describe("decodeProfileBody", () => {
@@ -68,10 +66,10 @@ describe("profileNamed and profileSummary", () => {
   });
 });
 
-describe("profileBodyFromSeat", () => {
+describe("profileBodyOfSeat", () => {
   it("captures name, harness dials from argv, the resolved face, soul, and instructions", () => {
     const seat = claude("seat-1");
-    const body = profileBodyFromSeat(seat, {
+    const body = profileBodyOfSeat(seat, {
       portraitOf: () => ({ topper: "cat" }),
       guidanceOf: () => ({ soul: "Careful.", instructions: "Test first." }),
     })!;
@@ -82,26 +80,6 @@ describe("profileBodyFromSeat", () => {
   });
 
   it("captures nothing from a note or a raw terminal", () => {
-    expect(profileBodyFromSeat({ id: "n", type: "text", text: "note", x: 0, y: 0, width: 1, height: 1 })).toBeNull();
-    expect(profileBodyFromSeat(undefined)).toBeNull();
-  });
-});
-
-describe("profileBodyOfSeat", () => {
-  const sources = {
-    portraitOf: () => ({ topper: "cat" as const }),
-    guidanceOf: () => ({ soul: "Careful.", instructions: "Test first." }),
-  };
-
-  it("captures from the seat itself what the document capture does", () => {
-    const document = claude("seat-1");
-    const seat = nodeFromDocument("c", document, 0);
-    expect(seat.kind).toBe("agent");
-    expect(profileBodyOfSeat(seat, sources)).toEqual(profileBodyFromSeat(document, sources));
-    expect(profileBodyOfSeat(seat, sources)).toMatchObject({ name: "Ada", harness: "claude", model: "opus", effort: "high" });
-  });
-
-  it("captures nothing from a node that is not a seat, or from no node", () => {
     expect(profileBodyOfSeat(note("n"))).toBeNull();
     expect(profileBodyOfSeat(terminal("t"))).toBeNull();
     expect(profileBodyOfSeat(undefined)).toBeNull();
@@ -109,13 +87,13 @@ describe("profileBodyOfSeat", () => {
 });
 
 describe("seatFromProfile", () => {
-  const body = profileBodyFromSeat(claude("seat-1"), { guidanceOf: () => ({ soul: "Careful." }) })!;
+  const body = profileBodyOfSeat(claude("seat-1"), { guidanceOf: () => ({ soul: "Careful." }) })!;
 
   it("mints a fresh seat with the same harness and dials, here, with its soul to save", () => {
     const placed = seatFromProfile(body, { x: 40, y: 80, host: "local", cwd: "~/other-project" });
     expect(placed.ok).toBe(true);
     if (!placed.ok) return;
-    const terminal = placed.node.ether!.terminal!;
+    const terminal = placed.node;
     expect(placed.node.id).not.toBe("seat-1");
     expect([placed.node.x, placed.node.y]).toEqual([40, 80]);
     expect(terminal).toMatchObject({ harness: "claude", label: "Ada" });
@@ -130,8 +108,7 @@ describe("seatFromProfile", () => {
     const b = seatFromProfile(body, { x: 0, y: 0, host: "local", cwd: "~/w" });
     if (!a.ok || !b.ok) throw new Error("placement failed");
     expect(a.node.id).not.toBe(b.node.id);
-    expect(a.node.ether!.terminal!.bindingId).not.toBe(b.node.ether!.terminal!.bindingId);
-    expect(a.node.ether!.terminal!.sessionId).not.toBe(b.node.ether!.terminal!.sessionId);
+    expect(a.node.bindingId).not.toBe(b.node.bindingId);
   });
 
   it("refuses a harness this build cannot run instead of placing something adjacent", () => {

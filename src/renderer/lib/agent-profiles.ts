@@ -7,7 +7,7 @@
  * Capture
  * - Only an agent seat with a managed harness launch can be captured.
  * - The harness dials (model, effort, mode, permission, Hermes profile) are
- *   read back from the launch argv, the document's single record of them.
+ *   read back from the seat's launch argv.
  * - The portrait is captured fully resolved (identity genome plus the
  *   operator's override), because a fresh node id would draw a new face.
  * - The folder, host, canvas, and connections are not part of a profile: they
@@ -17,10 +17,10 @@
  * - A profile whose harness this build does not know or ships disabled is
  *   refused, never placed as something adjacent.
  * - The seat gets a new node id, binding id, and (when its harness pins one)
- *   session id from the ordinary seat factory.
+ *   launch from the ordinary seat factory. Main records its session on start.
  */
 import type { CanvasNode, TextNode } from "@shared/canvas";
-import type { Node } from "@shared/model";
+import type { Node, NodeOf } from "@shared/model";
 import {
   cleanProfileName,
   decodeProfileBody,
@@ -32,7 +32,7 @@ import type { SeatGuidance } from "@shared/seat-guidance";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { isHarnessId, type HarnessId } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
-import { makeManagedAgentNode } from "./node-factories";
+import { newSeat } from "./model-factories";
 
 export type ProfileCaptureSources = {
   /** Saved portrait override for a seat, by node id. */
@@ -49,31 +49,13 @@ export const isProfileSeat = (node: CanvasNode | undefined): node is TextNode =>
   typeof node.ether.terminal?.harness === "string" &&
   node.ether.terminal.launch?.kind === "harness";
 
-/** The seat's name: its terminal label, else the first line of its text. */
-export const seatName = (node: TextNode): string =>
-  cleanProfileName(node.ether?.terminal?.label) ??
-  cleanProfileName(node.text.split("\n")[0]) ??
-  "agent";
-
 /** Every portrait trait, resolved, so a new id draws the same face. */
 export const resolvedPortrait = (nodeId: string, override?: PortraitConfig): PortraitOverride | undefined =>
   normalizePortraitOverride(portraitCharacter(nodeId, override)) ?? undefined;
 
-/** Capture one seat as a profile body; null when it is not a managed agent seat. */
-export const profileBodyFromSeat = (
-  node: CanvasNode | undefined,
-  sources: ProfileCaptureSources = {},
-): AgentProfileBody | null => {
-  if (!isProfileSeat(node)) return null;
-  const terminal = node.ether!.terminal!;
-  const harness = terminal.harness!;
-  const choices = isHarnessId(harness) ? recoverDocumentLaunchChoices(harness, terminal.launch) : {};
-  return profileBody(node.id, seatName(node), harness, choices, sources);
-};
-
 /**
- * The same capture from the seat itself, for a caller that reads the node
- * store; null when the node is not a seat with a managed harness launch.
+ * Capture one seat; null when the node is not a seat with a managed harness
+ * launch.
  */
 export const profileBodyOfSeat = (
   node: Node | undefined,
@@ -115,6 +97,7 @@ const profileBody = (
 export type ProfileSeatWhere = {
   readonly x: number;
   readonly y: number;
+  readonly z?: number;
   /** Enrolled host the seat runs on. */
   readonly host: string;
   /** Hermes routing prefix, when the host declares a distinct key. */
@@ -126,7 +109,7 @@ export type ProfileSeatWhere = {
 export type ProfileSeat =
   | {
       readonly ok: true;
-      readonly node: TextNode;
+      readonly node: NodeOf<"agent">;
       /** Portrait override to save for the new seat. */
       readonly portrait?: PortraitOverride;
       /** Soul and instructions to save for the new seat. */
@@ -144,7 +127,7 @@ export const seatFromProfile = (body: AgentProfileBody, where: ProfileSeatWhere)
   if (harness === undefined) {
     return { ok: false, message: `${body.name}: this build cannot run the ${body.harness} harness` };
   }
-  const node = makeManagedAgentNode(where.x, where.y, {
+  const node = newSeat({ x: where.x, y: where.y, z: where.z ?? 0 }, {
     harness,
     host: where.host,
     ...(where.agentHost ? { agentHost: where.agentHost } : {}),

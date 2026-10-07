@@ -9,7 +9,8 @@ import { ulid } from "ulid";
 import type { Squad } from "@shared/squads";
 import { raiseSquadFailure } from "./desktop-notify";
 import { getJuntoApi } from "./junto-api";
-import { commitDoc } from "./mutations";
+import { commitCommands } from "./mutations";
+import { added } from "./model-edits";
 import { captureSquad, placeSquad, squadBounds, type SquadLaunch } from "./squads";
 import { saveSeatGuidances, saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
 import { seatGuidanceOf, startSeatGuidance } from "./seat-guidance-state";
@@ -72,7 +73,7 @@ export const saveSquadFromSelection = async (
 ): Promise<string> => {
   const api = getJuntoApi();
   if (!api?.squadSave) return "squads are unavailable";
-  const body = captureSquad(state$.doc.peek(), selectedIds, {
+  const body = captureSquad(modelStore.canvasOf(state$.canvasName.peek()), selectedIds, {
     portraitOf: squadPortraitOf,
     guidanceOf: seatGuidanceOf,
   });
@@ -115,7 +116,6 @@ export const placeSquadAt = async (
 ): Promise<PlaceOutcome> => {
   const squad = squads$.list.peek().find((entry) => entry.squadId === squadId);
   if (!squad) return "failed";
-  const doc = state$.doc.peek();
   const placed = placeSquad(squad, at, modelStore.canvasOf(state$.canvasName.peek()), { edgeId: () => `edge-${ulid()}` }, launch);
   if (placed.needsFolder) return "needs-folder";
   if (placed.nodes.length === 0) {
@@ -127,7 +127,7 @@ export const placeSquadAt = async (
     state$.edgeFilter.set("");
     selectNodes(ids);
   });
-  commitDoc({ ...doc, nodes: [...doc.nodes, ...placed.nodes], edges: [...doc.edges, ...placed.edges] });
+  commitCommands((canvas) => added(canvas, placed.nodes, placed.edges));
   state$.focusNodeIds.set(ids);
   playCue("squad", { count: ids.length });
 

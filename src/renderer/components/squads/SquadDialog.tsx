@@ -5,6 +5,7 @@ import { claimFocusAndSelectOnMount } from "../../lib/focus-ownership";
 import { captureSquad, squadSummary } from "../../lib/squads";
 import { squadPortraitOf } from "../../lib/squad-portraits";
 import { closeSaveSquad, ensureSquads, saveSquadFromSelection, squadDialog$ } from "../../lib/squads-state";
+import { useCanvas } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { Button, Dialog, FieldLabel, Input } from "../ui";
 import { SquadPortraitRow } from "./SquadPortraitRow";
@@ -25,9 +26,10 @@ export function SquadDialogHost() {
 function SquadDialog({ selectedIds }: { readonly selectedIds: ReadonlyArray<string> }) {
   // Also starts the soul and instructions store the capture reads.
   useEffect(ensureSquads, []);
+  const canvas = useCanvas(use$(state$.canvasName));
   const preview = useMemo(
-    () => captureSquad(state$.doc.peek(), selectedIds, { portraitOf: squadPortraitOf }),
-    [selectedIds],
+    () => captureSquad(canvas, selectedIds, { portraitOf: squadPortraitOf }),
+    [canvas, selectedIds],
   );
   const [name, setName] = useState("");
   const [error, setError] = useState("");

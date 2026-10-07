@@ -1,3 +1,4 @@
+import { nodeFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
 import type { TextNode } from "../src/shared/canvas";
 import { recoverDocumentLaunchChoices } from "../src/shared/launch-choices";
@@ -231,13 +232,13 @@ describe("harness settings: default extra arguments", () => {
 
 describe("profiles and squads carry the start parameters", () => {
   it("captures a seat's parameters into a profile and seats them again", async () => {
-    const { profileBodyFromSeat, seatFromProfile } = await import("../src/renderer/lib/agent-profiles");
+    const { profileBodyOfSeat, seatFromProfile } = await import("../src/renderer/lib/agent-profiles");
     const node = seat("claude", {
       model: "opus",
       permissionMode: "bypassPermissions",
       extraArgs: ["--add-dir", "/tmp/x", "--verbose"],
     });
-    const body = profileBodyFromSeat(node);
+    const body = profileBodyOfSeat(nodeFromDocument("params", node, 0));
     expect(body).toMatchObject({
       harness: "claude",
       model: "opus",
@@ -246,7 +247,7 @@ describe("profiles and squads carry the start parameters", () => {
     });
     const placed = seatFromProfile(body!, { x: 0, y: 0, host: "local", cwd: "/work" });
     if (!placed.ok) throw new Error(placed.message);
-    const launch = placed.node.ether?.terminal?.launch;
+    const launch = placed.node.launch;
     expect(launch?.extraArgs).toEqual(["--add-dir", "/tmp/x", "--verbose"]);
     expect(launch?.argv).toEqual(
       expect.arrayContaining(["--model", "opus", "--permission-mode", "bypassPermissions", "--add-dir", "/tmp/x", "--verbose"]),

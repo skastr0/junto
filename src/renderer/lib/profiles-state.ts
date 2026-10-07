@@ -9,14 +9,15 @@ import type { AgentProfile, AgentProfileBody } from "@shared/agent-profiles";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { AGENT_NODE_SIZE } from "./node-geometry";
 import { getJuntoApi } from "./junto-api";
-import { addNode } from "./mutations";
+import { commitCommands } from "./mutations";
+import { added, topZ } from "./model-edits";
 import { profileBodyOfSeat, seatFromProfile } from "./agent-profiles";
 import { saveSeatGuidances, saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
 import { seatGuidanceOf, startSeatGuidance } from "./seat-guidance-state";
 import type { PlaceOutcome } from "./squads-state";
 import type { SquadLaunch } from "./squads";
 import { modelStore, nodeAt } from "./use-model";
-import { state$ } from "./state";
+import { selectNode, state$ } from "./state";
 
 export const profiles$ = observable({
   list: [] as ReadonlyArray<AgentProfile>,
@@ -131,17 +132,18 @@ export const placeProfileInSlot = async (
 ): Promise<PlaceOutcome> => {
   const profile = profiles$.list.peek().find((entry) => entry.profileId === profileId);
   if (!profile) return "failed";
-  const doc = modelStore.canvasOf(state$.canvasName.peek());
+  const canvas = modelStore.canvasOf(state$.canvasName.peek());
   const at = positionFor(AGENT_NODE_SIZE);
   const center = { x: at.x + AGENT_NODE_SIZE.width / 2, y: at.y + AGENT_NODE_SIZE.height / 2 };
-  const regionCwd = findContainingRegion(doc, center.x, center.y)
-    ? resolveRegionCwd(doc, center.x, center.y, launch.host)
+  const regionCwd = findContainingRegion(canvas, center.x, center.y)
+    ? resolveRegionCwd(canvas, center.x, center.y, launch.host)
     : undefined;
   const cwd = regionCwd ?? launch.cwd;
   if (!cwd) return "needs-folder";
   const placed = seatFromProfile(profile, {
     x: at.x,
     y: at.y,
+    z: topZ(canvas),
     host: launch.host,
     ...(launch.agentHost ? { agentHost: launch.agentHost } : {}),
     cwd,
@@ -150,7 +152,9 @@ export const placeProfileInSlot = async (
     state$.error.set(placed.message);
     return "failed";
   }
-  addNode(placed.node, { edit: false });
+  commitCommands((canvas) => added(canvas, [placed.node]));
+  state$.edgeFilter.set("");
+  selectNode(placed.node.id);
   state$.focusNodeId.set(placed.node.id);
   const problems: string[] = [];
   if (placed.portrait && !(await saveSquadPortraits({ [placed.node.id]: placed.portrait }))) {
