@@ -105,6 +105,38 @@ describe("authoring", () => {
     expect(fake.at("b")?.color).toBe("3");
   });
 
+  it("says when it is busy, and when everything sent has landed", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    let open: () => void = () => undefined;
+    fake.holdUntil(new Promise<void>((resolve) => {
+      open = resolve;
+    }));
+    expect(authoring.busy()).toBe(false);
+    const first = authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"));
+    expect(authoring.busy()).toBe(true);
+    let landed = false;
+    const idle = authoring.idle().then(() => {
+      landed = true;
+    });
+    await Promise.resolve();
+    expect(landed).toBe(false);
+    open();
+    await first;
+    await idle;
+    expect(landed).toBe(true);
+    expect(authoring.busy()).toBe(false);
+    await authoring.idle();
+  });
+
+  it("does not remember an act that is not the operator's to take back", async () => {
+    const fake = fakeStore([note("plan")]);
+    const authoring = createAuthoring(fake.store);
+    await authoring.act(name, retexted(fake.store.canvasOf(), "plan", "one"), { remember: false });
+    expect(fake.at("plan")).toMatchObject({ text: "one" });
+    expect(authoring.canUndo(name)).toBe(false);
+  });
+
   it("keeps each canvas's undo apart and says when it changes", async () => {
     const fake = fakeStore([note("plan")]);
     const authoring = createAuthoring(fake.store);
