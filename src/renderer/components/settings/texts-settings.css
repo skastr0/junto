@@ -4,13 +4,15 @@
 }
 .texts-settings__editor {
   width: 100%;
-  min-height: 420px;
+  /* Most of the page: this is the page's one job. */
+  height: 62vh;
+  min-height: 320px;
   font-family: var(--font-mono);
   font-size: var(--text-body-lg);
   line-height: var(--leading-open);
 }
 .texts-settings__editor--body {
-  min-height: 320px;
+  height: 52vh;
 }
 .texts-settings__bar {
   display: flex;
