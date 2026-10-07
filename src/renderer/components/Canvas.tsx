@@ -49,7 +49,7 @@ import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-ge
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes } from "../lib/mutations";
-import { addEdge, canConnect, connectAllToTarget, connectMesh, deleteEdges, disconnectWithin, edgeIdsWithin, planConnectMesh } from "../lib/edge-mutations";
+import { addEdge, canConnect, connectAllToTarget, connectMesh, deleteEdges, disconnectWithin, meshPlanOn, wireIdsWithin } from "../lib/edge-mutations";
 import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
 import { openAgentEditor } from "../lib/agent-editor-state";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
@@ -1094,8 +1094,11 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   const count = selectedIds.size;
   const agentIds = agentSeatIds(doc.nodes.filter((node) => selectedIds.has(node.id)));
   const agents = agentCountLabel(agentIds.length);
-  const meshAdds = planConnectMesh(agentIds, doc.nodes, doc.edges).toAdd.length;
-  const innerEdges = edgeIdsWithin(agentIds, doc.edges).length;
+  // What a mesh would add and what already runs between them, from the canvas
+  // the store holds.
+  const held = modelStore.canvasOf(state$.canvasName.peek());
+  const meshAdds = meshPlanOn(held, agentIds).toAdd.length;
+  const innerEdges = wireIdsWithin(held, agentIds).length;
   const broadcast = planAgentBroadcast(doc.nodes.filter((node) => agentIds.includes(node.id)));
   const reachable = planSeatMessage(doc.nodes.filter((node) => agentIds.includes(node.id))).targets.length;
 
