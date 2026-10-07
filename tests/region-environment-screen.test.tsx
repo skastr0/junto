@@ -7,6 +7,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { pickPrimaryFocusControl } from "../src/renderer/lib/focus-ownership";
 import type { EnvSource, RegionEnvironment, SourceReport } from "../src/renderer/lib/region-environment";
 import { makeFakeRegionEnvironmentPort } from "./helpers/fake-region-environment-port";
 
@@ -144,6 +145,14 @@ describe("an empty region", () => {
     ]);
     const add = q('[data-testid="region-env-add-source"]')!;
     expect(add.getAttribute("data-emphasis")).toBe("primary");
+  });
+
+  it("opens with the keyboard on Add source, not in the Folders field at the bottom of the screen", async () => {
+    await mount(undefined);
+    expect(pickPrimaryFocusControl(host)).toBe(q('[data-testid="region-env-add-source"]'));
+    // The same with sources already there: the top of the screen, not its last field.
+    await mount({ sources: [plain] });
+    expect(pickPrimaryFocusControl(host)).toBe(q('[data-testid="region-env-add-source"]'));
   });
 
   it("once a source exists, adding another is an ordinary action again", async () => {

@@ -564,6 +564,9 @@ export function RegionEnvironmentScreen({
             // With nothing here yet, adding a source is the one thing to do.
             variant={sources.length === 0 ? "primary" : "chrome"}
             data-emphasis={sources.length === 0 ? "primary" : "quiet"}
+            // Where the keyboard lands when the screen opens: the top of the
+            // screen's one flow, not the Folders field at its bottom.
+            data-autofocus=""
             data-testid="region-env-add-source"
             onClick={() => {
               setFormProblem(undefined);
