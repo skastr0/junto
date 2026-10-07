@@ -53,6 +53,10 @@ export async function installEvidence(page: import("@playwright/test").Page): Pr
     (globalThis as { JUNTO_PERF?: string }).JUNTO_PERF = "1";
   });
   // The perf flag resolved at module load — arm it before the app boots, then reload.
+  // The fixture hands the page over while its first document is still loading,
+  // and a reload fired into that load is aborted (net::ERR_ABORTED): let the
+  // first boot reach the canvas before starting the second.
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await page.reload();
   await page.waitForFunction(
     () => (globalThis as { juntoPerf?: { enabled: boolean } }).juntoPerf?.enabled === true,
