@@ -139,6 +139,14 @@ for (const { harness, scenario } of CASES) {
     // Compare the harness's own content lines. The shell prompt and the `cat`
     // command line exist only on screen, so anchor on the payload: every
     // non-blank reference row must appear on screen, in order.
+    // Both screens, row by row, kept beside the screenshot: a missing row is
+    // read off this file, not guessed from the picture.
+    const numbered = (rows: ReadonlyArray<string>): string =>
+      rows.map((row, index) => `${String(index).padStart(2, "0")} ${row}`).join("\n");
+    writeFileSync(
+      `/tmp/junto-real-bytes-${harness}-${scenario}.rows.txt`,
+      `on screen, ${geom.cols}x${geom.rows}\n${numbered(onScreen)}\n\nheadless reference\n${numbered(reference)}\n`,
+    );
     const screenBlob = onScreen.join("\n");
     const missing = reference
       .filter((line) => line.trim().length > 3)
