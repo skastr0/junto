@@ -1,9 +1,9 @@
 import { observable } from "@legendapp/state";
 import type { DemoEdl, DemoEdlEntry, DemoOp, DemoScenario } from "@shared/demo";
 import { beatMs } from "@shared/demo";
-import { EMPTY_DOC } from "../lib/state";
-import { loadDoc } from "../lib/mutations";
-import { executeBeat } from "./ops";
+import { clearSelection, state$ } from "../lib/state";
+import { flushPendingCanvasSave } from "../lib/mutations";
+import { executeBeat, resetDemoCanvas } from "./ops";
 
 // Demo/scripting engine only. ONE conductor owns musical time: it schedules
 // a scenario's beats against performance.now() with a drift-corrected
@@ -18,6 +18,7 @@ export const demo$ = observable({
 });
 
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+let takeId = 0;
 
 const opTag = (op: DemoOp): string => {
   switch (op.kind) {
@@ -46,11 +47,17 @@ const opTag = (op: DemoOp): string => {
   }
 };
 
-const runTake = async (scenario: DemoScenario): Promise<void> => {
-  loadDoc(EMPTY_DOC);
-  // stopTake() may have fired while the resets were in flight — don't start
-  // the clock on a take that was already cancelled.
-  if (!demo$.running.peek()) return;
+const runTake = async (scenario: DemoScenario, id: number): Promise<void> => {
+  resetDemoCanvas();
+  clearSelection();
+  state$.editNodeId.set(""); state$.focusNodeId.set("");
+  await flushPendingCanvasSave();
+  // A stopped take stays stopped even if another starts during its reset.
+  if (id !== takeId || !demo$.running.peek()) return;
+  if (state$.saveState.peek() === "error") {
+    demo$.running.set(false);
+    return;
+  }
 
   const sorted = [...scenario.beats].sort((a, b) => a.at - b.at);
   const endAt = (sorted[sorted.length - 1]?.at ?? 0) + 2;
@@ -98,12 +105,13 @@ export const startTake = (scenario: DemoScenario): void => {
   demo$.running.set(true);
   demo$.beat.set(0);
   demo$.total.set(scenario.beats.length);
-  void runTake(scenario);
+  void runTake(scenario, ++takeId);
 };
 
 /** Abort the running take. No EDL is written on abort. */
 export const stopTake = (): void => {
   if (!demo$.running.peek()) return;
+  takeId += 1;
   if (pendingTimer !== null) {
     clearTimeout(pendingTimer);
     pendingTimer = null;

@@ -1,4 +1,4 @@
-import type { CanvasEdge, CanvasNode } from "./canvas";
+import type { Node, Wire } from "./model";
 
 // Demo/scripting engine contracts. The engine exists ONLY when the app is
 // launched with --junto-demo (argv) or JUNTO_DEMO=1 (env): outside demo
@@ -41,8 +41,8 @@ export interface DemoBeat {
 }
 
 export type DemoOp =
-  | { readonly kind: "add-nodes"; readonly nodes: ReadonlyArray<CanvasNode> }
-  | { readonly kind: "add-edges"; readonly edges: ReadonlyArray<CanvasEdge> }
+  | { readonly kind: "add-nodes"; readonly nodes: ReadonlyArray<Node> }
+  | { readonly kind: "add-edges"; readonly edges: ReadonlyArray<Wire> }
   | { readonly kind: "remove-nodes"; readonly ids: ReadonlyArray<string> }
   | { readonly kind: "select"; readonly nodeIds: ReadonlyArray<string> }
   | {
@@ -64,7 +64,7 @@ export type DemoOp =
   | { readonly kind: "hud"; readonly show: boolean }
   | {
       /** Animated position moves (React Flow is driven directly during the
-       * tween; the document reconciles once at the end). */
+       * tween; one native Move persists the end). */
       readonly kind: "tween-nodes";
       readonly moves: ReadonlyArray<{ readonly id: string; readonly x: number; readonly y: number }>;
       readonly durationBeats: number;

@@ -1,9 +1,9 @@
 // Trailer scenario for the Junto demo engine — active ONLY under
 // --junto-demo / JUNTO_DEMO=1 (see @shared/demo). This file is a pure data
 // builder: fixed deterministic ids, no ulid, no Math.random, no runtime
-// framework. It must not import anything beyond @shared/demo + @shared/canvas.
+// framework. Imports only native model and demo contracts.
 
-import type { CanvasEdge, CanvasNode, GroupNode, TextNode } from "@shared/canvas";
+import { asNodeId, asWireId, type BindingId, type Node, type NodeOf, type Wire } from "@shared/model";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 
 // --- small deterministic helpers --------------------------------------------
@@ -53,8 +53,8 @@ const at = (atBeat: number, ...ops: DemoOp[]): void => {
 
 // --- op builders --------------------------------------------------------------
 
-const addNodesOp = (nodes: readonly CanvasNode[]): DemoOp => ({ kind: "add-nodes", nodes });
-const addEdgesOp = (edges: readonly CanvasEdge[]): DemoOp => ({ kind: "add-edges", edges });
+const addNodesOp = (nodes: readonly Node[]): DemoOp => ({ kind: "add-nodes", nodes });
+const addEdgesOp = (edges: readonly Wire[]): DemoOp => ({ kind: "add-edges", edges });
 
 const cameraFit = (
   nodeIds: readonly string[] | undefined,
@@ -82,23 +82,24 @@ const hudOp = (show: boolean): DemoOp => ({ kind: "hud", show });
  * one agent seat — a verb-less or terminal-touching edge would paint during
  * the take and then be dropped by the next decode.
  */
-type EdgeVerb = NonNullable<CanvasEdge["ether"]>["verb"];
+type EdgeVerb = Wire["verb"];
 
 const mkEdge = (
   id: string,
   fromNode: string,
   toNode: string,
   verb: EdgeVerb,
-): CanvasEdge => ({
-  id,
-  fromNode,
-  toNode,
-  ether: { verb },
+): Wire => ({
+  id: asWireId(id),
+  from: asNodeId(fromNode),
+  to: asNodeId(toNode),
+  verb,
 });
 
-const smallTextNode = (id: string, text: string, x: number, y: number): TextNode => ({
-  id,
-  type: "text",
+const smallTextNode = (id: string, text: string, x: number, y: number): NodeOf<"note"> => ({
+  id: asNodeId(id),
+  kind: "note",
+  z: 0,
   text,
   x,
   y,
@@ -164,21 +165,20 @@ const crewSpec = (n: number): CrewSpec => {
 const CREW: readonly CrewSpec[] = Array.from({ length: 36 }, (_, i) => crewSpec(i + 1));
 const h = (n: number): CrewSpec => CREW[n - 1];
 
-const crewNode = (spec: CrewSpec): TextNode => {
+const crewNode = (spec: CrewSpec): NodeOf<"terminal"> => {
   const { x, y } = pos(spec.n - 1);
   return {
-    id: spec.id,
-    type: "text",
-    text: spec.label,
+    id: asNodeId(spec.id),
+    kind: "terminal",
+    label: spec.label,
+    z: 0,
     x,
     y,
     width: 260,
     height: 110,
-    ether: {
-      entity: { kind: "terminal" },
-      host: spec.host,
-      terminal: { bindingId: spec.terminalId, label: spec.label },
-    },
+    host: spec.host,
+    bindingId: spec.terminalId as BindingId,
+    onRemove: "detach",
   };
 };
 
@@ -213,7 +213,7 @@ const spawnFleetStaggered = (
 
 // --- shower / finale text batches ----------------------------------------------
 
-const showerBatch = (startIdx: number, count: number): CanvasNode[] =>
+const showerBatch = (startIdx: number, count: number): Node[] =>
   Array.from({ length: count }, (_, k) => {
     const i = startIdx + k;
     const text = SHOWER_TEXTS[i % SHOWER_TEXTS.length];
@@ -221,7 +221,7 @@ const showerBatch = (startIdx: number, count: number): CanvasNode[] =>
     return smallTextNode(`demo-s${pad(i + 1, 2)}`, text, x, y);
   });
 
-const finaleBatch = (startIdx: number, count: number): CanvasNode[] =>
+const finaleBatch = (startIdx: number, count: number): Node[] =>
   Array.from({ length: count }, (_, k) => {
     const i = startIdx + k;
     const text = SHOWER_TEXTS[i % SHOWER_TEXTS.length];
@@ -231,9 +231,10 @@ const finaleBatch = (startIdx: number, count: number): CanvasNode[] =>
 
 // --- fixed set-piece nodes -------------------------------------------------------
 
-const demoT1: TextNode = {
-  id: "demo-t1",
-  type: "text",
+const demoT1: NodeOf<"note"> = {
+  id: asNodeId("demo-t1"),
+  kind: "note",
+  z: 0,
   text: "v1 release",
   x: 0,
   y: 0,
@@ -241,9 +242,10 @@ const demoT1: TextNode = {
   height: 100,
 };
 
-const demoT2: TextNode = {
-  id: "demo-t2",
-  type: "text",
+const demoT2: NodeOf<"note"> = {
+  id: asNodeId("demo-t2"),
+  kind: "note",
+  z: 0,
   text: "trailer shot list",
   x: 320,
   y: -40,
@@ -251,9 +253,11 @@ const demoT2: TextNode = {
   height: 100,
 };
 
-const demoRegion: GroupNode = {
-  id: "demo-region",
-  type: "group",
+const demoRegion: NodeOf<"region"> = {
+  id: asNodeId("demo-region"),
+  kind: "region",
+  z: 0,
+  hold: false,
   label: "release ops",
   x: -120,
   y: -160,
@@ -261,65 +265,21 @@ const demoRegion: GroupNode = {
   height: 520,
 };
 
-const demoTask: TextNode = {
-  id: "demo-task",
-  type: "text",
-  text: "record trailer\ncut soundtrack\nship v1",
+const demoTask: NodeOf<"task"> = {
+  id: asNodeId("demo-task"),
+  kind: "task",
+  z: 0,
+  name: "release tasks",
   x: 60,
   y: 180,
   width: 260,
   height: 160,
-  ether: {
-    entity: { kind: "task" },
-    tasks: {
-      items: [
-        {
-          id: "demo-task-i1",
-          state: "submitted",
-          history: [
-            {
-              messageId: "demo-msg-1",
-              role: "user",
-              parts: [{ kind: "text", text: "record trailer" }],
-              taskId: "demo-task-i1",
-              contextId: "release ops",
-            },
-          ],
-        },
-        {
-          id: "demo-task-i2",
-          state: "submitted",
-          history: [
-            {
-              messageId: "demo-msg-2",
-              role: "user",
-              parts: [{ kind: "text", text: "cut soundtrack" }],
-              taskId: "demo-task-i2",
-              contextId: "release ops",
-            },
-          ],
-        },
-        {
-          id: "demo-task-i3",
-          state: "submitted",
-          history: [
-            {
-              messageId: "demo-msg-3",
-              role: "user",
-              parts: [{ kind: "text", text: "ship v1" }],
-              taskId: "demo-task-i3",
-              contextId: "release ops",
-            },
-          ],
-        },
-      ],
-    },
-  },
 };
 
-const demoT3: TextNode = {
-  id: "demo-t3",
-  type: "text",
+const demoT3: NodeOf<"note"> = {
+  id: asNodeId("demo-t3"),
+  kind: "note",
+  z: 0,
   text: "soundtrack — 110 bpm",
   x: -60,
   y: 320,
@@ -327,15 +287,21 @@ const demoT3: TextNode = {
   height: 100,
 };
 
-const demoAgent: TextNode = {
-  id: "demo-agent",
-  type: "text",
-  text: "PROFILE-13",
+const demoAgent: NodeOf<"agent"> = {
+  id: asNodeId("demo-agent"),
+  kind: "agent",
+  z: 0,
+  label: "PROFILE-13",
   x: 420,
   y: 160,
   width: 240,
   height: 96,
-  ether: { entity: { kind: "agent", name: "local:profile-13" } },
+  agentKey: "local:profile-13",
+  host: "local",
+  bindingId: "demo-profile-13" as BindingId,
+  harness: "hermes",
+  overseer: false,
+  onRemove: "detach",
 };
 
 // --- beat map --------------------------------------------------------------------
@@ -477,14 +443,14 @@ if (isDev) {
       }
       if (op.kind === "add-edges") {
         for (const edge of op.edges) {
-          if (!knownNodeIds.has(edge.fromNode)) {
+          if (!knownNodeIds.has(edge.from)) {
             throw new Error(
-              `trailer-60: edge ${edge.id} references unknown fromNode ${edge.fromNode} at beat ${beat.at}`,
+              `trailer-60: edge ${edge.id} references unknown fromNode ${edge.from} at beat ${beat.at}`,
             );
           }
-          if (!knownNodeIds.has(edge.toNode)) {
+          if (!knownNodeIds.has(edge.to)) {
             throw new Error(
-              `trailer-60: edge ${edge.id} references unknown toNode ${edge.toNode} at beat ${beat.at}`,
+              `trailer-60: edge ${edge.id} references unknown toNode ${edge.to} at beat ${beat.at}`,
             );
           }
         }

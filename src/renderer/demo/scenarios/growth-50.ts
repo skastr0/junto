@@ -5,19 +5,13 @@
 // the EDL (this file emits no copy beyond in-world card text).
 //
 // Pure data builder: fixed deterministic ids, no ulid, no Math.random, no
-// runtime framework. Imports only @shared/demo + @shared/canvas.
+// runtime framework. Imports only native model and demo contracts.
 //
 // On-camera naming law (marketing frames carry no third-party marks): agents
 // are the house avatar-crew names — rivet, brisk, mote, ward, relay, vector,
 // gauge, folio — and card labels are plain product-true task briefs.
 
-import type {
-  Artifact,
-  CanvasNode,
-  GroupNode,
-  Task,
-  TextNode,
-} from "@shared/canvas";
+import { asNodeId, type BindingId, type Node, type NodeOf } from "@shared/model";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 
 // --- beat accumulator ---------------------------------------------------------
@@ -36,7 +30,7 @@ const at = (atBeat: number, ...ops: DemoOp[]): void => {
 
 // --- op builders --------------------------------------------------------------
 
-const addNodesOp = (nodes: readonly CanvasNode[]): DemoOp => ({ kind: "add-nodes", nodes });
+const addNodesOp = (nodes: readonly Node[]): DemoOp => ({ kind: "add-nodes", nodes });
 
 const cameraFit = (
   nodeIds: readonly string[] | undefined,
@@ -83,19 +77,18 @@ const crew = (
   };
 };
 
-const crewNode = (spec: CrewSpec): TextNode => ({
-  id: spec.id,
-  type: "text",
-  text: spec.label,
+const crewNode = (spec: CrewSpec): NodeOf<"terminal"> => ({
+  id: asNodeId(spec.id),
+  kind: "terminal",
+  label: spec.label,
+  z: 0,
   x: spec.x,
   y: spec.y,
   width: 260,
   height: 110,
-  ether: {
-    entity: { kind: "terminal" },
-    host: spec.host,
-    terminal: { bindingId: spec.terminalId, label: spec.label },
-  },
+  host: spec.host,
+  bindingId: spec.terminalId as BindingId,
+  onRemove: "detach",
 });
 
 /** Spawn = the crew card entering on its beat. */
@@ -139,46 +132,13 @@ const FINALE = [
   crew(22, "mac_mini", "vector", "queue drain", 1920, 720),
 ] as const;
 
-// --- work-plane fixtures ------------------------------------------------------
-
-const task = (id: string, brief: string, state: Task["state"] = "submitted"): Task => ({
-  id,
-  state,
-  history: [
-    {
-      messageId: `${id}-m0`,
-      role: "user",
-      parts: [{ kind: "text", text: brief }],
-      taskId: id,
-      contextId: "demo",
-    },
-  ],
-});
-
-const QUEUE_TASKS: readonly Task[] = [
-  task("demo-g-t1", "ship the beta build"),
-  task("demo-g-t2", "landing copy pass"),
-  task("demo-g-t3", "og plates"),
-  task("demo-g-t4", "release notes"),
-  task("demo-g-t5", "docs outline"),
-  task("demo-g-t6", "nightly build"),
-];
-
-const REQUEST_TASKS: readonly Task[] = [
-  task("demo-g-rq1", "signing key choice needed", "input-required"),
-];
-
-const ARTIFACTS: readonly Artifact[] = [
-  { artifactId: "demo-g-a1", name: "release-notes.md", parts: [] },
-  { artifactId: "demo-g-a2", name: "og-plate-01.png", parts: [] },
-  { artifactId: "demo-g-a3", name: "beta-build.dmg", parts: [] },
-];
-
 // --- fixed set-piece nodes ----------------------------------------------------
 
-const regionA: GroupNode = {
-  id: "demo-g-region-a",
-  type: "group",
+const regionA: NodeOf<"region"> = {
+  id: asNodeId("demo-g-region-a"),
+  kind: "region",
+  z: 0,
+  hold: false,
   label: "build lane",
   x: -80,
   y: -80,
@@ -186,9 +146,11 @@ const regionA: GroupNode = {
   height: 460,
 };
 
-const regionB: GroupNode = {
-  id: "demo-g-region-b",
-  type: "group",
+const regionB: NodeOf<"region"> = {
+  id: asNodeId("demo-g-region-b"),
+  kind: "region",
+  z: 0,
+  hold: false,
   label: "deep research",
   x: -80,
   y: 460,
@@ -196,9 +158,11 @@ const regionB: GroupNode = {
   height: 440,
 };
 
-const regionC: GroupNode = {
-  id: "demo-g-region-c",
-  type: "group",
+const regionC: NodeOf<"region"> = {
+  id: asNodeId("demo-g-region-c"),
+  kind: "region",
+  z: 0,
+  hold: false,
   label: "mac_mini",
   x: 940,
   y: 460,
@@ -206,9 +170,10 @@ const regionC: GroupNode = {
   height: 440,
 };
 
-const noteBrief: TextNode = {
-  id: "demo-g-note1",
-  type: "text",
+const noteBrief: NodeOf<"note"> = {
+  id: asNodeId("demo-g-note1"),
+  kind: "note",
+  z: 0,
   text: "# Launch week\n\n- landing copy pass\n- og plates\n- ship the beta build",
   x: 1340,
   y: 0,
@@ -216,9 +181,10 @@ const noteBrief: TextNode = {
   height: 200,
 };
 
-const noteScratch: TextNode = {
-  id: "demo-g-note2",
-  type: "text",
+const noteScratch: NodeOf<"note"> = {
+  id: asNodeId("demo-g-note2"),
+  kind: "note",
+  z: 0,
   text: "pricing call notes",
   x: 1340,
   y: 240,
@@ -226,49 +192,37 @@ const noteScratch: TextNode = {
   height: 84,
 };
 
-const queueNode: TextNode = {
-  id: "demo-g-tasks",
-  type: "text",
-  text: QUEUE_TASKS.map((t) => {
-    const part = t.history[0]?.parts.find((p) => p.kind === "text");
-    return part && part.kind === "text" ? part.text : t.id;
-  }).join("\n"),
+const queueNode: NodeOf<"task"> = {
+  id: asNodeId("demo-g-tasks"),
+  kind: "task",
+  z: 0,
+  name: "launch tasks",
   x: -460,
   y: 0,
   width: 260,
   height: 140,
-  ether: {
-    entity: { kind: "task" },
-    tasks: { items: [...QUEUE_TASKS] },
-  },
 };
 
-const requestsNode: TextNode = {
-  id: "demo-g-requests",
-  type: "text",
-  text: "1 pending",
+const requestsNode: NodeOf<"requests"> = {
+  id: asNodeId("demo-g-requests"),
+  kind: "requests",
+  z: 0,
+  name: "requests",
   x: -460,
   y: 220,
   width: 260,
   height: 120,
-  ether: {
-    entity: { kind: "requests" },
-    requests: { items: [...REQUEST_TASKS] },
-  },
 };
 
-const artifactsNode: TextNode = {
-  id: "demo-g-artifacts",
-  type: "text",
-  text: "artifacts",
+const artifactsNode: NodeOf<"artifacts"> = {
+  id: asNodeId("demo-g-artifacts"),
+  kind: "artifacts",
+  z: 0,
+  label: "artifacts",
   x: -460,
   y: 420,
   width: 260,
   height: 120,
-  ether: {
-    entity: { kind: "artifacts" },
-    artifacts: { items: [...ARTIFACTS] },
-  },
 };
 
 // No wires in this scenario. The crew are terminal cards, and terminal admits

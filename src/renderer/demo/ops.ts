@@ -1,49 +1,63 @@
 import { observable } from "@legendapp/state";
-import type { CanvasDoc } from "@shared/canvas";
+import type { Command } from "@shared/model";
+import type { Canvas } from "@shared/model/canvas";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 import { beatMs } from "@shared/demo";
 import { formatNodeRef } from "@shared/node-ref";
 import { stepToNextAgent } from "../lib/urgency-step";
-import { commitDoc } from "../lib/mutations";
+import { commitCommands } from "../lib/mutations";
+import { added, moved, removed, topZ } from "../lib/model-edits";
+import { canvasAfter } from "../lib/model-undo";
 import { selectNodes, state$ } from "../lib/state";
 import { playDemoCue } from "../lib/sound";
 import { demoCamera } from "./camera-bridge";
 
 // Demo/scripting engine only. Applies one scenario beat's ops against the
-// live app: doc-mutating ops fold into a single commitDoc (no undo entry —
-// this is a film set, not an editable document), the rest drive selection,
+// live app: graph ops become one command act (no undo entry — this is a film
+// set), the rest drive selection,
 // sfx, the HUD badge, and the camera.
 
 /** hud op toggles this; DemoLayer renders nothing while it's false. */
 export const demoHud$ = observable(true);
 
-const DOC_OP_KINDS = new Set<DemoOp["kind"]>(["add-nodes", "add-edges", "remove-nodes"]);
+const GRAPH_OP_KINDS = new Set<DemoOp["kind"]>(["add-nodes", "add-edges", "remove-nodes"]);
 
-const applyDocOps = (doc: CanvasDoc, ops: ReadonlyArray<DemoOp>): CanvasDoc =>
-  ops.reduce<CanvasDoc>((acc, op) => {
+const commandsForBeat = (canvas: Canvas, ops: ReadonlyArray<DemoOp>): ReadonlyArray<Command> => {
+  let at = canvas;
+  const commands: Command[] = [];
+  for (const op of ops) {
+    let next: ReadonlyArray<Command> = [];
     switch (op.kind) {
-      case "add-nodes":
-        return { ...acc, nodes: [...acc.nodes, ...op.nodes] };
-      case "add-edges":
-        return { ...acc, edges: [...acc.edges, ...op.edges] };
-      case "remove-nodes": {
-        const removed = new Set(op.ids);
-        return {
-          nodes: acc.nodes.filter((node) => !removed.has(node.id)),
-          edges: acc.edges.filter((edge) => !removed.has(edge.fromNode) && !removed.has(edge.toNode)),
-        };
+      case "add-nodes": {
+        const z = topZ(at);
+        next = added(at, op.nodes.map((node, index) => ({ ...node, z: z + index })));
+        break;
       }
+      case "add-edges": {
+        next = added(at, [], op.edges);
+        break;
+      }
+      case "remove-nodes":
+        next = removed(at, op.ids);
+        break;
       default:
-        return acc;
+        break;
     }
-  }, doc);
+    commands.push(...next);
+    at = next.reduce(canvasAfter, at);
+  }
+  return commands;
+};
 
-/** Execute every op in one scheduled beat. Doc-mutating ops (add-nodes,
- * add-edges, remove-nodes) fold into ONE commitDoc call so the graph
- * rebuilds exactly once per beat. */
+/** A new take starts empty in main and the window's native store. */
+export const resetDemoCanvas = (): void => {
+  commitCommands(canvas => removed(canvas, [...canvas.nodes.keys()], [...canvas.wires.keys()]), { remember: false });
+};
+
+/** Execute every op in one scheduled beat. Graph ops share one command act. */
 export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
-  if (beat.ops.some((op) => DOC_OP_KINDS.has(op.kind))) {
-    commitDoc(applyDocOps(state$.doc.peek(), beat.ops), true, false);
+  if (beat.ops.some((op) => GRAPH_OP_KINDS.has(op.kind))) {
+    commitCommands(canvas => commandsForBeat(canvas, beat.ops), { remember: false });
   }
 
   for (const op of beat.ops) {
@@ -72,21 +86,9 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
           op.durationBeats * beatMs(scenario.bpm),
           op.easing ?? "in-out",
           (moves) => {
-            // Reconcile the document once at tween end. Position-only write:
-            // React Flow already sits at the final frame, so no rebuild.
+            // Persist one native Move at tween end, after the visual frames.
             const byId = new Map(moves.map((move) => [move.id, move]));
-            const doc = state$.doc.peek();
-            commitDoc(
-              {
-                ...doc,
-                nodes: doc.nodes.map((node) => {
-                  const move = byId.get(node.id);
-                  return move ? { ...node, x: Math.round(move.x), y: Math.round(move.y) } : node;
-                }),
-              },
-              false,
-              false,
-            );
+            commitCommands(canvas => moved(canvas, byId), { remember: false });
           },
         );
         break;
