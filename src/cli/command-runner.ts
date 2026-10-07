@@ -50,7 +50,7 @@ export const loadRootCommand = async (args: ReadonlyArray<string>) => {
 export const runCli = (args: ReadonlyArray<string>): Effect.Effect<void, never, never> =>
   Effect.gen(function* () {
     const root = yield* Effect.promise(() => loadRootCommand(args));
-    const { BunServices } = yield* Effect.promise(() => import("@effect/platform-bun"));
+    const BunServices = yield* Effect.promise(() => import("@effect/platform-bun/BunServices"));
     const known = commands.some((entry) => entry.name === args[0] && entry.enabled !== false);
     const operator = ["station", "fleet", "qualification"].includes(args[0]);
     const transport = yield* Effect.promise(async () => {

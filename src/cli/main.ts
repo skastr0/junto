@@ -72,7 +72,7 @@ if (import.meta.main) {
   } else if (dispatch.args.length === 1 && dispatch.args[0] === "--version") {
     process.stdout.write(`junto v${CLI_VERSION}\n`);
   } else {
-    const { BunRuntime } = await import("@effect/platform-bun");
+    const BunRuntime = await import("@effect/platform-bun/BunRuntime");
     const { runCli } = await import("./command-runner");
     BunRuntime.runMain(
       runCli(dispatch.args),
