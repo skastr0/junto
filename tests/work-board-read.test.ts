@@ -12,6 +12,7 @@ import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
+import { configureBoardDelivery, deliverBoardWake } from "../src/main/junto/work/board-delivery";
 
 it("reads the selected board topic without decoding another topic's contents", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-board-read-"));
@@ -29,7 +30,11 @@ it("reads the selected board topic without decoding another topic's contents", a
     await runtime.runPromise(model.command(command({ _tag: "CreateCanvas", canvas: "factory" }), "operator"));
     await runtime.runPromise(model.command(command({ _tag: "Add", canvas: "factory", nodes: [{
       kind: "board", id: "board", x: 0, y: 0, width: 200, height: 100, z: 0, label: "Board",
-    }], wires: [] }), "operator"));
+    }, {
+      kind: "agent", id: "seat", x: 0, y: 0, width: 200, height: 100, z: 1,
+      agentKey: "local:claude", label: "Seat", host: "local", overseer: false,
+      bindingId: "board-seat-binding", harness: "claude", onRemove: "detach",
+    }], wires: [{ id: "participates", from: "seat", to: "board", verb: "participates" }] }), "operator"));
     const repo = await runtime.runPromise(WorkRepository);
     const sink = { canvasName: "factory", nodeId: "board" };
     const basis = Schema.decodeUnknownSync(CanvasFactBasis)({ kind: "canvas", canvasName: "factory", seq: 1 });
@@ -55,5 +60,17 @@ it("reads the selected board topic without decoding another topic's contents", a
     ]);
     expect(await runtime.runPromise(repo.boardTopics("factory", "board", "missing"))).toEqual([]);
     await expect(runtime.runPromise(repo.boardTopics("factory", "board"))).rejects.toThrow();
+    // A megaphone needs topology only, even when board material is unreadable.
+    const prompts: Array<{ bindingId: string; text: string }> = [];
+    configureBoardDelivery({ sendManagedTerminalPrompt: async (bindingId, text) => {
+      prompts.push({ bindingId, text }); return true;
+    } });
+    expect(await runtime.runPromise(deliverBoardWake({ canvas: "factory", boardNodeId: "board",
+      kind: "operator.notify.all", excerptSource: "Read the board.",
+    }))).toBe(1);
+    expect(prompts).toEqual([{ bindingId: "board-seat-binding", text: expect.stringContaining("Read the board.") }]);
+    expect(await runtime.runPromise(deliverBoardWake({ canvas: "missing", boardNodeId: "board",
+      kind: "operator.notify.all", excerptSource: "No such board.",
+    }))).toBe(0);
   } finally { await runtime.dispose(); await rm(root, { recursive: true, force: true }); }
 });

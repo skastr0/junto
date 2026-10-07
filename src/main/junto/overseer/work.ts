@@ -34,7 +34,7 @@ import {
   materializeContentObject,
   taskContentRef,
 } from "../content/agent-access";
-import type { CanvasesService } from "../canvases";
+import type { ModelService } from "../model/service";
 import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
 import {
@@ -289,7 +289,7 @@ export const executeOverseerWork = (
 ): Effect.Effect<
   unknown,
   WorkErrorBody,
-  WorkService | CanvasesService | ContentService
+  WorkService | ModelService | ContentService
 > =>
   Effect.gen(function* () {
     if (admin.kind !== "overseer") {

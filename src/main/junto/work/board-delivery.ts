@@ -3,7 +3,6 @@
 
 import { Effect } from "effect";
 import { ulid } from "ulid";
-import type { CanvasDoc } from "@shared/canvas";
 import {
   boardWakeInjectId,
   composeBoardInjectEnvelope,
@@ -12,8 +11,7 @@ import {
   type BoardWakeEvent,
   type BoardWakeKind,
 } from "@shared/board-wake";
-import { canvasFromDocument } from "@shared/model/from-document";
-import { CanvasesService } from "../canvases";
+import { ModelService } from "../model/service";
 
 export type BoardDeliveryTransport = {
   /** Start a local lazy managed seat before the board prompt is queued. */
@@ -86,15 +84,14 @@ export const deliverBoardWake = (input: {
   readonly topicId?: string;
   readonly topicTitle?: string;
   readonly excerptSource: string;
-}): Effect.Effect<number, never, CanvasesService> =>
+}): Effect.Effect<number, never, ModelService> =>
   Effect.gen(function* () {
     if (!transport) return 0;
-    const canvases = yield* CanvasesService;
-    const read = yield* canvases
-      .read(input.canvas)
+    const model = yield* ModelService;
+    const canvas = yield* model
+      .canvas(input.canvas)
       .pipe(Effect.catch(() => Effect.succeed(undefined)));
-    if (!read) return 0;
-    const doc = read.doc as CanvasDoc;
+    if (!canvas) return 0;
     const wake: BoardWakeEvent = {
       wakeEventId: ulid(),
       canvasName: input.canvas,
@@ -105,7 +102,7 @@ export const deliverBoardWake = (input: {
       excerptSource: input.excerptSource,
       createdAt: Date.now(),
     };
-    const seats = resolveBoardWakeSet(canvasFromDocument(input.canvas, doc), input.boardNodeId);
+    const seats = resolveBoardWakeSet(canvas, input.boardNodeId);
     const payload = composeBoardInjectEnvelope(wake);
     return yield* Effect.promise(() =>
       deliverBoardWakeSeats({
