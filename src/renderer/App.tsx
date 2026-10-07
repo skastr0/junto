@@ -32,6 +32,7 @@ import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
 import { KEY_ACTIONS } from "./lib/key-actions";
 import { installKeyDispatcher } from "./lib/key-dispatcher";
+import { installRemovedNodeViews } from "./lib/removed-node-views";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { clearPreambles, showPreamble } from "./lib/preamble-state";
@@ -466,6 +467,9 @@ export function App() {
 
   // Every app shortcut: one listener, resolved against the key table.
   useEffect(() => installKeyDispatcher(KEY_ACTIONS), []);
+
+  // A view never outlives its node, however the node left the canvas.
+  useEffect(() => installRemovedNodeViews(), []);
 
   // Command bar "Open canvas" action — one-shot request consumed here so the
   // readCanvas + loadDoc flow keeps its single owner in App.

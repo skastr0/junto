@@ -124,6 +124,16 @@ export const dock$ = observable({
   opErrorByRef: {} as Record<string, BrowserOpError>,
 });
 
+/** The canvas node a surface is a view of, whatever its kind. */
+export const nodeIdForSurface = (surface: WorkSurface): string | null => {
+  if (surface.kind === "terminal") return parseTerminalSurfaceId(surface.id);
+  if (surface.kind === "chat") return parseChatSurfaceId(surface.id);
+  if (surface.kind === "note") return parseNoteSurfaceId(surface.id);
+  if (surface.kind === "task-create") return parseTaskCreateSurfaceId(surface.id);
+  if (surface.kind === "browser") return dock$.browserByRef[surface.id].peek()?.nodeId ?? null;
+  return null;
+};
+
 /**
  * The zone a request may land in. Pinning is behind a build flag that is off
  * in every profile: with it off the pinned zone cannot be entered, so every

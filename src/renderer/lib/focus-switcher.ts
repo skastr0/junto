@@ -13,13 +13,7 @@
 import { observable } from "@legendapp/state";
 import type { CanvasNode } from "@shared/canvas";
 import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
-import {
-  dock$,
-  parseChatSurfaceId,
-  parseNoteSurfaceId,
-  parseTaskCreateSurfaceId,
-  parseTerminalSurfaceId,
-} from "./dock-state";
+import { dock$, nodeIdForSurface } from "./dock-state";
 import { slotIndexOf, type HotbarSlot } from "./hotbar-slots";
 import { nodeTitle } from "./presentation";
 import type { SeatUrgency } from "./seat-line";
@@ -45,17 +39,6 @@ export type FocusSwitcherSession = {
 export const focusSwitcher$ = observable({
   session: null as FocusSwitcherSession | null,
 });
-
-export const nodeIdForSurface = (surface: WorkSurface): string | null => {
-  if (surface.kind === "terminal") return parseTerminalSurfaceId(surface.id);
-  if (surface.kind === "chat") return parseChatSurfaceId(surface.id);
-  if (surface.kind === "note") return parseNoteSurfaceId(surface.id);
-  if (surface.kind === "task-create") return parseTaskCreateSurfaceId(surface.id);
-  if (surface.kind === "browser") {
-    return dock$.browserByRef[surface.id].peek()?.nodeId ?? null;
-  }
-  return null;
-};
 
 export const focusMruNodeIds = (
   surfaces: ReadonlyArray<WorkSurface>,
