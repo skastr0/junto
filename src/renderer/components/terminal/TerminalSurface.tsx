@@ -2048,17 +2048,20 @@ export function TerminalSurface({
       data-testid="native-terminal-surface"
     >
       {/* One header for the focus view and for a grid cell: the same parts,
-          so an agent reads the same in both. A cell leaves out the buttons
-          that act on the single view; the grid has its own Close. */}
+          so an agent reads the same in both. A cell shows them and has no
+          buttons: the grid's surface is portaled out of the app root, so
+          React never hears a press on a terminal adopted into it. */}
       <OverlayHeader
         dense
         style={grid ? { height: GRID_CELL_CHROME.headerPx } : undefined}
         leading={
-          agentSeat ? (
+          !agentSeat ? undefined : grid ? (
+            <SeatRing node={node} px={28} />
+          ) : (
             <CustomizeAgentButton identity={node.id} name={label.split("\n")[0] ?? label} hint>
               <SeatRing node={node} px={28} />
             </CustomizeAgentButton>
-          ) : undefined
+          )
         }
         title={
           // What gives way when the header is short: the region crumb first,
@@ -2115,7 +2118,7 @@ export function TerminalSurface({
         actions={
           <>
             {PINNING_ENABLED ? <PinButton surfaceId={surfaceId} /> : null}
-            {agentSeat ? (
+            {agentSeat && !grid ? (
               <SeatDetailsButton
                 node={node}
                 session={{
