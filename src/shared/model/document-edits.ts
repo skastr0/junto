@@ -1,4 +1,4 @@
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode } from "../canvas";
 import {
   asCanvasName,
   type Command,
@@ -7,17 +7,19 @@ import {
   type NodeMove,
   type SheetGrid,
   type Wire,
-} from "@shared/model";
-import { nodeOfDocument, wireOfDocument } from "@shared/model/from-document";
+} from "./index";
+import { nodeOfDocument, wireOfDocument } from "./from-document";
 
 // The difference between two documents, as the commands that make it. This is
 // how a writer that still works on a document changes the canvas: it says what
 // the document should become, and what is sent is only what differs. No
 // document is saved.
 //
-// TEMPORARY, and on its way out. Each writer that is rewritten as a direct
-// edit (model-edits.ts, through authoring.act) stops calling commitDoc, and
-// this file is deleted with the last of them.
+// TEMPORARY, and on its way out. It has two callers. The window: each writer
+// that is rewritten as a direct edit (model-edits.ts, through authoring.act)
+// stops calling commitDoc. The overseer (main/junto/overseer/portfolio.ts): its
+// wire still speaks documents, and it goes when that wire speaks model kinds.
+// This file is deleted with the last of them.
 //
 // It runs once per commit, never per mouse move, and it skips by identity: a
 // writer replaces only the node and edge objects it changes, so an object both

@@ -9,7 +9,7 @@ import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
 import { decodeCommand, type Command, type Node } from "../src/shared/model";
 import type { Canvas } from "../src/shared/model/canvas";
 import { canvasFromDocument } from "../src/shared/model/from-document";
-import { documentEdits } from "../src/renderer/lib/document-edits";
+import { documentEdits } from "../src/shared/model/document-edits";
 import { canvasAfter } from "../src/renderer/lib/model-undo";
 
 const rect = (x: number, y: number, width = 220, height = 84) => ({ x, y, width, height });
