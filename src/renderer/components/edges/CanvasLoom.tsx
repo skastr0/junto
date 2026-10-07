@@ -8,7 +8,7 @@
  *
  * Paint and geometry only — edge semantics are read, never written.
  */
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { useStore } from "@xyflow/react";
 import { batch } from "@legendapp/state";
 import type { FlowEdge } from "../../lib/convert";
@@ -32,6 +32,7 @@ import type { LoomEdgeInput, LoomObstacle, LoomStrand } from "../../lib/wire-loo
 import { canvasPerformance } from "../../lib/performance/canvas-performance";
 import { nodeBounds, routeWire } from "../../lib/wire-route";
 import type { WireDirection, WirePoint, WireRect } from "../../lib/wire-route";
+import { wireSides } from "../../lib/wire-sides";
 
 /** Minimal node fields needed for obstacle bounds (xyflow InternalNode shape). */
 type RouteNode = {
@@ -133,7 +134,7 @@ function sideOfHandle(handle: string | null | undefined): WireDirection | null {
   return HANDLE_SIDES[handle.slice(2)] ?? null;
 }
 
-/** Topology + stoppage only — no positions, so a drag never changes it. */
+/** Topology, stoppage, and the side each end leaves from. */
 type EdgeSpec = {
   readonly id: string;
   readonly blocked: boolean;
@@ -143,12 +144,29 @@ type EdgeSpec = {
   readonly targetSide: WireDirection;
 };
 
-function specsOf(edges: ReadonlyArray<FlowEdge>): EdgeSpec[] {
+/**
+ * The wires to plan. A wire's sides are worked out here from where its two
+ * cards are now, by the same rule the window uses for its sockets
+ * (wireSides). The sockets themselves only move when the model has taken the
+ * move, a moment after the drop; reading them would plan every moved wire
+ * twice, once on the drop with the old sides and again when the new ones
+ * arrive. A wire with an end the loom cannot see keeps the sides it holds.
+ */
+function specsOf(
+  edges: ReadonlyArray<FlowEdge>,
+  geometry: ReadonlyArray<LoomNode>,
+): EdgeSpec[] {
+  const byId = new Map(geometry.map((node) => [node.nodeId, node] as const));
   const out: EdgeSpec[] = [];
   for (const edge of edges) {
-    const sourceSide = sideOfHandle(edge.sourceHandle);
-    const targetSide = sideOfHandle(edge.targetHandle);
-    if (!sourceSide || !targetSide) continue;
+    const heldSource = sideOfHandle(edge.sourceHandle);
+    const heldTarget = sideOfHandle(edge.targetHandle);
+    if (!heldSource || !heldTarget) continue;
+    const from = byId.get(edge.source);
+    const to = byId.get(edge.target);
+    const sides = from && to ? wireSides(from, to) : undefined;
+    const sourceSide = sides?.source ?? heldSource;
+    const targetSide = sides?.target ?? heldTarget;
     const data = edge.data;
     // Same expression EtherEdge paints from; read only, never written back.
     const phase = data?.phase ?? "relates";
@@ -481,12 +499,40 @@ function publishStandaloneRoutes(
  * `edges` is the rendered, already filtered array — hidden, filtered, and
  * searched-out nodes are handled by never reaching here.
  */
-export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> }) {
+/** What the loom reads of an edge: a new array of the same wires changes nothing. */
+const sameWires = (
+  a: { readonly edges: ReadonlyArray<FlowEdge> },
+  b: { readonly edges: ReadonlyArray<FlowEdge> },
+): boolean => {
+  if (a.edges === b.edges) return true;
+  if (a.edges.length !== b.edges.length) return false;
+  for (let i = 0; i < a.edges.length; i++) {
+    const x = a.edges[i]!;
+    const y = b.edges[i]!;
+    if (x === y) continue;
+    if (
+      x.id !== y.id ||
+      x.source !== y.source ||
+      x.target !== y.target ||
+      x.sourceHandle !== y.sourceHandle ||
+      x.targetHandle !== y.targetHandle ||
+      (x.data?.phase ?? "relates") !== (y.data?.phase ?? "relates") ||
+      (x.data?.rippling ?? false) !== (y.data?.rippling ?? false)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+export const CanvasLoom = memo(CanvasLoomBody, sameWires);
+
+function CanvasLoomBody({ edges }: { readonly edges: ReadonlyArray<FlowEdge> }) {
   const geometry = useStore(
     (store) => readGeometry(store.nodeLookup.values() as Iterable<RouteNode>),
     sameGeometry,
   );
-  const specs = useMemo(() => specsOf(edges), [edges]);
+  const specs = useMemo(() => specsOf(edges, geometry), [edges, geometry]);
   const specsKey = useMemo(() => specsKeyOf(specs), [specs]);
   // The key is the effect dependency; the specs themselves ride a ref so a new
   // edges array with identical topology never replans.
