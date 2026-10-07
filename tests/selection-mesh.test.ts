@@ -19,7 +19,8 @@ const agent = (id: string): CanvasDoc["nodes"][number] => ({
   y: 0,
   width: 200,
   height: 80,
-  ether: { entity: { kind: "agent", name: `local:${id}` } },
+  // A seat: an agent with the session and harness the model requires of one.
+  ether: { entity: { kind: "agent", name: `local:${id}` }, terminal: { bindingId: `bind-${id}`, harness: "claude" } },
 });
 
 const nodes: CanvasDoc["nodes"] = [

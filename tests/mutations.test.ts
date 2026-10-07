@@ -683,7 +683,7 @@ describe("renderer graph mutations", () => {
           y: 0,
           width: 200,
           height: 80,
-          ether: { entity: { kind: "agent", name: "local:a" } },
+          ether: { entity: { kind: "agent", name: "local:a" }, terminal: { bindingId: "bind-a", harness: "claude" } },
         },
         {
           id: "b",
@@ -693,7 +693,7 @@ describe("renderer graph mutations", () => {
           y: 0,
           width: 200,
           height: 80,
-          ether: { entity: { kind: "agent", name: "local:b" } },
+          ether: { entity: { kind: "agent", name: "local:b" }, terminal: { bindingId: "bind-b", harness: "claude" } },
         },
         {
           id: "c",
@@ -703,7 +703,7 @@ describe("renderer graph mutations", () => {
           y: 0,
           width: 200,
           height: 80,
-          ether: { entity: { kind: "agent", name: "local:c" } },
+          ether: { entity: { kind: "agent", name: "local:c" }, terminal: { bindingId: "bind-c", harness: "claude" } },
         },
       ],
       edges: [],
@@ -734,7 +734,7 @@ describe("renderer graph mutations", () => {
           y: 0,
           width: 200,
           height: 80,
-          ether: { entity: { kind: "agent", name: "local:a" } },
+          ether: { entity: { kind: "agent", name: "local:a" }, terminal: { bindingId: "bind-a", harness: "claude" } },
         },
         {
           id: "t1",
@@ -744,7 +744,7 @@ describe("renderer graph mutations", () => {
           y: 0,
           width: 200,
           height: 80,
-          ether: { entity: { kind: "agent", name: "local:t1" } },
+          ether: { entity: { kind: "agent", name: "local:t1" }, terminal: { bindingId: "bind-t1", harness: "claude" } },
         },
         {
           id: "t2",
@@ -754,7 +754,7 @@ describe("renderer graph mutations", () => {
           y: 0,
           width: 200,
           height: 80,
-          ether: { entity: { kind: "agent", name: "local:t2" } },
+          ether: { entity: { kind: "agent", name: "local:t2" }, terminal: { bindingId: "bind-t2", harness: "claude" } },
         },
       ],
       edges: [],

@@ -3,14 +3,13 @@ import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import { defaultVerbForPair, verbsForPair, type Verb } from "@shared/physics";
 import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
-import { wiresFromDocument } from "@shared/model/from-document";
-import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
+import { isGitNode, isLabelNode } from "./presentation";
 import { flowEdgeRemovalWarnings, readDeletionPolicy } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { commitCommands, commitDoc, parseSide } from "./mutations";
 import { connected, type Connected } from "./model-edits";
-import { roleOfKind } from "./model-kind";
-import { asNodeId, type Canvas } from "@shared/model";
+import { physicsKind, roleOfKind } from "./model-kind";
+import { asNodeId, asWireId, type Canvas, type Command, type Node, type Wire } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 
 /**
@@ -88,21 +87,6 @@ const VERB_HANDLE_PREFIX = "verb:";
 /** Handle id a landing zone carries. Never parses as a node side. */
 export const verbHandleId = (verb: Verb): string =>
   `${VERB_HANDLE_PREFIX}${verb}`;
-
-/**
- * Translate a raw FlowCycleError (board ids) into a titled, readable line.
- * One wording for one rejection: the connect-time refusal below and the batch
- * connect both speak it.
- */
-export const friendlyCycleMessage = (error: FlowCycleError, doc: CanvasDoc): string => {
-  const titleOf = (id: string): string => {
-    const node = doc.nodes.find((candidate) => candidate.id === id);
-    return node ? nodeTitle(node) : "that board";
-  };
-  const names = error.cycle.map(titleOf);
-  const loop = names.length > 0 ? `${names.join(" → ")} → ${names[0]}` : "a loop";
-  return `That direction would send tasks in a loop — ${loop}. Pick the other direction or a different Next board.`;
-};
 
 export const deleteEdges = async (ids: ReadonlyArray<string>): Promise<void> => {
   const removed = new Set(ids);
@@ -245,27 +229,61 @@ export type EdgeBatchPlan = {
  * - A `feeds` hop that would close a cycle (against the document AND the hops
  *   already planned in this batch) skips with `flow-cycle`.
  */
-export const planConnectToTarget = (
+/** What a plan needs to know of a card: whether it takes a wire at all, and its kind. */
+type PlanNode = {
+  /** Why it takes no wire, when it takes none. */
+  readonly takes: "wire" | "region" | "label" | "git";
+  readonly kind: string | undefined;
+};
+/** A wire as a plan reads it: its two ends, and its verb when it has one. */
+type PlanWire = { readonly from: string; readonly to: string; readonly verb?: Verb | undefined };
+
+const planNodeOfDocument = (node: CanvasNode): PlanNode => ({
+  takes: node.type === "group" ? "region" : isLabelNode(node) ? "label" : isGitNode(node) ? "git" : "wire",
+  kind: kindOf(node),
+});
+const planNodeOf = (node: Node): PlanNode => ({
+  takes: node.kind === "region" ? "region" : node.kind === "label" ? "label" : node.kind === "git" ? "git" : "wire",
+  kind: physicsKind(node.kind),
+});
+const planWireOfDocument = (edge: CanvasEdge): PlanWire => ({
+  from: edge.fromNode,
+  to: edge.toNode,
+  verb: edge.ether?.verb,
+});
+
+/** Whether these wires, as a canvas, hold a loop of boards. */
+const loopIn = (wires: ReadonlyArray<PlanWire>): FlowCycleError | undefined =>
+  validateFlowDag({
+    wires: new Map(
+      wires.flatMap((wire, index) =>
+        wire.verb === undefined
+          ? []
+          : [[asWireId(`plan-${String(index)}`), { id: asWireId(`plan-${String(index)}`), from: asNodeId(wire.from), to: asNodeId(wire.to), verb: wire.verb }] as const],
+      ),
+    ),
+  });
+
+const planToTarget = (
   sourceIds: ReadonlyArray<string>,
   targetId: string,
-  nodes: ReadonlyArray<CanvasNode>,
-  edges: ReadonlyArray<CanvasEdge>,
+  nodeById: ReadonlyMap<string, PlanNode>,
+  wires: ReadonlyArray<PlanWire>,
 ): EdgeBatchPlan => {
-  const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
   const target = nodeById.get(targetId);
-  if (!target || target.type === "group" || isLabelNode(target) || isGitNode(target)) {
+  if (!target || target.takes !== "wire") {
     return {
       toAdd: [],
       skipped: sourceIds.map((source) => ({ source, reason: "invalid-target" as const })),
     };
   }
 
-  const existing = new Set(edges.map((edge) => `${edge.fromNode}->${edge.toNode}`));
+  const existing = new Set(wires.map((wire) => `${wire.from}->${wire.to}`));
   const planned = new Set<string>();
   const toAdd: EdgeBatchCandidate[] = [];
   const skipped: EdgeBatchSkip[] = [];
-  // Grows with each accepted hop so the batch is guarded as one document.
-  const prospective: CanvasEdge[] = [...edges];
+  // Grows with each accepted hop so the batch is guarded as one canvas.
+  const prospective: PlanWire[] = [...wires];
 
   for (const sourceId of sourceIds) {
     if (sourceId === targetId) {
@@ -277,20 +295,18 @@ export const planConnectToTarget = (
       skipped.push({ source: sourceId, reason: "missing-source" });
       continue;
     }
-    if (source.type === "group") {
+    if (source.takes === "region") {
       skipped.push({ source: sourceId, reason: "group-source" });
       continue;
     }
-    if (isLabelNode(source) || isGitNode(source)) {
+    if (source.takes !== "wire") {
       skipped.push({ source: sourceId, reason: "label-source" });
       continue;
     }
-    const sourceKind = kindOf(source);
-    const targetKind = kindOf(target);
-    const draw = verbsForDraw(sourceKind, targetKind);
+    const draw = verbsForDraw(source.kind, target.kind);
     const verb = defaultVerbForPair(
-      draw.reversed ? targetKind : sourceKind,
-      draw.reversed ? sourceKind : targetKind,
+      draw.reversed ? target.kind : source.kind,
+      draw.reversed ? source.kind : target.kind,
     );
     if (verb === undefined) {
       skipped.push({ source: sourceId, reason: "refused-pair" });
@@ -304,13 +320,8 @@ export const planConnectToTarget = (
       continue;
     }
     if (verb === "feeds") {
-      const probe: CanvasEdge = {
-        id: `probe-${sourceId}`,
-        fromNode,
-        toNode,
-        ether: { verb },
-      };
-      const cycle = validateFlowDag(wiresFromDocument({ edges: [...prospective, probe] }));
+      const probe: PlanWire = { from: fromNode, to: toNode, verb };
+      const cycle = loopIn([...prospective, probe]);
       if (cycle) {
         skipped.push({ source: sourceId, reason: "flow-cycle", cycle });
         continue;
@@ -324,6 +335,40 @@ export const planConnectToTarget = (
   return { toAdd, skipped };
 };
 
+/** The same plan over document nodes and edges, for callers that still hold a document. */
+export const planConnectToTarget = (
+  sourceIds: ReadonlyArray<string>,
+  targetId: string,
+  nodes: ReadonlyArray<CanvasNode>,
+  edges: ReadonlyArray<CanvasEdge>,
+): EdgeBatchPlan =>
+  planToTarget(
+    sourceIds,
+    targetId,
+    new Map(nodes.map((node) => [node.id, planNodeOfDocument(node)] as const)),
+    edges.map(planWireOfDocument),
+  );
+
+/** What the canvas holds, as a plan reads it. */
+const planView = (canvas: Canvas) => ({
+  nodes: new Map([...canvas.nodes.values()].map((node) => [node.id as string, planNodeOf(node)] as const)),
+  wires: [...canvas.wires.values()].map((wire): PlanWire => ({ from: wire.from, to: wire.to, verb: wire.verb })),
+});
+
+/** The wires a plan asks for, as the one command that adds them. */
+const addPlanned = (canvas: Canvas, plan: EdgeBatchPlan): { commands: ReadonlyArray<Command>; ids: string[] } => {
+  const wires: Wire[] = plan.toAdd.map((candidate) => ({
+    id: asWireId(`edge-${ulid()}`),
+    from: asNodeId(candidate.fromNode),
+    to: asNodeId(candidate.toNode),
+    verb: candidate.verb,
+  }));
+  return {
+    commands: wires.length === 0 ? [] : [{ _tag: "Add", canvas: canvas.name, nodes: [], wires }],
+    ids: wires.map((wire) => wire.id),
+  };
+};
+
 /**
  * Commit one wire per valid selected source → target in a single document
  * write. Preserves selection when `keepSelection` (shift-RMB multi-target
@@ -334,37 +379,33 @@ export const connectAllToTarget = (
   targetId: string,
   options?: { readonly keepSelection?: boolean },
 ): EdgeBatchPlan => {
-  const doc = state$.doc.peek();
-  const plan = planConnectToTarget(sourceIds, targetId, doc.nodes, doc.edges);
-  if (plan.toAdd.length === 0) {
-    const reasons = new Set(plan.skipped.map((item) => item.reason));
-    const refusedHop = plan.skipped.find((item) => item.cycle !== undefined);
-    if (refusedHop?.cycle) {
-      state$.error.set(friendlyCycleMessage(refusedHop.cycle, doc));
-    } else if (reasons.has("invalid-target")) {
-      state$.error.set("Cannot connect to that target.");
-    } else if (reasons.size === 1 && reasons.has("self")) {
-      state$.error.set("A node cannot connect to itself.");
-    } else if (reasons.has("duplicate") && plan.skipped.length === sourceIds.length) {
-      state$.error.set("That relation already exists.");
-    } else if (plan.skipped.length > 0) {
-      state$.error.set("No new relations to create.");
+  let plan: EdgeBatchPlan = { toAdd: [], skipped: [] };
+  let added: string[] = [];
+  commitCommands((canvas) => {
+    const view = planView(canvas);
+    plan = planToTarget(sourceIds, targetId, view.nodes, view.wires);
+    if (plan.toAdd.length === 0) {
+      const reasons = new Set(plan.skipped.map((item) => item.reason));
+      const refusedHop = plan.skipped.find((item) => item.cycle !== undefined);
+      if (refusedHop?.cycle) {
+        state$.error.set(cycleLine(canvas, refusedHop.cycle.cycle));
+      } else if (reasons.has("invalid-target")) {
+        state$.error.set("Cannot connect to that target.");
+      } else if (reasons.size === 1 && reasons.has("self")) {
+        state$.error.set("A node cannot connect to itself.");
+      } else if (reasons.has("duplicate") && plan.skipped.length === sourceIds.length) {
+        state$.error.set("That relation already exists.");
+      } else if (plan.skipped.length > 0) {
+        state$.error.set("No new relations to create.");
+      }
+      return [];
     }
-    return plan;
-  }
-
-  const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => ({
-    id: `edge-${ulid()}`,
-    fromNode: candidate.fromNode,
-    toNode: candidate.toNode,
-    ether: { verb: candidate.verb },
-  }));
-
-  if (!options?.keepSelection) {
-    selectEdge(newEdges[newEdges.length - 1]?.id ?? "");
-  }
-  state$.error.set("");
-  commitDoc({ ...doc, edges: [...doc.edges, ...newEdges] });
+    const adding = addPlanned(canvas, plan);
+    added = adding.ids;
+    state$.error.set("");
+    return adding.commands;
+  });
+  if (added.length > 0 && !options?.keepSelection) selectEdge(added[added.length - 1]!);
   return plan;
 };
 
@@ -379,14 +420,14 @@ const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|$
  * Pure planner: full mesh over `nodeIds`. A pair already wired in either
  * direction, or planned earlier in this batch, is skipped as `duplicate`.
  */
-export const planConnectMesh = (
+const planMesh = (
   nodeIds: ReadonlyArray<string>,
-  nodes: ReadonlyArray<CanvasNode>,
-  edges: ReadonlyArray<CanvasEdge>,
+  nodeById: ReadonlyMap<string, PlanNode>,
+  wires: ReadonlyArray<PlanWire>,
 ): EdgeBatchPlan => {
   const ids = [...new Set(nodeIds)];
-  const linked = new Set(edges.map((edge) => pairKey(edge.fromNode, edge.toNode)));
-  const prospective: CanvasEdge[] = [...edges];
+  const linked = new Set(wires.map((wire) => pairKey(wire.from, wire.to)));
+  const prospective: PlanWire[] = [...wires];
   const toAdd: EdgeBatchCandidate[] = [];
   const skipped: EdgeBatchSkip[] = [];
   ids.forEach((targetId, index) => {
@@ -396,15 +437,10 @@ export const planConnectMesh = (
       return false;
     });
     if (sources.length === 0) return;
-    const plan = planConnectToTarget(sources, targetId, nodes, prospective);
+    const plan = planToTarget(sources, targetId, nodeById, prospective);
     for (const candidate of plan.toAdd) {
       linked.add(pairKey(candidate.fromNode, candidate.toNode));
-      prospective.push({
-        id: `probe-${candidate.fromNode}-${candidate.toNode}`,
-        fromNode: candidate.fromNode,
-        toNode: candidate.toNode,
-        ether: { verb: candidate.verb },
-      });
+      prospective.push({ from: candidate.fromNode, to: candidate.toNode, verb: candidate.verb });
       toAdd.push(candidate);
     }
     skipped.push(...plan.skipped);
@@ -412,23 +448,32 @@ export const planConnectMesh = (
   return { toAdd, skipped };
 };
 
-/** Commit the mesh in one document write (one undo step); selection stays. */
+/** The same plan over document nodes and edges, for callers that still hold a document. */
+export const planConnectMesh = (
+  nodeIds: ReadonlyArray<string>,
+  nodes: ReadonlyArray<CanvasNode>,
+  edges: ReadonlyArray<CanvasEdge>,
+): EdgeBatchPlan =>
+  planMesh(
+    nodeIds,
+    new Map(nodes.map((node) => [node.id, planNodeOfDocument(node)] as const)),
+    edges.map(planWireOfDocument),
+  );
+
+/** Wire every pair in the selection as one act (one undo step); selection stays. */
 export const connectMesh = (nodeIds: ReadonlyArray<string>): EdgeBatchPlan => {
-  const doc = state$.doc.peek();
-  const plan = planConnectMesh(nodeIds, doc.nodes, doc.edges);
-  if (plan.toAdd.length === 0) {
-    const allLinked = plan.skipped.length > 0 && plan.skipped.every((item) => item.reason === "duplicate");
-    state$.error.set(allLinked ? "Those agents are already connected." : "No new relations to create.");
-    return plan;
-  }
-  const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => ({
-    id: `edge-${ulid()}`,
-    fromNode: candidate.fromNode,
-    toNode: candidate.toNode,
-    ether: { verb: candidate.verb },
-  }));
-  state$.error.set("");
-  commitDoc({ ...doc, edges: [...doc.edges, ...newEdges] });
+  let plan: EdgeBatchPlan = { toAdd: [], skipped: [] };
+  commitCommands((canvas) => {
+    const view = planView(canvas);
+    plan = planMesh(nodeIds, view.nodes, view.wires);
+    if (plan.toAdd.length === 0) {
+      const allLinked = plan.skipped.length > 0 && plan.skipped.every((item) => item.reason === "duplicate");
+      state$.error.set(allLinked ? "Those agents are already connected." : "No new relations to create.");
+      return [];
+    }
+    state$.error.set("");
+    return addPlanned(canvas, plan).commands;
+  });
   return plan;
 };
 
