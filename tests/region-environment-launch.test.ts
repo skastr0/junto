@@ -386,6 +386,8 @@ describe("the launch applies it", () => {
   };
 
   beforeEach(() => {
+    // Generic launch tests own this synthetic variable, independent of host credentials.
+    vi.stubEnv("JUNTO_TEST_REGION_VALUE", undefined);
     binDir = mkdtempSync(join(tmpdir(), "junto-region-env-bins-"));
     installBin("claude", true);
     installBin("codex", false);
@@ -434,7 +436,7 @@ describe("the launch applies it", () => {
       resolveLaunch(agent("claude"), {
         seatInject: { ...hermetic(), JUNTO_SOCKET: "/real.sock", JUNTO_SEAT: "local:claude" },
         regionEnv: {
-          OP_SERVICE_ACCOUNT_TOKEN: CANARY,
+          JUNTO_TEST_REGION_VALUE: CANARY,
           FROM_SEAT: "region",
           JUNTO_SOCKET: "/evil.sock",
           CLAUDECODE: "1",
@@ -442,7 +444,7 @@ describe("the launch applies it", () => {
         },
       }),
     );
-    expect(launch.env.OP_SERVICE_ACCOUNT_TOKEN).toBe(CANARY);
+    expect(launch.env.JUNTO_TEST_REGION_VALUE).toBe(CANARY);
     expect(launch.env.FROM_SEAT).toBe("seat");
     expect(launch.env.JUNTO_SOCKET).toBe("/real.sock");
     expect(launch.env.CLAUDECODE).toBeUndefined();
@@ -545,13 +547,13 @@ describe("the launch applies it", () => {
 
   it("every local seat launch asks for its region environment and spawns with it", async () => {
     const asked: unknown[] = [];
-    const record = { fingerprint: "f1", names: { OP_SERVICE_ACCOUNT_TOKEN: "sig" }, folders: ["/srv/shared"] };
+    const record = { fingerprint: "f1", names: { JUNTO_TEST_REGION_VALUE: "sig" }, folders: ["/srv/shared"] };
     const { fake, host, occupy } = occupyWith(async (seat) => {
       asked.push(seat);
       // A region PATH is honored (Junto's own directory stays in front), which
       // also keeps this launch on the temp folder's binary.
       return {
-        env: { OP_SERVICE_ACCOUNT_TOKEN: CANARY, PATH: binDir },
+        env: { JUNTO_TEST_REGION_VALUE: CANARY, PATH: binDir },
         folders: ["/srv/shared"],
         record,
       };
@@ -564,7 +566,7 @@ describe("the launch applies it", () => {
       { canvasName: "factory", nodeId: "node-b1", seatRect: { x: 1, y: 2, width: 3, height: 4 } },
     ]);
     const spawned = fake.controllers[0]!.spec;
-    expect(spawned.env?.OP_SERVICE_ACCOUNT_TOKEN).toBe(CANARY);
+    expect(spawned.env?.JUNTO_TEST_REGION_VALUE).toBe(CANARY);
     // The region's PATH is on the seat's PATH, behind Junto's own CLI
     // directory. Where it sits among the rest is the host's business.
     const pathEntries = (spawned.env?.PATH ?? "").split(delimiter);
@@ -604,20 +606,19 @@ describe("the launch applies it", () => {
       }) as Parameters<typeof resolveLaunch>[0];
 
     it("gets the region's variables, under what the terminal itself sets", () => {
-      vi.stubEnv("OP_SERVICE_ACCOUNT_TOKEN", undefined);
       const launch = Result.getOrThrow(
         resolveLaunch(shell({ FROM_TERMINAL: "terminal" }), {
-          regionEnv: { OP_SERVICE_ACCOUNT_TOKEN: CANARY, FROM_TERMINAL: "region", TERM: "dumb" },
+          regionEnv: { JUNTO_TEST_REGION_VALUE: CANARY, FROM_TERMINAL: "region", TERM: "dumb" },
         }),
       );
-      expect(launch.env.OP_SERVICE_ACCOUNT_TOKEN).toBe(CANARY);
+      expect(launch.env.JUNTO_TEST_REGION_VALUE).toBe(CANARY);
       expect(launch.env.FROM_TERMINAL).toBe("terminal");
       // Every terminal is a real terminal, whatever a region says.
       expect(launch.env.TERM).not.toBe("dumb");
       expect(launch.args.join(" ")).not.toContain(CANARY);
       // No region, no change: the shell is the operator's ordinary shell.
       const plain = Result.getOrThrow(resolveLaunch(shell(), {}));
-      expect(plain.env.OP_SERVICE_ACCOUNT_TOKEN).toBeUndefined();
+      expect(Object.hasOwn(plain.env, "JUNTO_TEST_REGION_VALUE")).toBe(false);
     });
 
     const routerWith = (seatEnvironment: SeatEnvironmentResolver | undefined) => {
@@ -640,10 +641,10 @@ describe("the launch applies it", () => {
 
     it("is started with it by the router, from where the node sits now", async () => {
       const asked: unknown[] = [];
-      const record = { fingerprint: "f1", names: { OP_SERVICE_ACCOUNT_TOKEN: "sig" }, folders: [] };
+      const record = { fingerprint: "f1", names: { JUNTO_TEST_REGION_VALUE: "sig" }, folders: [] };
       const { fake, host, router } = routerWith(async (seat) => {
         asked.push(seat);
-        return { env: { OP_SERVICE_ACCOUNT_TOKEN: CANARY }, folders: ["/srv/shared"], record };
+        return { env: { JUNTO_TEST_REGION_VALUE: CANARY }, folders: ["/srv/shared"], record };
       });
       const summary = await router.create({
         bindingId: "t1",
@@ -657,7 +658,7 @@ describe("the launch applies it", () => {
         { canvasName: "factory", nodeId: "node-t1", seatRect: { x: 1, y: 2, width: 3, height: 4 } },
       ]);
       const spawned = fake.controllers[0]!.spec;
-      expect(spawned.env?.OP_SERVICE_ACCOUNT_TOKEN).toBe(CANARY);
+      expect(spawned.env?.JUNTO_TEST_REGION_VALUE).toBe(CANARY);
       // A shell has no add-directory option: folders change nothing in its argv.
       expect(spawned.args ?? []).toEqual(["-l"]);
       expect(host.regionEnvironmentRecord("t1")).toEqual(record);
