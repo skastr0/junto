@@ -20,12 +20,6 @@
   gap: 8px;
 }
 
-.seat-offboard__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 .seat-offboard__progress {
   display: flex;
   flex-direction: column;

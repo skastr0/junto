@@ -1,0 +1,56 @@
+/* Offboard panel: two ways to end a seat's session, for one seat or a selection. */
+.seat-offboard-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.seat-offboard-panel__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.seat-offboard-panel__title {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seat-offboard-panel__idle {
+  color: var(--color-dim);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.seat-offboard-panel__choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.seat-offboard-panel__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.seat-offboard-panel__preferred {
+  color: var(--color-cyan);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.seat-offboard-panel__hint,
+.seat-offboard-panel__block,
+.seat-offboard-panel__status {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.seat-offboard-panel__hint { color: var(--color-faint); }
+.seat-offboard-panel__block { color: var(--color-amber); }
+.seat-offboard-panel__status { color: var(--color-dim); }
+.seat-offboard-panel__status[data-tone="done"] { color: var(--color-green); }
+.seat-offboard-panel__status[data-tone="partial"] { color: var(--color-amber); }
+.seat-offboard-panel__status[data-tone="refused"] { color: var(--color-crimson); }

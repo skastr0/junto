@@ -3,11 +3,13 @@ import { useEffect, useState } from "react";
 import type { OffboardMode, SeatOffboardProgress } from "@shared/seat-sessions";
 import { getJuntoApi } from "../../lib/junto-api";
 import { state$ } from "../../lib/state";
-import { Button, StatusDot } from "../ui";
+import { StatusDot } from "../ui";
 
-// Offboard from the seat: ask the agent to end its session, to rest or to
-// continue in a fresh one. The agent writes the notes; Junto closes the
-// session the moment they are saved. The steps below follow it through.
+// Where this seat's latest offboard stands. The buttons that start one live
+// on the seat itself: the popup above its card and the bottom bar, for one
+// seat or a selection. When the agent was asked, it writes the notes and
+// Junto closes the session the moment they are saved; the steps below
+// follow that through, and say so when it did not finish.
 
 type Step = { readonly label: string; readonly done: boolean };
 
@@ -32,8 +34,6 @@ const stepsOf = (progress: SeatOffboardProgress): ReadonlyArray<Step> => {
 export function OffboardControls({ seatId }: { readonly seatId: string }) {
   const canvasName = use$(state$.canvasName);
   const [progress, setProgress] = useState<SeatOffboardProgress | undefined>();
-  const [sending, setSending] = useState<OffboardMode | undefined>();
-  const [problem, setProblem] = useState<string | undefined>();
 
   useEffect(() => {
     let live = true;
@@ -53,49 +53,17 @@ export function OffboardControls({ seatId }: { readonly seatId: string }) {
     };
   }, [seatId, canvasName]);
 
-  const ask = async (mode: OffboardMode) => {
-    setSending(mode);
-    setProblem(undefined);
-    const result = await getJuntoApi()
-      ?.seatOffboardAsk?.(canvasName, seatId, mode)
-      .catch(() => undefined);
-    setSending(undefined);
-    if (result?.ok !== true) setProblem(result?.message ?? "Junto could not send the offboard prompt.");
-  };
-
   const inFlight = progress !== undefined && (progress.stage === "asked" || progress.stage === "saved");
-  // Once the notes are saved the close is Junto's and moments away. Before
-  // that the operator may ask again, or switch the mode.
-  const closing = progress?.stage === "saved";
   const steps = progress === undefined ? [] : stepsOf(progress);
   // The step Junto is waiting on now: the first one not done.
   const waitingOn = steps.findIndex((step) => !step.done);
 
   return (
     <section className="seat-offboard" aria-label="Offboard" data-testid="seat-offboard">
-      <div className="seat-offboard__actions">
-        <Button
-          size="sm"
-          disabled={sending !== undefined || closing}
-          onClick={() => void ask("rest")}
-          data-testid="seat-offboard-rest"
-        >
-          Offboard
-        </Button>
-        <Button
-          size="sm"
-          disabled={sending !== undefined || closing}
-          onClick={() => void ask("continue")}
-          data-testid="seat-offboard-continue"
-        >
-          Offboard and continue
-        </Button>
-      </div>
-      <p className="agent-editor__hint">
-        Asks the agent to write its notes and end this session. Offboard lets the seat rest until its next wake;
-        offboard and continue starts a fresh session right away that picks up from the agent's note.
+      <p className="agent-editor__hint" data-testid="seat-offboard-where">
+        To end this agent's session, use Offboard on the seat: in the popup above its card, or in the bottom bar
+        for one agent or a whole selection.
       </p>
-      {problem ? <p className="seat-sessions__problem">{problem}</p> : null}
       {progress ? (
         <div className="seat-offboard__progress" data-testid="seat-offboard-progress" data-stage={progress.stage} data-mode={progress.mode}>
           <ol className="seat-offboard__steps" aria-label="Offboard progress">

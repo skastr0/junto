@@ -1,13 +1,14 @@
 /**
- * Offboard from the seat — the operator's two actions, in the running product.
+ * Offboard from the seat — asking the agent, in the running product.
  *
  *   bun run test:e2e:fast e2e/scenarios/seat-offboard-modes.spec.ts
  *
- * What this proves that a unit test cannot: the Sessions tab of a real seat
- * renders Offboard and Offboard and continue, a click travels renderer -> IPC
- * -> the ordinary mail path into the seat's mailbox with the offboard prompt
- * for that mode, and the tab shows the offboard as asked. The notes are the
- * agent's to write, so the prompt carries the command, never notes.
+ * What this proves that a unit test cannot: the popup above a real seat's
+ * card offers Ask to offboard and Ask, then rest, a click travels renderer
+ * -> IPC -> the ordinary mail path into the seat's mailbox with the offboard
+ * prompt for that mode, and the seat's Sessions tab shows the offboard as
+ * asked (and no longer holds the buttons). The notes are the agent's to
+ * write, so the prompt carries the command, never notes.
  *
  * The seats are seeded cold (no harness spawns): the canvas starts paused, so
  * the mail waits in the mailbox, which is what the assertions read.
@@ -60,10 +61,20 @@ const mailboxOf = (appHome: string, nodeId: string): readonly string[] => {
   }
 };
 
+/** Open the offboard popup from the toolbar above the seat's card. */
+const openOffboard = async (page: Page, seatId: string, name: string) => {
+  const seat = page.locator(`.react-flow__node[data-id="${seatId}"]`);
+  await expect(seat).toBeVisible({ timeout: 60_000 });
+  await seat.click();
+  await page.getByTestId("seat-offboard-open").click();
+  const panel = page.getByRole("dialog", { name: `Offboard ${name}` });
+  await expect(panel).toBeVisible({ timeout: 10_000 });
+  return panel;
+};
+
 /** Open the seat's Customize editor on its Sessions tab. */
 const openSessions = async (page: Page, seatId: string) => {
   const seat = page.locator(`.react-flow__node[data-id="${seatId}"]`);
-  await expect(seat).toBeVisible({ timeout: 60_000 });
   await seat.click();
   await page.getByTestId("toolbar-customize-agent").click();
   const editor = page.getByTestId("agent-editor");
@@ -73,29 +84,22 @@ const openSessions = async (page: Page, seatId: string) => {
   return editor;
 };
 
-test("the seat's Offboard and Offboard and continue send the agent the prompt for that mode", async ({ junto }) => {
+test("the seat popup's Ask to offboard and Ask, then rest send the agent the prompt for that mode", async ({ junto }) => {
   test.setTimeout(240_000);
   await mkdir(SHOTS, { recursive: true });
   const { page, sandbox } = junto;
   await page.setViewportSize({ width: 1440, height: 1100 });
 
-  // Offboard: the prompt for a plain offboard, and the seat shows it asked.
-  const rest = await openSessions(page, RESTER);
-  await expect(rest.getByRole("button", { name: "Offboard", exact: true })).toBeEnabled();
-  await expect(rest.getByRole("button", { name: "Offboard and continue" })).toBeEnabled();
-  await rest.screenshot({ path: join(SHOTS, "sessions-tab.png") });
+  // Ask, then rest: the prompt for a plain offboard, and the popup says it asked.
+  const rest = await openOffboard(page, RESTER, "Rester");
+  await expect(rest.getByRole("button", { name: "Ask to offboard", exact: true })).toBeEnabled();
+  await expect(rest.getByRole("button", { name: "Ask, then rest" })).toBeEnabled();
+  await expect(rest.getByTestId("seat-offboard-now")).toBeVisible();
+  await rest.screenshot({ path: join(SHOTS, "offboard-popup.png") });
   expect(mailboxOf(sandbox.homeDir, RESTER)).toHaveLength(0);
 
-  await rest.getByTestId("seat-offboard-rest").click();
-  const restProgress = rest.getByTestId("seat-offboard-progress");
-  await expect(restProgress).toHaveAttribute("data-stage", "asked", { timeout: 20_000 });
-  await expect(restProgress).toHaveAttribute("data-mode", "rest");
-  await expect(restProgress).toContainText("Asked");
-  await expect(restProgress).toContainText("Notes saved");
-  await expect(restProgress).toContainText("Session closed, seat resting");
-  // Until the agent saves its notes the operator may ask again, or switch mode.
-  await expect(rest.getByTestId("seat-offboard-rest")).toBeEnabled();
-  await expect(rest.getByTestId("seat-offboard-continue")).toBeEnabled();
+  await rest.getByTestId("seat-offboard-ask-rest").click();
+  await expect(rest.getByTestId("seat-offboard-status")).toHaveText("Asked to offboard and rest.", { timeout: 20_000 });
   await rest.screenshot({ path: join(SHOTS, "offboard-asked.png") });
 
   await expect.poll(() => mailboxOf(sandbox.homeDir, RESTER).length, { timeout: 20_000 }).toBe(1);
@@ -108,13 +112,23 @@ test("the seat's Offboard and Offboard and continue send the agent the prompt fo
   await page.keyboard.press("Escape");
   await expect(rest).toBeHidden({ timeout: 5_000 });
 
-  // Offboard and continue: the prompt names --continue and the fresh session.
-  const cont = await openSessions(page, CONTINUER);
-  await cont.getByTestId("seat-offboard-continue").click();
-  const contProgress = cont.getByTestId("seat-offboard-progress");
-  await expect(contProgress).toHaveAttribute("data-stage", "asked", { timeout: 20_000 });
-  await expect(contProgress).toHaveAttribute("data-mode", "continue");
-  await expect(contProgress).toContainText("New session started");
+  // The Sessions tab follows the offboard, and starts none itself.
+  const sessions = await openSessions(page, RESTER);
+  const restProgress = sessions.getByTestId("seat-offboard-progress");
+  await expect(restProgress).toHaveAttribute("data-stage", "asked", { timeout: 20_000 });
+  await expect(restProgress).toHaveAttribute("data-mode", "rest");
+  await expect(restProgress).toContainText("Asked");
+  await expect(restProgress).toContainText("Notes saved");
+  await expect(restProgress).toContainText("Session closed, seat resting");
+  await expect(sessions.getByTestId("seat-offboard").getByRole("button")).toHaveCount(0);
+  await sessions.screenshot({ path: join(SHOTS, "sessions-tab.png") });
+  await page.keyboard.press("Escape");
+  await expect(sessions).toBeHidden({ timeout: 5_000 });
+
+  // Ask to offboard: the prompt names --continue and the fresh session.
+  const cont = await openOffboard(page, CONTINUER, "Continuer");
+  await cont.getByTestId("seat-offboard-ask-continue").click();
+  await expect(cont.getByTestId("seat-offboard-status")).toHaveText("Asked to offboard and continue.", { timeout: 20_000 });
   await cont.screenshot({ path: join(SHOTS, "offboard-continue-asked.png") });
 
   await expect.poll(() => mailboxOf(sandbox.homeDir, CONTINUER).length, { timeout: 20_000 }).toBe(1);

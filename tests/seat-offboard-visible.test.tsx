@@ -150,8 +150,9 @@ describe("a failed offboard, at the offboard controls", () => {
     expect(alert?.textContent).toBe(
       "Offboard did not finish: The seat is no longer on its canvas. The session is still open; ask the agent to offboard again.",
     );
-    // The buttons work again: the operator can ask once more.
-    expect(host.querySelector<HTMLButtonElement>('[data-testid="seat-offboard-rest"]')?.disabled).toBe(false);
+    // The panel starts no offboard itself: it says where the buttons are.
+    expect(host.querySelector("button")).toBeNull();
+    expect(host.querySelector('[data-testid="seat-offboard-where"]')?.textContent).toContain("popup above its card");
   });
 
   it("shows no alert while the close is under way", async () => {

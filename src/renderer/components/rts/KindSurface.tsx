@@ -62,6 +62,7 @@ import {
   RegionPageDefaultsControl,
 } from "../InspectorFields";
 import { KindActions, EdgePairStrip, KindKey } from "./RtsControls";
+import { SeatOffboardKindKey } from "./SeatOffboardKey";
 import "./rts-controls.css";
 
 const ICON = 12;
@@ -412,11 +413,16 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
 
   if (classified.surface === "kind:agent" && targets.length > 0) {
     return (
-      <MultiPromptComposer
-        key={ownerIdentity}
-        ownerIdentity={ownerIdentity}
-        targets={targets}
-      />
+      <>
+        <div className="rts-kind-strip" role="toolbar" aria-label="Actions for the selected agents">
+          <SeatOffboardKindKey nodeIds={targets.map((target) => target.nodeId)} />
+        </div>
+        <MultiPromptComposer
+          key={ownerIdentity}
+          ownerIdentity={ownerIdentity}
+          targets={targets}
+        />
+      </>
     );
   }
 
@@ -536,6 +542,7 @@ export function KindSurface() {
         <span className="rts-kind-kind-label">{stripLabel}</span>
         <div className="rts-kind-strip" role="toolbar" aria-label={`${stripLabel} actions`}>
           {hasKindActions ? <KindActions node={node} /> : null}
+          {kind === "agent" ? <SeatOffboardKindKey nodeIds={[node.id]} /> : null}
           {isFreeNote ? (
             <KindKey
               label="Edit note"
