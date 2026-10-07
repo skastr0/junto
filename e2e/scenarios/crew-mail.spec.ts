@@ -184,8 +184,10 @@ test("mail [fake-tui]: sent mail is delivered at once with one PTY paste", async
     expect(payload.endsWith(`junto msg read ${messageId}`)).toBe(true);
 
     // Physical truth: the fake's input took exactly one paste of that line.
+    // B has never run `junto onboard`, so its mail carries the pointer.
+    const typed = composeMessageDeliveryPayload(message, { onboarded: false });
     await expect
-      .poll(async () => pastesOf(await seatBHandle.stdinLog(), payload), {
+      .poll(async () => pastesOf(await seatBHandle.stdinLog(), typed), {
         timeout: 10_000,
       })
       .toBe(1);
