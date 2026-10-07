@@ -119,6 +119,7 @@ export const useSeatOffboard = (nodeIds: ReadonlyArray<string>, ops: SeatOffboar
   };
 
   const pressNow = (): void => {
+    if (busy !== undefined) return;
     if (armed) {
       disarm();
       void run("now", "rest");
@@ -285,7 +286,10 @@ export function SeatOffboardMenuRows({
     <>
       <button
         aria-label={count === 1 ? "Ask the agent to offboard and continue" : `Ask ${agents} to offboard and continue`}
-        disabled={busy !== undefined}
+        // Never disabled while an action runs: a disabled button drops the
+        // keyboard, and the menu's arrows and Escape go with it. A press
+        // during a run is ignored instead.
+        aria-busy={busy !== undefined}
         data-testid="menu-offboard-ask"
         data-tone={tone("ask")}
         onClick={() => void run("ask", "continue")}
@@ -306,7 +310,8 @@ export function SeatOffboardMenuRows({
               ? "Offboard now: close this agent's session without notes"
               : `Offboard now: close the sessions of ${agents} without notes`
         }
-        disabled={busy !== undefined || now.disabled}
+        disabled={now.disabled}
+        aria-busy={busy !== undefined}
         data-testid="menu-offboard-now"
         data-armed={armed ? "true" : undefined}
         data-tone={tone("now")}

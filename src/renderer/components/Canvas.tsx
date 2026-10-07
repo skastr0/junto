@@ -41,7 +41,7 @@ import {
 } from "../lib/impact-mode";
 import { regionLabelDrag$ } from "../lib/region-label-drag";
 import { canvasZoomRequest$ } from "../lib/canvas-zoom";
-import { isOperatorModalOpen } from "../lib/operator-modal";
+import { useMenuDismiss } from "../lib/menu-dismiss";
 import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
 import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
@@ -842,35 +842,6 @@ const makeAddActions = (
     dismiss();
   },
 });
-
-// Escape / outside-pointerdown dismissal shared by both menu hosts.
-const useMenuDismiss = (active: boolean, dismiss: () => void) => {
-  useEffect(() => {
-    if (!active) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      // An operator modal above the canvas owns Escape while it is open.
-      if (isOperatorModalOpen()) return;
-      event.preventDefault();
-      dismiss();
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (
-        target instanceof Element &&
-        target.closest("[data-canvas-menu-surface]")
-      ) return;
-      dismiss();
-    };
-    // focus-law: Escape-only dismissal of the open canvas menu.
-    window.addEventListener("keydown", onKeyDown);
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, [active, dismiss]);
-};
 
 const MENU_ITEMS = "button:not(:disabled)";
 
