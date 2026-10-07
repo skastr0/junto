@@ -1237,15 +1237,16 @@ const makeKernelService = (
     nodeId: string,
   ): Effect.Effect<boolean, unknown> =>
     Effect.gen(function* () {
-      const generation = activeGeneration();
-      if (!generationIsActive(generation)) return false;
-
-      // Every refusal below names itself: a silent false here previously left
-      // mail pending forever with no operator-visible trace anywhere.
+      // Every refusal names itself: a silent false here previously left mail
+      // pending forever with no operator-visible trace anywhere.
       const refuse = (reason: string): false => {
         console.error(`[wake] refused ${canvasName}/${nodeId}: ${reason}`);
         return false;
       };
+      const generation = activeGeneration();
+      if (!generationIsActive(generation)) {
+        return refuse("the kernel is not running (suspended, or not started)");
+      }
       // Node-scoped: every question below this line is structural — the seat
       // on one node, its compiled actor reference and its canvas's pause
       // state. None of them reads a Work lane. The model answers from the
@@ -1301,9 +1302,26 @@ const makeKernelService = (
     // cutting gets a fresh one first, so it wakes into that. Before the wake
     // reads the node, because the wake starts the session the node names. It
     // never throws and never refuses the wake.
-    cutBeforeWake({ canvasName, seatId: nodeId }).then(() =>
-      run(wakeManagedSeatProgram(canvasName, nodeId)),
-    );
+    cutBeforeWake({ canvasName, seatId: nodeId })
+      .then(() => {
+        // Said once per wake, so a log with no wake line means nobody asked.
+        console.info(`[wake] asked ${canvasName}/${nodeId}`);
+        return run(wakeManagedSeatProgram(canvasName, nodeId));
+      })
+      .then(
+        (started) => {
+          if (started) console.info(`[wake] started ${canvasName}/${nodeId}`);
+          return started;
+        },
+        (error: unknown) => {
+          // The callers of a wake treat a throw as "not woken" and say
+          // nothing; this is the one place the reason can be written down.
+          console.error(
+            `[wake] failed ${canvasName}/${nodeId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return false;
+        },
+      );
 
   // --- world hydration + mid-cycle resync -------------------------------------
 
