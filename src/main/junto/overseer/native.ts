@@ -30,7 +30,6 @@ import { seatParts, type SeatParts } from "@shared/model/seat-parts";
 import { INTERRUPT_BYTE } from "../term/drive";
 import type { ControlLease } from "../term/local-host";
 import { asNodeId, inPaintOrder, type Canvas, type Node, type NodeOf } from "@shared/model";
-import { canvasFromDocument } from "@shared/model/from-document";
 import { modelError } from "../model/records";
 import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
