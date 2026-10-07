@@ -14,8 +14,10 @@ import { installFixtureDocument } from "../harness/model";
  * canvas from the top bar is then the same canvas delivery consults) and
  * authored at runtime through the app — same gestures as a live session.
  *
- * Opt-in: JUNTO_REAL_WAKE=1. The seat is a real Claude Code, so the run
- * needs one that is installed and signed in, and it spends a real turn. The
+ * Opt-in, and only on the operator's say-so: JUNTO_REAL_WAKE=1. The seat is
+ * a real Claude Code started in the operator's own home, and the run types
+ * mail into it and spends a real turn. Nobody sets the flag to confirm the
+ * recipe or to see it green without the operator having asked for it. The
  * same law on a fake harness is held by seat-message, seat-offboard and
  * mail-delivered-once-across-restart, which run everywhere.
  *
@@ -131,7 +133,10 @@ const seatPid = (): number | null => {
 };
 
 test("mail wakes a cold seat and honors an operator stop", async () => {
-  test.skip(!OPT_IN, "opt-in: JUNTO_REAL_WAKE=1 (a real, signed-in Claude Code)");
+  test.skip(
+    !OPT_IN,
+    "needs the operator's go-ahead: JUNTO_REAL_WAKE=1 starts a real Claude Code in the operator's own home and types into it",
+  );
   test.skip(!claudeOnPath(), "claude not installed");
   test.setTimeout(420_000);
   // Junto's state stays in the sandbox. PATH and HOME are the deliberate
