@@ -4,7 +4,9 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
+import type { CanvasNode } from "@shared/canvas";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { Gauge, Radio, Settings2, Timer } from "lucide-react";
@@ -50,7 +52,7 @@ import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
-import { useDocumentNode } from "../../lib/document-node";
+import { documentNodeAt, useDocumentNode } from "../../lib/document-node";
 import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { SeatCard } from "./SeatCard";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
@@ -245,6 +247,25 @@ function TimerCard({ canvas, id }: { readonly canvas: string; readonly id: strin
 // Freeform note body: instrument mono for body; condensed display for heads
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
+/** The kinds whose card body still takes the document's node. */
+const DOCUMENT_BODY_KINDS: ReadonlySet<string> = new Set(["task", "requests", "artifacts", "board", "pad", "sheet", "git"]);
+
+/**
+ * Draws what still takes the document's node, and follows that node itself,
+ * so the card around it does not render when the node moves. Nothing is drawn
+ * until the document holds the node.
+ */
+function WithDocumentNode({
+  id,
+  children,
+}: {
+  readonly id: string;
+  readonly children: (node: CanvasNode) => ReactNode;
+}): ReactNode {
+  const node = useDocumentNode(id);
+  return node === undefined ? null : children(node);
+}
+
 export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   countRender("text-card");
   const canvasName = use$(state$.canvasName);
@@ -255,9 +276,9 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   );
   const color = useNodeValue(canvasName, id, (node) => node?.color);
   // The bodies that have not moved onto the store still take the document's
-  // node. It can be a moment behind the store, so each is drawn only once the
-  // document holds the node.
-  const node = useDocumentNode(id);
+  // node. Each follows it for itself (WithDocumentNode), so the card around
+  // them does not render when its node moves; what only needs the node at the
+  // moment of an act reads it then.
   const isLabel = kind === "label";
   const isFreeNote = kind === "note";
   const isTerminal = kind === "terminal";
@@ -269,6 +290,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
 
   // The note editor opens on the document's node, with the store's text.
   const openNote = (shown: string = text): void => {
+    const node = documentNodeAt(id);
     if (node?.type === "text") openNoteSurface({ ...node, text: shown });
   };
   const [editing, setEditing] = useState(false);
@@ -440,61 +462,91 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             {isAgent ? <StartParamsToolbarAction seatId={id} /> : null}
             {isAgent ? <SeatMessageToolbarAction id={id} /> : null}
             {isAgent ? <SeatOffboardToolbarAction canvas={canvasName} id={id} /> : null}
-            {node ? <TerminalToolbarActions node={node} /> : null}
+            <WithDocumentNode id={id}>{(node) => <TerminalToolbarActions node={node} />}</WithDocumentNode>
           </>
         ) : isAgent ? (
           <>
             <CustomizeAgentToolbarAction seatId={id} />
-            {ACP_CHAT_SURFACE_HIDDEN || !node ? null : <AgentChatToolbarActions node={node} />}
+            {ACP_CHAT_SURFACE_HIDDEN ? null : (
+              <WithDocumentNode id={id}>{(node) => <AgentChatToolbarActions node={node} />}</WithDocumentNode>
+            )}
           </>
-        ) : entityKind === "task" && TASKS_ENABLED && node ? (
-          <TaskToolbarActions node={node} />
+        ) : entityKind === "task" && TASKS_ENABLED ? (
+          <WithDocumentNode id={id}>{(node) => <TaskToolbarActions node={node} />}</WithDocumentNode>
         ) : isCron ? (
           <CronScheduleToolbarAction onOpen={() => setCronScheduleOpen(true)} />
         ) : undefined
       }
 
     >
-      {workDetail && node && workDetailAllowed && entityKind === "task" ? (
-        <TasksDetail
-          node={node}
-          initialItemId={workDetailItemId}
-          onClose={() => {
-            setWorkDetail(false);
-            setWorkDetailItemId(undefined);
-          }}
-        />
+      {workDetail && workDetailAllowed && entityKind === "task" ? (
+        <WithDocumentNode id={id}>
+          {(node) => (
+            <TasksDetail
+              node={node}
+              initialItemId={workDetailItemId}
+              onClose={() => {
+                setWorkDetail(false);
+                setWorkDetailItemId(undefined);
+              }}
+            />
+          )}
+        </WithDocumentNode>
       ) : null}
-      {workDetail && node && workDetailAllowed && entityKind === "requests" ? (
-        <RequestsDetail
-          node={node}
-          initialItemId={workDetailItemId}
-          onClose={() => {
-            setWorkDetail(false);
-            setWorkDetailItemId(undefined);
-          }}
-        />
+      {workDetail && workDetailAllowed && entityKind === "requests" ? (
+        <WithDocumentNode id={id}>
+          {(node) => (
+            <RequestsDetail
+              node={node}
+              initialItemId={workDetailItemId}
+              onClose={() => {
+                setWorkDetail(false);
+                setWorkDetailItemId(undefined);
+              }}
+            />
+          )}
+        </WithDocumentNode>
       ) : null}
-      {workDetail && node && workDetailAllowed && entityKind === "board" ? (
-        <BoardDetail node={node} onClose={() => setWorkDetail(false)} />
+      {workDetail && workDetailAllowed && entityKind === "board" ? (
+        <WithDocumentNode id={id}>
+          {(node) => (
+            <BoardDetail node={node} onClose={() => setWorkDetail(false)} />
+          )}
+        </WithDocumentNode>
       ) : null}
-      {workDetail && node && workDetailAllowed && entityKind === "pad" ? (
-        <PadDetail node={node} onClose={() => setWorkDetail(false)} />
+      {workDetail && workDetailAllowed && entityKind === "pad" ? (
+        <WithDocumentNode id={id}>
+          {(node) => (
+            <PadDetail node={node} onClose={() => setWorkDetail(false)} />
+          )}
+        </WithDocumentNode>
       ) : null}
-      {workDetail && node && workDetailAllowed && entityKind === "sheet" ? (
-        <SheetDetail node={node} onClose={() => setWorkDetail(false)} />
+      {workDetail && workDetailAllowed && entityKind === "sheet" ? (
+        <WithDocumentNode id={id}>
+          {(node) => (
+            <SheetDetail node={node} onClose={() => setWorkDetail(false)} />
+          )}
+        </WithDocumentNode>
       ) : null}
-      {workDetail && node && entityKind === "git" ? (
-        <GitDetail node={node} onClose={() => setWorkDetail(false)} />
+      {workDetail && entityKind === "git" ? (
+        <WithDocumentNode id={id}>
+          {(node) => (
+            <GitDetail node={node} onClose={() => setWorkDetail(false)} />
+          )}
+        </WithDocumentNode>
       ) : null}
-      {workDetail && node && workDetailAllowed && entityKind === "artifacts" ? (
-        <ArtifactsDetail
-          node={node}
-          onClose={() => {
-            setWorkDetail(false);
-            setWorkDetailItemId(undefined);
-          }}
-        />
+      {workDetail && workDetailAllowed && entityKind === "artifacts" ? (
+        <WithDocumentNode id={id}>
+          {(node) => (
+            <ArtifactsDetail
+              node={node}
+              onClose={() => {
+                setWorkDetail(false);
+                setWorkDetailItemId(undefined);
+              }}
+            />
+          )}
+        </WithDocumentNode>
       ) : null}
       {isLabel ? (
         editing ? (
@@ -585,6 +637,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             // Actors / terminals / sinks: open the live surface (same as
             // command-group re-tap activate). Cron keeps its schedule modal.
             if (managedTerminal || isAgent || isWorkSurface) {
+              const node = documentNodeAt(id);
               if (!node) return;
               const result = activateNodeSurface(node);
               if (result.opened) return;
@@ -608,11 +661,10 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             openInline();
           }}
         >
-          {cronScheduleOpen && isCron && node ? (
-            <CronScheduleSurface
-              node={node}
-              onClose={() => setCronScheduleOpen(false)}
-            />
+          {cronScheduleOpen && isCron ? (
+            <WithDocumentNode id={id}>
+              {(node) => <CronScheduleSurface node={node} onClose={() => setCronScheduleOpen(false)} />}
+            </WithDocumentNode>
           ) : null}
           {entityKind === "watcher" ? (
             <WatcherCard canvas={canvasName} id={id} label="gauge" />
@@ -636,44 +688,50 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}
             />
-          ) : node === undefined ? null : entityKind === "task" ? (
-            <TasksCard
-              node={node}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
-          ) : entityKind === "requests" ? (
-            <RequestsCard
-              node={node}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
-          ) : entityKind === "artifacts" ? (
-            <ArtifactsCard node={node} />
-          ) : entityKind === "board" ? (
-            <BoardCard
-              node={node}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
-          ) : entityKind === "pad" ? (
-            <PadCard
-              node={node}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
-          ) : entityKind === "sheet" ? (
-            <SheetCard
-              node={node}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
-          ) : entityKind === "git" ? (
-            <GitCard
-              node={node}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
+          ) : DOCUMENT_BODY_KINDS.has(entityKind ?? "") ? (
+            <WithDocumentNode id={id}>
+              {(node) =>
+                entityKind === "task" ? (
+                  <TasksCard
+                    node={node}
+                    renaming={renaming}
+                    onRenameDone={() => setRenaming(false)}
+                  />
+                ) : entityKind === "requests" ? (
+                  <RequestsCard
+                    node={node}
+                    renaming={renaming}
+                    onRenameDone={() => setRenaming(false)}
+                  />
+                ) : entityKind === "artifacts" ? (
+                  <ArtifactsCard node={node} />
+                ) : entityKind === "board" ? (
+                  <BoardCard
+                    node={node}
+                    renaming={renaming}
+                    onRenameDone={() => setRenaming(false)}
+                  />
+                ) : entityKind === "pad" ? (
+                  <PadCard
+                    node={node}
+                    renaming={renaming}
+                    onRenameDone={() => setRenaming(false)}
+                  />
+                ) : entityKind === "sheet" ? (
+                  <SheetCard
+                    node={node}
+                    renaming={renaming}
+                    onRenameDone={() => setRenaming(false)}
+                  />
+                ) : entityKind === "git" ? (
+                  <GitCard
+                    node={node}
+                    renaming={renaming}
+                    onRenameDone={() => setRenaming(false)}
+                  />
+                ) : null
+              }
+            </WithDocumentNode>
           ) : (
             <NoteMarkdown source={text} />
           )}
