@@ -55,14 +55,38 @@ test("the top bar's actions stay in the window with the sometimes-there controls
         ),
       );
 
-    // Nothing extra showing: 960, 768 and 640 of the bar's own pixels.
+    const frame = async (name: string): Promise<void> => {
+      if (!SHOTS) return;
+      const png = await app.evaluate(async ({ BrowserWindow }) => {
+        const image = await BrowserWindow.getAllWindows()[0]?.webContents.capturePage();
+        return image?.toPNG().toString("base64") ?? "";
+      });
+      await writeFile(join(SHOTS, `${name}.png`), Buffer.from(png, "base64"));
+    };
+    const settingsEnd = async (): Promise<number> => {
+      const box = (await settings.boundingBox())!;
+      return box.x + box.width;
+    };
+
+    // Nothing extra showing: 960, 768 and 640 of the bar's own pixels. Where
+    // the bar fitted without the backstop, nothing has moved. Where it did
+    // not (a long canvas name at 640), Settings is now inside the window.
     for (const percent of [100, 125, 150] as const) {
       await setSize(percent);
+      const width = await page.evaluate(() => window.innerWidth);
       const now = await rects();
+      const nowEnd = await settingsEnd();
       const style = await page.addStyleTag({ content: WITHOUT });
       const before = await rects();
+      const beforeEnd = await settingsEnd();
+      await frame(`quiet-${String(percent)}-without`);
       await style.evaluate((node) => node.remove());
-      expect(now, `the bar is laid out as before at ${String(percent)} percent`).toBe(before);
+      await frame(`quiet-${String(percent)}-with`);
+      if (beforeEnd <= width) {
+        expect(now, `the bar is laid out as before at ${String(percent)} percent`).toBe(before);
+      } else {
+        expect(nowEnd, `Settings is inside the window at ${String(percent)} percent`).toBeLessThanOrEqual(width);
+      }
     }
 
     // The worst case, at 150 percent: all three sometimes-there controls.
@@ -92,13 +116,7 @@ test("the top bar's actions stay in the window with the sometimes-there controls
       });
       expect(hit, `${name} takes a press`).toBe(true);
     }
-    if (SHOTS) {
-      const png = await app.evaluate(async ({ BrowserWindow }) => {
-        const image = await BrowserWindow.getAllWindows()[0]?.webContents.capturePage();
-        return image?.toPNG().toString("base64") ?? "";
-      });
-      await writeFile(join(SHOTS, "worst-case-150.png"), Buffer.from(png, "base64"));
-    }
+    await frame("worst-case-150");
     await settings.click();
     await expect(page.locator(".settings-panel__close")).toBeVisible();
   } finally {
