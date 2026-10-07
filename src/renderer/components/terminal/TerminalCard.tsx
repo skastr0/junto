@@ -7,7 +7,7 @@ import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
 import { subscribeSeatAwareness } from "../../lib/seat-awareness";
-import { seatCardStatus } from "../../lib/seat-card-status";
+import { seatCardStatus, seatFaceOfNode } from "../../lib/seat-card-status";
 import { useNodeAttentionReasons } from "../../lib/occupancy-feed";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
@@ -123,7 +123,7 @@ export function TerminalCard({
   }, [native?.bindingId, native?.hostId, running]);
 
   const status = seatCardStatus({
-    node,
+    face: seatFaceOfNode(node),
     seatEvent,
     needsLook: needsLook === true,
     session,

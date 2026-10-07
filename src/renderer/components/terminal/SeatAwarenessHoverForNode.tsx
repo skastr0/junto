@@ -2,7 +2,8 @@
  * SeatAwarenessHoverForNode — the advisory hover, bound to a live seat node.
  *
  * The hover is a leaf that takes the canonical status and an assessment. This
- * binds it to a node: it resolves the binding, reads the two stores, derives
+ * binds it to a node by canvas and id: it reads the seat or terminal from the
+ * node store one field at a time, reads the two live stores, derives
  * the canonical status through the same `seatCardStatus` the card body uses,
  * and renders the hover.
  *
@@ -13,32 +14,43 @@
 
 import type { ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
-import { useNodeAttentionReasons } from "../../lib/occupancy-feed";
+import type { Node } from "@shared/model";
+import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
 import { agentSeat$, seatNeedsLook } from "../../lib/agent-seat-state";
 import { seatCardStatus } from "../../lib/seat-card-status";
 import { seatAwareness$ } from "../../lib/seat-awareness";
 import { terminal$ } from "../../lib/terminal-state";
+import { useNodeValue } from "../../lib/use-model";
 import { SeatAwarenessHover } from "./SeatAwarenessHover";
 
+/** A node that holds a terminal session: a seat or a plain terminal. */
+const seated = (node: Node | undefined) =>
+  node !== undefined && (node.kind === "agent" || node.kind === "terminal") ? node : undefined;
+
 export function SeatAwarenessHoverForNode({
-  node,
+  canvas,
+  id,
   graphBlocked = false,
   className,
 }: {
-  readonly node: CanvasNode;
+  readonly canvas: string;
+  readonly id: string;
   readonly graphBlocked?: boolean;
   readonly className?: string | undefined;
 }): ReactNode {
-  const bindingId = node.ether?.terminal?.bindingId ?? "";
-  const seatEvent = use$(agentSeat$.byBindingId[bindingId]);
-  const session = use$(terminal$.sessionByBindingId[bindingId]);
-  const awarenessAssessment = use$(seatAwareness$.byBindingId[bindingId]);
-  const attentionReasons = useNodeAttentionReasons(node);
+  const bindingId = useNodeValue(canvas, id, (node) => seated(node)?.bindingId);
+  const name = useNodeValue(canvas, id, (node) => (seated(node)?.label ?? "").split("\n")[0]?.trim() ?? "");
+  const launch = useNodeValue(canvas, id, (node) => seated(node)?.launch);
+  const harness = useNodeValue(canvas, id, (node) => (node?.kind === "agent" ? node.harness : undefined));
+  const agentKey = useNodeValue(canvas, id, (node) => (node?.kind === "agent" ? node.agentKey : undefined));
+  const seatEvent = use$(agentSeat$.byBindingId[bindingId ?? ""]);
+  const session = use$(terminal$.sessionByBindingId[bindingId ?? ""]);
+  const awarenessAssessment = use$(seatAwareness$.byBindingId[bindingId ?? ""]);
+  const attentionReasons = useSeatAttentionReasons(agentKey);
   const status = seatCardStatus({
-    node,
+    face: bindingId === undefined ? undefined : { id, name, bindingId, harness, launch },
     seatEvent,
-    needsLook: seatNeedsLook(bindingId),
+    needsLook: seatNeedsLook(bindingId ?? ""),
     session,
     graphBlocked,
     attentionReasons,

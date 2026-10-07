@@ -45,21 +45,46 @@ export type SeatCardStatus = {
   readonly processName: string | undefined;
 };
 
+/**
+ * What a seat or terminal card needs to know of its node, whoever holds the
+ * node: the document today, the node store once a card reads from it.
+ */
+export type SeatFace = {
+  readonly id: string;
+  /** The name the operator gave it, first line only; "" when it has none. */
+  readonly name: string;
+  readonly bindingId: string;
+  readonly harness?: string | undefined;
+  readonly launch?: { readonly kind: string; readonly argv?: readonly string[] } | undefined;
+  /** The label it was spawned under, shown when it has no name. */
+  readonly spawnLabel?: string | undefined;
+};
+
+/** The face of a document node, or undefined when it holds no terminal. */
+export const seatFaceOfNode = (node: CanvasNode): SeatFace | undefined => {
+  const binding = resolveTerminalBinding(node);
+  if (binding?.kind !== "native") return undefined;
+  return {
+    id: node.id,
+    name: node.type === "text" ? (node.text.split("\n")[0] ?? "").trim() : "",
+    bindingId: binding.bindingId,
+    harness: typeof node.ether?.terminal?.harness === "string" ? node.ether.terminal.harness : undefined,
+    launch: binding.launch,
+    spawnLabel: binding.label,
+  };
+};
+
 export const seatCardStatus = (input: {
-  readonly node: CanvasNode;
+  readonly face: SeatFace | undefined;
   readonly seatEvent: AgentSeatStateEvent | undefined;
   readonly needsLook: boolean | undefined;
   readonly session: TerminalSessionSummary | undefined;
   readonly graphBlocked: boolean;
   readonly attentionReasons: ReadonlyArray<string>;
 }): SeatCardStatus | undefined => {
-  const { node, seatEvent, session } = input;
-  const binding = resolveTerminalBinding(node);
-  const native = binding?.kind === "native" ? binding : undefined;
-  if (native === undefined) return undefined;
+  const { face, seatEvent, session } = input;
+  if (face === undefined) return undefined;
 
-  const firstLine =
-    node.type === "text" ? (node.text.split("\n")[0] ?? "").trim() : "";
   const seatState = seatEvent?.state;
   const presentation = presentationForSeat(seatState, input.needsLook === true);
   const exitReason = session?.exitReason;
@@ -71,14 +96,10 @@ export const seatCardStatus = (input: {
   const activeProcess =
     session?.status === "starting" ||
     (session?.status === "running" && isActiveProcessLabel(processName));
-  const harness =
-    typeof node.ether?.terminal?.harness === "string"
-      ? node.ether.terminal.harness
-      : undefined;
-  const managedSeat = harness !== undefined && isHarnessId(harness);
+  const managedSeat = face.harness !== undefined && isHarnessId(face.harness);
   const activity = cardMark(
     seatFactsForNode({
-      nodeId: node.id,
+      nodeId: face.id,
       seatEvent,
       session,
       needsLook: input.needsLook === true,
@@ -106,12 +127,12 @@ export const seatCardStatus = (input: {
     processSubtitle ||
     (presentation === "done" ? "ready — review response" : undefined) ||
     (processLive && !activeProcess ? "seated" : undefined) ||
-    launchSummary(native.launch);
+    launchSummary(face.launch);
 
   return {
-    bindingId: native.bindingId,
+    bindingId: face.bindingId,
     managedSeat,
-    label: firstLine || native.label || "terminal",
+    label: face.name || face.spawnLabel || "terminal",
     seatState,
     presentation,
     subtitle,

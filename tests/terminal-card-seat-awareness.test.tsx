@@ -28,6 +28,8 @@ import {
   resetSeatAwareness,
 } from "../src/renderer/lib/seat-awareness";
 import type { SeatAwarenessAssessment } from "../src/renderer/lib/seat-awareness-contract";
+import { followDocument } from "../src/renderer/lib/model-from-document";
+import { EMPTY_DOC, state$ } from "../src/renderer/lib/state";
 import {
   applyAgentSeatStateEvent,
   resetAgentSeatState,
@@ -84,19 +86,33 @@ beforeEach(() => {
   resetSeatAwareness();
 });
 
+let stopFollowing: (() => void) | undefined;
+
 afterEach(() => {
   resetAgentSeatState();
   resetSeatAwareness();
+  stopFollowing?.();
+  stopFollowing = undefined;
+  state$.canvasName.set("");
+  state$.doc.set(EMPTY_DOC);
 });
 
-/** The card body and the hover for one node, as the node shell renders them. */
-const renderSeat = (node: CanvasNode): string =>
-  renderToStaticMarkup(
+/**
+ * The card body and the hover for one node, as the node shell renders them.
+ * The hover reads the node store, so the node is put on the open canvas.
+ */
+const renderSeat = (node: CanvasNode): string => {
+  stopFollowing?.();
+  state$.canvasName.set("factory");
+  state$.doc.set({ nodes: [node], edges: [] });
+  stopFollowing = followDocument();
+  return renderToStaticMarkup(
     <>
       <TerminalCard node={node} />
-      <SeatAwarenessHoverForNode node={node} />
+      <SeatAwarenessHoverForNode canvas="factory" id={node.id} />
     </>,
   );
+};
 
 describe("TerminalCard seat awareness", () => {
   it("mounts the hover with the assessment and echoes the deterministic status", () => {

@@ -46,7 +46,7 @@ export function SeatCard({
   const bindingId = useNodeFieldOf(canvas, id, "agent", (seat) => seat.bindingId);
   const hostId = useNodeFieldOf(canvas, id, "agent", (seat) => seat.host);
   const overseer = useNodeFieldOf(canvas, id, "agent", (seat) => seat.overseer) === true;
-  const agentKey = useNodeFieldOf(canvas, id, "agent", (seat) => seat.name);
+  const agentKey = useNodeFieldOf(canvas, id, "agent", (seat) => seat.agentKey);
 
   const seatEvent = use$(agentSeat$.byBindingId[bindingId ?? NO_BINDING]);
   const needsLook = use$(agentSeat$.needsLookByBindingId[bindingId ?? NO_BINDING]);

@@ -381,7 +381,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         <>
           {/* The advisory hover first: it is the status echo, collaboration is
               the action. Both live outside the clipped card body. */}
-          <SeatAwarenessHoverForNode node={node} graphBlocked={data.blocked} />
+          <SeatAwarenessHoverForNode canvas={canvasName} id={node.id} graphBlocked={data.blocked} />
           {isAgent ? (
             <SeatCollaborationBlock nodeId={node.id} className="mt-1" />
           ) : null}
