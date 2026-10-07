@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { PenLine } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
 import type { Pad } from "@shared/pad";
 import { DIM, INK } from "../../lib/theme";
 import { themeMode$ } from "../../lib/theme-mode";
@@ -10,7 +9,9 @@ import { PAD_ENABLED } from "@shared/features";
 import { getJuntoApi } from "../../lib/junto-api";
 import { useWorkSink } from "../../lib/use-work-sink";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
-import { editText } from "../../lib/mutations";
+import { commitCommands } from "../../lib/mutations";
+import { renamed } from "../../lib/model-edits";
+import { useNodeFieldOf } from "../../lib/use-model";
 import { padIsEmpty } from "./pad-editor-model";
 import { PadGlyph } from "./PadGlyph";
 import { PadSvg } from "./PadSvg";
@@ -25,25 +26,24 @@ function AmberDecal({ children }: { readonly children: ReactNode }) {
 }
 
 export function PadCard({
-  node,
+  nodeId,
   renaming = false,
   onRenameDone,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly renaming?: boolean;
   readonly onRenameDone?: () => void;
 }) {
   const canvas = use$(state$.canvasName) || "";
-  const sink = useWorkSink("pad", canvas, node.id, PAD_ENABLED);
+  const sink = useWorkSink("pad", canvas, nodeId, PAD_ENABLED);
   const glance = sink.page.kind === "pad" ? sink.page.glance : undefined;
   const shapeCount = glance?.shapeCount ?? 0;
   const unread = glance?.unreadPinCount ?? 0;
   const revision = glance?.revision ?? 0;
   const theme = use$(themeMode$);
   const [pad, setPad] = useState<Pad | null>(null);
-  const rawText = node.type === "text" ? node.text : "";
-  const firstLine = rawText.split("\n")[0] ?? "";
-  const label = firstLine || "pad";
+  const authoredLabel = useNodeFieldOf(canvas, nodeId, "pad", (node) => node.label);
+  const label = authoredLabel?.trim() || "pad";
 
   useEffect(() => {
     // A gated pad keeps its historical card but fetches nothing: its preload
@@ -54,7 +54,7 @@ export function PadCard({
       return;
     }
     let cancelled = false;
-    void api.workPadRead(canvas, node.id).then((result) => {
+    void api.workPadRead(canvas, nodeId).then((result) => {
       if (cancelled || !result.ok) return;
       if (padIsEmpty(result.data.pad)) {
         setPad(null);
@@ -65,11 +65,10 @@ export function PadCard({
     return () => {
       cancelled = true;
     };
-  }, [canvas, node.id, revision]);
+  }, [canvas, nodeId, revision]);
 
   const commitRename = (nextFirst: string) => {
-    const rest = rawText.split("\n").slice(1).join("\n");
-    editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
+    commitCommands((canvas) => renamed(canvas, nodeId, nextFirst));
   };
 
   return (

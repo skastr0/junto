@@ -3,11 +3,7 @@ import { useWorkMail } from "../../lib/use-work-mail";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Bell, Check, Inbox, ListChecks, MessageSquareText, Package, Plus, Send, X } from "lucide-react";
-import type {
-  CanvasNode,
-  Part,
-  TaskState,
-} from "@shared/canvas";
+import type { Part, TaskState } from "@shared/work-model";
 import { TASKS_ENABLED } from "@shared/features";
 import type { WorkOpResult } from "@shared/ipc";
 import type { BoardPost, BoardTopic, BoardTopicView } from "@shared/work-model";
@@ -18,9 +14,8 @@ import {
   taskBrief,
 } from "@shared/task";
 import { needsHuman, sinkGlance, taskScanCounts } from "@shared/attention";
-import { tasksNodeIdentity } from "@shared/tasks-node-identity";
-import { requestsNodeName } from "@shared/requests-node-identity";
-import { boardNodeName } from "@shared/board-node-identity";
+import { taskBoardTitle, titleOf } from "@shared/model/title";
+import { renamed } from "../../lib/model-edits";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
@@ -28,10 +23,10 @@ import { Button } from "../ui/Button";
 import { Input, Textarea } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { editText, renameRequestsNode, renameTasksNode } from "../../lib/mutations";
+import { commitCommands } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
-import { useCanvas, useNodeFieldOf } from "../../lib/use-model";
+import { useCanvas, useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { boardAuthorLabel } from "../../lib/board-author";
 import { getJuntoApi } from "../../lib/junto-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
@@ -62,7 +57,7 @@ type SinkRenameProps = {
 
 /** Glance header: amber decal + title. Rename only via RTS pencil (no dbl-click). */
 function SinkGlanceHead({
-  node,
+  nodeId,
   fallback,
   displayLabel,
   decal,
@@ -70,26 +65,15 @@ function SinkGlanceHead({
   renaming = false,
   onRenameDone,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly fallback: string;
   readonly displayLabel?: string;
   readonly decal: ReactNode;
   readonly trailing?: ReactNode;
 } & SinkRenameProps) {
-  const rawText = node.type === "text" ? node.text : "";
-  const firstLine = rawText.split("\n")[0] ?? "";
-  const label = displayLabel ?? (firstLine || fallback);
+  const label = displayLabel ?? fallback;
   const commitRename = (nextFirst: string) => {
-    if (node.ether?.entity?.kind === "task") {
-      renameTasksNode(node.id, nextFirst);
-      return;
-    }
-    if (node.ether?.entity?.kind === "requests") {
-      renameRequestsNode(node.id, nextFirst);
-      return;
-    }
-    const rest = rawText.split("\n").slice(1).join("\n");
-    editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
+    commitCommands((canvas) => renamed(canvas, nodeId, nextFirst));
   };
   return (
     <div className="factory-glance__header flex items-center gap-2">
@@ -98,7 +82,7 @@ function SinkGlanceHead({
         {renaming && onRenameDone ? (
           <FirstLineRenameInput
             initial={label}
-            ariaLabel={`Rename ${node.ether?.entity?.kind === "task" ? "Tasks board" : fallback}`}
+            ariaLabel={`Rename ${fallback === "tasks" ? "Tasks board" : fallback}`}
             onCommit={commitRename}
             onDone={onRenameDone}
           />
@@ -171,15 +155,17 @@ export const stateHue = (state: TaskState): string => {
 
 /** Glance-grade sink: open count + input-required hot only. */
 export function TasksCard({
-  node,
+  nodeId,
   renaming = false,
   onRequestRename,
   onRenameDone,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
 } & SinkRenameProps) {
-  const { items } = useTaskItems(use$(state$.canvasName) || "", node.id);
-  const contract = node.ether?.tasks?.contract;
+  const { items } = useTaskItems(use$(state$.canvasName) || "", nodeId);
+  const canvas = use$(state$.canvasName) || "";
+  const contract = useNodeFieldOf(canvas, nodeId, "task", (node) => node.contract);
+  const name = useNodeValue(canvas, nodeId, (node) => taskBoardTitle(node?.kind === "task" ? node : undefined, nodeId).name);
   const { needsInput } = sinkGlance(items, contract);
   const { completed: completedCount } = taskScanCounts(items, contract);
   // "Open" = unfinished work the fleet can act on: claimable/submitted +
@@ -209,9 +195,9 @@ export function TasksCard({
   return (
     <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
       <SinkGlanceHead
-        node={node}
+        nodeId={nodeId}
         fallback="tasks"
-        displayLabel={tasksNodeIdentity(node).name}
+        displayLabel={name}
         decal={<ListChecks size={15} />}
         renaming={renaming}
         onRequestRename={onRequestRename}
@@ -229,7 +215,7 @@ export function TasksCard({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                openTaskCreateSurface(node);
+                openTaskCreateSurface(nodeId);
               }}
               onDoubleClick={(event) => {
                 event.preventDefault();
@@ -292,17 +278,18 @@ export function TasksCard({
 }
 
 export function RequestsCard({
-  node,
+  nodeId,
   renaming = false,
   onRequestRename,
   onRenameDone,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
 } & SinkRenameProps) {
   // Attention first (input-required / auth-required — the states that wait on
   // the operator), then the rest — newest first (ULID birth order) within each
   // group, matching requests lane SQL + RequestInbox.
-  const { items: requestItems } = useRequestItems(use$(state$.canvasName) || "", node.id);
+  const name = useNodeValue(use$(state$.canvasName) || "", nodeId, (node) => node?.kind === "requests" ? titleOf(node) : "requests");
+  const { items: requestItems } = useRequestItems(use$(state$.canvasName) || "", nodeId);
   const allItems = [...requestItems].sort((a, b) =>
     b.id.localeCompare(a.id),
   );
@@ -314,9 +301,9 @@ export function RequestsCard({
   return (
     <div className="factory-glance factory-glance--requests flex h-full w-full flex-col overflow-hidden" data-testid="requests-card">
       <SinkGlanceHead
-        node={node}
+        nodeId={nodeId}
         fallback="requests"
-        displayLabel={requestsNodeName(node)}
+        displayLabel={name}
         decal={<Inbox size={15} />}
         renaming={renaming}
         onRequestRename={onRequestRename}
@@ -344,21 +331,22 @@ export function RequestsCard({
 }
 
 export function BoardCard({
-  node,
+  nodeId,
   renaming = false,
   onRequestRename,
   onRenameDone,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
 } & SinkRenameProps) {
-  const { topics } = useBoardTopics(use$(state$.canvasName) || "", node.id);
+  const name = useNodeValue(use$(state$.canvasName) || "", nodeId, (node) => node?.kind === "board" ? titleOf(node) : "board");
+  const { topics } = useBoardTopics(use$(state$.canvasName) || "", nodeId);
   const unread = topics.reduce((sum, topic) => sum + (topic.unreadPostCount ?? 0), 0);
   return (
     <div className="factory-glance factory-glance--board flex h-full w-full flex-col overflow-hidden" data-testid="board-card">
       <SinkGlanceHead
-        node={node}
+        nodeId={nodeId}
         fallback="board"
-        displayLabel={boardNodeName(node)}
+        displayLabel={name}
         decal={<MessageSquareText size={15} />}
         renaming={renaming}
         onRequestRename={onRequestRename}
@@ -393,18 +381,17 @@ export function BoardCard({
   );
 }
 
-export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
-  const { items: artifactItems } = useArtifactItems(use$(state$.canvasName) || "", node.id);
+export function ArtifactsCard({ nodeId }: { readonly nodeId: string }) {
+  const { items: artifactItems } = useArtifactItems(use$(state$.canvasName) || "", nodeId);
   const items = artifactItems.filter(
     (item) => item.metadata?.archived !== true,
   );
   return (
     <div className="factory-glance factory-glance--artifacts flex h-full w-full flex-col overflow-hidden" data-testid="artifacts-card">
       <SinkGlanceHead
-        node={node}
+        nodeId={nodeId}
         fallback="artifacts"
-        // The shelf has no authorial name; node.text mirrors artifact names
-        // (offline glance), so the head stays a stable kind label.
+        // The shelf keeps its kind label; artifact names live in Work.
         displayLabel="artifacts"
         decal={<Package size={15} />}
         trailing={
@@ -467,7 +454,7 @@ export function ArtifactsDetail({
   return <ArtifactLibrary nodeId={nodeId} onClose={onClose} />;
 }
 
-/** Operator bulletin: full topics + posts from workBoardList (not ether glance). */
+/** Operator bulletin: full topics + posts from workBoardList (separate from the card glance). */
 export function BoardDetail({
   nodeId,
   onClose,

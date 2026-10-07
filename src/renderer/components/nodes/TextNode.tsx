@@ -248,7 +248,7 @@ function TimerCard({ canvas, id }: { readonly canvas: string; readonly id: strin
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
 /** The kinds whose card body still takes the document's node. */
-const DOCUMENT_BODY_KINDS: ReadonlySet<string> = new Set(["task", "requests", "artifacts", "board", "pad", "sheet", "git"]);
+const DOCUMENT_BODY_KINDS: ReadonlySet<string> = new Set(["sheet", "git"]);
 
 /**
  * Draws what still takes the document's node, and follows that node itself,
@@ -472,7 +472,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             )}
           </>
         ) : entityKind === "task" && TASKS_ENABLED ? (
-          <WithDocumentNode id={id}>{(node) => <TaskToolbarActions node={node} />}</WithDocumentNode>
+          <TaskToolbarActions nodeId={id} />
         ) : isCron ? (
           <CronScheduleToolbarAction onOpen={() => setCronScheduleOpen(true)} />
         ) : undefined
@@ -672,49 +672,23 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}
             />
+          ) : entityKind === "task" ? (
+            <TasksCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
+          ) : entityKind === "requests" ? (
+            <RequestsCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
+          ) : entityKind === "artifacts" ? (
+            <ArtifactsCard nodeId={id} />
+          ) : entityKind === "board" ? (
+            <BoardCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
+          ) : entityKind === "pad" ? (
+            <PadCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : DOCUMENT_BODY_KINDS.has(entityKind ?? "") ? (
             <WithDocumentNode id={id}>
-              {(node) =>
-                entityKind === "task" ? (
-                  <TasksCard
-                    node={node}
-                    renaming={renaming}
-                    onRenameDone={() => setRenaming(false)}
-                  />
-                ) : entityKind === "requests" ? (
-                  <RequestsCard
-                    node={node}
-                    renaming={renaming}
-                    onRenameDone={() => setRenaming(false)}
-                  />
-                ) : entityKind === "artifacts" ? (
-                  <ArtifactsCard node={node} />
-                ) : entityKind === "board" ? (
-                  <BoardCard
-                    node={node}
-                    renaming={renaming}
-                    onRenameDone={() => setRenaming(false)}
-                  />
-                ) : entityKind === "pad" ? (
-                  <PadCard
-                    node={node}
-                    renaming={renaming}
-                    onRenameDone={() => setRenaming(false)}
-                  />
-                ) : entityKind === "sheet" ? (
-                  <SheetCard
-                    node={node}
-                    renaming={renaming}
-                    onRenameDone={() => setRenaming(false)}
-                  />
-                ) : entityKind === "git" ? (
-                  <GitCard
-                    node={node}
-                    renaming={renaming}
-                    onRenameDone={() => setRenaming(false)}
-                  />
-                ) : null
-              }
+              {(node) => entityKind === "sheet" ? (
+                <SheetCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />
+              ) : entityKind === "git" ? (
+                <GitCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />
+              ) : null}
             </WithDocumentNode>
           ) : (
             <NoteMarkdown source={text} />

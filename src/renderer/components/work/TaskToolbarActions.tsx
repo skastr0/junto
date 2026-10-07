@@ -1,10 +1,9 @@
 import { ListPlus } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { IconButton } from "../ui";
 
 /** Selection-toolbar entry point for a task sink's quick enqueue surface. */
-export function TaskToolbarActions({ node }: { readonly node: CanvasNode }) {
+export function TaskToolbarActions({ nodeId }: { readonly nodeId: string }) {
   return (
     <IconButton
       className="nodrag nopan"
@@ -14,7 +13,7 @@ export function TaskToolbarActions({ node }: { readonly node: CanvasNode }) {
       onPointerDown={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        openTaskCreateSurface(node);
+        openTaskCreateSurface(nodeId);
       }}
     >
       <ListPlus size={14} />

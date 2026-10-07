@@ -2,7 +2,8 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { pad } from "./support/model-nodes";
 import { PAD_ENABLED } from "../src/shared/features";
 import { asPadElementId, emptyPad } from "../src/shared/pad";
 import type { WorkSinkChanged } from "../src/shared/work-sinks";
@@ -27,15 +28,14 @@ it.skipIf(!PAD_ENABLED)("reads pad counts and thumbnail revisions from scoped Wo
     ...emptyPad(), revision,
     shapes: [{ id: asPadElementId("shape"), type: "box" as const, x: 0, y: 0, w: 100, h: 100, z: 0 }],
   } } }));
-  const readCanvas = vi.fn();
-  bridge.junto = { workSinkPage, workPadRead, readCanvas,
+  bridge.junto = { workSinkPage, workPadRead,
     onWorkSinkChanged: (listener: typeof notify) => { notify = listener; return unsubscribe; },
   } as unknown as typeof window.junto;
   state$.canvasName.set("pad-card-store");
-  const node: CanvasNode = { id: "pad", type: "text", text: "Sketch", x: 0, y: 0, width: 200, height: 100 };
+  modelStore.node$("pad-card-store", "pad").set(pad("pad", { label: "Sketch" }));
   const flush = async () => { for (let index = 0; index < 20; index += 1) await Promise.resolve(); };
   try {
-    await act(async () => { root.render(<PadCard node={node} />); await flush(); });
+    await act(async () => { root.render(<PadCard nodeId="pad" />); await flush(); });
     expect(workSinkPage).toHaveBeenCalledWith({ kind: "pad", canvasName: "pad-card-store", nodeId: "pad" });
     expect(host.querySelector('[data-testid="pad-glance"]')?.textContent).toBe("3 shapes - 1 new");
     expect(host.querySelector('[data-testid="pad-card-thumb"]')).not.toBeNull();
@@ -46,13 +46,14 @@ it.skipIf(!PAD_ENABLED)("reads pad counts and thumbnail revisions from scoped Wo
     await act(async () => { notify({ canvasName: "pad-card-store", nodeId: "pad" }); await flush(); });
     expect(host.querySelector('[data-testid="pad-glance"]')?.textContent).toBe("4 shapes - 2 new");
     expect(workPadRead).toHaveBeenCalledTimes(2);
-    expect(readCanvas).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Sketch");
   } finally {
     await act(async () => root.unmount());
     expect(unsubscribe).toHaveBeenCalledOnce();
     host.remove();
     bridge.junto = previousApi;
     state$.canvasName.set(previousCanvas);
+    modelStore.canvas$("pad-card-store").nodes.set({});
     vi.unstubAllGlobals();
   }
 });

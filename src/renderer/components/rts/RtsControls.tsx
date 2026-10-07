@@ -309,7 +309,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       <KindKey
         label="Add task"
         title="Enqueue a task"
-        onClick={() => withCurrentRtsNode(node.id, openTaskCreateSurface)}
+        onClick={() => openTaskCreateSurface(node.id)}
       >
         <Plus size={ICON} />
       </KindKey>

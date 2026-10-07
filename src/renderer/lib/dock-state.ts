@@ -36,6 +36,9 @@ import {
   type WorkZone,
 } from "./surface-registry";
 import { getJuntoApi } from "./junto-api";
+import { nodeAt } from "./use-model";
+import { state$ } from "./state";
+import { taskBoardTitle } from "@shared/model/title";
 import { dropTerminalView, terminal$ } from "./terminal-state";
 
 // The workbench: which surfaces are open, and whether each is in the focus
@@ -260,15 +263,15 @@ export const openAgentChatSurface = (
  * (and be pinned itself). Create does not dismiss — the form clears for the next.
  */
 export const openTaskCreateSurface = (
-  node: CanvasNode,
+  nodeId: string,
   options?: {
     readonly zone?: WorkZone;
   },
 ): void => {
-  if (node.ether?.entity?.kind !== "task") return;
+  const node = nodeAt(state$.canvasName.peek(), nodeId);
+  if (node?.kind !== "task") return;
   const id = taskCreateSurfaceId(node.id);
-  const title =
-    (node.type === "text" ? node.text : "").split("\n")[0]?.trim() || "Tasks";
+  const title = taskBoardTitle(node).name;
   const zone = options?.zone ?? "focus";
   dock$.taskCreateById[id].set({
     nodeId: node.id,
