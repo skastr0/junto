@@ -19,29 +19,37 @@ export const WorkModelDependentsLive = Layer.effect(ModelDependents, Effect.gen(
   const changes = workProjectionChanges(sql);
   const remove = Effect.fn("work.model.remove")(function* (canvas: string, ids?: ReadonlyArray<string>) {
     if (ids?.length === 0) return;
-    const nodeClause = ids === undefined ? "" : ` AND node_id IN (${ids.map(() => "?").join(",")})`;
+    const selectedIds = ids?.map((_, index) => `?${index + 2}`).join(",");
+    const nodeClause = ids === undefined ? "" : ` AND node_id IN (${selectedIds})`;
     const bindings = [canvas, ...(ids ?? [])];
+    const taskClause = ids === undefined ? "" : ` AND task_node_id IN (${selectedIds})`;
+    const receiptClause = ids === undefined ? "" : ` AND delivered_node_id IN (${selectedIds})`;
+    // UNION bounds the result to distinct affected sinks, even for a mailbox
+    // holding thousands of messages. An empty note has no Work change to emit.
+    const affected = yield* SqlSchema.findAll({
+      Request: Schema.Array(Schema.String),
+      Result: Schema.Struct({ canvas_name: Schema.String, node_id: Schema.String, kind: Schema.Literals(["mail", "work"]) }),
+      execute: (values) => sql.unsafe([
+        ...currentTables.map((table) => `SELECT canvas_name,node_id,'${table === "work_messages" ? "mail" : "work"}' AS kind
+          FROM ${table} WHERE canvas_name=?1${nodeClause}`),
+        `SELECT canvas_name,node_id,'work' AS kind FROM work_artifacts WHERE task_canvas_name=?1${taskClause}`,
+        `SELECT delivered_canvas_name AS canvas_name,delivered_node_id AS node_id,
+          CASE WHEN delivered_item_kind='message' THEN 'mail' ELSE 'work' END AS kind
+          FROM work_delivery_receipts WHERE delivered_canvas_name=?1${receiptClause}`,
+      ].join(" UNION "), values),
+    })(bindings);
     // A source task is FK authority for linked current artifacts. Remove these
     // dependents as well, while their original publish facts retain provenance.
-    const linked = yield* SqlSchema.findAll({
-      Request: Schema.Array(Schema.String),
-      Result: Schema.Struct({ canvas_name: Schema.String, node_id: Schema.String }),
-      execute: (values) => sql.unsafe(`SELECT DISTINCT canvas_name,node_id FROM work_artifacts
-        WHERE task_canvas_name=? ${ids === undefined ? "" : `AND task_node_id IN (${ids.map(() => "?").join(",")})`}`, values),
-    })(bindings);
     yield* sql.unsafe(`DELETE FROM work_artifacts WHERE task_canvas_name=?
-      ${ids === undefined ? "" : `AND task_node_id IN (${ids.map(() => "?").join(",")})`}`, bindings);
+      ${taskClause}`, bindings);
     for (const table of currentTables)
       yield* sql.unsafe(`DELETE FROM ${table} WHERE canvas_name=?${nodeClause}`, bindings);
     yield* sql.unsafe(`DELETE FROM work_delivery_receipts WHERE delivered_canvas_name=?
-      ${ids === undefined ? "" : `AND delivered_node_id IN (${ids.map(() => "?").join(",")})`}`, bindings);
+      ${receiptClause}`, bindings);
     if (ids === undefined) yield* sql`DELETE FROM work_canvas_revisions WHERE canvas_name=${canvas}`;
     yield* afterSqlCommit(sql, () => {
-      for (const sink of linked) changes.notify({ canvasName: sink.canvas_name, nodeId: sink.node_id });
-      for (const nodeId of ids ?? []) {
-        changes.notify({ canvasName: canvas, nodeId });
-        changes.notify({ canvasName: canvas, nodeId }, "mail");
-      }
+      for (const sink of affected)
+        changes.notify({ canvasName: sink.canvas_name, nodeId: sink.node_id }, sink.kind);
     });
   });
   return ModelDependents.of({
