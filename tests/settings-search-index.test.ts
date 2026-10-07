@@ -65,6 +65,16 @@ describe("settings search index", () => {
     expect(names("sound size")).toEqual([]);
   });
 
+  test("accessibility lists the six terminal settings people look for by that word", () => {
+    const labels = { terminal: "Terminal" };
+    const found = (query: string): ReadonlyArray<string> =>
+      searchSettings(LISTED_SETTINGS, labels, query).filter((hit) => hit.section === "terminal").map((hit) => hit.name);
+    expect([...found("accessibility")].sort()).toEqual(
+      ["Bell", "Cursor blink", "Letter spacing", "Line height", "Minimum contrast", "Screen reader mode"],
+    );
+    for (const word of ["screen reader", "VoiceOver", "blind"]) expect(found(word)).toEqual(["Screen reader mode"]);
+  });
+
   test("a hit carries its page's name", () => {
     expect(searchSettings(entries, labels, "all sounds")[0]?.sectionLabel).toBe("Sound");
   });

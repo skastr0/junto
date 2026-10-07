@@ -17,12 +17,15 @@ export type SettingEntry = {
   /** The setting's name as its row shows it; also the row's anchor. */
   readonly name: string;
   readonly description: string;
+  /** Words people look for it by that its name and description do not say. */
+  readonly words?: string;
 };
 
-const entry = (section: string, name: string, description: string): SettingEntry => ({
+const entry = (section: string, name: string, description: string, words?: string): SettingEntry => ({
   section,
   name,
   description,
+  ...(words === undefined ? {} : { words }),
 });
 
 /** Settings whose names are written on their page. */
@@ -41,16 +44,26 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
 
   entry("terminal", "Font family", "The fonts terminals use, in order"),
   entry("terminal", "Font size", "Text size in pixels"),
-  entry("terminal", "Line height", "Space between lines, as a multiple of the font size"),
-  entry("terminal", "Letter spacing", "Extra space between characters in pixels"),
-  entry("terminal", "Minimum contrast", "Text too faint against its background is adjusted until it reaches this contrast"),
+  entry("terminal", "Line height", "Space between lines, as a multiple of the font size", "accessibility"),
+  entry("terminal", "Letter spacing", "Extra space between characters in pixels", "accessibility"),
+  entry(
+    "terminal",
+    "Minimum contrast",
+    "Text too faint against its background is adjusted until it reaches this contrast",
+    "accessibility",
+  ),
   entry("terminal", "Cursor style", "The cursor's shape: block, bar or underline"),
-  entry("terminal", "Cursor blink", "Off keeps the cursor steady"),
+  entry("terminal", "Cursor blink", "Off keeps the cursor steady", "accessibility"),
   entry("terminal", "Scroll sensitivity", "Lines moved by one notch of the mouse wheel"),
   entry("terminal", "Scrollback", "Lines of earlier output you can scroll back to in each terminal"),
   entry("terminal", "Copy selection automatically", "Selecting text in a terminal copies it at once"),
-  entry("terminal", "Bell", "What happens when a program in a terminal rings the bell"),
-  entry("terminal", "Screen reader mode", "Lets a screen reader read terminal output"),
+  entry("terminal", "Bell", "What happens when a program in a terminal rings the bell", "accessibility"),
+  entry(
+    "terminal",
+    "Screen reader mode",
+    "Lets a screen reader read terminal output",
+    "accessibility VoiceOver blind",
+  ),
 
   entry("feed", "New quick reply", "One-click answers offered when an agent is waiting on you"),
 
@@ -115,8 +128,8 @@ export const settingsIndex = (sections: ReadonlyArray<string>): ReadonlyArray<Se
 export type SettingHit = SettingEntry & { readonly sectionLabel: string };
 
 /**
- * Settings matching every word typed, in the setting's name, its description
- * or its page's name. Names that start with the text come first, then names
+ * Settings matching every word typed, in the setting's name, its description,
+ * its page's name or its search words. Names that start with the text come first, then names
  * that hold it, then the rest, each in page order.
  */
 export const searchSettings = (
@@ -136,7 +149,7 @@ export const searchSettings = (
   return entries
     .map((item) => ({ ...item, sectionLabel: sectionLabels[item.section] ?? item.section }))
     .filter((item) => {
-      const text = `${item.name} ${item.description} ${item.sectionLabel}`.toLowerCase();
+      const text = `${item.name} ${item.description} ${item.sectionLabel} ${item.words ?? ""}`.toLowerCase();
       return words.every((word) => text.includes(word));
     })
     .map((item, order) => ({ item, order, rank: rank(item) }))
