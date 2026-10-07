@@ -98,3 +98,56 @@ test("[fake-tui] Cmd+Up shows where it landed, Tab reaches the connections, Cmd+
     await junto.close();
   }
 });
+
+test("[fake-tui] in the grid, Cmd+Up leaves a cell for the grid's header and Cmd+Down returns to that cell", async ({}, testInfo) => {
+  test.setTimeout(240_000);
+  const GRID = "chrome-keys-grid";
+  const ids = ["one", "two", "three"];
+  const cellNodes = ids.map((id, i) => crewSeatNode({ id, x: 40 + i * 320, y: 40 }));
+  const junto = await launchJunto({ seedCanvases: { [GRID]: crewDoc(cellNodes) }, afterSeed: installCrewSeatHarness });
+  try {
+    const { page, sandbox } = junto;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await crewPlayFactory(page);
+    const seats = ids.map((id) => crewSeat(sandbox, GRID, id));
+    for (const [i, node] of cellNodes.entries()) await crewOccupySeat(page, GRID, node, seats[i]!);
+
+    const grid = page.getByTestId("terminal-grid-focus");
+    const cells = grid.locator(".terminal-grid__cell");
+    await page.locator(".react-flow__pane").click({ position: { x: 20, y: 300 } });
+    for (const id of ids) await page.locator(`.react-flow__node[data-id="${id}"]`).click({ modifiers: ["Shift"] });
+    await page.locator('.react-flow__node[data-id="two"]').click({ button: "right" });
+    await page.getByRole("button", { name: "Open 3 agents in a grid" }).click();
+    await expect(cells).toHaveCount(3, { timeout: 10_000 });
+
+    /** The cell the keyboard is in, "header" for the grid's header, or "elsewhere". */
+    const where = (): Promise<string> =>
+      page.evaluate(() => {
+        const active = document.activeElement;
+        const cell = active?.closest(".terminal-grid__cell");
+        if (cell) return cell.getAttribute("data-node-id") ?? "cell";
+        return active?.closest("[data-testid='terminal-grid-focus'] > header") ? "header" : "elsewhere";
+      });
+
+    await cells.nth(2).locator(".xterm").first().click();
+    await expect.poll(where).toBe("three");
+
+    await page.keyboard.press("Meta+ArrowUp");
+    await expect.poll(where).toBe("header");
+    expect(await page.evaluate(() => document.activeElement?.matches(":focus-visible"))).toBe(true);
+    await page.mouse.move(2, 2);
+    await page.screenshot({ path: testInfo.outputPath("grid-ring-after-cmd-up.png") });
+
+    // Tab stays with the grid's header: it does not fall into a cell.
+    await page.keyboard.press("Tab");
+    expect(await where()).toBe("header");
+
+    await page.keyboard.press("Meta+ArrowDown");
+    await expect.poll(where).toBe("three");
+    await page.keyboard.type("back in three");
+    await expect.poll(() => seats[2]!.stdinLog(), { timeout: 20_000 }).toContain("back in three");
+    expect(await seats[0]!.stdinLog()).not.toContain("back in three");
+  } finally {
+    await junto.close();
+  }
+});
