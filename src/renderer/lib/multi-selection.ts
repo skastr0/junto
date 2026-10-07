@@ -1,4 +1,3 @@
-import type { CanvasNode } from "@shared/canvas";
 import type { Node, Seat } from "@shared/model";
 
 /**
@@ -28,23 +27,11 @@ export function surfaceLabel(surface: MultiSurfaceKey): string {
   return surface;
 }
 
-/** An agent seat: an agent-kind card, whatever its harness. */
-export const isAgentSeatNode = (node: CanvasNode): boolean =>
-  node.type !== "group" && node.ether?.entity?.kind === "agent";
-
-/** Ids of the agent seats among `nodes`, in input order. */
-export const agentSeatIds = (nodes: ReadonlyArray<CanvasNode>): ReadonlyArray<string> =>
-  nodes.filter(isAgentSeatNode).map((node) => node.id);
-
 /** "1 agent" / "3 agents" — the count line every agent action shows. */
 export const agentCountLabel = (count: number): string =>
   `${count} agent${count === 1 ? "" : "s"}`;
 
 // ── The same questions of nodes as the store holds them ─────────────────────
-// isAgentSeatNode and agentSeatIds above take document nodes and go when their
-// last callers (the canvas's selection menu, the agent broadcast) hand model
-// nodes.
-
 export type SelectionClassOf =
   | { readonly mode: "empty" }
   | { readonly mode: "single"; readonly node: Node }

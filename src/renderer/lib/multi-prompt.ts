@@ -1,10 +1,8 @@
-import type { CanvasNode } from "@shared/canvas";
 import type { Node } from "@shared/model";
 import type {
   TerminalManagedPromptDisposition,
   TerminalManagedPromptResult,
 } from "@shared/ipc";
-import { resolveTerminalBinding } from "@shared/terminal";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 
@@ -46,35 +44,8 @@ export type MultiPromptOptions = {
 };
 
 /**
- * Agent seats with a managed terminal binding. entity.name alone is not enough —
- * multi-prompt types into the managed seat, not ACP.
- */
-export const multiPromptTargetsFromNodes = (
-  nodes: ReadonlyArray<CanvasNode>,
-): ReadonlyArray<MultiPromptTarget> => {
-  const out: MultiPromptTarget[] = [];
-  for (const node of nodes) {
-    const entity = node.ether?.entity;
-    if (entity?.kind !== "agent") continue;
-    const agentKey =
-      typeof entity.name === "string" && entity.name.length > 0
-        ? entity.name
-        : node.id;
-    const binding = resolveTerminalBinding(node);
-    if (binding?.kind !== "native" || !binding.bindingId) continue;
-    if (!binding.harness && !binding.agentKey) continue;
-    out.push({
-      nodeId: node.id,
-      bindingId: binding.bindingId,
-      agentKey,
-    });
-  }
-  return out;
-};
-
-/**
- * The same targets from nodes as the store holds them: every seat is one, since
- * the model requires a binding and a harness of a seat.
+ * One target per seat: multi-prompt types into the managed seat, and the
+ * model requires a binding and a harness of every seat.
  */
 export const multiPromptTargetsOf = (nodes: ReadonlyArray<Node>): ReadonlyArray<MultiPromptTarget> =>
   nodes.flatMap((node) =>

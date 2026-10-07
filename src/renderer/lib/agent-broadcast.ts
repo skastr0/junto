@@ -3,13 +3,11 @@ import {
   AGENT_BROADCAST_PROMPTS,
   type AgentBroadcastKind,
 } from "@shared/agent-broadcast-prompts";
-import type { CanvasNode } from "@shared/canvas";
 import { agentSeat$ } from "./agent-seat-state";
 import type { Node } from "@shared/model";
-import { agentCountLabel, isAgentSeatNode, seatsAmong } from "./multi-selection";
+import { agentCountLabel, seatsAmong } from "./multi-selection";
 import {
   multiPromptAgents,
-  multiPromptTargetsFromNodes,
   multiPromptTargetsOf,
   type MultiPromptOps,
   type MultiPromptResult,
@@ -27,7 +25,7 @@ import { state$ } from "./state";
 export type SeatStateLookup = (bindingId: string) => AgentSeatState | undefined;
 
 export type AgentBroadcastPlan = {
-  /** Every agent node in the selection, bound or not. */
+  /** Every seat in the selection. */
   readonly agents: number;
   /** Seats with a live terminal; these receive the prompt. */
   readonly live: ReadonlyArray<MultiPromptTarget>;
@@ -41,38 +39,17 @@ const LIVE_SEAT_STATES: ReadonlySet<AgentSeatState> = new Set(["idle", "working"
 const defaultSeatState: SeatStateLookup = (bindingId) =>
   agentSeat$.byBindingId[bindingId].peek()?.state;
 
-/**
- * The nodes a broadcast is planned over: model nodes, as the store holds them.
- * Document nodes are still taken from the canvas's selection menu, its one
- * caller that holds them; that half goes when it hands the store's.
- */
-type BroadcastNodes = ReadonlyArray<Node> | ReadonlyArray<CanvasNode>;
-
-const isModelNodes = (nodes: BroadcastNodes): nodes is ReadonlyArray<Node> =>
-  nodes.every((node) => "kind" in node);
-
-/** Every agent in the selection, and the prompt target of each that has a seat to type into. */
-const agentsAndTargets = (nodes: BroadcastNodes): { agents: number; targets: ReadonlyArray<MultiPromptTarget> } => {
-  if (isModelNodes(nodes)) {
-    const unique = [...new Map(nodes.map((node) => [node.id as string, node])).values()];
-    const seats = seatsAmong(unique);
-    return { agents: seats.length, targets: multiPromptTargetsOf(seats) };
-  }
-  const unique = [...new Map(nodes.map((node) => [node.id, node])).values()];
-  const agents = unique.filter(isAgentSeatNode);
-  return { agents: agents.length, targets: multiPromptTargetsFromNodes(agents) };
-};
-
 export const planAgentBroadcast = (
-  nodes: BroadcastNodes,
+  nodes: ReadonlyArray<Node>,
   seatStateOf: SeatStateLookup = defaultSeatState,
 ): AgentBroadcastPlan => {
-  const { agents, targets } = agentsAndTargets(nodes);
-  const live = targets.filter((target) => {
+  // A seat selected twice counts once.
+  const seats = seatsAmong([...new Map(nodes.map((node) => [node.id as string, node])).values()]);
+  const live = multiPromptTargetsOf(seats).filter((target) => {
     const state = seatStateOf(target.bindingId);
     return state !== undefined && LIVE_SEAT_STATES.has(state);
   });
-  return { agents, live, skipped: agents - live.length };
+  return { agents: seats.length, live, skipped: seats.length - live.length };
 };
 
 /** Menu subtitle: "3 agents", or "2 of 3 agents live" when some are down. */
@@ -120,7 +97,7 @@ export const broadcastNeedsNotice = (outcome: AgentBroadcastOutcome): boolean =>
  */
 export async function broadcastToSelection(
   kind: AgentBroadcastKind,
-  nodes: BroadcastNodes,
+  nodes: ReadonlyArray<Node>,
 ): Promise<void> {
   const outcome = await broadcastToAgents(kind, planAgentBroadcast(nodes));
   if (broadcastNeedsNotice(outcome)) state$.error.set(formatBroadcastOutcome(outcome));

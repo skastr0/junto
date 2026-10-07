@@ -9,7 +9,7 @@ import {
   wireIdsWithin,
 } from "../src/renderer/lib/edge-mutations";
 import { canvasOf, region, seat, wire as modelWire } from "./support/model-nodes";
-import { agentCountLabel, agentSeatIds } from "../src/renderer/lib/multi-selection";
+import { agentCountLabel, seatIdsAmong } from "../src/renderer/lib/multi-selection";
 import { placeBesideRect } from "../src/renderer/lib/menu-placement";
 import { state$ } from "../src/renderer/lib/state";
 
@@ -134,7 +134,8 @@ describe("disconnect within a selection", () => {
 
 describe("agent seat helpers", () => {
   it("keeps agent seats only and counts them", () => {
-    expect(agentSeatIds(nodes)).toEqual(["a", "b", "c", "d"]);
+    const held = [seat("a"), seat("b"), seat("c"), seat("d"), region("region", { x: 0, y: 0, width: 400, height: 200 })];
+    expect(seatIdsAmong(held)).toEqual(["a", "b", "c", "d"]);
     expect(agentCountLabel(1)).toBe("1 agent");
     expect(agentCountLabel(3)).toBe("3 agents");
   });

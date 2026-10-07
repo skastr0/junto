@@ -5,7 +5,7 @@ import {
   AGENT_BROADCAST_KINDS,
   AGENT_BROADCAST_PROMPTS,
 } from "../src/shared/agent-broadcast-prompts";
-import type { CanvasNode } from "../src/shared/canvas";
+import type { Node } from "../src/shared/model";
 import type { TerminalManagedPromptResult } from "../src/shared/ipc";
 import {
   broadcastMenuHint,
@@ -15,26 +15,12 @@ import {
   planAgentBroadcast,
 } from "../src/renderer/lib/agent-broadcast";
 
-const base = { x: 0, y: 0, width: 200, height: 80, type: "text", text: "" } as const;
+// A seat always has a binding in the model; one given none here keeps its
+// default, which no case reports a state for, so it reads as not live.
+const seat = (id: string, bindingId?: string): Node =>
+  modelSeat(id, bindingId ? { bindingId: bindingId as never } : {});
 
-const seat = (id: string, bindingId?: string): CanvasNode => ({
-  ...base,
-  id,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    ...(bindingId
-      ? {
-          terminal: {
-            bindingId,
-            harness: "claude",
-            launch: { kind: "harness", argv: ["claude"] },
-          },
-        }
-      : {}),
-  },
-});
-
-const note = (id: string): CanvasNode => ({ ...base, id });
+const note = (id: string): Node => modelNote(id);
 
 const states =
   (map: Record<string, AgentSeatState>) =>

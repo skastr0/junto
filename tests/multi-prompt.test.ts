@@ -1,52 +1,11 @@
 import { multiPromptTargetsOf } from "../src/renderer/lib/multi-prompt";
 import { note as modelNote, seat as modelSeat } from "./support/model-nodes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
 import type { TerminalManagedPromptResult } from "../src/shared/ipc";
 import {
   formatMultiPromptStatus,
   multiPromptAgents,
-  multiPromptTargetsFromNodes,
 } from "../src/renderer/lib/multi-prompt";
-
-describe("multiPromptTargetsFromNodes", () => {
-  const base = { x: 0, y: 0, width: 200, height: 80 } as const;
-
-  it("requires managed terminal binding on agent nodes", () => {
-    const nodes: CanvasNode[] = [
-      {
-        ...base,
-        id: "a",
-        type: "text",
-        text: "alpha",
-        ether: {
-          entity: { kind: "agent", name: "local:alpha" },
-          terminal: {
-            bindingId: "bind-a",
-            harness: "claude",
-            launch: { kind: "harness", argv: ["claude"] },
-          },
-        },
-      },
-      {
-        ...base,
-        id: "b",
-        type: "text",
-        text: "no bind",
-        ether: { entity: { kind: "agent", name: "local:beta" } },
-      },
-      {
-        ...base,
-        id: "c",
-        type: "text",
-        text: "note",
-      },
-    ];
-    expect(multiPromptTargetsFromNodes(nodes)).toEqual([
-      { nodeId: "a", bindingId: "bind-a", agentKey: "local:alpha" },
-    ]);
-  });
-});
 
 describe("multiPromptAgents", () => {
   const writePrompt = vi.fn();
