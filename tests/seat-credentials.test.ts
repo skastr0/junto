@@ -117,6 +117,44 @@ describe("seat credential registry", () => {
     ]);
   });
 
+  it("suspends on detach and reanchors on reattach", () => {
+    const registry = makeSeatCredentialRegistry();
+    const minted = mintSeatCredential();
+    registry.publish(minted, { ...PRINCIPAL });
+    expect(registry.suspend(minted.credential)).toBe(true);
+    expect(registry.suspend(minted.credential)).toBe(false);
+    const held = registry.lookup(minted.credential);
+    expect(held.status).toBe("suspended");
+    const reanchored = { ...PRINCIPAL, canvasName: "other", nodeId: "agent-9" };
+    expect(registry.reanchor(minted.credential, reanchored)).toBe(true);
+    expect(registry.reanchor(minted.credential, reanchored)).toBe(false);
+    const live = registry.lookup(minted.credential);
+    expect(live.status).toBe("live");
+    if (live.status === "live") {
+      expect(live.principal).toEqual(reanchored);
+      expect(live.generationId).toBe(minted.generationId);
+    }
+  });
+
+  it("revoked credentials never return via reanchor", () => {
+    const registry = makeSeatCredentialRegistry();
+    const minted = mintSeatCredential();
+    registry.publish(minted, { ...PRINCIPAL });
+    registry.revoke(minted.credential, "offboarded");
+    expect(registry.reanchor(minted.credential, { ...PRINCIPAL })).toBe(false);
+    expect(registry.suspend(minted.credential)).toBe(false);
+    expect(registry.lookup(minted.credential).status).toBe("revoked");
+  });
+
+  it("revokePrincipal retires suspended credentials too", () => {
+    const registry = makeSeatCredentialRegistry();
+    const minted = mintSeatCredential();
+    registry.publish(minted, { ...PRINCIPAL });
+    registry.suspend(minted.credential);
+    expect(registry.revokePrincipal({ ...PRINCIPAL })).toBe(1);
+    expect(registry.lookup(minted.credential).status).toBe("revoked");
+  });
+
   it("caps tombstones by evicting the oldest", () => {
     const registry = makeSeatCredentialRegistry({ tombstoneCap: 2 });
     const creds = [mintSeatCredential(), mintSeatCredential(), mintSeatCredential()];
