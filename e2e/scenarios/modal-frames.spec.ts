@@ -4,6 +4,7 @@
  * fails when a dialog nests a fully bordered box that covers a large share of
  * its own frame (a panel inside the panel, a boxed textarea inside a boxed
  * panel). Sections inside the one frame are divided by hairlines, not boxed.
+ * A surface that does not open fails the run by name.
  *
  *   bun run test:e2e:fast e2e/scenarios/modal-frames.spec.ts
  */
@@ -231,7 +232,8 @@ test("every modal and overlay is one frame", async () => {
         await page.mouse.click(5, 300);
       }
     }
-    console.log(`MODAL-FRAMES-MISSING ${JSON.stringify(missing)}`);
+    // A surface that did not open was not checked: that is a failure, not a pass.
+    expect(missing, `surfaces that did not open:\n${missing.join("\n")}`).toEqual([]);
     expect(findings, findings.join("\n")).toEqual([]);
   } finally {
     await junto.close();
