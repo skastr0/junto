@@ -85,6 +85,27 @@ describe("the keyboard's way out of a terminal", () => {
     expect(document.activeElement?.id).toBe("pty-two");
   });
 
+  it("leaves a grid cell for the grid's own header, and returns to the cell it left", () => {
+    const cell = (id: string) => `
+      <div class="terminal-grid__cell" data-node-id="${id}"><div class="native-terminal-surface">
+        <header><span>${id}</span></header><div class="xterm"><textarea class="xterm-helper-textarea" id="pty-${id}"></textarea></div>
+      </div></div>`;
+    mount(`
+      <div data-testid="terminal-grid-focus">
+        <header><button id="layout">Layout</button><button id="close">Close</button></header>
+        <div class="terminal-grid__cells">${cell("one")}${cell("two")}${cell("three")}</div>
+      </div>`);
+    const pty = document.getElementById("pty-three")!;
+    pty.focus();
+    expect(focusTerminalChrome(chordFrom("ArrowUp", pty))).toBe(true);
+    expect(document.activeElement?.id).toBe("layout");
+    document.getElementById("close")!.focus();
+    expect(focusFrontTerminal(chordFrom("ArrowDown", document.activeElement!))).toBe(true);
+    expect(document.activeElement?.id).toBe("pty-three");
+    // Already in a cell: the key is the program's.
+    expect(focusFrontTerminal(chordFrom("ArrowDown", pty))).toBe(false);
+  });
+
   it("hands the keyboard back to the terminal", () => {
     mount(PANE);
     document.getElementById("details")!.focus();
