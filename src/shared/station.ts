@@ -1,8 +1,4 @@
-import { Match } from "effect";
-import type { CanvasDoc, CanvasNode } from "./canvas";
-// Leaf import, not the physics barrel: `physics/placement` imports this module,
-// so pulling the barrel in here would close a module-initialization cycle.
-import { resolveSpec } from "./physics/kinds";
+import type { CanvasNode } from "./canvas";
 import type { HostId } from "./remote-hosts";
 
 /**
@@ -25,24 +21,6 @@ export const DEFAULT_STATION_HOST_ID = "local";
 
 export const isStationRole = (value: unknown): value is StationRole =>
   value === "command-center" || value === "remote";
-
-/**
- * Which entity kinds participate in host-scoped kernel/tool work, decided per
- * role rather than by a hand-kept kind list: actors run, schedulers fire, and
- * the browser page is the one sink with an executable surface. The work-store
- * sinks (task/requests/artifacts) are documents — nothing to execute.
- */
-export const isExecutableEntityKind = (value: unknown): boolean => {
-  if (typeof value !== "string") return false;
-  return Match.value(resolveSpec({ isGroup: false, kind: value })).pipe(
-    Match.tagsExhaustive({
-      Actor: () => true,
-      Sink: (spec) => spec.kind === "page",
-      Scheduler: () => true,
-      Geography: () => false,
-    }),
-  );
-};
 
 /**
  * Hermes agent keys are `<host>:<profile>`. Extract host when well-formed.
@@ -73,36 +51,6 @@ export const resolveNodeHostId = (node: CanvasNode): string => {
     if (fromKey !== undefined) return fromKey;
   }
   return DEFAULT_STATION_HOST_ID;
-};
-
-export const isExecutableNode = (node: CanvasNode): boolean =>
-  isExecutableEntityKind(node.ether?.entity?.kind);
-
-/** True when this station may evaluate/fire/act on the node under host scoping. */
-export const isNodeEligibleOnStation = (
-  node: CanvasNode,
-  stationHostId: string,
-): boolean => {
-  if (!isExecutableNode(node)) return false;
-  return resolveNodeHostId(node) === stationHostId;
-};
-
-/**
- * Watcher→agent edge host rule:
- * - Command Center may target any agent.
- * - Remote may only target agents with the same host id as the watcher (and station).
- */
-export const watcherMayTargetAgent = (input: {
-  readonly stationRole: StationRole;
-  readonly stationHostId: string;
-  readonly watcherHostId: string;
-  readonly agentHostId: string;
-}): boolean => {
-  if (input.stationRole === "command-center") return true;
-  return (
-    input.watcherHostId === input.stationHostId &&
-    input.agentHostId === input.stationHostId
-  );
 };
 
 /** Validate a host id string against the shared HostId pattern without Effect decode. */
@@ -208,56 +156,6 @@ export const assessSupervisedRuntime = (
     },
   };
 };
-
-/**
- * Agent keys reachable from a watcher via soft relates edges (either direction).
- * Command Center may target any agent host; Remote only same-host agents.
- * Empty when no edges — region membership alone is not a fire router.
- */
-export const agentKeysForWatcher = (
-  doc: CanvasDoc,
-  watcherNodeId: string,
-  stationRole: StationRole,
-  stationHostId: string,
-): ReadonlyArray<string> => {
-  const watcher = doc.nodes.find((node) => node.id === watcherNodeId);
-  if (!watcher) return [];
-  const watcherHostId = resolveNodeHostId(watcher);
-  const keys: string[] = [];
-  const seen = new Set<string>();
-
-  for (const edge of doc.edges) {
-    if (edge.fromNode !== watcherNodeId && edge.toNode !== watcherNodeId) continue;
-    const otherId = edge.fromNode === watcherNodeId ? edge.toNode : edge.fromNode;
-    const other = doc.nodes.find((node) => node.id === otherId);
-    if (!other || other.ether?.entity?.kind !== "agent") continue;
-    const name = other.ether.entity.name;
-    if (typeof name !== "string" || name.length === 0 || seen.has(name)) continue;
-    const agentHostId = resolveNodeHostId(other);
-    if (
-      !watcherMayTargetAgent({
-        stationRole,
-        stationHostId,
-        watcherHostId,
-        agentHostId,
-      })
-    ) {
-      continue;
-    }
-    if (stationRole === "remote" && agentHostId !== stationHostId) continue;
-    seen.add(name);
-    keys.push(name);
-  }
-  return keys;
-};
-
-/** Timer sources deliver to same-host agents edged from the timer, same rules. */
-export const agentKeysForExecutableSource = (
-  doc: CanvasDoc,
-  sourceNodeId: string,
-  stationRole: StationRole,
-  stationHostId: string,
-): ReadonlyArray<string> => agentKeysForWatcher(doc, sourceNodeId, stationRole, stationHostId);
 
 // Re-export HostId type surface for station stamps (same alphabet as remote-hosts).
 export type { HostId };

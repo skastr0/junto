@@ -24,13 +24,6 @@ import {
   type StationProjectionReference,
 } from "../src/shared/station-api";
 import {
-  agentKeysForWatcher,
-  DEFAULT_STATION_HOST_ID,
-  isNodeEligibleOnStation,
-  resolveNodeHostId,
-} from "../src/shared/station";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
-import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   StationAppVersion,
   StationProtocolSupport,
@@ -742,84 +735,5 @@ describe("station status doctor", () => {
       deploymentCount: "0",
       staleDeploymentCount: "1",
     });
-  });
-});
-
-describe("foundation smoke — host scope + edges still compose", () => {
-  it("local-only Command Center path: local watcher→agent edge", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        {
-          id: "w",
-          type: "text",
-          text: "w",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 80,
-          ether: {
-            entity: { kind: "watcher" },
-            host: DEFAULT_STATION_HOST_ID,
-            watch: { kind: "stat_threshold", source: "hermes" },
-          },
-        },
-        {
-          id: "a",
-          type: "text",
-          text: "a",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 80,
-          ether: {
-            entity: { kind: "agent", name: "local:codex" },
-            host: DEFAULT_STATION_HOST_ID,
-          },
-        },
-      ],
-      edges: [{ id: "e", fromNode: "w", toNode: "a" }],
-    };
-    const watcher = doc.nodes[0] as CanvasNode;
-    expect(isNodeEligibleOnStation(watcher, "local")).toBe(true);
-    expect(resolveNodeHostId(doc.nodes[1]!)).toBe("local");
-    expect(agentKeysForWatcher(doc, "w", "command-center", "local")).toEqual([
-      "local:codex",
-    ]);
-  });
-
-  it("Remote does not deliver cross-host agents", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        {
-          id: "w",
-          type: "text",
-          text: "w",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 80,
-          ether: {
-            entity: { kind: "watcher" },
-            host: "remote-a",
-            watch: { kind: "stat_threshold", source: "hermes" },
-          },
-        },
-        {
-          id: "a",
-          type: "text",
-          text: "a",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 80,
-          ether: {
-            entity: { kind: "agent", name: "local:codex" },
-            host: "local",
-          },
-        },
-      ],
-      edges: [{ id: "e", fromNode: "w", toNode: "a" }],
-    };
-    expect(agentKeysForWatcher(doc, "w", "remote", "remote-a")).toEqual([]);
   });
 });

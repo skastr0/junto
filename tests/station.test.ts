@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import type { CanvasNode } from "../src/shared/canvas";
 import {
-  agentKeysForWatcher,
   assessSupervisedRuntime,
-  isExecutableNode,
-  isNodeEligibleOnStation,
   resolveNodeHostId,
-  watcherMayTargetAgent,
 } from "../src/shared/station";
 import { defaultSettings, applySettingsPatch } from "../src/shared/settings";
 import {
@@ -80,9 +76,6 @@ describe("node host assignment", () => {
       ether: { entity: { kind: "agent", name: "local:codex" } },
     } as CanvasNode;
     expect(resolveNodeHostId(node)).toBe("local");
-    expect(isExecutableNode(node)).toBe(true);
-    expect(isNodeEligibleOnStation(node, "local")).toBe(true);
-    expect(isNodeEligibleOnStation(node, "remote-a")).toBe(false);
   });
 
   it("legacy agent key host prefix resolves when ether.host absent", () => {
@@ -97,99 +90,8 @@ describe("node host assignment", () => {
       ether: { entity: { kind: "agent", name: "remote-a:codex" } },
     } as CanvasNode;
     expect(resolveNodeHostId(node)).toBe("remote-a");
-    expect(isNodeEligibleOnStation(node, "remote-a")).toBe(true);
-    expect(isNodeEligibleOnStation(node, "local")).toBe(false);
   });
 
-});
-
-describe("watcher target rules", () => {
-  it("command center may target any agent host", () => {
-    expect(
-      watcherMayTargetAgent({
-        stationRole: "command-center",
-        stationHostId: "local",
-        watcherHostId: "local",
-        agentHostId: "remote-a",
-      }),
-    ).toBe(true);
-  });
-
-  it("remote may only target same-host agents", () => {
-    expect(
-      watcherMayTargetAgent({
-        stationRole: "remote",
-        stationHostId: "remote-a",
-        watcherHostId: "remote-a",
-        agentHostId: "remote-a",
-      }),
-    ).toBe(true);
-    expect(
-      watcherMayTargetAgent({
-        stationRole: "remote",
-        stationHostId: "remote-a",
-        watcherHostId: "remote-a",
-        agentHostId: "local",
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("watcher to agent edge routing", () => {
-  const doc: CanvasDoc = {
-    nodes: [
-      {
-        id: "w1",
-        type: "text",
-        text: "watch",
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 80,
-        ether: { entity: { kind: "watcher" }, host: "local", watch: { kind: "stat_threshold", source: "hermes" } },
-      },
-      {
-        id: "a1",
-        type: "text",
-        text: "agent local",
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 80,
-        ether: { entity: { kind: "agent", name: "local:codex" }, host: "local" },
-      },
-      {
-        id: "a2",
-        type: "text",
-        text: "agent mini",
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 80,
-        ether: { entity: { kind: "agent", name: "remote-a:codex" }, host: "remote-a" },
-      },
-    ],
-    edges: [
-      { id: "e1", fromNode: "w1", toNode: "a1" },
-      { id: "e2", fromNode: "w1", toNode: "a2" },
-    ],
-  };
-
-  it("command center may reach both agents via edges", () => {
-    const keys = agentKeysForWatcher(doc, "w1", "command-center", "local");
-    expect(keys).toContain("local:codex");
-    expect(keys).toContain("remote-a:codex");
-  });
-
-  it("remote only reaches same-host agents", () => {
-    const keys = agentKeysForWatcher(doc, "w1", "remote", "local");
-    expect(keys).toEqual(["local:codex"]);
-  });
-
-  it("returns empty when no edges", () => {
-    const isolated: CanvasDoc = { nodes: doc.nodes, edges: [] };
-    expect(agentKeysForWatcher(isolated, "w1", "command-center", "local")).toEqual([]);
-  });
 });
 
 describe("supervised runtime assessment", () => {

@@ -10,7 +10,7 @@ import {
   resolveTerminalBinding,
   xtermCapabilities,
 } from "../src/shared/terminal";
-import { resolveNodeHostId, isExecutableEntityKind } from "../src/shared/station";
+import { resolveNodeHostId } from "../src/shared/station";
 
 const decodeTerminal = Schema.decodeUnknownSync(EtherTerminal);
 const decodeDoc = Schema.decodeUnknownSync(CanvasDoc);
@@ -104,11 +104,6 @@ describe("resolveTerminalBinding", () => {
 });
 
 describe("station + capabilities", () => {
-  it("treats the agent seat as executable; a raw terminal is geography", () => {
-    expect(isExecutableEntityKind("agent")).toBe(true);
-    expect(isExecutableEntityKind("terminal")).toBe(false);
-  });
-
   it("exposes honest capability presets", () => {
     expect(xtermCapabilities().presentation).toBe("xterm");
   });

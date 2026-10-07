@@ -63,6 +63,10 @@ homes are `InstallationId` values; `HostId` is placement, not durable work
 authority. Single-home rows and route-local
 `(event_home, entity_home, seq)` Work identities make station clocks irrelevant
 to correctness.
+A rebuilt Remote must enforce the same-host rule for watcher and timer firing:
+Command Center may target any agent, a Remote only agents on its own host.
+Nothing enforces it today; its last statement in code ran nowhere and was
+removed with the dead document helpers in `src/shared/station.ts`.
 Junto writes no canvas file: there is no JSON Canvas export or import, and no
 digest or SVG file beside a canvas.
 
