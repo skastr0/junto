@@ -1,4 +1,5 @@
 import type { CanvasesChanged, Changed, Command, Opened } from "./model";
+import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type {
   SeatOffboardRunInput,
   SeatOffboardRunResult,
@@ -252,6 +253,8 @@ export const IPC_CHANNELS = {
   workArtifactArchive: "junto:work-artifact-archive",
   workArtifactDelete: "junto:work-artifact-delete",
   workSeatRecentOps: "junto:work-seat-recent-ops",
+  workMailPage: "junto:work-mail-page",
+  workMailChanged: "junto:work-mail-changed",
   workBoardList: "junto:work-board-list",
   workBoardCreateTopic: "junto:work-board-create-topic",
   workBoardPost: "junto:work-board-post",
@@ -1010,6 +1013,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     nodeId: string,
     artifactId: string,
   ) => Promise<WorkOpResult<{ readonly artifactId: string }>>;
+  readonly workMailPage: (query: WorkMailQuery) => Promise<WorkMailPage>;
+  readonly onWorkMailChanged: (listener: (event: WorkMailChanged) => void) => () => void;
   readonly workSeatRecentOps: (
     canvas: string,
     nodeId: string,

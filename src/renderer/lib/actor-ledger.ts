@@ -1,15 +1,14 @@
 /**
  * Actor ledger — pure projections of one actor's standing with the work
- * kernel, read entirely from the canvas doc (the repository projects work
- * state into `ether`; no IPC reads here).
+ * model. Message rows come from the independent seat mailbox store.
  *
- * Mailbox facts come from `ether.messages` on the actor node itself:
+ * Mailbox facts come from durable messages and receipts:
  *   - sender: `metadata.senderNodeId`, else `fromSeat` when that is a node id
  *   - read: `metadata.readAt` (listed or marked read)
  *   - delivery: `metadata.deliveredAt` (written into the seat), else waiting
  *   - age: the messageId is a ULID — its timestamp is birth time
  */
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { CanvasDoc } from "@shared/canvas";
 import type { Message, Part } from "@shared/work-model";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import {
@@ -91,9 +90,9 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
 
 export const mailboxRows = (
   doc: CanvasDoc,
-  node: CanvasNode,
+  messages: ReadonlyArray<Message>,
 ): ReadonlyArray<MailRow> =>
-  (node.ether?.messages?.items ?? [])
+  messages
     .map((message) => toMailRow(doc, message))
     .sort((a, b) => compareMessageIdsNewestFirst(a.messageId, b.messageId));
 

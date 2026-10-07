@@ -1,3 +1,4 @@
+import { useWorkspaceMail } from "../../lib/use-work-mail";
 /**
  * SeatCollaborationBlock — who this seat could ask for help, and what came
  * back from the seats it already asked.
@@ -67,11 +68,12 @@ export function SeatCollaborationBlock({
   const sentThreads = use$(seatCollaborationSent$.byRequestId) as unknown as Readonly<
     Record<string, SeatCollaborationThread>
   >;
-  const fleet = collaborationFleet({ doc, seatByBindingId, awarenessByBindingId });
+  const mailboxes = useWorkspaceMail(canvasName, doc.nodes.filter((node) => node.ether?.entity?.kind === "agent").map((node) => node.id));
+  const fleet = collaborationFleet({ doc, seatByBindingId, awarenessByBindingId, mailboxes });
   const source = fleet.find((seat: CollaborationSeatFacts) => seat.nodeId === nodeId);
   if (source === undefined) return null;
   const threads = collaborationThreadsForSource(
-    mergeCollaborationThreads(collaborationThreads(doc), sentThreads),
+    mergeCollaborationThreads(collaborationThreads(mailboxes), sentThreads),
     nodeId,
   );
   const awaiting = awaitingPeerNodeIds(threads, nodeId);

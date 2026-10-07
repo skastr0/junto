@@ -1833,7 +1833,7 @@ const dispatchOp = (
         }
         const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
         if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-        const items = ownNode.ether?.messages?.items ?? [];
+        const items = yield* work.readMailbox(caller.canvasName, caller.nodeId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
         const overlaid: Message[] = [];
         for (const item of items) {
           if (item.role !== "user") {
@@ -1865,7 +1865,7 @@ const dispatchOp = (
         const sent: Array<Message & { readonly toNodeId: string }> = [];
         for (const node of board.nodes) {
           if (node.id === caller.nodeId) continue;
-          for (const message of node.ether?.messages?.items ?? []) {
+          for (const message of yield* work.readMailbox(caller.canvasName, node.id).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))) {
             if (message.metadata?.fromSeat !== reader.success.seatId &&
                 message.metadata?.fromSeat !== caller.nodeId) continue;
             sent.push({ ...message, toNodeId: node.id });
@@ -1883,7 +1883,7 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       return {
         target: targetId,
-        items: sortMessagesNewestFirst(gate.node?.ether?.messages?.items ?? []),
+        items: sortMessagesNewestFirst(yield* work.readMailbox(caller.canvasName, targetId).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))),
       };
     }
 
@@ -1949,7 +1949,7 @@ const dispatchOp = (
       const items: Array<Message & { readonly toNodeId: string }> = [];
       for (const node of board.nodes) {
         if (decoded.success.target !== undefined && node.id !== decoded.success.target) continue;
-        for (const message of node.ether?.messages?.items ?? []) {
+        for (const message of yield* work.readMailbox(caller.canvasName, node.id).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)))) {
           if (message.metadata?.fromSeat !== sender.success.seatId &&
               message.metadata?.fromSeat !== caller.nodeId) continue;
           items.push({ ...message, toNodeId: node.id });
@@ -2039,9 +2039,7 @@ const dispatchOp = (
       }
       const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
-      const message = own.ether?.messages?.items.find(
-        (item) => item.messageId === decoded.success.messageId.trim(),
-      );
+      const message = yield* work.readMailMessage(caller.canvasName, caller.nodeId, decoded.success.messageId.trim()).pipe(Effect.mapError((error) => mapWorkCode(error.code, error.message, error.details)));
       const result = yield* work.workMessageMarkRead(
         caller.canvasName,
         caller.nodeId,

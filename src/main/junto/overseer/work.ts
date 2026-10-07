@@ -634,14 +634,14 @@ export const executeOverseerWork = (
         return { target: targetId, taskId: task.id, items: task.history };
       }
       if (targetId === caller.nodeId) {
-        const items = findNode(read.doc, caller.nodeId)?.ether?.messages?.items ?? [];
+        const items = yield* catchWork(work.readMailbox(caller.canvasName, caller.nodeId));
         return { target: caller.nodeId, items: sortMessagesNewestFirst(items) };
       }
       yield* requireTarget(read.doc, targetId, "msg.list");
       return {
         target: targetId,
         items: sortMessagesNewestFirst(
-          findNode(read.doc, targetId)?.ether?.messages?.items ?? [],
+          yield* catchWork(work.readMailbox(caller.canvasName, targetId)),
         ),
       };
     }

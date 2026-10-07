@@ -1,3 +1,4 @@
+import { useWorkMail } from "../../lib/use-work-mail";
 /**
  * Seat details: everything about one agent seat that is worth a look now and
  * then, kept out of the way behind one button in the agent modal's header.
@@ -351,10 +352,6 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
   const live = isActor && canvasMatches;
 
   // The prop node is the open-time snapshot; work containers live on the doc.
-  const liveNode = useMemo(
-    () => doc.nodes.find((candidate) => candidate.id === node.id) ?? node,
-    [doc, node],
-  );
   const seatId = useMemo(
     () => seatIdForActorNode(actorRefs, node.id),
     [actorRefs, node.id],
@@ -387,9 +384,10 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
     (sum, board) => sum + (board.unread ?? 0),
     0,
   );
+  const mail = useWorkMail(canvas, node.id, live);
   const rows = useMemo(
-    () => (live ? mailboxRows(doc, liveNode) : []),
-    [doc, liveNode, live],
+    () => (live ? mailboxRows(doc, mail.items.map((item) => item.message)) : []),
+    [doc, mail.items, live],
   );
   const counts = useMemo(() => mailboxCounts(rows), [rows]);
 
@@ -655,6 +653,10 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
           >
             {`${visibleMail.hidden} settled - junto msg list`}
           </p>
+        ) : null}
+        {mail.error ? <p role="alert">{mail.error}</p> : null}
+        {mail.nextBeforePosition !== undefined ? (
+          <Button size="xs" variant="subtle" disabled={mail.loading} onClick={() => { void mail.loadMore(); }}>Older mail</Button>
         ) : null}
       </DetailsGroup>
       <DetailsGroup title="session" testId="seat-session">

@@ -126,12 +126,12 @@ export type CanvasReadWithIntentWitness = {
  *
  * Some callers only ask structural questions of a single node, such as which
  * seat it binds to (`deliveryTargetOf`). Such a question reads no work lane,
- * so it may not pay for one: `canvases.read` materializes every sink's tasks, messages,
+ * so it may not pay for one: `canvases.read` materializes every sink's tasks,
  * requests, artifacts, board and pad to answer them, which is the entire
  * factory for one `nodes.find`.
  *
  * `structure` is the AUTHORIAL document. `ether.tasks`, `ether.requests`,
- * `ether.messages`, `ether.artifacts`, `ether.board` and `ether.pad` are
+ * `ether.artifacts`, `ether.board` and `ether.pad` are
  * absent by construction (authorial rows that carry them are rejected at
  * decode). Never read a work lane off it — take `canvases.read` for that.
  */
@@ -791,7 +791,6 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
       (
         etherIn.tasks === undefined &&
         etherIn.requests === undefined &&
-        etherIn.messages === undefined &&
         etherIn.artifacts === undefined &&
         etherIn.board === undefined &&
         etherIn.pad === undefined
@@ -803,7 +802,6 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
     const {
       tasks: strippedTasks,
       requests: strippedRequests,
-      messages: _messages,
       artifacts: _artifacts,
       board: _board,
       pad: _pad,
@@ -1627,7 +1625,8 @@ export const CanvasesLive = Layer.effect(
   // Work rows are runtime state. Renderer and kernel consume one canvas
   // projection invalidation stream, so committed work changes join that
   // stream without ever becoming authorial intent.
-  work.subscribeChanges((canvasName) => {
+  work.subscribeChanges((canvasName, _nodeId, kind) => {
+    if (kind === "mail") return;
     try {
       notifyListeners(canvasNameFrom(canvasName));
     } catch {

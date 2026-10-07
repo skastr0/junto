@@ -579,6 +579,8 @@ export interface WorkServiceShape {
       message: Message,
       admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Message>>;
+    readonly readMailbox: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Message>, WorkServiceError>;
+    readonly readMailMessage: (canvas: string, nodeId: string, messageId: string) => Effect.Effect<Message | undefined, WorkServiceError>;
     readonly workMessageAppend: (
       canvas: string,
       nodeId: string,
@@ -1572,6 +1574,8 @@ export const WorkLive = Layer.effect(
     );
 
     return WorkService.of({
+      readMailbox: (canvas, nodeId) => repository.mailbox(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
+      readMailMessage: (canvas, nodeId, messageId) => repository.mailMessage(canvas, nodeId, messageId).pipe(Effect.mapError(toWorkServiceError)),
       crewAdmission,
       workVerdictPost: (canvas, target, input, reviewer) =>
         asResult(
@@ -3107,8 +3111,7 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
-            const exists = (read.doc.nodes.find((n) => n.id === nodeId)?.ether
-              ?.messages?.items ?? []).some((m) => m.messageId === trimmed);
+            const exists = (yield* repository.mailMessage(canvas, nodeId, trimmed).pipe(Effect.mapError(toWorkServiceError))) !== undefined;
             if (!exists) {
               return yield* Effect.fail(
                 new WorkServiceError({
@@ -3217,8 +3220,7 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
-            const exists = (read.doc.nodes.find((n) => n.id === nodeId)?.ether
-              ?.messages?.items ?? []).some((m) => m.messageId === trimmed);
+            const exists = (yield* repository.mailMessage(canvas, nodeId, trimmed).pipe(Effect.mapError(toWorkServiceError))) !== undefined;
             if (!exists) {
               return yield* Effect.fail(
                 new WorkServiceError({

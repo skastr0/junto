@@ -21,7 +21,6 @@ const base = (): CanvasDoc => ({
       height: 120,
       ether: {
         entity: { kind: "agent", name: "local:planner" },
-        messages: { items: [] },
       },
     },
     {
@@ -38,7 +37,7 @@ const base = (): CanvasDoc => ({
 });
 
 describe("mergeLocalCanvasWithWorkWrite", () => {
-  it("keeps freeform geometry, text and edges; overlays the seat's mailbox", () => {
+  it("keeps freeform geometry, text and edges; never overlays mail onto the seat", () => {
     // Operator dragged the seat, renamed it, and edited the free note.
     const local: CanvasDoc = {
       ...base(),
@@ -63,7 +62,6 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
           height: 120,
           ether: {
             entity: { kind: "agent", name: "local:planner" },
-            messages: { items: [mail("m1", "ship it")] },
           },
         },
         {
@@ -85,7 +83,7 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
     expect(agent?.type === "text" && agent.x).toBe(50);
     expect(agent?.type === "text" && agent.y).toBe(60);
     expect(agent?.type === "text" && agent.text).toBe("Local planner");
-    expect(agent?.ether?.messages?.items.map((m) => m.messageId)).toEqual(["m1"]);
+    expect(agent?.ether).not.toHaveProperty("messages");
     expect(agent?.ether?.entity).toEqual({ kind: "agent", name: "local:planner" });
     expect(note?.type === "text" && note.text).toBe("edited note");
     expect(note?.type === "text" && note.x).toBe(110);
@@ -132,7 +130,6 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
           height: 40,
           ether: {
             entity: { kind: "agent", name: "local:ghost" },
-            messages: { items: [mail("m1", "hello")] },
           },
         },
         ...local.nodes,

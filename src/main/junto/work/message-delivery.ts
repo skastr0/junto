@@ -28,7 +28,7 @@
  *
  * Delivery is at-most-once per process: one flight per message, shared by
  * every caller that asks, and a delivered message is remembered until its
- * receipt reaches the document. The durable receipt (`deliveredAt`) is the
+ * receipt reaches the mailbox. The durable receipt (`deliveredAt`) is the
  * only delivery fact.
  */
 
@@ -39,7 +39,6 @@ import {
   composeMessageDeliveryPayload,
   deliveryTargetOf,
   isPendingDelivery,
-  listPendingDeliveries,
   MESSAGE_PTY_FULL_BODY_MAX,
   sanitizeDeliveryLine,
   type MailLineOptions,
@@ -109,6 +108,8 @@ export type MessageDeliveryStore = {
     canvas: string,
     site: MessageDeliveryReadSite,
   ) => Promise<CanvasDoc | undefined>;
+  readonly readMessage: (canvas: string, nodeId: string, messageId: string) => Promise<Message | undefined>;
+  readonly listMail: (canvas: string, nodeId: string) => Promise<ReadonlyArray<Message>>;
   /** Stamp the durable delivery receipt (`deliveredAt`). */
   readonly acceptMessageDelivery: (
     canvas: string,
@@ -299,9 +300,7 @@ export class MessageDeliveryService {
     const doc = await store.readDoc(canvas, "attempt");
     if (!this.active(generation)) return "waiting";
     const node = doc?.nodes.find((candidate) => candidate.id === nodeId);
-    const message = node?.ether?.messages?.items.find(
-      (item) => item.messageId === messageId,
-    );
+    const message = await store.readMessage(canvas, nodeId, messageId);
     const target = node === undefined ? undefined : deliveryTargetOf(node);
     if (!node || !message || !target) {
       // No seat to write into: the node is gone or holds no agent seat.
@@ -517,9 +516,14 @@ export class MessageDeliveryService {
       if (!this.active(generation)) return;
       const doc = await store.readDoc(canvas, "scan").catch(() => undefined);
       if (!doc) continue;
-      const pending = [...listPendingDeliveries(doc)].sort((a, b) =>
-        a.message.messageId.localeCompare(b.message.messageId),
-      );
+      const pending: Array<{ nodeId: string; message: Message }> = [];
+      for (const node of doc.nodes) {
+        if (!deliveryTargetOf(node)) continue;
+        for (const message of await store.listMail(canvas, node.id)) {
+          if (isPendingDelivery(message)) pending.push({ nodeId: node.id, message });
+        }
+      }
+      pending.sort((a, b) => a.message.messageId.localeCompare(b.message.messageId));
       for (const item of pending) {
         void this.deliver(canvas, item.nodeId, item.message.messageId);
       }

@@ -46,6 +46,7 @@ const fixtureSeatNodeIds: ReadonlyArray<string> = [
   "basis-roundtrip",
   "inbox-authority",
   "notification-mailbox",
+  "paged-inbox",
 ];
 const fixtureSeatNode = (
   id: string,
@@ -231,9 +232,9 @@ describe("WorkRepository v2 local authority", () => {
       expect(
         (
           await runtime.runPromise(
-            repository.readSnapshot(sink.canvasName, sink.nodeId),
+            repository.mailbox(sink.canvasName, sink.nodeId),
           )
-        ).messages.items.map((item) => item.messageId),
+        ).map((item) => item.messageId),
       ).toEqual(["outer-commit"]);
     } finally {
       unsubscribe();
@@ -271,7 +272,7 @@ describe("WorkRepository v2 local authority", () => {
     const snapshot = await runtime.runPromise(
       repository.readSnapshot(mailbox.canvasName, mailbox.nodeId),
     );
-    expect(snapshot.messages.items[0]?.parts).toEqual(contentMessage.parts);
+    expect((await runtime.runPromise(repository.mailMessage("factory", "content-mailbox", contentMessage.messageId)))?.parts).toEqual(contentMessage.parts);
     const storedMessageParts = await runtime.runPromise(
       sql
         .unsafe<{ readonly parts_json: string }>(
@@ -503,6 +504,31 @@ describe("WorkRepository v2 local authority", () => {
     }
   });
 
+  it("pages one seat by stable position and reports mailbox changes separately", async () => {
+    const sink = { canvasName: "factory", nodeId: "paged-inbox" };
+    const events: Array<string | undefined> = [];
+    const off = repository.subscribeChanges((canvas, node, kind) => {
+      if (canvas === sink.canvasName && node === sink.nodeId) events.push(kind);
+    });
+    for (let index = 0; index < 5; index++) await runtime.runPromise(repository.appendMessage({
+      sink, basis: authorialBasis, message: message(`page-${index}`, "user", `body-${index}`),
+      sentBy: actor, destination: { kind: "mailbox" }, originAt: observedAt, receivedAt: observedAt,
+    }));
+    expect(events).toEqual(Array(5).fill("mail")); off();
+    const first = await runtime.runPromise(repository.mailPage({ ...sink, limit: 2 }));
+    expect(first.items.map((item) => item.message.messageId)).toEqual(["page-4", "page-3"]);
+    await runtime.runPromise(repository.appendMessage({
+      sink, basis: authorialBasis, message: message("page-new", "user", "new"),
+      sentBy: actor, destination: { kind: "mailbox" }, originAt: observedAt, receivedAt: observedAt,
+    }));
+    const second = await runtime.runPromise(repository.mailPage({ ...sink, limit: 2, beforePosition: first.nextBeforePosition }));
+    expect(second.items.map((item) => item.message.messageId)).toEqual(["page-2", "page-1"]);
+    const last = await runtime.runPromise(repository.mailPage({ ...sink, limit: 2, beforePosition: second.nextBeforePosition }));
+    expect(last.items.map((item) => item.message.messageId)).toEqual(["page-0"]);
+    expect(last.nextBeforePosition).toBeUndefined();
+    expect((await runtime.runPromise(repository.mailPage({ canvasName: "factory", nodeId: "missing", limit: 2 }))).items).toEqual([]);
+  });
+
   it("normalizes inbox messages and their delivery receipts", async () => {
     const inbox = { canvasName: "factory", nodeId: "inbox" };
     await runtime.runPromise(
@@ -544,9 +570,9 @@ describe("WorkRepository v2 local authority", () => {
     expect(
       (
         await runtime.runPromise(
-          repository.readSnapshot(inbox.canvasName, inbox.nodeId),
+          repository.mailbox(inbox.canvasName, inbox.nodeId),
         )
-      ).messages.items,
+      ),
     ).toEqual([message("mail-1", "agent", "hello")]);
     expect(
       await runtime.runPromise(

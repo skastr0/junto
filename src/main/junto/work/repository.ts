@@ -1,3 +1,4 @@
+import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/work-mail";
 import { Buffer } from "node:buffer";
 import { workProjectionChanges } from "./projection-changes";
 import { createHash } from "node:crypto";
@@ -2800,7 +2801,6 @@ export const projectWorkSnapshots = (
         const ether = { ...(node.ether ?? {}) };
         delete ether.tasks;
         delete ether.requests;
-        delete ether.messages;
         delete ether.artifacts;
         delete ether.board;
         ether.pad = glance;
@@ -2817,7 +2817,6 @@ export const projectWorkSnapshots = (
       const ether = { ...(node.ether ?? {}) };
       delete ether.tasks;
       delete ether.requests;
-      delete ether.messages;
       delete ether.artifacts;
       delete ether.board;
       delete ether.pad;
@@ -2863,9 +2862,6 @@ export const projectWorkSnapshots = (
             0,
           ),
         };
-      }
-      if (snapshot.messages.items.length > 0) {
-        ether.messages = snapshot.messages;
       }
       return {
         ...node,
@@ -3884,6 +3880,60 @@ const loadInbox = Effect.fn("work.loadInbox")(function* (
   );
 });
 
+/** Keyset pagination uses the existing inbox index; only this page's receipts are read. */
+export const readWorkMailPage = Effect.fn("work.mail.page")(function* (
+  reader: SqlClient.SqlClient,
+  input: WorkMailQuery,
+  messageId?: string,
+): Effect.fn.Return<WorkMailPage, WorkSqlFailure> {
+  const query = yield* Schema.decodeUnknownEffect(WorkMailQuery)(input);
+  const limit = query.limit ?? WORK_MAIL_PAGE_SIZE;
+  const rows = yield* SqlSchema.findAll({
+    Request: WorkSqlBindings,
+    Result: Schema.Struct({ ...MessageRowSchema.fields, position: Schema.Number }),
+    execute: (bindings) => reader.unsafe(`
+      SELECT message_id, role, parts_json, task_id, context_id,
+             reference_task_ids_json, metadata_json, position
+      FROM work_messages
+      WHERE canvas_name = ? AND node_id = ?
+        ${query.beforePosition === undefined ? "" : "AND position < ?"}
+        ${messageId === undefined ? "" : "AND message_id = ?"}
+      ORDER BY position DESC LIMIT ?`, bindings),
+  })([query.canvasName, query.nodeId,
+    ...(query.beforePosition === undefined ? [] : [query.beforePosition]),
+    ...(messageId === undefined ? [] : [messageId]), limit + 1]);
+  const page = rows.slice(0, limit);
+  const ids = page.flatMap((row) => [
+    mailboxMessageDeliveryId(query.canvasName, query.nodeId, row.message_id),
+    mailboxMessageReadId(query.canvasName, query.nodeId, row.message_id),
+    mailboxMessageReactId(query.canvasName, query.nodeId, row.message_id, "ack"),
+  ]);
+  const receipts = ids.length === 0 ? [] : yield* SqlSchema.findAll({
+    Request: WorkSqlBindings,
+    Result: MessageReceiptRow,
+    execute: (bindings) => reader.unsafe(`
+      SELECT delivery_id, accepted_at FROM work_delivery_receipts
+      WHERE delivered_canvas_name = ? AND delivered_node_id = ?
+        AND delivery_id IN (${ids.map(() => "?").join(",")})`, bindings),
+  })([query.canvasName, query.nodeId, ...ids]);
+  const stamps = new Map(receipts.map((row) => [row.delivery_id, Date.parse(row.accepted_at)]));
+  const items = yield* Effect.try(() => page.map((row) => {
+    const message = messageFromRow(row);
+    const deliveredAt = stamps.get(mailboxMessageDeliveryId(query.canvasName, query.nodeId, row.message_id));
+    const readAt = stamps.get(mailboxMessageReadId(query.canvasName, query.nodeId, row.message_id));
+    const ackAt = stamps.get(mailboxMessageReactId(query.canvasName, query.nodeId, row.message_id, "ack"));
+    return { position: row.position, message: {
+      ...message,
+      metadata: { ...message.metadata,
+        ...(deliveredAt === undefined ? {} : { deliveredAt }),
+        ...(readAt === undefined ? {} : { readAt }),
+        ...(ackAt === undefined ? {} : { reactions: [{ kind: "ack", at: ackAt }] }),
+      },
+    }};
+  }));
+  return { items, ...(rows.length > limit ? { nextBeforePosition: page.at(-1)!.position } : {}) };
+});
+
 const boardAuthorFromRow = (row: {
   readonly author_kind: string;
   readonly author_seat_id: string | null;
@@ -4636,7 +4686,7 @@ const loadSnapshot = Effect.fn("work.loadSnapshot")(function* (
       ),
     },
     requests: { items: yield* loadLaneTasks(reader, sink, "request") },
-    messages: { items: yield* loadInbox(reader, sink) },
+    messages: { items: [] },
     artifacts: { items: yield* loadArtifacts(reader, sink) },
     board: { topics: yield* loadBoardTopics(reader, sink) },
     ...(pad === undefined ? {} : { pad }),
@@ -4675,7 +4725,6 @@ export type CanvasWorkProjection = {
 export const WORK_SINK_MEMBERSHIP_TABLES: ReadonlyArray<string> = [
   "work_tasks",
   "work_requests",
-  "work_messages",
   "work_artifacts",
   "work_board_topics",
   "work_pad_meta",
@@ -6066,6 +6115,7 @@ const writeInboxMessage = Effect.fn("work.writeInboxMessage")(function* (
       receivedAt,
     ],
   );
+  yield* afterSqlCommit(writer, () => workProjectionChanges(writer).notify(sink, "mail"));
 });
 
 const writeArtifact = Effect.fn("work.writeArtifact")(function* (
@@ -6162,6 +6212,7 @@ const writeDelivery = Effect.fn("work.writeDelivery")(function* (
       receivedAt,
     ],
   );
+  if (receipt.deliveredItem.kind === "message") yield* afterSqlCommit(writer, () => workProjectionChanges(writer).notify(receipt.deliveredItem.sink, "mail"));
 });
 
 const materializeFact = Effect.fn("work.materializeFact")(function* (
@@ -8772,6 +8823,9 @@ export type CurrentTaskClaim = {
 };
 
 export interface WorkRepositoryShape {
+  readonly mailPage: (query: WorkMailQuery) => Effect.Effect<WorkMailPage, WorkRepositoryError>;
+  readonly mailbox: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<MessageValue>, WorkRepositoryError>;
+  readonly mailMessage: (canvasName: string, nodeId: string, messageId: string) => Effect.Effect<MessageValue | undefined, WorkRepositoryError>;
   readonly readSnapshot: (
     canvasName: string,
     nodeId: string,
@@ -8939,7 +8993,7 @@ export interface WorkRepositoryShape {
     input: AcceptRecordsInput,
   ) => Effect.Effect<AcceptRecordsResult, ReplicationFailure>;
   readonly subscribeChanges: (
-    listener: (canvasName: string, nodeId: string) => void,
+    listener: (canvasName: string, nodeId: string, kind?: "mail" | "work") => void,
   ) => () => void;
 }
 
@@ -9324,6 +9378,7 @@ export const WorkRepositoryLive = Layer.effect(
         WorkSqlFailure,
         WorkJournal | CrewRepository | CanvasRecords | ContentManifest
       >,
+      kind: "mail" | "work" = "work",
     ): Effect.Effect<A, RepositoryFailure> =>
       sql
         .withTransaction(
@@ -9361,9 +9416,9 @@ export const WorkRepositoryLive = Layer.effect(
             ),
           ),
           Effect.tap(({ changed }) =>
-            changed
+            changed && kind !== "mail"
               ? afterSqlCommit(sql, () => {
-                  notify(sink);
+                  notify(sink, kind);
                 })
               : Effect.void,
           ),
@@ -11121,6 +11176,7 @@ export const WorkRepositoryLive = Layer.effect(
               receivedAt,
             });
           }),
+        destination.kind === "mailbox" ? "mail" : "work",
       );
     };
 
@@ -11256,6 +11312,7 @@ export const WorkRepositoryLive = Layer.effect(
               receivedAt,
             });
           }),
+        input.receipt.deliveredItem.kind === "message" ? "mail" : "work",
       );
     };
 
@@ -12485,6 +12542,22 @@ export const WorkRepositoryLive = Layer.effect(
     };
 
     return WorkRepository.of({
+      mailbox: Effect.fn("WorkRepository.mailbox")((canvasName: string, nodeId: string) =>
+        withSqlRead(sql, loadInbox(sql, { canvasName, nodeId })).pipe(
+          Effect.provideService(StateTransactionOperation, "work.mailbox"),
+          Effect.mapError((error) => toRepositoryError("work.mailbox", error)),
+        )),
+      mailMessage: Effect.fn("WorkRepository.mailMessage")((canvasName: string, nodeId: string, messageId: string) =>
+        withSqlRead(sql, readWorkMailPage(sql, { canvasName, nodeId, limit: 1 }, messageId)).pipe(
+          Effect.map((page) => page.items[0]?.message),
+          Effect.provideService(StateTransactionOperation, "work.mail.message"),
+          Effect.mapError((error) => toRepositoryError("work.mail.message", error)),
+        )),
+      mailPage: Effect.fn("WorkRepository.mailPage")((query: WorkMailQuery) =>
+        withSqlRead(sql, readWorkMailPage(sql, query)).pipe(
+          Effect.provideService(StateTransactionOperation, "work.mail.page"),
+          Effect.mapError((error) => toRepositoryError("work.mail.page", error)),
+        )),
       readSnapshot,
       snapshotsForCanvas: readSnapshotsForCanvas,
       recentOpsForSeat: readRecentOpsForSeat,

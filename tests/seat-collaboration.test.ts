@@ -50,13 +50,15 @@ import {
 // Fixtures
 // ---------------------------------------------------------------------------
 
+const mailboxes = new WeakMap<CanvasNode, readonly import("../src/shared/work-model").Message[]>();
+const threadsOf = (doc: Pick<CanvasDoc, "nodes">) => collaborationThreads(Object.fromEntries(doc.nodes.map((node) => [node.id, mailboxes.get(node) ?? []])));
 const agentNode = (input: {
   readonly id: string;
   readonly bindingId: string;
   readonly label: string;
   readonly messages?: ReadonlyArray<unknown>;
-}): CanvasNode =>
-  ({
+}): CanvasNode => {
+  const node = ({
     id: input.id,
     type: "text",
     x: 0,
@@ -67,9 +69,11 @@ const agentNode = (input: {
     ether: {
       entity: { kind: "agent" },
       terminal: { bindingId: input.bindingId },
-      ...(input.messages === undefined ? {} : { messages: input.messages }),
     },
   }) as unknown as CanvasNode;
+  mailboxes.set(node, (input.messages ?? []) as readonly import("../src/shared/work-model").Message[]);
+  return node;
+};
 
 const noteNode = (id: string): CanvasNode =>
   ({ id, type: "text", x: 0, y: 0, width: 100, height: 80, text: "note" }) as unknown as CanvasNode;
@@ -116,7 +120,7 @@ const fleetOf = (
   seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
   awareness: Readonly<Record<string, SeatAwarenessAssessment | undefined>> = {},
 ): readonly CollaborationSeatFacts[] =>
-  collaborationFleet({ doc, seatByBindingId: seats, awarenessByBindingId: awareness });
+  collaborationFleet({ doc, seatByBindingId: seats, awarenessByBindingId: awareness, mailboxes: Object.fromEntries(doc.nodes.map((node) => [node.id, mailboxes.get(node) ?? []])) });
 
 const draft = (over: Partial<SeatCollaborationDraft> = {}): SeatCollaborationDraft => ({
   canvas: "main",
@@ -227,7 +231,7 @@ describe("collaboration threads", () => {
       ],
       edges: [],
     };
-    const threads = collaborationThreads(doc);
+    const threads = threadsOf(doc);
     expect(threads).toHaveLength(1);
     const [thread] = threads;
     expect(thread?.requestId).toBe("01REQ0000000000000000000000");
@@ -254,7 +258,7 @@ describe("collaboration threads", () => {
       ],
       edges: [],
     };
-    const threads = collaborationThreads(doc);
+    const threads = threadsOf(doc);
     expect(threads[0]?.status).toBe("asked");
     expect(threads[0]?.reply).toBeUndefined();
     expect(collaborationThreadLine(threads[0]!)).toBe("waiting for a reply (Iris)");
@@ -277,7 +281,7 @@ describe("collaboration threads", () => {
       ],
       edges: [],
     };
-    expect(collaborationThreads(doc)).toEqual([]);
+    expect(threadsOf(doc)).toEqual([]);
   });
 });
 
@@ -623,7 +627,7 @@ describe("collaboration renderer state", () => {
 
     // The mailbox is authority: once the document carries the thread, the
     // local copy is not shown beside it.
-    const fromDocument = collaborationThreads({
+    const fromDocument = threadsOf({
       nodes: [
         agentNode({
           id: "iris",

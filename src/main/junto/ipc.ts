@@ -1,3 +1,4 @@
+import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Result, Schema } from "effect";
 import {
@@ -694,8 +695,6 @@ export const registerJuntoIpc = (): void => {
               return {
                 ok: true as const,
                 requestId,
-                doc: result.doc,
-                revision: result.revision,
               };
             }),
           ),
@@ -1476,6 +1475,14 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
+  privilegedIpc.handle(IPC_CHANNELS.workMailPage, (_event, input: unknown) =>
+    AppRuntime.runPromise(Effect.gen(function* () {
+      const query = yield* Schema.decodeUnknownEffect(WorkMailQuery)(input);
+      const repository = yield* WorkRepository;
+      return yield* repository.mailPage(query);
+    })),
+  );
+
   privilegedIpc.handle(
     IPC_CHANNELS.workSeatRecentOps,
     (
@@ -1747,6 +1754,10 @@ export const registerJuntoIpc = (): void => {
           catch: () => undefined,
         }).pipe(Effect.catch(() => Effect.void));
       }
+      const mailRepository = yield* WorkRepository;
+      mailRepository.subscribeChanges((canvasName, nodeId, kind) => {
+        if (kind === "mail") broadcast(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
+      });
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       canvases.subscribeChanges(() => {
         Effect.runFork(fleetPropagation.request());
@@ -2563,6 +2574,8 @@ export const registerJuntoIpc = (): void => {
                 Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
               ),
             ),
+          readMessage: (canvas, nodeId, messageId) => AppRuntime.runPromise(mailRepository.mailMessage(canvas, nodeId, messageId)),
+          listMail: (canvas, nodeId) => AppRuntime.runPromise(mailRepository.mailbox(canvas, nodeId)),
           acceptMessageDelivery: (canvas, nodeId, messageId) =>
             stampMailboxReceipt(
               mailboxMessageDeliveryId(canvas, nodeId, messageId),

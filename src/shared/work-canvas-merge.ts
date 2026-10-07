@@ -96,7 +96,6 @@ const mergeEther = (
       ? { requests: mergeRequests(local?.requests, work?.requests) }
       : {}),
     ...(work?.artifacts !== undefined ? { artifacts: work.artifacts } : {}),
-    ...(work?.messages !== undefined ? { messages: work.messages } : {}),
     ...(work?.board !== undefined ? { board: work.board } : {}),
     // Preserve local entity when present; else take work entity so a tasks
     // node stays typed. Work ops never author flags/view/etc.
@@ -125,7 +124,7 @@ const mergeNode = (local: CanvasNode, work: CanvasNode | undefined): CanvasNode 
       ...(ether ? { ether } : {}),
     };
   }
-  if (isWorkSurfaceKind(kind) || work.ether?.messages !== undefined) {
+  if (isWorkSurfaceKind(kind)) {
     return {
       ...local,
       ...(ether ? { ether } : {}),

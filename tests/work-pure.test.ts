@@ -33,9 +33,9 @@ describe("work pure transforms", () => {
       role: "user",
       parts: [{ kind: "text", text: "ping" }],
     });
-    const messages = onAgent.doc.nodes.find((n) => n.id === "agent")?.ether?.messages?.items;
-    expect(messages?.some((m) => m.messageId === "manual-2")).toBe(true);
-    expect(messages?.[0]?.contextId).toBe("c");
+    expect(onAgent.doc).toBe(doc);
+    expect(onAgent.message.messageId).toBe("manual-2");
+    expect(onAgent.message.contextId).toBe("c");
   });
 
   it("uses region label as contextId when the agent is inside a group", () => {

@@ -75,6 +75,8 @@ const rig = (
       await new Promise((resolve) => setTimeout(resolve, 1));
       return doc;
     },
+    readMessage: async (_canvas, _nodeId, messageId) => messages.find((message) => message.messageId === messageId),
+    listMail: async () => messages,
     acceptMessageDelivery: async (_canvas, _node, messageId) => {
       const index = messages.findIndex((m) => m.messageId === messageId);
       messages[index] = {

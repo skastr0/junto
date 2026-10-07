@@ -162,7 +162,10 @@ describe("work projection shape", () => {
     );
 
     const seen = projection.snapshots.map((snapshot) => snapshot.nodeId).sort();
-    expect(seen).toEqual(["agent-1"]);
+    expect(seen).toEqual([]);
+    const snapshot = await runtime.runPromise(repository.readSnapshot("factory", "agent-1"));
+    expect(snapshot.messages.items).toEqual([]);
+    expect(() => Schema.decodeUnknownSync(WorkSnapshot, strict)(snapshot)).not.toThrow();
 
     // The gate. Every constructed snapshot must satisfy the schema the read
     // path no longer decodes against.
@@ -174,10 +177,8 @@ describe("work projection shape", () => {
 
     // Content refs are carried by value, whatever key order the durable JSON
     // column happens to use.
-    const inbox = projection.snapshots.find(
-      (snapshot) => snapshot.nodeId === "agent-1",
-    );
-    const part = inbox?.messages.items[0]?.parts[1];
+    const inbox = await runtime.runPromise(repository.mailPage({ canvasName: "factory", nodeId: "agent-1" }));
+    const part = inbox.items[0]?.message.parts[1];
     expect(part).toEqual({
       kind: "content",
       ref: contentRef("c".repeat(64), 34),

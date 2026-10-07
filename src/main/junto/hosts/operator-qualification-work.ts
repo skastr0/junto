@@ -306,7 +306,6 @@ const stripRuntimeWork = (
   const {
     tasks: _tasks,
     requests: _requests,
-    messages: _messages,
     artifacts: _artifacts,
     ...authorial
   } = ether;

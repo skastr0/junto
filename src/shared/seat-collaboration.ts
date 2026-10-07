@@ -52,17 +52,11 @@ export type SeatCollaborationDraft = {
   readonly evidence: readonly string[];
 };
 
-/**
- * The ask's outcome. A success carries the mailbox document the request landed
- * in, exactly like every other work write, so the renderer can apply it and the
- * new thread appears immediately instead of on the next unrelated reload.
- */
+/** Mail writes return their identity; mailbox events deliver the updated rows. */
 export type SeatCollaborationAskResult =
   | {
       readonly ok: true;
       readonly requestId: string;
-      readonly doc: CanvasDoc;
-      readonly revision: string;
     }
   | { readonly ok: false; readonly error: string };
 
@@ -252,30 +246,24 @@ const readReplyLink = (message: Message): string => {
   return metadata === undefined ? "" : trimmed(metadata.inReplyTo);
 };
 
-const mailboxOf = (node: CanvasNode): readonly Message[] => {
-  const messages = (node.ether as { readonly messages?: unknown } | undefined)
-    ?.messages;
-  return Array.isArray(messages) ? (messages as readonly Message[]) : [];
-};
-
 /**
- * Every collaboration thread visible in one canvas document.
+ * Every collaboration thread visible in the loaded seat mailboxes.
  *
  * A request is any message carrying this feature's request id; the seat whose
  * mailbox holds it is the seat being asked. A reply is any message in the
- * document carrying `metadata.inReplyTo` equal to the request id, which is
+ * mailboxes carrying `metadata.inReplyTo` equal to the request id, which is
  * exactly what `junto msg reply` stamps. Both halves are read from the same
- * projection the crew-mail surface already paints, so a thread cannot say
+ * store the crew-mail surface already paints, so a thread cannot say
  * something the mailbox does not.
  */
 export const collaborationThreads = (
-  doc: Pick<CanvasDoc, "nodes">,
+  mailboxes: Readonly<Record<string, ReadonlyArray<Message>>>,
 ): readonly SeatCollaborationThread[] => {
   const requests: RawRequest[] = [];
   const replies = new Map<string, SeatCollaborationReply>();
-  for (const node of doc.nodes) {
-    for (const message of mailboxOf(node)) {
-      const request = readRequest(message, node.id);
+  for (const [nodeId, messages] of Object.entries(mailboxes)) {
+    for (const message of messages) {
+      const request = readRequest(message, nodeId);
       if (request !== undefined) requests.push(request);
       const link = readReplyLink(message);
       if (link !== "" && !replies.has(link)) {

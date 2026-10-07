@@ -14,11 +14,13 @@ import {
 
 const T0 = 1_700_000_000_000;
 
+const mailboxes = new WeakMap<TextNode, ReadonlyArray<Message>>();
 const agent = (
   id: string,
   label: string,
   messages?: ReadonlyArray<Message>,
-): TextNode => ({
+): TextNode => {
+  const node: TextNode = {
   id,
   type: "text",
   text: label,
@@ -29,9 +31,11 @@ const agent = (
   ether: {
     entity: { kind: "agent", name: `local:${id}` },
     terminal: { bindingId: `local:${id}`, harness: "codex" },
-    ...(messages ? { messages: { items: [...messages] } } : {}),
   },
-});
+};
+  mailboxes.set(node, messages ?? []);
+  return node;
+};
 
 const docOf = (nodes: readonly TextNode[]): CanvasDoc => ({
   nodes: [...nodes],
@@ -56,7 +60,7 @@ describe("mailboxRows", () => {
     const older = mail(T0, { text: "older" });
     const newer = mail(T0 + 60_000, { text: "newer" });
     const doc = docOf([agent("hub", "Hub", [older, newer])]);
-    const rows = mailboxRows(doc, doc.nodes[0]!);
+    const rows = mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? []);
     expect(rows.map((r) => r.preview)).toEqual(["newer", "older"]);
     expect(rows[0]!.sentAtMs).toBe(T0 + 60_000);
   });
@@ -69,7 +73,7 @@ describe("mailboxRows", () => {
       agent("hub", "Hub", [fromPeer, fromGone, fromNobody]),
       agent("bravo", "Bravo peer"),
     ]);
-    const rows = mailboxRows(doc, doc.nodes[0]!);
+    const rows = mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? []);
     expect(rows.map((r) => r.fromLabel)).toEqual(["system", "ghost", "Bravo peer"]);
     expect(rows[2]!.fromNodeId).toBe("bravo");
   });
@@ -80,7 +84,7 @@ describe("mailboxRows", () => {
       metadata: { fromSeat: "bravo" },
     });
     const doc = docOf([agent("hub", "Hub", [wrapped])]);
-    const row = mailboxRows(doc, doc.nodes[0]!)[0]!;
+    const row = mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? [])[0]!;
     expect(row.preview).toBe("line one");
     expect(row.body).toBe("line one\nline two");
   });
@@ -96,7 +100,7 @@ describe("mailboxRows", () => {
       },
     });
     const doc = docOf([agent("hub", "Hub", [notice])]);
-    const row = mailboxRows(doc, doc.nodes[0]!)[0]!;
+    const row = mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? [])[0]!;
     expect(row.body).toBe("please read 01ARZ3NDEKTS\nbody");
     expect(row.subject).toBe("Standup");
     expect(row.kind).toBe("notice");
@@ -111,7 +115,7 @@ describe("mailboxRows", () => {
     });
     const note = mail(T0 + 3000, { role: "agent" });
     const doc = docOf([agent("hub", "Hub", [unread, deliveredUnread, read, note])]);
-    const rows = mailboxRows(doc, doc.nodes[0]!);
+    const rows = mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? []);
     const byId = new Map(rows.map((r) => [r.messageId, r] as const));
     expect(byId.get(unread.messageId)).toMatchObject({
       direction: "in",
@@ -128,7 +132,7 @@ describe("mailboxRows", () => {
 
   it("is empty for a node without a mailbox", () => {
     const doc = docOf([agent("hub", "Hub")]);
-    expect(mailboxRows(doc, doc.nodes[0]!)).toEqual([]);
+    expect(mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? [])).toEqual([]);
   });
 
   it("survives non-ULID message ids (no birth time, sinks to the end)", () => {
@@ -139,7 +143,7 @@ describe("mailboxRows", () => {
     };
     const fresh = mail(T0, { text: "fresh" });
     const doc = docOf([agent("hub", "Hub", [odd, fresh])]);
-    const rows = mailboxRows(doc, doc.nodes[0]!);
+    const rows = mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? []);
     expect(rows.map((r) => r.preview)).toEqual(["fresh", "odd"]);
     expect(rows[1]!.sentAtMs).toBeUndefined();
   });
@@ -147,7 +151,7 @@ describe("mailboxRows", () => {
 
 describe("visibleMailRows", () => {
   const rowsOf = (doc: CanvasDoc): ReturnType<typeof mailboxRows> =>
-    mailboxRows(doc, doc.nodes[0]!);
+    mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? []);
 
   it("keeps unread inbound mail at any age", () => {
     const ancient = mail(T0 - 11 * 86_400_000, { text: "unread 11d" });
@@ -207,7 +211,7 @@ describe("mailboxCounts", () => {
     });
     const note = mail(T0 + 3000, { role: "agent" });
     const doc = docOf([agent("hub", "Hub", [unread, deliveredUnread, read, note])]);
-    const counts = mailboxCounts(mailboxRows(doc, doc.nodes[0]!));
+    const counts = mailboxCounts(mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? []));
     expect(counts).toEqual({ total: 4, unread: 2 });
   });
 });
@@ -244,7 +248,7 @@ describe("unreadMailByPeer", () => {
         note,
       ]),
     ]);
-    const counts = unreadMailByPeer(mailboxRows(doc, doc.nodes[0]!));
+    const counts = unreadMailByPeer(mailboxRows(doc, mailboxes.get(doc.nodes[0]! as TextNode) ?? []));
     expect(counts.get("bravo")).toBe(2);
     expect(counts.get("charlie")).toBe(1);
     expect(counts.size).toBe(2);

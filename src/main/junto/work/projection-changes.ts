@@ -1,6 +1,6 @@
 import type { SqlClient } from "effect/unstable/sql";
 
-type Listener = (canvasName: string, nodeId: string) => void;
+type Listener = (canvasName: string, nodeId: string, kind?: "mail" | "work") => void;
 
 // Work and crew repositories share one projection stream per installation.
 // Callers publish only after their SQL transaction has committed.
@@ -20,12 +20,12 @@ export const workProjectionChanges = (sql: SqlClient.SqlClient) => {
         current.delete(listener);
       };
     },
-    notify: (sink: { canvasName: string; nodeId: string }) => {
+    notify: (sink: { canvasName: string; nodeId: string }, kind: "mail" | "work" = "work") => {
       // Dispatch only to the listeners present when this commit was announced.
       // Re-subscribing during a callback must not replay this same change.
       for (const listener of [...current]) {
         try {
-          listener(sink.canvasName, sink.nodeId);
+          listener(sink.canvasName, sink.nodeId, kind);
         } catch (error) {
           // A consumer cannot turn a committed write into a failed attempt.
           console.error(

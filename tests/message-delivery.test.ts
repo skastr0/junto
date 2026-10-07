@@ -10,7 +10,6 @@ import {
   isForeignMessage,
   isMessageDelivered,
   isPendingDelivery,
-  listPendingDeliveries,
   MAIL_ONBOARD_POINTER,
   messageBriefText,
   messageSenderLabel,
@@ -18,7 +17,6 @@ import {
   ptyInjectMarksRead,
   shouldSummarizeMessageForPty,
   sortMessagesNewestFirst,
-  stampMessageDelivered,
 } from "../src/shared/message-delivery";
 
 const userMsg = (over: Partial<Message> = {}): Message => ({
@@ -40,14 +38,13 @@ const agentNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][nu
     entity: { kind: "agent", name: "local:profile-13" },
     // Managed terminal is the only agent delivery surface.
     terminal: { bindingId: "bind-profile-13", harness: "claude" },
-    messages: { items: [...messages] },
   },
 });
 
 
 const terminalNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][number] => ({
   id: "terminal", type: "text", text: "shell", x: 0, y: 0, width: 200, height: 100,
-  ether: { entity: { kind: "terminal" }, terminal: { bindingId: "binding-1" }, messages: { items: [...messages] } },
+  ether: { entity: { kind: "terminal" }, terminal: { bindingId: "binding-1" } },
 });
 
 describe("message-delivery pure helpers", () => {
@@ -236,20 +233,6 @@ describe("message-delivery pure helpers", () => {
     ).toBe(false);
   });
 
-  it("stamps deliveredAt through a pure doc transform (serialized-path body)", () => {
-    const doc: CanvasDoc = {
-      nodes: [agentNode([userMsg({ messageId: "m-a" })])],
-      edges: [],
-    };
-    const stamped = stampMessageDelivered(doc, "agent", "m-a", 42);
-    expect(stamped).not.toBeNull();
-    const msg = stamped!.nodes[0]?.ether?.messages?.items[0];
-    expect(msg?.metadata?.deliveredAt).toBe(42);
-    expect(isMessageDelivered(msg!)).toBe(true);
-    // second stamp is a no-op (at-most-once at the document layer)
-    expect(stampMessageDelivered(stamped!, "agent", "m-a", 99)).toBeNull();
-  });
-
   it("resolves the agent seat; bare agent and raw terminals are unreachable", () => {
     // Agents without ether.terminal.bindingId never fall back to ACP.
     expect(deliveryTargetOf(agentNode())).toEqual({
@@ -271,41 +254,5 @@ describe("message-delivery pure helpers", () => {
     expect(deliveryTargetOf(bare)).toBeUndefined();
   });
 
-  it("lists only foreign pending messages on actor nodes", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        agentNode([
-          userMsg({ messageId: "p1" }),
-          userMsg({ messageId: "done", metadata: { deliveredAt: 1 } }),
-          userMsg({ messageId: "listed", metadata: { readAt: 2 } }),
-          userMsg({ messageId: "own", role: "agent", parts: [{ kind: "text", text: "echo" }] }),
-        ]),
-      ],
-      edges: [],
-    };
-    const pending = listPendingDeliveries(doc);
-    expect(pending.map((p) => p.message.messageId).sort()).toEqual(["p1"]);
-    expect(pending.find((p) => p.message.messageId === "p1")?.target).toEqual({
-      bindingId: "bind-profile-13",
-    });
-  });
 
-  it("lists pending on a seat newest-first", () => {
-    const t0 = 1_700_000_000_000;
-    const older = ulid(t0);
-    const newer = ulid(t0 + 10_000);
-    const doc: CanvasDoc = {
-      nodes: [
-        agentNode([
-          userMsg({ messageId: older, parts: [{ kind: "text", text: "old" }] }),
-          userMsg({ messageId: newer, parts: [{ kind: "text", text: "new" }] }),
-        ]),
-      ],
-      edges: [],
-    };
-    expect(listPendingDeliveries(doc).map((p) => p.message.messageId)).toEqual([
-      newer,
-      older,
-    ]);
-  });
 });

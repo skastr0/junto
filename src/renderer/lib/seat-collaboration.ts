@@ -29,7 +29,6 @@ import type {
   SeatAwarenessConcern,
 } from "./seat-awareness-contract";
 import { getJuntoApi } from "./junto-api";
-import { applyWorkCanvasWrite } from "./mutations";
 import { SEAT_AWARENESS_ACTIVITY_COPY, SEAT_AWARENESS_CONCERN_COPY } from "./seat-awareness";
 
 /** One seat as collaboration sees it: identity, control state, and evidence. */
@@ -188,27 +187,6 @@ export const collaborationSeatLabel = (node: CanvasNode): string => {
 
 const MAILBOX_LOOKBACK = 40;
 
-const recentMailOf = (node: CanvasNode): readonly string[] => {
-  const messages = (node.ether as { readonly messages?: unknown } | undefined)
-    ?.messages;
-  if (!Array.isArray(messages)) return [];
-  const out: string[] = [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index] as {
-      readonly parts?: ReadonlyArray<{ readonly kind?: string; readonly text?: string }>;
-    };
-    const text = (message.parts ?? [])
-      .map((part) => (part.kind === "text" ? (part.text ?? "") : ""))
-      .join(" ")
-      .replace(/\s+/gu, " ")
-      .trim();
-    if (text === "") continue;
-    out.push(text.slice(0, 240));
-    if (out.length >= MAIL_LOOKBACK) break;
-  }
-  return out;
-};
-
 const controlStateOf = (
   event: AgentSeatStateEvent | undefined,
 ): CollaborationSeatFacts["state"] => {
@@ -223,6 +201,7 @@ const controlStateOf = (
 /** Agent seats on one canvas, as collaboration sees them. */
 export const collaborationFleet = (input: {
   readonly doc: Pick<CanvasDoc, "nodes">;
+  readonly mailboxes?: Readonly<Record<string, ReadonlyArray<import("@shared/work-model").Message>>>;
   readonly seatByBindingId: Readonly<Record<string, AgentSeatStateEvent | undefined>>;
   readonly awarenessByBindingId: Readonly<
     Record<string, SeatAwarenessAssessment | undefined>
@@ -252,7 +231,8 @@ export const collaborationFleet = (input: {
       concerns,
       availability: assessment?.availability ?? "not_assessed",
       excerpt: assessment?.evidence.lines.map((line) => line.text).join(" ") ?? null,
-      mail: recentMailOf(node),
+      mail: (input.mailboxes?.[node.id] ?? []).slice(0, MAIL_LOOKBACK).map((message) =>
+        message.parts.flatMap((part) => part.kind === "text" ? [part.text] : []).join(" ").slice(0, 240)),
     });
   }
   return fleet;
@@ -450,16 +430,7 @@ export const askSeatPeer = async (
   }
   try {
     const result = await api.seatCollaborationAsk(normalized.draft);
-    // The request is mail, so the write returns the mailbox document. Applying
-    // it is what turns the suggestion into an open thread on the card.
-    if (result.ok) {
-      rememberSeatCollaboration(result.requestId, normalized.draft);
-      // The write's own document read can predate the message projection, so
-      // the thread is recorded here and the mailbox takes over as it catches
-      // up. Applying the returned document keeps the rest of the canvas in
-      // step; it is not what the thread depends on.
-      applyWorkCanvasWrite(normalized.draft.canvas, result.doc, result.revision);
-    }
+    if (result.ok) rememberSeatCollaboration(result.requestId, normalized.draft);
     return result;
   } catch (error) {
     return {

@@ -1,3 +1,4 @@
+import { useWorkMail } from "../../lib/use-work-mail";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Bell, Check, Inbox, ListChecks, MessageSquareText, Package, Plus, Send, X } from "lucide-react";
@@ -968,7 +969,9 @@ export function BoardDetail({
 }
 
 export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
-  const items = node.ether?.messages?.items ?? [];
+  const canvas = use$(state$.canvasName) || "";
+  const mail = useWorkMail(canvas, node.id);
+  const items = mail.items.map((item) => item.message);
 
   return (
     <div className="inspector-section">
@@ -1009,6 +1012,10 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
           })
         )}
       </div>
+      {mail.error ? <p role="alert">{mail.error}</p> : null}
+      {mail.nextBeforePosition !== undefined ? (
+        <Button size="xs" variant="subtle" disabled={mail.loading} onClick={() => { void mail.loadMore(); }}>Older mail</Button>
+      ) : null}
     </div>
   );
 }

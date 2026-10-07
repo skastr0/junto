@@ -14,7 +14,6 @@ import {
 import {
   EtherArtifacts,
   EtherBoard,
-  EtherMessages,
   EtherPad,
   EtherRequests,
   EtherTasks,
@@ -56,7 +55,6 @@ export {
   DataPart,
   EtherArtifacts,
   EtherBoard,
-  EtherMessages,
   EtherPad,
   EtherRequests,
   EtherTasks,
@@ -445,7 +443,6 @@ export const EtherNodeExtension = Schema.Struct({
   tasks: Schema.optionalKey(EtherTasks),
   requests: Schema.optionalKey(EtherRequests),
   artifacts: Schema.optionalKey(EtherArtifacts),
-  messages: Schema.optionalKey(EtherMessages),
   /** Runtime overlay for entity.kind === "board" (glance only; SQLite owns truth). */
   board: Schema.optionalKey(EtherBoard),
   /** Runtime overlay for entity.kind === "pad" (glance only; SQLite owns truth). */
@@ -602,7 +599,6 @@ const decodeCanvasDocStrict = Schema.decodeUnknownResult(CanvasDoc, {
 export const encodeCanvasDoc = Schema.encodeResult(CanvasDoc);
 
 const WORK_PROJECTION_KEYS = [
-  "messages",
   "artifacts",
   "board",
   "pad",

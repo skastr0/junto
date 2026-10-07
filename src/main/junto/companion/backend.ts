@@ -1,3 +1,5 @@
+import { WorkRepository } from "../work/repository";
+import type { Message } from "@shared/work-model";
 /**
  * The companion backend in the running app: every answer a phone gets, read
  * from the same planes and projections the desktop uses.
@@ -237,12 +239,12 @@ export const noteMailFailure = (messageId: string): void => {
   if (failedMail.size > 1_000) failedMail.delete(failedMail.values().next().value!);
 };
 
-const mailFor = (canvasName: string, doc: CanvasDoc, nodeId: string): ReadonlyArray<CompanionMail> => {
+const mailFor = (canvasName: string, doc: CanvasDoc, nodeId: string, mailboxes: ReadonlyMap<string, ReadonlyArray<Message>>): ReadonlyArray<CompanionMail> => {
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) return [];
   const delivery = (messageId: string, state: "delivered" | "waiting"): CompanionMail["delivery"] =>
     failedMail.has(messageId) ? "failed" : state === "delivered" ? "delivered" : "waiting_for_seat";
-  const inbound = mailboxRows(doc, node)
+  const inbound = mailboxRows(doc, mailboxes.get(node.id) ?? [])
     .filter((row) => row.direction === "in")
     .map(
       (row): CompanionMail => ({
@@ -263,7 +265,7 @@ const mailFor = (canvasName: string, doc: CanvasDoc, nodeId: string): ReadonlyAr
   const outbound = doc.nodes
     .filter((peer) => peer.id !== nodeId && isAgentSeat(peer))
     .flatMap((peer) =>
-      mailboxRows(doc, peer)
+      mailboxRows(doc, mailboxes.get(peer.id) ?? [])
         .filter((row) => row.direction === "in" && row.fromNodeId === nodeId)
         .map(
           (row): CompanionMail => ({
@@ -361,7 +363,13 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     const view = await readCanvas(canvasName);
     if (!view) return outcomeFail("not-found", "No such canvas.");
     if (!view.doc.nodes.some((node) => node.id === nodeId && isAgentSeat(node))) return outcomeFail("not-found", "No such seat.");
-    return outcomeOk(mailFor(canvasName, view.doc, nodeId).slice(0, limit));
+    const mailboxes = await AppRuntime.runPromise(Effect.gen(function* () {
+      const repository = yield* WorkRepository;
+      const entries = yield* Effect.forEach(view.doc.nodes.filter(isAgentSeat), (node) =>
+        repository.mailbox(canvasName, node.id).pipe(Effect.map((items) => [node.id, items] as const)));
+      return new Map(entries);
+    }));
+    return outcomeOk(mailFor(canvasName, view.doc, nodeId, mailboxes).slice(0, limit));
   },
 
   mailSend: async (canvasName, nodeId, text) =>

@@ -4,14 +4,12 @@
 // delivered = metadata.deliveredAt stamped.
 
 import { decodeTime } from "ulid";
-import type { CanvasDoc, CanvasNode, Message } from "./canvas";
+import type { CanvasNode, Message } from "./canvas";
 import {
   actorDeliverySurfaceOf,
   deliveryTargetFromSurface,
   type SurfaceDeliveryTarget,
 } from "./actor-surface";
-import { isGroup } from "./graph";
-import { resolveSpec, roleOf } from "./physics";
 
 const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
@@ -265,80 +263,4 @@ export const deliveryTargetOf = (
   const surface = actorDeliverySurfaceOf(node);
   if (!surface) return undefined;
   return deliveryTargetFromSurface(surface);
-};
-
-/** Stamp metadata.deliveredAt on one message in an actor inbox. */
-export const stampMessageDelivered = (
-  doc: CanvasDoc,
-  nodeId: string,
-  messageId: string,
-  deliveredAt: number,
-): CanvasDoc | null => {
-  const node = doc.nodes.find((n) => n.id === nodeId);
-  if (!node) return null;
-  const items = node.ether?.messages?.items;
-  if (!items) return null;
-  const idx = items.findIndex((m) => m.messageId === messageId);
-  if (idx < 0) return null;
-  const current = items[idx]!;
-  if (isMessageDelivered(current)) return null; // already stamped — no-op
-  const nextItems = items.map((m, i) => {
-    if (i !== idx) return m;
-    return {
-      ...m,
-      metadata: {
-        ...(m.metadata ?? {}),
-        deliveredAt,
-      },
-    };
-  });
-  return {
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== nodeId) return n;
-      return {
-        ...n,
-        ether: {
-          ...(n.ether ?? {}),
-          messages: { items: nextItems },
-        },
-      } as CanvasNode;
-    }),
-  };
-};
-
-/**
- * Collect pending (foreign, unstamped) messages on reachable work surfaces.
- * Participation is the actor role, asked of physics — not a kind list.
- */
-export const listPendingDeliveries = (
-  doc: CanvasDoc,
-): ReadonlyArray<{
-  readonly nodeId: string;
-  readonly message: Message;
-  readonly target: SurfaceDeliveryTarget;
-}> => {
-  const out: Array<{
-    nodeId: string;
-    message: Message;
-    target: SurfaceDeliveryTarget;
-  }> = [];
-  for (const node of doc.nodes) {
-    const spec = resolveSpec({
-      isGroup: isGroup(node),
-      kind: node.ether?.entity?.kind,
-    });
-    if (roleOf(spec) !== "actor") continue;
-    const target = deliveryTargetOf(node);
-    if (!target) continue;
-    const pending = sortMessagesNewestFirst(
-      (node.ether?.messages?.items ?? []).filter((message) =>
-        isPendingDelivery(message),
-      ),
-    );
-    for (const message of pending) {
-      out.push({ nodeId: node.id, message, target });
-    }
-  }
-  return out;
 };

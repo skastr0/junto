@@ -262,24 +262,6 @@ const withArtifacts = (
   }),
 });
 
-const withMessages = (
-  doc: CanvasDoc,
-  nodeId: string,
-  items: ReadonlyArray<Message>,
-): CanvasDoc => ({
-  ...doc,
-  nodes: doc.nodes.map((n) => {
-    if (n.id !== nodeId) return n;
-    return {
-      ...n,
-      ether: {
-        ...(n.ether ?? {}),
-        messages: { items: [...items] },
-      },
-    } as CanvasNode;
-  }),
-});
-
 const patchTaskInList = (
   items: ReadonlyArray<Task>,
   taskId: string,
@@ -1284,8 +1266,7 @@ export const workMessageAppend = (
   }
 
   requireMessageInbox(node);
-  const items = [...(node.ether?.messages?.items ?? []), stamped];
-  return { doc: withMessages(doc, nodeId, items), message: stamped };
+  return { doc, message: stamped };
 };
 
 export const workRequestCreate = (
