@@ -26,7 +26,6 @@ import {
   shouldResumeHarnessSession,
 } from "../src/main/junto/term/session-existence";
 import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
-import type { CanvasDoc } from "../src/shared/canvas";
 
 const temps: string[] = [];
 const originalJuntoHome = process.env.JUNTO_HOME;
@@ -215,44 +214,17 @@ describe("hermes cold wake", () => {
     __setSessionExistenceHomeForTest(home);
 
     const nodeId = "agent-hermes-1";
-    const doc: CanvasDoc = {
-      nodes: [
-        {
-          id: nodeId,
-          type: "text",
-          text: "hermes seat",
-          x: 0,
-          y: 0,
-          ether: {
-            entity: { kind: "agent" },
-            terminal: {
-              harness: "hermes",
-              sessionId: SESSION_ID,
-              launch: {
-                kind: "harness",
-                argv: [
-                  "hermes",
-                  "chat",
-                  "--tui",
-                  "-m",
-                  "kimi-k2-thinking",
-                  "--provider",
-                  "moonshot",
-                ],
-              },
-            },
-          },
-        },
-      ],
-      edges: [],
-    } as unknown as CanvasDoc;
+    // The launch a seat was authored with, as its node holds it.
+    const authored = {
+      kind: "harness" as const,
+      argv: ["hermes", "chat", "--tui", "-m", "kimi-k2-thinking", "--provider", "moonshot"],
+    };
 
     const { launch } = launchForManagedSpawn({
       sessionId: SESSION_ID,
       nodeId,
       harness: "hermes",
-      documentLaunch: (doc.nodes[0] as { ether: { terminal: { launch: unknown } } })
-        .ether.terminal.launch as never,
+      documentLaunch: authored,
       resume: true,
     });
     const argv = launch!.argv ?? [];
