@@ -110,7 +110,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) => Layer.mergeAll(
   Layer.succeed(WorkRepository, { attentionItems: ({ canvasName }: { canvasName: string }) => {
     const doc = docs.get(canvasName);
     return Effect.succeed(doc ? doc.nodes.flatMap((node) => workItemsFromDocument(doc)(node.id).map((item) => ({ nodeId: node.id, kind: "task" as const, item }))) : []);
-  } } as unknown as WorkRepository),
+  } } as unknown as Parameters<typeof WorkRepository.of>[0]),
 );
 
 const fakeSnapshots = Layer.succeed(
