@@ -1,0 +1,53 @@
+/* Settings -> Offboard: three intervals, and the same three per harness. */
+.offboard-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.offboard-settings .settings-field__control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.offboard-settings__minutes {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+.offboard-settings__minutes input[type="number"] {
+  width: 84px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-stroke);
+  background: var(--color-shadow-2);
+  color: var(--color-ink);
+  padding: 7px 10px;
+  font-size: var(--text-body-lg);
+}
+.offboard-settings__harnesses {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-stroke);
+}
+.offboard-settings__harness {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.offboard-settings__harness-name {
+  min-width: 96px;
+  color: var(--color-ink);
+  font-size: var(--text-body-lg);
+}
+.offboard-settings__harness label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}

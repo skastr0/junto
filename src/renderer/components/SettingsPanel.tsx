@@ -22,6 +22,7 @@ import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { KeyboardSettingsSection } from "./settings/KeyboardSettingsSection";
 import { QuickRepliesSettingsSection } from "./settings/QuickRepliesSettingsSection";
 import { NotificationSettingsSection } from "./settings/NotificationSettingsSection";
+import { OffboardSettingsSection } from "./settings/OffboardSettingsSection";
 import { SoundSettingsSection } from "./settings/SoundSettingsSection";
 import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
 import {
@@ -68,6 +69,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
     label: "Notifications",
     blurb: "what reaches you while Junto is in the background",
   },
+  { key: "offboard", label: "Offboard", blurb: "when an idle agent's session is ended for it" },
   { key: "companion", label: "Companion", blurb: "answer your agents from your phone" },
   // Machine/station topology is fleet-adjacent (host id, supervised runtime).
   ...(FLEET_UI_ENABLED
@@ -1081,6 +1083,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <KeyboardSettingsSection />;
     case "notifications":
       return <NotificationSettingsSection />;
+    case "offboard":
+      return <OffboardSettingsSection />;
     case "station":
       return <StationSection />;
     case "updates":
