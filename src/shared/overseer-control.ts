@@ -20,6 +20,7 @@ import { PadPatch } from "./pad";
 import { Verb } from "./physics/verbs";
 import { OverseerLiveCorrelation } from "./overseer-host-control";
 import { SECRET_ID_PATTERN, secretValueProblem } from "./region-secrets";
+import { OFFBOARD_MODES } from "./seat-sessions";
 import { EtherSheet } from "./sheet";
 import {
   CompletionEvidence,
@@ -161,6 +162,9 @@ export const OVERSEER_OPERATION_NAMES = [
   "secret.put",
   "secret.delete",
   "secret.list",
+  "agent.offboard",
+  "agent.offboard-rules",
+  "agent.offboard-configure",
 ] as const;
 
 export const OverseerOperation = Schema.Literals(OVERSEER_OPERATION_NAMES);
@@ -660,6 +664,50 @@ const GitLog = Schema.Struct({
 });
 const GitShow = Schema.Struct({ ...NodeTarget, sha: NonEmpty });
 
+// Operator offboard ---------------------------------------------------------
+
+export const OVERSEER_MAX_OFFBOARD_SEATS = 100;
+
+/** ask: mail the seat the offboard prompt. now: Junto ends the session itself. */
+export const OverseerOffboardAction = Schema.Literals(["ask", "now"]);
+export type OverseerOffboardAction = typeof OverseerOffboardAction.Type;
+
+const AgentOffboard = Schema.Struct({
+  ...CanvasOptional,
+  nodeIds: Schema.Array(Id).pipe(
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(OVERSEER_MAX_OFFBOARD_SEATS)),
+    Schema.check(Schema.makeFilter((nodeIds: ReadonlyArray<string>) =>
+      new Set(nodeIds).size === nodeIds.length || "nodeIds must name each seat once")),
+  ),
+  /** Defaults to ask. */
+  action: Schema.optionalKey(OverseerOffboardAction),
+  /** How an asked seat offboards. Defaults to continue. Only with ask. */
+  mode: Schema.optionalKey(Schema.Literals(OFFBOARD_MODES)),
+}).pipe(
+  Schema.check(Schema.makeFilter(({ action, mode }) =>
+    mode === undefined || action !== "now" ||
+    "mode is only allowed when action is ask: offboard now takes no mode")),
+);
+
+const OffboardRuleChange = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  minutes: Schema.optionalKey(Positive.pipe(Schema.check(Schema.isInt()))),
+}).pipe(
+  Schema.check(Schema.makeFilter(({ enabled, minutes }) =>
+    enabled !== undefined || minutes !== undefined ||
+    "a rule change sets enabled, minutes, or both")),
+);
+const AgentOffboardConfigure = Schema.Struct({
+  /** Junto offboards a seat itself after this long. */
+  auto: Schema.optionalKey(OffboardRuleChange),
+  /** Junto nudges a seat that has been idle this long. */
+  nudge: Schema.optionalKey(OffboardRuleChange),
+}).pipe(
+  Schema.check(Schema.makeFilter(({ auto, nudge }) =>
+    auto !== undefined || nudge !== undefined || "change auto, nudge, or both")),
+);
+
 // Region environment --------------------------------------------------------
 
 /**
@@ -848,6 +896,9 @@ export const OverseerArgsSchemas = {
   "secret.put": SecretPut,
   "secret.delete": SecretIdentity,
   "secret.list": EmptyArgs,
+  "agent.offboard": AgentOffboard,
+  "agent.offboard-rules": EmptyArgs,
+  "agent.offboard-configure": AgentOffboardConfigure,
 } as const satisfies Record<OverseerOperation, Schema.Top>;
 
 export type OverseerArgsFor<Operation extends OverseerOperation> =
@@ -941,6 +992,7 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "env.show",
   "env.doctor",
   "secret.list",
+  "agent.offboard-rules",
 ] as const satisfies ReadonlyArray<OverseerOperation>;
 
 const READ_ONLY_OPERATIONS = new Set<OverseerOperation>(

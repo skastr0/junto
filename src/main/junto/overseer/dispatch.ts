@@ -18,6 +18,8 @@ import { admitOverseer, watchOverseerRevocation } from "./admission";
 import { CanvasesService } from "../canvases";
 import { executeOverseerCanvas } from "./canvas";
 import { overseerEnvReport, type OverseerEnvReport } from "./env-report-seam";
+import { executeOverseerOffboard } from "./offboard";
+import { overseerOffboard, type OverseerOffboard } from "./offboard-seam";
 import { executeOverseerSecret } from "./secret";
 import { overseerSecretStore, type OverseerSecretStore } from "./secret-store-seam";
 import { executeOverseerWork } from "./work";
@@ -36,6 +38,8 @@ export interface OverseerRuntime {
   readonly secrets?: () => OverseerSecretStore | undefined;
   /** The region environment resolver's report. Defaults to the product resolver. */
   readonly envReport?: OverseerEnvReport;
+  /** The operator's offboard entry point. Defaults to the product one. */
+  readonly offboard?: OverseerOffboard;
 }
 
 const ENV_DOCTOR_MISSING =
@@ -158,6 +162,22 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
       const outcome = executeOverseerSecret(
         { operation, args: decoded.success },
         (runtime.secrets ?? overseerSecretStore)(),
+      );
+      return outcome.ok
+        ? ({ ok: true, operation, data: outcome.data } satisfies OverseerResult)
+        : ({ ok: false, operation, error: outcome.error } satisfies OverseerResult);
+    }
+    if (
+      operation === "agent.offboard" ||
+      operation === "agent.offboard-rules" ||
+      operation === "agent.offboard-configure"
+    ) {
+      const outcome = yield* Effect.promise(() =>
+        executeOverseerOffboard(
+          caller,
+          { operation, args: decoded.success } as Parameters<typeof executeOverseerOffboard>[1],
+          runtime.offboard ?? overseerOffboard,
+        ),
       );
       return outcome.ok
         ? ({ ok: true, operation, data: outcome.data } satisfies OverseerResult)

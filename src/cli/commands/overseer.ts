@@ -25,7 +25,7 @@ import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { executeReportCommand } from "../core/env-report";
 import { AuthError, InputError, RuntimeDown, WireError } from "../core/errors";
 import { loadJsonInput } from "../core/json";
-import { executeJsonCommand } from "../core/output";
+import { executeJsonCommand, executeJsonCommandWithVerdict } from "../core/output";
 import { decodeSecretPutInput, readSecretValue } from "../core/secret-input";
 import { WorkSocket } from "../core/socket";
 import { OVERSEER_SKILL_MARKDOWN } from "./overseer-skill";
@@ -190,7 +190,7 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   pad: "Pad read, patch, digest, render, look-here, get, tagged",
   sheet: "Sheet read or configure",
   content: "Content ingest, path, stat, materialize",
-  agent: "Agent list, get, reseat, start, wake, prompt, output, interrupt, stop",
+  agent: "Agent list, get, reseat, start, wake, prompt, output, interrupt, stop, offboard, offboard-rules, offboard-configure",
   terminal: "Terminal list, get, start, input, output, resize, interrupt, stop",
   page: "Page list, get, open, goto, eval, screenshot, close, stop",
   scheduler: "Scheduler fire, status, configure",
@@ -240,6 +240,35 @@ const makeDoctorCommand = (entry: OverseerCatalogEntry) =>
     ),
   );
 
+/** A seat that was refused: the answer is printed whole, the exit code says so. */
+export const offboardRefusedAny = (data: unknown): boolean =>
+  typeof data === "object" && data !== null &&
+  typeof (data as { refused?: unknown }).refused === "number" &&
+  (data as { refused: number }).refused > 0;
+
+/**
+ * `agent offboard` answers per seat. A refused seat is not a command error,
+ * so the result prints as a success and the exit code is non-zero.
+ */
+const makeOffboardCommand = (entry: OverseerCatalogEntry) =>
+  Command.make(
+    entry.verb,
+    { input: optionalJsonInputArg, timeout: timeoutOption },
+    ({ input, timeout }) =>
+      executeJsonCommandWithVerdict(
+        commandNameFor(entry),
+        Effect.gen(function* () {
+          const args = yield* loadOverseerArgs(entry.operation, input);
+          return yield* callOverseer(entry.operation, args, toUndefined(timeout));
+        }),
+        offboardRefusedAny,
+      ),
+  ).pipe(
+    Command.withDescription(
+      "Ask seats to offboard, or end idle sessions now. One result per seat; exits non-zero when any seat was refused",
+    ),
+  );
+
 const secretPutInputArg = Argument.string("input").pipe(
   Argument.withDescription("JSON object {} or {secretId}, inline or @file. The value is read from stdin"),
   Argument.optional,
@@ -282,7 +311,9 @@ const makeFamilyVerbCommand = (entry: OverseerCatalogEntry) =>
     ? makeSecretPutCommand(entry)
     : entry.operation === "env.doctor"
       ? makeDoctorCommand(entry)
-      : makeVerbCommand(entry);
+      : entry.operation === "agent.offboard"
+        ? makeOffboardCommand(entry)
+        : makeVerbCommand(entry);
 
 const familyEntries = new Map<string, OverseerCatalogEntry[]>();
 for (const entry of OVERSEER_CATALOG) {
@@ -605,6 +636,45 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     name: "git status on a git node",
     args: ["overseer", "git", "status"],
     input: { nodeId: "git-1" },
+  },
+  {
+    command_id: commandIdFor("agent.offboard"),
+    command: "overseer agent offboard",
+    name: "ask several seats to offboard and continue",
+    description: "Mails each seat the operator's offboard prompt. The seat writes its own notes and a fresh session starts right away. One result per seat, in the order asked.",
+    args: ["overseer", "agent", "offboard"],
+    input: { nodeIds: ["agent-1", "agent-2", "agent-3"] },
+  },
+  {
+    command_id: commandIdFor("agent.offboard"),
+    command: "overseer agent offboard",
+    name: "ask a seat to offboard and rest",
+    description: "The seat closes its session with its notes and rests until mail wakes it.",
+    args: ["overseer", "agent", "offboard"],
+    input: { nodeIds: ["agent-1"], action: "ask", mode: "rest" },
+  },
+  {
+    command_id: commandIdFor("agent.offboard"),
+    command: "overseer agent offboard",
+    name: "end idle sessions now",
+    description: "Junto ends the session itself, with no notes from the agent. Only for a seat that is idle, offline or resting; any other seat is refused with the reason and the command exits non-zero.",
+    args: ["overseer", "agent", "offboard"],
+    input: { nodeIds: ["agent-1", "agent-2"], action: "now" },
+  },
+  {
+    command_id: commandIdFor("agent.offboard-rules"),
+    command: "overseer agent offboard-rules",
+    name: "read the automatic offboard rules",
+    args: ["overseer", "agent", "offboard-rules"],
+    input: {},
+  },
+  {
+    command_id: commandIdFor("agent.offboard-configure"),
+    command: "overseer agent offboard-configure",
+    name: "offboard automatically after three hours and turn the idle nudge on",
+    description: "Sets only the fields given and returns the rules after the change.",
+    args: ["overseer", "agent", "offboard-configure"],
+    input: { auto: { minutes: 180 }, nudge: { enabled: true } },
   },
   {
     command_id: commandIdFor("env.show"),

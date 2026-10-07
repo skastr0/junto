@@ -1,6 +1,6 @@
 # Overseer command acceptance matrix
 
-Status: inventory of the 109-op contract against integrated handlers
+Status: inventory of the 112-op contract against integrated handlers
 and owning suites. Native/composition lifecycle fixes and cross-canvas
 artifact publisher-home routing are integrated. Coverage below distinguishes
 executed behavior from catalog coverage; it does not claim every operation
@@ -55,6 +55,7 @@ replay.
 | Dispatch | `tests/overseer-dispatch.test.ts` |
 | Canvas / node / edge | `tests/overseer-canvas-commands.test.ts`, `tests/overseer-authoring.test.ts` |
 | Work | `tests/overseer-work.test.ts` |
+| Operator offboard | `tests/overseer-offboard.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Region environment / secrets | `tests/overseer-env-secret.test.ts`, `tests/overseer-canvas-commands.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Native | `tests/overseer-native.test.ts` |
 | Composition | `tests/overseer-composition.test.ts`, `tests/overseer-composition-lifecycle.test.ts` |
@@ -62,7 +63,7 @@ replay.
 | Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Stale save / grant strip | `tests/authorial-canvas-merge.test.ts`, `tests/canvas-save-durability.test.ts` |
 
-## Wire operations (109)
+## Wire operations (112)
 
 | operation | catalog | owning service | coverage | suite |
 | --- | --- | --- | --- | --- |
@@ -175,12 +176,29 @@ replay.
 | `secret.put` | mutation | main `executeOverseerSecret` over the store seam | exercised | tests/overseer-env-secret.test.ts; tests/overseer-dispatch.test.ts; tests/overseer-cli.test.ts; fake store only |
 | `secret.delete` | mutation | main `executeOverseerSecret` over the store seam | exercised | tests/overseer-env-secret.test.ts; tests/overseer-dispatch.test.ts; fake store only |
 | `secret.list` | read | main `executeOverseerSecret` over the store seam | exercised | tests/overseer-env-secret.test.ts; tests/overseer-dispatch.test.ts; fake store only |
+| `agent.offboard` | mutation | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; tests/overseer-cli.test.ts; fake entry point only |
+| `agent.offboard-rules` | read | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; fake entry point only |
+| `agent.offboard-configure` | mutation | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; fake entry point only |
 
 ## Human toggle (not a wire operation)
 
 | action | schema | owning service | authorization | result | coverage |
 | --- | --- | --- | --- | --- | --- |
 | Grant or revoke overseer on a managed agent seat | `canvasOverseerSet({canvasName, nodeId, overseer, expectedRevision})` | canvases `canvasOverseerSet` under `runMainAuthoring("ipc.canvas.overseer-set")` | trusted renderer only; Command Center authorial; managed executable seat; aliases share one binding; copies do not inherit; agent commands and ordinary saves cannot mint | `{binding, overseer, affected}` | exercised: parent ran `e2e/scenarios/overseer-acceptance.spec.ts` (grant persisted, ordinary seat ungranted, viewport transform unchanged). Unit: `tests/overseer-set.test.ts`. Identity chrome: `e2e/scenarios/overseer-seat.spec.ts` (not a persistence proof). |
+## Operator offboard
+
+| item | contract |
+| --- | --- |
+| `agent.offboard` | `ask` mails each seat the operator's offboard prompt (`continue` by default, `rest` allowed); `now` has Junto end the session, only for an idle, offline or resting seat; `mode` with `now` is `InvalidArguments` |
+| Result | one row per seat in the order asked, and `refused`; a refused seat, an unknown node and a node that is not a seat are rows, not errors |
+| Exit rule | the CLI prints the result whole and exits non-zero when `refused` is above zero |
+| Own seat | `ask` on the caller's own seat is refused without mailing it; `now` is left to main's rule |
+| One entry point | the handler calls main's entry point through `src/main/junto/overseer/offboard-seam.ts` and adds no idle test, no ask wording and no retry |
+| Rules | `agent.offboard-rules` reads and `agent.offboard-configure` sets `{auto, nudge}`, each `{enabled, minutes}`; configure returns the rules after the change |
+
+The seam is not yet bound to product code: until main publishes its entry
+point every `agent.offboard*` operation answers `Unsupported`. Tests use a
+fake entry point.
 
 ## Region environment and secrets
 

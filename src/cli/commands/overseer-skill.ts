@@ -69,6 +69,22 @@ Verbs match \`OVERSEER_OPERATION_NAMES\` (dots become family + verb). ${FAMILY_V
 
 Remote seats are supported on the same CLI. Station transport is not this command.
 
+## Offboarding seats
+
+A seat's session grows long and costly. Two actions cut it, each over one or many seats:
+
+- \`agent offboard {nodeIds, action?, mode?}\` with \`action: "ask"\` (the default) mails each seat the operator's offboard prompt. The agent finishes its step, writes its own notes, and offboards. \`mode: "continue"\` (the default) starts a fresh session right away from its continuation note; \`mode: "rest"\` lets the seat rest until mail wakes it.
+- \`action: "now"\` has Junto end the session itself, with no notes from the agent. It works only on a seat that is idle, offline or resting. Any other seat is refused with the reason, never queued. \`mode\` is not allowed with \`now\`.
+
+The answer is one row per seat, in the order asked: \`{nodeId, title?, ok: true, action, outcome}\` or \`{nodeId, ok: false, reason}\`, plus \`refused\`, the count of refused seats. A refused seat does not fail the command: the result prints whole on stdout and the exit code is non-zero when \`refused\` is above zero. An unknown node, or one that is not an agent seat, is a refused row.
+
+Prefer \`ask\`: the notes are what the next session starts from. Use \`now\` for a seat that is already idle and has nothing to hand on. You cannot ask your own seat; run \`junto offboard\` yourself.
+
+Two rules run per installation, without anyone asking:
+
+- \`agent offboard-rules\` reads them: \`{auto: {enabled, minutes}, nudge: {enabled, minutes}}\`. \`auto\` offboards a seat after that long (on, 120 minutes by default); \`nudge\` nudges a seat idle that long (off, 40 minutes by default).
+- \`agent offboard-configure {auto?, nudge?}\` sets only the fields given and returns the rules after the change.
+
 ## Region environment and secrets
 
 A region (group node) may carry an \`environment\`: ordered sources that name where a variable comes from on the machine, extra folders, and a sealed switch. A seat is launched with what every region containing it provides, outermost first; an inner region overrides an outer one by variable name, and within a region a later source overrides an earlier one. A change applies when the seat restarts.

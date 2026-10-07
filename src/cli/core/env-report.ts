@@ -1,5 +1,5 @@
-import { Effect } from "effect";
-import { executeJsonCommand, setExitCode } from "./output";
+import type { Effect } from "effect";
+import { executeJsonCommandWithVerdict } from "./output";
 
 /**
  * The exit rule shared by `junto overseer env doctor` and `junto env report`.
@@ -28,9 +28,4 @@ export const executeReportCommand = <E, R>(
   command: string,
   report: Effect.Effect<unknown, E, R>,
 ) =>
-  executeJsonCommand(
-    command,
-    report.pipe(
-      Effect.tap((data) => (reportBlocksLaunch(data) ? setExitCode(1) : Effect.void)),
-    ),
-  );
+  executeJsonCommandWithVerdict(command, report, reportBlocksLaunch);

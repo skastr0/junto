@@ -588,4 +588,41 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
     expect(help.code).toBe(0);
     expect(`${help.stdout}${help.stderr}`).toContain("--timeout");
   });
+
+  it("prints the offboard result whole and exits non-zero when any seat was refused", async () => {
+    const result = (refused: number) => ({
+      results: [
+        { nodeId: "idle", title: "Idle", ok: true, action: "now", outcome: "ended" },
+        ...(refused > 0 ? [{ nodeId: "busy", ok: false, reason: "This seat is working." }] : []),
+      ],
+      refused,
+    });
+    let next: unknown = result(0);
+    let observed: Record<string, unknown> | undefined;
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed = request;
+      return overseerOk("agent.offboard", next);
+    });
+    const input = { nodeIds: ["idle", "busy"], action: "now" };
+    const clean = await runCli(["overseer", "agent", "offboard", JSON.stringify(input)], { workHome });
+    expect(clean.code).toBe(0);
+    expect(parseStdout(clean.stdout)).toEqual({ ok: true, command: "overseer agent offboard", data: next });
+    expect(innerOf(observed)).toEqual({ operation: "agent.offboard", args: input });
+
+    next = result(1);
+    const refused = await runCli(["overseer", "agent", "offboard", JSON.stringify(input)], { workHome });
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toBe("");
+    expect(parseStdout(refused.stdout)).toEqual({ ok: true, command: "overseer agent offboard", data: next });
+
+    const bad = await runCli(["overseer", "agent", "offboard", '{"nodeIds":["idle"],"action":"now","mode":"rest"}'], { workHome });
+    expect(bad.code).toBe(1);
+    expect((JSON.parse(bad.stderr.trim()) as { error: { type: string } }).error.type).toBe("InputError");
+
+    for (const operation of ["agent.offboard", "agent.offboard-rules", "agent.offboard-configure"]) {
+      expect(overseerSchemas.some((schema) => schema.command_id === `overseer.${operation}`)).toBe(true);
+      expect(overseerExamples.some((example) => example.command_id === `overseer.${operation}`)).toBe(true);
+    }
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("agent offboard");
+  });
 });

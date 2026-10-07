@@ -201,6 +201,67 @@ describe("integrated overseer dispatcher", () => {
     expect(adapters.native).not.toHaveBeenCalled();
   });
 
+  it("offboards seats through the operator's entry point, one result per seat, and keeps the rules", async () => {
+    const { toggle, adapters } = await boot();
+    let rules = { auto: { enabled: true, minutes: 120 }, nudge: { enabled: false, minutes: 40 } };
+    const seat = vi.fn(async ({ nodeId, action }: { nodeId: string; action: string }) =>
+      nodeId === "idle"
+        ? { ok: true as const, title: "Idle", outcome: action === "now" ? "ended" : "asked" }
+        : { ok: false as const, reason: "This seat is working." });
+    const offboard = {
+      seat,
+      rules: async () => rules,
+      configure: async (change: { auto?: object; nudge?: object }) => {
+        rules = { auto: { ...rules.auto, ...change.auto }, nudge: { ...rules.nudge, ...change.nudge } };
+        return rules;
+      },
+    };
+    const run = (request: Parameters<typeof executeOverseer>[1], runtimeAdapters: OverseerRuntime = { ...adapters, offboard }) =>
+      runtime.runPromise(executeOverseer(caller, request, runtimeAdapters));
+
+    expect(await run({ operation: "agent.offboard", args: { nodeIds: ["idle"] } }))
+      .toMatchObject({ ok: false, error: { type: "Forbidden" } });
+    expect(seat).not.toHaveBeenCalled();
+    await toggle(true);
+
+    expect(await run({ operation: "agent.offboard", args: { nodeIds: ["idle", "busy", "boss"], action: "now" } })).toEqual({
+      ok: true,
+      operation: "agent.offboard",
+      data: {
+        results: [
+          { nodeId: "idle", title: "Idle", ok: true, action: "now", outcome: "ended" },
+          { nodeId: "busy", ok: false, reason: "This seat is working." },
+          { nodeId: "boss", ok: false, reason: "This seat is working." },
+        ],
+        refused: 2,
+      },
+    });
+    expect(await run({ operation: "agent.offboard", args: { nodeIds: ["boss", "idle"] } })).toMatchObject({
+      ok: true,
+      data: {
+        results: [
+          { nodeId: "boss", ok: false, reason: "this is your own seat: run junto offboard" },
+          { nodeId: "idle", ok: true, action: "ask", outcome: "asked" },
+        ],
+        refused: 1,
+      },
+    });
+    expect(await run({ operation: "agent.offboard", args: { nodeIds: ["idle"], action: "now", mode: "rest" } }))
+      .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
+
+    expect(await run({ operation: "agent.offboard-rules" })).toEqual({ ok: true, operation: "agent.offboard-rules", data: rules });
+    expect(await run({ operation: "agent.offboard-configure", args: { auto: { enabled: false } } })).toMatchObject({
+      ok: true, data: { auto: { enabled: false, minutes: 120 }, nudge: { enabled: false, minutes: 40 } },
+    });
+    expect(await run({ operation: "agent.offboard-configure", args: {} }))
+      .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
+
+    // No entry point bound: Unsupported, and the native adapter is never asked.
+    expect(await run({ operation: "agent.offboard-rules" }, adapters))
+      .toMatchObject({ ok: false, error: { type: "Unsupported" } });
+    expect(adapters.native).not.toHaveBeenCalled();
+  });
+
   it("interrupts an admitted native effect when the human revokes its grant", async () => {
     const { toggle, adapters } = await boot();
     await toggle(true);

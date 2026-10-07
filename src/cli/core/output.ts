@@ -96,3 +96,18 @@ export const executeJsonCommand = <A, E, R>(command: string, effect: Effect.Effe
       setExitCode(1).pipe(Effect.andThen(writeFailureEnvelope(command, error))),
     ),
   );
+
+/**
+ * A command whose result is printed whole even when it carries bad news:
+ * the result is the success envelope, and `unmet` decides the exit code.
+ * Used where one refused item must not hide the answer for the others.
+ */
+export const executeJsonCommandWithVerdict = <A, E, R>(
+  command: string,
+  effect: Effect.Effect<A, E, R>,
+  unmet: (data: A) => boolean,
+) =>
+  executeJsonCommand(
+    command,
+    effect.pipe(Effect.tap((data) => (unmet(data) ? setExitCode(1) : Effect.void))),
+  );
