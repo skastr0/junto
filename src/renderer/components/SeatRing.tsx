@@ -2,6 +2,7 @@ import { use$ } from "@legendapp/state/react";
 import type { SeatSignalRollup } from "@shared/agent-signals";
 import type { CanvasNode } from "@shared/canvas";
 import { isHarnessId, type HarnessId } from "@shared/managed-terminal-templates";
+import type { Seat } from "@shared/model";
 import type { ActivitySpec } from "../lib/activity";
 import { RING_HOLE_R } from "../lib/activity-rings";
 import { agentSeat$, bindingIdForNode } from "../lib/agent-seat-state";
@@ -43,12 +44,19 @@ const seatControl = (
   node: CanvasNode,
   reads: SeatReads,
 ): Pick<SeatGlance, "activity" | "harness" | "failure"> => {
-  const { seatEvent, session } = reads;
   const raw = node.ether?.terminal?.harness;
-  const harness = typeof raw === "string" && isHarnessId(raw) ? raw : undefined;
+  return seatControlOf(node.id, typeof raw === "string" && isHarnessId(raw) ? raw : undefined, reads);
+};
+
+const seatControlOf = (
+  nodeId: string,
+  harness: HarnessId | undefined,
+  reads: SeatReads,
+): Pick<SeatGlance, "activity" | "harness" | "failure"> => {
+  const { seatEvent, session } = reads;
   const activity = cardMark(
     seatFactsForNode({
-      nodeId: node.id,
+      nodeId,
       seatEvent,
       session,
       needsLook: reads.needsLook,
@@ -106,6 +114,20 @@ export function seatUrgencyNow(node: CanvasNode): SeatUrgency {
     attentionReasons: attentionReasonsForNode({ ether: node.ether }, coarse),
   });
   return seatUrgency({ ...control, signal: seatSignalRollups$.peek()[node.id]?.kind });
+}
+
+/** The same reading as seatUrgencyNow, for a caller that holds the seat itself. */
+export function seatUrgencyOf(seat: Seat): SeatUrgency {
+  const agent = { ether: { entity: { kind: "agent", name: seat.agentKey } } };
+  const coarse = attentionCoarse$(agent).peek() as AgentChatCoarse | undefined;
+  const control = seatControlOf(seat.id, seat.harness, {
+    seatEvent: agentSeat$.byBindingId[seat.bindingId].peek(),
+    needsLook: agentSeat$.needsLookByBindingId[seat.bindingId].peek() === true,
+    session: terminal$.sessionByBindingId[seat.bindingId].peek(),
+    graphBlocked: kernel$.execution.peek()?.blocked.includes(seat.id) === true,
+    attentionReasons: attentionReasonsForNode(agent, coarse),
+  });
+  return seatUrgency({ ...control, signal: seatSignalRollups$.peek()[seat.id]?.kind });
 }
 
 /**

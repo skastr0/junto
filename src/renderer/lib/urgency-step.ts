@@ -1,8 +1,9 @@
-import { seatUrgencyNow } from "../components/SeatRing";
-import { isAgentSeatNode } from "./multi-selection";
+import { nodesOf } from "@shared/model";
+import { seatUrgencyOf } from "../components/SeatRing";
 import { playCue } from "./sound";
 import { selectNode, state$ } from "./state";
-import { urgencyOrder } from "./urgency-order";
+import { seatUrgencyOrder } from "./urgency-order";
+import { modelStore } from "./use-model";
 
 /**
  * The canvas step keys (Space and the backtick): walk the agents on the
@@ -57,8 +58,9 @@ let walk: UrgencyWalk | null = null;
 
 /** Go to the next agent. False with no agent on the canvas: the key passes. */
 export const stepToNextAgent = (): boolean => {
-  const agents = state$.doc.peek().nodes.filter(isAgentSeatNode);
-  const order = urgencyOrder(agents, seatUrgencyNow).map((agent) => agent.id);
+  const canvas = state$.canvasName.peek();
+  const seats = canvas === "" ? [] : nodesOf(modelStore.canvasOf(canvas), "agent");
+  const order = seatUrgencyOrder(seats, seatUrgencyOf).map((seat) => seat.id);
   walk = stepUrgencyWalk(walk, order, state$.selectedNodeId.peek());
   if (walk === null) return false;
   const nodeId = walk.ids[walk.index]!;

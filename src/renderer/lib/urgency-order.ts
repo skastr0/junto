@@ -1,4 +1,6 @@
 import type { CanvasNode } from "@shared/canvas";
+import type { Seat } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import { nodeTitle } from "./presentation";
 import { SEAT_URGENCY, type SeatUrgency } from "./seat-line";
 
@@ -8,18 +10,30 @@ import { SEAT_URGENCY, type SeatUrgency } from "./seat-line";
  * rail, the agent switcher, and the canvas step keys. Most urgent first (see
  * SEAT_URGENCY), then by name, then by id so the order never flickers.
  *
- * `urgencyOf` is passed in so a caller can read urgency once (seatUrgencyNow)
+ * `urgencyOf` is passed in so a caller can read urgency once (seatUrgencyOf)
  * and hold the order still while the operator moves through it.
  */
+export const seatUrgencyOrder = <S extends Seat>(
+  seats: ReadonlyArray<S>,
+  urgencyOf: (seat: S) => SeatUrgency,
+): S[] => ordered(seats, urgencyOf, titleOf);
+
+/** The same order over document nodes, for a caller that still holds them. */
 export const urgencyOrder = <N extends CanvasNode>(
   agents: ReadonlyArray<N>,
   urgencyOf: (agent: N) => SeatUrgency,
+): N[] => ordered(agents, urgencyOf, nodeTitle);
+
+const ordered = <N extends { readonly id: string }>(
+  agents: ReadonlyArray<N>,
+  urgencyOf: (agent: N) => SeatUrgency,
+  nameOf: (agent: N) => string,
 ): N[] => {
   const rank = new Map(agents.map((agent) => [agent.id, urgencyOf(agent)] as const));
   return [...agents].sort(
     (a, b) =>
       rank.get(a.id)! - rank.get(b.id)! ||
-      nodeTitle(a).localeCompare(nodeTitle(b)) ||
+      nameOf(a).localeCompare(nameOf(b)) ||
       a.id.localeCompare(b.id),
   );
 };

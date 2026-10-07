@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CanvasNode, TextNode } from "../src/shared/canvas";
+import { asCanvasName, type Node, type Seat } from "../src/shared/model";
 import {
   buildFocusSwitcherCatalog,
   cancelFocusSwitcher,
@@ -17,51 +17,22 @@ import { dock$, terminalSurfaceId } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState, openSurface } from "../src/renderer/lib/surface-registry";
 import { SEAT_URGENCY, type SeatUrgency } from "../src/renderer/lib/seat-line";
 import { state$ } from "../src/renderer/lib/state";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { note, region, seat, taskBoard } from "./support/model-nodes";
 
-const agent = (id: string, label: string): TextNode => ({
-  id,
-  type: "text",
-  text: label,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId: `local:${id}`, harness: "codex" },
-  },
-});
+const agent = (id: string, label: string) => seat(id, { label });
+const tasks = (id: string, name = "Backlog") => taskBoard(id, { name });
 
-const tasks = (id: string, label = "Backlog"): TextNode => ({
-  id,
-  type: "text",
-  text: label,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: { entity: { kind: "task" }, tasks: { items: [] } },
-});
-
-const note = (id: string, text: string): TextNode => ({
-  id,
-  type: "text",
-  text,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-});
-
-const region = (id: string): CanvasNode => ({
-  id,
-  type: "group",
-  label: "Lane",
-  x: 0,
-  y: 0,
-  width: 400,
-  height: 300,
-});
+/** Hold these nodes as the open canvas; returns the function that puts things back. */
+const holdOpen = (nodes: ReadonlyArray<Node>): (() => void) => {
+  const previous = state$.canvasName.peek();
+  const release = modelStore.adopt({ canvas: asCanvasName("switcher"), seq: 0, nodes, wires: [] });
+  state$.canvasName.set("switcher");
+  return () => {
+    state$.canvasName.set(previous);
+    release();
+  };
+};
 
 const slotsWith = (fixed: ReadonlyArray<{ readonly index: number; readonly nodeId: string }>): HotbarSlot[] => {
   const slots = emptyHotbarSlots();
@@ -92,14 +63,14 @@ describe("buildFocusSwitcherCatalog", () => {
     agent("bravo", "Bravo"),
     agent("sink", "Sink"),
     note("memo", "Field notes"),
-    region("lane"),
+    region("lane", { x: 0, y: 0, width: 400, height: 300 }),
   ];
   const urgency: Record<string, SeatUrgency> = {
     alpha: SEAT_URGENCY.working,
     bravo: SEAT_URGENCY.working,
     sink: SEAT_URGENCY.review,
   };
-  const urgencyOf = (node: CanvasNode): SeatUrgency => urgency[node.id]!;
+  const urgencyOf = (node: Seat): SeatUrgency => urgency[node.id]!;
 
   it("lists agents only, the ones that need the operator first, then by name", () => {
     const catalog = buildFocusSwitcherCatalog({
@@ -161,14 +132,10 @@ describe("focus switcher session", () => {
   });
 
   it("opens on the next catalog entry and freezes order across moves", () => {
-    const previousDoc = state$.doc.peek();
     const previousSlots = state$.hotbarSlots.peek();
     const previousRegistry = dock$.registry.peek();
+    const letGo = holdOpen([agent("alpha", "Alpha"), agent("bravo", "Bravo"), tasks("sink")]);
     try {
-      state$.doc.set({
-        nodes: [agent("alpha", "Alpha"), agent("bravo", "Bravo"), tasks("sink")],
-        edges: [],
-      });
       state$.hotbarSlots.set(emptyHotbarSlots());
       let registry = initialWorkbenchState();
       registry = openSurface(registry, {
@@ -193,14 +160,14 @@ describe("focus switcher session", () => {
       expect(selectFocusSwitcherIndex(0)).toBe(true);
       expect(focusSwitcher$.session.peek()?.selectedIndex).toBe(0);
     } finally {
-      state$.doc.set(previousDoc);
+      letGo();
       state$.hotbarSlots.set(previousSlots);
       dock$.registry.set(previousRegistry);
     }
   });
 
   it("closes without opening anything when the window is left", () => {
-    const previousDoc = state$.doc.peek();
+    const letGo = holdOpen([agent("alpha", "Alpha"), agent("bravo", "Bravo")]);
     const listeners = new Map<string, () => void>();
     const target = {
       addEventListener: (type: string, listener: () => void) => void listeners.set(type, listener),
@@ -209,7 +176,6 @@ describe("focus switcher session", () => {
     vi.stubGlobal("window", target);
     vi.stubGlobal("document", { ...target, hidden: true });
     try {
-      state$.doc.set({ nodes: [agent("alpha", "Alpha"), agent("bravo", "Bravo")], edges: [] });
       for (const leave of ["blur", "visibilitychange"]) {
         expect(openFocusSwitcher(1)).toBe(true);
         listeners.get(leave)!();
@@ -218,18 +184,17 @@ describe("focus switcher session", () => {
       }
     } finally {
       vi.unstubAllGlobals();
-      state$.doc.set(previousDoc);
+      letGo();
     }
   });
 
   it("refuses to open with fewer than two agents", () => {
-    const previousDoc = state$.doc.peek();
+    const letGo = holdOpen([agent("solo", "Solo")]);
     try {
-      state$.doc.set({ nodes: [agent("solo", "Solo")], edges: [] });
       expect(openFocusSwitcher(1)).toBe(false);
       expect(focusSwitcher$.session.peek()).toBeNull();
     } finally {
-      state$.doc.set(previousDoc);
+      letGo();
     }
   });
 });

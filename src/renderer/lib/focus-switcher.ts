@@ -3,7 +3,7 @@
  * let Cmd go to open the chosen one. The keys are rows in the key table; this
  * file holds the model.
  *
- * The catalog is every agent seat with a surface to open, in the one urgency
+ * The catalog is every agent seat, in the one urgency
  * order (lib/urgency-order): the ones that need the operator first. It is a
  * snapshot, read once as the switcher comes up, so nothing reorders under
  * the operator while they step.
@@ -11,16 +11,18 @@
  * Presentation and navigation only: nothing here writes the canvas.
  */
 import { observable } from "@legendapp/state";
-import type { CanvasNode } from "@shared/canvas";
-import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
+import type { Node, Seat } from "@shared/model";
+import { titleOf } from "@shared/model/title";
+import { activateNodeSurface } from "./activate-node-surface";
 import { dock$, nodeIdForSurface } from "./dock-state";
 import { slotIndexOf, type HotbarSlot } from "./hotbar-slots";
-import { nodeTitle } from "./presentation";
 import type { SeatUrgency } from "./seat-line";
-import { seatUrgencyNow } from "../components/SeatRing";
+import { seatUrgencyOf } from "../components/SeatRing";
 import { state$ } from "./state";
+import { storeNodeAsDocument } from "./store-document-node";
 import type { WorkSurface } from "./surface-registry";
-import { urgencyOrder } from "./urgency-order";
+import { seatUrgencyOrder } from "./urgency-order";
+import { modelStore } from "./use-model";
 
 export type FocusSwitcherEntry = {
   readonly nodeId: string;
@@ -64,30 +66,29 @@ export const focusMruNodeIds = (
 };
 
 export type FocusSwitcherCatalogInput = {
-  readonly nodes: ReadonlyArray<CanvasNode>;
+  readonly nodes: ReadonlyArray<Node>;
   /** Open surfaces, front first: the first one names the agent in front. */
   readonly focusNodeIds: ReadonlyArray<string>;
   readonly hotbarSlots: ReadonlyArray<HotbarSlot>;
-  /** Read once per snapshot (seatUrgencyNow), so the order holds while the switcher is up. */
-  readonly urgencyOf: (agent: CanvasNode) => SeatUrgency;
+  /** Read once per snapshot (seatUrgencyOf), so the order holds while the switcher is up. */
+  readonly urgencyOf: (seat: Seat) => SeatUrgency;
 };
 
 /**
- * The catalog: every agent with a surface to open, most urgent first (the
- * one urgency order, shared with the rail). Not capped: the strip scrolls.
+ * The catalog: every seat, most urgent first (the one urgency order, shared
+ * with the rail). A seat always has a terminal to open. Not capped: the strip
+ * scrolls.
  */
 export const buildFocusSwitcherCatalog = (
   input: FocusSwitcherCatalogInput,
 ): ReadonlyArray<FocusSwitcherEntry> => {
   const currentId = input.focusNodeIds[0];
-  const agents = input.nodes.filter(
-    (node) => node.ether?.entity?.kind === "agent" && nodeSurfaceKind(node) !== null,
-  );
-  return urgencyOrder(agents, input.urgencyOf).map((node) => {
+  const seats = input.nodes.filter((node): node is Seat => node.kind === "agent");
+  return seatUrgencyOrder(seats, input.urgencyOf).map((node) => {
     const slot = slotIndexOf(input.hotbarSlots, node.id);
     return {
       nodeId: node.id,
-      title: nodeTitle(node),
+      title: titleOf(node),
       hotbarSlot: slot === null ? null : slot + 1,
       current: node.id === currentId,
     };
@@ -123,11 +124,12 @@ export const openingIndex = (
 
 const snapshotCatalog = (): ReadonlyArray<FocusSwitcherEntry> => {
   const registry = dock$.registry.peek();
+  const canvas = state$.canvasName.peek();
   return buildFocusSwitcherCatalog({
-    nodes: state$.doc.peek().nodes,
+    nodes: canvas === "" ? [] : [...modelStore.canvasOf(canvas).nodes.values()],
     focusNodeIds: focusMruNodeIds(registry.surfaces, registry.focusMru),
     hotbarSlots: state$.hotbarSlots.peek(),
-    urgencyOf: seatUrgencyNow,
+    urgencyOf: seatUrgencyOf,
   });
 };
 
@@ -191,7 +193,8 @@ export const commitFocusSwitcher = (): boolean => {
   const entry = session.entries[session.selectedIndex];
   cancelFocusSwitcher();
   if (!entry) return false;
-  const node = state$.doc.peek().nodes.find((candidate) => candidate.id === entry.nodeId);
+  // The terminal family still opens from a document node.
+  const node = storeNodeAsDocument(state$.canvasName.peek(), entry.nodeId);
   if (!node) return false;
   const result = activateNodeSurface(node);
   return result.opened;
