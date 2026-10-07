@@ -90,6 +90,7 @@ import {
 } from "../harness/crew-fixture";
 import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
 import { textNode, type Sandbox } from "../harness/sandbox";
+import { readSeatMailbox } from "../harness/work-mail";
 
 // Only [A-Za-z0-9._-] in the canvas name and node ids: the wrapper turns the
 // one ":" of JUNTO_NODE_REF into the "--" the fake names its folder with.
@@ -2405,14 +2406,10 @@ const deliveryOf = async (page: Page, nodeId: string): Promise<string> => {
 };
 
 /** The id of the mail in a seat's mailbox that carries this text, read off the canvas the app projects. */
-const messageIdByText = async (page: Page, nodeId: string, text: string): Promise<string | undefined> => {
-  const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-  const items = (doc.nodes.find((node) => node.id === nodeId)?.ether?.messages?.items ?? []) as ReadonlyArray<{
-    readonly messageId: string;
-    readonly parts?: ReadonlyArray<{ readonly text?: string }>;
-  }>;
-  return items.find((item) => (item.parts ?? []).some((part) => (part.text ?? "").includes(text)))?.messageId;
-};
+const messageIdByText = async (page: Page, nodeId: string, text: string): Promise<string | undefined> =>
+  (await readSeatMailbox(page, CANVAS, nodeId)).find((message) =>
+    message.parts.some((part) => part.kind === "text" && part.text.includes(text)),
+  )?.messageId;
 
 /**
  * "Delivered exactly once", judged on the mail itself:
