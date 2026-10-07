@@ -7,12 +7,11 @@
  * Renders nothing when the sidecar has no reading for the seat (off, no key,
  * not yet assessed, or nothing decisive).
  */
-import type { Seat } from "@shared/model";
 import { threadHealthSectionModel, useThreadHealth } from "../../lib/thread-health";
 import { Chip, StatusDot } from "../ui";
 import { DetailsGroup } from "./DetailsGroup";
 
-export function ThreadHealthSection({ node }: { readonly node: Seat }) {
+export function ThreadHealthSection({ node }: { readonly node: { readonly bindingId: string } }) {
   const view = useThreadHealth(node.bindingId);
   if (view === undefined) return null;
   const model = threadHealthSectionModel(view);

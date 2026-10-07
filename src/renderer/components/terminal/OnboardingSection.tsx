@@ -9,13 +9,12 @@
  * every typed prompt: a busy seat or a draft refuses it and says why.
  */
 import { useState } from "react";
-import type { Seat } from "@shared/model";
 import { SEAT_ONBOARDING_LABEL } from "@shared/seat-onboarding-status";
 import { sendOnboardNudge, useSeatOnboardingOf } from "../../lib/seat-onboarding";
 import { Button, StatusDot } from "../ui";
 import { DetailsGroup } from "./DetailsGroup";
 
-export function OnboardingSection({ node }: { readonly node: Seat }) {
+export function OnboardingSection({ node }: { readonly node: { readonly id: string; readonly bindingId: string } }) {
   const status = useSeatOnboardingOf(node.bindingId);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);

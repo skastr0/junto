@@ -110,7 +110,9 @@ const KIND_HUE: Readonly<Record<string, string>> = {
 };
 
 /** Identity colour for a node: its own accent first, then its kind. */
-export const identityHueOf = (node: Pick<Node, "kind" | "color"> | undefined): string => {
+export const identityHueOf = (
+  node: { readonly kind: string; readonly color?: string } | undefined,
+): string => {
   if (!node) return HUE.steel;
   if (node.color) return accentColor(node.color);
   if (KIND_HUE[node.kind]) return KIND_HUE[node.kind]!;

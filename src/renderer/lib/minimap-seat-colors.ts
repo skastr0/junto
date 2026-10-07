@@ -39,17 +39,34 @@ const STALE_REGION_FILL_ALPHA = 0.16;
  */
 const QUIET_SEAT_FILL_ALPHA = 0.7;
 
-const isAgentSeat = (node: Node): boolean => node.kind === "agent";
+/**
+ * A document node as the last unconverted callers still hold one. Read here
+ * only until the terminal surface and the canvas pass model nodes.
+ */
+type DocumentFace = {
+  readonly type: string;
+  readonly color?: string;
+  readonly ether?: { readonly entity?: { readonly kind?: string } };
+};
+
+const faceOf = (node: Node | DocumentFace): { readonly kind: string; readonly color?: string } =>
+  "kind" in node
+    ? node
+    : {
+        kind: node.type === "group" ? "region" : node.ether?.entity?.kind ?? "note",
+        ...(node.color === undefined ? {} : { color: node.color }),
+      };
 
 export const rollupToneHex = (tone: SeatRollupTone): string => activityToneHex(tone);
 
 /** Fill and outline for one minimap rectangle. */
 export const minimapNodeColors = (
-  node: Node | undefined,
+  given: Node | DocumentFace | undefined,
   severity: MemberSeverity | undefined,
   seat: SeatRollup | undefined,
   ground: string,
 ): { readonly fill: string; readonly stroke: string } => {
+  const node = given === undefined ? undefined : faceOf(given);
   if (seat !== undefined) {
     const hue = rollupToneHex(seat.tone);
     if (node?.kind === "region") {
@@ -57,7 +74,7 @@ export const minimapNodeColors = (
     }
     return { fill: seat.stale ? withAlpha(hue, STALE_FILL_ALPHA) : hue, stroke: hue };
   }
-  const quietSeat = node !== undefined && isAgentSeat(node) && (severity === undefined || severity === "idle");
+  const quietSeat = node?.kind === "agent" && (severity === undefined || severity === "idle");
   const mark = signalMark(severity);
   const fill = mark.kind === "idle" ? identityHueOf(node) : mark.hue;
   return {

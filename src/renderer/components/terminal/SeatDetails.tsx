@@ -20,7 +20,7 @@ import { Ellipsis } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskState } from "@shared/work-model";
-import { asNodeId, inPaintOrder, type Node, type Seat } from "@shared/model";
+import { asNodeId, inPaintOrder, type Node } from "@shared/model";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
   mailAgeLabel,
@@ -328,7 +328,7 @@ const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
 /** The contract a task board holds its tasks to, when the node is one. */
 const contractOf = (node: Node | undefined) => (node?.kind === "task" ? node.contract : undefined);
 
-function SeatDetails({ node, session }: { readonly node: Seat; readonly session: SeatSession }) {
+function SeatDetails({ node, session }: { readonly node: SeatFace; readonly session: SeatSession }) {
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
   // The canvas the store holds: the seat's wires, its boards and who its mail is from.
@@ -340,7 +340,7 @@ function SeatDetails({ node, session }: { readonly node: Seat; readonly session:
   );
   const [error, setError] = useState("");
 
-  const isActor = roleOf(resolveSpec({ isGroup: false, kind: node.kind })) === "actor";
+  const isActor = roleOf(resolveSpec({ isGroup: false, kind: "agent" })) === "actor";
 
   // Node-keyed surfaces survive canvas switches; the ledger must not project
   // another canvas onto this seat or aim mutations at it. Unstamped
@@ -689,17 +689,31 @@ function SeatDetails({ node, session }: { readonly node: Seat; readonly session:
   );
 }
 
+/** What the pane reads of a seat: which node it is and its session binding. */
+type SeatFace = { readonly id: string; readonly bindingId: string };
+
+/**
+ * A document node as the last unconverted callers still hold one. Read here
+ * only until the terminal surface and the canvas pass model nodes.
+ */
+type DocumentSeat = {
+  readonly id: string;
+  readonly ether?: { readonly terminal?: { readonly bindingId?: string } };
+};
+
 /**
  * The one quiet control in the agent modal's header that opens seat details.
  * A signal opened from elsewhere (the canvas seat's badge) opens it too.
  */
 export function SeatDetailsButton({
-  node,
+  node: given,
   session,
 }: {
-  readonly node: Seat;
+  readonly node: SeatFace | DocumentSeat;
   readonly session: SeatSession;
 }) {
+  const node: SeatFace =
+    "bindingId" in given ? given : { id: given.id, bindingId: given.ether?.terminal?.bindingId ?? "" };
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [host, setHost] = useState<HTMLSpanElement | null>(null);
   const reveal = use$(sidebarSections$.reveal);

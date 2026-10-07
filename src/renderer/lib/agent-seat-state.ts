@@ -20,6 +20,7 @@ import {
   type AgentSeatState,
   type AgentSeatStateEvent,
 } from "@shared/agent-seat-state";
+import type { Node } from "@shared/model";
 import type { OccupancyClue, OccupancyHarnessState } from "@shared/occupancy";
 import { terminalBindingOf, type WorkSurfaceActivity } from "@shared/terminal";
 import { getJuntoApi } from "./junto-api";
@@ -70,13 +71,23 @@ export const agentSeat$ = observable<AgentSeatStore>({
 /** Product presentation: engine states plus derived ready/complete. */
 export type AgentSeatPresentation = AgentSeatState | "done";
 
+/**
+ * A document node as the last unconverted callers still hold one. Read here
+ * only until the terminal surface and the canvas pass model nodes.
+ */
+type DocumentOpen = { readonly ether?: { readonly terminal?: { readonly bindingId?: string } } };
+
+const isModelNode = (node: Node | DocumentOpen): node is Node => "kind" in node;
+
+const openBindingOf = (node: Node | DocumentOpen): string | undefined =>
+  isModelNode(node) ? terminalBindingOf(node)?.bindingId : node.ether?.terminal?.bindingId;
+
 /** True when a native terminal surface is open for this binding. */
 export const isBindingSurfaceOpen = (bindingId: string): boolean => {
   const open = terminal$.openByNodeId.peek();
   for (const node of Object.values(open)) {
     if (!node) continue;
-    const native = terminalBindingOf(node);
-    if (native?.kind === "native" && native.bindingId === bindingId) return true;
+    if (openBindingOf(node) === bindingId) return true;
   }
   // Inventory join: nodeId → binding when surface was opened via node id key.
   for (const [nodeId, openNode] of Object.entries(open)) {
