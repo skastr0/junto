@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Layer, ManagedRuntime } from "effect";
+import { Context, Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // SQLite serializes overlapping full-generation commits. These checks prove
@@ -28,6 +29,9 @@ import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import type { CanvasDoc } from "../src/shared/canvas";
+import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import { makeSeatObservation } from "../src/main/junto/work/seat-observation";
+import { workProjectionChanges } from "../src/main/junto/work/projection-changes";
 
 const stateLive = makeStateEngineLive(
   join(mockCanvasesHome, ".junto", "state", "junto.db"),
@@ -159,6 +163,77 @@ describe("canvases.ts write() — same-name concurrency", () => {
       expect(textOf(live.doc)).toBe("write-10");
     } finally {
       unsubscribe();
+    }
+  });
+
+  it("a mailbox change wakes a seat waiter once even when it immediately subscribes again", async () => {
+    const name = "mail-wait-reentrancy";
+    const agent = (id: string) => ({
+      id, type: "text" as const, text: id, x: 0, y: 0, width: 100, height: 80,
+      ether: {
+        entity: { kind: "agent", name: `local:${id}` },
+        terminal: { bindingId: `bind-${id}`, harness: "claude" as const },
+      },
+    });
+    const document: CanvasDoc = {
+      nodes: [agent("caller"), agent("peer")],
+      edges: [{ id: "mail", fromNode: "caller", toNode: "peer", ether: { verb: "messages" } }],
+    };
+    await runtime.runPromise(canvases.write(name, docFor(20)));
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    const seatListeners = new Set<(event: AgentSeatStateEvent) => void>();
+    let registrations = 0;
+    let callbacks = 0;
+    const observation = makeSeatObservation({
+      // A warm authority read can settle synchronously inside the callback.
+      readDoc: () => Effect.succeed(document),
+      subscribeCanvasChanges: (listener) => {
+        registrations += 1;
+        const off = canvases.subscribeChanges((changed) => {
+          if (changed !== name) return;
+          callbacks += 1;
+          // Bound the old live-Set loop so the regression fails instead of hanging Vitest.
+          if (callbacks > 10) { off(); return; }
+          listener(changed);
+        });
+        return off;
+      },
+      seatStates: {
+        current: () => [],
+        subscribe: (listener) => {
+          seatListeners.add(listener);
+          return () => { seatListeners.delete(listener); };
+        },
+      },
+      subscribeWorkChanges: () => () => undefined,
+      sessionOf: () => ({ epoch: "e1", status: "running" }),
+      readGrid: async () => undefined,
+      subscribeGrid: () => () => undefined,
+    });
+    const abort = new AbortController();
+    const flight = runtime.runPromiseExit(
+      observation.waitSeat({ target: "peer", until: "idle", timeoutMs: 1_000 }, {
+        canvasName: name, nodeId: "caller",
+      }),
+      { signal: abort.signal },
+    );
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(registrations).toBe(1);
+      // The same repository notification emitted after signal-answer mail commits.
+      workProjectionChanges(sql).notify({ canvasName: name, nodeId: "peer" });
+      expect(callbacks).toBe(1);
+      expect(registrations).toBe(2);
+      const event: AgentSeatStateEvent = {
+        bindingId: "bind-peer", epoch: "e1", state: "idle", reason: "settled",
+        confidence: "high", at: Date.now(),
+      };
+      for (const listener of [...seatListeners]) listener(event);
+      expect((await flight)._tag).toBe("Success");
+      expect(seatListeners.size).toBe(0);
+    } finally {
+      abort.abort();
+      await flight;
     }
   });
 });

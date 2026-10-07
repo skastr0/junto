@@ -21,7 +21,9 @@ export const workProjectionChanges = (sql: SqlClient.SqlClient) => {
       };
     },
     notify: (sink: { canvasName: string; nodeId: string }) => {
-      for (const listener of current) {
+      // Dispatch only to the listeners present when this commit was announced.
+      // Re-subscribing during a callback must not replay this same change.
+      for (const listener of [...current]) {
         try {
           listener(sink.canvasName, sink.nodeId);
         } catch (error) {

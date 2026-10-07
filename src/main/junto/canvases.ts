@@ -963,7 +963,9 @@ export const CanvasesLive = Layer.effect(
     name: CanvasName | string,
     detail?: CanvasChangeDetail,
   ): void => {
-    for (const listener of listeners) {
+    // A waiter can synchronously unsubscribe and subscribe again. Its new
+    // listener belongs to the next change, never this dispatch.
+    for (const listener of [...listeners]) {
       try {
         listener(name, detail);
       } catch (error) {
