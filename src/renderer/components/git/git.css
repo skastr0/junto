@@ -59,6 +59,8 @@
   --diffs-deletion-color: var(--color-crimson);
   --diffs-modified-color: var(--color-amber);
   --diffs-fg-number: var(--color-faint);
+  /* The line being commented on, or a selected range: the house cyan, not the library's blue. */
+  --diffs-selection-base: var(--color-second);
   --diffs-dark-bg: var(--color-ground);
   --diffs-dark: var(--color-ink);
 }
