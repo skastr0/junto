@@ -348,7 +348,7 @@ test("capture every surface for design review", async () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
     const pageNode = page
-      .locator(".react-flow__node", { hasText: "jsoncanvas.org" })
+      .locator(".react-flow__node", { hasText: "example.org" })
       .first();
     // PageCard's main action attaches the browser surface. Select its blank
     // chrome instead; page kinds no longer expose a fields sheet
