@@ -57,8 +57,8 @@ export type NodeMeta = {
  * (`min\0max`); missing key means no port attenuation (full KindSpec.offers).
  *
  * `placement` is the inter-runtime view (I18). Missing map entry for caller
- * or target → placement_unknown (fail closed). Producers fill via
- * `placementMapFromDoc` or an explicit test map; never invents liveness.
+ * or target → placement_unknown (fail closed). The view of a canvas fills it
+ * from each node's host, or a test hands it a map; it never invents liveness.
  */
 export type CapabilityView = {
   readonly nodeMeta: HashMap.HashMap<NodeId, NodeMeta>;

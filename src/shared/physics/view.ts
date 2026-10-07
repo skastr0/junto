@@ -1,18 +1,14 @@
 import { HashMap, HashSet, Option } from "effect";
-import type { CanvasDoc, CanvasNode } from "../canvas";
 import { productNodeKindEnabled } from "../features";
-import { groupMembers, isGroup } from "../graph";
 import { LOCAL_HOST } from "../model/base";
 import type { Canvas } from "../model/canvas";
 import { nodesOf, regionMembers } from "../model/canvas";
-import { nodeOfDocument, wireOfDocument } from "../model/from-document";
 import type { Node } from "../model/kinds";
 import { wireGrant, type Wire } from "../model/wire";
 import type { CapabilityView, NodeMeta } from "./admit";
 import { directedEdgeKey, undirectedEdgeKey } from "./admit";
 import {
   DEFAULT_PLACEMENT_TOPOLOGY,
-  placementMapFromDoc,
   resolveHostPlacement,
   type NodePlacement,
   type PlacementTopology,
@@ -22,14 +18,8 @@ import { asNodeId, type NodeId, type Port } from "./schema";
 // Pure canvas → CapabilityView adapter. No Node, no live process-bind.
 //
 // The verb plus endpoint kinds compile ports; an operator mask may only
-// remove them (`canvas.ts`). An edge with no verb — one that
-// never went through the document scrub — grants nothing, the same fail-closed
-// answer an empty mask has always given.
-
-const nodeMetaOf = (node: CanvasNode): NodeMeta => ({
-  kind: node.ether?.entity?.kind,
-  isGroup: isGroup(node),
-});
+// remove them. A wire whose two kinds cannot hold its verb grants nothing,
+// the same fail-closed answer an empty mask has always given.
 
 export type CapabilityViewOptions = {
   /**
@@ -54,46 +44,6 @@ export type CapabilityViewOptions = {
  */
 export type VerbCapabilityView = CapabilityView & {
   readonly claimable: HashSet.HashSet<string>;
-};
-
-/**
- * Build an undirected capability view from a canvas document.
- * - connected: adjacency from edges (undirected)
- * - regionPeers: group co-members (excluding self), geometry-derived
- * - nodeMeta: kind + isGroup
- * - edgePortMask: union of the compiled grants on that undirected pair
- * - claimable: pairs whose verb lets the factory claim for the actor seat
- * - placement: from topology resolve or explicit map (I18)
- */
-export const canvasDocToCapabilityView = (
-  doc: CanvasDoc,
-  options?: CapabilityViewOptions,
-): VerbCapabilityView => {
-  let nodeMeta = HashMap.empty<NodeId, NodeMeta>();
-  for (const node of doc.nodes) {
-    nodeMeta = HashMap.set(nodeMeta, asNodeId(node.id), nodeMetaOf(node));
-  }
-  // A region is geography and holds no end of a grant; of two nodes with
-  // one id the first is the one a wire reaches.
-  const kinds = new Map<string, string>();
-  doc.nodes.forEach((node, z) => {
-    if (isGroup(node) || kinds.has(node.id)) return;
-    const kind = nodeOfDocument("", node, z)?.kind;
-    if (kind !== undefined) kinds.set(node.id, kind);
-  });
-  return viewOf({
-    nodeMeta,
-    kinds,
-    joins: doc.edges.map((edge) => ({
-      from: edge.fromNode,
-      to: edge.toNode,
-      wire: wireOfDocument(edge),
-    })),
-    regions: groupMembers(doc).values(),
-    placement:
-      options?.placement ??
-      placementMapFromDoc(doc, options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY),
-  });
 };
 
 /** A note, a file and a link are plain things: they have no kind to offer. */

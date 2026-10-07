@@ -95,8 +95,6 @@ export {
   mapPlacementView,
   nullPlacementView,
   placementLabel,
-  placementMapFromDoc,
-  resolveNodePlacement,
   routeAllowed,
   sameRuntime,
 } from "./placement";
@@ -117,7 +115,7 @@ export {
 } from "./work-ports";
 export type { TargetWorkOpName } from "./work-ports";
 
-export { canvasDocToCapabilityView, pairIsClaimable } from "./view";
+export { canvasToCapabilityView, pairIsClaimable } from "./view";
 export type { CapabilityViewOptions, VerbCapabilityView } from "./view";
 
 export {

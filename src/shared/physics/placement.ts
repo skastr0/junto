@@ -1,10 +1,5 @@
 import { Context, Data, HashMap, Layer, Schema } from "effect";
-import type { CanvasDoc, CanvasNode } from "../canvas";
-import {
-  DEFAULT_STATION_HOST_ID,
-  isExecutableNode,
-  resolveNodeHostId,
-} from "../station";
+import { DEFAULT_STATION_HOST_ID } from "../station";
 import { asNodeId, type NodeId, type Port } from "./schema";
 
 // Placement plane (I18/I19) — inter-runtime half of admit.
@@ -61,15 +56,6 @@ export const DEFAULT_PLACEMENT_TOPOLOGY: PlacementTopology = {
 // ---------------------------------------------------------------------------
 // Pure resolve (ether.host + topology → NodePlacement)
 
-/**
- * Resolve placement for one canvas node: which machine hosts it. The CC host
- * is `Cc`; every other host id is a `Station`. Nothing here gates a port.
- */
-export const resolveNodePlacement = (
-  node: CanvasNode,
-  topology: PlacementTopology = DEFAULT_PLACEMENT_TOPOLOGY,
-): NodePlacement => resolveHostPlacement(resolveNodeHostId(node), topology);
-
 /** Placement of whatever runs on this host. */
 export const resolveHostPlacement = (
   hostId: string,
@@ -79,18 +65,6 @@ export const resolveHostPlacement = (
     return { runtime: RuntimePlacement.Cc(), assignment: hostId };
   }
   return { runtime: RuntimePlacement.Station({ hostId }), assignment: hostId };
-};
-
-/** Build the admit placement map for a document under a topology. */
-export const placementMapFromDoc = (
-  doc: CanvasDoc,
-  topology: PlacementTopology = DEFAULT_PLACEMENT_TOPOLOGY,
-): HashMap.HashMap<NodeId, NodePlacement> => {
-  let map = HashMap.empty<NodeId, NodePlacement>();
-  for (const node of doc.nodes) {
-    map = HashMap.set(map, asNodeId(node.id), resolveNodePlacement(node, topology));
-  }
-  return map;
 };
 
 // ---------------------------------------------------------------------------
