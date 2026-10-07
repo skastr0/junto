@@ -159,7 +159,6 @@
     "src/renderer/components/live/live-conversation.css": 1,
     "src/renderer/components/node-palette/AgentLaunchContext.tsx": 1,
     "src/renderer/components/node-palette/NodeCatalogGrid.tsx": 2,
-    "src/renderer/components/nodes/AgentSeat.tsx": 4,
     "src/renderer/components/nodes/CronScheduleSurface.tsx": 1,
     "src/renderer/components/nodes/GroupNode.tsx": 1,
     "src/renderer/components/nodes/LinkNode.tsx": 1,
