@@ -303,7 +303,14 @@ export const claimFocus = (
   });
   if (!verdict.allowed) return false;
   if (verdict.reason !== "already-owned") {
-    const focusOptions = options.preventScroll ? { preventScroll: true } : undefined;
+    // A move made by a key always shows where it landed. Left to itself the
+    // browser draws no ring for a scripted focus when the operator last
+    // arrived with the pointer (a click into a terminal, then a chord).
+    const shown = gesture?.kind === "key" ? { focusVisible: true } : null;
+    const focusOptions: FocusOptions | undefined =
+      options.preventScroll || shown
+        ? { ...(options.preventScroll ? { preventScroll: true } : null), ...shown }
+        : undefined;
     if (options.via) options.via.focus(focusOptions);
     else target.focus(focusOptions);
   }
