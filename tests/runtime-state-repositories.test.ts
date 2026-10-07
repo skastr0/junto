@@ -50,7 +50,7 @@ const disposeRuntime = async (runtime: {
 const pulse = (index: number): PulseRecord => ({
   id: `pulse-${index}`,
   at: 1_700_000_000_000 + index,
-  canvasName: "ether",
+  canvasName: "factory",
   sourceNodeId: `timer-${index}`,
   regionId: "region-1",
   kind: index % 2 === 0 ? "timer" : "manual",
@@ -76,17 +76,17 @@ describe("typed runtime-state repositories", () => {
       Effect.gen(function* () {
         const kernel = yield* KernelStateRepository;
         const pause = yield* FactoryPauseRepository;
-        yield* kernel.setRegionArmed("ether", "region-1", true);
-        yield* kernel.setRegionArmed("ether", "region-2", true);
-        yield* kernel.setRegionArmed("ether", "region-2", false);
-        yield* pause.setPlaying("ether", true);
+        yield* kernel.setRegionArmed("factory", "region-1", true);
+        yield* kernel.setRegionArmed("factory", "region-2", true);
+        yield* kernel.setRegionArmed("factory", "region-2", false);
+        yield* pause.setPlaying("factory", true);
         // Rows written by the retired node and region pause are never read.
         const sql = yield* SqlClient.SqlClient;
         yield* sql.withTransaction(Effect.gen(function* () {
           for (const [kind, id] of [["node", "agent-1"], ["region", "region-1"]]) {
             yield* sql`
               INSERT INTO factory_pause_scopes(canvas_name, scope_kind, scope_id, paused_at)
-              VALUES ('ether', ${kind}, ${id}, '2026-01-01T00:00:00.000Z')
+              VALUES ('factory', ${kind}, ${id}, '2026-01-01T00:00:00.000Z')
             `;
           }
         }));
@@ -101,13 +101,13 @@ describe("typed runtime-state repositories", () => {
         const pause = yield* FactoryPauseRepository;
         return {
           armed: yield* kernel.listArmedRegions,
-          paused: (yield* pause.loadAll).get("ether"),
+          paused: (yield* pause.loadAll).get("factory"),
         };
       }),
     );
 
     expect(result.armed).toEqual([
-      { canvasName: "ether", regionId: "region-1" },
+      { canvasName: "factory", regionId: "region-1" },
     ]);
     expect(result.paused).toEqual({ playing: true, everPlayed: true });
   });
@@ -172,7 +172,7 @@ describe("typed runtime-state repositories", () => {
         const pause = yield* FactoryPauseRepository;
         yield* Effect.all(
           Array.from({ length: 64 }, (_, index) =>
-            kernel.setRegionArmed("ether", `region-${index}`, true)
+            kernel.setRegionArmed("factory", `region-${index}`, true)
           ),
           { concurrency: "unbounded", discard: true },
         );

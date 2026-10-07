@@ -95,17 +95,17 @@ describe("PausePlane — born paused", () => {
       {
         initial: new Map([
           [
-            "ether",
+            "factory",
             { playing: true, everPlayed: true },
           ],
         ]),
       },
       [],
       async (plane) => {
-        expect(plane.stateFor("ether").playing).toBe(true);
-        expect(plane.stateFor("ether").everPlayed).toBe(true);
+        expect(plane.stateFor("factory").playing).toBe(true);
+        expect(plane.stateFor("factory").everPlayed).toBe(true);
         await Effect.runPromise(plane.start);
-        expect(plane.stateFor("ether").playing).toBe(true);
+        expect(plane.stateFor("factory").playing).toBe(true);
       },
     );
   });
@@ -195,22 +195,22 @@ describe("PausePlane — setPlaying", () => {
       const seen: string[] = [];
       const unsubscribe = plane.subscribe((canvas) => seen.push(canvas));
 
-      await Effect.runPromise(plane.setPlaying("ether", true));
-      expect(plane.stateFor("ether")).toMatchObject({
+      await Effect.runPromise(plane.setPlaying("factory", true));
+      expect(plane.stateFor("factory")).toMatchObject({
         playing: true,
         everPlayed: true,
       });
 
-      await Effect.runPromise(plane.setPlaying("ether", false));
-      expect(plane.stateFor("ether")).toMatchObject({
+      await Effect.runPromise(plane.setPlaying("factory", false));
+      expect(plane.stateFor("factory")).toMatchObject({
         playing: false,
         everPlayed: true,
       });
 
-      expect(seen).toEqual(["ether", "ether"]);
+      expect(seen).toEqual(["factory", "factory"]);
       expect(writes).toEqual([
-        { kind: "canvas", canvas: "ether", playing: true },
-        { kind: "canvas", canvas: "ether", playing: false },
+        { kind: "canvas", canvas: "factory", playing: true },
+        { kind: "canvas", canvas: "factory", playing: false },
       ]);
       unsubscribe();
     });
@@ -219,14 +219,14 @@ describe("PausePlane — setPlaying", () => {
   it("a failed repository write is typed and leaves memory untouched", async () => {
     await withPlane({ writeFails: true }, [], async (plane) => {
       const result = await Effect.runPromise(
-        Effect.result(plane.setPlaying("ether", true)),
+        Effect.result(plane.setPlaying("factory", true)),
       );
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
         expect(result.failure._tag).toBe("PauseStateError");
         expect(result.failure.message).toMatch(/not saved/i);
       }
-      expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);
+      expect(plane.stateFor("factory")).toEqual(PAUSED_CANVAS);
     });
   });
 });
@@ -237,10 +237,10 @@ describe("PausePlane — corrupt state fails closed", () => {
     try {
       const writes: Write[] = [];
       await withPlane({ loadFails: true }, writes, async (plane) => {
-        expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);
+        expect(plane.stateFor("factory")).toEqual(PAUSED_CANVAS);
 
         const result = await Effect.runPromise(
-          Effect.result(plane.setPlaying("ether", true)),
+          Effect.result(plane.setPlaying("factory", true)),
         );
         expect(Result.isFailure(result)).toBe(true);
         if (Result.isFailure(result)) {
@@ -248,7 +248,7 @@ describe("PausePlane — corrupt state fails closed", () => {
           expect(result.failure.message).toMatch(/unreadable/i);
         }
         expect(writes).toEqual([]);
-        expect(plane.stateFor("ether")).toEqual(PAUSED_CANVAS);
+        expect(plane.stateFor("factory")).toEqual(PAUSED_CANVAS);
       });
     } finally {
       error.mockRestore();

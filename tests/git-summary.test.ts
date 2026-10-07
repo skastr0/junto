@@ -1,4 +1,3 @@
-import { canvasFromDocument, nodeFromDocument } from "../src/shared/model/from-document";
 /**
  * Git at a glance for a seat's folder: the parsing, the base branch choice,
  * the one line it becomes, and the reader in main against real repositories.
@@ -8,7 +7,8 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import type { Seat } from "../src/shared/model";
+import { canvasOf, region, seat } from "./support/model-nodes";
 import {
   chooseGitBase,
   gitReviewedCommit,
@@ -136,33 +136,30 @@ describe("what a review says it is of", () => {
 });
 
 describe("the folder that speaks for a seat", () => {
-  const seat = (over: Record<string, unknown> = {}): CanvasNode =>
-    ({ id: "seat", type: "text", text: "Atlas", x: 50, y: 50, width: 100, height: 60, ether: { entity: { kind: "agent", name: "local:claude" }, ...over, terminal: { bindingId: "git-seat", harness: "claude", ...(over.terminal as object ?? {}), ...((over.terminal as { launch?: object })?.launch ? { launch: { kind: "harness", argv: ["claude"], ...(over.terminal as { launch: object }).launch } } : {}) } } }) as unknown as CanvasNode;
-  const doc = (node: CanvasNode): CanvasDoc =>
-    ({
-      nodes: [
-        { id: "outer", type: "group", label: "Team", x: 0, y: 0, width: 1000, height: 1000, ether: { region: { defaults: { paths: { local: "/outer" } } } } },
-        { id: "inner", type: "group", label: "Docs", x: 10, y: 10, width: 400, height: 400, ether: { region: { defaults: { paths: { local: "/inner", studio: "/remote" } } } } },
-        node,
-      ],
-      edges: [],
-    }) as unknown as CanvasDoc;
+  const atlas = (more: Partial<Seat> = {}): Seat =>
+    seat("seat", { label: "Atlas" as never, x: 50, y: 50, width: 100, height: 60, bindingId: "git-seat" as never, ...more });
+  const canvasWith = (node: Seat) =>
+    canvasOf([
+      region("outer", { x: 0, y: 0, width: 1000, height: 1000 }, { label: "Team" as never, defaults: { paths: { local: "/outer" } } as never }),
+      region("inner", { x: 10, y: 10, width: 400, height: 400 }, { label: "Docs" as never, defaults: { paths: { local: "/inner", studio: "/remote" } } as never }),
+      node,
+    ]);
 
   it("is where it was launched, first", () => {
-    const node = seat({ terminal: { harness: "claude", launch: { cwd: " /launched " } } });
-    expect(seatGitFolder(canvasFromDocument("factory", doc(node)), nodeFromDocument("factory", node, 0))).toBe("/launched");
+    const node = atlas({ launch: { kind: "harness", argv: ["claude"], cwd: " /launched " } });
+    expect(seatGitFolder(canvasWith(node), node)).toBe("/launched");
   });
   it("else its innermost region's folder for its host", () => {
-    const node = seat({ terminal: { harness: "claude" } });
-    expect(seatGitFolder(canvasFromDocument("factory", doc(node)), nodeFromDocument("factory", node, 0))).toBe("/inner");
+    const node = atlas();
+    expect(seatGitFolder(canvasWith(node), node)).toBe("/inner");
   });
   it("is nothing for a seat on another host: its folder is not on this machine", () => {
-    const node = seat({ host: "studio", terminal: { harness: "claude", launch: { cwd: "/launched" } } });
-    expect(seatGitFolder(canvasFromDocument("factory", doc(node)), nodeFromDocument("factory", node, 0))).toBeUndefined();
+    const node = atlas({ host: "studio" as never, launch: { kind: "harness", argv: ["claude"], cwd: "/launched" } });
+    expect(seatGitFolder(canvasWith(node), node)).toBeUndefined();
   });
   it("is nothing with no launch folder and no region folder", () => {
-    const node = { ...seat({ terminal: { harness: "claude" } }), x: 5000, y: 5000 } as CanvasNode;
-    expect(seatGitFolder(canvasFromDocument("factory", doc(node)), nodeFromDocument("factory", node, 0))).toBeUndefined();
+    const node = atlas({ x: 5000, y: 5000 });
+    expect(seatGitFolder(canvasWith(node), node)).toBeUndefined();
   });
 });
 
