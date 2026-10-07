@@ -1,25 +1,27 @@
 import { useEffect } from "react";
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type {
   NotifyReport,
   NotifySubject,
   NotifyTarget,
 } from "@shared/desktop-notifications";
+import { nodesOf, type Seat } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import type { OperatorFeed } from "@shared/operator-feed";
 import { notificationSettings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
 import { activateNodeSurface } from "./activate-node-surface";
-import { agentSeat$, bindingIdForNode, presentationForSeat, seatDoneAt } from "./agent-seat-state";
+import { agentSeat$, presentationForSeat, seatDoneAt } from "./agent-seat-state";
 import { getJuntoApi } from "./junto-api";
 import { useOperatorFeed } from "./operator-feed";
 import { openOperatorModal } from "./operator-modal";
-import { nodeTitle } from "./presentation";
 import { playNotificationCue } from "./sound";
 import { state$ } from "./state";
+import { storeNodeAsDocument } from "./store-document-node";
 import { terminal$ } from "./terminal-state";
 import { onTerminalEvent } from "./terminal-events";
+import { useCanvas } from "./use-model";
 
 /**
  * The renderer's half of desktop notifications: it knows what needs the
@@ -108,14 +110,10 @@ export const subjectsFromFeed = (feed: OperatorFeed): ReadonlyArray<NotifySubjec
     ),
   );
 
-const isAgent = (node: CanvasNode): boolean =>
-  node.type !== "group" && node.ether?.entity?.kind === "agent";
-
 /** Finished-not-read seats and failed seats on the canvas, as subjects. */
 export const seatSubjects = (input: {
   readonly canvasName: string;
-  readonly doc: CanvasDoc;
-  readonly bindingOf: (node: CanvasNode) => string | undefined;
+  readonly seats: ReadonlyArray<Seat>;
   readonly seatState: (bindingId: string) => { readonly state: string; readonly at: number } | undefined;
   readonly needsLook: (bindingId: string) => boolean;
   /** When the unread finished turn ended; the need's identity. */
@@ -125,11 +123,9 @@ export const seatSubjects = (input: {
   readonly lastSaid: (nodeId: string) => string | undefined;
 }): ReadonlyArray<NotifySubject> => {
   const out: NotifySubject[] = [];
-  for (const node of input.doc.nodes) {
-    if (!isAgent(node)) continue;
-    const bindingId = input.bindingOf(node);
-    if (!bindingId) continue;
-    const seat = { canvasName: input.canvasName, nodeId: node.id, seatName: nodeTitle(node) };
+  for (const node of input.seats) {
+    const bindingId = node.bindingId;
+    const seat = { canvasName: input.canvasName, nodeId: node.id, seatName: titleOf(node) };
     const failure = input.failure(bindingId);
     if (failure) {
       out.push({
@@ -168,7 +164,7 @@ const reportKey = (report: NotifyReport): string => JSON.stringify(report);
  */
 const useNotifyReport = (): NotifyReport | null => {
   const canvasName = use$(state$.canvasName);
-  const doc = use$(state$.doc);
+  const canvas = useCanvas(canvasName);
   const settings = use$(state$.settings);
   const settingsReady = use$(state$.settingsReady);
   const feed = useOperatorFeed();
@@ -181,8 +177,7 @@ const useNotifyReport = (): NotifyReport | null => {
   if (!canvasName || !settingsReady) return null;
   const seats = seatSubjects({
     canvasName,
-    doc,
-    bindingOf: bindingIdForNode,
+    seats: nodesOf(canvas, "agent"),
     seatState: (bindingId) => agentSeat$.byBindingId[bindingId].peek(),
     needsLook: (bindingId) => needsLook[bindingId] === true,
     doneAt: seatDoneAt,
@@ -210,7 +205,8 @@ const useNotifyReport = (): NotifyReport | null => {
 export const openNotifyTarget = (target: NotifyTarget): void => {
   if (!target.canvasName) return;
   if (target.kind === "seat" && target.canvasName === state$.canvasName.peek()) {
-    const node = state$.doc.peek().nodes.find((candidate) => candidate.id === target.nodeId);
+    // The terminal family still opens from a document node.
+    const node = storeNodeAsDocument(target.canvasName, target.nodeId);
     if (node && activateNodeSurface(node).opened) return;
   }
   openOperatorModal("feed");

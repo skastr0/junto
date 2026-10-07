@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import { buildOperatorFeed, feedSeatsFromDoc } from "../src/shared/operator-feed";
 import type { AgentSignal } from "../src/shared/agent-signals";
+import type { BindingId } from "../src/shared/model";
 import { seatSubjects, subjectsFromFeed } from "../src/renderer/lib/desktop-notify";
+import { seat } from "./support/model-nodes";
 
 const agent = (id: string, name: string): CanvasNode =>
   ({
@@ -52,8 +54,9 @@ describe("desktop notification subjects", () => {
 
   const base = {
     canvasName: "main",
-    doc,
-    bindingOf: (node: CanvasNode) => `b-${node.id}`,
+    seats: [["a1", "Maple"], ["a2", "Pip"], ["a3", "Clove"]].map(([id, label]) =>
+      seat(id!, { label: label!, bindingId: `b-${id}` as BindingId }),
+    ),
     seatState: () => ({ state: "idle", at: 42 }),
     needsLook: () => false,
     failure: () => undefined,

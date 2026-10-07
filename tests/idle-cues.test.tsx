@@ -1,4 +1,5 @@
 import { modelStore } from "../src/renderer/lib/use-model";
+import { nodesOf } from "@shared/model";
 import { canvasFromDocument } from "@shared/model/from-document";
 // @vitest-environment jsdom
 /**
@@ -219,8 +220,7 @@ describe("a finished turn is one need for desktop notifications", () => {
   const subjectKeys = (): ReadonlyArray<string> =>
     seatSubjects({
       canvasName: "idle-board",
-      doc: state$.doc.peek(),
-      bindingOf: (node) => `bind-${node.id}`,
+      seats: nodesOf(canvasFromDocument("idle-board", state$.doc.peek()), "agent"),
       seatState: (bindingId) => agentSeat$.byBindingId[bindingId].peek(),
       needsLook: (bindingId) => agentSeat$.needsLookByBindingId[bindingId].peek() === true,
       doneAt: seatDoneAt,
