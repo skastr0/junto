@@ -522,9 +522,8 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 }
 
 function SelectedConnectEditor({ nodeId, onClose }: { readonly nodeId: string; readonly onClose: () => void }) {
-  const doc = use$(state$.doc);
-  const node = doc.nodes.find(candidate => candidate.id === nodeId);
-  return node ? <ConnectEditor node={node} doc={doc} onClose={onClose} /> : null;
+  const exists = use$(() => modelStore.node$(state$.canvasName.get(), nodeId).get() !== undefined);
+  return exists ? <ConnectEditor nodeId={nodeId} onClose={onClose} /> : null;
 }
 
 /** Middle third: kind surface only — region chips live on the strip above. */

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Search } from "lucide-react";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import { asNodeId, type Node } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import { addEdge } from "../../lib/edge-mutations";
 import { claimFocus } from "../../lib/focus-ownership";
-import { nodeTitle } from "../../lib/presentation";
 import { regionTrails, trailPath } from "../../lib/region-path";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
@@ -19,12 +19,10 @@ import { RegionCrumb } from "../RegionCrumb";
  * pair. Only agents are offered, and never one this node already reaches.
  */
 export function ConnectEditor({
-  node,
-  doc,
+  nodeId,
   onClose,
 }: {
-  readonly node: CanvasNode;
-  readonly doc: CanvasDoc;
+  readonly nodeId: string;
   readonly onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -35,23 +33,24 @@ export function ConnectEditor({
     claimFocus(inputRef.current, "open");
   }, []);
 
-  // Region membership is the model's; the list of agents still reads the document.
   const canvas = useCanvas(use$(state$.canvasName));
+  const node = canvas.nodes.get(asNodeId(nodeId));
+  const name = node ? titleOf(node) : nodeId;
   const trailById = useMemo(() => regionTrails(canvas), [canvas]);
   const agents = useMemo(
     () =>
-      doc.nodes.filter(
+      [...canvas.nodes.values()].filter(
         (candidate) =>
-          candidate.id !== node.id &&
-          candidate.ether?.entity?.kind === "agent" &&
-          !doc.edges.some((edge) => edge.fromNode === node.id && edge.toNode === candidate.id),
+          candidate.id !== nodeId &&
+          candidate.kind === "agent" &&
+          ![...canvas.wires.values()].some((wire) => wire.from === nodeId && wire.to === candidate.id),
       ),
-    [doc, node.id],
+    [canvas, nodeId],
   );
   const needle = query.trim().toLowerCase();
   const matches = needle
     ? agents.filter((agent) =>
-        `${nodeTitle(agent)} ${trailPath(trailById.get(agent.id) ?? [])}`.toLowerCase().includes(needle),
+        `${titleOf(agent)} ${trailPath(trailById.get(agent.id) ?? [])}`.toLowerCase().includes(needle),
       )
     : agents;
   const lit = Math.min(active, matches.length - 1);
@@ -60,9 +59,9 @@ export function ConnectEditor({
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [lit]);
 
-  const connect = (target: CanvasNode | undefined): void => {
+  const connect = (target: Node | undefined): void => {
     if (!target) return;
-    addEdge({ source: node.id, target: target.id });
+    addEdge({ source: nodeId, target: target.id });
     onClose();
   };
 
@@ -75,10 +74,10 @@ export function ConnectEditor({
           role="combobox"
           aria-expanded="true"
           aria-controls="connect-pick-list"
-          aria-label={`Connect ${nodeTitle(node)} to an agent`}
+          aria-label={`Connect ${name} to an agent`}
           data-testid="connect-pick-input"
           value={query}
-          placeholder={`connect ${nodeTitle(node)} to`}
+          placeholder={`connect ${name} to`}
           spellCheck={false}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -127,7 +126,7 @@ export function ConnectEditor({
                   className="connect-pick__name"
                   style={{ color: agent.color ? accentColor(agent.color) : INK }}
                 >
-                  {nodeTitle(agent)}
+                  {titleOf(agent)}
                 </span>
                 {trail ? <RegionCrumb trail={trail} className="connect-pick__crumb" /> : null}
               </button>

@@ -480,39 +480,27 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
 
     >
       {workDetail && workDetailAllowed && entityKind === "task" ? (
-        <WithDocumentNode id={id}>
-          {(node) => (
-            <TasksDetail
-              node={node}
-              initialItemId={workDetailItemId}
-              onClose={() => {
-                setWorkDetail(false);
-                setWorkDetailItemId(undefined);
-              }}
-            />
-          )}
-        </WithDocumentNode>
+        <TasksDetail
+          nodeId={id}
+          initialItemId={workDetailItemId}
+          onClose={() => {
+            setWorkDetail(false);
+            setWorkDetailItemId(undefined);
+          }}
+        />
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "requests" ? (
-        <WithDocumentNode id={id}>
-          {(node) => (
-            <RequestsDetail
-              node={node}
-              initialItemId={workDetailItemId}
-              onClose={() => {
-                setWorkDetail(false);
-                setWorkDetailItemId(undefined);
-              }}
-            />
-          )}
-        </WithDocumentNode>
+        <RequestsDetail
+          nodeId={id}
+          initialItemId={workDetailItemId}
+          onClose={() => {
+            setWorkDetail(false);
+            setWorkDetailItemId(undefined);
+          }}
+        />
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "board" ? (
-        <WithDocumentNode id={id}>
-          {(node) => (
-            <BoardDetail node={node} onClose={() => setWorkDetail(false)} />
-          )}
-        </WithDocumentNode>
+        <BoardDetail nodeId={id} onClose={() => setWorkDetail(false)} />
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "pad" ? (
         <WithDocumentNode id={id}>
@@ -536,17 +524,13 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         </WithDocumentNode>
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "artifacts" ? (
-        <WithDocumentNode id={id}>
-          {(node) => (
-            <ArtifactsDetail
-              node={node}
-              onClose={() => {
-                setWorkDetail(false);
-                setWorkDetailItemId(undefined);
-              }}
-            />
-          )}
-        </WithDocumentNode>
+        <ArtifactsDetail
+          nodeId={id}
+          onClose={() => {
+            setWorkDetail(false);
+            setWorkDetailItemId(undefined);
+          }}
+        />
       ) : null}
       {isLabel ? (
         editing ? (

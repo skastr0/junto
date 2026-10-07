@@ -31,6 +31,7 @@ import { OverlayHeader } from "../ui/OverlayHeader";
 import { editText, renameRequestsNode, renameTasksNode } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
+import { useCanvas, useNodeFieldOf } from "../../lib/use-model";
 import { boardAuthorLabel } from "../../lib/board-author";
 import { getJuntoApi } from "../../lib/junto-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
@@ -431,47 +432,47 @@ export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
 // --- Detail surfaces -------------------------------------------------------
 
 export function TasksDetail({
-  node,
+  nodeId,
   onClose,
   initialItemId,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
   /** Pre-select this task when opening (jump-to-blocker-cause). */
   readonly initialItemId?: string;
 }) {
-  return <TaskBoard nodeId={node.id} onClose={onClose} initialItemId={initialItemId} />;
+  return <TaskBoard nodeId={nodeId} onClose={onClose} initialItemId={initialItemId} />;
 }
 
 export function RequestsDetail({
-  node,
+  nodeId,
   onClose,
   initialItemId,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
   /** Pre-select this request when opening (jump-to-blocker-cause). */
   readonly initialItemId?: string;
 }) {
-  return <RequestInbox nodeId={node.id} onClose={onClose} initialItemId={initialItemId} />;
+  return <RequestInbox nodeId={nodeId} onClose={onClose} initialItemId={initialItemId} />;
 }
 
 export function ArtifactsDetail({
-  node,
+  nodeId,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
 }) {
-  return <ArtifactLibrary nodeId={node.id} onClose={onClose} />;
+  return <ArtifactLibrary nodeId={nodeId} onClose={onClose} />;
 }
 
 /** Operator bulletin: full topics + posts from workBoardList (not ether glance). */
 export function BoardDetail({
-  node,
+  nodeId,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly nodeId: string;
   readonly onClose: () => void;
 }) {
   const [title, setTitle] = useState("");
@@ -495,23 +496,24 @@ export function BoardDetail({
   const postsRef = useRef<HTMLDivElement | null>(null);
   /** Topic the posts pane last jumped to the bottom of. */
   const followedTopicRef = useRef<string | undefined>(undefined);
-  const doc = use$(state$.doc);
+  const canvas = use$(state$.canvasName);
+  const topology = useCanvas(canvas);
+  const label = useNodeFieldOf(canvas, nodeId, "board", (node) => node.label);
   /** Full topics from SQLite list; glance only used as empty-state labels. */
   const topics = detailTopics;
   const loaded = topics !== undefined;
   const selected: BoardTopicView | undefined =
     topics?.find((t) => t.topicId === selectedTopicId) ?? topics?.[0];
-  const canvas = canvasName();
   const api = getJuntoApi();
   // The board node's first line is the operator's authored title (the mirror
   // preserves it); the work surface carries the same identity.
-  const boardTitle = boardTitleFromText(node.type === "text" ? node.text : "");
+  const boardTitle = boardTitleFromText(label ?? "");
 
   const refreshList = useCallback(async () => {
     if (!api) return;
     try {
       // Full board (all topics + posts). Do not pass topicId — that collapses the list.
-      const r = await api.workBoardList(canvas, node.id);
+      const r = await api.workBoardList(canvas, nodeId);
       if (!r.ok) {
         setListError(r.message);
         return;
@@ -527,7 +529,7 @@ export function BoardDetail({
     } catch {
       setListError("Board list unavailable");
     }
-  }, [api, canvas, node.id]);
+  }, [api, canvas, nodeId]);
 
   const refreshQueued = useRef(false);
   // Scoped Work events coalesce into one board read while preserving the
@@ -536,7 +538,7 @@ export function BoardDetail({
     if (!api) return;
     let cancelled = false;
     const off = api.onWorkSinkChanged((event) => {
-      if (cancelled || event.canvasName !== canvas || event.nodeId !== node.id) return;
+      if (cancelled || event.canvasName !== canvas || event.nodeId !== nodeId) return;
       if (refreshQueued.current) return;
       refreshQueued.current = true;
       window.setTimeout(() => {
@@ -597,7 +599,7 @@ export function BoardDetail({
       const r = await run(() =>
         api!.workBoardCreateTopic(
           canvas,
-          node.id,
+          nodeId,
           title.trim(),
           body.trim() || undefined,
           true,
@@ -620,7 +622,7 @@ export function BoardDetail({
     setPosting(true);
     try {
       const r = await run(() =>
-        api!.workBoardPost(canvas, node.id, selected.topicId, postText.trim()),
+        api!.workBoardPost(canvas, nodeId, selected.topicId, postText.trim()),
       );
       if (r?.ok) {
         setPostText("");
@@ -642,7 +644,7 @@ export function BoardDetail({
     await run(() =>
       api!.workBoardMarkRead(
         canvas,
-        node.id,
+        nodeId,
         selected.topicId,
         Number.isSafeInteger(highestDisplayed) && highestDisplayed >= 0
           ? highestDisplayed
@@ -657,7 +659,7 @@ export function BoardDetail({
     setNotifyNote(null);
     try {
       const r = await run(() =>
-        api!.workBoardNotify(canvas, node.id, selected?.topicId),
+        api!.workBoardNotify(canvas, nodeId, selected?.topicId),
       );
       if (r?.ok) {
         const seats = r.data.wakeCount;
@@ -835,7 +837,7 @@ export function BoardDetail({
                         <strong>{topic.title}</strong>
                         {boardTopicPreview(topic) ? <span>{boardTopicPreview(topic)}</span> : null}
                         <small>
-                          {boardAuthorLabel(topic.openedBy, doc.nodes)} - {boardTimestamp(topic.lastActivityAt)}
+                          {boardAuthorLabel(topic.openedBy, topology)} - {boardTimestamp(topic.lastActivityAt)}
                         </small>
                       </span>
                       {topicUnread > 0 ? (
@@ -861,7 +863,7 @@ export function BoardDetail({
                   <div>
                     <h2>{selected.title}</h2>
                     <p>
-                      Opened by {boardAuthorLabel(selected.openedBy, doc.nodes)} - {boardTimestamp(selected.openedAt)} - {selected.postCount}{" "}
+                      Opened by {boardAuthorLabel(selected.openedBy, topology)} - {boardTimestamp(selected.openedAt)} - {selected.postCount}{" "}
                       {selected.postCount === 1 ? "post" : "posts"}
                       {(selected.unreadPostCount ?? 0) > 0
                         ? ` - ${selected.unreadPostCount} new`
@@ -897,11 +899,11 @@ export function BoardDetail({
                     ).map((post, index) => (
                       <article key={post.postId} className="board-post" data-testid="board-post">
                         <div className="board-post__avatar" aria-hidden>
-                          {boardAuthorLabel(post.author, doc.nodes).slice(0, 1).toUpperCase()}
+                          {boardAuthorLabel(post.author, topology).slice(0, 1).toUpperCase()}
                         </div>
                         <div className="board-post__body">
                           <header>
-                            <strong>{boardAuthorLabel(post.author, doc.nodes)}</strong>
+                            <strong>{boardAuthorLabel(post.author, topology)}</strong>
                             {index === 0 ? <span className="board-post__opening">opened topic</span> : null}
                             <time dateTime={post.createdAt}>{boardTimestamp(post.createdAt)}</time>
                           </header>

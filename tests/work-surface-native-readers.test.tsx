@@ -11,10 +11,15 @@ import { workDetailOpen$ } from "../src/renderer/lib/work-detail-open";
 import { TaskBoard } from "../src/renderer/components/work/TaskBoard";
 import { TaskEnqueueSurface } from "../src/renderer/components/work/TaskEnqueueSurface";
 import { ArtifactLibrary, RequestInbox } from "../src/renderer/components/work/WorkLedger";
-import type { Artifact, Task } from "../src/shared/work-model";
+import { BoardDetail } from "../src/renderer/components/work/WorkSurfaces";
+import { ConnectEditor } from "../src/renderer/components/rts/ConnectEditor";
+import { PadPinThread } from "../src/renderer/components/pad/PadPinThread";
+import { PadPin } from "../src/shared/pad";
+import type { Artifact, BoardTopicView, Task } from "../src/shared/work-model";
 import type { WorkSinkQuery } from "../src/shared/work-sinks";
 
 vi.hoisted(() => {
+  HTMLElement.prototype.scrollIntoView = () => {};
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
     observe() {} unobserve() {} disconnect() {}
   };
@@ -27,9 +32,14 @@ let oldApi: typeof window.junto;
 let counter = 0;
 let tasks: ReadonlyArray<Task>;
 let artifacts: ReadonlyArray<Artifact>;
+let topics: ReadonlyArray<BoardTopicView>;
 let create: ReturnType<typeof vi.fn>;
 const decodeNode = Schema.decodeUnknownSync(Node);
 const decodeWire = Schema.decodeUnknownSync(Wire);
+const agent = (label: string) => ({
+  kind: "agent", label, agentKey: "local:worker", harness: "codex",
+  host: "local", bindingId: "binding", overseer: false, onRemove: "detach",
+});
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const publish = (id: string, fields: Record<string, unknown>) => {
   const node = decodeNode({ id, x: 100, y: 200, width: 300, height: 180, z: 1, ...fields });
@@ -62,7 +72,7 @@ const type = async (selector: string, value: string) => {
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   canvas = `native-work-${++counter}`;
-  tasks = []; artifacts = [];
+  tasks = []; artifacts = []; topics = [];
   create = vi.fn(async () => ({ ok: true, data: {} }));
   oldApi = window.junto;
   (window as unknown as { junto: unknown }).junto = {
@@ -72,6 +82,7 @@ beforeEach(() => {
     }),
     workTaskPolicy: async () => [],
     workTaskCreate: create,
+    workBoardList: async () => ({ ok: true, data: { topics } }),
   };
   state$.settings.set(EMPTY_SETTINGS);
   state$.settings.station.role.set("command-center");
@@ -174,4 +185,53 @@ it("opens artifact provenance from the native task, and refuses after that id ch
   expect(document.body.textContent).toContain("Source task work is no longer");
   expect(close).toHaveBeenCalledOnce();
   expect(workDetailOpen$.nodeId.peek()).toBe("");
+});
+
+it("shows current board author names, follows native rename, and preserves historical labels after removal", async () => {
+  publish("board", { kind: "board", label: "Decisions" });
+  publish("worker", agent("Planner"));
+  const author = { kind: "actor" as const, nodeId: "worker", label: "Original name" };
+  topics = [{
+    topicId: "topic", title: "Release", state: "open", openedBy: author,
+    openedAt: "2026-10-07T12:00:00Z", lastActivityAt: "2026-10-07T12:00:00Z",
+    postCount: 1, unreadPostCount: 0,
+    posts: [{ postId: "post", topicId: "topic", author, position: 0,
+      createdAt: "2026-10-07T12:00:00Z", parts: [{ kind: "text", text: "Ready" }] }],
+  }];
+  await mount(<BoardDetail nodeId="board" onClose={() => {}} />);
+  expect(document.body.textContent).toContain("Decisions");
+  expect(document.querySelector(".board-post strong")?.textContent).toBe("Planner");
+  await act(async () => { publish("worker", agent("Reviewer")); await flush(); });
+  expect(document.querySelector(".board-post strong")?.textContent).toBe("Reviewer");
+  await act(async () => { modelStore.node$(canvas, "worker").delete(); await flush(); });
+  expect(document.querySelector(".board-post strong")?.textContent).toBe("Original name");
+  expect(state$.doc.peek().nodes).toEqual([]);
+});
+
+it("resolves pad post authors from native nodes instead of a document node list", async () => {
+  publish("worker", agent("Planner"));
+  const pin = Schema.decodeUnknownSync(PadPin)({
+    id: "pin", x: 0, y: 0, mentions: [],
+    posts: [{ postId: "post", author: { kind: "actor", nodeId: "worker", label: "Old name" },
+      parts: [{ kind: "text", text: "Ready" }] }],
+  });
+  await mount(<PadPinThread pin={pin} nodes={[]} actors={[]} onCommit={async () => true} />);
+  expect(document.querySelector(".board-post strong")?.textContent).toBe("Planner");
+  await act(async () => { publish("worker", agent("Reviewer")); await flush(); });
+  expect(document.querySelector(".board-post strong")?.textContent).toBe("Reviewer");
+});
+
+it("lists connection targets and follows native names and wires without a document mirror", async () => {
+  publish("source", agent("Planner"));
+  publish("peer", agent("Reviewer"));
+  await mount(<ConnectEditor nodeId="source" onClose={() => {}} />);
+  expect(document.querySelector('[data-node-id="peer"]')?.textContent).toContain("Reviewer");
+  await act(async () => { publish("peer", agent("Writer")); await flush(); });
+  expect(document.querySelector('[data-node-id="peer"]')?.textContent).toContain("Writer");
+  await act(async () => {
+    modelStore.wire$(canvas, "messages").set(decodeWire({ id: "messages", from: "source", to: "peer", verb: "messages" }));
+    await flush();
+  });
+  expect(document.querySelector('[data-node-id="peer"]')).toBeNull();
+  expect(document.body.textContent).toContain("Already connected to every agent");
 });

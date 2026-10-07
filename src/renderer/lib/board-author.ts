@@ -1,6 +1,6 @@
-import type { CanvasNode } from "@shared/canvas";
+import { asNodeId, type Canvas } from "@shared/model";
 import type { BoardAuthor } from "@shared/work-model";
-import { nodeTitle } from "./presentation";
+import { titleOf } from "@shared/model/title";
 
 /**
  * Resolve the human-facing board author from the live canvas projection.
@@ -12,15 +12,15 @@ import { nodeTitle } from "./presentation";
  */
 export const boardAuthorLabel = (
   author: BoardAuthor,
-  nodes: ReadonlyArray<CanvasNode> = [],
+  canvas: Pick<Canvas, "nodes">,
 ): string => {
   if (author.kind === "operator") return author.label ?? "operator";
 
   const node = author.nodeId
-    ? nodes.find((candidate) => candidate.id === author.nodeId)
+    ? canvas.nodes.get(asNodeId(author.nodeId))
     : undefined;
   if (node !== undefined) {
-    const title = nodeTitle(node).trim();
+    const title = titleOf(node).trim();
     if (title && title !== "untitled") return title;
   }
 

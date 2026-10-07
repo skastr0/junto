@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Send } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
+import { use$ } from "@legendapp/state/react";
+import { useCanvas } from "../../lib/use-model";
+import { state$ } from "../../lib/state";
 import type { BoardConnectedActor } from "@shared/board-actors";
 import type { PadElementId, PadPatch, PadPin } from "@shared/pad";
 import { boardAuthorLabel } from "../../lib/board-author";
@@ -22,17 +26,15 @@ import { keyIs } from "../../lib/key-match";
 const actorLabel = (
   nodeId: string,
   actors: ReadonlyArray<BoardConnectedActor>,
-  nodes: ReadonlyArray<CanvasNode>,
+  canvas: Pick<Canvas, "nodes">,
 ): string => {
   const actor = actors.find((item) => item.nodeId === nodeId);
   if (actor) return actor.label;
-  const node = nodes.find((item) => item.id === nodeId);
-  return node ? boardAuthorLabel({ kind: "actor", nodeId }, nodes) : nodeId;
+  return boardAuthorLabel({ kind: "actor", nodeId }, canvas);
 };
 
 export function PadPinThread({
   pin,
-  nodes,
   actors,
   onCommit,
 }: {
@@ -41,6 +43,7 @@ export function PadPinThread({
   readonly actors: ReadonlyArray<BoardConnectedActor>;
   readonly onCommit: (patches: ReadonlyArray<PadPatch>) => Promise<boolean>;
 }) {
+  const canvas = useCanvas(use$(state$.canvasName));
   const [draft, setDraft] = useState("");
   const [cursor, setCursor] = useState(0);
   const [highlight, setHighlight] = useState(0);
@@ -113,10 +116,10 @@ export function PadPinThread({
               key={nodeId}
               type="button"
               className="pad-pin-thread__chip"
-              aria-label={`Remove mention ${actorLabel(nodeId, actors, nodes)}`}
+              aria-label={`Remove mention ${actorLabel(nodeId, actors, canvas)}`}
               onClick={() => void commitMentions(toggleMention(pin.mentions, nodeId))}
             >
-              <Chip tone="amber">@{actorLabel(nodeId, actors, nodes)}</Chip>
+              <Chip tone="amber">@{actorLabel(nodeId, actors, canvas)}</Chip>
             </button>
           ))
         )}
@@ -128,11 +131,11 @@ export function PadPinThread({
           pin.posts.map((post) => (
             <article key={post.postId} className="board-post" data-testid="board-post">
               <div className="board-post__avatar" aria-hidden>
-                {boardAuthorLabel(post.author, nodes).slice(0, 1).toUpperCase()}
+                {boardAuthorLabel(post.author, canvas).slice(0, 1).toUpperCase()}
               </div>
               <div className="board-post__body">
                 <header>
-                  <strong>{boardAuthorLabel(post.author, nodes)}</strong>
+                  <strong>{boardAuthorLabel(post.author, canvas)}</strong>
                 </header>
                 <p>
                   {post.parts.flatMap((part) =>
