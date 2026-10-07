@@ -6,10 +6,10 @@ const FIXTURE_TEXT = "Hello Junto e2e";
 const rendererCanvasCount = async (): Promise<number> => {
   const runtime = globalThis as unknown as {
     readonly junto?: {
-      readonly listCanvases: () => Promise<ReadonlyArray<unknown>>;
+      readonly modelCanvases: () => Promise<ReadonlyArray<unknown>>;
     };
   };
-  return (await runtime.junto?.listCanvases())?.length ?? 0;
+  return (await runtime.junto?.modelCanvases())?.length ?? 0;
 };
 
 const probeCanceledNavigation = async (
@@ -21,7 +21,7 @@ const probeCanceledNavigation = async (
     async ({ targetUrl, expectedUrl, fixtureText }) => {
       const runtime = globalThis as unknown as {
         readonly junto?: {
-          readonly listCanvases: () => Promise<ReadonlyArray<unknown>>;
+          readonly modelCanvases: () => Promise<ReadonlyArray<unknown>>;
         };
       };
       globalThis.location.assign(targetUrl);
@@ -29,7 +29,7 @@ const probeCanceledNavigation = async (
       // promise is destroyed and the test fails instead of inspecting a new
       // page after the fact.
       await new Promise((resolve) => globalThis.setTimeout(resolve, 150));
-      const canvases = await runtime.junto?.listCanvases();
+      const canvases = await runtime.junto?.modelCanvases();
       return {
         href: globalThis.location.href,
         canvasCount: canvases?.length ?? 0,

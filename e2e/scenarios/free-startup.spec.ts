@@ -31,7 +31,7 @@ for (const seedRetiredCommercialState of [false, true]) {
       const result = await page.evaluate(async () => {
         const api = window.junto;
         if (api === undefined) throw new Error("Junto preload API is unavailable");
-        const canvases = await api.listCanvases();
+        const canvases = await api.modelCanvases();
         return {
           canvasCount: canvases.length,
           commercialMethods: Object.keys(api).filter((key) => /^license/i.test(key)),

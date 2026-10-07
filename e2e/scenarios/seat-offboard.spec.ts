@@ -1,3 +1,4 @@
+import { readModelSeat } from "../harness/model";
 /**
  * Seat offboard [fake-tui]: what happens to a seat after its agent runs
  * `junto offboard`, to rest (O1) and to continue (O2, O3).
@@ -323,8 +324,7 @@ const isLive = (session: TerminalSessionSummary | undefined): boolean =>
 
 /** The session id the seat's node names (seat-sessions.spec.ts:36, 69: `ether.terminal.sessionId`). */
 const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
-  const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-  return doc.nodes.find((node) => node.id === nodeId)?.ether?.terminal?.sessionId;
+  return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
 };
 
 /** Where the seat's latest offboard stands, as the operator's panel reads it (shared/seat-sessions.ts SEAT_OFFBOARD_STAGES). */

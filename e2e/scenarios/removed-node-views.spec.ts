@@ -1,3 +1,4 @@
+import { commandModel } from "../harness/model";
 /**
  * A view never outlives its node.
  *   bun run test:e2e:fast e2e/scenarios/removed-node-views.spec.ts
@@ -28,22 +29,9 @@ const nodes: ReadonlyArray<CanvasNode> = [
 ];
 
 /** Remove nodes through the canvas store, not through the renderer's own delete. */
-const removeByCanvasWrite = (page: Page, ids: ReadonlyArray<string>): Promise<void> =>
-  page.evaluate(
-    async ([name, gone]) => {
-      const api = window.junto!;
-      const read = await api.readCanvas(name);
-      await api.writeCanvas(
-        name,
-        {
-          nodes: read.doc.nodes.filter((node) => !gone.includes(node.id)),
-          edges: read.doc.edges.filter((edge) => !gone.includes(edge.fromNode) && !gone.includes(edge.toNode)),
-        },
-        read.revision,
-      );
-    },
-    [CANVAS, [...ids]] as const,
-  );
+const removeByModelCommand = async (page: Page, ids: ReadonlyArray<string>): Promise<void> => {
+  await commandModel(page, { _tag: "Remove", canvas: CANVAS, nodes: ids, wires: [] });
+};
 
 const card = (page: Page, id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
 
@@ -69,7 +57,7 @@ test("a node removed by a canvas write takes its open view with it", async () =>
     const terminal = page.locator(".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface");
     await expect(terminal).toBeVisible({ timeout: 20_000 });
     await expect(terminal.locator("header").first()).toContainText("Alpha");
-    await removeByCanvasWrite(page, ["alpha"]);
+    await removeByModelCommand(page, ["alpha"]);
     await expect(card(page, "alpha")).toHaveCount(0, { timeout: 10_000 });
     await expect(page.locator(".native-terminal-surface")).toHaveCount(0);
     await expect.poll(() => keyboardInAView(page)).toBe(false);
@@ -79,7 +67,7 @@ test("a node removed by a canvas write takes its open view with it", async () =>
     await page.getByRole("button", { name: "Expand note editor" }).click();
     const note = page.getByTestId("note-workbench-surface");
     await expect(note).toBeVisible({ timeout: 10_000 });
-    await removeByCanvasWrite(page, ["memo"]);
+    await removeByModelCommand(page, ["memo"]);
     await expect(card(page, "memo")).toHaveCount(0, { timeout: 10_000 });
     await expect(note).toHaveCount(0);
     await expect.poll(() => keyboardInAView(page)).toBe(false);
@@ -92,10 +80,10 @@ test("a node removed by a canvas write takes its open view with it", async () =>
     const grid = page.getByTestId("terminal-grid-focus");
     const cells = grid.locator(".terminal-grid__cell");
     await expect(cells).toHaveCount(3, { timeout: 10_000 });
-    await removeByCanvasWrite(page, ["charlie"]);
+    await removeByModelCommand(page, ["charlie"]);
     await expect(cells).toHaveCount(2, { timeout: 10_000 });
     await expect(grid).toBeVisible();
-    await removeByCanvasWrite(page, ["bravo", "delta"]);
+    await removeByModelCommand(page, ["bravo", "delta"]);
     await expect(grid).toHaveCount(0, { timeout: 10_000 });
     await expect.poll(() => keyboardInAView(page)).toBe(false);
   } finally {

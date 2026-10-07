@@ -318,7 +318,7 @@ const walk = async (testInfo: TestInfo, id: string, body: (walk: Walk) => Promis
     tap(app);
     current = await app.firstWindow();
     await expect(current.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
-    await current.waitForFunction(() => Boolean(window.junto?.readCanvas), undefined, { timeout: 30_000 });
+    await current.waitForFunction(() => Boolean(window.junto?.modelOpen), undefined, { timeout: 30_000 });
     mark("Junto is open again");
     return current;
   };

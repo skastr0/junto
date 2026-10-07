@@ -1,3 +1,4 @@
+import { installFixtureDocument } from "../harness/model";
 /**
  * Squads in the real app: save selected agent seats as a squad from the
  * multi-select menu, find it in the add picker, place it inside a region,
@@ -46,20 +47,8 @@ const stableBox = async (locator: import("@playwright/test").Locator) => {
 };
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => Boolean((globalThis as { junto?: { listCanvases?: unknown } }).junto?.listCanvases)),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-  await page.evaluate(async (document) => {
-    const api = window.junto!;
-    let name = (await api.listCanvases())[0]?.name;
-    if (!name) name = (await api.createCanvas("squads")).name;
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-  }, fixtureDoc);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  await installFixtureDocument(page, fixtureDoc, "squads");
 };
 
 const setTheme = async (page: import("@playwright/test").Page, theme: "Dark" | "Bright") => {
@@ -155,11 +144,11 @@ for (const theme of ["Dark", "Bright"] as const) test(`squads (${theme}): save f
   await expect
     .poll(async () => page.evaluate(async () => {
       const api = window.junto!;
-      const name = (await api.listCanvases())[0]!.name;
-      const { doc } = await api.readCanvas(name);
-      const region = doc.nodes.find((node) => node.id === "rg-lab")!;
-      const fresh = doc.nodes.filter(
-        (node) => node.ether?.entity?.kind === "agent" && !["seat-a", "seat-b", "seat-c"].includes(node.id),
+      const name = (await api.modelCanvases())[0]!.name;
+      const opened = await api.modelOpen({ canvas: name });
+      const region = opened.nodes.find((node) => node.id === "rg-lab")!;
+      const fresh = opened.nodes.filter(
+        (node) => node.kind === "agent" && !["seat-a", "seat-b", "seat-c"].includes(node.id),
       );
       const inside = fresh.every(
         (node) =>
@@ -169,7 +158,7 @@ for (const theme of ["Dark", "Bright"] as const) test(`squads (${theme}): save f
           node.y + node.height <= region.y + region.height,
       );
       const freshIds = new Set(fresh.map((node) => node.id));
-      const links = doc.edges.filter((edge) => freshIds.has(edge.fromNode) && freshIds.has(edge.toNode)).length;
+      const links = opened.wires.filter((wire) => freshIds.has(wire.from) && freshIds.has(wire.to)).length;
       return { seats: fresh.length, inside, links };
     }), { timeout: 15_000 })
     .toEqual({ seats: 3, inside: true, links: 1 });

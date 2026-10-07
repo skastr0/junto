@@ -7,7 +7,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type {
   CanvasDoc,
@@ -18,10 +18,10 @@ import type {
 } from "../../src/shared/canvas";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
-import {
-  CanvasesLive,
-  CanvasesService,
-} from "../../src/main/junto/canvases";
+import { ModelService } from "../../src/main/junto/model/service";
+import { WorkModelDependentsLive } from "../../src/main/junto/work/model-dependents";
+import { Command } from "../../src/shared/model";
+import { modelFixtureFromDocument, modelSeedCommands, type ModelFixture } from "./model";
 import {
   makeStateEngineLive,
 } from "../../src/main/junto/state/engine";
@@ -128,87 +128,40 @@ export const writeFixtureRetiredCommercialState = async (
   }
 };
 
-/**
- * Seed through the same scoped Effect services used by Electron, then close
- * the SQLite owner before Electron starts. CanvasesService strips runtime
- * overlays at the authorial boundary; each fixture item is then committed by
- * its explicit WorkRepository verb. No `.canvas`, generic work mutation,
- * manifest, pointer, or seal exists as an alternate authority.
- */
-export const writeFixtureCanvas = async (
-  sandbox: Sandbox,
-  name: string,
-  doc: CanvasDoc,
-  databasePath?: string,
+/** Old seed syntax stays local to the harness while scenarios move to kinds. */
+export const writeFixtureCanvas = (sandbox: Sandbox, name: string, document: CanvasDoc, databasePath?: string): Promise<void> =>
+  writeFixtureModel(sandbox, name, modelFixtureFromDocument(name, document), databasePath);
+
+/** Seed a disposable database through ModelService, then close its owner. */
+export const writeFixtureModel = async (
+  sandbox: Sandbox, name: string, fixture: ModelFixture, databasePath?: string,
 ): Promise<void> => {
-  // Default to the sandbox's canonical product database. Demo-mode apps
-  // isolate product state in a process-minted ephemeral SQLite file, so
-  // launchJunto re-seeds the same fixtures into that database after boot.
-  const state = makeStateEngineLive(
-    databasePath ??
-      join(sandbox.homeDir, ".junto", "state", "junto.db"),
-  );
-  const repositories = Layer.provideMerge(
-    Layer.mergeAll(
-      WorkRepositoryLive,
-      StationRepositoryLive,
-      SettingsLive,
-      StationFleetTargetRepositoryLive,
-    ),
-    state,
-  );
-  const canvases = Layer.provideMerge(CanvasesLive, repositories);
-  const runtime = ManagedRuntime.make(canvases);
-
+  const state = makeStateEngineLive(databasePath ?? join(sandbox.homeDir, ".junto", "state", "junto.db"));
+  const repositories = Layer.provideMerge(Layer.mergeAll(
+    WorkRepositoryLive, StationRepositoryLive, SettingsLive, StationFleetTargetRepositoryLive,
+  ), state);
+  const runtime = ManagedRuntime.make(Layer.provideMerge(
+    Layer.provide(ModelService.layer, WorkModelDependentsLive), repositories,
+  ));
   try {
-    await runtime.runPromise(
-      Effect.gen(function* () {
-        const canvasService = yield* CanvasesService;
-        const stations = yield* StationRepository;
-        const settings = yield* SettingsService;
-        const fleetTargets = yield* StationFleetTargetRepository;
-
-        yield* settings.setStationTopology({
-          role: "command-center",
-          hostId: "local",
-          supervisedPreferred: true,
-        });
-        const installationId = yield* stations.installationId;
-
-        // The actor-seat compiler resolves every agent seat against the
-        // station topology, so multi-host fixtures must bind each host they
-        // place agents on BEFORE the first portfolio read. "local" is the
-        // configured Command Center host; every other agent host is bound
-        // as a fleet target of this sandbox installation (same rows the
-        // app reads at boot).
-        const agentHosts = new Set<string>();
-        for (const node of doc.nodes) {
-          if (node.ether?.entity?.kind !== "agent") continue;
-          const host =
-            typeof node.ether.host === "string" &&
-            node.ether.host.trim().length > 0
-              ? node.ether.host.trim()
-              : "local";
-          agentHosts.add(host);
-        }
-        const installationByHostId = new Map<string, typeof installationId>([
-          ["local", installationId],
-        ]);
-        for (const host of agentHosts) {
-          if (host === "local") continue;
-          yield* fleetTargets.bind({
-            hostId: host,
-            stationInstallationId: installationId,
-          });
-          installationByHostId.set(host, installationId);
-        }
-
-        yield* canvasService.write(name, doc);
-      }),
-    );
-  } finally {
-    await runtime.dispose();
-  }
+    await runtime.runPromise(Effect.gen(function* () {
+      const model = yield* ModelService;
+      const stations = yield* StationRepository;
+      const settings = yield* SettingsService;
+      const fleetTargets = yield* StationFleetTargetRepository;
+      const sql = yield* SqlClient.SqlClient;
+      yield* settings.setStationTopology({ role: "command-center", hostId: "local", supervisedPreferred: true });
+      const installationId = yield* stations.installationId;
+      for (const host of new Set(fixture.nodes.flatMap((node) => node.kind === "agent" ? [node.host] : []))) {
+        if (host !== "local") yield* fleetTargets.bind({ hostId: host, stationInstallationId: installationId });
+      }
+      yield* sql.withTransaction(Effect.gen(function* () {
+        const exists = (yield* model.listCanvases()).some((canvas) => canvas === name);
+        if (exists) yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RemoveCanvas", canvas: name }), "operator");
+        for (const command of modelSeedCommands(name, fixture)) yield* model.command(command, "operator");
+      }));
+    }));
+  } finally { await runtime.dispose(); }
 };
 
 /**
@@ -232,16 +185,16 @@ export const removeFixtureCanvases = async (
     ),
     state,
   );
-  const canvases = Layer.provideMerge(CanvasesLive, repositories);
-  const runtime = ManagedRuntime.make(canvases);
+  const runtime = ManagedRuntime.make(Layer.provideMerge(
+    Layer.provide(ModelService.layer, WorkModelDependentsLive), repositories,
+  ));
   try {
     await runtime.runPromise(
       Effect.gen(function* () {
-        const canvasService = yield* CanvasesService;
-        const documents = yield* canvasService.liveDocuments();
-        for (const { canvasName } of documents) {
+        const model = yield* ModelService;
+        for (const canvasName of yield* model.listCanvases()) {
           if (keep.has(canvasName)) continue;
-          yield* canvasService.remove(canvasName);
+          yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RemoveCanvas", canvas: canvasName }), "operator");
         }
       }),
     );

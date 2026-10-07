@@ -41,11 +41,13 @@ import {
   removeFixtureCanvases,
   writeFixtureAgentSignals,
   writeFixtureCanvas,
+  writeFixtureModel,
   writeFixtureHosts,
   writeFixtureRetiredCommercialState,
   writeFixtureUsageState,
   type Sandbox,
 } from "./sandbox";
+import type { ModelFixture } from "./model";
 import type { NestedCanvasFixture } from "./nested-canvas-fixture";
 import { startRendererServer, type RendererServer } from "./renderer-server";
 
@@ -93,6 +95,8 @@ export interface LaunchOptions {
   readonly offline?: boolean;
   /** Canvas name -> document, seeded into the sandbox's SQLite database. */
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
+  /** Canvas name -> native model rows; separate from the temporary document seed. */
+  readonly seedModels?: Readonly<Record<string, ModelFixture>>;
   /** Open (or closed) agent signals seeded as durable rows before boot. */
   readonly seedAgentSignals?: ReadonlyArray<AgentSignal>;
   /**
@@ -468,6 +472,10 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     for (const [name, doc] of Object.entries(seedCanvases)) {
       await writeFixtureCanvas(sandbox, name, doc);
     }
+    for (const [name, fixture] of Object.entries(options.seedModels ?? {})) {
+      if (name in seedCanvases) throw new Error(`Fixture canvas ${name} has both a document and a model seed`);
+      await writeFixtureModel(sandbox, name, fixture);
+    }
     if (seedAgentSignals.length > 0) {
       await writeFixtureAgentSignals(sandbox, seedAgentSignals);
     }
@@ -574,7 +582,8 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     // canvas, then reload the renderer so it boots onto the seeded canvas.
     if (options.demo === true) {
       const seeds = Object.entries(seedCanvases);
-      if (seeds.length > 0) {
+      const modelSeeds = Object.entries(options.seedModels ?? {});
+      if (seeds.length + modelSeeds.length > 0) {
         const demoDatabase = await findDemoRuntimeDatabase(sandbox.root);
         if (demoDatabase === undefined) {
           throw new Error(
@@ -584,10 +593,11 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
         for (const [name, doc] of seeds) {
           await writeFixtureCanvas(sandbox, name, doc, demoDatabase);
         }
+        for (const [name, fixture] of modelSeeds) await writeFixtureModel(sandbox, name, fixture, demoDatabase);
         await removeFixtureCanvases(
           sandbox,
           demoDatabase,
-          new Set(seeds.map(([name]) => name)),
+          new Set([...seeds, ...modelSeeds].map(([name]) => name)),
         );
         await page.reload();
       }

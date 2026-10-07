@@ -1,3 +1,4 @@
+import { readModelCanvas, readModelSeat, grantOverseer } from "../harness/model";
 /**
  * PTY team checklist walk [fake-tui]: one test per checklist line, named by
  * its line id (A2 to A5, B1 to B5). Lines A1 and A6 need real harness CLIs
@@ -648,9 +649,9 @@ test("B1 the Environment screen takes a plain value and an env file, and lists b
       await expect
         .poll(
           async () => {
-            const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-            const region = doc.nodes.find((node) => node.id === VAULT.id);
-            const sources = region?.type === "group" ? (region.ether?.region?.environment?.sources ?? []) : [];
+            const opened = await readModelCanvas(page, CANVAS);
+            const region = opened.nodes.find((node) => node.id === VAULT.id);
+            const sources = region?.kind === "region" ? (region.environment?.sources ?? []) : [];
             return sources.map((source) => source.kind);
           },
           { message: "the region's saved sources", timeout: 15_000 },
@@ -739,21 +740,7 @@ test("B3 [fake-tui] a required Keychain source that does not exist shows red wit
     // The overseer sits outside the region, so it can start. The grant goes
     // through the human seam (overseer-seat.spec.ts), before any edit here.
     const bossSeat = await startSeat(junto, boss);
-    await page.evaluate(
-      async ([canvasName, nodeId]) => {
-        const api = window.junto!;
-        for (let attempt = 0; ; attempt += 1) {
-          const read = await api.readCanvas(canvasName);
-          try {
-            await api.canvasOverseerSet({ canvasName, nodeId, overseer: true, expectedRevision: read.revision });
-            return;
-          } catch (error) {
-            if (attempt === 2) throw error;
-          }
-        }
-      },
-      [CANVAS, boss.id] as const,
-    );
+    await grantOverseer(page, CANVAS, boss.id);
     await expect(seatCard(page, boss.id).locator(".junto-node")).toHaveAttribute("data-overseer", "true", { timeout: 15_000 });
 
     // The screen: the source is red, with a reason, and says seats will not start.
@@ -935,8 +922,7 @@ test("B5 [fake-tui] editing a source while a seat runs offers Restart to apply, 
     await expectSeatState(page, runner.id, /^(idle|working)$/u);
 
     await expect.poll(sessionNow, { message: "the session after the restart", timeout: 30_000 }).toBe(SESSION);
-    const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-    expect(doc.nodes.find((node) => node.id === runner.id)?.ether?.terminal?.sessionId, "the seat's stored session id").toBe(SESSION);
+    expect((await readModelSeat(page, CANVAS, runner.id))?.sessionId, "the seat's stored session id").toBe(SESSION);
     note(testInfo, "B5-restart-argv", JSON.stringify((await seat.ready()).argv));
     await expect.poll(async () => opData(await seat.op("env.report", {})).restartToApply, { timeout: 15_000 }).toBe(false);
     await shot(page, testInfo, "B5-restarted-on-new-value");

@@ -337,15 +337,15 @@ test("one agent-row click creates exactly one configured agent without a legacy 
 
     await expect.poll(async () => {
       return page.evaluate(async () => {
-        const canvases = await window.junto!.listCanvases();
+        const canvases = await window.junto!.modelCanvases();
         const name = canvases[0]?.name;
         if (!name) return [];
-        const read = await window.junto!.readCanvas(name);
-        return read.doc.nodes
-          .filter((node) => node.ether?.entity?.kind === "agent")
+        const read = await window.junto!.modelOpen({ canvas: name });
+        return read.nodes
+          .filter((node) => node.kind === "agent")
           .map((node) => ({
-            harness: node.ether?.terminal?.harness,
-            cwd: node.ether?.terminal?.launch?.cwd,
+            harness: node.harness,
+            cwd: node.launch?.cwd,
           }));
       });
     }).toEqual([{ harness: "claude", cwd: join(REPO_ROOT, "src") }]);
@@ -418,18 +418,18 @@ const searchBox = (page: Page) =>
 
 const agentSeats = async (page: Page) =>
   page.evaluate(async () => {
-    const canvases = await window.junto!.listCanvases();
+    const canvases = await window.junto!.modelCanvases();
     const name = canvases[0]?.name;
     if (!name) return [];
-    const read = await window.junto!.readCanvas(name);
-    return read.doc.nodes
-      .filter((node) => node.ether?.entity?.kind === "agent")
+    const read = await window.junto!.modelOpen({ canvas: name });
+    return read.nodes
+      .filter((node) => node.kind === "agent")
       .map((node) => {
-        const argv = node.ether?.terminal?.launch?.argv ?? [];
+        const argv = node.launch?.argv ?? [];
         const modelAt = argv.indexOf("--model");
         const effortAt = argv.indexOf("--effort");
         return {
-          harness: node.ether?.terminal?.harness,
+          harness: node.harness,
           model: modelAt >= 0 ? argv[modelAt + 1] : undefined,
           effort: effortAt >= 0 ? argv[effortAt + 1] : undefined,
         };

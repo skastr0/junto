@@ -1,3 +1,4 @@
+import { installFixtureDocument, grantOverseer } from "../harness/model";
 /**
  * Overseer seat identity + human toggle.
  *
@@ -46,59 +47,10 @@ const installBoard = async (
   page: Page,
   document: typeof fixtureDoc,
 ): Promise<string> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => {
-          const runtime = globalThis as unknown as {
-            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
-          };
-          return Boolean(runtime.junto?.listCanvases);
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-  return page.evaluate(async (board) => {
-    const api = (
-      globalThis as unknown as {
-        readonly junto: {
-          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
-          readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly writeCanvas: (
-            name: string,
-            doc: unknown,
-            expectedRevision?: string,
-          ) => Promise<unknown>;
-          readonly canvasOverseerSet: (input: {
-            canvasName: string;
-            nodeId: string;
-            overseer: boolean;
-            expectedRevision: string;
-          }) => Promise<unknown>;
-        };
-      }
-    ).junto;
-    let list = await api.listCanvases();
-    let name = list[0]?.name;
-    if (!name) {
-      const created = await api.createCanvas("overseer");
-      name = created.name;
-    }
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, board, read.revision);
-    // Generic saves cannot mint authority; exercise the trusted human seam.
-    for (const nodeId of ["overseer-seat", "paused-overseer"]) {
-      const current = await api.readCanvas(name);
-      await api.canvasOverseerSet({
-        canvasName: name,
-        nodeId,
-        overseer: true,
-        expectedRevision: current.revision,
-      });
-    }
-    return name;
-  }, document);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  const name = await installFixtureDocument(page, document, "overseer");
+  for (const id of ["overseer-seat", "paused-overseer"]) await grantOverseer(page, name, id);
+  return name;
 };
 
 const shot = async (page: Page, name: string) => {

@@ -1,3 +1,4 @@
+import { installFixtureDocument } from "../harness/model";
 /**
  * Region folder paths modal — design + a11y capture.
  *
@@ -48,47 +49,8 @@ const regionFilled: GroupNode = {
 };
 
 const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => {
-          const runtime = globalThis as unknown as {
-            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
-          };
-          return Boolean(runtime.junto?.listCanvases);
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-
-  await page.evaluate(async (document) => {
-    const api = (
-      globalThis as unknown as {
-        readonly junto: {
-          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
-          readonly createCanvas: (name: string) => Promise<{ name: string }>;
-          readonly readCanvas: (name: string) => Promise<{ revision: string }>;
-          readonly writeCanvas: (
-            name: string,
-            doc: unknown,
-            expectedRevision?: string,
-          ) => Promise<unknown>;
-        };
-      }
-    ).junto;
-    const list = await api.listCanvases();
-    const name = list[0]?.name ?? (await api.createCanvas("region-paths")).name;
-    // Retry once on revision conflict (autosave / concurrent stamp).
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const read = await api.readCanvas(name);
-      try {
-        await api.writeCanvas(name, document, read.revision);
-        return;
-      } catch (error) {
-        if (attempt === 2) throw error;
-      }
-    }
-  }, doc);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  await installFixtureDocument(page, doc, "region-paths");
 };
 
 const openRegionPaths = async (page: Page, regionNodeId: string) => {

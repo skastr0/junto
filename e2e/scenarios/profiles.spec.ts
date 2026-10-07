@@ -1,3 +1,4 @@
+import { installFixtureDocument } from "../harness/model";
 /**
  * Profiles in the real app: from the seat's selection panel give it a soul
  * and instructions, save it as a profile (a taken name asks before it
@@ -29,20 +30,8 @@ const fixtureDoc = canvasDoc([
 ]);
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => Boolean((globalThis as { junto?: { listCanvases?: unknown } }).junto?.listCanvases)),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-  await page.evaluate(async (document) => {
-    const api = window.junto!;
-    let name = (await api.listCanvases())[0]?.name;
-    if (!name) name = (await api.createCanvas("profiles")).name;
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-  }, fixtureDoc);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  await installFixtureDocument(page, fixtureDoc, "profiles");
 };
 
 /** A node's box once it has stopped moving (the camera settles after load). */
@@ -151,8 +140,8 @@ test("profiles: soul and instructions, save as profile, seat it again", async ({
       // Create profile: the customize editor on a draft; no seat is made.
       const seatsBefore = await page.evaluate(async () => {
         const api = window.junto!;
-        const { doc } = await api.readCanvas((await api.listCanvases())[0]!.name);
-        return doc.nodes.length;
+        const opened = await api.modelOpen({ canvas: (await api.modelCanvases())[0]!.name });
+        return opened.nodes.length;
       });
       await page.getByRole("button", { name: "Create profile" }).click();
       const editor = page.getByTestId("agent-editor");
@@ -168,10 +157,10 @@ test("profiles: soul and instructions, save as profile, seat it again", async ({
         .poll(async () =>
           page.evaluate(async () => {
             const api = window.junto!;
-            const { doc } = await api.readCanvas((await api.listCanvases())[0]!.name);
+            const opened = await api.modelOpen({ canvas: (await api.modelCanvases())[0]!.name });
             const profiles = await api.profilesList();
             return {
-              nodes: doc.nodes.length,
+              nodes: opened.nodes.length,
               scout: profiles.find((profile) => profile.name === "Scout")?.soul,
             };
           }))
@@ -198,15 +187,15 @@ test("profiles: soul and instructions, save as profile, seat it again", async ({
       .poll(async () =>
         page.evaluate(async () => {
           const api = window.junto!;
-          const name = (await api.listCanvases())[0]!.name;
-          const { doc } = await api.readCanvas(name);
-          const fresh = doc.nodes.filter((node) => node.ether?.entity?.kind === "agent" && node.id !== "seat-ada");
+          const name = (await api.modelCanvases())[0]!.name;
+          const opened = await api.modelOpen({ canvas: name });
+          const fresh = opened.nodes.filter((node) => node.kind === "agent").filter((node) => node.id !== "seat-ada");
           const guidance = await api.seatGuidanceList();
           return fresh.map((node) => ({
-            // The seat's name is its text, as the product reads it.
-            label: node.type === "text" ? node.text.split("\n")[0] : undefined,
-            harness: node.ether?.terminal?.harness,
-            cwd: node.ether?.terminal?.launch?.cwd,
+            // The seat owns its display label.
+            label: node.label,
+            harness: node.harness,
+            cwd: node.launch?.cwd,
             guidance: guidance[node.id],
           }));
         }), { timeout: 15_000 })

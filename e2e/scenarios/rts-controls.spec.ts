@@ -1,3 +1,4 @@
+import { installFixtureDocument } from "../harness/model";
 /**
  * RTS shell controls e2e.
  *
@@ -44,45 +45,11 @@ const fixtureDoc = canvasDoc([
   }),
 ]);
 
-/** Authority-only boot: disk seed is not live. Install via writeCanvas. */
+/** Authority-only boot: disk seed is not live. Install with model commands. */
 const installBoard = async (page: import("@playwright/test").Page): Promise<string> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => {
-          const runtime = globalThis as unknown as {
-            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
-          };
-          return Boolean(runtime.junto?.listCanvases);
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-  return page.evaluate(async (document) => {
-    const api = (
-      globalThis as unknown as {
-        readonly junto: {
-          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
-          readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly writeCanvas: (
-            name: string,
-            doc: unknown,
-            expectedRevision?: string,
-          ) => Promise<unknown>;
-        };
-      }
-    ).junto;
-    let list = await api.listCanvases();
-    let name = list[0]?.name;
-    if (!name) {
-      const created = await api.createCanvas("rts");
-      name = created.name;
-    }
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-    return name;
-  }, fixtureDoc);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  const name = await installFixtureDocument(page, fixtureDoc, "rts");
+  return name;
 };
 
 test("rts shell: role left, kind middle, region strip, pause everywhere", async ({

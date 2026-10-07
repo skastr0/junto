@@ -1,3 +1,4 @@
+import { installFixtureDocument } from "../harness/model";
 /**
  * Command groups in the top bar: save a multi-selection to a slot with the
  * platform modifier plus a digit, recall it with the bare digit, save from
@@ -35,20 +36,8 @@ const installBoard = async (
   page: import("@playwright/test").Page,
   document: ReturnType<typeof canvasDoc> = fixtureDoc,
 ): Promise<void> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => Boolean((globalThis as { junto?: { listCanvases?: unknown } }).junto?.listCanvases)),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-  await page.evaluate(async (document) => {
-    const api = window.junto!;
-    let name = (await api.listCanvases())[0]?.name;
-    if (!name) name = (await api.createCanvas("groups")).name;
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-  }, document);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  await installFixtureDocument(page, document, "groups");
 };
 
 test("command groups: save, recall, and save from the menu", async ({ junto }) => {

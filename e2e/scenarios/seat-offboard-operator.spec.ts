@@ -1,3 +1,4 @@
+import { readModelSeat, grantOverseer } from "../harness/model";
 /**
  * Operator offboard [fake-tui]: the two engineers' walks, as probes.
  *
@@ -259,8 +260,7 @@ const opData = (envelope: WorkEnvelope): Record<string, unknown> => {
 
 /** The session id the seat's node names. */
 const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
-  const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-  return doc.nodes.find((node) => node.id === nodeId)?.ether?.terminal?.sessionId;
+  return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
 };
 
 /** Where the seat's latest offboard stands, as the closer keeps it (shared/seat-sessions.ts:215-231). */
@@ -2149,10 +2149,7 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
     /** rts/KindSurface.tsx:84-90: the bar's identity, the name and the harness under it. */
     const barName = page.locator(".rts-kind-id__name");
     const barHarness = page.locator(".rts-kind-id__live");
-    const nodeOf = async (nodeId: string): Promise<TextNode | undefined> => {
-      const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-      return doc.nodes.find((node) => node.id === nodeId) as TextNode | undefined;
-    };
+    const nodeOf = (nodeId: string) => readModelSeat(page, CANVAS, nodeId);
     const cardText = async (nodeId: string): Promise<string> => ((await card(page, nodeId).textContent().catch(() => "")) ?? "").replace(/\s+/gu, " ").trim();
 
     /** Step 2's gesture: the key, the list, the pick, the confirm when it asks. */
@@ -2182,7 +2179,7 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
       }
       mark(`${label}: re-seated ${nodeId} to ${RESEAT_TO}`);
       await expect
-        .poll(async () => (await nodeOf(nodeId))?.ether?.terminal?.harness, { message: `${nodeId}: the harness on its node`, timeout: 30_000 })
+        .poll(async () => (await nodeOf(nodeId))?.harness, { message: `${nodeId}: the harness on its node`, timeout: 30_000 })
         .toBe(RESEAT_TO);
     };
 
@@ -2203,7 +2200,7 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
       await field.press("Enter");
       await expect(field).toBeHidden({ timeout: 10_000 });
       await expect(card(page, "cid"), "the card reads the new name").toContainText("cli-identity", { timeout: 10_000 });
-      note(testInfo, "G1-node-after-rename", JSON.stringify({ text: (await nodeOf("cid"))?.text, label: (await nodeOf("cid"))?.ether?.terminal?.label }));
+      note(testInfo, "G1-node-after-rename", JSON.stringify({ label: (await nodeOf("cid"))?.label }));
       await shot(page, "G1", "renamed-to-cli-identity");
     });
 
@@ -2211,7 +2208,7 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
       await reseat("cid", "G2");
       const text = await cardText("cid");
       note(testInfo, "G2-card-text", text);
-      note(testInfo, "G2-node-after-reseat", JSON.stringify({ text: (await nodeOf("cid"))?.text, terminal: (await nodeOf("cid"))?.ether?.terminal }));
+      note(testInfo, "G2-node-after-reseat", JSON.stringify(await nodeOf("cid")));
       await soft(card(page, "cid"), "the card still reads cli-identity").toContainText("cli-identity");
       soft(text, "the card does not read the harness name").not.toMatch(new RegExp(`^${target}\\b`, "u"));
       soft(text.includes(`${target} - `), "the card does not read <Harness> - <model>").toBe(false);
@@ -2236,7 +2233,7 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
           })
           .catch((error: unknown) => `unreadable: ${String(error)}`);
         note(testInfo, "G2-terminal-screen", screen.slice(0, 1_500));
-        const session = (await page.evaluate((id) => window.junto!.terminalGet(id), (await nodeOf("cid"))?.ether?.terminal?.bindingId ?? "").catch(() => undefined)) as
+        const session = (await page.evaluate((id) => window.junto!.terminalGet(id), (await nodeOf("cid"))?.bindingId ?? "").catch(() => undefined)) as
           | { readonly status?: string; readonly harness?: string; readonly label?: string }
           | undefined;
         note(testInfo, "G2-terminal-session", JSON.stringify(session ?? null));
@@ -2248,16 +2245,16 @@ test("WG [fake-tui] re-seat keeps the name: a renamed seat and a never renamed o
     });
 
     await step("G3", "a seat that was never renamed, re-seated: its card still reads the name it had", async () => {
-      const nameBefore = (await nodeOf("def"))?.text ?? "";
+      const nameBefore = (await nodeOf("def"))?.label ?? "";
       const textBefore = await cardText("def");
       await reseat("def", "G3");
       const textAfter = await cardText("def");
       note(testInfo, "G3-card-text", JSON.stringify({ before: textBefore, after: textAfter }));
-      note(testInfo, "G3-node-after-reseat", JSON.stringify({ text: (await nodeOf("def"))?.text, terminal: (await nodeOf("def"))?.ether?.terminal }));
+      note(testInfo, "G3-node-after-reseat", JSON.stringify(await nodeOf("def")));
       soft(nameBefore, "the name it was created with").toBe("Codex");
       await soft(card(page, "def"), "the card still reads the name it had").toContainText("Codex");
       soft(textAfter, "the card does not take the new harness's name").not.toContain(target);
-      soft((await nodeOf("def"))?.text, "the node's own text is unchanged").toBe(nameBefore);
+      soft((await nodeOf("def"))?.label, "the seat's own label is unchanged").toBe(nameBefore);
       await select(page, ["def"]);
       await soft(barName, "the bar's identity").toHaveText("Codex");
       await soft(barHarness, "the new harness under it").toHaveText(RESEAT_TO);
@@ -3409,21 +3406,7 @@ test("S5r-cli [fake-tui] the overseer's CLI closes a resting seat that had a tur
       // Only now the overseer: started and granted after the staging, so neither can bear on it.
       boss = await startSeat(page, sandbox, BOSS);
       // The grant, through the human seam (overseer-offboard-cli.spec.ts:264-279).
-      await page.evaluate(
-        async ([canvasName, nodeId]) => {
-          const api = window.junto!;
-          for (let attempt = 0; ; attempt += 1) {
-            const read = await api.readCanvas(canvasName);
-            try {
-              await api.canvasOverseerSet({ canvasName, nodeId, overseer: true, expectedRevision: read.revision });
-              return;
-            } catch (error) {
-              if (attempt === 2) throw error;
-            }
-          }
-        },
-        [CANVAS, "boss"] as const,
-      );
+      await grantOverseer(page, CANVAS, BOSS.id);
       await expect(card(page, "boss").locator(".junto-node")).toHaveAttribute("data-overseer", "true", { timeout: 15_000 });
       expect(await nodeSessionId(page, "tia"), "Tia still names her session after the grant").toBe(sessionIdOf("tia"));
       expect(await launches(sandbox, "tia"), "and was not started again").toBe(1);

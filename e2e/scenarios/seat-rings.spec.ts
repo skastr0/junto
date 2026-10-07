@@ -1,3 +1,4 @@
+import { grantOverseer } from "../harness/model";
 /**
  * Seats and rings: captures seeded agent seats on the canvas in dark and
  * bright, and the in-app ring gallery (#/gallery/marks), for design review.
@@ -88,28 +89,7 @@ test("agent seats and their connection cards hold portraits in rings; the galler
     await expect(page.locator('.react-flow__node[data-id="planner"]')).toBeVisible({ timeout: 30_000 });
     // The reviewer holds the overseer grant (only the human seam mints it):
     // its ring wears the crest.
-    await page.evaluate(async () => {
-      const api = (
-        globalThis as unknown as {
-          readonly junto: {
-            readonly readCanvas: (name: string) => Promise<{ revision: string }>;
-            readonly canvasOverseerSet: (input: {
-              canvasName: string;
-              nodeId: string;
-              overseer: boolean;
-              expectedRevision: string;
-            }) => Promise<unknown>;
-          };
-        }
-      ).junto;
-      const current = await api.readCanvas("seat-rings");
-      await api.canvasOverseerSet({
-        canvasName: "seat-rings",
-        nodeId: "reviewer",
-        overseer: true,
-        expectedRevision: current.revision,
-      });
-    });
+    await grantOverseer(page, "seat-rings", "reviewer");
     const stagedAt = Date.now();
     await junto.app.evaluate(
       ({ BrowserWindow }, { seatsNow, signalsNow }) => {

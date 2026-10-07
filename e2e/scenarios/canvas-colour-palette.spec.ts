@@ -43,9 +43,9 @@ const setTheme = async (page: Page, theme: "dark" | "bright") => {
 const noteColor = (page: Page): Promise<string | undefined> =>
   page.evaluate(async () => {
     const api = window.junto!;
-    const name = (await api.listCanvases())[0]!.name;
-    const read = await api.readCanvas(name);
-    return (read.doc as CanvasDoc).nodes.find((node) => node.id === "note")?.color;
+    const name = (await api.modelCanvases())[0]!.name;
+    const read = await api.modelOpen({ canvas: name });
+    return read.nodes.find((node) => node.id === "note")?.color;
   });
 
 const recentColors = (page: Page): Promise<readonly string[] | undefined> =>

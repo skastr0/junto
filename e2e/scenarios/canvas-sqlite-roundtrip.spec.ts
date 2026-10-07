@@ -1,6 +1,6 @@
+import { commandModel, modelFixture, modelNote, modelSeat, readModelCanvas } from "../harness/model";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc, textNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const ORIGINAL_TEXT = "roundtrip original";
@@ -9,10 +9,10 @@ const IPC_ADDED_TEXT = "created through the product IPC";
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      roundtrip: canvasDoc([
-        textNode("n1", ORIGINAL_TEXT, 0, 0),
-        agentTextNode({
+    seedModels: {
+      roundtrip: modelFixture([
+        modelNote("n1", ORIGINAL_TEXT, 0, 0),
+        modelSeat({
           id: "seeded-seat",
           key: "local:sqlite-seed-seat",
           label: "seeded seat",
@@ -67,11 +67,11 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
         page.evaluate(async (name) => {
           const api = window.junto;
           if (!api) throw new Error("Junto preload bridge is unavailable");
-          const result = await api.readCanvas(name);
-          const written = result.doc.nodes.find(
+          const result = await api.modelOpen({ canvas: name });
+          const written = result.nodes.find(
             (candidate) => candidate.id === "n1",
           );
-          return written?.type === "text" ? written.text : undefined;
+          return written?.kind === "note" ? written.text : undefined;
         }, "roundtrip"),
       { timeout: 10_000 },
     )
@@ -85,59 +85,20 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
   await expectSqliteAuthority(sandbox);
 });
 
-test("canvas list/read/write product paths persist through the unified SQLite authority", async ({
+test("model list/open/command product paths persist through the unified SQLite authority", async ({
   junto,
 }) => {
   const { page, sandbox } = junto;
 
-  const result = await page.evaluate(
-    async ({ name, addedText }) => {
-      const api = window.junto;
-      if (!api) throw new Error("Junto preload bridge is unavailable");
-
-      const before = await api.readCanvas(name);
-      const next = {
-        ...before.doc,
-        nodes: [
-          ...before.doc.nodes,
-          {
-            id: "n2",
-            type: "text" as const,
-            text: addedText,
-            x: 400,
-            y: 0,
-            width: 240,
-            height: 120,
-          },
-        ],
-      };
-      const write = await api.writeCanvas(name, next, before.revision);
-      const [after, listed] = await Promise.all([
-        api.readCanvas(name),
-        api.listCanvases(),
-      ]);
-      const seededSeat = after.doc.nodes.find(
-        (node) => node.id === "seeded-seat",
-      );
-      return {
-        beforeRevision: before.revision,
-        writeRevision: write.revision,
-        afterRevision: after.revision,
-        nodeTexts: after.doc.nodes.flatMap((node) =>
-          node.type === "text" ? [node.text] : [],
-        ),
-        listedNames: listed.map((canvas) => canvas.name),
-        seededSeatKind: seededSeat?.ether?.entity?.kind,
-      };
-    },
-    { name: "roundtrip", addedText: IPC_ADDED_TEXT },
-  );
-
-  expect(result.writeRevision).not.toBe(result.beforeRevision);
-  expect(result.afterRevision).toBe(result.writeRevision);
-  expect(result.nodeTexts).toContain(IPC_ADDED_TEXT);
-  expect(result.listedNames).toContain("roundtrip");
-  expect(result.seededSeatKind).toBe("agent");
+  const before = await readModelCanvas(page, "roundtrip");
+  const written = await commandModel(page, { _tag: "Add", canvas: "roundtrip", nodes: [{ ...modelNote("n2", IPC_ADDED_TEXT, 400, 0), z: 2 }], wires: [] });
+  const after = await readModelCanvas(page, "roundtrip");
+  const listed = await page.evaluate(() => window.junto!.modelCanvases());
+  expect(written.seq).toBeGreaterThan(before.seq);
+  expect(after.seq).toBe(written.seq);
+  expect(after.nodes.filter((node) => node.kind === "note").map((node) => node.text)).toContain(IPC_ADDED_TEXT);
+  expect(listed.map((canvas) => canvas.name)).toContain("roundtrip");
+  expect(after.nodes.find((node) => node.id === "seeded-seat")?.kind).toBe("agent");
   await expect(
     page.locator(".react-flow__node", { hasText: IPC_ADDED_TEXT }),
   ).toBeVisible({ timeout: 10_000 });

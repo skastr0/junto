@@ -1,3 +1,4 @@
+import { readModelSeat } from "../harness/model";
 /**
  * Seat offboard, wherever the operator is looking, and against everything
  * that could take the session back [fake-tui].
@@ -537,8 +538,7 @@ const isLive = (session: TerminalSessionSummary | undefined): boolean =>
 
 /** The session id the seat's node names (`ether.terminal.sessionId`). A codex seat's is cleared at the close (rotate.ts:83-84). */
 const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
-  const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-  return doc.nodes.find((node) => node.id === nodeId)?.ether?.terminal?.sessionId;
+  return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
 };
 
 const offboardStage = async (page: Page, nodeId: string): Promise<string> => {
@@ -2147,7 +2147,7 @@ const quitFlow = (variant: "winding-down" | "fresh-held"): void => {
       evidence.listen(second, "second run");
       page = await second.firstWindow();
       await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
-      await page.waitForFunction(() => Boolean(window.junto?.readCanvas), undefined, { timeout: 30_000 });
+      await page.waitForFunction(() => Boolean(window.junto?.modelOpen), undefined, { timeout: 30_000 });
       mark(`Junto is up again (first run printed ${String(firstLogSoFar)} characters before the quit)`);
       // The relaunch line speaks only for rows the quit could not close in time (a crash or a kill).
       // A clean quit logs "(quit)" itself and leaves nothing open, so its absence here is expected: recorded, not judged.

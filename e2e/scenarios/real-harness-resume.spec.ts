@@ -1,3 +1,4 @@
+import { installFixtureDocument, readModelSeat } from "../harness/model";
 /**
  * Real-harness session resume [real-harness, opt-in, spends tokens].
  *   JUNTO_REAL_RESUME=1 bun run test:e2e:fast e2e/scenarios/real-harness-resume.spec.ts
@@ -83,10 +84,9 @@ const ESCAPES =
   /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001b[()][0-9A-Za-z]|\u001b[=>78MDEc]/g;
 
 type Api = {
-  listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
+  modelCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
   workMailPage: import("../../src/shared/ipc").JuntoApi["workMailPage"];
-  readCanvas: (n: string) => Promise<{ doc: CanvasDoc; revision: string }>;
-  writeCanvas: (n: string, d: CanvasDoc, r: string) => Promise<unknown>;
+
   terminalGet: (b: string) => Promise<TerminalSessionSummary | undefined>;
   terminalKill: (b: string) => Promise<boolean>;
   terminalAttach: (i: { bindingId: string; mode: "observe" | "control"; takeover?: boolean }) => Promise<unknown>;
@@ -266,13 +266,8 @@ for (const c of CASES) {
         bindingId,
       );
     let canvas = "";
-    const sessionIdOnNode = async (): Promise<string | undefined> => {
-      const read = await page.evaluate(
-        async (name) => (window as unknown as { junto: Api }).junto.readCanvas(name),
-        canvas,
-      );
-      return read.doc.nodes.find((n) => n.id === seatId)?.ether?.terminal?.sessionId;
-    };
+    const sessionIdOnNode = async (): Promise<string | undefined> =>
+      (await readModelSeat(page, canvas, seatId))?.sessionId;
     const prompt = (text: string) =>
       page.evaluate(
         async ([id, body, name, node]) =>
@@ -334,17 +329,7 @@ for (const c of CASES) {
         ],
         edges: [],
       };
-      canvas = await page.evaluate(
-        (doc) =>
-          (async () => {
-            const api = (window as unknown as { junto: Api }).junto;
-            const name = (await api.listCanvases())[0]!.name;
-            const read = await api.readCanvas(name);
-            await api.writeCanvas(name, doc, read.revision);
-            return name;
-          })(),
-        seatDoc,
-      );
+      canvas = await installFixtureDocument(page, seatDoc);
       await expect(page.locator(`.react-flow__node[data-id="${seatId}"]`)).toBeVisible({
         timeout: 20_000,
       });

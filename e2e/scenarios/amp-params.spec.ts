@@ -1,3 +1,4 @@
+import { readModelSeat } from "../harness/model";
 /** Amp's creation choices and same-thread client options, in the isolated app. */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -106,11 +107,7 @@ const openParams = async (page: Page, id: string) => {
   return form;
 };
 
-const readSeat = (page: Page, id: string) => page.evaluate(async (nodeId) => {
-  const api = window.junto!;
-  const { doc } = await api.readCanvas("amp-params");
-  return doc.nodes.find((node) => node.id === nodeId);
-}, id);
+const readSeat = (page: Page, id: string) => readModelSeat(page, "amp-params", id);
 
 for (const theme of ["Dark", "Bright"] as const) {
   test(`Amp params and re-seat respect native thread ownership (${theme})`, async ({ junto: { page } }) => {
@@ -149,7 +146,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(fresh.getByRole("button", { name: "Save", exact: true })).toBeInViewport({ ratio: 1 });
     await page.screenshot({ path: join(SHOTS, `${tag}-custom-mode.png`) });
     await fresh.getByRole("button", { name: "Save", exact: true }).click();
-    await expect.poll(async () => (await readSeat(page, "amp-new"))?.ether?.terminal?.launch?.argv)
+    await expect.poll(async () => (await readSeat(page, "amp-new"))?.launch?.argv)
       .toEqual(["amp", "--no-ide", "-m", "Review label", "--features", "fast", "--label", "experiment"]);
     await page.getByRole("button", { name: "Close customize", exact: true }).click();
 
@@ -183,9 +180,9 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect.poll(async () => {
       const node = await readSeat(page, "amp-existing");
       return {
-        sessionId: node?.ether?.terminal?.sessionId,
-        bindingId: node?.ether?.terminal?.bindingId,
-        extraArgs: node?.ether?.terminal?.launch?.extraArgs,
+        sessionId: node?.sessionId,
+        bindingId: node?.bindingId,
+        extraArgs: node?.launch?.extraArgs,
       };
     }).toEqual({
       sessionId: THREAD,
@@ -208,7 +205,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(confirmation.getByText("Amp (eclipse)", { exact: true })).toBeVisible();
     await page.screenshot({ path: join(SHOTS, `${tag}-reseat-confirmation.png`) });
     await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
-    expect((await readSeat(page, "amp-existing"))?.ether?.terminal?.sessionId).toBe(THREAD);
+    expect((await readSeat(page, "amp-existing"))?.sessionId).toBe(THREAD);
     expect(errors).toEqual([]);
   });
 }

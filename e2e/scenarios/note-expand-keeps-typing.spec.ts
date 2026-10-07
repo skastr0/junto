@@ -38,9 +38,9 @@ test("Expand carries a note's in-place typing into the editor and the saved note
 
     await expect
       .poll(async () => {
-        const read = await page.evaluate((canvas) => window.junto!.readCanvas(canvas), CANVAS);
-        const saved = read.doc.nodes.find((node) => node.id === "note-1");
-        return saved?.type === "text" ? saved.text : null;
+        const read = await page.evaluate((canvas) => window.junto!.modelOpen({ canvas }), CANVAS);
+        const saved = read.nodes.find((node) => node.id === "note-1");
+        return saved?.kind === "note" ? saved.text : null;
       })
       .toBe("Field notes kept");
   } finally {

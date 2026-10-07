@@ -1,3 +1,4 @@
+import { readModelCanvas, readModelSeat } from "../harness/model";
 /**
  * Region Environment screen, visual walk [fake-tui]: twelve steps (S1 to S12), one
  * test each except S12, which shares S4's test and state, every state a person would want to look at saved as a
@@ -149,9 +150,9 @@ const opData = (envelope: WorkEnvelope): Record<string, unknown> => {
 
 /** The region's environment as the canvas has it saved. */
 const savedEnvironment = async (page: Page, regionId: string): Promise<EtherRegionEnvironment | undefined> => {
-  const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-  const region = doc.nodes.find((node) => node.id === regionId);
-  return region?.type === "group" ? region.ether?.region?.environment : undefined;
+  const opened = await readModelCanvas(page, CANVAS);
+  const region = opened.nodes.find((node) => node.id === regionId);
+  return region?.kind === "region" ? region.environment : undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -1537,8 +1538,7 @@ test("S10 restart to apply [fake-tui]: changing a source lists the running seat,
       .toBe(true);
     await soft(stale, "the seat leaves the list").toHaveCount(0, { timeout: 30_000 });
     await soft.poll(sessionNow, { message: "the session after the restart", timeout: 30_000 }).toBe(SESSION);
-    const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-    soft(doc.nodes.find((node) => node.id === SEAT.id)?.ether?.terminal?.sessionId, "the seat's stored session id").toBe(SESSION);
+    soft((await readModelSeat(page, CANVAS, SEAT.id))?.sessionId, "the seat's stored session id").toBe(SESSION);
     note(testInfo, "S10-restart-argv", JSON.stringify((await seat.ready()).argv));
     await soft(dialog.locator(".region-env__error"), "no restart problem is shown").toHaveCount(0);
     await settled(dialog);

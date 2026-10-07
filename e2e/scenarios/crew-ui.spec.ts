@@ -157,8 +157,8 @@ test("crew ui: the relation card shows no capability chips and keeps a stored ma
     // The kernel still honours the stored mask; the card only stopped
     // showing it.
     const stored = await page.evaluate(async (canvas) => {
-      const read = await window.junto!.readCanvas(canvas);
-      return read.doc.edges.find((edge) => edge.id === "e-ab")?.ether?.mask;
+      const read = await window.junto!.modelOpen({ canvas });
+      return read.wires.find((wire) => wire.id === "e-ab")?.mask;
     }, CANVAS);
     expect(stored).toEqual(["msg.list", "msg.prompt", "seat.wait", "terminal.read"]);
   } finally {

@@ -1,3 +1,4 @@
+import { commandModel, readModelNode } from "../harness/model";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -40,18 +41,9 @@ test("Note focus survives canvas updates", async () => {
     await expect(noteEditor).toBeVisible();
     await textarea.fill("# Field notes\n\nUnsaved operator draft");
 
-    await page.evaluate(async (canvas) => {
-      const api = window.junto;
-      if (!api) throw new Error("Junto preload bridge is unavailable");
-      const read = await api.readCanvas(canvas);
-      const next = {
-        ...read.doc,
-        nodes: read.doc.nodes.map((node) =>
-          node.id === "note-1" ? { ...node, x: node.x + 8 } : node,
-        ),
-      };
-      await api.writeCanvas(canvas, next, read.revision);
-    }, CANVAS);
+    const note = await readModelNode(page, CANVAS, "note-1");
+    expect(note).toBeDefined();
+    await commandModel(page, { _tag: "Move", canvas: CANVAS, moves: [{ id: note!.id, x: note!.x + 8, y: note!.y }] });
 
     await expect(noteEditor).toBeVisible();
     await expect(textarea).toHaveValue("# Field notes\n\nUnsaved operator draft");

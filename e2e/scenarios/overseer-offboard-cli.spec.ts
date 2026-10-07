@@ -1,3 +1,4 @@
+import { grantOverseer, readModelSeat } from "../harness/model";
 /**
  * The overseer's offboard commands, typed in an overseer seat [fake-tui].
  *
@@ -6,7 +7,7 @@
  * The CLI team's ten-step walk, on fake Codex seats:
  *
  *   O  the overseer: the grant is set through the human seam
- *      (canvasOverseerSet, as overseer-seat.spec.ts does). Every command of
+ *      (GrantOverseer, as overseer-seat.spec.ts does). Every command of
  *      steps 1 to 9 runs in O, through its own CLI.
  *   W  working: mid-turn on real mail from a peer, and left there.
  *   I  idle at its prompt, with one turn behind it.
@@ -122,8 +123,7 @@ const isLive = (session: TerminalSessionSummary | undefined): boolean =>
   session?.status === "running" || session?.status === "starting";
 
 const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
-  const doc = (await page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, CANVAS)) as CanvasDoc;
-  return doc.nodes.find((node) => node.id === nodeId)?.ether?.terminal?.sessionId;
+  return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
 };
 
 const opData = (envelope: WorkEnvelope): Record<string, unknown> => {
@@ -256,21 +256,7 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     expect(isLive(await sessionOf(page, R.id)), "R has no process").toBe(false);
 
     // O: the grant, through the human seam, before anything else is edited.
-    await page.evaluate(
-      async ([canvasName, nodeId]) => {
-        const api = window.junto!;
-        for (let attempt = 0; ; attempt += 1) {
-          const read = await api.readCanvas(canvasName);
-          try {
-            await api.canvasOverseerSet({ canvasName, nodeId, overseer: true, expectedRevision: read.revision });
-            return;
-          } catch (error) {
-            if (attempt === 2) throw error;
-          }
-        }
-      },
-      [CANVAS, O.id] as const,
-    );
+    await grantOverseer(page, CANVAS, O.id);
     await expect(page.locator(`.react-flow__node[data-id="${O.id}"] .junto-node`)).toHaveAttribute("data-overseer", "true", { timeout: 15_000 });
 
     // I: one turn behind it, then idle at its prompt.

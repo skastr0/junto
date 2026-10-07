@@ -1,8 +1,9 @@
+import { modelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 import type { CanvasName, NodeId, Changed } from "../../src/shared/model";
 
 test("opens model rows and receives committed deltas without spatial sheet contents", async () => {
-  const junto = await launchJunto({ offline: true, seedCanvases: { proof: { nodes: [], edges: [] } } });
+  const junto = await launchJunto({ offline: true, seedModels: { proof: modelFixture([]) } });
   try {
     const result = await junto.page.evaluate(async () => {
       const api = window.junto;

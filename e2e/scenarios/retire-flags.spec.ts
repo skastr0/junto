@@ -1,3 +1,4 @@
+import { installFixtureDocument } from "../harness/model";
 /**
  * Retired operator flags and scope pause, in the real app: a selected agent
  * seat's toolbar carries no pause and no flag, Stop names the agent's process
@@ -19,20 +20,8 @@ const fixtureDoc = canvasDoc([
 ]);
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => Boolean((globalThis as { junto?: { listCanvases?: unknown } }).junto?.listCanvases)),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-  await page.evaluate(async (document) => {
-    const api = window.junto!;
-    let name = (await api.listCanvases())[0]?.name;
-    if (!name) name = (await api.createCanvas("retire-flags")).name;
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-  }, fixtureDoc);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  await installFixtureDocument(page, fixtureDoc, "retire-flags");
 };
 
 const center = async (locator: import("@playwright/test").Locator) => {

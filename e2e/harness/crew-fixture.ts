@@ -1,3 +1,4 @@
+import { readFixtureDocument, writeFixtureDocument } from "./model";
 import { readSeatMailbox } from "./work-mail";
 /**
  * Crew fixture — deterministic generated-canvas crews for the local crew
@@ -12,7 +13,7 @@ import { readSeatMailbox } from "./work-mail";
  * input the way a real composer does, and proxies REAL work-control
  * operations over the app's Unix control socket with the seat's own
  * injected env (process-bind admission — the same path a registered
- * harness CLI takes). Live product evidence uses the app's readCanvas
+ * harness CLI takes). Live product evidence uses the app's model rows
  * projection; physical write counts use the opt-in PTY trace journal.
  * This fixture never opens the product database while the app runs.
  *
@@ -783,7 +784,7 @@ export const crewPlayFactory = async (page: Page): Promise<void> => {
 export const crewOccupySeat = async (
   page: Page,
   canvas: string,
-  node: TextNode,
+  node: { readonly id: string },
   seat: CrewSeat,
   timeoutMs = 45_000,
 ): Promise<CrewSeatReady> => {
@@ -813,14 +814,7 @@ export const crewWriteCanvas = async (
   canvas: string,
   doc: CanvasDoc,
 ): Promise<void> => {
-  await page.evaluate(
-    async ([name, nextDoc]) => {
-      const api = window.junto!;
-      const read = await api.readCanvas(name);
-      await api.writeCanvas(name, nextDoc, read.revision);
-    },
-    [canvas, doc] as const,
-  );
+  await writeFixtureDocument(page, canvas, doc);
 };
 
 /** Mutate a canvas doc through the app's own write path (edges, rules, masks). */
@@ -829,19 +823,13 @@ export const crewMutateCanvas = async (
   canvas: string,
   mutate: (doc: CanvasDoc) => CanvasDoc,
 ): Promise<void> => {
-  const current = await page.evaluate(
-    async (name) => (await window.junto!.readCanvas(name)).doc,
-    canvas,
-  );
+  const current = await readFixtureDocument(page, canvas);
   await crewWriteCanvas(page, canvas, mutate(current as CanvasDoc));
 };
 
 // ---------------------------------------------------------------------------
 // App-owned work projections and install-local PTY trace evidence
 // ---------------------------------------------------------------------------
-
-const crewCanvas = (page: Page, canvas: string): Promise<CanvasDoc> =>
-  page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, canvas);
 
 const crewMessages = async (
   page: Page,

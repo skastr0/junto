@@ -1,3 +1,4 @@
+import { installFixtureDocument } from "../harness/model";
 /**
  * Region glance capture — the pulled-back camera must still name the regions.
  *
@@ -59,40 +60,9 @@ const fixtureDoc: CanvasDoc = canvasDoc([
 ]);
 
 const install = async (page: import("@playwright/test").Page): Promise<string> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => {
-          const runtime = globalThis as unknown as {
-            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
-          };
-          return Boolean(runtime.junto?.listCanvases);
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-  return page.evaluate(async (document) => {
-    const api = (
-      globalThis as unknown as {
-        readonly junto: {
-          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
-          readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly writeCanvas: (
-            name: string,
-            doc: unknown,
-            expectedRevision?: string,
-          ) => Promise<unknown>;
-        };
-      }
-    ).junto;
-    const list = await api.listCanvases();
-    let name = list[0]?.name;
-    if (!name) name = (await api.createCanvas("glance")).name;
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-    return name;
-  }, fixtureDoc);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  const name = await installFixtureDocument(page, fixtureDoc, "glance");
+  return name;
 };
 
 const glanceBands = async (

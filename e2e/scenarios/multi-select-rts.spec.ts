@@ -1,3 +1,4 @@
+import { commandModel, installFixtureDocument } from "../harness/model";
 /**
  * Multi-select → RTS chrome glue.
  *
@@ -55,42 +56,8 @@ const stableBox = async (page: import("@playwright/test").Page, locator: import(
 };
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(() => {
-          const runtime = globalThis as unknown as {
-            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
-          };
-          return Boolean(runtime.junto?.listCanvases);
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-  await page.evaluate(async (document) => {
-    const api = (
-      globalThis as unknown as {
-        readonly junto: {
-          readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
-          readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
-          readonly writeCanvas: (
-            name: string,
-            doc: unknown,
-            expectedRevision?: string,
-          ) => Promise<unknown>;
-        };
-      }
-    ).junto;
-    let list = await api.listCanvases();
-    let name = list[0]?.name;
-    if (!name) {
-      const created = await api.createCanvas("multi");
-      name = created.name;
-    }
-    const read = await api.readCanvas(name);
-    await api.writeCanvas(name, document, read.revision);
-  }, fixtureDoc);
+  await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
+  await installFixtureDocument(page, fixtureDoc, "multi");
 };
 
 test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
@@ -133,18 +100,7 @@ test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
   // A background canvas write emits a new projection. That projection may
   // rebuild the selected-node objects, but it must not blur or remount the
   // interactive prompt when its canonical target set is unchanged.
-  await page.evaluate(async () => {
-    const api = window.junto!;
-    const canvas = (await api.listCanvases())[0];
-    if (!canvas) throw new Error("No canvas available for focus regression");
-    const read = await api.readCanvas(canvas.name);
-    const nodes = read.doc.nodes.map((node) =>
-      node.id === "note" && node.type === "text"
-        ? { ...node, text: "Background multi-prompt projection update" }
-        : node,
-    );
-    await api.writeCanvas(canvas.name, { ...read.doc, nodes }, read.revision);
-  });
+  await commandModel(page, { _tag: "Edit", canvas: (await page.evaluate(() => window.junto!.modelCanvases()))[0]!.name, id: "note", change: { kind: "note", text: "Background multi-prompt projection update" } });
   await expect(note).toContainText("Background multi-prompt projection update");
   await expect(promptInput).toBeFocused();
   await expect(promptInput).toHaveValue("Keep this draft with the selected seats");

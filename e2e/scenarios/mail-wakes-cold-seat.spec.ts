@@ -1,3 +1,4 @@
+import { installFixtureDocument } from "../harness/model";
 /**
  * Mail wakes a cold seat — the demand-signal contract, end to end.
  *   bun run test:e2e:fast e2e/scenarios/mail-wakes-cold-seat.spec.ts
@@ -135,23 +136,7 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
     // Author into the BOOT canvas — the one the renderer (and its Play
     // button) is actually on. Writing a second canvas and playing the first
     // holds delivery on the pause plane forever, correctly and silently.
-    CANVAS = await page.evaluate(
-      (doc) =>
-        (async () => {
-          const api = (window as unknown as {
-            junto: {
-              listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
-              readCanvas: (n: string) => Promise<{ doc: CanvasDoc; revision: string }>;
-              writeCanvas: (n: string, d: CanvasDoc, r: string) => Promise<unknown>;
-            };
-          }).junto;
-          const name = (await api.listCanvases())[0]!.name;
-          const read = await api.readCanvas(name);
-          await api.writeCanvas(name, doc as CanvasDoc, read.revision);
-          return name;
-        })(),
-      seatDoc,
-    );
+    CANVAS = await installFixtureDocument(page, seatDoc);
     await expect(page.locator(`.react-flow__node[data-id="${SEAT_ID}"]`)).toBeVisible({
       timeout: 20_000,
     });
