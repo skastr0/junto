@@ -1,5 +1,6 @@
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
-import { flowDestinations, isTaskSinkNode } from "@shared/flow-graph";
+import { flowDestinations } from "@shared/flow-graph";
+import { NodeSpec, resolveSpec } from "@shared/physics/kinds";
 import { canvasFromDocument, wireOfDocument, wiresFromDocument } from "@shared/model/from-document";
 import type { WorkRead } from "@shared/work-read";
 import { asNodeId, type Canvas, type Wire } from "@shared/model";
@@ -11,6 +12,24 @@ import {
   flowEdgeRemovalImpact,
 } from "@shared/visit-integrity";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
+
+// The document delete forms below go with the document delete writer.
+
+const isSinkSpec = NodeSpec.$is("Sink");
+
+/**
+ * A Tasks node, the only board a hop may name. Sending on writes the row
+ * into the destination's `ether.tasks` (`workTaskTransition`), and no other
+ * sink kind projects that: a pad/board/page/requests destination would take
+ * delivery of work it can never show, claim, or close.
+ */
+const isTaskSinkNode = (node: CanvasNode | undefined): boolean => {
+  const spec = resolveSpec({
+    isGroup: node?.type === "group",
+    kind: node?.ether?.entity?.kind,
+  });
+  return isSinkSpec(spec) && spec.kind === "task";
+};
 
 /** Only task retirement and task-path changes need current task policy. */
 export const readDeletionPolicy = (

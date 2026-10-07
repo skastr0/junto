@@ -1,4 +1,3 @@
-import type { CanvasNode } from "./canvas";
 import type { HostId } from "./remote-hosts";
 
 /**
@@ -41,7 +40,12 @@ export const hostIdFromAgentKey = (key: string | undefined): string | undefined 
  *   → agent key host prefix (hermes `<host>:<profile>`)
  *   → default local
  */
-export const resolveNodeHostId = (node: CanvasNode): string => {
+export const resolveNodeHostId = (node: {
+  readonly ether?: {
+    readonly host?: string;
+    readonly entity?: { readonly kind?: string; readonly name?: string };
+  };
+}): string => {
   const ether = node.ether;
   if (!ether) return DEFAULT_STATION_HOST_ID;
   if (typeof ether.host === "string" && ether.host.length > 0) return ether.host;

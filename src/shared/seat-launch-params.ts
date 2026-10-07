@@ -6,7 +6,6 @@
  * SAME seat (same binding, same session id), so restarting with different
  * parameters continues the conversation instead of re-seating the agent.
  */
-import type { EtherTerminalLaunch } from "./canvas";
 import type { Launch, Seat } from "./model";
 import { recoverDocumentLaunchChoices } from "./launch-choices";
 import {
@@ -71,7 +70,7 @@ export const seatLaunchParamsOf = (
 };
 
 export type SeatLaunchPlan = {
-  readonly launch: EtherTerminalLaunch;
+  readonly launch: Launch;
   /** Extra arguments that were refused, with the reason for each. */
   readonly rejected: readonly RejectedExtraArg[];
 };

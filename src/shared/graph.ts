@@ -1,4 +1,3 @@
-import type { CanvasNode, GroupNode } from "./canvas";
 import type { ActorRefResolver } from "./attention";
 import type {
   ExecutionGraphContext,
@@ -58,8 +57,6 @@ export const executionGraphContextFromActorRefs = (
   ...trust,
 });
 
-export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "group";
-
 // A rectangle, as region membership reads one. Membership itself is the
 // model's: regionStack and regionMembers in shared/model/canvas.ts.
 export type RegionRect = {
@@ -84,5 +81,5 @@ export const UNNAMED_REGION = "unnamed region";
  * label is empty. An unnamed region is still a region, so region paths,
  * rollups and titles all name it here and never leave it out.
  */
-export const regionDisplayName = (group: GroupNode): string =>
+export const regionDisplayName = (group: { readonly label?: string }): string =>
   group.label?.trim() || UNNAMED_REGION;

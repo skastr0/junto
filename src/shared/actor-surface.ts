@@ -15,7 +15,6 @@
 
 import { Match } from "effect";
 import type { CanvasNode, EtherTerminal } from "./canvas";
-import { isGroup } from "./graph";
 import type { HarnessId } from "./managed-terminal-templates";
 import { resolveSpec, type ActorKindName } from "./physics";
 
@@ -115,7 +114,7 @@ export const actorDeliverySurfaceOf = (
 
   return Match.value(
     resolveSpec({
-      isGroup: isGroup(node),
+      isGroup: node.type === "group",
       kind: node.ether?.entity?.kind,
     }),
   ).pipe(

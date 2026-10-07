@@ -1,7 +1,5 @@
 import { Schema } from "effect";
-import type { CanvasNode } from "./canvas";
 import type { Canvas } from "./model/canvas";
-import { NodeSpec, resolveSpec } from "./physics/kinds";
 
 // Task path graph derived from the `feeds` verb. Pure — no I/O.
 // A `feeds` wire runs from the upstream board to the downstream one, so the
@@ -28,22 +26,6 @@ export class FlowCycleError extends Schema.TaggedError<FlowCycleError>()(
     message: Schema.String,
   },
 ) {}
-
-const isSinkSpec = NodeSpec.$is("Sink");
-
-/**
- * A Tasks node, the only board a hop may name. Sending on writes the row
- * into the destination's `ether.tasks` (`workTaskTransition`), and no other
- * sink kind projects that: a pad/board/page/requests destination would take
- * delivery of work it can never show, claim, or close.
- */
-export const isTaskSinkNode = (node: CanvasNode | undefined): boolean => {
-  const spec = resolveSpec({
-    isGroup: node?.type === "group",
-    kind: node?.ether?.entity?.kind,
-  });
-  return isSinkSpec(spec) && spec.kind === "task";
-};
 
 /** All configured hops, in the order the canvas holds its wires. */
 export const flowHops = (canvas: Wired): ReadonlyArray<FlowHop> => {

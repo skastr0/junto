@@ -1,5 +1,3 @@
-import type { CanvasNode } from "./canvas";
-import { workItemsFromDocument } from "./model/from-document";
 import type { Task } from "./work-model";
 
 // What shared rules ask of Work. A canvas holds no work, so a rule that needs
@@ -20,24 +18,4 @@ export type WatchRead = Pick<WorkRead, "itemsOf"> & {
   ) => { readonly topics: number; readonly posts: number } | undefined;
   /** How many artifacts an artifacts node holds. */
   readonly artifacts: (node: string) => number;
-};
-
-const held = new WeakMap<object, WorkRead>();
-
-/**
- * The work a document carries, for a caller that still reads work out of the
- * document. Worked out once per document object.
- */
-export const workReadFromDocument = (doc: {
-  readonly nodes: ReadonlyArray<CanvasNode>;
-}): WorkRead => {
-  const known = held.get(doc);
-  if (known !== undefined) return known;
-  const itemsOf = workItemsFromDocument(doc);
-  const made: WorkRead = {
-    itemsOf,
-    taskAt: (board, id) => itemsOf(board).find((item) => item.id === id),
-  };
-  held.set(doc, made);
-  return made;
 };

@@ -53,7 +53,7 @@ replay.
 | Contract / CLI catalog | `tests/overseer-control.test.ts`, `tests/overseer-cli.test.ts` |
 | Admission / socket / gate | `tests/overseer-admission.test.ts`, `tests/work-socket-overseer.test.ts`, `tests/work-control-transport.test.ts`, `tests/main-authoring-gate.test.ts` |
 | Dispatch | `tests/overseer-dispatch.test.ts` |
-| Canvas / node / wire | `tests/overseer-canvas-commands.test.ts`, `tests/overseer-authoring.test.ts` |
+| Canvas / node / wire | `tests/overseer-canvas-commands.test.ts` |
 | Work | `tests/overseer-work.test.ts` |
 | Operator offboard | `tests/overseer-offboard.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Region environment / secrets | `tests/overseer-env-secret.test.ts`, `tests/overseer-canvas-commands.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
@@ -264,8 +264,8 @@ Keychain, the keyring, or the operator's home.
 | --- | --- | --- | --- |
 | Stale UI save/undo restoring revoked authority | the window saves no document; edits and undo/redo never emit `GrantOverseer`, and undo restores removed seats without their grant; the operator toggle sends a dedicated command | `tests/canvas-edit-commands.test.ts`; `tests/model-undo.test.ts`; `tests/overseer-set.test.ts` | unit exercised; no undo/redo Electron proof |
 | No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | `tests/overseer-work.test.ts`; `tests/overseer-native.test.ts`; `tests/overseer-admission.test.ts`; e2e grants without edges | unit exercised; integrated Work suite passes |
-| Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | `tests/overseer-authoring.test.ts`; `tests/model-service.test.ts` `GrantOverseer` alias toggle | unit exercised |
-| Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | `tests/overseer-canvas-commands.test.ts`; `tests/overseer-authoring.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
+| Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | `src/shared/model/model.test.ts` (an edit cannot grant); `tests/model-factories.test.ts` (a new seat is never an overseer); `tests/model-service.test.ts` `GrantOverseer` alias toggle | unit exercised |
+| Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | `tests/overseer-canvas-commands.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
 | Remote source impersonation | Command Center compares `deriveActorSeatId(authenticatedSourceInstallation, binding)` to compiled seatId; forged caller args ignored | `tests/overseer-admission.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/station-overseer-transport.test.ts` | unit exercised |
 | Uncertain completion, no automatic replay | timeout/disconnect reports uncertain completion and never replays mutations | `tests/station-overseer-transport.test.ts`; `tests/work-socket-overseer.test.ts` | unit exercised |
 | Secret value echoed back | a value given to `secret.put` never appears in a result, an error, a schema failure, or CLI output | `tests/overseer-env-secret.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/overseer-cli.test.ts` | unit and spawned-CLI exercised with a fake store |

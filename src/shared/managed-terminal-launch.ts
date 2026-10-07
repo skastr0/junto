@@ -8,7 +8,7 @@
  * empty composer; the agent learns about Junto by running `junto onboard`.
  * The only prompt a launch can carry is one the operator supplied.
  */
-import type { EtherTerminalLaunch } from "./canvas";
+import type { Launch } from "./model/kinds";
 import { sanitizeExtraArgs, splitAmpFeatureArgs } from "./launch-extra-args";
 import {
   type HarnessId,
@@ -20,8 +20,8 @@ import {
   templateFor,
 } from "./managed-terminal-templates";
 
-/** Alias matching runtime TerminalLaunch (document launch profile). */
-export type TerminalLaunch = EtherTerminalLaunch;
+/** The launch a seat or terminal stores, as the model holds it. */
+export type TerminalLaunch = Launch;
 
 /**
  * Pure authorial spawn intent. The selected process host finalizes this into a
@@ -447,7 +447,7 @@ export const resolveTemplate = (
 
 /**
  * Turn template + picker choices into a TerminalLaunch compatible with
- * LocalSessionHost / EtherTerminalLaunch (`kind: "harness"`).
+ * LocalSessionHost (`kind: "harness"`).
  */
 export const resolveManagedLaunch = (
   harnessOrTemplate: HarnessId | ManagedTerminalTemplate,
