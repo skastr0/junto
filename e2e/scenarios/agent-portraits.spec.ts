@@ -8,7 +8,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+import { modelSeat, modelFixture, modelWire } from "../harness/model";
 import type { Locator, Page } from "@playwright/test";
 import { expect, launchJunto, test } from "../harness/launch";
 
@@ -26,7 +26,7 @@ const seats: ReadonlyArray<readonly [id: string, label: string, harness: Harness
 ];
 
 const nodes = seats.map(([id, label, harness], index) =>
-  agentTextNode({
+  modelSeat({
     id,
     key: `local:e2e-portrait-${id}`,
     label,
@@ -54,15 +54,15 @@ const shotAround = async (page: Page, target: Locator, path: string, pad = 120):
   });
 };
 
-const fixture = canvasDoc(nodes, [
-  verbEdge("e-planner-builder", "planner", "builder", "messages", nodes),
-  verbEdge("e-reviewer-planner", "reviewer", "planner", "messages", nodes),
-  verbEdge("e-planner-scout", "planner", "scout", "messages", nodes),
+const fixture = modelFixture(nodes, [
+  modelWire("e-planner-builder", "planner", "builder", "messages", nodes),
+  modelWire("e-reviewer-planner", "reviewer", "planner", "messages", nodes),
+  modelWire("e-planner-scout", "planner", "scout", "messages", nodes),
 ]);
 
 test("agent portraits render on seats and in the focus modal", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { "agent-portraits": fixture } });
+  const junto = await launchJunto({ seedModels: { "agent-portraits": fixture } });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

@@ -2,14 +2,14 @@
  * A seat worked by keyboard: focus shows, selection is said, and the seat menu
  * takes focus, moves by arrows, and closes on Escape back to the seat.
  */
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import { modelSeat, modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      "keyboard-seat": canvasDoc([
-        agentTextNode({ id: "seat", key: "local:keyboard-seat", label: "Keyboard seat", x: 0, y: 0 }),
+    seedModels: {
+      "keyboard-seat": modelFixture([
+        modelSeat({ id: "seat", key: "local:keyboard-seat", label: "Keyboard seat", x: 0, y: 0 }),
       ]),
     },
   },

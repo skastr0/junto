@@ -8,7 +8,7 @@ import { grantOverseer } from "../harness/model";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+import { modelSeat, modelFixture, modelWire } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "activity-marks");
@@ -23,7 +23,7 @@ const seats: ReadonlyArray<readonly [id: string, label: string, harness: Harness
 ];
 
 const nodes = seats.map(([id, label, harness], index) =>
-  agentTextNode({
+  modelSeat({
     id,
     key: `local:e2e-seat-${id}`,
     label,
@@ -75,14 +75,14 @@ const signalEvents = (at: number) =>
     state: "open",
   }));
 
-const fixture = canvasDoc(nodes, [
-  verbEdge("e-planner-builder", "planner", "builder", "messages", nodes),
-  verbEdge("e-reviewer-planner", "reviewer", "planner", "messages", nodes),
+const fixture = modelFixture(nodes, [
+  modelWire("e-planner-builder", "planner", "builder", "messages", nodes),
+  modelWire("e-reviewer-planner", "reviewer", "planner", "messages", nodes),
 ]);
 
 test("agent seats and their connection cards hold portraits in rings; the gallery renders", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { "seat-rings": fixture } });
+  const junto = await launchJunto({ seedModels: { "seat-rings": fixture } });
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

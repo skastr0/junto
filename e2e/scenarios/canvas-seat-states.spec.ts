@@ -6,7 +6,7 @@
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import { modelSeat, modelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "seat-states");
@@ -25,7 +25,7 @@ const seats = [
 ] as const;
 
 const nodes = seats.map(([id, label], index) =>
-  agentTextNode({
+  modelSeat({
     id,
     key: `local:e2e-state-${id}`,
     label,
@@ -68,7 +68,7 @@ const signalEvents = (at: number) =>
 
 test("every seat state, at rest, selected and speaking", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: canvasDoc(nodes, []) } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture(nodes, []) } });
   try {
     const { page } = junto;
     const seat = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);

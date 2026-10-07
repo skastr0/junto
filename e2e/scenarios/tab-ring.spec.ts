@@ -8,7 +8,7 @@
  * backwards for more than a full turn of the ring.
  */
 import type { Page } from "@playwright/test";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import { modelSeat, modelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 type Stand = { readonly what: string; readonly hidden: boolean; readonly inside: boolean };
@@ -30,8 +30,8 @@ const stand = (page: Page): Promise<Stand> =>
 
 test("Tab in Settings never lands on the dim, on anything hidden, or outside the modal", async () => {
   const junto = await launchJunto({
-    seedCanvases: {
-      "tab-ring": canvasDoc([agentTextNode({ id: "one", key: "local:e2e-tab-one", label: "One", x: 40, y: 40 })], []),
+    seedModels: {
+      "tab-ring": modelFixture([modelSeat({ id: "one", key: "local:e2e-tab-one", label: "One", x: 40, y: 40 })], []),
     },
   });
   try {

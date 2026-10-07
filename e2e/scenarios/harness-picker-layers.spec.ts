@@ -11,7 +11,7 @@
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { HARNESS_IDS } from "../../src/shared/managed-terminal-templates";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import { modelSeat, modelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = process.env.JUNTO_SHOTS_DIR ?? join(process.cwd(), "test-results", "harness-picker");
@@ -53,8 +53,8 @@ test("the Launch tab keeps the harness list in its own box and the model cascade
   const junto = await launchJunto({
     seedHarnessInstalls: HARNESS_IDS,
     claudeModelCache: CLAUDE_MODELS,
-    seedCanvases: {
-      portfolio: canvasDoc([agentTextNode({ id: "seat-ada", key: "local:ada", label: "Ada", harness: "claude" })]),
+    seedModels: {
+      portfolio: modelFixture([modelSeat({ id: "seat-ada", key: "local:ada", label: "Ada", harness: "claude" })]),
     },
   });
   try {
