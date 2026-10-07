@@ -1,3 +1,5 @@
+import { asNodeId, type Canvas } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 /**
  * Actor ledger — pure projections of one actor's standing with the work
  * model. Message rows come from the independent seat mailbox store.
@@ -58,7 +60,7 @@ const textOfParts = (parts: ReadonlyArray<Part>): string =>
 /** msg.send wraps the text as "mail from <seat> …" — strip for display. */
 const stripFactoryMailPrefix = stripMailEnvelope;
 
-const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
+const toMailRow = (doc: CanvasDoc | Canvas, message: Message): MailRow => {
   const fromNodeId =
     resolveMailSenderNodeId(doc, message.metadata) ??
     resolveMailSenderStamp(message.metadata);
@@ -73,8 +75,12 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
     direction: message.role === "user" ? "in" : "note",
     fromNodeId,
     fromLabel: resolveMailSenderLabel(message.metadata, fromNodeId, (id) => {
-      const peer = doc.nodes.find((node) => node.id === id);
-      return peer ? nodeTitle(peer) : undefined;
+      if ("edges" in doc) {
+        const peer = doc.nodes.find((node) => node.id === id);
+        return peer ? nodeTitle(peer) : undefined;
+      }
+      const peer = doc.nodes.get(asNodeId(id));
+      return peer ? titleOf(peer) : undefined;
     }),
     sentAtMs,
     preview: firstLine,
@@ -89,7 +95,7 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
 };
 
 export const mailboxRows = (
-  doc: CanvasDoc,
+  doc: CanvasDoc | Canvas,
   messages: ReadonlyArray<Message>,
 ): ReadonlyArray<MailRow> =>
   messages

@@ -1,8 +1,11 @@
+import { asNodeId, inPaintOrder, type Canvas, type Node } from "./model";
+import { titleOf } from "./model/title";
+import type { WorkItemsOf } from "./execution-graph";
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import { needsHuman } from "./attention";
 import { earliestStateSince, type ExecutionGraph } from "./execution-graph";
 import { rankStoppageSeeds } from "./impact";
-import { attentionText, feedRegionFor, type FeedCanvasNeed } from "./operator-feed";
+import { attentionText, feedRegionFor, feedRegionForCanvas, type FeedCanvasNeed } from "./operator-feed";
 import { canvasFromDocument, workItemsFromDocument } from "./model/from-document";
 
 /**
@@ -85,6 +88,70 @@ export const feedCanvasNeeds = (input: {
   }
   for (const node of doc.nodes) {
     const waiting = waitingItems(node);
+    if (waiting.length > 0) add(node.id, "input", "attention", attentionText(""), earliestStateSince(waiting));
+  }
+  for (const [nodeId, since] of input.wantsInput ?? []) add(nodeId, "input", "attention", attentionText(""), since);
+  return [...out.values()];
+};
+
+export const feedCanvasModelNeeds = (input: {
+  readonly canvasName: string;
+  readonly canvas: Canvas;
+  readonly itemsOf: WorkItemsOf;
+  readonly graph: ExecutionGraph;
+  readonly nameOf?: (node: Node) => string;
+  /**
+   * Nodes that want input for a reason the document does not carry, with the
+   * epoch ms it began, or undefined when that is not known.
+   */
+  readonly wantsInput?: ReadonlyMap<string, number | undefined>;
+}): ReadonlyArray<FeedCanvasNeed> => {
+  const { canvas, graph, itemsOf } = input;
+  const nodes = inPaintOrder(canvas);
+  const byId = canvas.nodes;
+
+  // When each stop began, for the stopped node and for the sink that causes it.
+  const stoppedSince = new Map<string, number | undefined>();
+  const causeSince = new Map<string, number | undefined>();
+  for (const [nodeId, reasons] of graph.reasonsByNodeId) {
+    for (const reason of reasons) {
+      stoppedSince.set(nodeId, earlier(stoppedSince.get(nodeId), reason.since));
+      if (reason.kind === "edge") causeSince.set(reason.fromNodeId, earlier(causeSince.get(reason.fromNodeId), reason.since));
+    }
+  }
+
+  const out = new Map<string, FeedCanvasNeed>();
+  const add = (
+    nodeId: string,
+    prefix: string,
+    kind: FeedCanvasNeed["kind"],
+    text: string,
+    since: number | undefined,
+  ): void => {
+    if (out.has(nodeId)) return;
+    const node = byId.get(asNodeId(nodeId));
+    out.set(nodeId, {
+      itemId: `${prefix}:${nodeId}`,
+      kind,
+      seat: { nodeId, name: node ? (input.nameOf ?? titleOf)(node) : nodeId, portraitIdentity: nodeId },
+      region: feedRegionForCanvas(canvas, nodeId),
+      text,
+      ...(since === undefined ? {} : { since }),
+    });
+  };
+
+  for (const stoppage of rankStoppageSeeds(
+    canvas,
+    graph,
+    itemsOf,
+  )) {
+    add(stoppage.seedNodeId, "stoppage", "blocked", holdsUp(Math.max(0, stoppage.stops - 1)), causeSince.get(stoppage.seedNodeId));
+  }
+  for (const node of nodes) {
+    if (graph.blocked.has(node.id)) add(node.id, "held", "blocked", "waiting on blocked work upstream", stoppedSince.get(node.id));
+  }
+  for (const node of nodes) {
+    const waiting = (node.kind === "task" || node.kind === "requests" ? itemsOf(node.id) : []).filter(needsHuman);
     if (waiting.length > 0) add(node.id, "input", "attention", attentionText(""), earliestStateSince(waiting));
   }
   for (const [nodeId, since] of input.wantsInput ?? []) add(nodeId, "input", "attention", attentionText(""), since);

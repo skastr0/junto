@@ -8,7 +8,8 @@
 import { Effect } from "effect";
 import type { PreambleEvent } from "@shared/preamble";
 import { AppRuntime } from "../../runtime";
-import { CanvasesService } from "../canvases";
+import { ModelService } from "../model/service";
+import { WorkRepository } from "../work/repository";
 import { PausePlane } from "../pause-plane";
 import { raisedHands } from "../signals/raised-hands";
 import { seatStateRuntime } from "../term/agent-state";
@@ -23,9 +24,11 @@ let changesRef: CompanionChanges | undefined;
 
 export const wireCompanionChanges = async (changes: CompanionChanges): Promise<() => void> => {
   changesRef = changes;
-  const [canvases, pause] = await AppRuntime.runPromise(Effect.all([CanvasesService, PausePlane]));
+  const [model, work, pause] = await AppRuntime.runPromise(Effect.all([ModelService, WorkRepository, PausePlane]));
   const offs = [
-    canvases.subscribeChanges(() => changes.bump()),
+    model.subscribeChanges(() => changes.bump()),
+    model.subscribeCanvasesChanges(() => changes.bump()),
+    work.subscribeChanges(() => changes.bump()),
     pause.subscribe(() => changes.bump()),
     seatStateRuntime.subscribe(() => changes.bump()),
     seatAwarenessPlane.subscribe(() => changes.bump()),

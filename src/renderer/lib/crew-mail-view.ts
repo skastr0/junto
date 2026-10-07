@@ -1,3 +1,4 @@
+import { asNodeId, type Canvas } from "@shared/model";
 /**
  * Operator mail projection: sender, kind, subject, refs, and one plain
  * delivery state. Mail is delivered once its text is written into the
@@ -128,16 +129,16 @@ export const resolveMailSenderStamp = (
  * that value is still a node id.
  */
 export const resolveMailSenderNodeId = (
-  doc: CanvasDoc,
+  doc: CanvasDoc | Canvas,
   metadata: unknown,
 ): string | undefined => {
   const stamp = resolveMailSenderStamp(metadata);
-  if (stamp !== undefined && doc.nodes.some((node) => node.id === stamp)) {
+  if (stamp !== undefined && ("edges" in doc ? doc.nodes.some((node) => node.id === stamp) : doc.nodes.has(asNodeId(stamp)))) {
     return stamp;
   }
   const extension = readMailExtension(metadata);
   const fromSeat = nonempty(extension?.fromSeat) ?? nonempty(metadataRecord(metadata)?.fromSeat);
-  if (fromSeat !== undefined && doc.nodes.some((node) => node.id === fromSeat)) {
+  if (fromSeat !== undefined && ("edges" in doc ? doc.nodes.some((node) => node.id === fromSeat) : doc.nodes.has(asNodeId(fromSeat)))) {
     return fromSeat;
   }
   return undefined;

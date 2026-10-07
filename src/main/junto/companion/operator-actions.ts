@@ -16,14 +16,14 @@
 import { BrowserWindow } from "electron";
 import { Effect } from "effect";
 import type { AgentSignal } from "@shared/agent-signals";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import { asNodeId } from "@shared/model";
 import { mailExtensionMetadata } from "@shared/crew";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { makeUserMessage } from "@shared/task";
 import { operatorActorRef } from "@shared/work-reference";
 import { ulid } from "ulid";
 import { AppRuntime } from "../../runtime";
-import { CanvasesService } from "../canvases";
+import { ModelService } from "../model/service";
 import { mainAuthoringGate } from "../main-authoring-gate";
 import { SettingsService } from "../settings/service";
 import { AgentSignalRepository } from "../signals/repository";
@@ -136,11 +136,11 @@ export const sendOperatorMail = async (
           if ((yield* settings.get).station.role === "remote") {
             return { ok: false as const, reason: "invalid" as const, message: "Mail is sent from the Command Center." };
           }
-          const canvases = yield* CanvasesService;
-          const read = yield* Effect.result(canvases.read(canvasName));
+          const model = yield* ModelService;
+          const read = yield* Effect.result(model.canvas(canvasName));
           if (read._tag === "Failure") return { ok: false as const, reason: "not-found" as const, message: "No such canvas." };
-          const node = read.success.doc.nodes.find((candidate) => candidate.id === nodeId);
-          if (node === undefined || actorDeliverySurfaceOf(node) === undefined) {
+          const node = read.success.nodes.get(asNodeId(nodeId));
+          if (node?.kind !== "agent") {
             return { ok: false as const, reason: "not-found" as const, message: "No such seat." };
           }
           const work = yield* WorkService;

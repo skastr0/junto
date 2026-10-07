@@ -1,3 +1,5 @@
+import { asNodeId, inPaintOrder, regionStack as modelRegionStack, regionName, type Canvas, type Node } from "./model";
+import { titleOf } from "./model/title";
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { AgentSignal } from "./agent-signals";
 import { regionDisplayName, regionStack } from "./graph";
@@ -106,6 +108,23 @@ export const feedSeatsFromDoc = (
         ...(health?.fresh !== undefined ? { healthFresh: health.fresh } : {}),
       };
     });
+
+/** Region and seats read directly from the kind model. */
+export const feedRegionForCanvas = (canvas: Canvas, nodeId: string): FeedRegion => {
+  const stack = modelRegionStack(canvas, asNodeId(nodeId));
+  const inner = stack[stack.length - 1];
+  return inner ? { regionId: inner.id, label: regionName(inner), path: stack.map(regionName), ...(inner.color ? { color: inner.color } : {}) } : OPEN_FIELD;
+};
+
+export const feedSeatsFromCanvas = (canvas: Canvas, options: {
+  readonly nameOf?: (node: Node) => string;
+  readonly attentionByNodeId?: ReadonlyMap<string, { readonly reason: string; readonly at: number }>;
+  readonly healthByNodeId?: ReadonlyMap<string, { readonly reading: ThreadHealthReading; readonly fresh?: boolean }>;
+} = {}): ReadonlyArray<FeedSeatInput> => inPaintOrder(canvas).filter((node) => node.kind === "agent").map((node) => {
+  const attention = options.attentionByNodeId?.get(node.id);
+  const health = options.healthByNodeId?.get(node.id);
+  return { seat: { nodeId: node.id, name: (options.nameOf ?? titleOf)(node), portraitIdentity: node.id, harness: node.harness }, region: feedRegionForCanvas(canvas, node.id), ...(attention ? { attention } : {}), ...(health ? { health: health.reading } : {}), ...(health?.fresh !== undefined ? { healthFresh: health.fresh } : {}) };
+});
 
 // --- projection -------------------------------------------------------------
 

@@ -18,7 +18,11 @@ import type { Message } from "@shared/work-model";
 import { Effect } from "effect";
 import type { AgentSignal } from "@shared/agent-signals";
 import { rollupSeatSignals } from "@shared/agent-signals";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import { asNodeId, regionStack, type Canvas, type Node, type Seat } from "@shared/model";
+import { titleOf as nodeTitle } from "@shared/model/title";
+import type { WorkItemsOf } from "@shared/execution-graph";
+import { SqlClient } from "effect/unstable/sql";
+import { withSqlRead } from "../state/sql-read";
 import { outcomeFail, outcomeOk, type CompanionBackend, type CompanionOutcome } from "@shared/companion-core";
 import { companionPortraitSvg } from "@shared/companion-portrait";
 import { companionSeat } from "@shared/companion-seats";
@@ -31,12 +35,11 @@ import {
 } from "@shared/companion-protocol";
 import { installCosmeticPacks } from "@shared/cosmetics/catalog";
 import { decodeCosmeticPacks } from "@shared/cosmetics/load";
-import { feedCanvasNeeds } from "@shared/canvas-needs";
+import { feedCanvasModelNeeds } from "@shared/canvas-needs";
 import { executionGraphFromSnapshot } from "@shared/execution-graph";
-import { regionStack } from "@shared/graph";
 import {
   buildOperatorFeed,
-  feedSeatsFromDoc,
+  feedSeatsFromCanvas,
   type FeedCanvasNeed,
   type FeedHealth,
   type FeedSeatInput,
@@ -44,13 +47,11 @@ import {
 } from "@shared/operator-feed";
 import { overlayManifest } from "@shared/overlay";
 import { feedSettings } from "@shared/settings";
-import { resolveTerminalBinding } from "@shared/terminal";
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, THREAD_HEALTH_TTL_MS, type ThreadHealthReading } from "@shared/thread-health";
 import { mailboxRows, recentOpAtMs, recentOpLabel } from "@renderer/lib/actor-ledger";
-import { nodeTitle } from "@renderer/lib/presentation";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import { AppRuntime } from "../../runtime";
-import { CanvasesService } from "../canvases";
+import { ModelService } from "../model/service";
 import { getExecutionByCanvas } from "../kernel/cycle";
 import { PausePlane } from "../pause-plane";
 import { PortraitOverrideRepository } from "../portraits/repository";
@@ -64,36 +65,44 @@ import { WorkService } from "../work/service";
 import { desktopActiveCanvas, desktopDoneUnread } from "./desktop-report";
 import { answerSignalAsOperator, dismissSignalAsOperator, sendOperatorMail, type OperatorActionResult } from "./operator-actions";
 import { livePreambles } from "./preambles";
-import { wiresFromDocument } from "@shared/model/from-document";
 
 // Portraits wear the packs this build bundles, as the renderer's do.
 installCosmeticPacks(decodeCosmeticPacks(overlayManifest.cosmetics));
 
-const isAgentSeat = (node: CanvasNode): boolean => node.type !== "group" && node.ether?.entity?.kind === "agent";
+const isAgentSeat = (node: Node): node is Seat => node.kind === "agent";
 
-const bindingOf = (node: CanvasNode): string | undefined => resolveTerminalBinding(node)?.bindingId;
+const bindingOf = (node: Node): string | undefined => node.kind === "agent" ? node.bindingId : undefined;
 
 type CanvasView = {
-  readonly doc: CanvasDoc;
+  readonly canvas: Canvas;
+  readonly itemsOf: WorkItemsOf;
   readonly signals: ReadonlyArray<AgentSignal>;
 };
 
-const readCanvas = async (canvasName: string): Promise<CanvasView | undefined> => {
-  const doc = await AppRuntime.runPromise(
-    Effect.flatMap(CanvasesService, (canvases) => canvases.read(canvasName)).pipe(
-      Effect.map((result) => result.doc),
-      Effect.catch(() => Effect.succeed(undefined)),
-    ),
-  );
-  if (doc === undefined) return undefined;
+const readCanvas = async (canvasName: string, includeWork = true): Promise<CanvasView | undefined> => {
+  const read = await AppRuntime.runPromise(Effect.gen(function* () {
+    const model = yield* ModelService;
+    const work = yield* WorkRepository;
+    const sql = yield* SqlClient.SqlClient;
+    return yield* withSqlRead(sql, Effect.gen(function* () {
+      const canvas = yield* model.canvas(canvasName);
+      const rows = includeWork ? yield* work.attentionItems({ canvasName }) : [];
+      const tasks = new Map<string, (typeof rows)[number]["item"][]>();
+      for (const row of rows) {
+        const lane = tasks.get(row.nodeId) ?? [];
+        lane.push(row.item); tasks.set(row.nodeId, lane);
+      }
+      return { canvas, itemsOf: (nodeId: string) => tasks.get(nodeId) ?? [] };
+    }));
+  }).pipe(Effect.catch(() => Effect.succeed(undefined))));
+  if (read === undefined) return undefined;
   const signals = await AppRuntime.runPromise(listCanvasAgentSignals(canvasName).pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<AgentSignal>))));
-  return { doc, signals };
+  return { ...read, signals };
 };
 
 const canvasNames = (): Promise<ReadonlyArray<string>> =>
   AppRuntime.runPromise(
-    Effect.flatMap(CanvasesService, (canvases) => canvases.list).pipe(
-      Effect.map((list) => list.map((summary) => summary.name)),
+    Effect.flatMap(ModelService, (model) => model.listCanvases()).pipe(
       Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)),
     ),
   );
@@ -123,12 +132,12 @@ const feedHealthOf = (reading: ThreadHealthReading, now: number): FeedHealth => 
   stale: now - reading.observedAt > THREAD_HEALTH_TTL_MS,
 });
 
-const feedSeats = (doc: CanvasDoc, now: number): ReadonlyArray<FeedSeatInput> => {
+const feedSeats = (canvas: Canvas, now: number): ReadonlyArray<FeedSeatInput> => {
   const controls = controlByBinding();
   const health = healthByBinding();
   const attentionByNodeId = new Map<string, { readonly reason: string; readonly at: number }>();
   const healthByNodeId = new Map<string, { readonly reading: ThreadHealthReading }>();
-  for (const node of doc.nodes) {
+  for (const node of canvas.nodes.values()) {
     if (!isAgentSeat(node)) continue;
     const binding = bindingOf(node);
     if (!binding) continue;
@@ -138,7 +147,7 @@ const feedSeats = (doc: CanvasDoc, now: number): ReadonlyArray<FeedSeatInput> =>
     if (reading) healthByNodeId.set(node.id, { reading });
   }
   void now;
-  return feedSeatsFromDoc(doc, { nameOf: nodeTitle, attentionByNodeId, healthByNodeId });
+  return feedSeatsFromCanvas(canvas, { nameOf: nodeTitle, attentionByNodeId, healthByNodeId });
 };
 
 /**
@@ -146,13 +155,14 @@ const feedSeats = (doc: CanvasDoc, now: number): ReadonlyArray<FeedSeatInput> =>
  * so the phone counts what the desktop counts. Before the first kernel cycle
  * there is no snapshot and so no canvas need yet.
  */
-const canvasNeedsFor = (canvasName: string, doc: CanvasDoc): ReadonlyArray<FeedCanvasNeed> => {
+const canvasNeedsFor = (canvasName: string, view: CanvasView): ReadonlyArray<FeedCanvasNeed> => {
   const execution = getExecutionByCanvas().get(canvasName);
   if (execution === undefined) return [];
-  return feedCanvasNeeds({
+  return feedCanvasModelNeeds({
     canvasName,
-    doc,
-    graph: executionGraphFromSnapshot(wiresFromDocument(doc), execution),
+    canvas: view.canvas,
+    itemsOf: view.itemsOf,
+    graph: executionGraphFromSnapshot(view.canvas, execution),
     nameOf: nodeTitle,
   });
 };
@@ -161,9 +171,9 @@ const feedFor = (canvasName: string, view: CanvasView, now: number): OperatorFee
   buildOperatorFeed({
     canvasName,
     nowMs: now,
-    seats: feedSeats(view.doc, now),
+    seats: feedSeats(view.canvas, now),
     signals: view.signals,
-    canvasNeeds: canvasNeedsFor(canvasName, view.doc),
+    canvasNeeds: canvasNeedsFor(canvasName, view),
   });
 
 const processOf = (binding: string | undefined): "running" | "starting" | "stopped" | undefined => {
@@ -178,8 +188,8 @@ const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyAr
   const controls = controlByBinding();
   const health = healthByBinding();
   const rollups = rollupSeatSignals(view.signals);
-  return feedSeatsFromDoc(view.doc, { nameOf: nodeTitle }).map((entry) => {
-    const node = view.doc.nodes.find((candidate) => candidate.id === entry.seat.nodeId)!;
+  return feedSeatsFromCanvas(view.canvas, { nameOf: nodeTitle }).map((entry) => {
+    const node = view.canvas.nodes.get(asNodeId(entry.seat.nodeId))!;
     const binding = bindingOf(node);
     const control = binding ? controls.get(binding) : undefined;
     const reading = binding ? health.get(binding) : undefined;
@@ -198,10 +208,10 @@ const seatsFor = (canvasName: string, view: CanvasView, now: number): ReadonlyAr
 };
 
 /** The innermost region around the seat that carries a briefing. */
-const briefingFor = (doc: CanvasDoc, nodeId: string): string | undefined => {
-  const stack = regionStack(doc, nodeId);
+const briefingFor = (canvas: Canvas, nodeId: string): string | undefined => {
+  const stack = regionStack(canvas, asNodeId(nodeId));
   for (let i = stack.length - 1; i >= 0; i -= 1) {
-    const instruction = (stack[i] as { ether?: { region?: { instruction?: string } } }).ether?.region?.instruction?.trim();
+    const instruction = stack[i].instruction?.trim();
     if (instruction) return instruction;
   }
   return undefined;
@@ -217,7 +227,7 @@ const ACTIVITY_KIND: Readonly<Record<WorkSeatRecentOp["operation"], CompanionAct
   "board.post.append": "work",
 } as Readonly<Record<WorkSeatRecentOp["operation"], CompanionActivity["kind"]>>;
 
-const activityFor = async (canvasName: string, doc: CanvasDoc, nodeId: string): Promise<ReadonlyArray<CompanionActivity>> => {
+const activityFor = async (canvasName: string, canvas: Canvas, nodeId: string): Promise<ReadonlyArray<CompanionActivity>> => {
   const feed = await AppRuntime.runPromise(
     Effect.flatMap(WorkService, (work) => work.workSeatRecentOps(canvasName, nodeId, COMPANION_SEAT_HISTORY_LIMIT)).pipe(
       Effect.catch(() => Effect.succeed(undefined)),
@@ -226,7 +236,7 @@ const activityFor = async (canvasName: string, doc: CanvasDoc, nodeId: string): 
   if (!feed?.ok) return [];
   return feed.data.operations
     .map((op): CompanionActivity => {
-      const target = op.targetNodeId === nodeId ? undefined : doc.nodes.find((node) => node.id === op.targetNodeId);
+      const target = op.targetNodeId === nodeId ? undefined : canvas.nodes.get(asNodeId(op.targetNodeId));
       return {
         at: recentOpAtMs(op) ?? 0,
         label: recentOpLabel(op),
@@ -245,12 +255,12 @@ export const noteMailFailure = (messageId: string): void => {
   if (failedMail.size > 1_000) failedMail.delete(failedMail.values().next().value!);
 };
 
-const mailFor = (canvasName: string, doc: CanvasDoc, nodeId: string, mailboxes: ReadonlyMap<string, ReadonlyArray<Message>>): ReadonlyArray<CompanionMail> => {
-  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+const mailFor = (canvasName: string, canvas: Canvas, nodeId: string, mailboxes: ReadonlyMap<string, ReadonlyArray<Message>>): ReadonlyArray<CompanionMail> => {
+  const node = canvas.nodes.get(asNodeId(nodeId));
   if (!node) return [];
   const delivery = (messageId: string, state: "delivered" | "waiting"): CompanionMail["delivery"] =>
     failedMail.has(messageId) ? "failed" : state === "delivered" ? "delivered" : "waiting_for_seat";
-  const inbound = mailboxRows(doc, mailboxes.get(node.id) ?? [])
+  const inbound = mailboxRows(canvas, mailboxes.get(node.id) ?? [])
     .filter((row) => row.direction === "in")
     .map(
       (row): CompanionMail => ({
@@ -268,10 +278,10 @@ const mailFor = (canvasName: string, doc: CanvasDoc, nodeId: string, mailboxes: 
       }),
     );
   const name = nodeTitle(node);
-  const outbound = doc.nodes
+  const outbound = [...canvas.nodes.values()]
     .filter((peer) => peer.id !== nodeId && isAgentSeat(peer))
     .flatMap((peer) =>
-      mailboxRows(doc, mailboxes.get(peer.id) ?? [])
+      mailboxRows(canvas, mailboxes.get(peer.id) ?? [])
         .filter((row) => row.direction === "in" && row.fromNodeId === nodeId)
         .map(
           (row): CompanionMail => ({
@@ -338,12 +348,12 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   },
 
   seats: async (canvasName) => {
-    const view = await readCanvas(canvasName);
+    const view = await readCanvas(canvasName, false);
     return view ? outcomeOk(seatsFor(canvasName, view, Date.now())) : outcomeFail("not-found", "No such canvas.");
   },
 
   seatDetail: async (canvasName, nodeId) => {
-    const view = await readCanvas(canvasName);
+    const view = await readCanvas(canvasName, false);
     if (!view) return outcomeFail("not-found", "No such canvas.");
     const seat = seatsFor(canvasName, view, Date.now()).find((candidate) => candidate.nodeId === nodeId);
     if (!seat) return outcomeFail("not-found", "No such seat.");
@@ -352,13 +362,13 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
         Effect.catch(() => Effect.succeed([] as ReadonlyArray<AgentSignal>)),
       ),
     );
-    const briefing = briefingFor(view.doc, nodeId);
+    const briefing = briefingFor(view.canvas, nodeId);
     return outcomeOk({
       ...seat,
       ...(briefing !== undefined ? { briefing } : {}),
       preambles: livePreambles(canvasName, nodeId),
       signals: [...signals].sort((a, b) => b.createdAt - a.createdAt).slice(0, COMPANION_SEAT_HISTORY_LIMIT),
-      activity: await activityFor(canvasName, view.doc, nodeId),
+      activity: await activityFor(canvasName, view.canvas, nodeId),
     });
   },
 
@@ -366,16 +376,20 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   dismissSignal: async (signalId) => fromAction(await dismissSignalAsOperator(signalId), (signal) => signal),
 
   mailList: async (canvasName, nodeId, limit) => {
-    const view = await readCanvas(canvasName);
+    const view = await readCanvas(canvasName, false);
     if (!view) return outcomeFail("not-found", "No such canvas.");
-    if (!view.doc.nodes.some((node) => node.id === nodeId && isAgentSeat(node))) return outcomeFail("not-found", "No such seat.");
+    if (view.canvas.nodes.get(asNodeId(nodeId))?.kind !== "agent") return outcomeFail("not-found", "No such seat.");
     const mailboxes = await AppRuntime.runPromise(Effect.gen(function* () {
       const repository = yield* WorkRepository;
-      const entries = yield* Effect.forEach(view.doc.nodes.filter(isAgentSeat), (node) =>
-        repository.mailbox(canvasName, node.id).pipe(Effect.map((items) => [node.id, items] as const)));
-      return new Map(entries);
+      const rows = yield* repository.companionMail(canvasName, nodeId, limit);
+      const mailboxes = new Map<string, Message[]>();
+      for (const row of rows) {
+        const messages = mailboxes.get(row.nodeId) ?? [];
+        messages.push(row.message); mailboxes.set(row.nodeId, messages);
+      }
+      return mailboxes;
     }));
-    return outcomeOk(mailFor(canvasName, view.doc, nodeId, mailboxes).slice(0, limit));
+    return outcomeOk(mailFor(canvasName, view.canvas, nodeId, mailboxes).slice(0, limit));
   },
 
   mailSend: async (canvasName, nodeId, text) =>
