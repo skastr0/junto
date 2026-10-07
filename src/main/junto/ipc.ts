@@ -2634,7 +2634,8 @@ export const registerJuntoIpc = (): void => {
 
       const workRepository = yield* WorkRepository;
       checkoutWatch = makeCheckoutWatchComposition({
-        canvases,
+        model: yield* ModelService,
+        actorRefs: yield* ModelActorRefs,
         settings: settingsForSeed,
         host: termPlane.host,
         crew,

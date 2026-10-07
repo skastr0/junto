@@ -1,12 +1,12 @@
 import { recordDeliveryReceiptRefusal } from "./delivery-receipts";
 import { type Context, Effect } from "effect";
-import { actorDeliverySurfaceOf, type ManagedAgentSurface } from "@shared/actor-surface";
+import { asNodeId, type Seat, type Canvas } from "@shared/model";
 import type { MailSenderStamp } from "@shared/crew";
-import { resolveSpec } from "@shared/physics";
 import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import type { TerminalSessionSummary } from "@shared/terminal";
-import type { IntentFactBasis } from "@shared/work-protocol";
-import type { CanvasReadWithIntentWitness, CanvasesService } from "../canvases";
+import type { CanvasFactBasis } from "@shared/work-protocol";
+import type { ModelService } from "../model/service";
+import type { ModelActorRefs } from "../model/actor-refs";
 import type { SettingsServiceApi } from "../settings/service";
 import type { LocalSessionHost } from "../term/local-host";
 import {
@@ -25,13 +25,14 @@ import type { MessageDeliveryService } from "./message-delivery";
 import type { WorkRepositoryShape } from "./repository";
 
 export type CheckoutWatchCompositionOptions = {
-  readonly canvases: Pick<Context.Service.Shape<typeof CanvasesService>, "list" | "readWithIntentWitness">;
+  readonly model: Pick<Context.Service.Shape<typeof ModelService>, "listCanvases" | "canvas">;
+  readonly actorRefs: Pick<Context.Service.Shape<typeof ModelActorRefs>, "read">;
   readonly settings: Pick<SettingsServiceApi, "get">;
   readonly host: Pick<LocalSessionHost, "get">;
   readonly crew: Pick<CrewRepositoryShape, "recordCheckoutObservation">;
-  readonly workRepository: Pick<WorkRepositoryShape, "publishCheckoutReceipts">;
+  readonly workRepository: Pick<WorkRepositoryShape, "publishCheckoutReceipts" | "taskLane">;
   readonly messageDelivery: Pick<MessageDeliveryService, "notifyAppended">;
-  readonly basisFor: (witness: CanvasReadWithIntentWitness["intentWitness"]) => IntentFactBasis;
+  readonly basisFor: (witness: { readonly canvasName: string; readonly seq: Canvas["seq"] }) => CanvasFactBasis;
   readonly run: <A>(effect: Effect.Effect<A, never>) => Promise<A>;
   /** Main's closed authoring gate covers durable writes, never Git probes. */
   readonly write: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
@@ -60,13 +61,13 @@ const failure = (reason: string, error: unknown): CheckoutWatchReceiptFailure =>
 const matchesSurface = (
   session: TerminalSessionSummary | undefined,
   canvasName: string,
-  surface: ManagedAgentSurface,
+  surface: Seat,
 ): session is TerminalSessionSummary => session !== undefined &&
   session.status === "running" && !session.stopping &&
   session.pid !== undefined && session.pid > 0 &&
   session.epoch.length > 0 &&
   session.hostId === DEFAULT_STATION_HOST_ID &&
-  session.canvasName === canvasName && session.nodeId === surface.nodeId &&
+  session.canvasName === canvasName && session.nodeId === surface.id &&
   session.bindingId === surface.bindingId &&
   session.harness === surface.harness && session.agentKey === surface.agentKey;
 
@@ -82,7 +83,7 @@ const sessionIdentity = (session: TerminalSessionSummary | undefined): string =>
     session.harness, session.agentKey, session.cwd],
 );
 
-/** Main-process composition only. Canvas reads already include coherent Work projections. */
+/** Main-process composition: model intent and exact task rows, with live process proof. */
 export const makeCheckoutWatchComposition = (
   options: CheckoutWatchCompositionOptions,
 ): CheckoutWatchSupervisor => {
@@ -95,15 +96,15 @@ export const makeCheckoutWatchComposition = (
 
   const readClaims = (canvasName: string) => Effect.gen(function* () {
     yield* commandCenter;
-    const canvas = yield* options.canvases.readWithIntentWitness(canvasName, "work.checkoutWatch");
-    const actors = canvas.read.actorRefs.filter((actor) => actor.canvasName === canvasName);
+    const canvas = yield* options.model.canvas(canvasName);
+    const actors = yield* options.actorRefs.read(canvasName);
     const processes = new Map<string, ProcessProof>();
     const sessions: Array<{ readonly bindingId: string; readonly identity: string }> = [];
     for (const actor of actors) {
-      const node = canvas.read.doc.nodes.find((entry) => entry.id === actor.nodeId);
+      const node = canvas.nodes.get(asNodeId(actor.nodeId));
       if (node === undefined) continue;
-      const surface = actorDeliverySurfaceOf(node);
-      if (surface === undefined || surface.hostId !== DEFAULT_STATION_HOST_ID) continue;
+      if (node.kind !== "agent" || node.host !== DEFAULT_STATION_HOST_ID) continue;
+      const surface = node;
       const session = options.host.get(surface.bindingId);
       sessions.push({ bindingId: surface.bindingId, identity: sessionIdentity(session) });
       if (!matchesSurface(session, canvasName, surface)) continue;
@@ -113,14 +114,14 @@ export const makeCheckoutWatchComposition = (
       processes.set(actor.nodeId, { session, checkoutKey });
     }
     const claims: ProvenClaim[] = [];
-    for (const node of canvas.read.doc.nodes) {
-      const spec = resolveSpec({ isGroup: node.type === "group", kind: node.ether?.entity?.kind });
-      if (spec._tag !== "Sink" || spec.kind !== "task") continue;
+    for (const node of canvas.nodes.values()) {
+      if (node.kind !== "task") continue;
+      const tasks = yield* options.workRepository.taskLane(canvasName, node.id, "task");
       const context = claimContextFrom({
         canvasName,
-        boards: [{ nodeId: node.id, tasks: node.ether?.tasks?.items ?? [], contract: node.ether?.tasks?.contract }],
+        boards: [{ nodeId: node.id, tasks, contract: node.contract }],
         actorRefs: actors.filter((actor) => processes.has(actor.nodeId)),
-        nodes: canvas.read.doc.nodes,
+        nodes: [...canvas.nodes.values()],
         checkoutKeyFor: (nodeId) => processes.get(nodeId)?.checkoutKey,
         observedProcessFor: (nodeId) => {
           const session = processes.get(nodeId)?.session;
@@ -137,17 +138,23 @@ export const makeCheckoutWatchComposition = (
 
   const currentClaims = (canvasName: string) => Effect.gen(function* () {
     yield* commandCenter;
-    const names = yield* options.canvases.list;
+    const names = yield* options.model.listCanvases();
     const inventory = [];
-    for (const { name } of names) inventory.push(yield* readClaims(name));
-    const selected = inventory.find(({ canvas }) => canvas.read.name === canvasName);
+    for (const name of names) inventory.push(yield* readClaims(name));
+    const selected = inventory.find(({ canvas }) => canvas.name === canvasName);
     if (selected === undefined) {
       return yield* Effect.fail(failure("checkout-canvas-missing", "checkout canvas is no longer active"));
     }
-    const witnesses = new Set(inventory.map(({ canvas }) =>
-      `${canvas.intentWitness.generation}:${canvas.intentWitness.contentSha256}`));
-    if (witnesses.size > 1) {
-      return yield* Effect.fail(failure("checkout-intent-changed", "canvas intent changed while reading checkout claims"));
+    // Filesystem canonicalization yields. Recheck every canvas sequence and
+    // membership so a topology change cannot authorize an older inventory.
+    const currentNames = yield* options.model.listCanvases();
+    if (currentNames.length !== names.length || currentNames.some((name) => !names.includes(name))) {
+      return yield* Effect.fail(failure("checkout-intent-changed", "canvas membership changed while reading checkout claims"));
+    }
+    for (const { canvas } of inventory) {
+      if ((yield* options.model.canvas(canvas.name)).seq !== canvas.seq) {
+        return yield* Effect.fail(failure("checkout-intent-changed", "canvas intent changed while reading checkout claims"));
+      }
     }
     const seatsByCheckout = new Map<string, Set<string>>();
     for (const { claims } of inventory) {
@@ -195,7 +202,7 @@ export const makeCheckoutWatchComposition = (
     if (selected.taskSinkId !== input.taskNodeId || selected.claim.nodeId !== input.senderNodeId) {
       return yield* Effect.fail(failure("authority-mismatch", "checkout observation belongs to a previous task sink or author node"));
     }
-    return { selected, witness: fresh.canvas.intentWitness };
+    return { selected, witness: { canvasName: fresh.canvas.name, seq: fresh.canvas.seq } };
   });
 
   const deliverReceipts = (input: CheckoutReceiptMailInput) => Effect.gen(function* () {
@@ -261,8 +268,7 @@ export const makeCheckoutWatchComposition = (
     },
     // A failed read must reject the pass. Empty success would discard the live baseline.
     canvases: () => commandCenter.pipe(
-      Effect.flatMap(() => options.canvases.list),
-      Effect.map((canvases) => canvases.map((canvas) => canvas.name)),
+      Effect.flatMap(() => options.model.listCanvases()),
       Effect.orDie,
     ),
     claims: (canvasName) => currentClaims(canvasName).pipe(

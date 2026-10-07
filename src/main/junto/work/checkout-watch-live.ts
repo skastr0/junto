@@ -55,9 +55,8 @@ import { stat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { Effect, Result } from "effect";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { ActorSeatId } from "@shared/actor-seat";
-import type { CanvasNode } from "@shared/canvas";
+import { asNodeId, type Node } from "@shared/model";
 import { isGitSha } from "@shared/git";
 import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import { currentTaskOwner } from "@shared/task-owner";
@@ -103,11 +102,11 @@ export type CheckoutWatchContext = {
   readonly claims: ReadonlyArray<CheckoutWatchClaim>;
 };
 
-/** One board's live rows, as the canvas projection presents them. */
+/** One board's current Work rows. */
 export type CheckoutWatchBoard = {
   readonly nodeId: string;
   readonly tasks: ReadonlyArray<Task>;
-  /** That board's `ether.tasks.contract`, if authored. */
+  /** The board's authored contract. */
   readonly contract: TasksContract | undefined;
 };
 
@@ -120,7 +119,7 @@ export type CheckoutWatchFacts = {
   readonly boards: ReadonlyArray<CheckoutWatchBoard>;
   /** Live process-bound seats for this canvas (`canvas.actorRefs`). */
   readonly actorRefs: ReadonlyArray<ActorRef>;
-  readonly nodes: ReadonlyArray<CanvasNode>;
+  readonly nodes: ReadonlyArray<Node>;
   /**
    * Canonical worktree for a seat node, or undefined when none is proven.
    * Callers build this from durable launch `cwd` plus the live session `cwd`;
@@ -170,11 +169,9 @@ export const claimContextFrom = (facts: CheckoutWatchFacts): CheckoutWatchContex
       if (owner.kind !== "seat" || owner.seatId !== claimed) continue;
       const ref = actorBySeat.get(claimed);
       if (ref === undefined) continue;
-      const node = nodesById.get(ref.nodeId);
+      const node = nodesById.get(asNodeId(ref.nodeId));
       if (node === undefined) continue;
-      const surface = actorDeliverySurfaceOf(node);
-      if (surface === undefined) continue;
-      if (surface.hostId !== DEFAULT_STATION_HOST_ID) continue;
+      if (node.kind !== "agent" || node.host !== DEFAULT_STATION_HOST_ID) continue;
       const checkoutKey = facts.checkoutKeyFor(ref.nodeId)?.trim();
       if (checkoutKey === undefined || checkoutKey.length === 0) continue;
       const process = facts.observedProcessFor(ref.nodeId);
