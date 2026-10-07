@@ -19,6 +19,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { composeOffboardAsk } from "../../src/shared/seat-sessions";
 
 const RESTER = "e2e-offboard-rest";
 const CONTINUER = "e2e-offboard-continue";
@@ -107,7 +108,9 @@ test("the seat popup's Ask to offboard and Ask, then rest send the agent the pro
   expect(restMail).toContain("The operator asks you to offboard this session.");
   expect(restMail).toContain('junto offboard "<notes>"');
   expect(restMail).not.toContain("--continue");
-  expect(restMail).toContain("The seat then rests");
+  // Every line of the rest prompt, as the product composes it today: the
+  // wording is the product's to change, the mode it was sent in is the claim.
+  for (const line of composeOffboardAsk("rest").split("\n")) expect(restMail).toContain(line);
   expect(restMail).not.toContain("·");
   await page.keyboard.press("Escape");
   await expect(rest).toBeHidden({ timeout: 5_000 });
@@ -135,7 +138,7 @@ test("the seat popup's Ask to offboard and Ask, then rest send the agent the pro
   const [contMail] = mailboxOf(sandbox.homeDir, CONTINUER);
   expect(contMail).toContain("The operator asks you to offboard and continue in a fresh session.");
   expect(contMail).toContain('junto offboard "<notes>" --continue "<note for your next session>"');
-  expect(contMail).toContain("reads your continuation first");
+  for (const line of composeOffboardAsk("continue").split("\n")) expect(contMail).toContain(line);
   expect(contMail).not.toContain("·");
 
   // Each seat got only its own prompt.
