@@ -83,7 +83,6 @@ const canvasesService = CanvasesService.of({
   create: () => Effect.fail(new CanvasError({ message: "not used" })),
   remove: () => Effect.fail(new CanvasError({ message: "not used" })),
   ensureSeed: Effect.void,
-  writeSidecar: () => Effect.fail(new CanvasError({ message: "not used" })),
   start: () => undefined,
   subscribeChanges: () => () => undefined,
   announceInstalledProjection: () => {},

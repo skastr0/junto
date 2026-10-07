@@ -248,7 +248,7 @@ describe("command bar actions mode", () => {
   });
 });
 
-type DigestApi = { exportDigest: (name: string) => Promise<DigestResult | undefined> };
+type DigestApi = { canvasDigest: (name: string) => Promise<DigestResult | undefined> };
 
 const digestWindow = (): { junto?: DigestApi } => {
   const g = globalThis as { window?: { junto?: DigestApi } };
@@ -267,31 +267,28 @@ describe("openCanvasDigest", () => {
     state$.error.set("");
   });
 
-  it("opens the panel when export succeeds", async () => {
+  it("opens the panel when the read succeeds", async () => {
     state$.canvasName.set("ops");
     digestWindow().junto = {
-      exportDigest: async () => ({ digest: "board", path: "ops.digest.txt" }),
+      canvasDigest: async () => ({ digest: "board" }),
     };
     await openCanvasDigest("ops");
     expect(state$.digestOpen.peek()).toBe(true);
-    expect(state$.digest.peek()).toEqual({
-      digest: "board",
-      path: "ops.digest.txt",
-    });
+    expect(state$.digest.peek()).toEqual({ digest: "board" });
     expect(state$.error.peek()).toBe("");
   });
 
-  it("surfaces export failure on state.error and does not open", async () => {
+  it("surfaces read failure on state.error and does not open", async () => {
     state$.canvasName.set("ops");
     digestWindow().junto = {
-      exportDigest: async () => {
-        throw new Error("digest write failed");
+      canvasDigest: async () => {
+        throw new Error("digest read failed");
       },
     };
     await openCanvasDigest("ops");
     expect(state$.digestOpen.peek()).toBe(false);
     expect(state$.digest.peek()).toBeNull();
-    expect(state$.error.peek()).toBe("digest write failed");
+    expect(state$.error.peek()).toBe("digest read failed");
   });
 
   it("treats a missing result as failure", async () => {
@@ -308,10 +305,10 @@ describe("openCanvasDigest", () => {
     const pending = new Promise<DigestResult>((resolve) => {
       release = resolve;
     });
-    digestWindow().junto = { exportDigest: async () => pending };
+    digestWindow().junto = { canvasDigest: async () => pending };
     const done = openCanvasDigest("ops");
     state$.canvasName.set("other");
-    release({ digest: "stale", path: "ops.digest.txt" });
+    release({ digest: "stale" });
     await done;
     expect(state$.digestOpen.peek()).toBe(false);
     expect(state$.digest.peek()).toBeNull();
@@ -324,10 +321,10 @@ describe("openCanvasDigest", () => {
     const pending = new Promise<DigestResult>((_resolve, reject) => {
       rejectPending = reject;
     });
-    digestWindow().junto = { exportDigest: async () => pending };
+    digestWindow().junto = { canvasDigest: async () => pending };
     const done = openCanvasDigest("ops");
     state$.canvasName.set("other");
-    rejectPending(new Error("digest write failed"));
+    rejectPending(new Error("digest read failed"));
     await done;
     expect(state$.digestOpen.peek()).toBe(false);
     expect(state$.error.peek()).toBe("");

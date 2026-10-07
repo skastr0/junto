@@ -508,12 +508,12 @@ export const registerJuntoIpc = (): void => {
     ),
   );
 
-  privilegedIpc.handle(IPC_CHANNELS.exportDigest, (_event, name: string) =>
+  privilegedIpc.handle(IPC_CHANNELS.canvasDigest, (_event, name: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const canvases = yield* CanvasesService;
         const snapshots = yield* SnapshotsService;
-        const result = yield* canvases.read(name, "ipc.exportDigest");
+        const result = yield* canvases.read(name, "ipc.canvasDigest");
         const state = yield* snapshots.current;
         const digest = digestCanvas(name, result.doc, state, {
           resolveActorRef: ({ canvasName, nodeId }) =>
@@ -523,8 +523,7 @@ export const registerJuntoIpc = (): void => {
               nodeId,
             ),
         });
-        const path = yield* canvases.writeSidecar(name, "digest.txt", digest);
-        return { digest, path };
+        return { digest };
       }),
     ),
   );

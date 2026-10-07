@@ -14,7 +14,6 @@ const originalDemo = process.env.JUNTO_DEMO;
 const originalE2E = process.env.JUNTO_E2E;
 const originalVitest = process.env.VITEST;
 const originalStateDatabase = process.env.JUNTO_STATE_DB;
-const originalProjectionRoot = process.env.JUNTO_CANVASES_DIR;
 
 let releaseDemo: (() => void) | undefined;
 
@@ -47,7 +46,6 @@ beforeEach(() => {
   delete process.env.JUNTO_E2E;
   delete process.env.VITEST;
   delete process.env.JUNTO_STATE_DB;
-  delete process.env.JUNTO_CANVASES_DIR;
 });
 
 afterEach(() => {
@@ -57,7 +55,6 @@ afterEach(() => {
   restore("JUNTO_E2E", originalE2E);
   restore("VITEST", originalVitest);
   restore("JUNTO_STATE_DB", originalStateDatabase);
-  restore("JUNTO_CANVASES_DIR", originalProjectionRoot);
   vi.resetModules();
 });
 
@@ -86,9 +83,6 @@ describe("demo runtime isolation", () => {
     expect(relative(tmpdir(), ownedRoot)).toMatch(
       /^junto-demo-runtime-[^/]+$/u,
     );
-    expect(process.env.JUNTO_CANVASES_DIR).toBe(
-      join(ownedRoot, "projections"),
-    );
 
     const runtime = ManagedRuntime.make(makeStateEngineLive());
     const state = await runtime.runPromise(StateEngine);
@@ -101,25 +95,6 @@ describe("demo runtime isolation", () => {
     expect(existsSync(ownedRoot)).toBe(false);
   });
 
-  it("preserves only an explicit derivative-sidecar output root", async () => {
-    process.env.JUNTO_DEMO = "1";
-    process.env.JUNTO_CANVASES_DIR = "/tmp/junto-demo-sidecars";
-
-    const isolation = await import(
-      "../src/main/junto/demo/runtime-isolation"
-    );
-    releaseDemo = isolation.releaseDemoRuntimeIsolation;
-    const databasePath = isolation.demoStateDatabasePath();
-
-    expect(databasePath).toBeDefined();
-    expect(relative(tmpdir(), dirname(databasePath!))).toMatch(
-      /^junto-demo-runtime-[^/]+$/u,
-    );
-    expect(process.env.JUNTO_CANVASES_DIR).toBe(
-      "/tmp/junto-demo-sidecars",
-    );
-  });
-
   it("is inert outside demo mode", async () => {
     const isolation = await import(
       "../src/main/junto/demo/runtime-isolation"
@@ -127,7 +102,6 @@ describe("demo runtime isolation", () => {
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
 
     expect(isolation.demoStateDatabasePath()).toBeUndefined();
-    expect(process.env.JUNTO_CANVASES_DIR).toBeUndefined();
   });
 
   it("ignores database redirection even under test-looking environment flags", async () => {

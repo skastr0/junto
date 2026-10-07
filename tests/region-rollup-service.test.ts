@@ -134,7 +134,6 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       }),
       remove: (name: string) => Effect.succeed({ name }),
       ensureSeed: Effect.void,
-      writeSidecar: () => Effect.succeed(""),
       start: () => {},
       subscribeChanges: () => () => {},
       announceInstalledProjection: () => {},

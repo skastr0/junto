@@ -82,7 +82,6 @@
     "browser": "bun src/cli/main.ts browser",
     "station": "bun src/cli/main.ts station-stdio",
     "content-transfer": "bun src/cli/main.ts content-transfer",
-    "render": "bun scripts/render.ts",
     "cli": "bun src/cli/main.ts",
     "cli:build": "bun scripts/build-standalone-cli.ts junto",
     "cli:build:dev": "bun scripts/build-standalone-cli.ts junto-dev",

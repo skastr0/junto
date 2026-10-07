@@ -116,8 +116,6 @@ const canvases = (
     create: () => Effect.fail(new CanvasError({ message: "unused" })),
     remove: () => Effect.fail(new CanvasError({ message: "unused" })),
     ensureSeed: Effect.void,
-    writeSidecar: () =>
-      Effect.fail(new CanvasError({ message: "unused" })),
     start: () => undefined,
     subscribeChanges: () => () => undefined,
     announceInstalledProjection: () => undefined,

@@ -1,4 +1,3 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -42,27 +41,12 @@ afterAll(async () => {
   await rm(mockCanvasesHome, { recursive: true, force: true });
 });
 
-const pathExists = async (path: string): Promise<boolean> => {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 describe("canvases.ts remove()", () => {
-  it("removes the canvas from authority and known agent sidecars", async () => {
+  it("removes the canvas from authority", async () => {
     const name = "to-delete";
     await runtime.runPromise(canvases.create(name));
     const listBefore = await runtime.runPromise(canvases.list);
     expect(listBefore.some((row) => row.name === name)).toBe(true);
-
-    const dir = join(mockCanvasesHome, ".junto", "canvases");
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, `${name}.digest.txt`), "digest body", "utf8");
-    await writeFile(join(dir, `${name}.svg`), "<svg/>", "utf8");
-
     const result = await runtime.runPromise(canvases.remove(name));
     expect(result.name).toBe(name);
 
@@ -71,8 +55,6 @@ describe("canvases.ts remove()", () => {
     await expect(
       runtime.runPromise(Effect.result(canvases.read(name))),
     ).resolves.toMatchObject({ _tag: "Failure" });
-    expect(await pathExists(join(dir, `${name}.digest.txt`))).toBe(false);
-    expect(await pathExists(join(dir, `${name}.svg`))).toBe(false);
   });
 
   it("fails when the canvas does not exist", async () => {

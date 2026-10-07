@@ -141,7 +141,7 @@ export const IPC_CHANNELS = {
   canvasOverseerSet: "junto:canvas-overseer-set",
   createCanvas: "junto:create-canvas",
   deleteCanvas: "junto:delete-canvas",
-  exportDigest: "junto:export-digest",
+  canvasDigest: "junto:canvas-digest",
   generatePortfolio: "junto:generate-portfolio",
   getSnapshots: "junto:get-snapshots",
   refreshSnapshots: "junto:refresh-snapshots",
@@ -470,7 +470,6 @@ export interface CanvasQuiesceAndFlushResult
 
 export interface DigestResult {
   readonly digest: string;
-  readonly path: string;
 }
 
 // Renderer passes open-document identity keys so adapters can enrich where a
@@ -789,7 +788,7 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => Promise<CanvasOverseerSetResult>;
   readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly deleteCanvas: (name: string) => Promise<{ name: string }>;
-  readonly exportDigest: (name: string) => Promise<DigestResult>;
+  readonly canvasDigest: (name: string) => Promise<DigestResult>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;

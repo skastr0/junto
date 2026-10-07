@@ -3,10 +3,9 @@ import { Effect } from "effect";
 import { digestCanvas } from "../src/shared/digest";
 import { executionGraphContextFromActorRefs } from "../src/shared/graph";
 import { readCanvasThroughControl } from "../src/main/junto/canvas-control/client";
-import { writeCanvasProjectionSidecar } from "../src/main/junto/canvas-control/sidecars";
 
 // The running app supplies one compiled canvas plus its current Hermes snapshot.
-// This process writes only the deterministic digest sidecar.
+// This process prints the deterministic digest and writes nothing.
 
 class DigestExit extends Error {}
 
@@ -34,8 +33,6 @@ const main = async () => {
     resolveActorRef: context.resolveActorRef,
   });
   process.stdout.write(digest);
-
-  await writeCanvasProjectionSidecar(name, "digest.txt", digest);
 };
 
 try {

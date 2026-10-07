@@ -49,7 +49,6 @@ export function DigestPanel() {
           <OverlayHeader
             eyebrow="canvas digest"
             title="Canvas digest"
-            status={digest.path}
             actions={
               <>
                 <Button

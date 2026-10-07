@@ -2,12 +2,9 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
   access,
-  lstat,
   mkdir,
   readFile,
-  readlink,
   rm,
-  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -29,7 +26,6 @@ import {
   CanvasesService,
   canvasNameFrom,
 } from "../src/main/junto/canvases";
-import { writeCanvasProjectionSidecar } from "../src/main/junto/canvas-control/sidecars";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 
@@ -50,7 +46,7 @@ const rejected = async (effect: Effect.Effect<unknown, unknown>): Promise<void> 
   expect(outcome._tag).toBe("Failure");
 };
 
-const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
+const runHeadless = async (script: "digest.ts", name: string) => {
   return await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve) => {
     execFile(
       "bun",
@@ -121,56 +117,6 @@ describe("canvas path capability boundary", () => {
     ).rejects.toThrow();
   });
 
-  it("validates the projection suffix inside the filesystem sink", async () => {
-    await runtime.runPromise(canvases.create("projection-sink"));
-
-    await expect(
-      writeCanvasProjectionSidecar(
-        "projection-sink",
-        "canvas",
-        "not-json",
-      ),
-    ).rejects.toThrow("unsupported canvas projection suffix");
-
-    await expect(
-      access(
-        join(
-          mockCanvasesHome,
-          ".junto",
-          "canvases",
-          "projection-sink.canvas",
-        ),
-      ),
-    ).rejects.toThrow();
-  });
-
-  it("keeps one checked output root for the complete projection write", async () => {
-    const previousRoot = process.env.JUNTO_CANVASES_DIR;
-    const rootA = join(mockCanvasesHome, "root-a");
-    const outside = join(mockCanvasesHome, "outside-root");
-    const swapped = join(mockCanvasesHome, "swapped-root");
-    await mkdir(rootA, { recursive: true });
-    await mkdir(outside, { recursive: true });
-    await symlink(outside, swapped);
-    process.env.JUNTO_CANVASES_DIR = rootA;
-    try {
-      await runtime.runPromise(canvases.create("stable-root"));
-      const pending = writeCanvasProjectionSidecar(
-        "stable-root",
-        "svg",
-        "<svg/>",
-      );
-      process.env.JUNTO_CANVASES_DIR = swapped;
-      const written = await pending;
-
-      expect(written).toBe(join(rootA, "stable-root.svg"));
-      await expect(access(join(outside, "stable-root.svg"))).rejects.toThrow();
-    } finally {
-      if (previousRoot === undefined) delete process.env.JUNTO_CANVASES_DIR;
-      else process.env.JUNTO_CANVASES_DIR = previousRoot;
-    }
-  });
-
   it("allows only one concurrent creator to publish a canvas", async () => {
     const results = await Promise.allSettled([
       runtime.runPromise(canvases.create("exclusive-create")),
@@ -180,7 +126,7 @@ describe("canvas path capability boundary", () => {
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
   });
 
-  it("rejects traversal and weird names before every document or projection operation", async () => {
+  it("rejects traversal and weird names before every document operation", async () => {
     const outside = join(mockCanvasesHome, "outside.canvas");
     await mkdir(mockCanvasesHome, { recursive: true });
     await writeFile(outside, "outside must survive", "utf8");
@@ -191,30 +137,9 @@ describe("canvas path capability boundary", () => {
       await rejected(canvases.mutate(name, (current) => current));
       await rejected(canvases.create(name));
       await rejected(canvases.remove(name));
-      await rejected(canvases.writeSidecar(name, "digest.txt", "cannot escape"));
     }
 
     expect(await readFile(outside, "utf8")).toBe("outside must survive");
-  });
-
-  it("does not follow projection symlinks outside the output root", async () => {
-    const root = join(mockCanvasesHome, ".junto", "canvases");
-    const outsideProjection = join(mockCanvasesHome, "outside.digest.txt");
-    const projectionPath = join(root, "safe.digest.txt");
-    await runtime.runPromise(canvases.create("safe"));
-    await mkdir(root, { recursive: true });
-    await writeFile(outsideProjection, "outside projection", "utf8");
-    await symlink(outsideProjection, projectionPath);
-
-    await rejected(canvases.writeSidecar("safe", "digest.txt", "replacement"));
-
-    expect((await lstat(projectionPath)).isSymbolicLink()).toBe(true);
-    expect(await readlink(projectionPath)).toBe(outsideProjection);
-    expect(await readFile(outsideProjection, "utf8")).toBe(
-      "outside projection",
-    );
-    const listed = await runtime.runPromise(canvases.list);
-    expect(listed.map((entry) => entry.name)).toContain("safe");
   });
 
   it("returns no locator and writes no document file", async () => {
@@ -238,11 +163,11 @@ describe("canvas path capability boundary", () => {
     ).rejects.toThrow();
   });
 
-  it("makes digest and render reject traversal before either CLI reads or writes", async () => {
+  it("makes digest reject traversal before the CLI reads", async () => {
     const outside = join(mockCanvasesHome, "outside-cli.canvas");
     await writeFile(outside, "outside CLI sentinel", "utf8");
 
-    for (const script of ["digest.ts", "render.ts"] as const) {
+    for (const script of ["digest.ts"] as const) {
       const result = await runHeadless(script, "../outside-cli");
       expect(result.exitCode).toBe(1);
       expect(`${result.stdout}${result.stderr}`).toContain("invalid canvas name");

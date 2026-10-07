@@ -111,8 +111,6 @@ const makeRuntime = (input: {
     create: () => Effect.fail(new CanvasError({ message: "not used" })),
     remove: () => Effect.fail(new CanvasError({ message: "not used" })),
     ensureSeed: Effect.void,
-    writeSidecar: () =>
-      Effect.fail(new CanvasError({ message: "not used" })),
     start: () => undefined,
     subscribeChanges: (listener) => {
       listeners.add(listener);
@@ -552,7 +550,6 @@ describe("canvas control", () => {
     const scripts = [
       "canvas-ls.ts",
       "digest.ts",
-      "render.ts",
       "ref-cli.ts",
     ];
     for (const script of scripts) {

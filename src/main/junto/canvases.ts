@@ -47,10 +47,6 @@ import {
   mirrorTasksText,
   padTitleFromText,
 } from "@shared/task";
-import {
-  removeCanvasProjectionSidecars,
-  writeCanvasProjectionSidecar,
-} from "./canvas-control/sidecars";
 import { withinBudget } from "./observability/main-thread-budget";
 import {
   CanvasEntitySync,
@@ -82,8 +78,7 @@ import {
 export { CanvasError, canvasNameFrom, type CanvasName } from "./canvas/domain";
 
 // The protected document plane. All writes go through validate -> mirror law
-// -> one full-map SQLite generation transaction. Digest and SVG projection
-// outputs are owned by canvas-control/sidecars.ts and are never durability.
+// -> one full-map SQLite generation transaction.
 
 /** previous/next docs on the commit that fired a change listener (same tick). */
 export type CanvasChangeDetail = {
@@ -170,7 +165,7 @@ export type CanvasReadTag =
   | "delivery.scan"
   | "hosts.qualification"
   | "ipc.deliveryAccept"
-  | "ipc.exportDigest"
+  | "ipc.canvasDigest"
   | "ipc.mergePortfolio"
   | "ipc.readCanvas"
   | "ipc.rendererActor"
@@ -269,12 +264,6 @@ export class CanvasesService extends Context.Service<CanvasesService,
     readonly remove: (name: string) => Effect.Effect<{ name: string }, CanvasError>;
     // Creates the seed canvas when authority is empty. Called at startup.
     readonly ensureSeed: Effect.Effect<void, CanvasError>;
-    // Writes an agent-facing projection (digest/svg). Returns its path.
-    readonly writeSidecar: (
-      name: string,
-      suffix: string,
-      contents: string,
-    ) => Effect.Effect<string, CanvasError>;
     // Bootstraps the live map from SQLite authority once (idempotent).
     readonly start: () => void;
     /**
@@ -1571,11 +1560,6 @@ export const CanvasesLive = Layer.effect(
         );
         return entry;
       }));
-      yield* Effect.tryPromise({
-        try: () =>
-          removeCanvasProjectionSidecars(canonicalName).catch(() => undefined),
-        catch: toCanvasError,
-      });
       yield* Effect.sync(() => {
         workProjections.evict(canonicalName);
         notifyListeners(canonicalName, {
@@ -1624,16 +1608,6 @@ export const CanvasesLive = Layer.effect(
     ),
     Effect.asVoid,
   );
-
-  const writeSidecar = (
-    name: string,
-    suffix: string,
-    contents: string,
-  ): Effect.Effect<string, CanvasError> =>
-    Effect.tryPromise({
-      try: () => writeCanvasProjectionSidecar(name, suffix, contents),
-      catch: toCanvasError,
-    });
 
   const start = (): void => {
     void Effect.runPromiseWith(runtime)(ensureReady).catch((error) => {
@@ -1793,7 +1767,6 @@ export const CanvasesLive = Layer.effect(
     create,
     remove,
     ensureSeed,
-    writeSidecar,
     start,
     subscribeChanges,
     liveDocuments,

@@ -1,12 +1,12 @@
 /**
  * Demo runtime isolation is a process-owned capability, never a second
- * product home. The database and derivative sidecars live under one
- * OS-temporary directory minted by this process and removed after the
- * StateEngine closes. A process-exit hook is the abnormal-startup backstop.
+ * product home. The database lives under one OS-temporary directory minted
+ * by this process and removed after the StateEngine closes. A process-exit
+ * hook is the abnormal-startup backstop.
  *
- * There is deliberately no environment-selected database path here. Demo
- * callers may choose only a sidecar output directory; SQLite authority is
- * always either the canonical product database or this minted ephemeral one.
+ * There is deliberately no environment-selected database path here. SQLite
+ * authority is always either the canonical product database or this minted
+ * ephemeral one.
  */
 import { mkdtempDisposableSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,12 +52,3 @@ export const releaseDemoRuntimeIsolation = (): void => {
   demoDirectory = undefined;
   owned?.remove();
 };
-
-// Demo sidecars are outputs, but they must not overwrite the operator's normal
-// digest/SVG projections. E2E may supply its own already-minted output root.
-if (isDemoMode() && !process.env.JUNTO_CANVASES_DIR) {
-  process.env.JUNTO_CANVASES_DIR = join(
-    acquireDemoDirectory().path,
-    "projections",
-  );
-}
