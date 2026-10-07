@@ -42,7 +42,11 @@ export const ensureSquads = (): void => {
   const api = getJuntoApi();
   if (!api?.squadsList) return;
   started = true;
-  api.onSquadsChanged?.((event) => squads$.assign({ list: event.squads, hydrated: true }));
+  // A block body: what a listener returns goes back across the preload bridge,
+  // and `assign` returns the store, which cannot be cloned.
+  api.onSquadsChanged?.((event) => {
+    squads$.assign({ list: event.squads, hydrated: true });
+  });
   void api
     .squadsList()
     .then((list) => squads$.assign({ list, hydrated: true }))

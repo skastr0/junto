@@ -44,7 +44,11 @@ export const ensureProfiles = (): void => {
   const api = getJuntoApi();
   if (!api?.profilesList) return;
   started = true;
-  api.onProfilesChanged?.((list) => profiles$.assign({ list, hydrated: true }));
+  // A block body: what a listener returns goes back across the preload bridge,
+  // and `assign` returns the store, which cannot be cloned.
+  api.onProfilesChanged?.((list) => {
+    profiles$.assign({ list, hydrated: true });
+  });
   void api
     .profilesList()
     .then((list) => profiles$.assign({ list, hydrated: true }))
