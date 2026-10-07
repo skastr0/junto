@@ -1,36 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { workMessageAppend, type WorkPolicyRead } from "../src/shared/work";
-import type { CanvasDoc } from "../src/shared/canvas";
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, region, seat } from "./support/model-nodes";
 const work: WorkPolicyRead = { itemsOf: () => [], taskAt: () => undefined, requestItemsOf: () => [], artifactsOf: () => [], artifactsByNode: new Map() };
 
-const agentNode = (
-  id = "agent",
-  hostId = "local",
-  at: { readonly x: number; readonly y: number } = { x: 0, y: 0 },
-): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: "profile-13",
-  x: at.x,
-  y: at.y,
-  width: 200,
-  height: 100,
-  ether: {
-    entity: { kind: "agent", name: `${hostId}:${id}` },
-    terminal: {
-      bindingId: `binding-${id}`,
-      launch: { kind: "harness", argv: ["claude"] },
-      harness: "claude",
-    },
-    host: hostId,
-  },
-});
+const agentNode = (frame: { x: number; y: number; width: number; height: number } = { x: 0, y: 0, width: 200, height: 100 }) =>
+  seat("agent", {
+    ...frame,
+    label: "profile-13",
+    agentKey: "local:agent",
+    launch: { kind: "harness", argv: ["claude"] },
+  });
 
 describe("work pure transforms", () => {
   it("appends mail to an agent inbox, keyed to the canvas", () => {
-    const doc: CanvasDoc = { nodes: [agentNode()], edges: [] };
-    const onAgent = workMessageAppend(work, canvasFromDocument("c", doc), "c", "agent", null, {
+    const onAgent = workMessageAppend(work, canvasOf([agentNode()], [], "c"), "c", "agent", null, {
       messageId: "manual-2",
       role: "user",
       parts: [{ kind: "text", text: "ping" }],
@@ -41,22 +24,11 @@ describe("work pure transforms", () => {
   });
 
   it("uses region label as contextId when the agent is inside a group", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        {
-          id: "reg",
-          type: "group",
-          label: "forge-lane",
-          x: 0,
-          y: 0,
-          width: 400,
-          height: 300,
-        },
-        { ...agentNode("agent", "local", { x: 40, y: 40 }), width: 120, height: 80 },
-      ],
-      edges: [],
-    };
-    const appended = workMessageAppend(work, canvasFromDocument("c", doc), "canvas-name", "agent", null, {
+    const canvas = canvasOf([
+      region("reg", { x: 0, y: 0, width: 400, height: 300 }, { label: "forge-lane" }),
+      agentNode({ x: 40, y: 40, width: 120, height: 80 }),
+    ], [], "c");
+    const appended = workMessageAppend(work, canvas, "canvas-name", "agent", null, {
       messageId: "inside-1",
       role: "user",
       parts: [{ kind: "text", text: "inside" }],

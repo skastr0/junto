@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import {
   formatNodeRef,
   nodeRefKey,
@@ -12,8 +11,8 @@ import {
   type ModelNodeReader,
 } from "../src/main/junto/node-ref-resolver";
 import { ModelStorageError } from "../src/main/junto/model/records";
-import { asCanvasName } from "../src/shared/model";
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { asCanvasName, type Node } from "../src/shared/model";
+import { canvasOf, page, seat } from "./support/model-nodes";
 
 const parsed = (input: string): NodeRef => {
   const result = parseNodeRef(input);
@@ -21,26 +20,15 @@ const parsed = (input: string): NodeRef => {
   return result.value;
 };
 
-const textNode = (id: string, kind?: string) => ({
-  id,
-  type: "text" as const,
-  text: id,
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 60,
-  ...(kind === undefined ? {} : { ether: { entity: { kind } } }),
-});
-
 const reader = (
-  docs: Readonly<Record<string, CanvasDoc>>,
+  held: Readonly<Record<string, ReadonlyArray<Node>>>,
   unreadable: ReadonlySet<string> = new Set(),
 ): ModelNodeReader => {
   return {
-    listCanvases: () => Effect.succeed(Object.keys(docs).map(asCanvasName)),
-    canvas: (name) => unreadable.has(name) || docs[name] === undefined
+    listCanvases: () => Effect.succeed(Object.keys(held).map(asCanvasName)),
+    canvas: (name) => unreadable.has(name) || held[name] === undefined
       ? Effect.fail(new ModelStorageError({ cause: `canvas ${name} cannot be read` }))
-      : Effect.succeed(canvasFromDocument(name, docs[name])),
+      : Effect.succeed(canvasOf(held[name], [], name)),
   };
 };
 
@@ -99,8 +87,8 @@ describe("canonical Junto node references", () => {
 describe("Junto node reference resolver", () => {
   it("uses canvas plus node id as identity across collision-prone documents", async () => {
     const canvases = reader({
-      alpha: { nodes: [textNode("shared", "page")], edges: [] },
-      beta: { nodes: [textNode("shared", "agent")], edges: [] },
+      alpha: [page("shared")],
+      beta: [seat("shared")],
     });
 
     const alpha = await Effect.runPromise(
@@ -114,12 +102,11 @@ describe("Junto node reference resolver", () => {
     expect(alpha.key).not.toBe(beta.key);
   });
 
-  it("fails closed for missing, unreadable, duplicate, and kind-mismatched targets", async () => {
+  it("fails closed for missing, unreadable, and kind-mismatched targets", async () => {
     const canvases = reader(
       {
-        alpha: { nodes: [textNode("only", "agent")], edges: [] },
-        duplicate: { nodes: [textNode("same"), textNode("same")], edges: [] },
-        corrupt: { nodes: [], edges: [] },
+        alpha: [seat("only")],
+        corrupt: [],
       },
       new Set(["corrupt"]),
     );

@@ -1,4 +1,4 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, seat as seatNode } from "./support/model-nodes";
 /**
  * The closing fence: from `junto offboard` accepted to the old process gone,
  * nothing is typed into the seat; what arrives in that window goes to the
@@ -10,7 +10,7 @@ import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed
 import { InjectionSupervisor } from "../src/main/junto/term/injection-supervisor";
 import { makeOnboardNudgeInterject } from "../src/main/junto/term/onboard-nudge-interject";
 import { MessageDeliveryService, type MessageDeliveryStore } from "../src/main/junto/work/message-delivery";
-import type { CanvasDoc, Message } from "../src/shared/canvas";
+import type { Message } from "../src/shared/work-model";
 import { mailExtensionMetadata, type MailExtension } from "../src/shared/crew";
 import { buildOnboardNudge } from "../src/shared/managed-terminal-injection";
 
@@ -187,22 +187,11 @@ describe("mail that arrives between the offboard and the exit", () => {
    */
   const mailbox = (onWake: "starts" | "paused") => {
     const messages: Message[] = [];
-    const doc = {
-      nodes: [{
-        id: NODE,
-        type: "text",
-        text: "Claude Code",
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 80,
-        ether: {
-          entity: { kind: "agent", name: "local:claude" },
-          terminal: { bindingId: BINDING, harness: "claude" },
-        },
-      }],
-      edges: [],
-    } as unknown as CanvasDoc;
+    const crew = canvasOf(
+      [seatNode(NODE, { width: 100, height: 80, label: "Claude Code", agentKey: "local:claude", bindingId: BINDING as never })],
+      [],
+      "crew",
+    );
     const seat = { epoch: "e1" as string | undefined, generations: 1 };
     const fence = new ClosingFence();
     fence.setLiveGeneration(() => seat.epoch);
@@ -210,7 +199,7 @@ describe("mail that arrives between the offboard and the exit", () => {
     const wakes: string[] = [];
     const store: MessageDeliveryStore = {
       listCanvasNames: async () => [CANVAS],
-      readModel: async () => canvasFromDocument("crew", doc),
+      readModel: async () => crew,
       readMessage: async (_canvas, _node, messageId) => messages.find((message) => message.messageId === messageId),
       listMail: async () => messages,
       acceptMessageDelivery: async (_canvas, _node, messageId) => {
