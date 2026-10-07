@@ -1,44 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { nodeDetail, nodeTitle, nodeTypeLabel, searchText } from "../src/renderer/lib/presentation";
-import type { CanvasNode } from "../src/shared/canvas";
+import { hostOf } from "../src/renderer/lib/presentation";
+import { detailOf, searchOf } from "../src/renderer/lib/node-presentation";
+import { titleOf } from "../src/shared/model/title";
+import { asNodeId, type Node } from "../src/shared/model";
+import { note, page, region, seat, taskBoard } from "./support/model-nodes";
 
-const base = { id: "node", x: 0, y: 0, width: 200, height: 80 } as const;
+const base = { id: asNodeId("node"), x: 0, y: 0, width: 200, height: 80, z: 0 };
 
-describe("canvas presentation", () => {
-  it("uses the identity when a project node has no body detail", () => {
-    const node: CanvasNode = {
-      ...base,
-      type: "text",
-      text: "PRISM",
-      ether: {
-        entity: { kind: "project", name: "prism" },
-      },
-    };
-
-    expect(nodeTitle(node)).toBe("PRISM");
-    expect(nodeDetail(node)).toBe("project - prism");
-    expect(nodeTypeLabel(node)).toBe("project");
+describe("node presentation", () => {
+  it("keeps authored identity separate from its work", () => {
+    const worker = seat("worker", { label: "PRISM", agentKey: "local:prism" });
+    expect(titleOf(worker)).toBe("PRISM");
+    expect(detailOf(worker)).toBe("local:prism");
+    expect(searchOf(worker)).toContain("local:prism");
+    const tasks = taskBoard("tasks", { name: "Build", contract: { instructions: "Ship the editor" } });
+    expect(titleOf(tasks)).toBe("Build");
+    expect(detailOf(tasks)).toBe("Ship the editor");
+    expect(searchOf(tasks)).toContain("ship the editor");
   });
 
-  it("labels nodes by their true type — never 'signal'", () => {
-    expect(nodeTypeLabel({ ...base, type: "text", text: "a note" })).toBe("note");
-    expect(nodeTypeLabel({ ...base, type: "file", file: "docs/x.md" })).toBe("file");
-    expect(nodeTypeLabel({ ...base, type: "link", url: "https://x.com" })).toBe("link");
-    expect(nodeTypeLabel({ ...base, type: "group", label: "Ops" })).toBe("region");
-    expect(nodeTypeLabel({ ...base, type: "text", text: "Vega", ether: { entity: { kind: "agent" } } })).toBe("agent");
+  it("uses each node's own kind, name and content", () => {
+    const plain = note("note", "# A note\nBody\nMore");
+    expect(titleOf(plain)).toBe("A note");
+    expect(detailOf(plain)).toBe("Body More");
+    expect(searchOf(plain)).toContain("body");
+    expect(titleOf(seat("agent", { label: "Vega" }))).toBe("Vega");
+    expect(searchOf(page("page", { url: "https://example.com/path" }))).toContain("https://example.com/path");
   });
 
-  it("keeps type-specific details for files, links, and regions", () => {
-    const file: CanvasNode = { ...base, type: "file", file: "docs/untitled.md", subpath: "#install" };
-    const link: CanvasNode = { ...base, type: "link", url: "https://example.com/path" };
-    const group: CanvasNode = { ...base, type: "group", label: "Operations" };
+  it("keeps kind-specific details for files, links, and regions", () => {
+    const file: Node = { ...base, kind: "file", path: "docs/untitled.md", subpath: "#install" };
+    const link: Node = { ...base, kind: "link", url: "https://example.com/path" };
+    const area = region("region", base, { label: "Operations" });
+    expect(titleOf(file)).toBe("untitled.md");
+    expect(detailOf(file)).toBe("docs/untitled.md #install");
+    expect(searchOf(file)).toContain("#install");
+    expect(titleOf(link)).toBe("example.com");
+    expect(detailOf(link)).toBe("https://example.com/path");
+    expect(titleOf(area)).toBe("Operations");
+    expect(detailOf(area)).toBe("Spatial region");
+  });
 
-    expect(nodeTitle(file)).toBe("untitled.md");
-    expect(nodeDetail(file)).toBe("docs/untitled.md #install");
-    expect(searchText(file)).toContain("#install");
-    expect(nodeTitle(link)).toBe("example.com");
-    expect(nodeDetail(link)).toBe("https://example.com/path");
-    expect(nodeTitle(group)).toBe("Operations");
-    expect(nodeDetail(group)).toBe("Spatial region");
+  it("shortens a page address to its host, including malformed addresses", () => {
+    expect(hostOf("https://example.com/path")).toBe("example.com");
+    expect(hostOf("example.com/path")).toBe("example.com");
   });
 });
