@@ -3,9 +3,17 @@
 **Junto** is a desktop station (Electron + Effect + React) that
 renders a **portfolio canvas**: agents, work surfaces, notes, and regions as
 spatial nodes; dependencies/blockers/relationships as edges; named regions as
-geography. The current canvas serialization is a
-[JSON Canvas 1.0](https://jsoncanvas.org) document extended with a namespaced
-`ether` key.
+geography.
+
+**There is no canvas document.** Junto began as a JSON Canvas file with an
+`ether` extension bag and has outgrown it: it is a workspace of many agents
+exchanging mail, and the app is modelled as that. Seats, regions, wires and
+every other kind are their own schemas with their own tables
+(`src/shared/model/`). `CanvasDoc`, `ether`, the generic
+text/file/link/group node, `readCanvas`/`writeCanvas` and document revisions
+are being deleted, not maintained. Do not add to them, read through them in
+new code, or treat any older note that calls the document the product as
+current. See [The model](#the-model).
 
 ## Product name: Junto
 
@@ -32,9 +40,9 @@ event convergence, the closed Station operations, and transport adapters.
 Protocol 1 remains prerelease. The closed operations are `pair`, `configure`,
 `project`, `report`, `status`, and `overseer`. `overseer` is not an RPC tunnel.
 
-**Normative direction:** the protected document is the product; compiled
-projections and capability-bound tools are the agent API. **Sole product
-store** is `~/.junto/state/junto.db` — canvases, work, content manifests,
+**Normative direction:** the app is its model: typed rows changed by
+commands, followed by events. Capability-bound tools are the agent API. **Sole
+product store** is `~/.junto/state/junto.db` — canvases, work, content manifests,
 station, settings, and every other product durable fact. That law is about
 **product** durability, not process-internal bookkeeping: install-local
 internals (e.g. backfill ledgers in `~/.junto/state/install-ops.db`, content
@@ -82,16 +90,12 @@ fleet compatibility evidence, and explicit operator approval. Never ask an
 installed system to delete `junto.db`; never add a downgrade, old-schema
 runtime reader, dual write, or file-store compatibility path.
 
-Authorial canvas writes persist one relational current graph
-(`canvas_documents`, `canvas_objects`, `canvas_nodes`, `canvas_edges`),
-content-addressed immutable `canvas_checkpoints` (reused when the serialized
-body is unchanged), compact `canvas_generation_manifests`, and an append-only
-`canvas_commit_envelopes` row in the same SQLite transaction as
-`canvas_generations` / `canvas_head`. Automatic deletion of
-`canvas_generation_documents` bodies is removed. Historical generation
-document rows remain readable and are never rewritten. Future physical
-compaction is a separately approved operation with backup, parity, fleet, and
-Work-reference proofs.
+**One approved exception, October 2026.** The operator approved a single
+migration that creates the per-kind tables of the model, copies every stored
+canvas across, and drops the old canvas tables (`canvas_documents`,
+`canvas_nodes`, `canvas_edges`, `canvas_entities`, `canvas_portfolio_head`)
+and the station projection tables in the same step. No `ether_json` column
+survives it. The rule above holds for every migration after that one.
 
 **Station skew law:** app release, local SQLite schema, and Station protocol
 are distinct facts. Only the one Station protocol integer selects wire
@@ -258,20 +262,32 @@ human/Command Center except closed overseer commands from a live granted seat.
   canvas. No Fleet on Remote.
 - Code: `src/shared/station-mode.ts`.
 
-## The document contract
+## The model
 
-Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`) plus an optional `ether` key on nodes and edges:
+`src/shared/model/` is the contract. Import from `@shared/model`.
 
-```jsonc
-{ "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "worker",
-  "ether": {
-    "entity": { "kind": "agent", "name": "local:worker" }  // open vocab; well-known product: agent|terminal|task|requests|artifacts|page|cron|relay (+ dormant watcher/gauge; timer aliases cron)
-  } }
-```
+- **Node** — a closed union on `kind`: `agent` (a seat), `terminal`, `page`,
+  `task`, `requests`, `artifacts`, `board`, `pad`, `sheet`, `cron`, `relay`,
+  `watcher`, `note`, `label`, `file`, `link`, `git`, `region`. Each kind has
+  exactly its own fields. A new kind is a new member with its own table, never
+  a string and a bag, and decoding refuses a field a kind does not have.
+- **Wire** — `from`, `to`, `verb`, an optional `mask`, and the sides it
+  attaches to.
+- **Command** — how anything changes: `Add`, `Remove`, `Move`, `Restack`,
+  `Recolor`, `Edit`, `Rewire`, and the canvas ones. A command names the rows it
+  touches. Nothing sends a canvas back to be saved.
+- **Changed** — what main emits after a commit: the canvas, a running `seq`,
+  and exactly the rows that changed. A listener applies it and does not read
+  again. `Opened` is the one read, when a canvas is opened.
 
-Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
+Live work is never on a node. Mail, tasks, requests, artifacts, board posts
+and pad shapes are rows of their own, read in pages by the id of the node they
+belong to, each with its own change event.
 
-**`verb` is the one authored fact on an edge** — what the relationship *is*. Everything else (ports, claimability, board wake, watch predicates, scheduler fire actions, task-path flow, scheduler chaining) is **compiled** from the verb plus the two endpoint kinds (`src/shared/physics/verbs.ts`, `compileVerb`) — never stored on the edge, never mirrored back. `fromNode` is always the verb's semantic source end, whichever way the operator drew it (`task --works--> agent`, never the reverse).
+The measure of this design is the window: thousands of mails between hundreds
+of seats must not cost it a frame, and one command must change one row.
+
+**`verb` is the one authored fact on a wire** — what the relationship *is*. Everything else (ports, claimability, board wake, watch predicates, scheduler fire actions, task-path flow, scheduler chaining) is **compiled** from the verb plus the two endpoint kinds (`src/shared/physics/verbs.ts`, `compileVerb`) — never stored on the edge, never mirrored back. `fromNode` is always the verb's semantic source end, whichever way the operator drew it (`task --works--> agent`, never the reverse).
 
 **The verb table** — at most two verbs per ordered kind pair; a pair absent from the table refuses connect:
 
@@ -298,22 +314,9 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 
 There is **no edge dialog**. Edges are authored and read from the RTS bottom bar (`EdgeCommandCard`, `src/renderer/components/rts/RtsControls.tsx`) as a plain sentence ("Planner manages Backlog"), painted in a fixed per-verb hue (`--wire-verb-*` custom properties, [`factory-grammar.css`](src/renderer/styles/factory-grammar.css)) — solid strokes only; no dash, width, or arrowhead carries meaning.
 
-**One-shot legacy conversion:** `scrubCanvasDocInput` (`src/shared/canvas.ts`) reads a legacy edge's retired wire fields (`ports`, `stops`, `wake`, `slot`, `when`, `does`, `flow`, the node-body `ether.relay`) exactly once on decode, infers the verb it always meant (`inferVerb`), and re-stores the edge as `{ verb }` in the verb's own semantic order — never both. An edge whose endpoints cannot hold any inferred verb (geography, unknown kind, a missing node, a pairing the grammar never admitted) is **dropped**, not defaulted; a hand-edited `verb` the pair cannot hold is dropped the same way. There are no users, so this is the only conversion the format ever gets.
-
-**Retired (scrubbed on load, dead as product surface):** `ports` / `stops` / `wake` / `slot` / `when` / `does` / `flow` as authored edge fields; the derived `ether.kind` phase mirror on edges; the edge dialog / wire sheet; `criteria` / `notify` / `effect` dual keys; `proof` / `approval` edge modes and Hold UI; `ether.relayState` cascade; node-body `ether.relay`; `glyphs`/`wip` stop modes; glyph watcher kinds; private-source watchers; `ether.view` project slices; `depends` phase; automatic dependency cascade. `project` is no longer well-known, though the open `entity.kind` vocabulary still permits it as inert furniture.
-
-Live **phase** is only `blocks` | `relates` (derived) — projected onto the edge's native `color`/`label`, never onto `ether`.
-
-**Two invariants** (enforced on every app/CLI write):
-1. **Graceful degradation** — strip every `ether` key and the file is still valid, readable JSON Canvas 1.0.
-2. **Mirror law** — extension semantics mirror into native fields (derived phase may project to edge `label`/`color`).
-
-Derived state (blocked seats, group membership, live phase) is **recomputed** from the document (+ live sources). Phase may be mirrored onto `ether.kind` for offline readability; it is not the authoring surface.
-
-**Vocabulary vs live plane:** `entity.kind` remains an open string, so unknown
-kinds are inert furniture. Watch sources are closed to `hermes`; retired
-private-source bindings and excess document fields fail strict decode rather
-than being rewritten.
+Live **phase** is only `blocks` | `relates`, and it is derived, never stored.
+Derived state (blocked seats, region membership, live phase) is recomputed from
+the model and live work.
 
 ## Copy law: no middle dots, ever
 
@@ -343,7 +346,7 @@ absent from the verb table (sink–sink, geography).
 
 | Kind | How it binds | Fire |
 |---|---|---|
-| **cron** | `ether.timer` expression | Durable due → the outbound verb's compiled effect (`enqueues` / `wakes`) |
+| **cron** | its `expression` | Durable due → the outbound verb's compiled effect (`enqueues` / `wakes`) |
 | **relay** | inbound `announces` edges (watch, OR-combined across parallel edges); outbound `enqueues` / `wakes` edges (effects) | Rising edge on watch → apply the outbound edges' effects |
 
 **Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant; it shares the `clock` scheduler row with `cron`/`timer` but has no palette entry.
@@ -359,16 +362,13 @@ effect verb out, only.
 configured and the canvas is playing** — otherwise project status/`nextFire`
 but do not consume rising-edge memory or durable cron firing slots.
 
-**Retired: operator flags.** `ether.flags` (blocker / attention / parked),
-`flagOnUnsatisfied`, the `flags` verb, the `set_flag` effect, and pad/sheet
-`announces` are gone; `canvas/retire-flags.ts` strips them from stored
-documents on boot. A seat raises its own hand (`junto blocked`,
+**No operator flags.** A seat raises its own hand (`junto blocked`,
 `junto escalate`); stoppage is derived. Pause is canvas-wide only: there is
 no node or region pause.
 
 ## Sources (read-only adapters)
 
-`src/main/junto/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the document. hermes enumerates profiles on the local machine + remote hosts over ssh.
+`src/main/junto/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the model. hermes enumerates profiles on the local machine + remote hosts over ssh.
 
 ## In-app planes
 
@@ -431,9 +431,10 @@ Remote remains deliberately displayless.
 
 ## Structure
 
-- `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `portfolio.ts`, `svg.ts`. Change deliberately; much depends on them.
+- `src/shared/model/` — **the contract**: kinds, wires, commands, events. Change deliberately; everything depends on it.
+- `src/shared/` — shared pure logic: `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `svg.ts`. `canvas.ts` and `portfolio.ts` are the old document and are being deleted.
 - `src/main/junto/state/` — the one SQLite engine and composed current schema.
-- `src/main/junto/` — document/work/station services, data adapters, and IPC/control boundaries.
+- `src/main/junto/` — model/work services, data adapters, and IPC/control boundaries.
 - `src/renderer/` — the canvas surface.
 - `scripts/` — the headless CLIs above.
 
@@ -457,7 +458,7 @@ host-destructive call? If yes, the change is not done.*
 
 **The canvas is a workspace, not an ACL spreadsheet.** Edges are ocaps
 (mint by draw, attenuate via ports, revoke by delete); process-bind wields the
-seat. Roles derive from entity kind — never authorial `ether.role`. Capability,
+seat. Roles derive from kind. Capability,
 phase, and attention/occupancy are separate planes.
 
 - **The law:** four derived physics roles, and **exactly one actor kind — `agent`**, the
@@ -519,13 +520,6 @@ Backfill laws (each one broke, or nearly broke, a real release):
 - **Install-local ledger.** Backfill completeness is install-local
   bookkeeping, not product state — separate Effect layer/service and
   separate on-disk store from `junto.db`.
-- **Canvas-document migrations run before the first authority read.** The
-  decode scrub alone cannot retire grammar that stored canvases still hold:
-  a document that decodes differently from its rows fails its own revision
-  hash and the canvas refuses to load. Rewrite the rows from the canvases
-  bootstrap, prove each touched document from its raw rows first, and commit
-  through `commitPortfolio` as a new generation (e.g.
-  `canvas/retire-escalates.ts`).
 - **Proven against the real schema before it ships.** Every migration or
   backfill ships with a test that runs it on the production DDL — triggers
   active — seeded with historical-shaped rows *including rows in the immutable
