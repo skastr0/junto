@@ -18,12 +18,12 @@ test("reset section asks first, and Escape closes only the confirm", async () =>
 
     await page.getByRole("button", { name: "Open settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    // Settings sits in the centre of the window once its entrance settles.
+    // Settings sits centred across the window once its entrance settles.
     await expect
       .poll(() =>
         page.locator(".settings-panel").evaluate((panel) => {
           const box = panel.getBoundingClientRect();
-          return Math.abs(box.top + box.height / 2 - window.innerHeight / 2);
+          return Math.abs(box.left + box.width / 2 - window.innerWidth / 2);
         }),
       )
       .toBeLessThanOrEqual(1);
@@ -79,7 +79,7 @@ test("reset section asks first, and Escape closes only the confirm", async () =>
     // A row that holds a menu is a named group: its text does not open the menu.
     await page.locator(".settings-nav__item", { hasText: "Terminal" }).click();
     const cursorRow = page.getByRole("group", { name: "Cursor style" });
-    await cursorRow.getByText("how the cursor is drawn").click();
+    await cursorRow.getByText("The cursor's shape.").click();
     await expect(page.getByRole("listbox")).toHaveCount(0);
     await cursorRow.getByRole("button", { name: "Cursor style" }).click();
     await expect(page.getByRole("listbox")).toBeVisible();
