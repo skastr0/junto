@@ -61,7 +61,7 @@ replay.
 | Composition | `tests/overseer-composition.test.ts`, `tests/overseer-composition-lifecycle.test.ts` |
 | Station transport | `tests/station-overseer-transport.test.ts` |
 | Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
-| Stale save / grant strip | `tests/authorial-canvas-merge.test.ts`, `tests/canvas-save-durability.test.ts` |
+| Canvas edits / grant isolation | `tests/canvas-edit-commands.test.ts`, `tests/overseer-set.test.ts` |
 
 ## Wire operations (120)
 
@@ -262,7 +262,7 @@ Keychain, the keyring, or the operator's home.
 
 | risk | required proof | suite | status |
 | --- | --- | --- | --- |
-| Stale UI save/undo restoring revoked authority | delayed save, external reload, undo/redo cannot mint or restore `ether.overseer` | `tests/authorial-canvas-merge.test.ts`; `tests/canvas-save-durability.test.ts` ordinary save cannot mint/revoke | unit exercised; no undo/redo Electron proof |
+| Canvas edits restoring revoked authority | ordinary edits and undo/redo cannot grant or revoke overseer authority; the operator toggle sends a dedicated command | `tests/canvas-edit-commands.test.ts`; `tests/overseer-set.test.ts` | unit exercised; no undo/redo Electron proof |
 | No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | `tests/overseer-work.test.ts`; `tests/overseer-native.test.ts`; `tests/overseer-admission.test.ts`; e2e grants without edges | unit exercised; integrated Work suite passes |
 | Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | `tests/overseer-authoring.test.ts`; `tests/overseer-canvas-commands.test.ts` `canvasOverseerSet` alias toggle | unit exercised |
 | Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | `tests/overseer-canvas-commands.test.ts`; `tests/overseer-authoring.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
