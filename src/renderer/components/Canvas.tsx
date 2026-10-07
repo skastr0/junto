@@ -29,6 +29,7 @@ import {
 import { kernel$ } from "../lib/kernel-view";
 import { dock$ } from "../lib/dock-state";
 import { openingAnchors, openingViewport } from "../lib/camera-placement";
+import { keepHeldNodes } from "../lib/flow-identity";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { createFlowIdentityCache, toFlowOfCanvas } from "../lib/convert";
 import {
@@ -300,13 +301,11 @@ function applyStructuralRebuild(
   const nextNodes = stamped.nodes;
   const nextEdges = stamped.edges;
 
-  // Preserve array identity when every element is unchanged — kernel ticks with
-  // a quiet execution snapshot must not bounce React Flow.
-  setNodes((prev) =>
-    prev.length === nextNodes.length && prev.every((node, i) => node === nextNodes[i])
-      ? prev
-      : nextNodes,
-  );
+  // React Flow keeps every node object that still says what the rebuild
+  // says, with what it measured for it, so a change to ten cards replaces ten
+  // nodes and renders ten cards (flow-identity.ts). A rebuild that changes
+  // nothing hands back the same array and tells React Flow nothing.
+  setNodes((prev) => keepHeldNodes(prev, nextNodes));
   setEdges((prev) =>
     prev.length === nextEdges.length && prev.every((edge, i) => edge === nextEdges[i])
       ? prev
