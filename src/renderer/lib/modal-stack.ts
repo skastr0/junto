@@ -290,9 +290,10 @@ const syncInert = (): void => {
         want.add(child);
       }
     } else {
-      for (const sibling of Array.from(container.parentElement?.children ?? [])) {
-        if (sibling === container) continue;
-        if (sibling.matches(".react-flow") || sibling.querySelector(".react-flow")) want.add(sibling);
+      // The canvas itself, wherever it sits in the tree: the surface may be
+      // wrapped (an error boundary), so its siblings are not the place to look.
+      for (const canvas of Array.from(document.querySelectorAll(".react-flow"))) {
+        if (!canvas.contains(container) && !container.contains(canvas)) want.add(canvas);
       }
     }
   }
