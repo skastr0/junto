@@ -556,6 +556,139 @@
 }
 
 /* Appearance — theme choice buttons are the previews */
+/* Full-width settings, one under another, a rule between them. */
+.settings-blocks {
+  gap: 0;
+}
+.settings-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 0;
+  border-top: 1px solid var(--color-overlay-3);
+}
+.settings-block:first-child {
+  padding-top: 4px;
+  border-top: 0;
+}
+.settings-block[data-found] {
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-main) 14%, transparent);
+  box-shadow: 0 0 0 8px color-mix(in oklab, var(--color-main) 14%, transparent);
+}
+.settings-block__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-block__label {
+  font-size: var(--text-title);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.settings-block__hint {
+  max-width: 62ch;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+  color: var(--color-dim);
+}
+/* A short row of one-word choices. */
+.settings-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-choice {
+  min-width: 56px;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-stroke);
+  background: var(--color-overlay-1);
+  color: var(--color-dim);
+  font-size: var(--text-body-lg);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 160ms ease-out, background-color 160ms ease-out, color 160ms ease-out;
+}
+.settings-choice:hover,
+.settings-option:hover {
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+.settings-choice.is-active {
+  border-color: color-mix(in oklab, var(--color-main) 50%, transparent);
+  background: color-mix(in oklab, var(--color-main) 10%, transparent);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.settings-choice:focus-visible,
+.settings-option:focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+/* A few choices that each need a sentence: one list, a radio mark per row. */
+.settings-options {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.settings-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--color-dim);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+.settings-option + .settings-option {
+  border-top: 1px solid var(--color-overlay-3);
+}
+.settings-option:focus-visible {
+  outline-offset: -2px;
+}
+.settings-option__mark {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1px solid var(--color-stroke-hi);
+  background: transparent;
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+.settings-option.is-active .settings-option__mark {
+  border-color: var(--color-amber);
+  box-shadow: inset 0 0 0 3px var(--color-raise-2), inset 0 0 0 7px var(--color-amber);
+}
+.settings-option__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-option__label {
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.settings-option__hint {
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+  color: var(--color-dim);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-choice,
+  .settings-option,
+  .settings-option__mark {
+    transition: none;
+  }
+}
 .settings-theme-modes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

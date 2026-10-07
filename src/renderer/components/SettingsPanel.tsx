@@ -15,7 +15,7 @@ import {
   experimentalFeatureKeys,
 } from "@shared/features";
 import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSection";
-import { FieldRow } from "./settings/FieldRow";
+import { FieldRow, SettingBlock } from "./settings/FieldRow";
 import { searchSettings, settingsIndex, type SettingHit } from "./settings/search-index";
 import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
@@ -73,7 +73,7 @@ type SectionItem = {
 };
 
 const SECTIONS: ReadonlyArray<SectionItem> = [
-  { key: "appearance", group: "You", label: "Appearance", blurb: "" },
+  { key: "appearance", group: "You", label: "Appearance", blurb: "Light or dark, how large everything is, and how agent terminals take a theme change." },
   { key: "terminal", group: "You", label: "Terminal", blurb: "scrolling, font, and accessibility" },
   { key: "keyboard", group: "You", label: "Keyboard shortcuts", blurb: "every shortcut, and the keys you chose" },
   ...(AUDIO_ENABLED
@@ -241,109 +241,104 @@ function AppearanceSection() {
   const agentAppearance = appearance.agentAppearance ?? "follow";
   const interfaceScale = interfaceScaleOf({ appearance });
   return (
-    <div className="settings-section">
-      <div className="settings-theme-modes" role="radiogroup" aria-label="Theme">
-        {modes.map((mode) => (
-          <ThemeModeButton
-            key={mode.key}
-            choice={mode.key}
-            label={mode.label}
-            active={appearance.theme === mode.key}
-            onSelect={() =>
-              void patchSettings({ appearance: { theme: mode.key } })
-            }
-          />
-        ))}
-      </div>
-      <div style={{ marginTop: 20 }}>
-        <Eyebrow>Interface size</Eyebrow>
-        <p id="settings-interface-size-hint" className="settings-field__hint" style={{ marginTop: 6 }}>
-          Makes everything in Junto larger or smaller together: text, buttons and spacing. The canvas keeps its own zoom.
-        </p>
-        <div
-          role="radiogroup"
-          aria-label="Interface size"
-          aria-describedby="settings-interface-size-hint"
-          style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}
-        >
-          {INTERFACE_SCALES.map((scale) => {
-            const active = interfaceScale === scale;
-            return (
-              <button
-                key={scale}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                aria-label={`${String(scale)} percent${scale === DEFAULT_INTERFACE_SCALE ? ", standard" : ""}`}
-                data-testid={`interface-size-${String(scale)}`}
-                className={`settings-theme-mode${active ? " is-active" : ""}`}
-                style={{ padding: "8px 14px" }}
-                onClick={() => void patchSettings({ appearance: { interfaceScale: scale } })}
-              >
-                <span className="settings-theme-mode__label">{scale}%</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div style={{ marginTop: 20 }}>
-        <Eyebrow>Managed agent appearance</Eyebrow>
-        <div
-          role="radiogroup"
-          aria-label="Managed agent appearance"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            marginTop: 10,
-          }}
-        >
-          {(
-            [
-              {
-                key: "follow" as const,
-                label: "Follow Junto",
-                hint: "Recommended. Terminals use Junto colours and the live appearance protocol.",
-              },
-              {
-                key: "agent" as const,
-                label: "Use agent theme",
-                hint: "Do not re-paint mid-session over agent colours. Either way, a seat starts exactly as the harness would when you run it yourself.",
-              },
-            ] as const
-          ).map((opt) => {
-            const active = agentAppearance === opt.key;
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                className={`settings-theme-mode${active ? " is-active" : ""}`}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "flex-start",
-                  textAlign: "left",
-                  padding: "10px 12px",
-                  gap: 4,
-                }}
-                onClick={() =>
-                  void patchSettings({
-                    appearance: { agentAppearance: opt.key },
-                  })
+    <div className="settings-section settings-blocks">
+      <SettingBlock label="Theme" hint="Auto follows your system's light or dark setting.">
+        {({ hintId }) => (
+          <div className="settings-theme-modes" role="radiogroup" aria-label="Theme" aria-describedby={hintId}>
+            {modes.map((mode) => (
+              <ThemeModeButton
+                key={mode.key}
+                choice={mode.key}
+                label={mode.label}
+                active={appearance.theme === mode.key}
+                onSelect={() =>
+                  void patchSettings({ appearance: { theme: mode.key } })
                 }
-              >
-                <span className="settings-theme-mode__label">{opt.label}</span>
-                <span className="settings-field__hint">{opt.hint}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+              />
+            ))}
+          </div>
+        )}
+      </SettingBlock>
+      <SettingBlock
+        label="Interface size"
+        hint="Makes text, buttons and spacing larger or smaller together. The canvas keeps its own zoom."
+      >
+        {({ hintId }) => (
+          <div className="settings-choices" role="radiogroup" aria-label="Interface size" aria-describedby={hintId}>
+            {INTERFACE_SCALES.map((scale) => {
+              const active = interfaceScale === scale;
+              return (
+                <button
+                  key={scale}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={`${String(scale)} percent${scale === DEFAULT_INTERFACE_SCALE ? ", standard" : ""}`}
+                  data-testid={`interface-size-${String(scale)}`}
+                  className={`settings-choice${active ? " is-active" : ""}`}
+                  onClick={() => void patchSettings({ appearance: { interfaceScale: scale } })}
+                >
+                  {scale}%
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </SettingBlock>
+      <SettingBlock
+        label="Agent terminal colours"
+        hint="What an open agent terminal does when you switch between dark and bright. Applies to terminals you open from now on."
+      >
+        {({ hintId }) => (
+          <div
+            className="settings-options"
+            role="radiogroup"
+            aria-label="Agent terminal colours"
+            aria-describedby={hintId}
+          >
+            {(
+              [
+                {
+                  key: "follow" as const,
+                  label: "Switch with Junto",
+                  hint: "The terminal changes to the new theme along with the rest of the app.",
+                },
+                {
+                  key: "agent" as const,
+                  label: "Keep the agent's colours",
+                  hint: "The terminal keeps the colours it has, so a palette the agent painted is not replaced.",
+                },
+              ] as const
+            ).map((opt) => {
+              const active = agentAppearance === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={`settings-option${active ? " is-active" : ""}`}
+                  onClick={() =>
+                    void patchSettings({
+                      appearance: { agentAppearance: opt.key },
+                    })
+                  }
+                >
+                  <span className="settings-option__mark" aria-hidden />
+                  <span className="settings-option__text">
+                    <span className="settings-option__label">{opt.label}</span>
+                    <span className="settings-option__hint">{opt.hint}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </SettingBlock>
     </div>
   );
 }
+
 
 function BrowserSection() {
   const browser = use$(state$.settings.browser);

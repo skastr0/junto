@@ -27,13 +27,17 @@ const entry = (section: string, name: string, description: string): SettingEntry
 
 /** Settings whose names are written on their page. */
 export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
-  entry("appearance", "Theme", "Auto, dark or bright"),
+  entry("appearance", "Theme", "Auto, dark or bright. Auto follows your system's light or dark setting"),
   entry(
     "appearance",
     "Interface size",
-    "Makes everything in Junto larger or smaller together: text, buttons and spacing",
+    "Makes text, buttons and spacing larger or smaller together",
   ),
-  entry("appearance", "Managed agent appearance", "Whether agent terminals use Junto colours or the agent's own theme"),
+  entry(
+    "appearance",
+    "Agent terminal colours",
+    "What an open agent terminal does when you switch between dark and bright",
+  ),
 
   entry("terminal", "Scroll sensitivity", "lines per wheel notch"),
   entry("terminal", "Font size", "cell size in px"),
