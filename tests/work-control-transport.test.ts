@@ -16,7 +16,11 @@ import {
   encodeWorkFrame,
 } from "../src/shared/work-control";
 import type { PreambleEvent } from "../src/shared/preamble";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelService } from "../src/main/junto/model/service";
+import { asCanvasName, asNodeId, type Command } from "../src/shared/model";
+import { grantOverseer, ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
+import { seat, wire } from "./support/model-nodes";
 import {
   resolveProcessBoundActorRef,
   startWorkControlServer,
@@ -57,7 +61,6 @@ import {
   mintSeatCredential,
   type SeatCredentialRegistry,
 } from "../src/main/junto/work/seat-credentials";
-import type { CanvasDoc } from "../src/shared/canvas";
 import {
   createMainAuthoringGate,
   type MainAuthoringGate,
@@ -98,7 +101,7 @@ const makeWorkTestRuntime = (root: string) => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(
     WorkLive,
     Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
@@ -116,12 +119,11 @@ const TEST_PEER_PID = process.pid;
 const authorialBasis = async (
   runtime: ReturnType<typeof makeWorkTestRuntime>,
 ): Promise<IntentFactBasisValue> => {
-  const canvases = await runtime.runPromise(CanvasesService);
-  const { intentWitness: witness } = await runtime.runPromise(canvases.readWithIntentWitness("work-cli"));
+  const held = await runtime.runPromise(readSeeded("work-cli"));
   return Schema.decodeUnknownSync(IntentFactBasis, {
     onExcessProperty: "error",
   })({
-    kind: "canvas", canvasName: witness.canvasName, seq: witness.seq,
+    kind: "canvas", canvasName: "work-cli", seq: held.seq,
   });
 };
 
@@ -135,64 +137,36 @@ const deferred = <A>() => {
   return { promise, resolve, reject };
 };
 
-const seedDoc = (): CanvasDoc => ({
-  nodes: [
-    {
-      id: "agent",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 120,
-      height: 48,
-      text: "agent",
-      ether: {
-        entity: { kind: "agent", name: "local:agent" },
-        terminal: {
-          bindingId: "bind-agent",
-          harness: "claude",
-          launch: { kind: "harness", argv: ["claude"] },
-        },
-      },
-    },
-    {
-      id: "orphan",
-      type: "text",
-      x: 500,
-      y: 200,
-      width: 120,
-      height: 48,
-      text: "orphan",
-      ether: {
-        entity: { kind: "agent", name: "local:orphan" },
-        terminal: {
-          bindingId: "bind-orphan",
-          harness: "claude",
-          launch: { kind: "harness", argv: ["claude"] },
-        },
-      },
-    },
-  ],
-  edges: [],
-});
+const claude = (id: string, at: { x: number; y: number }, label = id) =>
+  seat(id, {
+    ...at,
+    width: 120,
+    height: 48,
+    label,
+    bindingId: `bind-${id}` as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  });
 
-const addPromptPeer = async (runtime: ReturnType<typeof makeWorkTestRuntime>) => {
-  const canvases = await runtime.runPromise(CanvasesService);
-  const current = await runtime.runPromise(canvases.read("work-cli"));
-  await runtime.runPromise(canvases.write("work-cli", {
-    ...current.doc,
-    nodes: [...current.doc.nodes, {
-      id: "peer", type: "text", text: "Peer", x: 800, y: 0, width: 120, height: 48,
-      ether: {
-        entity: { kind: "agent", name: "local:peer" },
-        terminal: { bindingId: "bind-peer", harness: "claude", launch: { kind: "harness", argv: ["claude"] } },
-      },
-    }],
-    edges: [...current.doc.edges, {
-      id: "prompt-edge", fromNode: "agent", toNode: "peer", ether: { verb: "messages" },
-    }],
-  }));
-  return canvases;
-};
+/** Send the canvas a command, as the operator at the window would. */
+const operate = (runtime: ReturnType<typeof makeWorkTestRuntime>, command: Command) =>
+  runtime.runPromise(Effect.flatMap(ModelService, (model) => model.command(command, "operator")));
+
+const WORK_CLI = asCanvasName("work-cli");
+
+/** A seat beside the agent, with a messages wire from the agent to it. */
+const addPeer = (runtime: ReturnType<typeof makeWorkTestRuntime>, id: string, label: string, wireId: string) =>
+  operate(runtime, {
+    _tag: "Add",
+    canvas: WORK_CLI,
+    nodes: [{ ...claude(id, { x: 800, y: 0 }, label), z: 10 }],
+    wires: [wire(wireId, "agent", id, "messages")],
+  });
+
+const addPromptPeer = (runtime: ReturnType<typeof makeWorkTestRuntime>) =>
+  addPeer(runtime, "peer", "Peer", "prompt-edge");
+
+const setOverseer = (runtime: ReturnType<typeof makeWorkTestRuntime>, overseer: boolean) =>
+  runtime.runPromise(grantOverseer("work-cli", "agent", overseer));
 
 const seedCanonicalWork = async (
   runtime: ReturnType<typeof makeWorkTestRuntime>,
@@ -205,8 +179,9 @@ const seedCanonicalWork = async (
       supervisedPreferred: true,
     }),
   );
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write("work-cli", seedDoc()));
+  await runtime.runPromise(
+    seedCanvas("work-cli", [claude("agent", { x: 0, y: 0 }), claude("orphan", { x: 500, y: 200 })]),
+  );
 };
 
 const call = (
@@ -334,9 +309,8 @@ const token = (server: WorkControlServer = servers.at(-1)!): string => {
 const projectedProcessActor = async (): Promise<ActorRef> => {
   const runtime = runtimes.at(-1);
   if (runtime === undefined) throw new Error("missing work-control runtime");
-  const canvases = await runtime.runPromise(CanvasesService);
-  const read = await runtime.runPromise(canvases.read("work-cli"));
-  const actor = read.actorRefs.find((candidate) => candidate.nodeId === "agent");
+  const refs = await runtime.runPromise(Effect.flatMap(ModelActorRefs, (actors) => actors.read("work-cli")));
+  const actor = refs.find((candidate) => candidate.nodeId === "agent");
   if (actor === undefined) throw new Error("missing projected process actor");
   return actor;
 };
@@ -360,12 +334,10 @@ describe("work control transport", () => {
     expect(await call(server.socketPath, request)).toMatchObject({ ok: false, error: { type: "AuthError" } });
     expect(bridge).not.toHaveBeenCalled();
     const runtime = runtimes.at(-1)!;
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.mutate("work-cli", (doc) => ({ ...doc, nodes: doc.nodes.map((node) => node.id !== "agent" ? node : ({
-      ...node, ether: { ...node.ether, terminal: { ...node.ether!.terminal!, harness: "junto-overseer" } },
-    })) })));
-    const read = await runtime.runPromise(canvases.read("work-cli"));
-    await runtime.runPromise(canvases.canvasOverseerSet({ canvasName: "work-cli", nodeId: "agent", overseer: true, expectedRevision: read.revision }));
+    await operate(runtime, {
+      _tag: "Edit", canvas: WORK_CLI, id: asNodeId("agent"), change: { kind: "agent", harness: "junto-overseer" },
+    });
+    await setOverseer(runtime, true);
     expect(await call(server.socketPath, request)).toMatchObject({ ok: true, data: { type: "idle" } });
     expect(bridge.mock.calls[0]?.[1]).toMatchObject({ canvasName: "work-cli", nodeId: "agent", bindingId: "bind-agent", peerPid: TEST_PEER_PID,
       processGeneration: `${TEST_PEER_PID}:${processMap.snapshot()[0]!.startKey}` });
@@ -418,19 +390,17 @@ describe("work control transport", () => {
       }))),
     });
     const runtime = runtimes.at(-1)!;
-    const canvases = await runtime.runPromise(CanvasesService);
     const request = { token: token(), op: "overseer", args: { operation: "node.list" } };
     expect(await call(server.socketPath, request)).toMatchObject({
       ok: false, error: { type: "ScopeError" },
     });
     expect(execute).not.toHaveBeenCalled();
-    await runtime.runPromise(canvases.mutate("work-cli", (doc) => ({ ...doc, edges: [] })));
-    const toggle = async (overseer: boolean) => {
-      const read = await runtime.runPromise(canvases.read("work-cli"));
-      await runtime.runPromise(canvases.canvasOverseerSet({
-        canvasName: "work-cli", nodeId: "agent", overseer, expectedRevision: read.revision,
-      }));
-    };
+    // No wire is left on the canvas: an overseer needs none.
+    await operate(runtime, {
+      _tag: "Remove", canvas: WORK_CLI, nodes: [],
+      wires: [...(await runtime.runPromise(readSeeded("work-cli"))).wires.keys()],
+    });
+    const toggle = (overseer: boolean) => setOverseer(runtime, overseer);
     await toggle(true);
     expect(await call(server.socketPath, request)).toMatchObject({
       ok: true, data: { ok: true, data: { caller: { canvasName: "work-cli", nodeId: "agent" } } },
@@ -450,12 +420,7 @@ describe("work control transport", () => {
   });
 
   const enableOverseer = async (): Promise<void> => {
-    const runtime = runtimes.at(-1)!;
-    const canvases = await runtime.runPromise(CanvasesService);
-    const read = await runtime.runPromise(canvases.read("work-cli"));
-    await runtime.runPromise(canvases.canvasOverseerSet({
-      canvasName: "work-cli", nodeId: "agent", overseer: true, expectedRevision: read.revision,
-    }));
+    await setOverseer(runtimes.at(-1)!, true);
   };
 
   const holdOverseerUntilRelease = (mode: "succeed" | "fail") => {
@@ -990,12 +955,9 @@ describe("work control transport", () => {
       expiresAt: response.data.expiresAt,
     });
 
-    const canvases = await runtimes.at(-1)!.runPromise(CanvasesService);
-    const read = await runtimes.at(-1)!.runPromise(canvases.read("work-cli"));
-    const agentNode = read.doc.nodes.find(
-      (node) => node.id === "agent" && node.type === "text",
-    );
-    expect(agentNode?.type === "text" ? agentNode.text : undefined).toBe("agent");
+    // The seat's card keeps its own name: the preamble is not written on it.
+    const held = await runtimes.at(-1)!.runPromise(readSeeded("work-cli"));
+    expect(held.nodes.get(asNodeId("agent"))).toMatchObject({ kind: "agent", label: "agent" });
   });
 
   it("raises, lists, and withdraws the seat's own signals with no edge, and never blocks work", async () => {
@@ -1337,7 +1299,7 @@ describe("work control transport", () => {
   it("persists a prompt and hands it to the one mail path, which reports delivered", async () => {
     const server = servers[0]!;
     const runtime = runtimes.at(-1)!;
-    const canvases = await addPromptPeer(runtime);
+    await addPromptPeer(runtime);
     const deliver = vi.spyOn(messageDelivery, "deliver").mockImplementation(async (canvas, nodeId, messageId) => {
       const row = await runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.mailMessage(canvas, nodeId, messageId)));
       expect(row?.parts).toEqual([{ kind: "text", text: "Review the patch" }]);
@@ -1358,7 +1320,7 @@ describe("work control transport", () => {
   it("never refuses a prompt: a seat that is not up gets it when it starts", async () => {
     const server = servers[0]!;
     const runtime = runtimes.at(-1)!;
-    const canvases = await addPromptPeer(runtime);
+    await addPromptPeer(runtime);
     const deliver = vi.spyOn(messageDelivery, "deliver").mockResolvedValue("waiting");
     try {
       const sent = await call(server.socketPath, {
@@ -1373,37 +1335,7 @@ describe("work control transport", () => {
   it("msg.list own inbox marks listed mail read and surfaces sent readAt", async () => {
     const server = servers[0]!;
     const runtime = runtimes.at(-1)!;
-    const canvases = await runtime.runPromise(CanvasesService);
-    const current = await runtime.runPromise(canvases.read("work-cli"));
-    await runtime.runPromise(
-      canvases.write("work-cli", {
-        ...current.doc,
-        nodes: [
-          ...current.doc.nodes,
-          {
-            id: "bravo",
-            type: "text",
-            x: 800,
-            y: 0,
-            width: 120,
-            height: 48,
-            text: "bravo",
-            ether: {
-              entity: { kind: "agent", name: "local:bravo" },
-              terminal: {
-                bindingId: "bind-bravo",
-                harness: "claude",
-                launch: { kind: "harness", argv: ["claude"] },
-              },
-            },
-          },
-        ],
-        edges: [
-          ...current.doc.edges,
-          { id: "e-ab", fromNode: "agent", toNode: "bravo", ether: { verb: "messages" } },
-        ],
-      }),
-    );
+    await addPeer(runtime, "bravo", "bravo", "e-ab");
     const repository = await runtime.runPromise(WorkRepository);
     const actor = await projectedProcessActor();
     const basis = await authorialBasis(runtime);
@@ -1515,8 +1447,8 @@ describe("work control transport", () => {
     expect(outbound?.toNodeId).toBe("bravo");
     expect(outbound?.metadata?.readAt).toBeUndefined();
 
-    const afterWrite = await runtime.runPromise(canvases.read("work-cli"));
-    const bravoActor = afterWrite.actorRefs.find((ref) => ref.nodeId === "bravo");
+    const refsAfter = await runtime.runPromise(Effect.flatMap(ModelActorRefs, (actors) => actors.read("work-cli")));
+    const bravoActor = refsAfter.find((ref) => ref.nodeId === "bravo");
     expect(bravoActor).toBeDefined();
     const work = await runtime.runPromise(WorkService);
     const marked = await runtime.runPromise(
