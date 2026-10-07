@@ -70,7 +70,7 @@
   background: color-mix(in oklab, var(--color-main) 12%, transparent);
   color: var(--color-ink);
 }
-.first-run-intro__chapter:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
+.first-run-intro__chapter:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 1px; }
 .first-run-intro__chapter-n {
   color: var(--color-faint);
   font-family: var(--font-mono);

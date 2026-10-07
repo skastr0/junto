@@ -177,8 +177,9 @@
   color: var(--color-ink);
 }
 
+/* Solid cyan, as on the portrait button below: the focus-ring tint is too faint for a line. */
 .agent-editor__option:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
+  outline: 2px solid var(--color-cyan);
   outline-offset: 1px;
 }
 
