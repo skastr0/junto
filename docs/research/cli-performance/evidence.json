@@ -1,0 +1,1203 @@
+{
+  "scope": "Primary TypeScript/Effect rerun, installed Junto 0.4.1; no product mutation load",
+  "environment": {
+    "app_version": "0.4.1",
+    "os": "macOS 26.5.2 (25F84)",
+    "bun": "1.4.2",
+    "effect": "4.0.0-rc.112",
+    "source_investigation_start": "d96ebd59f56dead54101fbb4264284756be74670",
+    "source_receipt_review": "f85d05274703e2554055c0419dd184f14c91c1c7",
+    "installed_main_bundle_sha256": "19d0b7cfdafe97c74319b59e6a0e04190e6bcb0e78829d427bea924fa5c4ef2a"
+  },
+  "methods": {
+    "burst_concurrency": 24,
+    "serial_concurrency": 1,
+    "idle_sample_seconds": 3,
+    "burst_sample_seconds": 4,
+    "sample_requested_interval_ms": 2,
+    "clock": "performance.now, client elapsed",
+    "sample_counting": "Sum first matching subtree per stack; inclusive descendants are not double-counted",
+    "filesystem_category": "Symbol matches include asynchronous completion callbacks and are not a synchronous-IO estimate",
+    "limitations": [
+      "Small samples on an active app; profiler and background activity can perturb timing",
+      "Direct and CLI client process ancestries differ",
+      "Persistent group includes first peer credential acquisition",
+      "Source import variants do not predict packaged import costs",
+      "No renderer or terminal end-to-end latency measurement",
+      "No native peer bridge replacement tested"
+    ]
+  },
+  "measurements": {
+    "captured_at": "2026-10-07T03:21:37.166Z",
+    "harness": "TypeScript, Bun, Effect v4",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cli_sha256": "3229bf5dfe02874a55a5be1eabfe838aa7f74bb92688a8f1cbf6f0124f97fc97",
+    "groups": [
+      {
+        "label": "ts_packaged_version_serial",
+        "n": 6,
+        "wall_ms": 678.0395,
+        "min_ms": 108.49920800000001,
+        "median_ms": 110.89935400000002,
+        "p95_ms": 122.78083300000003,
+        "max_ms": 122.78083300000003,
+        "success_count": 6,
+        "rows": [
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 111.514042,
+            "index": 0,
+            "completed_ms": 112.41241700000002
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 113.554291,
+            "index": 1,
+            "completed_ms": 226.171084
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 110.28466600000002,
+            "index": 2,
+            "completed_ms": 336.49600000000004
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 108.49920800000001,
+            "index": 3,
+            "completed_ms": 445.040042
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 110.070333,
+            "index": 4,
+            "completed_ms": 555.147625
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 122.78083300000003,
+            "index": 5,
+            "completed_ms": 677.9767919999999
+          }
+        ]
+      },
+      {
+        "label": "ts_source_version_serial",
+        "n": 4,
+        "wall_ms": 728.6751249999999,
+        "min_ms": 166.00087500000006,
+        "median_ms": 182.29268750000006,
+        "p95_ms": 197.7928750000001,
+        "max_ms": 197.7928750000001,
+        "success_count": 4,
+        "rows": [
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 179.234375,
+            "index": 0,
+            "completed_ms": 179.310833
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 166.00087500000006,
+            "index": 1,
+            "completed_ms": 345.35070800000005
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 197.7928750000001,
+            "index": 2,
+            "completed_ms": 543.225458
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 185.3510000000001,
+            "index": 3,
+            "completed_ms": 728.6484999999999
+          }
+        ]
+      },
+      {
+        "label": "ts_packaged_ping_serial",
+        "n": 6,
+        "wall_ms": 1310.2796669999998,
+        "min_ms": 203.647917,
+        "median_ms": 213.78897900000004,
+        "p95_ms": 248.47566600000027,
+        "max_ms": 248.47566600000027,
+        "success_count": 6,
+        "rows": [
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 221.29575,
+            "index": 0,
+            "completed_ms": 221.3644589999999
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 215.4775830000001,
+            "index": 1,
+            "completed_ms": 436.88633400000003
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 203.647917,
+            "index": 2,
+            "completed_ms": 640.57575
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 212.10037499999999,
+            "index": 3,
+            "completed_ms": 852.7215839999999
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 248.47566600000027,
+            "index": 4,
+            "completed_ms": 1101.23675
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 208.90779199999997,
+            "index": 5,
+            "completed_ms": 1310.2363339999997
+          }
+        ]
+      },
+      {
+        "label": "ts_direct_fresh_ping_serial",
+        "n": 6,
+        "wall_ms": 429.0124169999999,
+        "min_ms": 68.34975000000031,
+        "median_ms": 70.46433350000007,
+        "p95_ms": 78.36233300000004,
+        "max_ms": 78.36233300000004,
+        "success_count": 6,
+        "rows": [
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 78.36233300000004,
+            "index": 0,
+            "completed_ms": 78.54133300000012
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 71.42108300000018,
+            "index": 1,
+            "completed_ms": 150.02816699999994
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 69.5177920000001,
+            "index": 2,
+            "completed_ms": 219.58629199999996
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 70.18654200000037,
+            "index": 3,
+            "completed_ms": 289.82337499999994
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 68.34975000000031,
+            "index": 4,
+            "completed_ms": 358.20970799999986
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 70.74212499999976,
+            "index": 5,
+            "completed_ms": 428.98849999999993
+          }
+        ]
+      },
+      {
+        "label": "ts_direct_persistent_ping_serial",
+        "n": 6,
+        "wall_ms": 214.83941700000014,
+        "min_ms": 23.656958999999915,
+        "median_ms": 25.848604499999965,
+        "p95_ms": 75.00908299999992,
+        "max_ms": 75.00908299999992,
+        "success_count": 6,
+        "rows": [
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 75.00908299999992,
+            "index": 0,
+            "completed_ms": 75.04054200000019
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 25.840000000000146,
+            "index": 1,
+            "completed_ms": 100.93191700000034
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 24.930041000000074,
+            "index": 2,
+            "completed_ms": 125.91300000000001
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 23.656958999999915,
+            "index": 3,
+            "completed_ms": 149.60933400000022
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 25.857208999999784,
+            "index": 4,
+            "completed_ms": 175.50579200000038
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 39.22600000000011,
+            "index": 5,
+            "completed_ms": 214.80862500000012
+          }
+        ]
+      },
+      {
+        "label": "ts_direct_fresh_capabilities_serial",
+        "n": 4,
+        "wall_ms": 574.2925,
+        "min_ms": 125.72283299999981,
+        "median_ms": 146.8360419999999,
+        "p95_ms": 154.6847499999999,
+        "max_ms": 154.6847499999999,
+        "success_count": 4,
+        "rows": [
+          {
+            "ok": true,
+            "response_bytes": 10595,
+            "error_type": null,
+            "ms": 125.72283299999981,
+            "index": 0,
+            "completed_ms": 125.80779200000006
+          },
+          {
+            "ok": true,
+            "response_bytes": 10595,
+            "error_type": null,
+            "ms": 145.92758400000002,
+            "index": 1,
+            "completed_ms": 271.7704170000002
+          },
+          {
+            "ok": true,
+            "response_bytes": 10595,
+            "error_type": null,
+            "ms": 154.6847499999999,
+            "index": 2,
+            "completed_ms": 426.49312499999996
+          },
+          {
+            "ok": true,
+            "response_bytes": 10595,
+            "error_type": null,
+            "ms": 147.7444999999998,
+            "index": 3,
+            "completed_ms": 574.2661250000001
+          }
+        ]
+      },
+      {
+        "label": "ts_packaged_ping_burst_24",
+        "n": 24,
+        "wall_ms": 2625.884415999999,
+        "min_ms": 387.47600000000057,
+        "median_ms": 1546.0247705000006,
+        "p95_ms": 2526.3089999999993,
+        "max_ms": 2613.6764160000002,
+        "success_count": 24,
+        "rows": [
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 558.7705830000004,
+            "index": 0,
+            "completed_ms": 559.3714579999996
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 813.6223339999997,
+            "index": 1,
+            "completed_ms": 815.4795410000006
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1232.6836670000002,
+            "index": 2,
+            "completed_ms": 1234.8886249999996
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 2050.474833,
+            "index": 3,
+            "completed_ms": 2052.956
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 720.765374999999,
+            "index": 4,
+            "completed_ms": 723.4943330000006
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 387.47600000000057,
+            "index": 5,
+            "completed_ms": 390.5531659999997
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 975.1935840000006,
+            "index": 6,
+            "completed_ms": 978.5422909999998
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 892.2827080000006,
+            "index": 7,
+            "completed_ms": 895.9059579999994
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1136.3961250000002,
+            "index": 8,
+            "completed_ms": 1140.2726249999996
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1330.4494999999997,
+            "index": 9,
+            "completed_ms": 1334.5822079999998
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1055.9380410000012,
+            "index": 10,
+            "completed_ms": 1060.3256660000006
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1962.5915410000007,
+            "index": 11,
+            "completed_ms": 1967.2309160000004
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 2423.0229169999993,
+            "index": 12,
+            "completed_ms": 2427.9245410000003
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1696.2098750000005,
+            "index": 13,
+            "completed_ms": 1701.3691660000004
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 2236.458667,
+            "index": 14,
+            "completed_ms": 2241.8533750000006
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1595.5973330000006,
+            "index": 15,
+            "completed_ms": 1601.2136250000003
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1789.0960840000007,
+            "index": 16,
+            "completed_ms": 1796.5841660000006
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1496.4522080000006,
+            "index": 17,
+            "completed_ms": 1505.4475000000002
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 2141.4134169999998,
+            "index": 18,
+            "completed_ms": 2150.7303329999995
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 2526.3089999999993,
+            "index": 19,
+            "completed_ms": 2537.0967500000006
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1410.4750000000004,
+            "index": 20,
+            "completed_ms": 1421.9844159999993
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 1872.8832500000008,
+            "index": 21,
+            "completed_ms": 1884.721207999999
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 2613.6764160000002,
+            "index": 22,
+            "completed_ms": 2625.8035409999993
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 2316.425625,
+            "index": 23,
+            "completed_ms": 2329.5463330000002
+          }
+        ]
+      },
+      {
+        "label": "ts_direct_fresh_ping_burst_24",
+        "n": 24,
+        "wall_ms": 1689.1197499999998,
+        "min_ms": 72.55291700000089,
+        "median_ms": 882.5574374999997,
+        "p95_ms": 1617.7032080000008,
+        "max_ms": 1687.8644170000007,
+        "success_count": 24,
+        "rows": [
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 72.55291700000089,
+            "index": 0,
+            "completed_ms": 72.66966700000012
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 143.46579199999906,
+            "index": 1,
+            "completed_ms": 143.78204200000073
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 217.16133400000035,
+            "index": 2,
+            "completed_ms": 217.5221249999995
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 286.04454199999964,
+            "index": 3,
+            "completed_ms": 286.43879200000083
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 354.7962919999991,
+            "index": 4,
+            "completed_ms": 355.22604200000023
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 424.88720900000044,
+            "index": 5,
+            "completed_ms": 425.3464590000003
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 493.7222090000014,
+            "index": 6,
+            "completed_ms": 494.2388750000009
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 563.9358749999992,
+            "index": 7,
+            "completed_ms": 564.4746670000004
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 644.8839590000007,
+            "index": 8,
+            "completed_ms": 645.4912920000006
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 712.3017500000005,
+            "index": 9,
+            "completed_ms": 712.9338750000006
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 781.560958,
+            "index": 10,
+            "completed_ms": 782.2343340000007
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 847.97775,
+            "index": 11,
+            "completed_ms": 848.7389590000002
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 917.1371249999993,
+            "index": 12,
+            "completed_ms": 917.9715420000011
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1002.5925829999996,
+            "index": 13,
+            "completed_ms": 1003.494834000001
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1072.348333,
+            "index": 14,
+            "completed_ms": 1073.2974590000013
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1141.785667,
+            "index": 15,
+            "completed_ms": 1142.7704169999997
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1209.5332919999983,
+            "index": 16,
+            "completed_ms": 1210.547375
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1278.1134170000005,
+            "index": 17,
+            "completed_ms": 1279.153875
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1343.0543340000004,
+            "index": 18,
+            "completed_ms": 1344.1180839999997
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1411.2617919999993,
+            "index": 19,
+            "completed_ms": 1412.354625
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1481.1569169999984,
+            "index": 20,
+            "completed_ms": 1482.273459
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1547.6603329999998,
+            "index": 21,
+            "completed_ms": 1548.8024590000005
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1617.7032080000008,
+            "index": 22,
+            "completed_ms": 1618.8708340000012
+          },
+          {
+            "ok": true,
+            "response_bytes": 149,
+            "error_type": null,
+            "ms": 1687.8644170000007,
+            "index": 23,
+            "completed_ms": 1689.0908749999999
+          }
+        ]
+      },
+      {
+        "label": "ts_packaged_ping_serial_after",
+        "n": 4,
+        "wall_ms": 812.6758750000008,
+        "min_ms": 195.60770799999955,
+        "median_ms": 204.87166700000125,
+        "p95_ms": 206.9990420000031,
+        "max_ms": 206.9990420000031,
+        "success_count": 4,
+        "rows": [
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 204.335750000002,
+            "index": 0,
+            "completed_ms": 204.45866599999863
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 205.4075840000005,
+            "index": 1,
+            "completed_ms": 409.9345409999987
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 206.9990420000031,
+            "index": 2,
+            "completed_ms": 616.9838329999984
+          },
+          {
+            "ok": true,
+            "exit_code": 0,
+            "ms": 195.60770799999955,
+            "index": 3,
+            "completed_ms": 812.6365409999999
+          }
+        ]
+      }
+    ]
+  },
+  "startup": {
+    "captured_at": "2026-10-07T03:24:42.352Z",
+    "groups": [
+      {
+        "label": "bun_empty",
+        "n": 6,
+        "median_ms": 19.367957999999987,
+        "min_ms": 16.142083000000014,
+        "max_ms": 34.26625,
+        "rows": [
+          {
+            "ms": 16.91083400000001,
+            "exit_code": 0
+          },
+          {
+            "ms": 18.850790999999987,
+            "exit_code": 0
+          },
+          {
+            "ms": 19.885124999999988,
+            "exit_code": 0
+          },
+          {
+            "ms": 34.26625,
+            "exit_code": 0
+          },
+          {
+            "ms": 20.327541999999994,
+            "exit_code": 0
+          },
+          {
+            "ms": 16.142083000000014,
+            "exit_code": 0
+          }
+        ]
+      },
+      {
+        "label": "effect_leaf_import",
+        "n": 6,
+        "median_ms": 26.656645999999995,
+        "min_ms": 26.093582999999995,
+        "max_ms": 28.04887500000001,
+        "rows": [
+          {
+            "ms": 27.002749999999992,
+            "exit_code": 0,
+            "import_ms": 15.865875
+          },
+          {
+            "ms": 26.16666699999999,
+            "exit_code": 0,
+            "import_ms": 15.475708
+          },
+          {
+            "ms": 26.093582999999995,
+            "exit_code": 0,
+            "import_ms": 16.116167
+          },
+          {
+            "ms": 26.310541999999998,
+            "exit_code": 0,
+            "import_ms": 15.454291000000001
+          },
+          {
+            "ms": 28.04887500000001,
+            "exit_code": 0,
+            "import_ms": 15.905459
+          },
+          {
+            "ms": 27.476374999999962,
+            "exit_code": 0,
+            "import_ms": 16.112666
+          }
+        ]
+      },
+      {
+        "label": "effect_root_import",
+        "n": 6,
+        "median_ms": 63.61268799999996,
+        "min_ms": 62.412874999999985,
+        "max_ms": 68.57162500000004,
+        "rows": [
+          {
+            "ms": 62.73754200000002,
+            "exit_code": 0,
+            "import_ms": 51.04975
+          },
+          {
+            "ms": 63.64979199999999,
+            "exit_code": 0,
+            "import_ms": 52.086292
+          },
+          {
+            "ms": 62.412874999999985,
+            "exit_code": 0,
+            "import_ms": 51.70575
+          },
+          {
+            "ms": 64.85291700000005,
+            "exit_code": 0,
+            "import_ms": 49.748708
+          },
+          {
+            "ms": 68.57162500000004,
+            "exit_code": 0,
+            "import_ms": 50.692875
+          },
+          {
+            "ms": 63.575583999999935,
+            "exit_code": 0,
+            "import_ms": 51.39125
+          }
+        ]
+      },
+      {
+        "label": "work_socket_import",
+        "n": 6,
+        "median_ms": 95.26574999999997,
+        "min_ms": 90.66812500000003,
+        "max_ms": 101.38975000000005,
+        "rows": [
+          {
+            "ms": 93.15195800000004,
+            "exit_code": 0,
+            "import_ms": 81.759791
+          },
+          {
+            "ms": 96.149,
+            "exit_code": 0,
+            "import_ms": 82.890417
+          },
+          {
+            "ms": 90.66812500000003,
+            "exit_code": 0,
+            "import_ms": 79.807375
+          },
+          {
+            "ms": 94.38249999999994,
+            "exit_code": 0,
+            "import_ms": 78.19675
+          },
+          {
+            "ms": 97.62720800000011,
+            "exit_code": 0,
+            "import_ms": 82.548375
+          },
+          {
+            "ms": 101.38975000000005,
+            "exit_code": 0,
+            "import_ms": 87.663875
+          }
+        ]
+      },
+      {
+        "label": "full_cli_import",
+        "n": 6,
+        "median_ms": 192.69879149999997,
+        "min_ms": 184.54666599999973,
+        "max_ms": 199.6925000000001,
+        "rows": [
+          {
+            "ms": 199.6925000000001,
+            "exit_code": 0,
+            "import_ms": 181.613958
+          },
+          {
+            "ms": 199.1964170000001,
+            "exit_code": 0,
+            "import_ms": 174.61295900000002
+          },
+          {
+            "ms": 189.27208399999995,
+            "exit_code": 0,
+            "import_ms": 176.591375
+          },
+          {
+            "ms": 191.9772079999998,
+            "exit_code": 0,
+            "import_ms": 175.326708
+          },
+          {
+            "ms": 193.42037500000015,
+            "exit_code": 0,
+            "import_ms": 182.40841700000001
+          },
+          {
+            "ms": 184.54666599999973,
+            "exit_code": 0,
+            "import_ms": 173.0175
+          }
+        ]
+      }
+    ]
+  },
+  "samples": [
+    {
+      "file": "ts_direct_fresh_ping_burst_24.sample.txt",
+      "sha256": "bf9027d54f14e8d4ec39d1b5e35e1fd2dc04149fa615ba1ad7812f291ac0ad4a",
+      "main_thread_samples": 1670,
+      "categories": {
+        "synchronous_spawn": {
+          "samples": 657,
+          "share_pct": 39.34131736526946,
+          "frames": [
+            {
+              "samples": 456,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 39,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 36,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 28,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 34,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 35,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 29,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            }
+          ]
+        },
+        "filesystem_symbols": {
+          "samples": 0,
+          "share_pct": 0,
+          "frames": []
+        },
+        "synchronous_sqlite": {
+          "samples": 2,
+          "share_pct": 0.11976047904191617,
+          "frames": [
+            {
+              "samples": 1,
+              "symbol": "node::sqlite::StatementSync::All(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::sqlite::StatementSync::~StatementSync()  (in Electron Framework) + 12"
+            }
+          ]
+        }
+      },
+      "filesystem_symbol_counts": {}
+    },
+    {
+      "file": "ts.main.idle.sample.txt",
+      "sha256": "5b8fdb235acf1944327871cc8121a443f86f41b1d1ca77080be62b1588bc6643",
+      "main_thread_samples": 1226,
+      "categories": {
+        "synchronous_spawn": {
+          "samples": 27,
+          "share_pct": 2.202283849918434,
+          "frames": [
+            {
+              "samples": 18,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 2,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 2,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 2,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            }
+          ]
+        },
+        "filesystem_symbols": {
+          "samples": 2,
+          "share_pct": 0.1631321370309951,
+          "frames": [
+            {
+              "samples": 2,
+              "symbol": "node::fs::AfterStat(uv_fs_s*)  (in Electron Framework) + 368"
+            }
+          ]
+        },
+        "synchronous_sqlite": {
+          "samples": 11,
+          "share_pct": 0.897226753670473,
+          "frames": [
+            {
+              "samples": 2,
+              "symbol": "node::sqlite::StatementSync::All(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::sqlite::StatementSync::Run(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            },
+            {
+              "samples": 3,
+              "symbol": "node::sqlite::StatementSync::Run(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            },
+            {
+              "samples": 2,
+              "symbol": "node::sqlite::StatementSync::All(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::sqlite::StatementSync::Run(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::sqlite::StatementSync::All(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::sqlite::StatementSync::All(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            }
+          ]
+        }
+      },
+      "filesystem_symbol_counts": {}
+    },
+    {
+      "file": "ts_packaged_ping_burst_24.sample.txt",
+      "sha256": "ba94ecf835d66d576ba704f493399abac81ebb3bd29bca1ea20ef0f839b2cf5c",
+      "main_thread_samples": 1656,
+      "categories": {
+        "synchronous_spawn": {
+          "samples": 919,
+          "share_pct": 55.49516908212561,
+          "frames": [
+            {
+              "samples": 298,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 37,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 24,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 22,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 250,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 42,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 22,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 16,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 110,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 50,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 45,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            },
+            {
+              "samples": 1,
+              "symbol": "node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600"
+            }
+          ]
+        },
+        "filesystem_symbols": {
+          "samples": 0,
+          "share_pct": 0,
+          "frames": []
+        },
+        "synchronous_sqlite": {
+          "samples": 1,
+          "share_pct": 0.06038647342995169,
+          "frames": [
+            {
+              "samples": 1,
+              "symbol": "node::sqlite::StatementSync::All(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 332"
+            }
+          ]
+        }
+      },
+      "filesystem_symbol_counts": {}
+    }
+  ]
+}
