@@ -2094,7 +2094,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   border: 1px solid color-mix(in oklab, var(--color-second) 40%, transparent);
   border-radius: 5px;
   background: color-mix(in oklab, var(--color-second) 10%, transparent);
-  color: var(--color-cyan);
+  color: var(--color-cyan-fg);
   padding: 4px 8px;
   font-size: 8px;
   letter-spacing: 0.12em;

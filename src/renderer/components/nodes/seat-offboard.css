@@ -34,7 +34,7 @@
   gap: 6px;
 }
 .seat-offboard-panel__preferred {
-  color: var(--color-cyan);
+  color: var(--color-cyan-fg);
   font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: var(--tracking-eyebrow);

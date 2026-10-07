@@ -215,7 +215,7 @@
   white-space: nowrap;
 }
 .chat-plan__status.is-done {
-  color: var(--color-cyan);
+  color: var(--color-cyan-fg);
 }
 .chat-plan__status.is-active {
   color: var(--color-amber);
@@ -261,7 +261,7 @@
   white-space: nowrap;
 }
 .chat-tool-card__status {
-  color: var(--color-cyan);
+  color: var(--color-cyan-fg);
   font-size: var(--text-micro);
   text-transform: lowercase;
 }

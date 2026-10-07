@@ -104,7 +104,7 @@ export function GitCard({
           ) : (
             <>
               <span className="git-glance__branch text-ink">{status?.branch ?? "reading"}</span>
-              {sync ? <span className="git-glance__sync text-cyan"> {sync}</span> : null}
+              {sync ? <span className="git-glance__sync text-cyan-fg"> {sync}</span> : null}
               {head ? <span> {head.subject}</span> : status ? <span> no commits</span> : null}
             </>
           )

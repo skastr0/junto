@@ -25,7 +25,7 @@
 }
 
 .actor-ledger__mail-refs {
-  color: var(--color-cyan);
+  color: var(--color-cyan-fg);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-label);
 }
