@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { use$ } from "@legendapp/state/react";
 import { SlidersHorizontal } from "lucide-react";
 import type { Seat } from "@shared/model";
-import { nodeToDocument } from "@shared/model/from-document";
 import {
   formatExtraArgs,
   parseExtraArgsText,
@@ -48,8 +47,7 @@ const optionsWith = (values: readonly string[], current: string) => [
 
 export function ParamsSection({ seat }: AgentEditorSectionProps) {
   const node = seat.node;
-  // The launch planner still reads the document form of a seat.
-  const view = useMemo(() => (node ? seatLaunchParamsOf(nodeToDocument(node)) : undefined), [node]);
+  const view = useMemo(() => (node ? seatLaunchParamsOf(node) : undefined), [node]);
   if (seat.draft) return <DraftParams draft={seat.draft} />;
   if (!view || !node) {
     return <p className="agent-editor__hint">This seat has no harness to start.</p>;
@@ -370,7 +368,7 @@ function SeatParams({
           : "Choices for this seat's next Amp thread. Mode and startup features are set when the private thread is created."
         : `What ${templateFor(harness).displayName} is started with on this seat. Saving restarts a running agent on the new parameters and resumes the same session.`}
       footer={({ params, changed, settle }) => {
-        const changeError = seatLaunchParamsChangeError(nodeToDocument(node), params);
+        const changeError = seatLaunchParamsChangeError(node, params);
         return (
           <>
             <div className="customize-params__actions">

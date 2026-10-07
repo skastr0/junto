@@ -6,7 +6,8 @@
  * SAME seat (same binding, same session id), so restarting with different
  * parameters continues the conversation instead of re-seating the agent.
  */
-import type { CanvasNode, EtherTerminalLaunch } from "./canvas";
+import type { EtherTerminalLaunch } from "./canvas";
+import type { Launch, Seat } from "./model";
 import { recoverDocumentLaunchChoices } from "./launch-choices";
 import {
   sanitizeExtraArgs,
@@ -43,19 +44,16 @@ const trimmed = (value: string | undefined): string | undefined => {
   return next && next.length > 0 ? next : undefined;
 };
 
-const harnessOf = (node: CanvasNode): HarnessId | undefined => {
-  if (node.ether?.entity?.kind !== "agent") return undefined;
-  const harness = node.ether.terminal?.harness;
-  return harness && isHarnessId(harness) ? harness : undefined;
-};
+const harnessOf = (seat: Seat): HarnessId | undefined =>
+  isHarnessId(seat.harness) ? seat.harness : undefined;
 
-/** Current starting parameters of a managed seat; undefined for other nodes. */
+/** Current starting parameters of a seat; undefined when its harness is not a managed one. */
 export const seatLaunchParamsOf = (
-  node: CanvasNode,
+  seat: Seat,
 ): SeatLaunchParamsView | undefined => {
-  const harness = harnessOf(node);
+  const harness = harnessOf(seat);
   if (!harness) return undefined;
-  const launch = node.ether?.terminal?.launch;
+  const launch = seat.launch;
   const recovered = recoverDocumentLaunchChoices(harness, launch);
   return {
     harness,
@@ -140,11 +138,11 @@ export const planSeatLaunch = (input: {
  * Refuse these edits before saving or stopping anything, not after a restart.
  */
 export const seatLaunchParamsChangeError = (
-  node: CanvasNode,
+  seat: Seat,
   params: SeatLaunchParams,
 ): string | undefined => {
-  if (harnessOf(node) !== "amp" || !node.ether?.terminal?.sessionId?.trim()) return undefined;
-  const stored = recoverDocumentLaunchChoices("amp", node.ether.terminal.launch);
+  if (harnessOf(seat) !== "amp" || !seat.sessionId?.trim()) return undefined;
+  const stored = recoverDocumentLaunchChoices("amp", seat.launch);
   if ((trimmed(stored.mode) ?? "").toLowerCase() !== (trimmed(params.mode) ?? "").toLowerCase()) {
     return "Amp resumes the thread's saved mode. Restarting cannot change it; use Amp's dial before the first message, or re-seat from Launch.";
   }
@@ -157,39 +155,30 @@ export const seatLaunchParamsChangeError = (
 };
 
 /**
- * The same seat with new starting parameters: binding, session id, identity,
- * label and geometry are untouched; only the stored launch changes. Returns
- * undefined for an unmanaged seat or a change its named thread cannot apply.
+ * The launch the same seat starts on with new parameters. Binding, session
+ * id, identity, label and geometry are not part of it: only the stored launch
+ * changes. Undefined for a harness that is not managed, or a change the seat's
+ * named thread cannot apply.
  */
-export const relaunchManagedAgentNode = <N extends CanvasNode>(
-  node: N,
+export const seatRelaunch = (
+  seat: Seat,
   params: SeatLaunchParams,
-): { readonly node: N; readonly rejected: readonly RejectedExtraArg[] } | undefined => {
-  const harness = harnessOf(node);
-  const terminal = node.ether?.terminal;
-  if (!harness || !terminal || !node.ether) return undefined;
-  if (seatLaunchParamsChangeError(node, params)) return undefined;
-  const recovered = recoverDocumentLaunchChoices(harness, terminal.launch);
+): { readonly launch: Launch; readonly rejected: readonly RejectedExtraArg[] } | undefined => {
+  const harness = harnessOf(seat);
+  if (!harness) return undefined;
+  if (seatLaunchParamsChangeError(seat, params)) return undefined;
+  const recovered = recoverDocumentLaunchChoices(harness, seat.launch);
   const plan = planSeatLaunch({
     harness,
     params,
     base: {
-      cwd: terminal.launch?.cwd,
+      cwd: seat.launch?.cwd,
       profile: recovered.profile,
       provider: recovered.provider,
-      sessionId: terminal.sessionId,
+      sessionId: seat.sessionId,
     },
   });
-  return {
-    node: {
-      ...node,
-      ether: {
-        ...node.ether,
-        terminal: { ...terminal, launch: plan.launch },
-      },
-    },
-    rejected: plan.rejected,
-  };
+  return { launch: plan.launch, rejected: plan.rejected };
 };
 
 /** True when two parameter sets resolve to a different launch. */

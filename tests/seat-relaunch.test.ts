@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { seat as modelSeat } from "./support/model-nodes";
+import { canvasOf, seat as modelSeat } from "./support/model-nodes";
 import { planSeatLaunch } from "../src/shared/seat-launch-params";
 
 vi.mock("../src/renderer/lib/mutations", () => ({
-  applyManagedAgentReseat: vi.fn(),
+  commitCommands: vi.fn(),
   flushPendingCanvasSave: vi.fn(async () => undefined),
 }));
 vi.mock("../src/renderer/lib/terminal-actions", () => ({
@@ -14,7 +14,7 @@ vi.mock("../src/renderer/lib/terminal-actions", () => ({
 vi.mock("../src/renderer/lib/junto-api", () => ({ getJuntoApi: vi.fn() }));
 
 import { getJuntoApi } from "../src/renderer/lib/junto-api";
-import { applyManagedAgentReseat, flushPendingCanvasSave } from "../src/renderer/lib/mutations";
+import { commitCommands, flushPendingCanvasSave } from "../src/renderer/lib/mutations";
 import { performSeatRelaunch } from "../src/renderer/lib/seat-relaunch";
 import { ensureTerminalRunning, killTerminal, openTerminal } from "../src/renderer/lib/terminal-actions";
 
@@ -38,7 +38,7 @@ describe("Amp parameter changes before restart", () => {
     const before = structuredClone(seat);
     expect(await performSeatRelaunch(seat, next)).toMatchObject({ ok: false });
     expect(getJuntoApi).not.toHaveBeenCalled();
-    expect(applyManagedAgentReseat).not.toHaveBeenCalled();
+    expect(commitCommands).not.toHaveBeenCalled();
     expect(flushPendingCanvasSave).not.toHaveBeenCalled();
     expect(killTerminal).not.toHaveBeenCalled();
     expect(ensureTerminalRunning).not.toHaveBeenCalled();
@@ -52,16 +52,21 @@ describe("Amp parameter changes before restart", () => {
       extraArgs: ["--features", "plaid", "--no-notifications"],
     });
     expect(result).toEqual({ ok: true, restarted: false, rejected: [] });
-    expect(applyManagedAgentReseat).toHaveBeenCalledWith(expect.objectContaining({
-      id: "amp-seat",
-      ether: expect.objectContaining({
-        terminal: expect.objectContaining({
-          bindingId: "amp-binding",
-          sessionId: "T-00000000-0000-4000-8000-000000000001",
+    // What is sent is one edit of the seat's launch: the binding and the
+    // session are not in it, so they stay as they were.
+    expect(commitCommands).toHaveBeenCalledOnce();
+    const edit = vi.mocked(commitCommands).mock.calls[0]![0];
+    expect(edit(canvasOf([seat]))).toEqual([
+      {
+        _tag: "Edit",
+        canvas: "factory",
+        id: "amp-seat",
+        change: {
+          kind: "agent",
           launch: expect.objectContaining({ extraArgs: ["--features", "plaid", "--no-notifications"] }),
-        }),
-      }),
-    }));
+        },
+      },
+    ]);
     expect(flushPendingCanvasSave).toHaveBeenCalledOnce();
     expect(killTerminal).not.toHaveBeenCalled();
   });

@@ -11,13 +11,14 @@ import type { Seat } from "@shared/model";
 import { nodeToDocument } from "@shared/model/from-document";
 import type { RejectedExtraArg } from "@shared/launch-extra-args";
 import {
-  relaunchManagedAgentNode,
   seatLaunchParamsChangeError,
+  seatRelaunch,
   type SeatLaunchParams,
 } from "@shared/seat-launch-params";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { getJuntoApi } from "./junto-api";
-import { applyManagedAgentReseat, flushPendingCanvasSave } from "./mutations";
+import { edited } from "./model-edits";
+import { commitCommands, flushPendingCanvasSave } from "./mutations";
 import {
   ensureTerminalRunning,
   killTerminal,
@@ -61,9 +62,8 @@ const waitForExit = async (
 };
 
 /**
- * The seat in the document form the terminal actions, the launch planner and
- * the re-seat writer still take. Callers hand the store's seat; this goes when
- * those three take it too.
+ * The seat in the document form the terminal actions still take. Callers
+ * hand the store's seat; this goes when those take it too.
  */
 const documentSeat = (seat: Seat): TextNode => nodeToDocument(seat) as TextNode;
 
@@ -156,20 +156,21 @@ export const performSeatRelaunch = async (
   seat: Seat,
   params: SeatLaunchParams,
 ): Promise<SeatRelaunchResult> => {
-  const node = documentSeat(seat);
-  const changeError = seatLaunchParamsChangeError(node, params);
+  const changeError = seatLaunchParamsChangeError(seat, params);
   if (changeError) return { ok: false, message: changeError };
-  const relaunched = relaunchManagedAgentNode(node, params);
+  const relaunched = seatRelaunch(seat, params);
   if (!relaunched) return { ok: false, message: "not a managed agent seat" };
-  const next = relaunched.node;
+  const node = documentSeat(seat);
+  const next = documentSeat({ ...seat, launch: relaunched.launch });
   if (resolveTerminalBinding(node)?.kind !== "native") {
     return { ok: false, message: "seat has no terminal binding" };
   }
   const wasRunning = await isRunning(node);
 
   // Committed BEFORE the old process stops, so nothing that wakes the seat in
-  // between can start it on the old parameters.
-  applyManagedAgentReseat(next);
+  // between can start it on the old parameters. Only the launch is edited: the
+  // binding and the session are the seat's own and stay.
+  commitCommands((canvas) => edited(canvas, seat.id, "agent", { launch: relaunched.launch }));
   await flushPendingCanvasSave().catch(() => undefined);
 
   const outcome = await restartRunningSeat(

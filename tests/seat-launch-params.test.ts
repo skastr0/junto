@@ -1,12 +1,12 @@
-import { nodeFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
-import type { TextNode } from "../src/shared/canvas";
+import type { Seat } from "../src/shared/model";
+import { seat as modelSeat } from "./support/model-nodes";
 import { recoverDocumentLaunchChoices } from "../src/shared/launch-choices";
 import { resolveManagedLaunchPlan } from "../src/shared/managed-terminal-launch";
 import {
   permissionModeOptions,
   planSeatLaunch,
-  relaunchManagedAgentNode,
+  seatRelaunch,
   seatLaunchParamsChangeError,
   seatLaunchParamsDiffer,
   seatLaunchParamsOf,
@@ -18,29 +18,19 @@ const seat = (
   harness: "claude" | "codex" | "hermes" | "devin" | "amp",
   params: Parameters<typeof planSeatLaunch>[0]["params"] = {},
   sessionId?: string,
-): TextNode => ({
-  id: "agent-1",
-  type: "text",
-  text: "Seat",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 100,
-  ether: {
-    entity: { kind: "agent", name: `local:${harness}` },
-    host: "local",
-    terminal: {
-      bindingId: "binding-1",
+): Seat =>
+  modelSeat("agent-1", {
+    label: "Seat" as never,
+    agentKey: `local:${harness}` as never,
+    bindingId: "binding-1" as never,
+    harness,
+    ...(sessionId ? { sessionId: sessionId as never } : {}),
+    launch: planSeatLaunch({
       harness,
-      ...(sessionId ? { sessionId } : {}),
-      launch: planSeatLaunch({
-        harness,
-        params,
-        base: { cwd: "/work", ...(sessionId ? { sessionId } : {}) },
-      }).launch,
-    },
-  },
-});
+      params,
+      base: { cwd: "/work", ...(sessionId ? { sessionId } : {}) },
+    }).launch as Seat["launch"],
+  });
 
 describe("seat start parameters", () => {
   it("reads the stored parameters back from the seat's launch", () => {
@@ -56,72 +46,57 @@ describe("seat start parameters", () => {
     });
   });
 
-  it("relaunch keeps the binding, the session and the folder; only the launch changes", () => {
+  it("relaunch is a new launch alone, on the same session and in the same folder", () => {
     const session = "11111111-1111-4111-8111-111111111111";
     const node = seat("claude", { model: "opus" }, session);
-    const next = relaunchManagedAgentNode(node, {
+    const next = seatRelaunch(node, {
       model: "sonnet",
       permissionMode: "bypassPermissions",
       extraArgs: ["--verbose"],
     });
     expect(next?.rejected).toEqual([]);
-    const terminal = next?.node.ether?.terminal;
-    expect(terminal?.bindingId).toBe("binding-1");
-    expect(terminal?.sessionId).toBe(session);
-    expect(terminal?.launch?.cwd).toBe("/work");
-    expect(terminal?.launch?.extraArgs).toEqual(["--verbose"]);
-    const argv = terminal?.launch?.argv ?? [];
+    // The result names a launch and nothing else: the binding and the session are the seat's.
+    expect(Object.keys(next ?? {}).sort()).toEqual(["launch", "rejected"]);
+    expect(next?.launch.cwd).toBe("/work");
+    expect(next?.launch.extraArgs).toEqual(["--verbose"]);
+    const argv = next?.launch.argv ?? [];
     expect(argv).toEqual(expect.arrayContaining(["--model", "sonnet", "--permission-mode", "bypassPermissions", "--verbose"]));
     expect(argv).toContain(session);
-    expect(next?.node.id).toBe(node.id);
-    expect(next?.node.text).toBe(node.text);
   });
 
   it("clearing a parameter returns it to the template default", () => {
     const node = seat("claude", { model: "opus", extraArgs: ["--verbose"] });
-    const next = relaunchManagedAgentNode(node, {});
-    const argv = next?.node.ether?.terminal?.launch?.argv ?? [];
+    const next = seatRelaunch(node, {});
+    const argv = next?.launch.argv ?? [];
     expect(argv).not.toContain("--model");
     expect(argv).not.toContain("--verbose");
-    expect(next?.node.ether?.terminal?.launch?.extraArgs).toBeUndefined();
+    expect(next?.launch.extraArgs).toBeUndefined();
   });
 
   it("reports refused extra arguments instead of launching with them", () => {
-    const next = relaunchManagedAgentNode(seat("claude"), {
+    const next = seatRelaunch(seat("claude"), {
       extraArgs: ["--session-id", "other", "--verbose"],
     });
-    expect(next?.node.ether?.terminal?.launch?.extraArgs).toEqual(["--verbose"]);
+    expect(next?.launch.extraArgs).toEqual(["--verbose"]);
     expect(next?.rejected.map((item) => item.token)).toEqual(["--session-id"]);
   });
 
   it("keeps the Hermes profile and provider that the editor does not show", () => {
     const base = seat("hermes");
-    const withProfile: TextNode = {
+    const withProfile: Seat = {
       ...base,
-      ether: {
-        ...base.ether!,
-        terminal: {
-          ...base.ether!.terminal!,
-          launch: {
-            kind: "harness",
-            argv: ["hermes", "chat", "--tui", "--profile", "coder", "--provider", "nous", "-m", "m1"],
-          },
-        },
+      launch: {
+        kind: "harness",
+        argv: ["hermes", "chat", "--tui", "--profile", "coder", "--provider", "nous", "-m", "m1"],
       },
     };
-    const argv = relaunchManagedAgentNode(withProfile, { model: "m2" })?.node.ether?.terminal?.launch?.argv ?? [];
+    const argv = seatRelaunch(withProfile, { model: "m2" })?.launch.argv ?? [];
     expect(argv).toEqual(expect.arrayContaining(["--profile", "coder", "--provider", "nous", "-m", "m2"]));
-  });
-
-  it("is undefined for a node that is not a managed seat", () => {
-    const note = { id: "n", type: "text", text: "", x: 0, y: 0, width: 1, height: 1 } as TextNode;
-    expect(relaunchManagedAgentNode(note, {})).toBeUndefined();
-    expect(seatLaunchParamsOf(note)).toBeUndefined();
   });
 
   it("an operator `-c` on Codex does not shadow the effort it also rides on", () => {
     const node = seat("codex", { effort: "high", extraArgs: ["-c", "foo=1"] });
-    expect(recoverDocumentLaunchChoices("codex", node.ether?.terminal?.launch)).toMatchObject({
+    expect(recoverDocumentLaunchChoices("codex", node.launch)).toMatchObject({
       effort: "high",
       extraArgs: ["-c", "foo=1"],
     });
@@ -146,11 +121,11 @@ describe("Amp parameters respect the existing thread", () => {
   it("allows mode and features before provisioning, but refuses to rewrite a named thread", () => {
     const newSeat = seat("amp", { mode: "low" });
     expect(seatLaunchParamsChangeError(newSeat, { mode: "fixture-reviewer", extraArgs: ["--fast"] })).toBeUndefined();
-    expect(relaunchManagedAgentNode(newSeat, { mode: "fixture-reviewer" })?.node.ether?.terminal?.launch?.argv).toContain("fixture-reviewer");
+    expect(seatRelaunch(newSeat, { mode: "fixture-reviewer" })?.launch.argv).toContain("fixture-reviewer");
 
     const existing = seat("amp", { mode: "low" }, threadId);
     expect(seatLaunchParamsChangeError(existing, { mode: "high" })).toContain("mode");
-    expect(relaunchManagedAgentNode(existing, { mode: "high" })).toBeUndefined();
+    expect(seatRelaunch(existing, { mode: "high" })).toBeUndefined();
     expect(seatLaunchParamsChangeError(existing, {})).toContain("mode");
     expect(seatLaunchParamsChangeError(existing, { mode: "LOW" })).toBeUndefined();
   });
@@ -159,11 +134,10 @@ describe("Amp parameters respect the existing thread", () => {
     const existing = seat("amp", { mode: "low", extraArgs: ["--features", "plaid", "--no-color"] }, threadId);
     expect(seatLaunchParamsChangeError(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] })).toBeUndefined();
     expect(seatLaunchParamsChangeError(existing, { mode: "low", extraArgs: ["--fast"] })).toContain("features");
-    expect(relaunchManagedAgentNode(existing, { mode: "low", extraArgs: [] })).toBeUndefined();
+    expect(seatRelaunch(existing, { mode: "low", extraArgs: [] })).toBeUndefined();
 
-    const relaunched = relaunchManagedAgentNode(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] });
-    expect(relaunched?.node.ether?.terminal?.sessionId).toBe(threadId);
-    expect(relaunched?.node.ether?.terminal?.launch?.extraArgs).toEqual(["--features", "plaid", "--no-notifications"]);
+    const relaunched = seatRelaunch(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] });
+    expect(relaunched?.launch.extraArgs).toEqual(["--features", "plaid", "--no-notifications"]);
   });
 
   it("resumes the exact Amp thread without reapplying its creation mode or features", () => {
@@ -171,7 +145,7 @@ describe("Amp parameters respect the existing thread", () => {
     expect(planManagedSpawn({
       harness: "amp",
       sessionId: threadId,
-      documentLaunch: node.ether?.terminal?.launch,
+      documentLaunch: node.launch,
       resume: true,
     })?.launch.argv).toEqual([
       "amp", "--no-ide", "threads", "continue", threadId, "--no-notifications",
@@ -209,8 +183,8 @@ describe("extra arguments ride every launch of the seat", () => {
     const node = seat("claude", { extraArgs: ["--add-dir", "/tmp/x"] }, "22222222-2222-4222-8222-222222222222");
     const plan = planManagedSpawn({
       harness: "claude",
-      documentLaunch: node.ether?.terminal?.launch,
-      sessionId: node.ether?.terminal?.sessionId,
+      documentLaunch: node.launch,
+      sessionId: node.sessionId,
       resume: false,
     });
     expect(plan?.launch.argv).toEqual(expect.arrayContaining(["--add-dir", "/tmp/x"]));
@@ -238,7 +212,7 @@ describe("profiles and squads carry the start parameters", () => {
       permissionMode: "bypassPermissions",
       extraArgs: ["--add-dir", "/tmp/x", "--verbose"],
     });
-    const body = profileBodyOfSeat(nodeFromDocument("params", node, 0));
+    const body = profileBodyOfSeat(node);
     expect(body).toMatchObject({
       harness: "claude",
       model: "opus",
