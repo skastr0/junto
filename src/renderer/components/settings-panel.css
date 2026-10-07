@@ -234,7 +234,8 @@
   padding: 7px 10px;
   font-size: var(--text-body-lg);
 }
-.settings-field__control input[type="checkbox"] {
+/* A plain checkbox; the shared switch draws itself. */
+.settings-field__control input[type="checkbox"]:not([role="switch"]) {
   width: 16px;
   height: 16px;
   accent-color: var(--color-amber);
