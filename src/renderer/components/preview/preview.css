@@ -64,6 +64,8 @@
   border-radius: var(--radius-md);
   background: var(--color-well);
   outline: none;
+  /* What is drawn inside keeps its own layers inside: a pinned file name never rides over the feed's own pinned header. */
+  isolation: isolate;
 }
 
 .preview-block__body:focus-visible {
