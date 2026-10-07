@@ -1,4 +1,3 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * The work repository projects when each task and request entered its
  * current state: the origin time of the fact that changed the state. A fact
@@ -13,7 +12,6 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -32,8 +30,8 @@ import {
   StateEngine,
 } from "../src/main/junto/state/engine";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
-import { authorialMaterialForTest } from "./helpers/authorial-material";
-import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
+import { seedCanvasRows } from "./support/seed-canvas";
+import { canvasOf, requests, seat as seatNode, taskBoard } from "./support/model-nodes";
 
 const canvasName = "factory";
 const otherCanvasName = "other-factory";
@@ -64,52 +62,13 @@ const actor = (digit: string, nodeId = `actor-${digit}`): ActorRef => ({
 const atMinute = (minute: number): string =>
   new Date(Date.UTC(2026, 7, 12, 12, minute)).toISOString();
 
-const factoryTopology: CanvasDoc = {
-  nodes: [
-    {
-      id: "recipient",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 100,
-      text: "Recipient",
-      ether: { entity: { kind: "agent", name: "local:recipient" } },
-    },
-    {
-      id: "board",
-      type: "text",
-      x: 300,
-      y: 0,
-      width: 240,
-      height: 120,
-      text: "tasks",
-      ether: { entity: { kind: "task" }, host: "local" },
-    },
-    {
-      id: "asks",
-      type: "text",
-      x: 600,
-      y: 0,
-      width: 240,
-      height: 120,
-      text: "requests",
-      ether: { entity: { kind: "requests" } },
-    },
-  ],
-  edges: [],
-};
-const factoryCanvasBody = serializeCanvas(factoryTopology);
-const emptyTopology: CanvasDoc = { nodes: [], edges: [] };
-const emptyCanvasBody = serializeCanvas(emptyTopology);
-const authorialMaterial = authorialMaterialForTest({
-  generation: "1",
-  documents: new Map([
-    [canvasName, { document: factoryTopology, rawBody: factoryCanvasBody }],
-    [otherCanvasName, { document: emptyTopology, rawBody: emptyCanvasBody }],
-  ]),
-});
-const intentSha256 = authorialMaterial.intentSha256;
+const factoryNodes = [
+  seatNode("recipient", { width: 240, height: 100, label: "Recipient" }),
+  taskBoard("board", { x: 300, y: 0, width: 240, height: 120 }),
+  requests("asks", { x: 600, y: 0, width: 240, height: 120 }),
+];
+/** The canvas as its rows hold it, at the sequence the rig seeds. */
+const factoryCanvas = { ...canvasOf(factoryNodes, [], canvasName), seq: 1 };
 
 const openRepository = async (
   local: InstallationIdValue,
@@ -169,13 +128,12 @@ const openRepository = async (
             ? [role, "local", null, null, atMinute(0)]
             : [role, "remote", "remote", peers[0], atMinute(0)],
         );
-        yield* seedCanvasAuthority({
-          generation: "1",
-          documents: new Map([
-            [canvasName, factoryTopology],
-            [otherCanvasName, emptyTopology],
+        yield* seedCanvasRows({
+          seq: 1,
+          canvases: new Map([
+            [canvasName, { nodes: factoryNodes }],
+            [otherCanvasName, { nodes: [] }],
           ]),
-          at: atMinute(0),
         });
       }),
     ),
@@ -199,7 +157,7 @@ describe("WorkRepository stateSince projection", () => {
   it("hydrates only selected policy rows and keeps the explicit full-lane reader separate", async () => {
     const { runtime, repository, basis } = await openRepository(installation("cc-selected-policy"));
     const dependencyScope = createCanvasTaskDependencyScopeCapability({
-      canvas: { ...canvasFromDocument(canvasName, factoryTopology), seq: 1 }, authoringSink: board,
+      canvas: factoryCanvas, authoringSink: board,
     });
     for (const id of ["selected", "unrelated"]) await runtime.runPromise(repository.createTask({
       sink: board, basis, dependencyScope,
@@ -235,7 +193,7 @@ describe("WorkRepository stateSince projection", () => {
     const { runtime, repository, basis } = await openRepository(installation("cc-state-since"));
     const seat = actor("1", "recipient");
     const dependencyScope = createCanvasTaskDependencyScopeCapability({
-      canvas: { ...canvasFromDocument(canvasName, factoryTopology), seq: 1 },
+      canvas: factoryCanvas,
       authoringSink: board,
     });
     const taskSince = async (): Promise<string | undefined> =>

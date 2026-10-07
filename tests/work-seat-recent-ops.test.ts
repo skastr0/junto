@@ -6,7 +6,6 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -27,8 +26,8 @@ import {
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { authorialMaterialForTest } from "./helpers/authorial-material";
-import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
+import { seedCanvasRows } from "./support/seed-canvas";
+import { seat as seatNode } from "./support/model-nodes";
 
 const canvasName = "factory";
 const otherCanvasName = "other-factory";
@@ -57,32 +56,7 @@ const actor = (digit: string, nodeId = `actor-${digit}`): ActorRef => ({
 const atMinute = (minute: number): string =>
   new Date(Date.UTC(2026, 7, 12, 12, minute)).toISOString();
 
-const factoryTopology: CanvasDoc = {
-  nodes: [
-    {
-      id: "recipient",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 100,
-      text: "Recipient",
-      ether: { entity: { kind: "agent", name: "local:recipient" } },
-    },
-  ],
-  edges: [],
-};
-const factoryCanvasBody = serializeCanvas(factoryTopology);
-const emptyTopology: CanvasDoc = { nodes: [], edges: [] };
-const emptyCanvasBody = serializeCanvas(emptyTopology);
-const authorialMaterial = authorialMaterialForTest({
-  generation: "1",
-  documents: new Map([
-    [canvasName, { document: factoryTopology, rawBody: factoryCanvasBody }],
-    [otherCanvasName, { document: emptyTopology, rawBody: emptyCanvasBody }],
-  ]),
-});
-const intentSha256 = authorialMaterial.intentSha256;
+const factoryNodes = [seatNode("recipient", { width: 240, height: 100, label: "Recipient" })];
 
 const openRepository = async (
   local: InstallationIdValue,
@@ -139,13 +113,12 @@ const openRepository = async (
             ? [role, "local", null, null, atMinute(0)]
             : [role, "remote", "remote", peers[0], atMinute(0)],
         );
-        yield* seedCanvasAuthority({
-          generation: "1",
-          documents: new Map([
-            [canvasName, factoryTopology],
-            [otherCanvasName, emptyTopology],
+        yield* seedCanvasRows({
+          seq: 1,
+          canvases: new Map([
+            [canvasName, { nodes: factoryNodes }],
+            [otherCanvasName, { nodes: [] }],
           ]),
-          at: atMinute(0),
         });
       }),
     ),
