@@ -84,7 +84,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     key: "notifications",
     group: "You",
     label: "Notifications",
-    blurb: "what reaches you while Junto is in the background",
+    blurb: "",
   },
   { key: "feed", group: "Agents", label: "Quick replies", blurb: "one-click answers for agents waiting on you" },
   { key: "offboard", group: "Agents", label: "Offboard", blurb: "when an idle agent's session is ended for it" },

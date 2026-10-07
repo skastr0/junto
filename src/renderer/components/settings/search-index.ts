@@ -60,11 +60,11 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("feed", "New quick reply", "One-click answers offered when an agent is waiting on you"),
 
   entry("notifications", "Send notifications", "Whether Junto reaches you while it is in the background"),
-  entry("notifications", "Blocked", "An agent is stuck and cannot go on without you"),
-  entry("notifications", "Needs you", "An agent asked a question, wants a decision, or is waiting at a prompt"),
-  entry("notifications", "Stopped", "An agent's process ended with an error"),
-  entry("notifications", "Finished", "An agent finished and you have not looked yet"),
-  entry("notifications", "Badge", "How many agents are waiting on you, on the Junto icon"),
+  entry("notifications", "Blocked", "An agent cannot go on without you"),
+  entry("notifications", "Needs you", "A question, a decision, or a prompt"),
+  entry("notifications", "Stopped", "An agent ended with an error"),
+  entry("notifications", "Finished", "Done and not looked at yet"),
+  entry("notifications", "Badge", "Agents waiting on you, on the Junto icon"),
   entry("notifications", "Bounce when blocked", "The icon bounces once when an agent is blocked"),
 
   entry("offboard", "Cache window", "how long a still agent stays cheap to give a turn"),

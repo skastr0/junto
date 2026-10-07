@@ -7,7 +7,6 @@
  */
 import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
-import { AUDIO_ENABLED } from "@shared/features";
 import { notificationSettings, type NotificationPatch } from "@shared/settings";
 import { getJuntoApi } from "../../lib/junto-api";
 import { patchSettings } from "../../lib/settings-state";
@@ -17,17 +16,17 @@ import { Button, Switch } from "../ui";
 type Kind = "blocked" | "needsYou" | "failed" | "done";
 
 const KINDS: ReadonlyArray<{ readonly key: Kind; readonly title: string; readonly hint: string }> = [
-  { key: "blocked", title: "Blocked", hint: "An agent is stuck and cannot go on without you." },
+  { key: "blocked", title: "Blocked", hint: "An agent cannot go on without you." },
   {
     key: "needsYou",
     title: "Needs you",
-    hint: "An agent asked a question, wants a decision, or is waiting at a prompt.",
+    hint: "A question, a decision, or a prompt.",
   },
-  { key: "failed", title: "Stopped", hint: "An agent's process ended with an error." },
+  { key: "failed", title: "Stopped", hint: "An agent ended with an error." },
   {
     key: "done",
     title: "Finished",
-    hint: "An agent finished and you have not looked yet. These wait a few seconds and arrive together.",
+    hint: "Done and not looked at yet.",
   },
 ];
 
@@ -46,7 +45,7 @@ function Row({
 }: {
   readonly id: string;
   readonly title: string;
-  readonly hint: string;
+  readonly hint?: string;
   readonly checked: boolean;
   readonly disabled?: boolean;
   readonly inset?: boolean;
@@ -66,7 +65,7 @@ function Row({
         >
           {title}
         </label>
-        <p className="m-0 max-w-[58ch] text-body-lg leading-body text-dim">{hint}</p>
+        {hint ? <p className="m-0 max-w-[58ch] text-body-lg leading-body text-dim">{hint}</p> : null}
       </div>
       <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} />
     </div>
@@ -111,16 +110,11 @@ export function NotificationSettingsSection() {
 
   return (
     <div className="settings-section" data-testid="settings-notifications-section">
-      <p className="m-0 max-w-[62ch] text-body-lg leading-body text-dim">
-        A notification says which agent needs you and why; click it to open that agent. Nothing is sent
-        while you are looking at Junto.{AUDIO_ENABLED ? " Each one plays its sound, set in Sound." : ""}
-      </p>
-
       <div className="flex flex-col border-t border-stroke">
         <Row
           id="notify-master"
           title="Send notifications"
-          hint={prefs.enabled ? "For each kind switched on below." : "Junto sends none. The badge still counts."}
+          hint={prefs.enabled ? "While Junto is in the background." : "None are sent. The badge still counts."}
           checked={prefs.enabled}
           onChange={(enabled) => save({ enabled })}
         />
@@ -145,14 +139,13 @@ export function NotificationSettingsSection() {
             <Row
               id="notify-badge"
               title="Badge"
-              hint="How many agents are waiting on you, on the Junto icon. It counts down as you answer."
+              hint="Agents waiting on you, on the Junto icon."
               checked={prefs.badge}
               onChange={(badge) => save({ badge })}
             />
             <Row
               id="notify-bounce"
               title="Bounce when blocked"
-              hint="The icon bounces once when an agent is blocked."
               checked={prefs.bounce}
               disabled={!prefs.enabled || !prefs.blocked}
               onChange={(bounce) => save({ bounce })}
