@@ -1538,6 +1538,13 @@ const MINIMAP_STACK = (
     <RtsMinimapStack />
   </CountedSurface>
 );
+// The bar itself, made once too: a render of the canvas then hands React the
+// same element, and neither the bar nor the boundary that counts it commits.
+const BOTTOM_BAR = (
+  <CountedSurface id="bottom-bar">
+    <RtsBottomBar tools={FIELD_TOOLS} minimap={MINIMAP_STACK} />
+  </CountedSurface>
+);
 
 function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
   // Dev always profiles; a packaged build profiles only when JUNTO_PERF armed
@@ -1900,9 +1907,7 @@ function CanvasGraph() {
       </CountedSurface>
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
-        <CountedSurface id="bottom-bar">
-          <RtsBottomBar tools={FIELD_TOOLS} minimap={MINIMAP_STACK} />
-        </CountedSurface>
+        {BOTTOM_BAR}
       </Panel>
     </ReactFlow>
     {ctxMenu ? <ContextModeDeck at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
