@@ -1,3 +1,6 @@
+import { asCanvasName } from "../src/shared/model";
+import { canvasFromDocument } from "../src/shared/model/from-document";
+import { ModelService } from "../src/main/junto/model/service";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
 import type { CanvasReadResult } from "../src/shared/ipc";
@@ -154,6 +157,11 @@ const boot = async (mode: "succeed" | "fail") => {
           }),
         }),
       }),
+      // The overseer's native commands read the canvas from the model.
+      Layer.succeed(ModelService, {
+        listCanvases: () => Effect.succeed([asCanvasName(read.name)]),
+        canvas: () => Effect.succeed(canvasFromDocument(read.name, read.doc)),
+      } as never),
       Layer.mock(CanvasesService, {
         liveDocuments: () => Effect.succeed([{ canvasName: read.name, doc: read.doc }]),
         read: () => Effect.succeed(read),

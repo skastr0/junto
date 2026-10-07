@@ -19,6 +19,7 @@ import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
 import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import { WorkLive } from "../src/main/junto/work/service";
+import { ModelService } from "../src/main/junto/model/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
@@ -157,6 +158,31 @@ describe("executeOverseerCanvas", () => {
     caller: OverseerCaller = CALLER,
   ): Promise<Result.Result<unknown, WorkErrorBody>> =>
     runtime!.runPromise(Effect.result(executeOverseerCanvas(caller, request)));
+
+  /** The revision an overseer is told, which is what it sends back. */
+  const revisionOf = async (canvas: string): Promise<string> =>
+    ((await expectOk({ operation: "canvas.read", args: { canvas } })) as { revision: string }).revision;
+
+  /**
+   * The model, with something made to happen just before the write
+   * transaction lists the canvases: the `nth` time they are listed.
+   */
+  const beforeTheWrite = async (
+    happen: Effect.Effect<unknown, unknown, never>,
+    nth = 2,
+  ) => {
+    const model = await runtime!.runPromise(ModelService);
+    let listed = 0;
+    return {
+      ...model,
+      listCanvases: () =>
+        Effect.gen(function* () {
+          listed += 1;
+          if (listed === nth) yield* Effect.orDie(happen);
+          return yield* model.listCanvases();
+        }),
+    } as typeof model;
+  };
 
   const expectOk = async (request: OverseerRequest) => {
     const result = await run(request);
@@ -340,10 +366,16 @@ describe("executeOverseerCanvas", () => {
       },
       "AuthError",
     );
-    await expectOk({
-      operation: "node.configure",
-      args: { nodeId: "overseer", changes: { text: "still me" } },
-    });
+    // The model lets only the operator change an overseer seat, its own name
+    // included.
+    const renamed = await expectErr(
+      {
+        operation: "node.configure",
+        args: { nodeId: "overseer", changes: { text: "still me" } },
+      },
+      "AuthError",
+    );
+    expect(renamed.message).toMatch(/Only the operator/u);
     setOverseerNativeDeleteHooks({
       prepareOverseerNodeDelete: async () => ({
         ok: true,
@@ -379,14 +411,14 @@ describe("executeOverseerCanvas", () => {
 
   it("commits a complete structural batch with one canvas notification", async () => {
     const canvases = await boot();
-    const before = await runtime!.runPromise(canvases.read("ops"));
-    const foreign = await runtime!.runPromise(canvases.read("other"));
+    const before = await revisionOf("ops");
+    const foreign = await revisionOf("other");
     const changes: string[] = [];
     const unsubscribe = canvases.subscribeChanges((name) => changes.push(name));
     const result = await expectOk({
       operation: "canvas.batch",
       args: {
-        expectedRevision: before.revision,
+        expectedRevision: before,
         operations: [
           { operation: "node.create", node: note("n3", { x: 600, y: 200, width: 240, height: 120 }) },
           { operation: "node.configure", nodeId: "n1", changes: { text: "batched" } },
@@ -404,11 +436,11 @@ describe("executeOverseerCanvas", () => {
     ] });
     expect(changes).toEqual(["ops"]);
     const after = await runtime!.runPromise(canvases.read("ops"));
-    expect(after.revision).not.toBe(before.revision);
+    expect(await revisionOf("ops")).not.toBe(before);
     expect(after.doc.nodes.find((node) => node.id === "n3")).toMatchObject({ x: 640, y: 220 });
     expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ text: "batched" });
     expect(after.doc.edges.find((edge) => edge.id === "e3")).toMatchObject({ ether: { verb: "messages" } });
-    expect((await runtime!.runPromise(canvases.read("other"))).revision).toBe(foreign.revision);
+    expect(await revisionOf("other")).toBe(foreign);
   });
 
   it("batches past a stored edge it never touched, and names its default from its own verb list", async () => {
@@ -567,10 +599,10 @@ describe("executeOverseerCanvas", () => {
 
   it("rejects stale batch revisions and revoked grants at the write transaction", async () => {
     const canvases = await boot();
-    const before = await runtime!.runPromise(canvases.read("ops"));
+    const before = await revisionOf("ops");
     await expectOk({ operation: "node.move", args: { nodeId: "n1", x: 450, y: 0 } });
     const request: OverseerRequest = { operation: "canvas.batch", args: {
-      expectedRevision: before.revision,
+      expectedRevision: before,
       operations: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }],
     } };
     await expectErr(request, "ClaimConflict");
@@ -586,20 +618,16 @@ describe("executeOverseerCanvas", () => {
   it("rechecks batch authority after preflight and before authoring", async () => {
     const canvases = await boot();
     const current = await runtime!.runPromise(canvases.read("ops"));
-    const originalMutate = canvases.mutatePortfolio.bind(canvases);
-    const wrapped = {
-      ...canvases,
-      mutatePortfolio: ((fn) => Effect.gen(function* () {
-        yield* canvases.canvasOverseerSet({
-          canvasName: "ops", nodeId: "overseer", overseer: false, expectedRevision: current.revision,
-        });
-        return yield* originalMutate(fn);
-      })) as typeof canvases.mutatePortfolio,
-    };
+    // The first read is the preflight grant check; the second opens the write.
+    const wrapped = await beforeTheWrite(
+      canvases.canvasOverseerSet({
+        canvasName: "ops", nodeId: "overseer", overseer: false, expectedRevision: current.revision,
+      }),
+    );
     const result = await runtime!.runPromise(Effect.result(executeOverseerCanvas(CALLER, {
       operation: "canvas.batch",
       args: { operations: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }] },
-    }).pipe(Effect.provideService(CanvasesService, wrapped))));
+    }).pipe(Effect.provideService(ModelService, wrapped))));
     expect(Result.isFailure(result) && result.failure.type).toBe("AuthError");
     const after = await runtime!.runPromise(canvases.read("ops"));
     expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ x: 300, y: 0 });
@@ -770,21 +798,20 @@ describe("executeOverseerCanvas", () => {
         return { ok: true };
       },
     });
-    const originalMutate = canvases.mutatePortfolio.bind(canvases);
-    const wrapped = {
-      ...canvases,
-      mutatePortfolio: ((fn) =>
-        Effect.gen(function* () {
-          yield* Deferred.succeed(entered, undefined);
-          yield* Deferred.await(gate);
-          return yield* originalMutate(fn);
-        })) as typeof canvases.mutatePortfolio,
-    };
+    const wrapped = await beforeTheWrite(
+      Effect.gen(function* () {
+        yield* Deferred.succeed(entered, undefined);
+        yield* Deferred.await(gate);
+      }),
+      // node.delete lists the canvases for the grant and for the portfolio
+      // before the write lists them again.
+      3,
+    );
     const fiber = runtime!.runFork(
       executeOverseerCanvas(CALLER, {
         operation: "node.delete",
         args: { nodeId: "peer" },
-      }).pipe(Effect.provideService(CanvasesService, wrapped)),
+      }).pipe(Effect.provideService(ModelService, wrapped)),
     );
     await runtime!.runPromise(Deferred.await(entered));
     await runtime!.runPromise(Fiber.interrupt(fiber));

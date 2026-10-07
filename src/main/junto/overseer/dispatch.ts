@@ -15,7 +15,7 @@ import { narrowEnvironmentReport } from "@shared/overseer-env";
 import type { InstallationId } from "@shared/installation-id";
 import type { WorkErrorBody } from "@shared/work-control";
 import { admitOverseer, watchOverseerRevocation } from "./admission";
-import { CanvasesService } from "../canvases";
+import { readCanvasDocument, type OverseerStores } from "./portfolio";
 import { executeOverseerCanvas } from "./canvas";
 import { overseerEnvReport, type OverseerEnvReport } from "./env-report-seam";
 import { executeOverseerOffboard } from "./offboard";
@@ -51,11 +51,10 @@ const runEnvDoctor = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"env.doctor">,
   report: OverseerEnvReport,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
     const canvasName = args.canvas ?? caller.canvasName;
-    const read = yield* canvases.read(canvasName, "overseer.canvas").pipe(
+    const read = yield* readCanvasDocument(canvasName).pipe(
       Effect.mapError((error): WorkErrorBody => ({
         type: "UnknownTarget",
         message: error.message,

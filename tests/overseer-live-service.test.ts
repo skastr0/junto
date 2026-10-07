@@ -116,7 +116,8 @@ const boot = async () => {
     live: { sessionId: run.sessionId, requestId: run.requestId, intentRevision: run.intentRevision,
       operationId: run.operationIds[0]!, expectedRevision: run.expectedRevision } });
   const execute = (request: OverseerRequest, constraint: Awaited<ReturnType<typeof service.validateOperation>>) =>
-    runtime.runPromise(executeOverseerCanvas(identity, request).pipe(Effect.provideService(OverseerLiveExecution, constraint)));
+    // The overseer names more stores than this rig builds; a move reads only the model.
+    runtime.runPromise(executeOverseerCanvas(identity, request).pipe(Effect.provideService(OverseerLiveExecution, constraint)) as never);
   return {
     runtime, canvases, repository, service, feedback, transcript, delegation, next, assigned, enqueue, move, execute,
     sessionId: live.sessionId,
@@ -231,7 +232,7 @@ describe("Live POC with the real canvas and durable journal", () => {
     const run = await test.enqueue("Move the first note", "stale");
     const request = test.move(run);
     const constraint = await test.service.validateOperation(request, identity);
-    await test.runtime.runPromise(executeOverseerCanvas(identity, { operation: "node.move", args: { nodeId: "first", x: 777, y: 88 } }));
+    await test.runtime.runPromise(executeOverseerCanvas(identity, { operation: "node.move", args: { nodeId: "first", x: 777, y: 88 } }) as never);
     const operatorState = await test.graph();
     await expect(test.execute(request, constraint)).rejects.toThrow("Canvas changed after this request was captured");
     expect((await test.graph()).revision).toBe(operatorState.revision);

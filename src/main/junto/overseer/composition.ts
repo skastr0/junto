@@ -49,12 +49,12 @@ import {
 import type { StationControlServer } from "../station/control-server";
 import type { ManagedTerminalDrive } from "../term/drive";
 import type { ContentService } from "../content/service";
-import type { ModelService } from "../model/service";
+import { readPortfolio, type OverseerStores } from "./portfolio";
 import type { WorkService } from "../work/service";
 
 type OverseerServices =
   | CanvasesService
-  | ModelService
+  | OverseerStores
   | ChatServiceContext
   | ActorSeatOccupy
   | StationRepository
@@ -113,15 +113,14 @@ const listCanvasDocuments = (
 ): Promise<ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>> =>
   run(
     Effect.gen(function* () {
-      const canvases = yield* CanvasesService;
-      const live = yield* canvases.liveDocuments();
-      return live.map((entry) => ({ name: entry.canvasName, doc: entry.doc }));
+      const view = yield* readPortfolio;
+      return [...view.documents].map(([name, doc]) => ({ name, doc }));
     }),
   );
 
 export const runCanvasHook = async <A>(
-  run: <T, E>(effect: Effect.Effect<T, E, CanvasesService>, options?: { readonly signal?: AbortSignal }) => Promise<T>,
-  effect: Effect.Effect<A, WorkErrorBody, CanvasesService>,
+  run: <T, E>(effect: Effect.Effect<T, E, OverseerStores>, options?: { readonly signal?: AbortSignal }) => Promise<T>,
+  effect: Effect.Effect<A, WorkErrorBody, OverseerStores>,
   signal: AbortSignal,
 ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
   const outcome = await run(Effect.result(effect), { signal });

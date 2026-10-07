@@ -1,4 +1,3 @@
-import { canvasFromDocument } from "@shared/model/from-document";
 import { Effect, Exit, Result } from "effect";
 import { ulid } from "ulid";
 import {
@@ -7,7 +6,6 @@ import {
   type CanvasEdge,
   type CanvasNode,
 } from "@shared/canvas";
-import { digestCanvas } from "@shared/digest";
 import { renderCanvasSvg } from "@shared/svg";
 import {
   decodeOverseerArgs,
@@ -57,13 +55,20 @@ import { actorRefResolverFromProjection } from "@shared/graph";
 import type { ActorRef } from "@shared/work-protocol";
 import { defaultVerbForPair } from "@shared/physics";
 import { productVerbEnabled } from "@shared/features";
+import { wireOfDocument } from "@shared/model/from-document";
+import { ModelActorRefs } from "../model/actor-refs";
+import { readModelDigest } from "../model/digest";
+import { ModelService } from "../model/service";
+import { WorkRepository } from "../work/repository";
 import {
-  CanvasError,
-  CanvasesService,
-  canvasNameFrom,
-  type CanvasPortfolioView,
-} from "../canvases";
-import { wireOfDocument, workItemsFromDocument } from "@shared/model/from-document";
+  editPortfolio,
+  fromModelError,
+  isCanvasName,
+  readCanvasDocument,
+  readPortfolio,
+  type OverseerPortfolioView,
+  type OverseerStores,
+} from "./portfolio";
 
 const CANVAS_OPS = new Set<OverseerOperation>([
   "canvas.list",
@@ -125,11 +130,11 @@ export type OverseerCanvasHooks = {
   readonly commitAgentReseat?: (
     caller: OverseerCaller,
     args: OverseerArgsFor<"agent.reseat">,
-  ) => Effect.Effect<unknown, WorkErrorBody, CanvasesService>;
+  ) => Effect.Effect<unknown, WorkErrorBody, OverseerStores>;
   readonly applySchedulerConfigure?: (
     caller: OverseerCaller,
     args: OverseerArgsFor<"scheduler.configure">,
-  ) => Effect.Effect<unknown, WorkErrorBody, CanvasesService>;
+  ) => Effect.Effect<unknown, WorkErrorBody, OverseerStores>;
 };
 
 const workError = (
@@ -155,20 +160,6 @@ const fromOverseerError = (error: OverseerErrorBody): WorkErrorBody => {
                 ? "RuntimeDown"
                 : "InternalError";
   return workError(type, error.message);
-};
-
-const fromCanvasError = (error: CanvasError): WorkErrorBody => {
-  const message = error.message;
-  if (message.includes("revision conflict")) {
-    return workError("ClaimConflict", message, { retryable: true });
-  }
-  if (message.includes("does not exist") || message.includes("is not in")) {
-    return workError("UnknownTarget", message);
-  }
-  if (message.includes("already exists") || message.includes("invalid canvas name")) {
-    return workError("InputError", message);
-  }
-  return workError("InternalError", message);
 };
 
 const fail = (type: WorkErrorBody["type"], message: string): WorkErrorBody =>
@@ -206,7 +197,7 @@ const isWorkError = (
 ): value is WorkErrorBody => !("id" in value) && "message" in value;
 
 const requireGrant = (
-  view: CanvasPortfolioView,
+  view: OverseerPortfolioView,
   caller: OverseerCaller,
 ): WorkErrorBody | undefined => {
   if (callerGrantLive(view.documents, caller)) return undefined;
@@ -233,14 +224,8 @@ const refuseIfRetiresCaller = (
 const livePortfolioDocuments = (): Effect.Effect<
   Map<string, CanvasDoc>,
   WorkErrorBody,
-  CanvasesService
-> =>
-  Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    const live = yield* canvases.liveDocuments().pipe(Effect.mapError(fromCanvasError));
-    return new Map(live.map((row) => [row.canvasName, row.doc] as const));
-  });
-
+  OverseerStores
+> => Effect.map(readPortfolio, (view) => new Map(view.documents));
 const cloneDocs = (
   documents: ReadonlyMap<string, CanvasDoc>,
 ): Map<string, CanvasDoc> => new Map(documents);
@@ -253,10 +238,6 @@ const putDoc = (
   documents.set(name, doc);
   return documents;
 };
-
-const digestLive = (actorRefs: ReadonlyArray<ActorRef>) => ({
-  resolveActorRef: actorRefResolverFromProjection(actorRefs),
-});
 
 let deleteHooks: OverseerNativeDeleteHooks | undefined;
 
@@ -326,9 +307,9 @@ const finishError = (
 
 const withPreparedDelete = <A>(
   resources: ReadonlyArray<OverseerDeleteResource>,
-  body: () => Effect.Effect<A, WorkErrorBody, CanvasesService>,
+  body: () => Effect.Effect<A, WorkErrorBody, OverseerStores>,
   hooks?: OverseerCanvasHooks,
-): Effect.Effect<A, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<A, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     let finishFailure: WorkErrorBody | undefined;
     const result = yield* Effect.acquireUseRelease(
@@ -370,84 +351,42 @@ const withPreparedDelete = <A>(
     return result;
   });
 
-const executeOnPortfolio = <A>(
-  fn: (view: CanvasPortfolioView) =>
-    | { readonly ok: true; readonly documents: ReadonlyMap<string, CanvasDoc>; readonly result: A }
-    | { readonly ok: false; readonly error: WorkErrorBody },
-): Effect.Effect<A, WorkErrorBody, CanvasesService> =>
-  Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    const committed = yield* canvases.mutatePortfolio((view) => {
-      const edit = fn(view);
-      if (!edit.ok) return { ok: false as const, error: edit.error };
-      return {
-        ok: true as const,
-        mutation: { documents: edit.documents, result: edit.result },
-      };
-    }).pipe(
-      Effect.mapError((error): WorkErrorBody =>
-        error instanceof CanvasError ? fromCanvasError(error) : error,
-      ),
-    );
-    return committed.result;
-  });
+const executeOnPortfolio = editPortfolio;
 
-const readCanvas = (
+const actorRefsOf = (
   name: string,
-): Effect.Effect<
-  {
-    readonly name: string;
-    readonly doc: CanvasDoc;
-    readonly revision: string;
-    readonly actorRefs: ReadonlyArray<ActorRef>;
-  },
-  WorkErrorBody,
-  CanvasesService
-> =>
-  Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    const canonical = yield* Effect.try({
-      try: () => canvasNameFrom(name),
-      catch: (error): WorkErrorBody =>
-        error instanceof CanvasError
-          ? fromCanvasError(error)
-          : fail("InputError", String(error)),
-    });
-    const read = yield* canvases.read(canonical, "overseer.canvas").pipe(
-      Effect.mapError(fromCanvasError),
-    );
-    return read;
-  });
+): Effect.Effect<ReadonlyArray<ActorRef>, WorkErrorBody, OverseerStores> =>
+  Effect.flatMap(ModelActorRefs, (refs) =>
+    refs.read(name).pipe(Effect.mapError(fromModelError)),
+  );
 
-const handleList = (): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+const readCanvas = readCanvasDocument;
+
+const handleList = (): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    return yield* canvases.list.pipe(Effect.mapError(fromCanvasError));
+    const model = yield* ModelService;
+    const names = yield* model.listCanvases().pipe(Effect.mapError(fromModelError));
+    return names.map((name) => ({ name }));
   });
 
 const handleRead = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.read">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   readCanvas(targetCanvas(caller, args.canvas));
 
 const handleCreateCanvas = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.create">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   executeOnPortfolio((view) => {
     const revoked = requireGrant(view, caller);
     if (revoked) return { ok: false, error: revoked };
-    let name: string;
-    try {
-      name = canvasNameFrom(args.canvas);
-    } catch (error) {
+    const name = args.canvas;
+    if (!isCanvasName(name)) {
       return {
         ok: false,
-        error:
-          error instanceof CanvasError
-            ? fromCanvasError(error)
-            : fail("InputError", String(error)),
+        error: fail("InputError", `invalid canvas name ${JSON.stringify(name)}`),
       };
     }
     if (view.documents.has(name)) {
@@ -467,7 +406,7 @@ const handleCreateCanvas = (
 const handleCanvasBatch = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.batch">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   executeOnPortfolio((view) => {
     const revoked = requireGrant(view, caller);
     if (revoked) return { ok: false, error: revoked };
@@ -494,19 +433,10 @@ const handleDeleteCanvas = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.delete">,
   hooks?: OverseerCanvasHooks,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    const name = yield* Effect.try({
-      try: () => canvasNameFrom(args.canvas),
-      catch: (error): WorkErrorBody =>
-        error instanceof CanvasError
-          ? fromCanvasError(error)
-          : fail("InputError", String(error)),
-    });
-    const current = yield* canvases.read(name, "overseer.canvas").pipe(
-      Effect.mapError(fromCanvasError),
-    );
+    const current = yield* readCanvas(args.canvas);
+    const name = current.name;
     if (canvasDeleteRetiresCaller(caller, name)) {
       return yield* Effect.fail(
         fail("AuthError", "overseer cannot delete its own canvas"),
@@ -557,25 +487,36 @@ const handleDeleteCanvas = (
 const handleDigest = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.digest">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     return {
-      digest: digestCanvas(canvasFromDocument(read.name, read.doc), { bundles: [] }, { ...digestLive(read.actorRefs), itemsOf: workItemsFromDocument(read.doc) }),
+      digest: yield* readModelDigest(read.name, { bundles: [] }).pipe(
+        Effect.mapError((error): WorkErrorBody =>
+          fail("InternalError", `canvas "${read.name}" could not be digested: ${String(error)}`),
+        ),
+      ),
     };
   });
 
 const handleRender = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.render">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
+    // The picture marks boards by their rows; a read, never a work command.
+    const work = yield* WorkRepository;
+    const rows = yield* work.kernelWork(read.name).pipe(
+      Effect.mapError((error): WorkErrorBody => fail("InternalError", error.message)),
+    );
     return {
       svg: renderCanvasSvg(read.doc, {
         canvasName: read.name,
-        resolveActorRef: actorRefResolverFromProjection(read.actorRefs),
-        itemsOf: workItemsFromDocument(read.doc),
+        resolveActorRef: actorRefResolverFromProjection(
+          yield* actorRefsOf(read.name),
+        ),
+        itemsOf: (nodeId) => rows.tasks.get(nodeId) ?? [],
       }),
     };
   });
@@ -583,7 +524,7 @@ const handleRender = (
 const handleNodeList = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.list">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     return { nodes: read.doc.nodes };
@@ -592,7 +533,7 @@ const handleNodeList = (
 const handleNodeGet = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.get">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     const node = findNode(read.doc, args.nodeId);
@@ -607,7 +548,7 @@ const handleNodeGet = (
 const handleNodeCreate = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.create">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   executeOnPortfolio((view) => {
     const revoked = requireGrant(view, caller);
     if (revoked) return { ok: false, error: revoked };
@@ -661,9 +602,9 @@ const mutateExistingNode = (
   nodeId: string,
   transform: (
     node: CanvasNode,
-    view: CanvasPortfolioView,
+    view: OverseerPortfolioView,
   ) => CanvasNode | WorkErrorBody,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   executeOnPortfolio((view) => {
     const revoked = requireGrant(view, caller);
     if (revoked) return { ok: false, error: revoked };
@@ -736,7 +677,7 @@ const mutateExistingNode = (
 const handleNodeConfigure = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.configure">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   mutateExistingNode(caller, args.canvas, args.nodeId, (node) =>
     applyNodeChanges(node, args.changes),
   );
@@ -747,7 +688,7 @@ const fromEnvRefusal = (refusal: OverseerEnvRefusal): WorkErrorBody =>
 const handleEnvShow = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"env.show">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     const node = findNode(read.doc, args.nodeId);
@@ -770,7 +711,7 @@ const handleEnvShow = (
 const handleEnvEdit = (
   caller: OverseerCaller,
   edit: OverseerEnvEdit,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> => {
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
   // Minted before the transaction so the caller is told the id it got.
   const mintedSourceId = `source-${ulid()}`;
   return mutateExistingNode(caller, edit.args.canvas, edit.args.nodeId, (node) => {
@@ -793,7 +734,7 @@ const handleEnvEdit = (
 const handleNodeMove = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.move">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   mutateExistingNode(caller, args.canvas, args.nodeId, (node) =>
     nodeGeometry(node, { x: args.x, y: args.y }),
   );
@@ -801,7 +742,7 @@ const handleNodeMove = (
 const handleNodeResize = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.resize">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   mutateExistingNode(caller, args.canvas, args.nodeId, (node) =>
     nodeGeometry(node, { width: args.width, height: args.height }),
   );
@@ -810,7 +751,7 @@ const handleNodeDelete = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.delete">,
   hooks?: OverseerCanvasHooks,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const name = targetCanvas(caller, args.canvas);
     const current = yield* readCanvas(name);
@@ -880,7 +821,7 @@ const handleNodeDelete = (
 const handleEdgeList = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"edge.list">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     return { edges: read.doc.edges };
@@ -889,7 +830,7 @@ const handleEdgeList = (
 const handleEdgeGet = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"edge.get">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     const edge = findEdge(read.doc, args.edgeId);
@@ -904,7 +845,7 @@ const handleEdgeGet = (
 const handleEdgeVerbs = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"edge.verbs">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     if (args.fromNode === undefined || args.toNode === undefined) {
@@ -933,7 +874,7 @@ const handleEdgeVerbs = (
 const handleEdgeConnect = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"edge.connect">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   executeOnPortfolio((view) => {
     const revoked = requireGrant(view, caller);
     if (revoked) return { ok: false, error: revoked };
@@ -1014,7 +955,7 @@ const handleEdgeConnect = (
 const handleEdgeConfigure = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"edge.configure">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   executeOnPortfolio((view) => {
     const revoked = requireGrant(view, caller);
     if (revoked) return { ok: false, error: revoked };
@@ -1086,7 +1027,7 @@ const handleEdgeConfigure = (
 const handleEdgeDisconnect = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"edge.disconnect">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   executeOnPortfolio((view) => {
     const revoked = requireGrant(view, caller);
     if (revoked) return { ok: false, error: revoked };
@@ -1117,7 +1058,7 @@ const handleEdgeDisconnect = (
 const handleSheetRead = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"sheet.read">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     const node = findNode(read.doc, args.target);
@@ -1131,13 +1072,18 @@ const handleSheetRead = (
         fail("InputError", `node "${args.target}" is not a sheet`),
       );
     }
-    return { sheet: node.ether.sheet ?? { columns: [], rows: [] } };
+    // A sheet's grid is content of its own; the canvas only says it is there.
+    const model = yield* ModelService;
+    const sheet = yield* model
+      .readSheet(read.name, args.target)
+      .pipe(Effect.mapError(fromModelError));
+    return { sheet: sheet ?? { columns: [], rows: [] } };
   });
 
 const handleSheetConfigure = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"sheet.configure">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   mutateExistingNode(caller, args.canvas, args.target, (node) => {
     if (node.ether?.entity?.kind !== "sheet") {
       return fail("InputError", `node "${args.target}" is not a sheet`);
@@ -1156,7 +1102,7 @@ const dispatch = (
   operation: OverseerOperation,
   args: unknown,
   hooks?: OverseerCanvasHooks,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> => {
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
   const decoded = decodeOverseerArgs(operation, args);
   if (Result.isFailure(decoded)) {
     return Effect.fail(schemaFailure(decoded.failure));
@@ -1259,17 +1205,9 @@ const dispatch = (
 
 const requireLiveGrant = (
   caller: OverseerCaller,
-): Effect.Effect<void, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<void, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    const live = yield* canvases.liveDocuments().pipe(Effect.mapError(fromCanvasError));
-    const documents = new Map(
-      live.map((row) => [row.canvasName, row.doc] as const),
-    );
-    const revoked = requireGrant(
-      { documents, revisions: new Map() },
-      caller,
-    );
+    const revoked = requireGrant(yield* readPortfolio, caller);
     if (revoked) return yield* Effect.fail(revoked);
   });
 
@@ -1277,7 +1215,7 @@ export const executeOverseerCanvas = (
   caller: OverseerCaller,
   request: OverseerRequest,
   hooks?: OverseerCanvasHooks,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> => {
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
   if (!CANVAS_OPS.has(request.operation)) {
     return Effect.fail(
       fail(
@@ -1295,7 +1233,7 @@ export const commitAgentReseat = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"agent.reseat">,
   next: CanvasNode,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   mutateExistingNode(caller, args.canvas, args.nodeId, (existing) => {
     if (existing.ether?.entity?.kind !== "agent") {
       return fail("InputError", `node "${args.nodeId}" is not an agent`);
@@ -1309,7 +1247,7 @@ export const commitAgentReseat = (
 export const applySchedulerConfigure = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"scheduler.configure">,
-): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   mutateExistingNode(caller, args.canvas, args.nodeId, (node) => {
     const kind = node.ether?.entity?.kind;
     if (kind !== "cron" && kind !== "timer" && kind !== "watcher" && kind !== "relay") {
