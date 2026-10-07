@@ -696,10 +696,11 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   font-family: var(--font-mono);
   font-size: var(--text-label);
 }
-.focus-switcher__card .focus-switcher__crumb {
+.focus-switcher__region {
+  display: flex;
+  justify-content: center;
   max-width: 100%;
   margin-top: 2px;
-  text-align: center;
 }
 .focus-switcher__footer {
   display: flex;

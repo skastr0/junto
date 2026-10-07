@@ -12,7 +12,7 @@ import {
   type FocusSwitcherSession,
 } from "../lib/focus-switcher";
 import { useModalLayer } from "../lib/modal-stack";
-import { regionTrails, trailPath, type RegionStep } from "../lib/region-path";
+import { regionTrails, type RegionStep } from "../lib/region-path";
 import { seatSaying } from "../lib/seat-line";
 import { state$ } from "../lib/state";
 import { accentColor } from "../lib/theme";
@@ -24,7 +24,9 @@ const optionId = (nodeId: string): string => `focus-switcher-${nodeId}`;
 
 /**
  * An agent's card: the seat's own ring and portrait, its name, the line its
- * seat is saying, and where it sits. Read aloud as agent, state, region.
+ * seat is saying, and where it sits. Read aloud as agent, state, region: the
+ * name comes from those three lines, not from a label, which the tooltip
+ * layer would show over the card.
  */
 function SwitcherCard({
   entry,
@@ -51,12 +53,13 @@ function SwitcherCard({
   // An AI reading is named as one, as everywhere else: never the agent's own claim.
   const line =
     saying.kind === "signal" ? saying.word : saying.kind === "reading" ? `AI reads ${saying.text}` : saying.text;
+  const id = optionId(entry.nodeId);
   return (
     <div
-      id={optionId(entry.nodeId)}
+      id={id}
       role="option"
       aria-selected={selected}
-      aria-label={[entry.title, line, trail ? trailPath(trail) : undefined].filter(Boolean).join(", ")}
+      aria-labelledby={`${id}-name ${id}-state${trail ? ` ${id}-region` : ""}`}
       data-node-id={entry.nodeId}
       data-testid={selected ? "focus-switcher-selected" : undefined}
       className={[
@@ -77,13 +80,20 @@ function SwitcherCard({
         <SeatRingView node={node} px={44} glance={glance} />
       </span>
       <span
+        id={`${id}-name`}
         className="focus-switcher__title"
         style={node.color ? { color: accentColor(node.color) } : undefined}
       >
         {entry.title}
       </span>
-      <span className="focus-switcher__line">{line}</span>
-      {trail ? <RegionCrumb trail={trail} className="focus-switcher__crumb" testId="focus-switcher-crumb" /> : null}
+      <span id={`${id}-state`} className="focus-switcher__line">
+        {line}
+      </span>
+      {trail ? (
+        <span id={`${id}-region`} className="focus-switcher__region">
+          <RegionCrumb trail={trail} testId="focus-switcher-crumb" />
+        </span>
+      ) : null}
     </div>
   );
 }
