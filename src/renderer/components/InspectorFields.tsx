@@ -212,12 +212,6 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
   </>;
 }
 
-/**
- * Which node an editor is for. An editor reads the node from the store by its
- * id; a caller that still holds a node may hand that instead, for its id alone.
- */
-type EditorTarget = { readonly nodeId?: string; readonly node?: { readonly id: string } };
-const targetId = (target: EditorTarget): string => target.nodeId ?? target.node?.id ?? "";
 
 /** Host + profile for a page — used from RTS kind-strip pop. */
 export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
@@ -328,8 +322,7 @@ function KernelFieldEditors({ nodeId }: { readonly nodeId: string }) {
 }
 
 /** Defaults for new page nodes created inside this region. */
-export function RegionPageDefaultsControl(target: EditorTarget) {
-  const regionId = targetId(target);
+export function RegionPageDefaultsControl({ nodeId: regionId }: { readonly nodeId: string }) {
   const stored = useNodeOf(use$(state$.canvasName), regionId, "region")?.defaults;
   const [pageUrl, setPageUrl] = useState(stored?.page?.url ?? "");
   const [pageProfile, setPageProfile] = useState(stored?.page?.profile ?? "");
@@ -440,8 +433,7 @@ const commitRegionInstruction = (regionId: string, instruction: string): void =>
  * are statements a closing task must answer, so they live with the briefing.
  * Single copy line; large editor; CLI refs use first-class amber mono.
  */
-export function RegionBriefingEditor(target: EditorTarget) {
-  const regionId = targetId(target);
+export function RegionBriefingEditor({ nodeId: regionId }: { readonly nodeId: string }) {
   const instructionValue = useNodeOf(use$(state$.canvasName), regionId, "region")?.instruction ?? "";
   const [instructionDraft, setInstructionDraft] = useState(instructionValue);
 
@@ -578,8 +570,7 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
 }
 
 // Gauge editor: hermes stat_threshold.
-export function WatcherEditor(target: EditorTarget) {
-  const nodeId = targetId(target);
+export function WatcherEditor({ nodeId }: { readonly nodeId: string }) {
   const watcher = useNodeOf(use$(state$.canvasName), nodeId, "watcher");
   // The model keeps a watcher's threshold as its own fields; the draft and the
   // writer below still speak the document's watch shape.
@@ -639,8 +630,7 @@ export function WatcherEditor(target: EditorTarget) {
  * an edge says which relationship it is, and the watch predicate and fire
  * action fall out of that plus the two kinds.
  */
-export function RelayEditor(target: EditorTarget) {
-  const nodeId = targetId(target);
+export function RelayEditor({ nodeId }: { readonly nodeId: string }) {
   // What a relay watches and what it does are its wires, so the canvas is
   // followed; this is mounted only while a relay is inspected.
   const canvas = useCanvas(use$(state$.canvasName));
@@ -685,8 +675,7 @@ export function RelayEditor(target: EditorTarget) {
 }
 
 // Compact expression strip — full human schedule is CronScheduleSurface.
-export function TimerEditor(target: EditorTarget) {
-  const nodeId = targetId(target);
+export function TimerEditor({ nodeId }: { readonly nodeId: string }) {
   const expression = useNodeOf(use$(state$.canvasName), nodeId, "cron")?.expression;
   const defaultExpr = expression?.trim() || "*/30 * * * *";
   const [draft, setDraft] = useState(defaultExpr);
