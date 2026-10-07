@@ -1,4 +1,4 @@
-import { DIM, HUE, INK, withAlpha } from "../../lib/theme";
+import { DIM, HUE, HUE_TEXT, INK, withAlpha } from "../../lib/theme";
 
 // A tiny, self-contained tab bar primitive for internal panel navigation —
 // no CSS import required, so any panel can drop it in. 9px uppercase
@@ -48,7 +48,7 @@ export function InspectorTabs({
             {tab.badge ? (
               <span
                 className="inline-flex min-w-[14px] items-center justify-center rounded-full px-1 text-micro tabular-nums"
-                style={{ background: withAlpha(HUE.amber, 0.22), color: HUE.amber }}
+                style={{ background: withAlpha(HUE.amber, 0.22), color: HUE_TEXT.amber }}
               >
                 {tab.badge > 99 ? "99+" : tab.badge}
               </span>

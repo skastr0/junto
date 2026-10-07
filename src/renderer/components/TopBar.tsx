@@ -21,7 +21,7 @@ import { openOperatorModal } from "../lib/operator-modal";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
-import { HUE, withAlpha } from "../lib/theme";
+import { HUE, HUE_TEXT, withAlpha } from "../lib/theme";
 import { Button, ConfirmDialog, Dialog, Dropdown, FieldLabel, Input, Popover } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
@@ -231,7 +231,7 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
         <span
           role="alert"
           style={{
-            color: HUE.crimson,
+            color: HUE_TEXT.crimson,
             fontSize: "var(--text-micro)",
             letterSpacing: "var(--tracking-eyebrow)",
             textTransform: "uppercase",
