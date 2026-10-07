@@ -15,18 +15,14 @@ import {
   RELAY_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
-import { isGroup } from "@shared/graph";
 import {
   asNodeId,
-  canvasDocToCapabilityView,
-  resolveNodePlacement,
-  resolveSpec,
-  roleOf,
   placementLabel,
   type FactoryRoleName,
 } from "@shared/physics";
+import { canvasToCapabilityView } from "@shared/physics/view";
+import { resolveHostPlacement } from "@shared/physics/placement";
 import { addEdge } from "../lib/edge-mutations";
-import { specOf } from "../lib/node-spec";
 import { releaseFocus } from "../lib/focus-ownership";
 import { commitDoc, editLink, editText, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults } from "../lib/mutations";
 import {
@@ -35,6 +31,11 @@ import {
 } from "@shared/cron-expression";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
+import { physicsKind, roleOfKind } from "../lib/model-kind";
+import { useCanvas, useNodeValue } from "../lib/use-model";
+import { asNodeId as asModelNodeId } from "@shared/model";
+import { LOCAL_HOST } from "@shared/model/base";
+import { titleOf } from "@shared/model/title";
 import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
@@ -45,9 +46,6 @@ import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
 // ---------------------------------------------------------------------------
 // Factory physics — capability inventory (read-only) + "limit this key" editor
 
-const entityNameOf = (node: CanvasNode | undefined): string =>
-  typeof node?.ether?.entity?.name === "string" ? node.ether.entity.name : "";
-
 type CapabilityNeighbor = {
   readonly id: string;
   readonly title: string;
@@ -57,42 +55,37 @@ type CapabilityNeighbor = {
 
 /** Actor: "reaches"; sink: "reached by" — plain inventory, no physics lecture. */
 export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode }) {
-  const doc = use$(state$.doc);
-  const selfSpec = useMemo(
-    () => resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind }),
-    [node],
-  );
-  const selfRole = roleOf(selfSpec);
+  // Who a node reaches depends on every wire and every region, so the canvas
+  // is followed whole; this is mounted only while a node is inspected.
+  const canvas = useCanvas(use$(state$.canvasName));
 
   const inventory = useMemo(() => {
+    const self = canvas.nodes.get(asModelNodeId(node.id));
+    if (!self) return null;
+    const selfRole = roleOfKind(self.kind);
     if (selfRole !== "actor" && selfRole !== "sink") return null;
-    const view = canvasDocToCapabilityView(doc);
-    const selfId = asNodeId(node.id);
-    const neighbors = HashMap.get(view.connected, selfId);
+    const view = canvasToCapabilityView(canvas);
+    const neighbors = HashMap.get(view.connected, asNodeId(node.id));
     if (Option.isNone(neighbors) || HashSet.size(neighbors.value) === 0) {
       return { role: selfRole, rows: [] as CapabilityNeighbor[] };
     }
-    const byId = new Map(doc.nodes.map((n) => [n.id, n]));
     const rows: CapabilityNeighbor[] = [];
     for (const peerId of neighbors.value) {
-      const peer = byId.get(peerId);
+      const peer = canvas.nodes.get(asModelNodeId(peerId));
       if (!peer) continue;
-      const peerSpec = resolveSpec({
-        isGroup: isGroup(peer),
-        kind: peer.ether?.entity?.kind,
-      });
+      const peerRole = roleOfKind(peer.kind);
       // Actor: everything it reaches; sink: inbound callers only.
-      if (selfRole === "sink" && roleOf(peerSpec) !== "actor") continue;
+      if (selfRole === "sink" && peerRole !== "actor") continue;
       rows.push({
         id: peerId,
-        title: nodeTitle(peer),
-        role: roleOf(peerSpec),
-        kind: peer.ether?.entity?.kind,
+        title: titleOf(peer),
+        role: peerRole,
+        kind: physicsKind(peer.kind),
       });
     }
     rows.sort((a, b) => a.title.localeCompare(b.title));
     return { role: selfRole, rows };
-  }, [doc, node, selfRole, selfSpec]);
+  }, [canvas, node.id]);
 
   if (!inventory) return null;
 
@@ -125,7 +118,11 @@ const placementTone = (runtimeTag: "Cc" | "Station"): ChipTone =>
  * it names the host, it never gates a port.
  */
 export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
-  const placement = useMemo(() => resolveNodePlacement(node), [node]);
+  // The machine a node runs on is the one field of it this reads.
+  const host = useNodeValue(use$(state$.canvasName), node.id, (held) =>
+    held !== undefined && "host" in held ? held.host : LOCAL_HOST,
+  );
+  const placement = useMemo(() => resolveHostPlacement(host), [host]);
   const label = placementLabel(placement);
   const assign = placement.assignment ?? "—";
   const tone = placementTone(placement.runtime._tag);
