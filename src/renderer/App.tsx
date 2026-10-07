@@ -514,7 +514,7 @@ export function App() {
     [],
   );
 
-  // Command bar "Open canvas" action — one-shot request consumed here so the
+  // Command bar "Open canvas" action — one-shot request consumed here so
   // opening a canvas keeps its single owner in App.
   useEffect(() => {
     return state$.canvasOpenRequest.onChange(() => {
