@@ -28,11 +28,11 @@
   position: relative;
 }
 /* A dot is drawn at 12px and pressed across 16 by 24: an invisible area that
-   reaches halfway to each neighbour. */
+   reaches halfway to each neighbour. The inset starts inside the 1px border. */
 .rts-swatch::before {
   content: "";
   position: absolute;
-  inset: -6px -2px;
+  inset: -7px -3px;
 }
 
 .rts-swatch span {
@@ -146,7 +146,7 @@
 }
 /* In the popover the 16px dots sit 24px apart and are pressed across 24 by 24. */
 .accent-custom__dots .rts-swatch::before {
-  inset: -4px;
+  inset: -5px;
 }
 
 .accent-custom__dots .rts-swatch {
