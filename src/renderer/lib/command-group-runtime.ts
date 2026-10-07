@@ -40,7 +40,7 @@ import {
   slotIndexOf,
   touchActiveMru,
 } from "./hotbar-slots";
-import { digitLease, liveAttentionReasons, seatFactsForNode, type SeatFacts } from "./seat-projections";
+import { digitLease, liveAttentionReasonsForSeat, seatFactsForNode, type SeatFacts } from "./seat-projections";
 import { selectNodes, state$ } from "./state";
 import { terminal$ } from "./terminal-state";
 import { modelStore, nodeAt } from "./use-model";
@@ -83,12 +83,7 @@ export const seatFactsOf = (
     seatEvent: seatEventForBinding(bindingId),
     session,
     graphBlocked: extra.graphBlocked,
-    // seat-projections reads a document node for the agent key and nothing
-    // else. This literal is all it reads; it goes when that file takes the key.
-    attentionReasons:
-      node.kind === "agent"
-        ? liveAttentionReasons({ ether: { entity: { kind: "agent", name: node.agentKey } } }, extra.chatByAgent)
-        : [],
+    attentionReasons: node.kind === "agent" ? liveAttentionReasonsForSeat(node.agentKey, extra.chatByAgent) : [],
     managedSeat: node.kind === "agent",
     needsLook: extra.needsLook,
   });

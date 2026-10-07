@@ -8,7 +8,7 @@ import {
 } from "../src/renderer/lib/chat-state";
 import {
   attentionCoarse$,
-  chatActivityFeed,
+  chatActivityFeedOf,
   clueFromChatCoarse,
 } from "../src/renderer/lib/occupancy-feed";
 
@@ -82,38 +82,32 @@ describe("clueFromChatCoarse — ACP chat plane -> occupancy clue", () => {
   });
 });
 
-describe("chatActivityFeed — whole-document ActivityFeedService producer", () => {
-  const doc: CanvasDoc = {
-    nodes: [
-      agentNode("a1", "local:agentA"),
-      plainNode("t2"),
-    ],
-    edges: [],
-  };
+describe("chatActivityFeedOf — the feed for the seats on a canvas", () => {
+  const seats = [{ id: "a1", agentKey: "local:agentA" }];
   const chat: Record<string, AgentChatCoarse> = {
     "local:agentA": coarse({ status: "live" }),
   };
 
-  it("resolves an agent node via chatCoarse", () => {
-    const feed = chatActivityFeed(doc, chat);
+  it("resolves a seat via chatCoarse", () => {
+    const feed = chatActivityFeedOf(seats, chat);
     expect(feed.clueFor("a1")).toEqual({
       hasOccupant: true,
       activity: { harness: "idle" },
     });
   });
 
-  it("returns undefined for a node with no chat presence", () => {
-    const feed = chatActivityFeed(doc, chat);
+  it("returns undefined for a node that is not a seat", () => {
+    const feed = chatActivityFeedOf(seats, chat);
     expect(feed.clueFor("t2")).toBeUndefined();
   });
 
   it("returns undefined for an unknown node id (never invents a seat)", () => {
-    const feed = chatActivityFeed(doc, chat);
+    const feed = chatActivityFeedOf(seats, chat);
     expect(feed.clueFor("does-not-exist")).toBeUndefined();
   });
 
-  it("degrades to vacant for an undefined document", () => {
-    const feed = chatActivityFeed(undefined, chat);
+  it("degrades to vacant for a canvas with no seats", () => {
+    const feed = chatActivityFeedOf([], chat);
     expect(feed.clueFor("a1")).toBeUndefined();
   });
 });

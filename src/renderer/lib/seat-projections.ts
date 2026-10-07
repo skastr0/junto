@@ -76,6 +76,25 @@ export function attentionReasonsForNode(
 }
 
 /**
+ * The same reasons for a seat named by its agent key, for a caller that holds
+ * the seat and no node. A caller with no seat passes undefined and gets none.
+ */
+export function attentionReasonsForSeat(
+  agentKey: string | undefined,
+  ownCoarse?: { readonly pendingPermissionId?: string },
+): ReadonlyArray<string> {
+  return agentKey && ownCoarse?.pendingPermissionId ? ["permission:pending"] : [];
+}
+
+/** The whole-map form of attentionReasonsForSeat, for a caller projecting many seats at once. */
+export function liveAttentionReasonsForSeat(
+  agentKey: string | undefined,
+  chatByAgent?: Readonly<Record<string, { readonly pendingPermissionId?: string } | undefined>>,
+): ReadonlyArray<string> {
+  return attentionReasonsForSeat(agentKey, agentKey ? chatByAgent?.[agentKey] : undefined);
+}
+
+/**
  * Live attention reasons that are not harness seat-state (ACP permission,
  * sink input-required). Same list for card, digit lease, and notify.
  *

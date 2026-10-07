@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { OccupancySpectrum, deriveOccupancy } from "../src/shared/occupancy";
-import type { CanvasDoc } from "../src/shared/canvas";
 import { actorOccupancyAttr, occupancyChrome } from "../src/renderer/lib/occupancy-chrome";
-import { chatActivityFeed } from "../src/renderer/lib/occupancy-feed";
+import { chatActivityFeedOf } from "../src/renderer/lib/occupancy-feed";
 import type { AgentChatCoarse } from "../src/renderer/lib/chat-state";
 
-type Node = CanvasDoc["nodes"][number];
 
 const STATES = OccupancySpectrum.literals;
 
@@ -123,23 +121,15 @@ describe("actorOccupancyAttr — vacancy only on actor cards", () => {
 });
 
 describe("I11 — occupancy is derived, never document truth", () => {
-  const node = (id: string, agentKey?: string): Node => ({
-    id,
-    type: "text",
-    text: id,
-    x: 0,
-    y: 0,
-    width: 100,
-    height: 40,
-    ...(agentKey ? { ether: { entity: { kind: "agent", name: agentKey } } } : {}),
-  });
-
   it("running occupancy derivation across a churn of live states never mutates the document", () => {
-    const doc: CanvasDoc = {
-      nodes: [node("seat-1", "local:agentA"), node("seat-2", "local:agentB"), node("seat-3")],
-      edges: [],
-    };
-    const before = JSON.stringify(doc);
+    // What the feed is handed: the seats, by node id and agent key. seat-3 is
+    // a card that is no seat.
+    const seats = [
+      { id: "seat-1", agentKey: "local:agentA" },
+      { id: "seat-2", agentKey: "local:agentB" },
+    ];
+    const nodeIds = ["seat-1", "seat-2", "seat-3"];
+    const before = JSON.stringify(seats);
 
     const churns: ReadonlyArray<Record<string, AgentChatCoarse>> = [
       { "local:agentA": { status: "idle", turnBusy: false, hasBusyTools: false } },
@@ -161,9 +151,9 @@ describe("I11 — occupancy is derived, never document truth", () => {
 
     const now = 1_700_000_000_000;
     for (const chat of churns) {
-      const feed = chatActivityFeed(doc, chat);
-      for (const n of doc.nodes) {
-        const clue = feed.clueFor(n.id);
+      const feed = chatActivityFeedOf(seats, chat);
+      for (const id of nodeIds) {
+        const clue = feed.clueFor(id);
         const state = deriveOccupancy({
           hasOccupant: clue?.hasOccupant ?? false,
           activity: clue?.activity,
@@ -175,11 +165,8 @@ describe("I11 — occupancy is derived, never document truth", () => {
       }
     }
 
-    expect(JSON.stringify(doc)).toBe(before);
-    // No occupancy field of any kind was written onto a node.
-    for (const n of doc.nodes) {
-      expect(n).not.toHaveProperty("occupancy");
-      expect((n as unknown as { ether?: { occupancy?: unknown } }).ether?.occupancy).toBeUndefined();
-    }
+    expect(JSON.stringify(seats)).toBe(before);
+    // No occupancy field of any kind was written onto a seat.
+    for (const seat of seats) expect(seat).not.toHaveProperty("occupancy");
   });
 });

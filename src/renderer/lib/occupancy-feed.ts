@@ -26,6 +26,7 @@ import { chatCoarse$, type AgentChatCoarse } from "./chat-state";
 import {
   attentionAgentKey,
   attentionReasonsForNode,
+  attentionReasonsForSeat,
   type AttentionNode,
 } from "./seat-projections";
 
@@ -52,21 +53,17 @@ export function clueFromChatCoarse(coarse: AgentChatCoarse): OccupancyClue {
 type MinimalNode = Pick<CanvasNode, "id" | "ether">;
 
 /**
- * Pure: builds an ActivityFeedService snapshot from a document + the coarse
- * chat map. Satisfies the shared ActivityFeed contract end to end — a real,
- * non-null producer sourced only from the ACP chat plane.
+ * Pure: an ActivityFeedService snapshot from the seats and the coarse chat
+ * map. Each seat is its node id and agent key, as the model holds them; no
+ * node shape is read. A real, non-null producer sourced only from the ACP
+ * chat plane.
  */
-export function chatActivityFeed(
-  doc: { readonly nodes: ReadonlyArray<MinimalNode> } | undefined,
+export function chatActivityFeedOf(
+  seats: Iterable<{ readonly id: string; readonly agentKey: string }>,
   chat: Record<string, AgentChatCoarse>,
 ): ActivityFeedService {
   const agentKeyByNodeId = new Map<string, string>();
-  for (const node of doc?.nodes ?? []) {
-    const entity = node.ether?.entity;
-    if (entity?.kind === "agent" && entity.name !== undefined) {
-      agentKeyByNodeId.set(node.id, entity.name);
-    }
-  }
+  for (const seat of seats) agentKeyByNodeId.set(seat.id, seat.agentKey);
   return {
     clueFor: (nodeId) => {
       const agentKey = agentKeyByNodeId.get(nodeId);
@@ -84,8 +81,11 @@ const NO_BINDING = "__junto-occupancy-no-binding__";
  * attention: this node's own agent key, or the no-agent sentinel. Exported
  * so a test can subscribe to exactly what the hook subscribes to.
  */
-export function attentionCoarse$(node: AttentionNode) {
-  return chatCoarse$[attentionAgentKey(node) ?? NO_AGENT_KEY];
+export function attentionCoarse$(seat: string | undefined | AttentionNode) {
+  // A seat is named by its agent key. The node form is still taken while the
+  // seat ring and the cards hand one; it goes when they pass the key.
+  const agentKey = typeof seat === "object" ? attentionAgentKey(seat) : seat;
+  return chatCoarse$[agentKey ?? NO_AGENT_KEY];
 }
 
 /**
@@ -110,11 +110,8 @@ export function useNodeAttentionReasons(node: AttentionNode): ReadonlyArray<stri
  * the seat and not a document node.
  */
 export function useSeatAttentionReasons(agentKey: string | undefined): ReadonlyArray<string> {
-  const coarse = use$(chatCoarse$[agentKey ?? NO_AGENT_KEY]) as AgentChatCoarse | undefined;
-  return useMemo(
-    () => attentionReasonsForNode({ ether: { entity: { kind: "agent", name: agentKey } } }, coarse),
-    [agentKey, coarse],
-  );
+  const coarse = use$(attentionCoarse$(agentKey)) as AgentChatCoarse | undefined;
+  return useMemo(() => attentionReasonsForSeat(agentKey, coarse), [agentKey, coarse]);
 }
 
 /**

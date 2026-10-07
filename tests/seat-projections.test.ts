@@ -1,3 +1,4 @@
+import { attentionReasonsForSeat, liveAttentionReasonsForSeat } from "../src/renderer/lib/seat-projections";
 import { describe, expect, it } from "vitest";
 import {
   applyHotbarLeases,
@@ -222,5 +223,19 @@ describe("hotbar eviction from digitLease", () => {
       digitLease(idle) ? ["a"] : [],
     );
     expect(next[0]).toEqual({ kind: "evicted", nodeId: "a" });
+  });
+});
+
+describe("attention reasons of a seat named by its agent key", () => {
+  it("is a pending permission on the seat's own slice, and nothing for no seat", () => {
+    expect(attentionReasonsForSeat("local:pi", { pendingPermissionId: "p1" })).toEqual(["permission:pending"]);
+    expect(attentionReasonsForSeat("local:pi", {})).toEqual([]);
+    expect(attentionReasonsForSeat(undefined, { pendingPermissionId: "p1" })).toEqual([]);
+    // The same answers the node form gives for the same seat.
+    const node = { ether: { entity: { kind: "agent", name: "local:pi" } } };
+    const chat = { "local:pi": { pendingPermissionId: "p1" }, "local:other": {} };
+    expect(liveAttentionReasonsForSeat("local:pi", chat)).toEqual(liveAttentionReasons(node, chat));
+    expect(liveAttentionReasonsForSeat("local:other", chat)).toEqual([]);
+    expect(liveAttentionReasonsForSeat(undefined, chat)).toEqual([]);
   });
 });
