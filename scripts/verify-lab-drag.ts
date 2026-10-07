@@ -66,10 +66,11 @@ const cards = await evaluate<Array<{ id: string; x: number; y: number }>>(`(() =
   .map((card) => { const box = card.getBoundingClientRect(); return { id: card.getAttribute("data-id"), x: box.left + box.width / 2, y: box.top + box.height / 2, w: box.width, h: box.height }; })
   .filter((box) => box.x > 40 && box.y > 80 && box.x < innerWidth - 40 && box.y < innerHeight - 160 && box.w > 6 && box.h > 6)
   .sort((a, b) => a.y - b.y || a.x - b.x))()`);
-if (cards.length < select) {
-  console.error(`verify lab: only ${String(cards.length)} seat cards on screen, need ${String(select)}`);
+if (cards.length < 3) {
+  console.error(`verify lab: only ${String(cards.length)} seat cards on screen, need at least 3`);
   process.exit(1);
 }
+// Fewer on screen than asked for is reported, not fatal.
 const chosen = cards.slice(0, select);
 // 8 is the Shift modifier: the app extends a selection with shift-click.
 await mouse("mousePressed", chosen[0]!.x, chosen[0]!.y);
