@@ -25,6 +25,7 @@ import {
 } from "@shared/git-review";
 import { noteReviewComposer, removeReviewComment, saveReviewComment, usePendingReview } from "../../lib/git-review";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { keyAria, keyIs } from "../../lib/key-match";
 import { modKeyGlyph } from "../../lib/platform";
 import { AgentPortrait } from "../AgentPortrait";
 import { Button, IconButton, StatusDot, Textarea } from "../ui";
@@ -110,7 +111,7 @@ function Composer({
       event.preventDefault();
       event.stopPropagation();
       onCancel();
-    } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canSave) {
+    } else if (keyIs(event, "message.send") && canSave) {
       event.preventDefault();
       onSave();
     }
@@ -128,7 +129,7 @@ function Composer({
         value={draft.text}
         aria-label={`Comment on ${anchor}`}
         placeholder="Comment on this line, @ to send it to another agent"
-        aria-keyshortcuts="Meta+Enter Control+Enter"
+        aria-keyshortcuts={keyAria("message.send")}
         aria-expanded={listOpen}
         aria-controls={listOpen ? "git-review-mentions" : undefined}
         onChange={(event) => {
