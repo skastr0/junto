@@ -169,7 +169,7 @@ function specsOf(
     const sourceSide = sides?.source ?? heldSource;
     const targetSide = sides?.target ?? heldTarget;
     const data = edge.data;
-    // Same expression EtherEdge paints from; read only, never written back.
+    // Same expression WireEdge paints from; read only, never written back.
     const phase = data?.phase ?? "relates";
     out.push({
       id: edge.id,

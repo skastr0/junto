@@ -240,7 +240,7 @@ function compareScore(
 function candidatePads(padding: number): number[] {
   // A dense node cluster can be physically navigable while its inflated
   // clearance rectangles overlap. Prefer the normal moat, then deliberately
-  // relax it in small, explicit steps before EtherEdge falls back to a path
+  // relax it in small, explicit steps before WireEdge falls back to a path
   // that may sit on a node border.
   return [...new Set([padding, Math.min(padding, 8), Math.min(padding, 4), 0])];
 }

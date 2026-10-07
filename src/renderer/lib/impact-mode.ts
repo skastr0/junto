@@ -161,7 +161,7 @@ export const edgeImpactClass = (
   return undefined;
 };
 
-/** Edge data.impact token for EtherEdge path/label styling (in-cone only). */
+/** Edge data.impact token for WireEdge path/label styling (in-cone only). */
 export const edgeImpactRole = (
   active: boolean,
   cone: ImpactCone,

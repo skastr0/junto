@@ -39,7 +39,7 @@ const WIRE_WIDTH = 1.2;
 /** No verb means no relationship compiled: draw it, quietly, in neutral ink. */
 const UNSET_COLOR = "var(--wire-verb-unset)";
 
-export function EtherEdge({
+export function WireEdge({
   id,
   sourceX,
   sourceY,
@@ -171,5 +171,5 @@ export function EtherEdge({
 }
 
 export const edgeTypes: EdgeTypes = {
-  ether: EtherEdge,
+  wire: WireEdge,
 };

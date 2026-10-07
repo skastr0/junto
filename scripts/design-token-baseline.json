@@ -116,7 +116,7 @@
     "src/renderer/components/UsageHud.css": 5,
     "src/renderer/components/agent-editor/AgentEditor.css": 1,
     "src/renderer/components/command-groups/command-group-bar.css": 4,
-    "src/renderer/components/edges/EtherEdge.tsx": 1,
+    "src/renderer/components/edges/WireEdge.tsx": 1,
     "src/renderer/components/gallery/ActivityMarkGallery.tsx": 3,
     "src/renderer/components/live/live-conversation.css": 1,
     "src/renderer/components/node-palette/node-palette-mode-deck.css": 4,

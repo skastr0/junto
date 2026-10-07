@@ -91,7 +91,7 @@ export const flowEdgesFromModel = (
       target: wire.to,
       sourceHandle,
       targetHandle,
-      type: "ether",
+      type: "wire",
       data: { rippling, phase, detail, verb: wire.verb, colorToken: VERB_COLOR_TOKEN[wire.verb], fromKind, toKind },
       zIndex: WIRE_Z,
     };

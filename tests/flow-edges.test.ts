@@ -25,7 +25,7 @@ describe("React Flow edges from the model", () => {
     const canvas = canvasOf([seat("a", 0, 0), seat("b", 600, 0)], [wire("w", "a", "b", { verb: "reviews" })]);
     const [edge] = flowEdgesFromModel(canvas, quiet);
     expect(edge).toMatchObject({
-      id: "w", source: "a", target: "b", type: "ether", zIndex: 16,
+      id: "w", source: "a", target: "b", type: "wire", zIndex: 16,
       data: { verb: "reviews", colorToken: VERB_COLOR_TOKEN.reviews, phase: "relates", detail: "", rippling: false, fromKind: "agent", toKind: "agent" },
     });
   });

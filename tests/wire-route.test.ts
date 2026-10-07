@@ -130,7 +130,7 @@ describe("routeWire", () => {
   it("finds a corner route through a dense obstacle layout", () => {
     // The old global-union candidates all collided here even though a clear
     // path exists through the individual obstacle corners. This is the shape
-    // that previously sent EtherEdge to the awkward smooth-step fallback.
+    // that previously sent WireEdge to the awkward smooth-step fallback.
     const routed = routeWire({
       source: { x: 0, y: 0 },
       target: { x: 400, y: 300 },

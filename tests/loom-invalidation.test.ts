@@ -221,11 +221,11 @@ describe("planStandaloneRoutes", () => {
 });
 
 describe("renderer subscription contract (static)", () => {
-  it("EtherEdge source does not read full obstacle/corridor observables", async () => {
+  it("WireEdge source does not read full obstacle/corridor observables", async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
     const src = readFileSync(
-      resolve(__dirname, "../src/renderer/components/edges/EtherEdge.tsx"),
+      resolve(__dirname, "../src/renderer/components/edges/WireEdge.tsx"),
       "utf8",
     );
     expect(src).not.toMatch(/loomObstacles\$/);

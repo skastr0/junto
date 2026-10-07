@@ -55,7 +55,7 @@ export const loomRoutes$ = observable<Record<string, LoomRoute>>({});
 
 /**
  * Every routable node rect from the last geometry tick. Owned by CanvasLoom for
- * planning only — EtherEdge must not subscribe to this array.
+ * planning only — WireEdge must not subscribe to this array.
  */
 export const loomObstacles$ = observable<LoomObstacle[]>([]);
 
