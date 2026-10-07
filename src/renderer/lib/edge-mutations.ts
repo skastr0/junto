@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import type { CanvasDoc, CanvasEdge, CanvasNode, EdgeEnd } from "@shared/canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import {
   defaultVerbForPair,
   resolveSpec,
@@ -40,11 +40,6 @@ const kindOf = (node: CanvasNode | undefined): string | undefined =>
   node === undefined || node.type === "group"
     ? undefined
     : node.ether?.entity?.kind;
-
-const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
-  const { [key]: _removed, ...rest } = value;
-  return rest;
-};
 
 export type DrawVerbs = {
   /** Verbs the pair admits, in table order. Empty means connect is refused. */
@@ -119,7 +114,7 @@ export const verbHandleId = (verb: Verb): string =>
  * `sourceHandle` or `targetHandle` depending on which end the drag began at,
  * so both are read; a verb the pair cannot hold is ignored rather than trusted.
  */
-export const verbFromHandles = (
+const verbFromHandles = (
   handles: ReadonlyArray<string | null | undefined>,
   legal: ReadonlyArray<Verb>,
 ): Verb | undefined => {
@@ -162,44 +157,6 @@ export const deleteEdges = async (ids: ReadonlyArray<string>): Promise<void> => 
   if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return;
   removeEdgesFromSelection(removed);
   commitDoc({ ...doc, edges: doc.edges.filter((edge) => !removed.has(edge.id)) });
-};
-
-export const setEdgeColor = (id: string, color?: string): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    edges: doc.edges.map((edge) =>
-      edge.id === id ? (color ? { ...edge, color } : without(edge, "color")) : edge,
-    ),
-  });
-};
-
-export const editEdgeLabel = (id: string, label: string): void => {
-  const doc = state$.doc.peek();
-  const nextLabel = label.trim();
-  commitDoc({
-    ...doc,
-    edges: doc.edges.map((edge) =>
-      edge.id === id ? (nextLabel ? { ...edge, label: nextLabel } : without(edge, "label")) : edge,
-    ),
-  });
-};
-
-export const toggleEdgeArrow = (id: string, side: "from" | "to"): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    edges: doc.edges.map((edge) => {
-      if (edge.id !== id) return edge;
-      const next: EdgeEnd | undefined = side === "from"
-        ? (edge.fromEnd === "arrow" ? undefined : "arrow")
-        : (edge.toEnd === "arrow" ? undefined : "arrow");
-      if (side === "from") {
-        return next ? { ...edge, fromEnd: next } : without(edge, "fromEnd");
-      }
-      return next ? { ...edge, toEnd: next } : without(edge, "toEnd");
-    }),
-  });
 };
 
 export const addEdge = (params: {

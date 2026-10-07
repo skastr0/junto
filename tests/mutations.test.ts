@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
 import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/renderer/lib/mutations";
-import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
+import { addEdge, connectAllToTarget, deleteEdges, planConnectToTarget } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$ } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
@@ -1019,34 +1019,6 @@ describe("renderer graph mutations", () => {
     expect(colored?.color).toBe("6");
     setNodeColor("region");
     expect(state$.doc.peek().nodes[0]?.color).toBeUndefined();
-  });
-
-  it("edits and clears native edge labels", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
-    editEdgeLabel("edge-1", "in");
-    expect(state$.doc.peek().edges[0]?.label).toBe("in");
-    editEdgeLabel("edge-1", "  ");
-    expect(state$.doc.peek().edges[0]?.label).toBeUndefined();
-  });
-
-  it("toggles source and target arrow ends", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
-    toggleEdgeArrow("edge-1", "from");
-    toggleEdgeArrow("edge-1", "to");
-    expect(state$.doc.peek().edges[0]).toMatchObject({ fromEnd: "arrow", toEnd: "arrow" });
-    toggleEdgeArrow("edge-1", "to");
-    expect(state$.doc.peek().edges[0]?.toEnd).toBeUndefined();
-  });
-
-  it("sets and clears edge accent colors", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
-    setEdgeColor("edge-1", "6");
-    expect(state$.doc.peek().edges[0]?.color).toBe("6");
-    setEdgeColor("edge-1");
-    expect(state$.doc.peek().edges[0]?.color).toBeUndefined();
   });
 
   it("edits text, page url, and region content through the shared mutation plane", () => {
