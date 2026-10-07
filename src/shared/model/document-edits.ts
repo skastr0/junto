@@ -44,6 +44,30 @@ const unshared = <T extends object>(list: ReadonlyArray<T>, other: ReadonlyArray
   return list.filter((item) => !shared.has(item));
 };
 
+/**
+ * A writer asked for a node the model cannot hold, or for a seat, a terminal
+ * or a work surface to become some other kind of thing. Nothing is sent for
+ * the whole edit: reading such a node as gone, or as replaced, would remove
+ * it, with its wires and its mailbox, in answer to a bad edit.
+ */
+export class UnholdableEdit extends Error {
+  constructor(readonly nodeIds: ReadonlyArray<string>) {
+    super(
+      nodeIds.length === 1
+        ? `the edit would leave "${nodeIds[0]}" as something the canvas cannot hold`
+        : `the edit would leave ${String(nodeIds.length)} nodes as something the canvas cannot hold: ${nodeIds.join(", ")}`,
+    );
+    this.name = "UnholdableEdit";
+  }
+}
+
+/** The kinds that are only what they show: one may become another by an edit. */
+const PLAIN_KINDS: ReadonlySet<string> = new Set(["note", "label", "file", "link"]);
+
+/** The ids of the document nodes that do not make a model node. */
+const unholdable = (canvas: string, nodes: ReadonlyArray<CanvasNode>): ReadonlyArray<string> =>
+  nodes.filter((node, z) => nodeOfDocument(canvas, node, z) === undefined).map((node) => node.id);
+
 const rowsOf = (canvas: string, nodes: ReadonlyArray<CanvasNode>): Map<string, Node> => {
   const rows = new Map<string, Node>();
   nodes.forEach((node, z) => {
@@ -66,7 +90,9 @@ const wiresOf = (edges: ReadonlyArray<CanvasEdge>): Map<string, Wire> => {
 const sheetOf = (node: CanvasNode | undefined): unknown => node?.ether?.sheet;
 
 /**
- * The commands that take a canvas from one document to another. `top` is the
+ * The commands that take a canvas from one document to another, or
+ * `UnholdableEdit` thrown when the second document asks for a node the model
+ * cannot hold. `top` is the
  * place in the stack a new node takes (the first of them; the rest follow),
  * since a document only knows the order of its nodes, not where they stack.
  */
@@ -75,20 +101,33 @@ export const documentEdits = (canvasName: string, before: CanvasDoc, after: Canv
   // Only what the two documents do not share is read at all.
   const nodesWas = unshared(before.nodes, after.nodes);
   const nodesNow = unshared(after.nodes, before.nodes);
+  // What the canvas is to become must be something it can hold. A node of the
+  // document before that the model never held is another matter: it is simply
+  // not there to change.
+  const bad = unholdable(canvasName, nodesNow);
+  if (bad.length > 0) throw new UnholdableEdit(bad);
   const was = rowsOf(canvasName, nodesWas);
   const now = rowsOf(canvasName, nodesNow);
   const wiresWas = wiresOf(unshared(before.edges, after.edges));
   const wiresNow = wiresOf(unshared(after.edges, before.edges));
 
-  // A node that became another kind, or a terminal on another session, is a
-  // different thing under the same id: it goes and comes back.
+  // A plain card that became another plain kind, or a terminal on another
+  // session, is a different thing under the same id: it goes and comes back.
+  // Anything else that would change kind is refused. A seat whose edit lost
+  // what makes it a seat reads as a note, and taking that as a change of kind
+  // would remove the seat, its wires and its mailbox and put a note there.
   const replaced = new Set<string>();
+  const unkind: string[] = [];
   for (const [id, next] of now) {
     const old = was.get(id);
     if (old === undefined) continue;
-    if (old.kind !== next.kind) replaced.add(id);
+    if (old.kind !== next.kind) {
+      if (PLAIN_KINDS.has(old.kind) && PLAIN_KINDS.has(next.kind)) replaced.add(id);
+      else unkind.push(id);
+    }
     else if (old.kind === "terminal" && next.kind === "terminal" && old.bindingId !== next.bindingId) replaced.add(id);
   }
+  if (unkind.length > 0) throw new UnholdableEdit(unkind);
 
   const removedNodes = [...was.keys()].filter((id) => !now.has(id) || replaced.has(id)) as Array<Node["id"]>;
   const gone = new Set<string>(removedNodes);

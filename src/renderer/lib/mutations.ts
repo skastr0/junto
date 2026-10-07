@@ -30,7 +30,7 @@ import {
 } from "./deletion-impact";
 import type { Command } from "@shared/model";
 import { authoring } from "./authoring";
-import { documentEdits } from "@shared/model/document-edits";
+import { documentEdits, UnholdableEdit } from "@shared/model/document-edits";
 import { createDocumentProjection } from "./document-projection";
 import { topZ } from "./model-edits";
 import { modelStore } from "./use-model";
@@ -166,6 +166,22 @@ const settled = (name: string): void => {
   if (state$.saveState.peek() === "saving") state$.saveState.set("saved");
 };
 
+/**
+ * The commands for an edit, or nothing when the edit asks for a node the
+ * canvas cannot hold: then nothing is sent, and the window says so with the
+ * line a refused command shows.
+ */
+const editsOrRefusal = (name: string, before: CanvasDoc, next: CanvasDoc): ReadonlyArray<Command> | undefined => {
+  try {
+    return documentEdits(name, before, next, topZ(modelStore.canvasOf(name)));
+  } catch (error) {
+    if (!(error instanceof UnholdableEdit)) throw error;
+    state$.saveState.set("error");
+    state$.error.set(`canvas "${name}" did not take that change: ${error.message}`);
+    return undefined;
+  }
+};
+
 /** Send one act for the open canvas. A refusal is shown and the canvas read again. */
 const sendAct = (name: string, commands: ReadonlyArray<Command>, remember: boolean): void => {
   if (commands.length === 0) return;
@@ -286,7 +302,8 @@ export const commitDoc = (next: CanvasDoc, structural = true, remember = structu
     // The store holds this canvas: the edit goes to it as commands, and the
     // document shows it by following the store, in this same turn.
     if (abandonedNames.has(name)) return;
-    sendAct(name, documentEdits(name, before, next, topZ(modelStore.canvasOf(name))), remember);
+    const commands = editsOrRefusal(name, before, next);
+    if (commands !== undefined) sendAct(name, commands, remember);
     return;
   }
   state$.doc.set(next);
@@ -304,7 +321,13 @@ export const commitDoc = (next: CanvasDoc, structural = true, remember = structu
     return;
   }
   if (!name || abandonedNames.has(name)) return;
-  const commands = documentEdits(name, before, next, topZ(modelStore.canvasOf(name)));
+  const commands = editsOrRefusal(name, before, next);
+  if (commands === undefined) {
+    // Shown above, before it was known to be unholdable: put back.
+    state$.doc.set(before);
+    state$.docEpoch.set(state$.docEpoch.peek() + 1);
+    return;
+  }
   if (commands.length === 0) return;
   if (remember) {
     shownBefore.push(before);

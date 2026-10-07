@@ -229,6 +229,23 @@ describe("the window changes a canvas by sending commands", () => {
     expect(refused).not.toHaveBeenCalled();
   });
 
+  it("sends nothing and says so when a writer asks for a seat the canvas cannot hold", async () => {
+    open(doc(seat("s", false), note("note", "base")), "alpha-r1");
+    const whole = state$.doc.peek().nodes.find((node) => node.id === "s")!;
+    // A writer that loses the seat's session binding: not something the model holds.
+    const broken = { ...whole, ether: { ...whole.ether, terminal: { harness: "claude" } } } as CanvasNode;
+    commitDoc({ ...state$.doc.peek(), nodes: state$.doc.peek().nodes.map((node) => (node.id === "s" ? broken : node)) });
+    await flushPendingCanvasSave();
+    // No Remove, no command at all; the seat is still on the canvas.
+    expect(sent()).toEqual([]);
+    expect(state$.doc.peek().nodes.map((node) => node.id).sort()).toEqual(["note", "s"]);
+    expect(modelStore.canvasOf("alpha").nodes.has("s" as never)).toBe(true);
+    expect(state$.saveState.peek()).toBe("error");
+    expect(state$.error.peek()).toContain("did not take that change");
+    expect(state$.error.peek()).toContain('"s"');
+    expect(state$.canUndo.peek()).toBe(false);
+  });
+
   it("does not remember an act that is not the operator's to take back", async () => {
     commitDoc(doc(note("note", "scripted")), true, false);
     await flushPendingCanvasSave();

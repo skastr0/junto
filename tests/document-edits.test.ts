@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
 import { decodeCommand, type Command, type Node } from "../src/shared/model";
 import { inPaintOrder, type Canvas } from "../src/shared/model/canvas";
-import { canvasFromDocument } from "../src/shared/model/from-document";
-import { documentEdits } from "../src/shared/model/document-edits";
+import { canvasFromDocument, nodeOfDocument } from "../src/shared/model/from-document";
+import { documentEdits, UnholdableEdit } from "../src/shared/model/document-edits";
 import { canvasAfter } from "../src/renderer/lib/model-undo";
 
 const rect = (x: number, y: number, width = 220, height = 84) => ({ x, y, width, height });
@@ -253,5 +253,36 @@ describe("what a document cannot decide", () => {
     const before = doc([note("a", "a"), note("b", "b")]);
     const after = doc([note("a", "a"), note("b", "b")], [edge("line", "a", "b", {})]);
     expect(documentEdits("factory", before, after, 0)).toEqual([]);
+  });
+});
+
+describe("an edit that asks for a node the canvas cannot hold", () => {
+  // A seat that lost its session binding no longer reads as a seat: it reads as a note.
+  const unseated = (id: string): CanvasNode => {
+    const whole = seat(id);
+    return { ...whole, ether: { ...whole.ether, terminal: { harness: "claude" } } } as CanvasNode;
+  };
+
+  it("refuses a seat that would stop being a seat, and removes nothing", () => {
+    const before = doc([seat("s"), note("n", "kept")]);
+    const after = doc([unseated("s"), before.nodes[1]!]);
+    expect(nodeOfDocument("factory", after.nodes[0]!, 0)?.kind).not.toBe("agent");
+    expect(() => documentEdits("factory", before, after, 0)).toThrow(UnholdableEdit);
+    try {
+      documentEdits("factory", before, after, 0);
+    } catch (error) {
+      expect((error as UnholdableEdit).nodeIds).toEqual(["s"]);
+      expect((error as Error).message).toContain('"s"');
+    }
+  });
+
+  it("refuses the whole edit even when part of it is something the canvas could take", () => {
+    const before = doc([seat("s"), note("n", "old")]);
+    expect(() => documentEdits("factory", before, doc([unseated("s"), note("n", "new")]), 0)).toThrow(UnholdableEdit);
+  });
+
+  it("refuses a work surface that would become a plain card", () => {
+    const before = doc([board("b")]);
+    expect(() => documentEdits("factory", before, doc([note("b", "was a board")]), 0)).toThrow(UnholdableEdit);
   });
 });
