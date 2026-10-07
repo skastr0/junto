@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { themeMode$ } from "../../lib/theme-mode";
 import { CodeBlock, DiffView, Eyebrow } from "../ui";
 
 /**
@@ -83,6 +84,14 @@ function Sample({ title, note, children }: { readonly title: string; readonly no
 }
 
 export function CodeViewGallery() {
+  // `#/gallery/code?theme=bright` or `?theme=dark` shows one theme whatever the app is set to.
+  useEffect(() => {
+    const asked = window.location.hash.match(/[?&]theme=(dark|bright)/u)?.[1];
+    if (asked !== "dark" && asked !== "bright") return;
+    themeMode$.set(asked);
+    if (asked === "dark") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = asked;
+  }, []);
   return (
     <main className="h-screen overflow-auto bg-ground px-8 py-6 text-ink">
       <h1 className="m-0 font-mono text-title font-semibold">Code and diffs</h1>

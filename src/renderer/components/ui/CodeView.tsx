@@ -89,8 +89,6 @@ export function DiffView<A = undefined>({
     themeType,
     overflow: "scroll" as const,
     diffStyle: layout,
-    // The diff shows the surface it sits on, not the syntax theme's own background.
-    disableBackground: true,
     disableFileHeader: !header,
     ...(renderGutterUtility ? { enableGutterUtility: true } : {}),
     ...(onLineSelected ? { enableLineSelection: true, onLineSelected } : {}),
