@@ -29,6 +29,7 @@ const throttle = Number(arg("throttle", "1"));
 // card whose box changed (place or size, in canvas units) and when the loom's
 // own counters moved, against the time of the release.
 const watchDrops = process.argv.includes("--watch-drops");
+const paths = arg("paths", "").split(",").filter((kind) => kind === "h" || kind === "v" || kind === "d");
 const rendererPort = process.env.JUNTO_PERF_LAB_RENDERER_PORT ?? "9229";
 const outDir = resolve(arg("out", "."));
 mkdirSync(outDir, { recursive: true });
@@ -249,7 +250,12 @@ const cardRenders = () =>
 const less = (after: Record<string, number> | undefined, before: Record<string, number> | undefined) =>
   Object.fromEntries(Object.entries(after ?? {}).map(([key, value]) => [key, value - (before?.[key] ?? 0)]).filter(([, value]) => value !== 0));
 for (let repeat = 0; repeat < repeats; repeat += 1) {
-  const direction = repeat % 2 === 0 ? 1 : -1;
+  // With --paths h,v,d each repeat takes the next named path (pure horizontal,
+  // pure vertical, diagonal) always forwards; without it, the diagonal, alternating direction.
+  const pathKind = paths.length > 0 ? paths[repeat % paths.length]! : "d";
+  const direction = paths.length > 0 ? 1 : repeat % 2 === 0 ? 1 : -1;
+  const stepX = pathKind === "v" ? 0 : 2;
+  const stepY = pathKind === "h" ? 0 : pathKind === "v" ? 2 : 1;
   const grip = await gripNow();
   if (!grip) break;
   console.log(JSON.stringify({ selectionBeforePress: lacking(await selectionOf()), gripCard: chosen[0]!.id, repeat }));
@@ -263,7 +269,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   await mouse("mousePressed", grip.x, grip.y);
   const started = Date.now();
   for (let step = 1; step <= steps; step += 1) {
-    await mouse("mouseMoved", grip.x + direction * step * 2, grip.y + direction * step, { buttons: 1 });
+    await mouse("mouseMoved", grip.x + direction * step * stepX, grip.y + direction * step * stepY, { buttons: 1 });
     await sleep(14);
   }
   const dragMs = Date.now() - started;
@@ -346,7 +352,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
     await evaluate(`(() => { window.__verifyWatch.release = Math.round((performance.now() - window.__verifyWatch.start) * 10) / 10; window.__verifyWatch.frames.length = 0; })()`);
   }
   const released = Date.now();
-  await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
+  await mouse("mouseReleased", grip.x + direction * steps * stepX, grip.y + direction * steps * stepY);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
   const dropMs = Date.now() - released;
   if (watchDrops) {
@@ -431,7 +437,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   const dropped = await world();
   const moved = Object.keys(before.positions).filter((id) => before.positions[id] !== dropped.positions[id]).length;
   if (repeat === 0) movedOnFirstDrag = moved;
-  const facts = { repeat, direction: direction === 1 ? "down-right" : "up-left", selectedBeforePress: grip.selected, cardsMoved: moved };
+  const facts = { repeat, direction: paths.length > 0 ? ({ h: "right", v: "down", d: "down-right" }[pathKind] ?? pathKind) : direction === 1 ? "down-right" : "up-left", selectedBeforePress: grip.selected, cardsMoved: moved };
   rows.push(summarize("drag", during, { ...facts, moves: steps, dragMs, routeWire: routedBefore && routedDrag ? routedDrag.total - routedBefore.total : null, routeWireByTrigger: less(routedDrag?.byTrigger, routedBefore?.byTrigger) }));
   console.log(JSON.stringify(rows.at(-1)));
   const surfacesAfterDrop = await surfaces();
