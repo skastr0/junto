@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { LogOut, NotebookPen } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
 import type { SeatOffboardAction, SeatOffboardStatus } from "@shared/seat-offboard";
 import type { OffboardMode } from "@shared/seat-sessions";
 import type { Side } from "../../lib/menu-placement";
 import { agentCountLabel, isAgentSeatNode } from "../../lib/multi-selection";
 import { nodeTitle } from "../../lib/presentation";
+import { useNodeFieldOf } from "../../lib/use-model";
 import {
   armedNowLabel,
   askMenuDetail,
@@ -334,9 +334,10 @@ export const OFFBOARD_PANEL_SIDES: ReadonlyArray<Side> = ["above", "below", "rig
 export const OFFBOARD_PANEL_WIDTH = 320;
 
 /** Seat toolbar button, in the small popup above an agent card. */
-export function SeatOffboardToolbarAction({ node }: { readonly node: CanvasNode }) {
+export function SeatOffboardToolbarAction({ canvas, id }: { readonly canvas: string; readonly id: string }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  if (!isAgentSeatNode(node)) return null;
+  const name = useNodeFieldOf(canvas, id, "agent", (seat) => seat.label);
+  if (name === undefined) return null;
   return (
     <>
       <IconButton
@@ -359,13 +360,13 @@ export function SeatOffboardToolbarAction({ node }: { readonly node: CanvasNode 
         <Popover
           anchor={anchor}
           onClose={() => setAnchor(null)}
-          label={`Offboard ${nodeTitle(node)}`}
+          label={`Offboard ${name || "untitled"}`}
           sides={OFFBOARD_PANEL_SIDES}
           align="center"
           width={OFFBOARD_PANEL_WIDTH}
           className="seat-offboard-popover"
         >
-          <SeatOffboardPanel nodeIds={[node.id]} />
+          <SeatOffboardPanel nodeIds={[id]} />
         </Popover>
       ) : null}
     </>

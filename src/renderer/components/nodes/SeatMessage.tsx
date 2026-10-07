@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import type { Side } from "../../lib/menu-placement";
 import {
-  planSeatMessage,
   planSeatMessageFor,
   seatMessageReach,
   seatMessageTitle,
@@ -106,9 +104,10 @@ export function SeatMessageForm({ nodeIds }: { readonly nodeIds: ReadonlyArray<s
 const COMPOSER_SIDES: ReadonlyArray<Side> = ["above", "below", "right", "left"];
 
 /** Seat toolbar button: opens the composer for this one seat. */
-export function SeatMessageToolbarAction({ node }: { readonly node: CanvasNode }) {
+export function SeatMessageToolbarAction({ id }: { readonly id: string }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  if (planSeatMessage([node]).targets.length === 0) return null;
+  const plan = planSeatMessageFor([id]);
+  if (plan.targets.length === 0) return null;
   return (
     <>
       <IconButton
@@ -131,13 +130,13 @@ export function SeatMessageToolbarAction({ node }: { readonly node: CanvasNode }
         <Popover
           anchor={anchor}
           onClose={() => setAnchor(null)}
-          label={`Message ${planSeatMessage([node]).names.get(node.id) ?? "agent"}`}
+          label={`Message ${plan.names.get(id) ?? "agent"}`}
           sides={COMPOSER_SIDES}
           align="center"
           width={320}
           className="seat-message-popover"
         >
-          <SeatMessageForm nodeIds={[node.id]} />
+          <SeatMessageForm nodeIds={[id]} />
         </Popover>
       ) : null}
     </>

@@ -417,8 +417,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           <>
             {isAgent ? <CustomizeAgentToolbarAction seatId={node.id} /> : null}
             {isAgent ? <StartParamsToolbarAction seatId={node.id} /> : null}
-            {isAgent ? <SeatMessageToolbarAction node={node} /> : null}
-            {isAgent ? <SeatOffboardToolbarAction node={node} /> : null}
+            {isAgent ? <SeatMessageToolbarAction id={node.id} /> : null}
+            {isAgent ? <SeatOffboardToolbarAction canvas={canvasName} id={node.id} /> : null}
             <TerminalToolbarActions node={node} />
           </>
         ) : isAgent ? (
