@@ -1,4 +1,3 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * Region environment, resolved and launched. Fakes and temp folders only: a
  * fake source resolver stands in for every store, the canvas is an object in
@@ -9,7 +8,9 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasDoc, EnvSource, EtherRegionEnvironment } from "../src/shared/canvas";
+import type { Canvas, Node } from "../src/shared/model";
+import type { EnvSource, RegionEnvironment } from "../src/shared/model/region";
+import { canvasOf, region as regionNode, seat as seatNode, terminal as terminalNode } from "./support/model-nodes";
 import {
   EMPTY_LAUNCH_RECORD,
   type EnvSourceResolver,
@@ -41,51 +42,39 @@ const CANARY = "s3cr3t-CANARY-value";
 const region = (
   id: string,
   rect: readonly [number, number, number, number],
-  environment?: EtherRegionEnvironment,
+  environment?: RegionEnvironment,
   label = id,
-) => ({
-  id,
-  type: "group" as const,
-  x: rect[0],
-  y: rect[1],
-  width: rect[2],
-  height: rect[3],
-  label,
-  ...(environment ? { ether: { region: { environment } } } : {}),
-});
+) =>
+  regionNode(id, { x: rect[0], y: rect[1], width: rect[2], height: rect[3] }, {
+    label,
+    ...(environment ? { environment } : {}),
+  });
 
-const seat = (id: string, x: number, y: number, harness = "claude") => ({
-  id,
-  type: "text" as const,
-  text: id,
-  x,
-  y,
-  width: 50,
-  height: 40,
-  ether: {
-    entity: { kind: "agent" as const, name: `local:${harness}` },
-    terminal: {
-      bindingId: `bind-${id}`,
-      harness,
-      launch: { kind: "harness" as const, argv: [harness], cwd: "/tmp" },
-    },
-  },
-});
+const seat = (id: string, x: number, y: number, harness: "claude" | "codex" = "claude") =>
+  seatNode(id, {
+    x,
+    y,
+    width: 50,
+    height: 40,
+    agentKey: `local:${harness}`,
+    bindingId: `bind-${id}` as never,
+    harness,
+    launch: { kind: "harness", argv: [harness], cwd: "/tmp" },
+  });
 
 /** outer ⊃ inner ⊃ seat `in`; `mid` in outer only. */
 const doc = (
-  outer?: EtherRegionEnvironment,
-  inner?: EtherRegionEnvironment,
-): CanvasDoc =>
-  ({
-    nodes: [
-      region("outer", [0, 0, 1000, 1000], outer, "Outer"),
-      region("inner", [100, 100, 400, 400], inner, "Inner"),
-      seat("in", 200, 200),
-      seat("mid", 700, 700),
-    ],
-    edges: [],
-  }) as CanvasDoc;
+  outer?: RegionEnvironment,
+  inner?: RegionEnvironment,
+  more: ReadonlyArray<Node> = [],
+): Canvas =>
+  canvasOf([
+    region("outer", [0, 0, 1000, 1000], outer, "Outer"),
+    region("inner", [100, 100, 400, 400], inner, "Inner"),
+    seat("in", 200, 200),
+    seat("mid", 700, 700),
+    ...more,
+  ]);
 
 const keychain = (id: string, name: string, extra: object = {}): EnvSource =>
   ({ id, kind: "keychain", name, service: `svc-${id}`, ...extra }) as EnvSource;
@@ -126,7 +115,7 @@ describe("resolving a plan", () => {
       { sources: [{ id: "i", kind: "value", name: "A", value: "inner" }] },
     );
     const resolved = await makeRegionEnvironmentResolution(fake.resolver, "/home/op").resolve(
-      canvasFromDocument("factory", d),
+      d,
       { seat: "in" },
       "local",
     );
@@ -149,7 +138,7 @@ describe("resolving a plan", () => {
       { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       { sources: [{ id: "gh", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "tok" }] },
     );
-    await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "in" }, "local");
+    await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "local");
     expect(fake.tokens.gh).toEqual({ EXAMPLE_AUTH_TOKEN: CANARY });
   });
 
@@ -165,7 +154,7 @@ describe("resolving a plan", () => {
         sources: [{ id: "gh", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "tok" }],
       },
     );
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "in" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "local");
     // The outer token is neither resolved nor offered.
     expect(fake.calls).toEqual(["gh"]);
     expect("gh" in fake.tokens).toBe(true);
@@ -191,7 +180,7 @@ describe("resolving a plan", () => {
       { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       { sources: [keychain("tok2", "T2")] },
     );
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { region: "inner" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { region: "inner" }, "local");
     expect(
       resolved.report.map((r) => [r.regionLabel, r.regionId, r.sourceId, r.kind, r.names]),
     ).toEqual([
@@ -215,7 +204,7 @@ describe("resolving a plan", () => {
         keychain("later", "L"),
       ],
     });
-    await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "mid" }, "mac");
+    await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "mac");
     expect(fake.tokens.op1).toEqual({ TOKEN: "first" });
     expect(fake.tokens.op2).toBeUndefined();
     expect(fake.tokens.op3).toBeUndefined();
@@ -226,7 +215,7 @@ describe("resolving a plan", () => {
   it("a resolver that throws against its contract fails one source, not the launch", async () => {
     const fake = fakeResolver({ bad: "throw" });
     const d = doc({ sources: [keychain("bad", "B"), { id: "v", kind: "value", name: "A", value: "1" }] });
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "mid" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "local");
     expect(resolved.env).toEqual({ A: "1" });
     expect(resolved.report[0]).toMatchObject({ status: "error", names: ["B"], reason: "This source could not be read" });
     expect(JSON.stringify(resolved.report)).not.toContain(CANARY);
@@ -236,14 +225,14 @@ describe("resolving a plan", () => {
   it("a required source that cannot be read sets a refusal", async () => {
     const fake = fakeResolver({});
     const d = doc({ sources: [keychain("k", "TOKEN", { required: true })] });
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(canvasFromDocument("factory", d), { seat: "mid" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "local");
     expect(resolved.refusal).toBe("Outer: TOKEN is required and could not be read. Not there");
   });
 
   it("makes folders absolute and drops the ones that are not paths", async () => {
     const d = doc({ folders: ["~/notes", "/srv/shared", "relative/x", "~"] });
     const resolved = await makeRegionEnvironmentResolution(fakeResolver({}).resolver, "/home/op").resolve(
-      canvasFromDocument("factory", d),
+      d,
       { seat: "mid" },
       "local",
     );
@@ -255,9 +244,9 @@ describe("resolving a plan", () => {
     const fake = fakeResolver({ file: ok({ FROM_FILE: "1" }) });
     const d = doc({ sources: [keychain("k", "TOKEN"), { id: "file", kind: "envFile", path: "/x.env" }] });
     const resolution = makeRegionEnvironmentResolution(fake.resolver);
-    const launched = (await resolution.resolve(canvasFromDocument("factory", d), { seat: "mid" }, "local")).record;
+    const launched = (await resolution.resolve(d, { seat: "mid" }, "local")).record;
     fake.calls.length = 0;
-    const current = await resolution.current(canvasFromDocument("factory", d), { seat: "mid" }, "local");
+    const current = await resolution.current(d, { seat: "mid" }, "local");
     expect(current).toEqual(launched);
     // Only the file, whose names are not written in the document, was read.
     expect(fake.calls).toEqual(["file"]);
@@ -267,7 +256,7 @@ describe("resolving a plan", () => {
 
 describe("one service behind every surface", () => {
   const service = (
-    d: () => CanvasDoc | undefined,
+    d: () => Canvas | undefined,
     answers: Record<string, SourceResolution | "throw"> = {},
     running: Record<string, typeof EMPTY_LAUNCH_RECORD> = {},
   ) => {
@@ -277,7 +266,7 @@ describe("one service behind every surface", () => {
       running,
       service: makeRegionEnvironmentService({
         resolution: makeRegionEnvironmentResolution(fake.resolver, "/home/op"),
-        readDoc: async () => { const current = d(); return current === undefined ? undefined : canvasFromDocument("factory", current); },
+        readDoc: async () => d(),
         hostId: async () => "local",
         launchRecord: (bindingId) => running[bindingId],
       }),
@@ -292,18 +281,19 @@ describe("one service behind every surface", () => {
     const { service: s } = service(() => d, { tok: ok({ TOKEN: CANARY }) });
     expect(await s.regionReport("c", "inner")).toEqual((await s.seatReport("c", "in"))?.report);
     // A caller that already holds the canvas gets the identical answer.
-    expect(await s.seatReportFor(canvasFromDocument("factory", d), "in")).toEqual(await s.seatReport("c", "in"));
-    expect(await s.seatReportFor(canvasFromDocument("factory", d), "nope")).toBeUndefined();
+    expect(await s.seatReportFor(d, "in")).toEqual(await s.seatReport("c", "in"));
+    expect(await s.seatReportFor(d, "nope")).toBeUndefined();
     expect(await s.regionReport("c", "outer")).toEqual((await s.seatReport("c", "mid"))?.report);
     expect(await s.regionReport("c", "in")).toBeUndefined();
     expect(await s.regionReport("c", "nope")).toBeUndefined();
   });
 
   it("the canvas-wide report asks each store once per region, not once per seat", async () => {
-    const d = {
-      ...doc({ sources: [keychain("tok", "TOKEN")] }, { sealed: true, folders: ["/x"] }),
-    } as CanvasDoc;
-    const withMore = { ...d, nodes: [...d.nodes, seat("mid2", 800, 800), seat("mid3", 600, 800)] } as CanvasDoc;
+    const withMore = doc(
+      { sources: [keychain("tok", "TOKEN")] },
+      { sealed: true, folders: ["/x"] },
+      [seat("mid2", 800, 800), seat("mid3", 600, 800)],
+    );
     const { service: s, fake } = service(() => withMore, { tok: ok({ TOKEN: CANARY }) });
     const report = await s.canvasReport("c");
     expect(report?.regions.map((r) => [r.regionId, r.regionLabel, r.sealed, r.sources.length])).toEqual([
@@ -700,49 +690,25 @@ describe("the launch applies it", () => {
       // What the renderer sends for a plain terminal opened by double-click is
       // { node, canvasName }; main turns that into exactly this create call
       // (src/main/junto/term/ipc.ts, the entity kind terminal branch).
-      const walkDoc = (name: string): CanvasDoc =>
-        ({
-          nodes: [
-            {
-              id: "region-env",
-              type: "group",
-              label: "Team",
-              x: 40,
-              y: 40,
-              width: 520,
-              height: 360,
-              ether: {
-                region: {
-                  hold: true,
-                  environment: {
-                    sources: [{ id: "src-walk", kind: "value", name, value: "from-the-region" }],
-                  },
-                },
-              },
+      const walkDoc = (name: string): Canvas =>
+        canvasOf([
+          regionNode("region-env", { x: 40, y: 40, width: 520, height: 360 }, {
+            label: "Team",
+            hold: true,
+            environment: {
+              sources: [{ id: "src-walk", kind: "value", name, value: "from-the-region" }],
             },
-            {
-              id: "term-in",
-              type: "text",
-              text: "inside",
-              x: 120,
-              y: 140,
-              width: 260,
-              height: 110,
-              ether: {
-                entity: { kind: "terminal" },
-                host: "local",
-                terminal: { bindingId: "local:term-in", label: "inside" },
-              },
-            },
-          ],
-          edges: [],
-        }) as CanvasDoc;
+          }),
+          terminalNode("term-in", {
+            x: 120, y: 140, width: 260, height: 110, label: "inside", bindingId: "local:term-in" as never,
+          }),
+        ]);
 
       const open = async (name: string) => {
         const doc = walkDoc(name);
         const service = makeRegionEnvironmentService({
           resolution: makeRegionEnvironmentResolution(fakeResolver({}).resolver, "/home/op"),
-          readDoc: async () => canvasFromDocument("factory", doc),
+          readDoc: async () => doc,
           hostId: async () => "local",
           launchRecord: () => undefined,
         });
@@ -750,7 +716,7 @@ describe("the launch applies it", () => {
           const resolved = await service.forLaunch(seat);
           return { env: resolved.env, folders: resolved.folders, record: resolved.record };
         });
-        const node = doc.nodes[1]!;
+        const node = [...doc.nodes.values()][1]!;
         const summary = await router.create({
           bindingId: "local:term-in",
           hostId: "local",
