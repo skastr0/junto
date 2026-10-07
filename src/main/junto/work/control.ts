@@ -3270,6 +3270,7 @@ export const startWorkControlServer = async (
         let admittedSeat: Pick<WorkCaller, "canvasName" | "nodeId"> | undefined;
         // The admitted seat's terminal binding, for the onboarding proof.
         let admittedBindingId: string | undefined;
+        let sealedForOffboard = false;
         const liveAuthorityAndDispatch: Effect.Effect<
           WorkDispatchResult,
           never,
@@ -3318,6 +3319,16 @@ export const startWorkControlServer = async (
             (isManagedAgentNode(callerNode)
               ? callerNode.ether.terminal.bindingId
               : undefined);
+          // The offboard has arrived, from the seat's own process: from this
+          // instant nothing more is typed into the session, the second half
+          // of a delivery already in flight (its submit) included. Sealing
+          // only once the notes were saved left that long for a carriage
+          // return to land. A seat sealed already (a close in flight) is
+          // left as it is.
+          if (req.op === "offboard" && admittedBindingId !== undefined && !closingFence.sealed(admittedBindingId)) {
+            closingFence.seal(admittedBindingId);
+            sealedForOffboard = true;
+          }
           const occupant = occupantKeyForPrincipal(
             admission.principal,
             `pid:${admission.peerPid}`,
@@ -3490,12 +3501,18 @@ export const startWorkControlServer = async (
         // promise even if this socket goes away before the response is written.
         // The main authoring gate remains the mutation authority; this
         // transport registry additionally supplies native-loop finality.
-        const outcome = authoringLabel === undefined
-          ? await run()
-          : await authoringGate.run(authoringLabel, run);
+        const outcome = await (authoringLabel === undefined ? run() : authoringGate.run(authoringLabel, run)).catch(
+          (error: unknown) => {
+            // The offboard never ran to an answer: the session goes on.
+            if (sealedForOffboard) closingFence.release(admittedBindingId);
+            throw error;
+          },
+        );
 
         if (Result.isFailure(outcome)) {
           const body = outcome.failure;
+          // Refused: the session goes on, so it may be typed into again.
+          if (sealedForOffboard) closingFence.release(admittedBindingId);
           respond(
             socket,
             workErr(body.type, body.message, body.details, req.op, req.id),
@@ -3505,9 +3522,8 @@ export const startWorkControlServer = async (
         // Onboarded means exactly this: `junto onboard` answered the seat's
         // own process. No other work-plane call counts.
         if (req.op === "onboard") injectionSupervisor.noteOnboarded(admittedBindingId);
-        // Offboard ends the session at once. From this instant nothing is
-        // typed into it: the fence is up before the reply leaves, and the
-        // close itself follows the reply (below).
+        // The offboard is saved. The fence has been up since it arrived
+        // (above); the close itself follows the reply (below).
         if (req.op === "offboard") {
           closingFence.seal(admittedBindingId);
           injectionSupervisor.noteOffboardSaved(admittedBindingId);

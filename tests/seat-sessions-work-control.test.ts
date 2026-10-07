@@ -323,6 +323,36 @@ describe("junto offboard on a seat whose session id is not known yet", () => {
     expect(failed.error.details.retryable).toBe(true);
   });
 
+  it("the seat is sealed from the moment the offboard arrives, not from when its notes are saved", async () => {
+    closingFence.clearForTest();
+    await writeSession(undefined);
+    // The lookup runs inside the offboard, before any note is written: what
+    // the fence says there is what a delivery already in flight would meet.
+    const sealedWhileHandling: boolean[] = [];
+    setSeatSessionLookup(async () => {
+      sealedWhileHandling.push(closingFence.sealed("bind-agent"));
+      return "found-now";
+    });
+    const result = await op("offboard", { notes: "# Done\n\n- nothing left" });
+    expect(result.ok).toBe(true);
+    expect(sealedWhileHandling).toEqual([true]);
+    expect(closingFence.sealed("bind-agent")).toBe(true);
+  });
+
+  it("an offboard that is refused lifts that seal: the session goes on and can be typed into", async () => {
+    closingFence.clearForTest();
+    await writeSession(undefined);
+    const sealedWhileHandling: boolean[] = [];
+    setSeatSessionLookup(async () => {
+      sealedWhileHandling.push(closingFence.sealed("bind-agent"));
+      return undefined;
+    });
+    const refused = await op("offboard", { notes: "Notes" });
+    expect(refused.ok).toBe(false);
+    expect(sealedWhileHandling).toEqual([true]);
+    expect(closingFence.sealed("bind-agent")).toBe(false);
+  });
+
   it("does not look when the id is already known", async () => {
     const asked: string[] = [];
     setSeatSessionLookup(async (bindingId) => {

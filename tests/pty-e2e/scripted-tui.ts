@@ -601,6 +601,12 @@ export type LoopAttention = {
 };
 
 export type DriveLoopOptions = {
+  /**
+   * Stands in front of every byte the drive writes, as the closing fence does
+   * in the app (ipc.ts wraps the drive's write in `fencedWriter`). False: the
+   * write is refused and never reaches the TUI.
+   */
+  readonly writeGate?: (bindingId: string, data: string) => boolean;
   readonly bindingId?: string;
   readonly epoch?: string;
   readonly harness?: TuiHarness;
@@ -681,6 +687,7 @@ export class DriveLoop {
     this.drive = new ManagedTerminalDrive({
       ...options.drive,
       write: (bindingId, data) => {
+        if (options.writeGate?.(bindingId, data) === false) return false;
         this.writes.push({ t: this.now(), data });
         const ok = this.tui.write(data);
         // Record the payload of any paste envelope the drive sends so the
