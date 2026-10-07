@@ -1,80 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { Result, HashMap, HashSet, Option } from "effect";
-import type { CanvasDoc } from "../../src/shared/canvas";
 import {
   PortGrant,
   RuntimePlacement,
   admitPure,
   asNodeId,
-  canvasDocToCapabilityView,
   nullPlacementView,
   portSet,
-  resolveNodePlacement,
   routeAllowed,
   type NodePlacement,
 } from "../../src/shared/physics";
+import { resolveHostPlacement } from "../../src/shared/physics/placement";
+import { canvasToCapabilityView } from "../../src/shared/physics/view";
+import { canvasOf, note, page, region, seat, terminal, wire } from "../support/model-nodes";
 
-const textNode = (
-  id: string,
-  kind: string | undefined,
-  x = 0,
-  y = 0,
-): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: id,
-  x,
-  y,
-  width: 120,
-  height: 48,
-  ...(kind === "agent"
-    ? {
-        ether: {
-          entity: { kind, name: `local:${id}` },
-          terminal: { bindingId: `binding-${id}`, harness: "claude" as const },
-        },
-      }
-    : kind !== undefined
-      ? { ether: { entity: { kind } } }
-      : {}),
-});
-
-const pageNode = (id: string, x = 200, y = 0): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "link",
-  url: "https://example.com/",
-  x,
-  y,
-  width: 120,
-  height: 48,
-  ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-});
-
-/** Stamp ether.host without clobbering entity/browser. */
-const withHost = (
-  node: CanvasDoc["nodes"][number],
-  host: string,
-): CanvasDoc["nodes"][number] => ({
-  ...node,
-  ether: { ...(node.ether ?? {}), host },
-});
-
-const groupNode = (
-  id: string,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "group",
-  label: id,
-  x,
-  y,
-  width,
-  height,
-  ether: { region: { hold: true } },
-});
+const SIZE = { width: 120, height: 48 };
+const agent = (id: string, x = 0, y = 0, host = "local") =>
+  seat(id, { x, y, ...SIZE, host, agentKey: `${host}:${id}` });
+const pageAt = (id: string, x = 200, y = 0, host = "local") =>
+  page(id, { x, y, ...SIZE, host });
 
 describe("physics PortGrant attenuation", () => {
   it("never expands", () => {
@@ -113,13 +57,10 @@ describe("physics PortGrant attenuation", () => {
 
 describe("physics admitPure", () => {
   it("admits actor → page browser.automate when edge-connected", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), pageNode("p1")],
-      edges: [
-        { id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } },
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([agent("agent"), pageAt("p1")], [
+        wire("e1", "agent", "p1", "navigates"),
+      ]);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("agent"),
@@ -135,13 +76,10 @@ describe("physics admitPure", () => {
   });
 
   it("admits an agent seat — the one actor kind — for browser.automate", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("seat", "agent"), pageNode("p1")],
-      edges: [
-        { id: "e1", fromNode: "seat", toNode: "p1", ether: { verb: "navigates" } },
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([agent("seat"), pageAt("p1")], [
+        wire("e1", "seat", "p1", "navigates"),
+      ]);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("seat"),
@@ -152,11 +90,9 @@ describe("physics admitPure", () => {
   });
 
   it("denies browser.automate to geography — a raw shell is not an actor", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("seat", "terminal"), pageNode("p1")],
-      edges: [{ id: "e1", fromNode: "seat", toNode: "p1" }],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    // No verb joins a terminal to a page, so no wire can.
+    const doc = canvasOf([terminal("seat", SIZE), pageAt("p1")]);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("seat"),
@@ -167,15 +103,12 @@ describe("physics admitPure", () => {
   });
 
   it("denies with not_connected when only region co-members (no edge)", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        groupNode("g1", 0, 0, 400, 200),
-        textNode("agent", "agent", 40, 40),
-        pageNode("p1", 200, 40),
-      ],
-      edges: [],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([
+        region("g1", { x: 0, y: 0, width: 400, height: 200 }),
+        agent("agent", 40, 40),
+        pageAt("p1", 200, 40),
+      ], []);
+    const view = canvasToCapabilityView(doc);
     // Both centers are inside the group → region peers.
     const peers = HashMap.get(view.regionPeers, asNodeId("agent"));
     expect(Option.isSome(peers)).toBe(true);
@@ -196,11 +129,8 @@ describe("physics admitPure", () => {
   });
 
   it("denies with invisible when no edge and not region peers", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), pageNode("p1", 2000, 2000)],
-      edges: [],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([agent("agent"), pageAt("p1", 2000, 2000)], []);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("agent"),
@@ -214,11 +144,8 @@ describe("physics admitPure", () => {
   });
 
   it("denies unknown_node", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent")],
-      edges: [],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([agent("agent")], []);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("agent"),
@@ -232,13 +159,10 @@ describe("physics admitPure", () => {
   });
 
   it("denies no_port when target does not offer the port", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), pageNode("p1")],
-      edges: [
-        { id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } },
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([agent("agent"), pageAt("p1")], [
+        wire("e1", "agent", "p1", "navigates"),
+      ]);
+    const view = canvasToCapabilityView(doc);
     // A page offers browser automation, never a mailbox.
     const result = admitPure(view, asNodeId("agent"), asNodeId("p1"), "msg.send");
     expect(Result.isFailure(result)).toBe(true);
@@ -248,11 +172,9 @@ describe("physics admitPure", () => {
   });
 
   it("denies role_law for geography target with empty offers law", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), textNode("note", undefined, 200, 0)],
-      edges: [{ id: "e1", fromNode: "agent", toNode: "note" }],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([agent("agent"), note("note", "note", { x: 200, y: 0, ...SIZE })], // A stored wire the pair cannot hold: it joins them and grants nothing.
+      [wire("e1", "agent", "note", "messages")]);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("agent"),
@@ -265,33 +187,9 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("an edge with no verb grants nothing", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), pageNode("p1")],
-      edges: [{ id: "e1", fromNode: "agent", toNode: "p1" }],
-    };
-    const view = canvasDocToCapabilityView(doc);
-    // Connectivity is still there; the relationship just says nothing.
-    expect(HashMap.size(view.edgePortMask)).toBe(1);
-    const denied = admitPure(
-      view,
-      asNodeId("agent"),
-      asNodeId("p1"),
-      "browser.automate",
-    );
-    expect(Result.isFailure(denied)).toBe(true);
-    if (Result.isFailure(denied)) {
-      expect(denied.failure.reason).toBe("no_port");
-    }
-  });
-
   it("a verb the pair cannot hold grants nothing", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), pageNode("p1")],
-      // Hand-edited or stale: `edits` belongs to pad, never to a page.
-      edges: [{ id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "edits" } }],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([agent("agent"), pageAt("p1")], [wire("e1", "agent", "p1", "edits")]);
+    const view = canvasToCapabilityView(doc);
     const denied = admitPure(
       view,
       asNodeId("agent"),
@@ -303,16 +201,13 @@ describe("physics admitPure", () => {
 
 
   it("actor mail: the messages verb opens both mailbox ports", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        textNode("a1", "agent"),
-        textNode("a2", "agent", 200, 0),
-      ],
-      edges: [
-        { id: "e1", fromNode: "a1", toNode: "a2", ether: { verb: "messages" } },
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([
+        agent("a1"),
+        agent("a2", 200, 0),
+      ], [
+        wire("e1", "a1", "a2", "messages"),
+      ]);
+    const view = canvasToCapabilityView(doc);
     // Discovery: undirected connectivity present
     const neighbors = HashMap.get(view.connected, asNodeId("a1"));
     expect(Option.isSome(neighbors)).toBe(true);
@@ -342,15 +237,15 @@ describe("physics placement resolve + null producer", () => {
   });
 
   it("default topology: local host → command center", () => {
-    const node = textNode("a1", "agent");
-    const p = resolveNodePlacement(node);
+    const node = agent("a1");
+    const p = resolveHostPlacement(node.host);
     expect(p.runtime._tag).toBe("Cc");
     expect(p.assignment).toBe("local");
   });
 
   it("non-local host → station, carrying its host id", () => {
-    const node = withHost(textNode("a1", "agent"), "station-b");
-    const p = resolveNodePlacement(node);
+    const node = agent("a1", 0, 0, "station-b");
+    const p = resolveHostPlacement(node.host);
     expect(p.runtime._tag).toBe("Station");
     if (p.runtime._tag === "Station") expect(p.runtime.hostId).toBe("station-b");
   });
@@ -381,14 +276,11 @@ describe("physics placement admit (I18/I19)", () => {
   });
 
   it("station-A actor → station-B page: route denial (not no_port)", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        withHost(textNode("agent-a", "agent"), "station-a"),
-        withHost(pageNode("page-b"), "station-b"),
-      ],
-      edges: [{ id: "e1", fromNode: "agent-a", toNode: "page-b" }],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([
+        agent("agent-a", 0, 0, "station-a"),
+        pageAt("page-b", 200, 0, "station-b"),
+      ], [wire("e1", "agent-a", "page-b", "navigates")]);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("agent-a"),
@@ -404,16 +296,13 @@ describe("physics placement admit (I18/I19)", () => {
   });
 
   it("CC actor → station page: route allowed (admit on port)", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        withHost(textNode("cc-agent", "agent"), "local"),
-        withHost(pageNode("page-b"), "station-b"),
-      ],
-      edges: [
-        { id: "e1", fromNode: "cc-agent", toNode: "page-b", ether: { verb: "navigates" } },
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([
+        agent("cc-agent", 0, 0, "local"),
+        pageAt("page-b", 200, 0, "station-b"),
+      ], [
+        wire("e1", "cc-agent", "page-b", "navigates"),
+      ]);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("cc-agent"),
@@ -424,16 +313,13 @@ describe("physics placement admit (I18/I19)", () => {
   });
 
   it("same-station actor → page: admits", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        withHost(textNode("agent-a", "agent"), "station-a"),
-        withHost(pageNode("page-a"), "station-a"),
-      ],
-      edges: [
-        { id: "e1", fromNode: "agent-a", toNode: "page-a", ether: { verb: "navigates" } },
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
+    const doc = canvasOf([
+        agent("agent-a", 0, 0, "station-a"),
+        pageAt("page-a", 200, 0, "station-a"),
+      ], [
+        wire("e1", "agent-a", "page-a", "navigates"),
+      ]);
+    const view = canvasToCapabilityView(doc);
     const result = admitPure(
       view,
       asNodeId("agent-a"),
@@ -444,10 +330,7 @@ describe("physics placement admit (I18/I19)", () => {
   });
 
   it("placement unknown (omitted map entry) fails closed", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), pageNode("page1")],
-      edges: [{ id: "e1", fromNode: "agent", toNode: "page1" }],
-    };
+    const doc = canvasOf([agent("agent"), pageAt("page1")], [wire("e1", "agent", "page1", "navigates")]);
     // Only caller placed — target missing → unknown
     let placement = HashMap.empty<ReturnType<typeof asNodeId>, NodePlacement>();
     placement = HashMap.set(
@@ -455,7 +338,7 @@ describe("physics placement admit (I18/I19)", () => {
       asNodeId("agent"),
       place(RuntimePlacement.Cc(), "local"),
     );
-    const view = canvasDocToCapabilityView(doc, { placement });
+    const view = canvasToCapabilityView(doc, { placement });
     const result = admitPure(
       view,
       asNodeId("agent"),

@@ -38,6 +38,15 @@ export const seat = (id: string, more: Partial<NodeOf<"agent">> = {}): NodeOf<"a
   ...more,
 });
 
+export const terminal = (id: string, more: Partial<NodeOf<"terminal">> = {}): NodeOf<"terminal"> => ({
+  kind: "terminal",
+  ...placed(id),
+  host: "local",
+  bindingId: `terminal-${id}` as NodeOf<"terminal">["bindingId"],
+  onRemove: "detach",
+  ...more,
+});
+
 export const taskBoard = (id: string, more: Partial<NodeOf<"task">> = {}): NodeOf<"task"> =>
   ({ kind: "task", ...placed(id), ...more });
 export const requests = (id: string, more: Partial<NodeOf<"requests">> = {}): NodeOf<"requests"> =>
