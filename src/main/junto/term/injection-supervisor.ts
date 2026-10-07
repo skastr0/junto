@@ -115,6 +115,8 @@ export class InjectionSupervisor {
   private readonly continuations = new Map<string, { readonly notEpoch: string | undefined }>();
   private writer: NoticeWriter | undefined;
   private readonly continuationRetries = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly continuationWaits = new Map<string, string>();
+  private continuationLog: ((message: string) => void) | undefined;
   private continuationWriter: NoticeWriter | undefined;
   private continuationSettled: ((bindingId: string) => void) | undefined;
   private composer: ComposerLookup | undefined;
@@ -139,13 +141,30 @@ export class InjectionSupervisor {
     this.continuationSettled = listener;
   }
 
+  /**
+   * Why a continuation line is still owed, said once per reason: a session
+   * left silent after `--continue` must be explainable from the log.
+   */
+  private noteContinuationWait(bindingId: string, reason: string): void {
+    if (this.continuationWaits.get(bindingId) === reason) return;
+    this.continuationWaits.set(bindingId, reason);
+    this.continuationLog?.(`${bindingId}: the continuation line is waiting: ${reason}`);
+  }
+
+  /** Where the supervisor says why a continuation line is waiting, and that it was typed. */
+  setContinuationLog(log: (message: string) => void): void {
+    this.continuationLog = log;
+  }
+
   /** Ask again shortly for a continuation line the terminal would not take. */
   private retryContinuation(bindingId: string): void {
     if (this.continuationRetries.has(bindingId)) return;
     const timer = setTimeout(() => {
       this.continuationRetries.delete(bindingId);
       const seat = this.seats.get(bindingId);
-      if (seat !== undefined && this.continuations.has(bindingId)) this.evaluate(bindingId, seat);
+      if (seat === undefined || !this.continuations.has(bindingId)) return;
+      this.loadStatus(bindingId, seat);
+      this.evaluate(bindingId, seat);
     }, CONTINUATION_RETRY_MS);
     timer.unref?.();
     this.continuationRetries.set(bindingId, timer);
@@ -157,6 +176,9 @@ export class InjectionSupervisor {
   }
 
   private settleContinuation(bindingId: string): void {
+    if (this.continuationWaits.delete(bindingId)) {
+      this.continuationLog?.(`${bindingId}: the continuation line is no longer waiting`);
+    }
     this.continuations.delete(bindingId);
     try {
       this.continuationSettled?.(bindingId);
@@ -425,7 +447,16 @@ export class InjectionSupervisor {
   private continueSession(bindingId: string, seat: SeatSupervision): boolean {
     const armed = this.continuations.get(bindingId);
     if (armed === undefined || armed.notEpoch === seat.epoch) return false;
-    if (seat.onboarding === "unknown") return true;
+    // Every wait below is asked about again unprompted: a seat at rest, or
+    // one deep in a turn, may say nothing more for a long time.
+    const wait = (reason: string): true => {
+      this.noteContinuationWait(bindingId, reason);
+      this.retryContinuation(bindingId);
+      return true;
+    };
+    if (seat.onboarding === "unknown") {
+      return wait("it is not yet known whether the fresh session has onboarded");
+    }
     if (seat.onboarding === "onboarded") {
       // It already read its handoff: nothing left to say.
       this.settleContinuation(bindingId);
@@ -438,9 +469,9 @@ export class InjectionSupervisor {
     const composer = this.composerOf(bindingId);
     const typeable =
       (seat.state === "idle" && composer === "empty") || (seat.state === "working" && composer !== "draft");
-    if (!typeable) return true;
+    if (!typeable) return wait(`its input box cannot take it (seat ${seat.state}, box ${composer})`);
     const writer = this.continuationWriter;
-    if (writer === undefined) return true;
+    if (writer === undefined) return wait("nothing is wired to type it");
     seat.nudgeInFlight = true;
     const settle = (accepted: boolean): void => {
       if (this.seats.get(bindingId) !== seat) return;
@@ -448,7 +479,7 @@ export class InjectionSupervisor {
       if (!accepted) {
         // Refused for now (the terminal is not ready, the operator is
         // typing). A seat at rest tells nothing more, so ask again unprompted.
-        this.retryContinuation(bindingId);
+        wait(`the terminal refused it (seat ${seat.state}, box ${composer})`);
         return;
       }
       this.settleContinuation(bindingId);

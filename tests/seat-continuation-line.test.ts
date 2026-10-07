@@ -273,6 +273,45 @@ describe("the line is owed before the fresh session exists, and is never given u
     expect(typed).toHaveLength(1);
   });
 
+  it("a record that cannot be read yet is asked again without waiting for an event", async () => {
+    vi.useFakeTimers();
+    const { supervisor, typed, boot, offboard } = rig();
+    let readable = false;
+    supervisor.setOnboardedRecord({
+      load: async () => (readable ? false : undefined),
+      save: async () => true,
+    });
+    await boot("e1");
+    await offboard("continue");
+    expect(typed).toEqual([]);
+    readable = true;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(typed).toEqual([{ epoch: "e2", via: "continuation", text: CONTINUATION_LINE }]);
+  });
+
+  it("says in the log why the line is waiting, once per reason, and when it stops", async () => {
+    vi.useFakeTimers();
+    const { supervisor, composer, boot, offboard } = rig();
+    const log: string[] = [];
+    supervisor.setContinuationLog((message) => log.push(message));
+    let ready = false;
+    supervisor.setContinuationWriter(() => ready);
+    await boot("e1");
+    composer.verdict = "draft";
+    await offboard("continue");
+    await vi.advanceTimersByTimeAsync(5_000);
+    composer.verdict = "empty";
+    await vi.advanceTimersByTimeAsync(5_000);
+    ready = true;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(log).toEqual([
+      "bind-a: the continuation line is waiting: its input box cannot take it (seat unknown, box draft)",
+      "bind-a: the continuation line is waiting: its input box cannot take it (seat idle, box draft)",
+      "bind-a: the continuation line is waiting: the terminal refused it (seat idle, box empty)",
+      "bind-a: the continuation line is no longer waiting",
+    ]);
+  });
+
   it("is owed from before the old process goes, so nothing can get in ahead of it", async () => {
     const { supervisor, boot, offboard, wake } = rig();
     const pendingAsFreshCameUp: boolean[] = [];

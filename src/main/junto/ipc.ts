@@ -2110,6 +2110,7 @@ export const registerJuntoIpc = (): void => {
       offboardCloser?.stop();
       // What a previous run still owed: a seat rotated on a paused canvas
       // that had not started when Junto quit.
+      injectionSupervisor.setContinuationLog((message) => console.info(`[offboard] ${message}`));
       const continuationLedger = new ContinuationLedger(injectionSupervisor);
       const owedContinuations = continuationLedger.restore();
       if (owedContinuations > 0) {
