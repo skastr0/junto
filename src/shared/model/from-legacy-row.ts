@@ -197,19 +197,15 @@ export const convertLegacyRow = (row: LegacyNodeRow): StoredNodeConversion => {
     const node = decodeStoredKind(row);
     const descriptor =
       row.ether_json == null ? undefined : decodeExtension(row.ether_json);
-    return {
-      node,
-      ...(node.kind === "note" && descriptor?.entity?.kind !== undefined
-        ? {
-            downgraded: {
-              canvas: row.canvas_name,
-              id: row.node_id,
-              storedType: descriptor.entity.kind,
-              reason: "stored kind is no longer supported; preserved as a note",
-            },
-          }
-        : {}),
-    };
+    const reason = node.kind === "note" && descriptor?.entity?.kind !== undefined
+      ? "stored kind is no longer supported; preserved as a note"
+      : node.kind === "cron" && node.expression === undefined && descriptor?.timer?.everyMinutes !== undefined
+      ? `stored interval ${descriptor.timer.everyMinutes} minutes cannot be expressed as a cron schedule; left unscheduled`
+      : undefined;
+    return { node, ...(reason === undefined ? {} : { downgraded: {
+      canvas: row.canvas_name, id: row.node_id,
+      storedType: descriptor?.entity?.kind ?? row.type, reason,
+    } }) };
   } catch (cause) {
     const finite = (value: number, fallback: number) =>
       Number.isFinite(value) ? value : fallback;

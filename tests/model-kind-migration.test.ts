@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../src/main/junto/canvas/state-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "./fixtures/domain-cutover/entities-schema";
 import { migrateCanvasKinds } from "../src/main/junto/model/migrate";
+import { observabilityRing } from "../src/main/junto/observability/ring";
 import { KIND_TABLES } from "../src/main/junto/model/state-schema";
 
 const at = "2026-10-07T00:00:00.000Z";
@@ -262,41 +263,49 @@ describe("kind storage copy-forward", () => {
     } finally { database.close(); }
   });
 
-  it("refuses a binding shared by a seat and a terminal before retiring source rows", () => {
+  it("keeps the earlier seat and downgrades a terminal sharing its binding, with a normal warning", () => {
     const database = open();
+    const cursor = observabilityRing.query().newestId;
     try {
       add(database, "seat", "agent", { terminal: { bindingId: "shared", harness: "codex" } });
       add(database, "terminal", "terminal", { terminal: { bindingId: "shared" } });
-      database.exec("BEGIN IMMEDIATE");
-      expect(() => migrateCanvasKinds(database)).toThrow("share one session binding");
-      database.exec("ROLLBACK");
-      expect(database.prepare("SELECT count(*) AS n FROM canvas_nodes").get()!.n).toBe(2);
-      expect(database.prepare("SELECT name FROM sqlite_schema WHERE name='seats'").get()).toBeUndefined();
+      migrateCanvasKinds(database);
+      expect(database.prepare("SELECT id FROM seats").all()).toEqual([{ id: "seat" }]);
+      expect(database.prepare("SELECT id,text,x,y,width,height,z_index FROM notes").get()).toEqual({ id: "terminal", text: "body-terminal", x: 17.5, y: -20, width: 220, height: 90, z_index: 4 });
+      expect(database.prepare("SELECT count(*) AS n FROM terminals").get()!.n).toBe(0);
+      expect(observabilityRing.query({ afterId: cursor }).entries).toContainEqual(expect.objectContaining({ level: "warn", source: "system", message: expect.stringContaining('"id":"terminal"') }));
     } finally { database.close(); }
   });
 
-  it("rolls back the entire copy if two stored seats claim the same executable identity", () => {
+  it("downgrades a later duplicate seat and logs an unrepresentable timer schedule", () => {
+    const database = open();
+    const cursor = observabilityRing.query().newestId;
+    try {
+      add(database, "first", "agent", { terminal: { bindingId: "duplicate", harness: "codex" } });
+      add(database, "second", "agent", { terminal: { bindingId: "duplicate", harness: "codex" } });
+      add(database, "timer", "timer", { timer: { everyMinutes: 90 } });
+      migrateCanvasKinds(database);
+      expect(database.prepare("SELECT id FROM seats").all()).toEqual([{ id: "first" }]);
+      expect(database.prepare("SELECT id,text FROM notes").all()).toEqual([{ id: "second", text: "body-second" }]);
+      expect(database.prepare("SELECT id,expression FROM crons").get()).toEqual({ id: "timer", expression: null });
+      const warnings = observabilityRing.query({ afterId: cursor }).entries;
+      expect(warnings).toHaveLength(2);
+      expect(warnings.every(({ level, message }) => level === "warn" && message.includes('"canvas":"factory"'))).toBe(true);
+      expect(warnings[1].message).toContain("90 minutes");
+    } finally { database.close(); }
+  });
+
+  it("rolls back every copied table if a storage write fails", () => {
     const database = open();
     try {
-      add(database, "bad", "agent", {
-        terminal: { bindingId: "duplicate", harness: "codex" },
-      });
-      add(database, "duplicate", "agent", {
-        terminal: { bindingId: "duplicate", harness: "codex" },
-      });
+      add(database, "seat", "agent", { terminal: { bindingId: "binding", harness: "codex" } });
       database.exec("BEGIN IMMEDIATE");
+      database.setAuthorizer((action, table) => action === 18 && table === "seats" ? 1 : 0);
       expect(() => migrateCanvasKinds(database)).toThrow();
+      database.setAuthorizer(null);
       database.exec("ROLLBACK");
-      expect(
-        database.prepare("SELECT node_id FROM canvas_nodes").get()!.node_id,
-      ).toBe("bad");
-      expect(
-        database
-          .prepare("SELECT name FROM sqlite_schema WHERE name = 'seats'")
-          .get(),
-      ).toBeUndefined();
-    } finally {
-      database.close();
-    }
+      expect(database.prepare("SELECT node_id FROM canvas_nodes").get()!.node_id).toBe("seat");
+      expect(database.prepare("SELECT name FROM sqlite_schema WHERE name='seats'").get()).toBeUndefined();
+    } finally { database.close(); }
   });
 });

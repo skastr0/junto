@@ -1,3 +1,4 @@
+import { recordSystemLog } from "../observability/logger";
 import { isDeepStrictEqual } from "node:util";
 import type { StateSchemaMigrationDatabase } from "../state/migrations";
 import {
@@ -67,10 +68,20 @@ export const migrateCanvasKinds = (
     SELECT canvas_name,canvas_id,created_at,modified_at,? FROM canvas_documents`,
     )
     .run(initialSeq);
+  const bindings = new Map<string, Set<string>>();
   for (const old of oldNodes) {
-    const { node, downgraded } = convertLegacyRow(old);
+    let { node, downgraded } = convertLegacyRow(old);
+    if (node.kind === "agent" || node.kind === "terminal") {
+      const occupied = bindings.get(old.canvas_name) ?? new Set<string>();
+      if (occupied.has(node.bindingId)) {
+        downgraded = { canvas: old.canvas_name, id: node.id, storedType: node.kind,
+          reason: "session binding already belongs to an earlier node; preserved as a note" };
+        node = convertLegacyRow({ ...old, type: "text", ether_json: null }).node;
+      } else occupied.add(node.bindingId);
+      bindings.set(old.canvas_name, occupied);
+    }
     if (downgraded)
-      console.warn("Junto converted stored object to note", downgraded);
+      recordSystemLog(`Junto migrated stored object ${JSON.stringify(downgraded)}`, "warn");
     const table = KIND_TABLES[node.kind];
     insert(database, table, {
       ...nodeToRow(old.canvas_name, node),
@@ -93,9 +104,6 @@ export const migrateCanvasKinds = (
         updated_at: old.updated_at,
       });
   }
-  if (database.prepare(`SELECT seats.canvas_name,seats.binding_id FROM seats
-    JOIN terminals USING(canvas_name,binding_id) LIMIT 1`).get())
-    throw new Error("a stored seat and terminal share one session binding");
   for (const old of oldWires) {
     const wire = wireFromLegacyRow(old);
     insert(database, "wires", {
