@@ -55,9 +55,7 @@ const noteDoc = (text: string): CanvasDoc =>
   });
 
 describe("CanvasesService SQLite authority", () => {
-  let canvasesDir = "";
   let stateDir = "";
-  let previousCanvases: string | undefined;
   const makeCanvasRuntime = (path: string) => {
     const contentRoot = join(stateDir || path, "..", "content");
     const installOpsPath = join(stateDir || path, "install-ops.db");
@@ -89,10 +87,7 @@ describe("CanvasesService SQLite authority", () => {
   let runtime: ReturnType<typeof makeCanvasRuntime> | undefined;
 
   const installEnv = async (): Promise<void> => {
-    canvasesDir = await mkdtemp(join(tmpdir(), "junto-canvases-"));
     stateDir = await mkdtemp(join(tmpdir(), "junto-state-live-"));
-    previousCanvases = process.env.JUNTO_CANVASES_DIR;
-    process.env.JUNTO_CANVASES_DIR = canvasesDir;
   };
 
   const restoreEnv = async (): Promise<void> => {
@@ -100,11 +95,7 @@ describe("CanvasesService SQLite authority", () => {
       await runtime.dispose();
       runtime = undefined;
     }
-    if (previousCanvases === undefined) delete process.env.JUNTO_CANVASES_DIR;
-    else process.env.JUNTO_CANVASES_DIR = previousCanvases;
-    if (canvasesDir) await rm(canvasesDir, { recursive: true, force: true });
     if (stateDir) await rm(stateDir, { recursive: true, force: true });
-    canvasesDir = "";
     stateDir = "";
   };
 

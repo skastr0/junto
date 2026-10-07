@@ -44,8 +44,6 @@ afterEach(async () => { for (const dispose of disposals.splice(0).reverse()) awa
 /** Real app graph and Live journal owners, with only network and occupant inputs replaced. */
 const boot = async () => {
   const root = await mkdtemp(join(tmpdir(), "command-live-poc-"));
-  const previous = process.env.JUNTO_CANVASES_DIR;
-  process.env.JUNTO_CANVASES_DIR = join(root, "canvases");
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive, SettingsLive,
     CanvasRecordsLive, WorkProjectionReaderLive,
@@ -54,8 +52,6 @@ const boot = async () => {
   const runtime = ManagedRuntime.make(Layer.provideMerge(CanvasesLive, repositories));
   disposals.push(async () => {
     await runtime.dispose();
-    if (previous === undefined) delete process.env.JUNTO_CANVASES_DIR;
-    else process.env.JUNTO_CANVASES_DIR = previous;
     await rm(root, { recursive: true, force: true });
   });
   const canvases = await runtime.runPromise(CanvasesService);

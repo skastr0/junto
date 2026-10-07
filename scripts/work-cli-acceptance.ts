@@ -444,18 +444,14 @@ export const runWorkCliAcceptance = async () => {
   }
 
   const root = await mkdtemp(join(tmpdir(), "junto-work-acc-"));
-  const canvases = join(root, "canvases");
   const workHome = join(root, "work");
   const outside = join(root, "outside");
-  mkdirSync(canvases, { recursive: true });
   mkdirSync(workHome, { recursive: true });
   mkdirSync(outside, { recursive: true });
   const artifactPath = join(outside, "report.txt");
   writeFileSync(artifactPath, "acceptance artifact body\n");
 
-  const previousCanvasesDir = process.env.JUNTO_CANVASES_DIR;
   const previousWorkHome = process.env.JUNTO_WORK_HOME;
-  process.env.JUNTO_CANVASES_DIR = canvases;
   process.env.JUNTO_WORK_HOME = workHome;
 
   const processPlane = createAppProcessPlane({
@@ -823,8 +819,6 @@ export const runWorkCliAcceptance = async () => {
     } catch (error) {
       cleanupFailures.push(new Error("work CLI acceptance runtime dispose failed", { cause: error }));
     }
-    if (previousCanvasesDir === undefined) delete process.env.JUNTO_CANVASES_DIR;
-    else process.env.JUNTO_CANVASES_DIR = previousCanvasesDir;
     if (previousWorkHome === undefined) delete process.env.JUNTO_WORK_HOME;
     else process.env.JUNTO_WORK_HOME = previousWorkHome;
     const controlClean = server === undefined || controlDrain?.clean === true;

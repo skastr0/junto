@@ -69,8 +69,6 @@ const doc = canvasDoc(nodes, [verbEdge("e-atlas-board", "atlas", "board", "contr
 
 /** Atlas's claimed task waiting on the operator, and an open request Atlas raised. */
 const seedWork = async (sandbox: Sandbox): Promise<void> => {
-  const previous = process.env.JUNTO_CANVASES_DIR;
-  process.env.JUNTO_CANVASES_DIR = sandbox.canvasesDir;
   const state = makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"));
   const repositories = Layer.provideMerge(
     Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive, SettingsLive, StationFleetTargetRepositoryLive),
@@ -150,8 +148,6 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
     );
   } finally {
     await runtime.dispose();
-    if (previous === undefined) delete process.env.JUNTO_CANVASES_DIR;
-    else process.env.JUNTO_CANVASES_DIR = previous;
   }
 };
 

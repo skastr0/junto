@@ -26,7 +26,6 @@ const fixture = async () => {
   const sandbox: Sandbox = {
     root: join(root, "sandbox"), homeDir: join(root, "sandbox", "home"),
     userDataDir: join(root, "sandbox", "user-data"),
-    canvasesDir: join(root, "sandbox", "home", ".junto", "canvases"),
   };
   return { repoRoot, sandbox, binary, bytes, installArtifact };
 };

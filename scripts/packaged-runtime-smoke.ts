@@ -825,12 +825,11 @@ export const smokePackagedRuntime = async (
   await chmod(tempRoot, 0o700);
   const isolatedHome = path.join(tempRoot, "home");
   const userData = path.join(tempRoot, "user-data");
-  const canvases = path.join(tempRoot, "canvases");
   const isolatedTmp = path.join(tempRoot, "tmp");
   const cache = path.join(tempRoot, "cache");
   assertDarwinUnixSocketPathFits(controlSocketPath(isolatedHome));
   await Promise.all(
-    [isolatedHome, userData, canvases, isolatedTmp, cache].map(ensureDirectory),
+    [isolatedHome, userData, isolatedTmp, cache].map(ensureDirectory),
   );
 
   const childEnvironment: NodeJS.ProcessEnv = {
@@ -842,7 +841,6 @@ export const smokePackagedRuntime = async (
     LANG: "en_US.UTF-8",
     XDG_CACHE_HOME: cache,
     JUNTO_BROWSER_HOME: isolatedHome,
-    JUNTO_CANVASES_DIR: canvases,
   };
 
   const processPlane = createAppProcessPlane();

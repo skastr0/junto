@@ -327,12 +327,11 @@ export const smokeLinuxCiPackagedRuntime = async (
   await chmod(tempRoot, 0o700);
   const isolatedHome = path.join(tempRoot, "home");
   const userData = path.join(tempRoot, "user-data");
-  const canvases = path.join(tempRoot, "canvases");
   const cache = path.join(tempRoot, "cache");
   const browser = path.join(tempRoot, "browser");
   const isolatedTmp = path.join(tempRoot, "tmp");
   await Promise.all(
-    [isolatedHome, userData, canvases, cache, browser, isolatedTmp].map(
+    [isolatedHome, userData, cache, browser, isolatedTmp].map(
       ensureDirectory,
     ),
   );
@@ -353,7 +352,6 @@ export const smokeLinuxCiPackagedRuntime = async (
     XDG_CACHE_HOME: cache,
     JUNTO_BROWSER_DIR: browser,
     JUNTO_BROWSER_HOME: isolatedHome,
-    JUNTO_CANVASES_DIR: canvases,
     JUNTO_WORK_HOME: path.join(isolatedHome, ".junto", "work"),
   };
 

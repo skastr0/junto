@@ -38,7 +38,6 @@ const runtime = ManagedRuntime.make(
   canvasesLive,
 );
 let canvases: Context.Service.Shape<typeof CanvasesService>;
-const previousCanvasesDirectory = process.env.JUNTO_CANVASES_DIR;
 
 const emptyDoc = { nodes: [], edges: [] } as const;
 const rejected = async (effect: Effect.Effect<unknown, unknown>): Promise<void> => {
@@ -51,13 +50,7 @@ const runHeadless = async (script: "digest.ts", name: string) => {
     execFile(
       "bun",
       [`scripts/${script}`, name],
-      {
-        cwd: globalThis.process.cwd(),
-        env: {
-          ...globalThis.process.env,
-          JUNTO_CANVASES_DIR: join(mockCanvasesHome, ".junto", "canvases"),
-        },
-      },
+      { cwd: globalThis.process.cwd() },
       (error, stdout, stderr) => {
         const code = (error as NodeJS.ErrnoException | null)?.code;
         const exitCode = typeof code === "number" ? code : 0;
@@ -68,21 +61,11 @@ const runHeadless = async (script: "digest.ts", name: string) => {
 };
 
 beforeAll(async () => {
-  process.env.JUNTO_CANVASES_DIR = join(
-    mockCanvasesHome,
-    ".junto",
-    "canvases",
-  );
   canvases = await runtime.runPromise(CanvasesService);
 });
 
 afterAll(async () => {
   await runtime.dispose();
-  if (previousCanvasesDirectory === undefined) {
-    delete process.env.JUNTO_CANVASES_DIR;
-  } else {
-    process.env.JUNTO_CANVASES_DIR = previousCanvasesDirectory;
-  }
   await rm(mockCanvasesHome, { recursive: true, force: true });
 });
 
@@ -109,7 +92,7 @@ describe("canvas path capability boundary", () => {
     }
   });
 
-  it("does not create a projection root while bootstrapping SQLite authority", async () => {
+  it("does not create a canvases directory while bootstrapping SQLite authority", async () => {
     await runtime.runPromise(canvases.list);
 
     await expect(

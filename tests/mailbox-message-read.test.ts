@@ -109,8 +109,6 @@ describe("mailbox message read receipts", () => {
     const root = await mkdtemp(join(tmpdir(), "junto-mail-read-"));
     roots.push(root);
     mkdirSync(join(root, "state"), { recursive: true });
-    mkdirSync(join(root, "canvases"), { recursive: true });
-    process.env.JUNTO_CANVASES_DIR = join(root, "canvases");
     const runtime = makeRuntime(root);
     runtimes.push(runtime);
 
@@ -187,8 +185,6 @@ describe("mailbox message read receipts", () => {
     const root = await mkdtemp(join(tmpdir(), "junto-mail-mark-"));
     roots.push(root);
     mkdirSync(join(root, "state"), { recursive: true });
-    mkdirSync(join(root, "canvases"), { recursive: true });
-    process.env.JUNTO_CANVASES_DIR = join(root, "canvases");
     const runtime = makeRuntime(root);
     runtimes.push(runtime);
 

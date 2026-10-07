@@ -96,11 +96,8 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
   beforeAll(async () => {
     const root = await mkdtemp(join(tmpdir(), "junto-proto8-"));
     roots.push(root);
-    const canvasesDir = join(root, "canvases");
     const workHome = join(root, "work");
-    mkdirSync(canvasesDir, { recursive: true });
     mkdirSync(workHome, { recursive: true });
-    process.env.JUNTO_CANVASES_DIR = canvasesDir;
     process.env.JUNTO_WORK_HOME = workHome;
     harness = new ProtoHarness({ root });
     await harness.start();

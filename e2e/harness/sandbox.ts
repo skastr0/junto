@@ -1,6 +1,6 @@
 /**
  * Per-test sandbox: a throwaway temp root holding the Electron user-data
- * dir, the agent-facing canvases directory, and a sandboxed HOME — plus
+ * dir and a sandboxed HOME — plus
  * fixture builders. Nothing here ever reads or writes the operator's real
  * ~/.junto or userData; every path lives under os.tmpdir().
  */
@@ -56,7 +56,6 @@ import {
 export interface Sandbox {
   readonly root: string;
   readonly userDataDir: string;
-  readonly canvasesDir: string;
   readonly homeDir: string;
 }
 
@@ -85,17 +84,14 @@ export const createSandbox = async (): Promise<Sandbox> => {
   const userDataDir = join(root, "user-data");
   const homeDir = join(root, "home");
   const juntoDir = join(homeDir, ".junto");
-  const canvasesDir = join(juntoDir, "canvases");
   const stateDir = join(juntoDir, "state");
   await Promise.all([
     mkdir(userDataDir, { recursive: true }),
-    mkdir(canvasesDir, { recursive: true }),
     mkdir(stateDir, { recursive: true }),
   ]);
   return {
     root,
     userDataDir,
-    canvasesDir,
     homeDir,
   };
 };
@@ -153,9 +149,6 @@ export const writeFixtureCanvas = async (
   doc: CanvasDoc,
   databasePath?: string,
 ): Promise<void> => {
-  const previousCanvasesDir = process.env.JUNTO_CANVASES_DIR;
-  process.env.JUNTO_CANVASES_DIR = sandbox.canvasesDir;
-
   // Default to the sandbox's canonical product database. Demo-mode apps
   // isolate product state in a process-minted ephemeral SQLite file, so
   // launchJunto re-seeds the same fixtures into that database after boot.
@@ -287,15 +280,7 @@ export const writeFixtureCanvas = async (
       }),
     );
   } finally {
-    try {
-      await runtime.dispose();
-    } finally {
-      if (previousCanvasesDir === undefined) {
-        delete process.env.JUNTO_CANVASES_DIR;
-      } else {
-        process.env.JUNTO_CANVASES_DIR = previousCanvasesDir;
-      }
-    }
+    await runtime.dispose();
   }
 };
 
@@ -310,8 +295,6 @@ export const removeFixtureCanvases = async (
   databasePath: string,
   keep: ReadonlySet<string>,
 ): Promise<void> => {
-  const previousCanvasesDir = process.env.JUNTO_CANVASES_DIR;
-  process.env.JUNTO_CANVASES_DIR = sandbox.canvasesDir;
   const state = makeStateEngineLive(databasePath);
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
@@ -336,15 +319,7 @@ export const removeFixtureCanvases = async (
       }),
     );
   } finally {
-    try {
-      await runtime.dispose();
-    } finally {
-      if (previousCanvasesDir === undefined) {
-        delete process.env.JUNTO_CANVASES_DIR;
-      } else {
-        process.env.JUNTO_CANVASES_DIR = previousCanvasesDir;
-      }
-    }
+    await runtime.dispose();
   }
 };
 

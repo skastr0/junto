@@ -121,9 +121,7 @@ let seatCredential = "";
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "junto-seat-sessions-ctl-"));
   const workHome = join(root, "work");
-  mkdirSync(join(root, "canvases"), { recursive: true });
   mkdirSync(workHome, { recursive: true });
-  process.env.JUNTO_CANVASES_DIR = join(root, "canvases");
   process.env.JUNTO_WORK_HOME = workHome;
   runtime = makeRuntime(root);
   const settings = await runtime.runPromise(SettingsService);
@@ -149,7 +147,6 @@ afterEach(async () => {
   await server.close();
   await runtime.dispose();
   await rm(root, { recursive: true, force: true });
-  delete process.env.JUNTO_CANVASES_DIR;
   delete process.env.JUNTO_WORK_HOME;
 });
 

@@ -516,7 +516,6 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
       TMP: sandbox.root,
       TEMP: sandbox.root,
       SHELL: "/bin/sh",
-      JUNTO_CANVASES_DIR: sandbox.canvasesDir,
       JUNTO_E2E: "1",
       // Junto's own secrets go to owner-only files under this launch's
       // throwaway home. Never the operator's real Keychain or keyring.

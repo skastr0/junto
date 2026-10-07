@@ -259,11 +259,8 @@ const startTestServer = async (options: {
 }> => {
   const root = await mkdtemp(join(tmpdir(), "junto-work-ctl-"));
   roots.push(root);
-  const canvasesDir = join(root, "canvases");
   const workHome = join(root, "work");
-  mkdirSync(canvasesDir, { recursive: true });
   mkdirSync(workHome, { recursive: true });
-  process.env.JUNTO_CANVASES_DIR = canvasesDir;
   process.env.JUNTO_WORK_HOME = workHome;
 
   const runtime = makeWorkTestRuntime(root);
@@ -325,7 +322,6 @@ afterEach(async () => {
     const root = roots.pop();
     if (root) await rm(root, { recursive: true, force: true });
   }
-  delete process.env.JUNTO_CANVASES_DIR;
   delete process.env.JUNTO_WORK_HOME;
 });
 

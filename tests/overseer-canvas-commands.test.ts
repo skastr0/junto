@@ -85,9 +85,7 @@ const aliasDoc = (overseer = false): CanvasDoc =>
 const CALLER: OverseerCaller = { canvasName: "ops", nodeId: "overseer" };
 
 describe("executeOverseerCanvas", () => {
-  let canvasesDir = "";
   let stateDir = "";
-  let previousCanvases: string | undefined;
   const makeRuntime = (path: string) => {
     const contentRoot = join(stateDir || path, "..", "content");
     const installOpsPath = join(stateDir || path, "install-ops.db");
@@ -119,10 +117,7 @@ describe("executeOverseerCanvas", () => {
   let runtime: ReturnType<typeof makeRuntime> | undefined;
 
   const installEnv = async (): Promise<void> => {
-    canvasesDir = await mkdtemp(join(tmpdir(), "junto-overseer-canvases-"));
     stateDir = await mkdtemp(join(tmpdir(), "junto-overseer-state-"));
-    previousCanvases = process.env.JUNTO_CANVASES_DIR;
-    process.env.JUNTO_CANVASES_DIR = canvasesDir;
   };
 
   const restoreEnv = async (): Promise<void> => {
@@ -131,11 +126,7 @@ describe("executeOverseerCanvas", () => {
       await runtime.dispose();
       runtime = undefined;
     }
-    if (previousCanvases === undefined) delete process.env.JUNTO_CANVASES_DIR;
-    else process.env.JUNTO_CANVASES_DIR = previousCanvases;
-    if (canvasesDir) await rm(canvasesDir, { recursive: true, force: true });
     if (stateDir) await rm(stateDir, { recursive: true, force: true });
-    canvasesDir = "";
     stateDir = "";
   };
 

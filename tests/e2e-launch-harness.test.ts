@@ -49,7 +49,6 @@ class FakeElectronApplication extends EventEmitter {
 const sandbox: Sandbox = {
   root: "/tmp/junto-e2e-harness-test",
   userDataDir: "/tmp/junto-e2e-harness-test/user-data",
-  canvasesDir: "/tmp/junto-e2e-harness-test/canvases",
   homeDir: "/tmp/junto-e2e-harness-test/home",
 };
 

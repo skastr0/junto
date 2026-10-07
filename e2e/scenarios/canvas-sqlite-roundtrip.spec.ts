@@ -1,4 +1,4 @@
-import { access, readdir } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { agentTextNode, canvasDoc, textNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
@@ -32,24 +32,16 @@ const exists = async (path: string): Promise<boolean> =>
 
 const expectSqliteAuthority = async (input: {
   readonly homeDir: string;
-  readonly canvasesDir: string;
 }): Promise<void> => {
   expect(
     await exists(join(input.homeDir, ".junto", "state", "junto.db")),
     "unified SQLite state database",
   ).toBe(true);
 
-  const canvasEntries = await readdir(input.canvasesDir, {
-    withFileTypes: true,
-  });
-  const unsupportedEntries = canvasEntries
-    .filter(
-      (entry) =>
-        !entry.isFile() ||
-        (!entry.name.endsWith(".digest.txt") && !entry.name.endsWith(".svg")),
-    )
-    .map((entry) => entry.name);
-  expect(unsupportedEntries).toEqual([]);
+  expect(
+    await exists(join(input.homeDir, ".junto", "canvases")),
+    "no canvases directory is written",
+  ).toBe(false);
 };
 
 test("operator UI write round-trips through main IPC and survives renderer reload", async ({
