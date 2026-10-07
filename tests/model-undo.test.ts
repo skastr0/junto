@@ -7,7 +7,7 @@ import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import { asCanvasName, decodeCommand, type Command, type Node, type Wire } from "../src/shared/model";
 import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
-import { canvasAfter, createEditHistory, inverseOf, stepBack } from "../src/renderer/lib/model-undo";
+import { asOneAct, canvasAfter, createEditHistory, inverseOf, stepBack } from "../src/renderer/lib/model-undo";
 
 const name = asCanvasName("factory");
 
@@ -218,12 +218,97 @@ describe("a step of several commands", () => {
   });
 
   it("names what it could not take back and still takes back the rest", () => {
-    const before = canvasOf([note("plan"), note("other")]);
-    const restack: Command = { _tag: "Restack", canvas: name, nodes: ["plan" as Node["id"]], to: "front" };
+    const before = canvasOf([seat("lead"), note("plan")]);
+    const grant: Command = { _tag: "GrantOverseer", canvas: name, id: "lead" as Node["id"], overseer: true };
     const move: Command = { _tag: "Move", canvas: name, moves: [{ id: "plan" as Node["id"], x: 1, y: 2 }] };
-    const { back: step, skipped } = stepBack(before, [restack, move]);
-    expect(skipped).toEqual([restack]);
+    const { back: step, skipped } = stepBack(before, [grant, move]);
+    expect(skipped).toEqual([grant]);
     expect(step).toEqual([{ _tag: "Move", canvas: name, moves: [{ id: "plan", x: 10, y: 20 }] }]);
+  });
+});
+
+describe("order, seats and batches", () => {
+  it("a restack goes back by moving each node to the place in the stack it had", () => {
+    const before = canvasOf([note("a", { z: 3 }), note("b", { z: 7 }), note("c", { z: 12 })]);
+    const command: Command = { _tag: "Restack", canvas: name, nodes: ["a", "b"] as Array<Node["id"]>, to: "front" };
+    const after = canvasAfter(before, command);
+    const order = (canvas: Canvas) => [...canvas.nodes.values()].sort((x, y) => x.z - y.z).map((node) => node.id);
+    expect(order(after)).toEqual(["c", "a", "b"]);
+    const step = back(before, command);
+    expect(step).toEqual([
+      { _tag: "Move", canvas: name, moves: [{ id: "a", x: 10, y: 20, z: 3 }, { id: "b", x: 10, y: 20, z: 7 }] },
+    ]);
+    expect(rows(run(after, step))).toEqual(rows(before));
+    expect(order(canvasAfter(before, { ...command, to: "back", nodes: ["c" as Node["id"]] }))).toEqual(["c", "a", "b"]);
+  });
+
+  it("a move that set a place in the stack goes back to the old one", () => {
+    const before = canvasOf([note("a", { z: 3 })]);
+    const command: Command = { _tag: "Move", canvas: name, moves: [{ id: "a" as Node["id"], x: 10, y: 20, z: 40 }] };
+    expect(back(before, command)).toEqual([{ _tag: "Move", canvas: name, moves: [{ id: "a", x: 10, y: 20, z: 3 }] }]);
+  });
+
+  it("a reseat goes back to the agent it was, in a new session", () => {
+    const before = canvasOf([seat("lead", { sessionId: "old-session", launch: { kind: "harness", argv: ["claude"] } })]);
+    const command: Command = {
+      _tag: "Reseat", canvas: name, id: "lead" as Node["id"],
+      agentKey: "local:codex", bindingId: "binding-new", harness: "codex", host: "local", launch: null,
+    };
+    expect(inverseOf(before, command)).toEqual({ _tag: "Irreversible", why: "missing" });
+    const after = canvasAfter(before, command);
+    expect(after.nodes.get("lead" as Node["id"])).toMatchObject({ agentKey: "local:codex", bindingId: "binding-new", harness: "codex" });
+    expect(after.nodes.get("lead" as Node["id"])).not.toHaveProperty("sessionId");
+    expect(after.nodes.get("lead" as Node["id"])).not.toHaveProperty("launch");
+    const step = back(before, command, { newBinding: () => "binding-fresh" });
+    expect(step).toEqual([{
+      _tag: "Reseat", canvas: name, id: "lead", agentKey: "local:lead", bindingId: "binding-fresh",
+      harness: "claude", host: "local", launch: { kind: "harness", argv: ["claude"] },
+    }]);
+    expect(run(after, step).nodes.get("lead" as Node["id"])).toMatchObject({
+      agentKey: "local:lead", bindingId: "binding-fresh", harness: "claude",
+    });
+  });
+
+  it("a batch goes back as one batch, last step first", () => {
+    const before = canvasOf([note("a", { color: "3" }), note("b")]);
+    const command: Command = {
+      _tag: "Batch", canvas: name,
+      steps: [
+        { _tag: "Recolor", canvas: name, nodes: ["a", "b"] as Array<Node["id"]>, color: "5" },
+        { _tag: "Move", canvas: name, moves: [{ id: "a" as Node["id"], x: 99, y: 99 }] },
+      ],
+    };
+    const after = canvasAfter(before, command);
+    expect(after.nodes.get("a" as Node["id"])).toMatchObject({ color: "5", x: 99 });
+    const step = back(before, command);
+    expect(step).toEqual([{
+      _tag: "Batch", canvas: name,
+      steps: [
+        { _tag: "Move", canvas: name, moves: [{ id: "a", x: 10, y: 20 }] },
+        { _tag: "Recolor", canvas: name, nodes: ["a"], color: "3" },
+        { _tag: "Recolor", canvas: name, nodes: ["b"], color: null },
+      ],
+    }]);
+    expect(rows(run(after, step))).toEqual(rows(before));
+  });
+
+  it("several commands of one act become one batch, and what a batch cannot hold is left alone", () => {
+    const move: Command = { _tag: "Move", canvas: name, moves: [{ id: "a" as Node["id"], x: 1, y: 1 }] };
+    const grant: Command = { _tag: "GrantOverseer", canvas: name, id: "a" as Node["id"], overseer: true };
+    expect(asOneAct(name, [move])).toEqual([move]);
+    expect(asOneAct(name, [move, move])).toEqual([{ _tag: "Batch", canvas: name, steps: [move, move] }]);
+    expect(asOneAct(name, [move, grant])).toEqual([move, grant]);
+  });
+
+  it("the undo stack sends a multi-colour undo as one batch", () => {
+    const history = createEditHistory();
+    const before = canvasOf([note("a", { color: "3" }), note("b")]);
+    const recolour: Command = { _tag: "Recolor", canvas: name, nodes: ["a", "b"] as Array<Node["id"]>, color: "5" };
+    history.record(before, [recolour]);
+    const step = history.undo(canvasAfter(before, recolour));
+    expect(step).toHaveLength(1);
+    expect(step[0]).toMatchObject({ _tag: "Batch" });
+    for (const command of step) expect(accepted(command)).toBe(true);
   });
 });
 

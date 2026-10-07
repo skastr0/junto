@@ -1,6 +1,6 @@
 import type { Command } from "@shared/model";
 import type { Canvas } from "@shared/model/canvas";
-import { createEditHistory, type EditHistory, type UndoContext } from "./model-undo";
+import { asOneAct, createEditHistory, type EditHistory, type UndoContext } from "./model-undo";
 
 // The one way the window changes a canvas: send the commands, and remember how
 // to take them back. Each canvas has its own undo. Nothing here knows what an
@@ -88,8 +88,10 @@ export const createAuthoring = (
         : inTurn(async () => {
             const before = store.canvasOf(canvas);
             const ctx = context(canvas);
-            await sendAll(commands);
-            historyOf(canvas).record(before, commands, ctx);
+            // Several commands are one act: main takes all of them or none.
+            const act = commands[0] === undefined ? commands : asOneAct(commands[0].canvas, commands);
+            await sendAll(act);
+            historyOf(canvas).record(before, act, ctx);
             changed(canvas);
           }),
     undo: (canvas) => turn(canvas, "undo"),
