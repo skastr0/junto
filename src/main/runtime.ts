@@ -1,3 +1,4 @@
+import { CanvasControlQueries } from "./junto/canvas-control/queries";
 /**
  * Command Center product ManagedRuntime — single warm Effect entry for Electron main.
  *
@@ -321,7 +322,7 @@ const BaseWithActorSeatOccupyLive = Layer.provideMerge(
 const KernelWithWorkLive = Layer.provideMerge(KernelLive, WorkLive);
 
 export const RootLayer = Layer.provideMerge(
-  Layer.mergeAll(KernelWithWorkLive, RegionRollupLive),
+  Layer.mergeAll(KernelWithWorkLive, RegionRollupLive, CanvasControlQueries.layer),
   BaseWithActorSeatOccupyLive,
 );
 

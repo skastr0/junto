@@ -9,6 +9,9 @@ import { ModelLive } from "../src/main/junto/model/layer";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelService } from "../src/main/junto/model/service";
 import { readModelDigest } from "../src/main/junto/model/digest";
+import { CanvasControlQueries } from "../src/main/junto/canvas-control/queries";
+import { CanvasControlReadData } from "../src/main/junto/canvas-control/protocol";
+import { SnapshotsService } from "../src/main/junto/snapshots";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -49,6 +52,20 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
     expect(digest).toContain("sender :: agent");
     expect(digest).toContain("inbox :: agent");
     expect(digest).not.toContain("hello");
+    const queries = await runtime.runPromise(CanvasControlQueries.make.pipe(
+      Effect.provideService(SnapshotsService, SnapshotsService.of({
+        doctor: Effect.succeed({ id: "snapshots", label: "Snapshots", status: "ok", detail: "test" }),
+        current: Effect.succeed({ bundles: [] }), refresh: () => Effect.succeed({ bundles: [] }),
+        start: () => undefined, subscribe: () => () => undefined,
+      })),
+    ));
+    const controlRead = await runtime.runPromise(queries.read("factory"));
+    expect(Schema.decodeUnknownSync(CanvasControlReadData, { onExcessProperty: "error" })(controlRead)).toEqual(controlRead);
+    expect(controlRead.opened.nodes.map(({ kind }) => kind)).toEqual(["agent", "agent"]);
+    expect(controlRead.digest).toBe(digest);
+    expect(controlRead.actorRefs).toEqual(actors);
+    expect(JSON.stringify(controlRead)).not.toContain("hello");
+    expect(await runtime.runPromise(queries.list())).toEqual([{ name: "factory", seq: 1, nodes: 2, edges: 0 }]);
     // The receipt must use the sequence at delivery, not the one at append.
     await runtime.runPromise(model.command(command({ _tag: "Move", canvas: "factory", moves: [{ id: "inbox", x: 25, y: 50 }] }), "operator"));
     const writes: string[] = [];

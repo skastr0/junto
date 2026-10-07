@@ -13,8 +13,7 @@ import {
   removeOwnedControlSocketPath,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
-import { CanvasesService, type CanvasError } from "../canvases";
-import { SnapshotsService } from "../snapshots";
+import { CanvasControlQueries } from "./queries";
 import {
   CANVAS_CONTROL_MAX_REQUEST_BYTES,
   CANVAS_CONTROL_MAX_RESPONSE_BYTES,
@@ -33,9 +32,7 @@ import {
   type CanvasControlResponseEnvelope,
 } from "./protocol";
 
-type CanvasControlServices =
-  | CanvasesService
-  | SnapshotsService;
+type CanvasControlServices = CanvasControlQueries;
 
 export type RunCanvasControlEffect = <A, E>(
   effect: Effect.Effect<A, E, CanvasControlServices>,
@@ -139,7 +136,7 @@ const canvasFailure = (
     typeof error === "object" &&
     error !== null &&
     "_tag" in error &&
-    error._tag === "CanvasError"
+    error._tag === "CanvasControlQueryError"
   ) {
     return {
       code: "CanvasError",
@@ -157,40 +154,8 @@ const canvasFailure = (
   };
 };
 
-const listEffect = Effect.gen(function* () {
-  const canvases = yield* CanvasesService;
-  const summaries = yield* canvases.list;
-  return yield* Effect.forEach(
-    summaries,
-    (summary) =>
-      canvases.read(summary.name, "control.list").pipe(
-        Effect.map((read) => ({
-          name: read.name,
-          modifiedAt: summary.modifiedAt,
-          nodes: read.doc.nodes.length,
-          edges: read.doc.edges.length,
-        })),
-      ),
-    { concurrency: 5 },
-  );
-});
-
-const readEffect = (name: string) =>
-  Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    const snapshots = yield* SnapshotsService;
-    const result = yield* Effect.all({
-      read: canvases.read(name, "control.read"),
-      snapshots: snapshots.current,
-    });
-    return {
-      name: result.read.name,
-      revision: result.read.revision,
-      doc: result.read.doc,
-      actorRefs: result.read.actorRefs,
-      snapshots: result.snapshots,
-    };
-  });
+const listEffect = Effect.flatMap(CanvasControlQueries, (queries) => queries.list());
+const readEffect = (name: string) => Effect.flatMap(CanvasControlQueries, (queries) => queries.read(name));
 
 export const startCanvasControlServer = async (
   options: CanvasControlServerOptions,
@@ -367,7 +332,7 @@ export const startCanvasControlServer = async (
         request.id,
       );
     } catch (error) {
-      const failure = canvasFailure(error as CanvasError);
+      const failure = canvasFailure(error);
       return canvasControlErr(
         failure.code,
         failure.message,

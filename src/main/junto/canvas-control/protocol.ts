@@ -1,5 +1,5 @@
 import { Result, Schema } from "effect";
-import { CanvasDoc } from "@shared/canvas";
+import { Opened, Seq } from "@shared/model";
 import {
   CANVAS_NAME_INPUT_PATTERN,
   CANVAS_NAME_MAX_LENGTH,
@@ -108,7 +108,7 @@ export type CanvasControlReadArgs = typeof CanvasControlReadArgs.Type;
 
 export const CanvasControlListEntry = Schema.Struct({
   name: Schema.String,
-  modifiedAt: Schema.String,
+  seq: Seq,
   nodes: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   edges: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
@@ -118,9 +118,8 @@ export const CanvasControlListData = Schema.Array(CanvasControlListEntry);
 export type CanvasControlListData = typeof CanvasControlListData.Type;
 
 export const CanvasControlReadData = Schema.Struct({
-  name: Schema.String,
-  revision: Schema.String,
-  doc: CanvasDoc,
+  opened: Opened,
+  digest: Schema.String,
   actorRefs: Schema.Array(ActorRef),
   snapshots: SnapshotState,
 });

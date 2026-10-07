@@ -12,13 +12,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { asCanvasName, asNodeId, type Opened } from "../src/shared/model";
 import type { ActorRef } from "../src/shared/work-protocol";
-import {
-  CanvasError,
-  CanvasesService,
-  type CanvasChangeDetail,
-} from "../src/main/junto/canvases";
+import { CanvasControlQueries, CanvasControlQueryError } from "../src/main/junto/canvas-control/queries";
 import {
   listCanvasesThroughControl,
   readCanvasThroughControl,
@@ -34,21 +30,20 @@ import {
   type CanvasControlServer,
   type CanvasControlServerRuntime,
 } from "../src/main/junto/canvas-control/server";
-import { SnapshotsService } from "../src/main/junto/snapshots";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
-import {
-  canvasAuthorityMaterialFixture,
-} from "./helpers/canvas-authority-material";
 
 const roots: string[] = [];
 const servers: CanvasControlServer[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<unknown, never>> = [];
 
-const doc = (text = "hello"): CanvasDoc => ({
+const doc = (text = "hello"): Opened => ({
+  canvas: asCanvasName("portfolio"),
+  seq: 0,
   nodes: [
     {
-      id: "note",
-      type: "text",
+      id: asNodeId("note"),
+      kind: "note",
+      z: 0,
       text,
       x: 0,
       y: 0,
@@ -56,125 +51,35 @@ const doc = (text = "hello"): CanvasDoc => ({
       height: 84,
     },
   ],
-  edges: [],
+  wires: [],
 });
 
 const makeRuntime = (input: {
-  readonly documents?: Map<string, CanvasDoc>;
+  readonly documents?: Map<string, Opened>;
   readonly actorRefs?: ReadonlyMap<string, ReadonlyArray<ActorRef>>;
 }) => {
   const documents = input.documents ?? new Map([["portfolio", doc()]]);
-  const modifiedAt = "2026-07-27T12:00:00.000Z";
-  const listeners = new Set<(
-    name: string,
-    detail?: CanvasChangeDetail,
-  ) => void>();
-  const canvases = CanvasesService.of({
-    doctor: Effect.succeed({
-      id: "canvases",
-      label: "Canvases",
-      status: "ok",
-      detail: "test",
-    }),
-    list: Effect.sync(() =>
-      [...documents.keys()].sort().map((name) => ({
-        name,
-        modifiedAt,
-      })),
-    ),
+  const queries = CanvasControlQueries.of({
+    list: () => Effect.sync(() => [...documents].sort(([a], [b]) => a.localeCompare(b)).map(([name, opened]) => ({
+      name, seq: opened.seq, nodes: opened.nodes.length, edges: opened.wires.length,
+    }))),
     read: (name) => {
       const current = documents.get(name);
       return current === undefined
-        ? Effect.fail(
-            new CanvasError({
-              message: `canvas "${name}" is not in live authority`,
-            }),
-          )
+        ? Effect.fail(new CanvasControlQueryError({ message: `canvas "${name}" is not in live authority`, cause: "not found" }))
         : Effect.succeed({
-            name,
-            revision: "a".repeat(64),
-            doc: current,
+            opened: { ...current, canvas: asCanvasName(name) },
+            digest: `Canvas ${name}`,
             actorRefs: input.actorRefs?.get(name) ?? [],
-            workRevision: "0",
+            snapshots: { bundles: [{ source: "hermes", fetchedAt: "2026-07-27T12:00:00.000Z", ok: true, entities: [] }] },
           });
     },
-    readWithIntentWitness: () =>
-      Effect.fail(new CanvasError({ message: "not used" })),
-    readNodeStructure: () =>
-      Effect.fail(new CanvasError({ message: "not used" })),
-    write: () => Effect.fail(new CanvasError({ message: "not used" })),
-    mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
-    mutatePortfolio: () =>
-      Effect.fail(new CanvasError({ message: "not used" })),
-    canvasOverseerSet: () =>
-      Effect.fail(new CanvasError({ message: "not used" })),
-    create: () => Effect.fail(new CanvasError({ message: "not used" })),
-    remove: () => Effect.fail(new CanvasError({ message: "not used" })),
-    ensureSeed: Effect.void,
-    start: () => undefined,
-    subscribeChanges: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    announceInstalledProjection: (changes) => {
-      for (const change of changes) {
-        for (const listener of listeners) listener(change.name, change.detail);
-      }
-    },
-    liveDocuments: () =>
-      Effect.sync(() =>
-        [...documents].map(([canvasName, current]) => ({
-          canvasName,
-          doc: current,
-        })),
-      ),
-    liveAuthorityGeneration: () => Effect.succeed("1"),
-    authoritySnapshot: () =>
-      Effect.sync(() => ({
-        generation: "1",
-        intentSha256: "a".repeat(64),
-        documents: new Map(documents),
-      })),
-    authorityMaterialSnapshot: () =>
-      Effect.sync(() => canvasAuthorityMaterialFixture("1", documents)),
-    activeIntentWitness: () =>
-      Effect.succeed({
-        generation: "1",
-        contentSha256: "a".repeat(64),
-      }),
-    activeActorRefs: () => Effect.succeed([]),
   });
-  const snapshots = SnapshotsService.of({
-    doctor: Effect.succeed({
-      id: "snapshots",
-      label: "Snapshots",
-      status: "ok",
-      detail: "test",
-    }),
-    current: Effect.succeed({
-      bundles: [
-        {
-          source: "hermes",
-          fetchedAt: "2026-07-27T12:00:00.000Z",
-          ok: true,
-          entities: [],
-        },
-      ],
-    }),
-    refresh: () => Effect.succeed({ bundles: [] }),
-    start: () => undefined,
-    subscribe: () => () => undefined,
-  });
-  return ManagedRuntime.make(
-    Layer.mergeAll(
-      Layer.succeed(CanvasesService, canvases),
-      Layer.succeed(SnapshotsService, snapshots),
-    ),
-  );
+  return ManagedRuntime.make(Layer.succeed(CanvasControlQueries, queries));
 };
 
 const start = async (input: {
-  readonly documents?: Map<string, CanvasDoc>;
+  readonly documents?: Map<string, Opened>;
   readonly actorRefs?: ReadonlyMap<string, ReadonlyArray<ActorRef>>;
   readonly runtime?: CanvasControlServerRuntime;
   readonly beforeRun?: () => void | Promise<void>;
@@ -245,12 +150,12 @@ describe("canvas control", () => {
     expect(listed).toEqual([
       {
         name: "portfolio",
-        modifiedAt: "2026-07-27T12:00:00.000Z",
+        seq: 0,
         nodes: 1,
         edges: 0,
       },
     ]);
-    expect(read.doc.nodes[0]?.id).toBe("note");
+    expect(read.opened.nodes[0]?.id).toBe("note");
     expect(read.actorRefs).toEqual([projectedActor]);
     expect(read.snapshots.bundles[0]?.source).toBe("hermes");
     expect((await stat(controlHome)).mode & 0o777).toBe(0o700);
@@ -261,9 +166,8 @@ describe("canvas control", () => {
 
   it("strictly requires actorRefs in read projection data", () => {
     const base = {
-      name: "portfolio",
-      revision: "a".repeat(64),
-      doc: doc(),
+      opened: doc(),
+      digest: "Canvas portfolio",
       snapshots: { bundles: [] },
     };
     const decode = Schema.decodeUnknownResult(CanvasControlReadData, {

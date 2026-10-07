@@ -73,7 +73,7 @@ const main = async (): Promise<void> => {
     );
     return;
   }
-  const matches = read.success.doc.nodes.filter(
+  const matches = read.success.opened.nodes.filter(
     (node) => node.id === parsed.value.nodeId,
   );
   if (matches.length === 0) {
@@ -105,7 +105,7 @@ const main = async (): Promise<void> => {
     node,
   };
   if (json) console.log(JSON.stringify({ ok: true, data }));
-  else console.log(`${data.ref}\n${data.node.type} ${data.node.id}`);
+  else console.log(`${data.ref}\n${data.node.kind} ${data.node.id}`);
 };
 
 await main();

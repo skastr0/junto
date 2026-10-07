@@ -12,7 +12,7 @@ interface CanvasRow {
   readonly name: string;
   readonly nodes: number;
   readonly edges: number;
-  readonly modifiedAt: string;
+  readonly seq: number;
 }
 
 const pad = (value: string, width: number): string =>
@@ -28,7 +28,7 @@ const printTable = (rows: ReadonlyArray<CanvasRow>): void => {
     { header: "NAME", value: (row) => row.name },
     { header: "NODES", value: (row) => String(row.nodes) },
     { header: "EDGES", value: (row) => String(row.edges) },
-    { header: "MODIFIED", value: (row) => row.modifiedAt },
+    { header: "SEQ", value: (row) => String(row.seq) },
   ];
 
   const widths = columns.map((column) =>
