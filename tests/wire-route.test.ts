@@ -254,6 +254,51 @@ describe("routeWire on a crowded canvas", () => {
     expect(routed).toBeGreaterThan(100);
   });
 
+  it("a detour that leaves the box between the two ends still crosses no card", () => {
+    // The search starts with the cards between the ends. A route that has to
+    // go around the outside of that box once crossed whatever stood there.
+    const wall = { x: 100, y: -40, width: 40, height: 400 };
+    const outside = { x: 60, y: 370, width: 400, height: 60 };
+    const source = { x: 0, y: 200 };
+    const target = { x: 300, y: 200 };
+    const obstacles = [wall, outside];
+    const routed = routeWire({ source, target, obstacles, padding: 14, borderRadius: 8 });
+    expect(routed).not.toBeNull();
+    expect(polylineHitsObstacles(cornersOf(routed!.path), obstacles)).toBe(false);
+  });
+
+  it("never draws a route through any card, wherever the cards are", () => {
+    let seed = 7;
+    const next = (): number => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    const whole = (low: number, high: number): number => Math.floor(low + next() * (high - low + 1));
+    let routed = 0;
+    for (let layout = 0; layout < 600; layout++) {
+      const obstacles = Array.from({ length: whole(1, 30) }, () => ({
+        x: whole(0, 70) * 20,
+        y: whole(0, 70) * 20,
+        width: whole(2, 16) * 20,
+        height: whole(2, 8) * 20,
+      }));
+      const source = { x: whole(0, 70) * 20, y: whole(0, 70) * 20 };
+      const target = { x: whole(0, 70) * 20, y: whole(0, 70) * 20 };
+      const inside = (point: { x: number; y: number }): boolean =>
+        obstacles.some(
+          (card) =>
+            point.x > card.x && point.x < card.x + card.width &&
+            point.y > card.y && point.y < card.y + card.height,
+        );
+      if (inside(source) || inside(target)) continue;
+      const result = routeWire({ source, target, obstacles, padding: 14, borderRadius: 8 });
+      if (!result) continue;
+      routed++;
+      expect(polylineHitsObstacles(cornersOf(result.path), obstacles), `layout ${String(layout)}`).toBe(false);
+    }
+    expect(routed).toBeGreaterThan(300);
+  });
+
   it("gives up at once when an end is buried in a card", () => {
     const card = { x: 100, y: 100, width: 200, height: 200 };
     expect(

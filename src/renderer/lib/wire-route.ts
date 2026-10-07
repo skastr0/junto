@@ -251,6 +251,28 @@ function pointKey(x: number, y: number): string {
   return `${x}:${y}`;
 }
 
+/** The part of the canvas a search looks at: the cards touching it are the ones routed around. */
+type SearchBox = { readonly minX: number; readonly maxX: number; readonly minY: number; readonly maxY: number };
+
+function touchesBox(rect: WireRect, box: SearchBox): boolean {
+  return (
+    rect.x + rect.width >= box.minX &&
+    rect.x <= box.maxX &&
+    rect.y + rect.height >= box.minY &&
+    rect.y <= box.maxY
+  );
+}
+
+/** How many times the box may grow to take in a detour before every card is looked at. */
+const BOX_GROWTHS = 3;
+
+/**
+ * Route between two points past the cards near them. The search starts with
+ * the cards in the box between the two ends. A detour can leave that box, and
+ * out there it would cross cards the search never looked at; when the route
+ * found does, the box grows to hold the whole detour and the search runs
+ * again, so the route returned is clear of every card on the canvas.
+ */
 function visibilityRoute(
   source: WirePoint,
   target: WirePoint,
@@ -261,17 +283,40 @@ function visibilityRoute(
   if (obstacles.length === 0) return null;
 
   const corridorPad = Math.max((input.padding ?? DEFAULT_PAD) * 2, 40);
-  const cMinX = Math.min(source.x, target.x) - corridorPad;
-  const cMaxX = Math.max(source.x, target.x) + corridorPad;
-  const cMinY = Math.min(source.y, target.y) - corridorPad;
-  const cMaxY = Math.max(source.y, target.y) + corridorPad;
-  const relevant = obstacles.filter(
-    (o) =>
-      o.x + o.width >= cMinX &&
-      o.x <= cMaxX &&
-      o.y + o.height >= cMinY &&
-      o.y <= cMaxY,
-  );
+  let box: SearchBox = {
+    minX: Math.min(source.x, target.x) - corridorPad,
+    maxX: Math.max(source.x, target.x) + corridorPad,
+    minY: Math.min(source.y, target.y) - corridorPad,
+    maxY: Math.max(source.y, target.y) + corridorPad,
+  };
+  for (let growth = 0; ; growth++) {
+    const everything = growth === BOX_GROWTHS;
+    const relevant = everything ? obstacles : obstacles.filter((rect) => touchesBox(rect, box));
+    const found = routePast(source, target, relevant, input, borderRadius);
+    if (!found) return null;
+    if (everything || relevant.length === obstacles.length) return found.route;
+    const known = box;
+    const unseen = obstacles.filter((rect) => !touchesBox(rect, known));
+    if (!polylineHitsObstacles(found.corners, unseen)) return found.route;
+    let { minX, maxX, minY, maxY } = box;
+    for (const corner of found.corners) {
+      minX = Math.min(minX, corner.x - corridorPad);
+      maxX = Math.max(maxX, corner.x + corridorPad);
+      minY = Math.min(minY, corner.y - corridorPad);
+      maxY = Math.max(maxY, corner.y + corridorPad);
+    }
+    box = { minX, maxX, minY, maxY };
+  }
+}
+
+/** The search itself, past exactly these cards. */
+function routePast(
+  source: WirePoint,
+  target: WirePoint,
+  relevant: ReadonlyArray<WireRect>,
+  input: WireRouteInput,
+  borderRadius: number,
+): { readonly route: WireRouteResult; readonly corners: ReadonlyArray<WirePoint> } | null {
   if (relevant.length === 0) return null;
   // An end buried in a card's moat has no leg out of it: every step from it
   // crosses that card. Say so now rather than after building the whole graph,
@@ -664,10 +709,13 @@ function visibilityRoute(
         return !polylineHitsObstacles(pointsForCandidate, relevant);
       });
       return {
-        path: roundedOrthogonalPath(simplified, borderRadius),
-        labelX: label.x,
-        labelY: label.y,
-        detoured: !hasClearDirect,
+        route: {
+          path: roundedOrthogonalPath(simplified, borderRadius),
+          labelX: label.x,
+          labelY: label.y,
+          detoured: !hasClearDirect,
+        },
+        corners: simplified,
       };
     }
 
