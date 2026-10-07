@@ -106,9 +106,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
           key: "providers",
           group: "Agents",
           label: "Providers",
-          blurb: USAGE_ENABLED
-            ? "usage credentials: API keys, tokens, cookies"
-            : "access to outside providers",
+          blurb: "",
         } as const,
       ]
     : []),

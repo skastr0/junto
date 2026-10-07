@@ -81,13 +81,13 @@ function LiveProviderCard() {
         </span>
       </div>
       <p className="settings-provider-access">
-        Bring your own OpenAI API key. A call starts only when you choose Start live conversation.
-        Voice costs ${LIVE_VOICE_USD_PER_MINUTE.toFixed(2)} per minute, plus backend usage.
+        A call starts only when you start one. Voice costs ${LIVE_VOICE_USD_PER_MINUTE.toFixed(2)} per minute,
+        plus backend usage.
       </p>
       <label className="settings-provider-field">
         <span className="settings-provider-field__text">
           <span className="settings-provider-field__label">OpenAI API key</span>
-          <span className="settings-field__hint">Saved in this installation's credential vault. The saved key cannot be revealed here.</span>
+          <span className="settings-field__hint">Kept in this installation's vault. It cannot be shown again.</span>
         </span>
         <span className="settings-provider-field__control">
           <Input
@@ -118,7 +118,7 @@ function LiveProviderCard() {
       <label className="settings-provider-field">
         <span className="settings-provider-field__text">
           <span className="settings-provider-field__label">Backend model</span>
-          <span className="settings-field__hint">An OpenAI model that supports structured tool calls. Voice remains GPT-Live-1.</span>
+          <span className="settings-field__hint">Must support tool calls.</span>
         </span>
         <span className="settings-provider-field__control">
           <Input aria-label="Live backend model" required maxLength={200}
@@ -128,7 +128,7 @@ function LiveProviderCard() {
       <label className="settings-provider-field">
         <span className="settings-provider-field__text">
           <span className="settings-provider-field__label">Maximum call minutes</span>
-          <span className="settings-field__hint">Automatically ends the call at this duration.</span>
+          <span className="settings-field__hint">The call ends at this length.</span>
         </span>
         <span className="settings-provider-field__control">
           <Input type="number" aria-label="Maximum call minutes" required step={1}
@@ -139,7 +139,7 @@ function LiveProviderCard() {
       <label className="settings-provider-field">
         <span className="settings-provider-field__text">
           <span className="settings-provider-field__label">Voice limit per call (USD)</span>
-          <span className="settings-field__hint">Ends the call at this voice estimate. Backend token charges are separate.</span>
+          <span className="settings-field__hint">The call ends at this voice cost. Backend usage is extra.</span>
         </span>
         <span className="settings-provider-field__control">
           <Input type="number" aria-label="Voice limit per call in USD" required step="0.01"
@@ -446,12 +446,8 @@ export function ProvidersSettingsSection() {
       {USAGE_ENABLED ? (
         <>
           <p className="settings-note" role="note">
-            Provider access is off by default. Enable only a source you want
-            Junto to read. Usage sources refresh every five minutes.
-            Hermes host snapshots, when separately enabled, poll every minute.
-            Each card names the local data and network access it may use. Stored
-            values stay in this installation's credential vault, are shown masked, and are
-            never logged.
+            Provider access is off by default. Each card says what it may read and contact. Stored values
+            stay in this installation's vault, masked and never logged.
           </p>
           {PROVIDER_SPECS.map((spec) => {
             const section = spec.credentials === undefined
