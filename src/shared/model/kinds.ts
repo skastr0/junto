@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 import { HarnessId } from "../managed-terminal-templates";
-import { SheetColumn, SheetRow } from "../sheet";
 import { TasksContract } from "../work-model";
 import { HostId, placement } from "./base";
 import { Region } from "./region";
@@ -14,6 +13,11 @@ import { Region } from "./region";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 
+/** A variable name a process environment accepts. */
+const EnvName = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)),
+);
+
 // ── Seats and terminals ─────────────────────────────────────────────────────
 
 export const LaunchKind = Schema.Literals(["shell", "command", "harness"]);
@@ -24,7 +28,7 @@ export const Launch = Schema.Struct({
   kind: LaunchKind,
   argv: Schema.optionalKey(Schema.Array(Schema.String)),
   cwd: Schema.optionalKey(Schema.String),
-  env: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  env: Schema.optionalKey(Schema.Record(EnvName, Schema.String)),
   /**
    * Operator-authored harness arguments beyond the picker dials. Already part
    * of `argv`; kept as well so every replanned spawn and resume appends the
@@ -133,13 +137,15 @@ export const Pad = Schema.Struct({
 });
 export type Pad = typeof Pad.Type;
 
-/** A small grid the operator types and agents read. */
+/**
+ * A small grid the operator types and agents read. The grid itself is content
+ * of its own, read by this id (see sheet.ts), so moving or renaming the sheet
+ * never carries its rows.
+ */
 export const Sheet = Schema.Struct({
   kind: Schema.Literal("sheet"),
   ...placement,
   label: Schema.optionalKey(Schema.String),
-  columns: Schema.Array(SheetColumn),
-  rows: Schema.Array(SheetRow),
 });
 export type Sheet = typeof Sheet.Type;
 

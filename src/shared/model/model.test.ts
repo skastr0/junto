@@ -1,8 +1,8 @@
-import { Effect, Exit, Schema } from "effect";
+import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import { Command, decodeNode, decodeWire, isSeat, NODE_KINDS, Node, NodeEdit } from "./index";
+import { Command, decodeCommand, decodeNode, decodeWire, isSeat, NODE_KINDS, Node, NodeEdit } from "./index";
 
-const placed = { canvas: "factory", id: "n1", x: 0, y: 0, width: 216, height: 96, z: 0 };
+const placed = { id: "n1", x: 0, y: 0, width: 216, height: 96, z: 0 };
 
 const seat = {
   kind: "agent",
@@ -51,23 +51,24 @@ describe("model", () => {
   });
 
   it("reads a wire and refuses one with no verb", () => {
-    const wire = { canvas: "factory", id: "w1", from: "n1", to: "n2", verb: "messages" };
+    const wire = { id: "w1", from: "n1", to: "n2", verb: "messages" };
     expect(Exit.isSuccess(run(decodeWire(wire)))).toBe(true);
     const { verb: _verb, ...noVerb } = wire;
     expect(Exit.isFailure(run(decodeWire(noVerb)))).toBe(true);
     expect(Exit.isFailure(run(decodeWire({ ...wire, label: "x" })))).toBe(true);
+    expect(Exit.isFailure(run(decodeWire({ ...wire, to: "n1" })))).toBe(true);
+    expect(Exit.isFailure(run(decodeWire({ ...wire, from: "" })))).toBe(true);
   });
 });
 
 describe("commands", () => {
-  const decode = (input: unknown) =>
-    run(Schema.decodeUnknownEffect(Command)(input, { onExcessProperty: "error" }));
+  const decode = (input: unknown) => run(decodeCommand(input));
 
   it("moves many nodes in one command", () => {
     const exit = decode({
       _tag: "Move",
       canvas: "factory",
-      moves: [{ id: "n1", x: 10, y: 20 }, { id: "n2", x: 0, y: 0, width: 300, height: 200 }],
+      moves: [{ id: "n1", x: 10, y: 20 }, { id: "n2", x: 0, y: 0, size: { width: 300, height: 200 } }],
     });
     expect(Exit.isSuccess(exit)).toBe(true);
   });
@@ -75,7 +76,7 @@ describe("commands", () => {
   it("edits only the fields a kind has", () => {
     const edit = (change: unknown) =>
       decode({ _tag: "Edit", canvas: "factory", id: "n1", change });
-    expect(Exit.isSuccess(edit({ kind: "agent", label: "lead", sessionId: null }))).toBe(true);
+    expect(Exit.isSuccess(edit({ kind: "agent", label: "lead", launch: null }))).toBe(true);
     expect(Exit.isSuccess(edit({ kind: "region", hold: true, instruction: null }))).toBe(true);
     expect(Exit.isFailure(edit({ kind: "note", harness: "claude" }))).toBe(true);
   });
@@ -85,6 +86,29 @@ describe("commands", () => {
       decode({ _tag: "Edit", canvas: "factory", id: "n1", change });
     expect(Exit.isFailure(edit({ kind: "agent", name: "local:other" }))).toBe(true);
     expect(Exit.isFailure(edit({ kind: "agent", bindingId: "other" }))).toBe(true);
+  });
+
+  it("cannot make a seat an overseer by editing it", () => {
+    const edit = (change: unknown) =>
+      decode({ _tag: "Edit", canvas: "factory", id: "n1", change });
+    expect(Exit.isFailure(edit({ kind: "agent", overseer: true }))).toBe(true);
+    expect(
+      Exit.isSuccess(decode({ _tag: "GrantOverseer", canvas: "factory", id: "n1", overseer: true })),
+    ).toBe(true);
+  });
+
+  it("refuses an unknown field on a node it carries", () => {
+    const add = (node: unknown) =>
+      decode({ _tag: "Add", canvas: "factory", nodes: [node], wires: [] });
+    expect(Exit.isSuccess(add(seat))).toBe(true);
+    expect(Exit.isFailure(add({ ...seat, messages: [] }))).toBe(true);
+    expect(Exit.isFailure(add({ ...seat, canvas: "other" }))).toBe(true);
+  });
+
+  it("writes a sheet's grid apart from the sheet", () => {
+    const grid = { columns: [{ id: "c1", name: "A" }], rows: [{ id: "r1", cells: { c1: "x" } }] };
+    expect(Exit.isSuccess(decode({ _tag: "WriteSheet", canvas: "factory", id: "n1", grid }))).toBe(true);
+    expect(Exit.isFailure(run(decodeNode({ ...placed, kind: "sheet", ...grid })))).toBe(true);
   });
 
   it("has an edit for every kind", () => {
@@ -97,13 +121,16 @@ describe("commands", () => {
       "Add",
       "CreateCanvas",
       "Edit",
+      "GrantOverseer",
       "Move",
       "Recolor",
+      "RecordSession",
       "Remove",
       "RemoveCanvas",
       "RenameCanvas",
       "Restack",
       "Rewire",
+      "WriteSheet",
     ]);
   });
 });

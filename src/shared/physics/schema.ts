@@ -6,7 +6,11 @@ import { HashSet, Schema } from "effect";
 // ---------------------------------------------------------------------------
 // Brands
 
-export const NodeId = Schema.String.pipe(Schema.brand("NodeId"));
+export const NodeId = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(256)),
+  Schema.brand("NodeId"),
+);
 export type NodeId = typeof NodeId.Type;
 
 export const EdgeId = Schema.String.pipe(Schema.brand("EdgeId"));

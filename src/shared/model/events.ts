@@ -23,9 +23,11 @@ export const Changed = Schema.Struct({
 });
 export type Changed = typeof Changed.Type;
 
-/** The set of canvases changed: one was made, removed or renamed. */
-export const CanvasesChanged = Schema.Struct({
-  canvases: Schema.Array(CanvasName),
+/** A canvas was made, removed or renamed. */
+export const CanvasesChanged = Schema.TaggedUnion({
+  Created: { canvas: CanvasName },
+  Removed: { canvas: CanvasName },
+  Renamed: { from: CanvasName, to: CanvasName },
 });
 export type CanvasesChanged = typeof CanvasesChanged.Type;
 
@@ -40,3 +42,11 @@ export const Opened = Schema.Struct({
   wires: Schema.Array(Wire),
 });
 export type Opened = typeof Opened.Type;
+
+const strict = { onExcessProperty: "error" } as const;
+
+/** Read what main sent. An unknown field anywhere in it is an error. */
+export const decodeChanged = (input: unknown) =>
+  Schema.decodeUnknownEffect(Changed)(input, strict);
+export const decodeOpened = (input: unknown) =>
+  Schema.decodeUnknownEffect(Opened)(input, strict);

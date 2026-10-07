@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, Struct } from "effect";
 import { HarnessId } from "../managed-terminal-templates";
 import { Port } from "../physics/schema";
 import { Verb } from "../physics/verbs";
@@ -12,7 +12,6 @@ import {
   Node,
   Page,
   PageOnRemove,
-  Sheet,
   TerminalOnRemove,
   type NodeKind,
 } from "./kinds";
@@ -22,6 +21,7 @@ import {
   RegionDefaults,
   RegionEnvironment,
 } from "./region";
+import { SheetGrid } from "./sheet";
 import { Wire, WireId } from "./wire";
 
 // How anything on a canvas is changed: by saying what should change. A command
@@ -40,17 +40,17 @@ const edit = <const K extends NodeKind, Fields extends Schema.Struct.Fields>(
 ) => Schema.Struct({ kind: Schema.Literal(kind), ...fields });
 
 /**
- * What may be changed on a node after it is made, per kind. A seat's `name`
- * and a session's `bindingId` are not here: they are who the thing is.
+ * What may be changed on a node after it is made, per kind. Not here, because
+ * they are not ordinary edits: a seat's `name` and a session's `bindingId`
+ * (who the thing is), a seat's `overseer` (a grant of authority, with its own
+ * command) and its `sessionId` (recorded by the runtime, not typed).
  */
 export const NodeEdit = Schema.Union([
   edit("agent", {
     label: set(Schema.String),
     host: set(HostId),
-    overseer: set(Schema.Boolean),
     harness: set(HarnessId),
     launch: setOrClear(Launch),
-    sessionId: setOrClear(Schema.String),
     onRemove: set(TerminalOnRemove),
   }),
   edit("terminal", {
@@ -70,11 +70,7 @@ export const NodeEdit = Schema.Union([
   edit("artifacts", { label }),
   edit("board", { label }),
   edit("pad", { label }),
-  edit("sheet", {
-    label,
-    columns: set(Sheet.fields.columns),
-    rows: set(Sheet.fields.rows),
-  }),
+  edit("sheet", { label }),
   edit("cron", { label, expression: set(Cron.fields.expression) }),
   edit("relay", { label }),
   edit("watcher", {
@@ -102,13 +98,12 @@ export const NodeEdit = Schema.Union([
 ]);
 export type NodeEdit = typeof NodeEdit.Type;
 
-/** A new rectangle for one node. Width and height are absent for a pure move. */
+/** A new position for one node, and a new size when it was resized too. */
 export const NodeMove = Schema.Struct({
   id: NodeId,
   x: Schema.Finite,
   y: Schema.Finite,
-  width: Schema.optionalKey(Frame.fields.width),
-  height: Schema.optionalKey(Frame.fields.height),
+  size: Schema.optionalKey(Frame.mapFields(Struct.pick(["width", "height"]))),
 });
 export type NodeMove = typeof NodeMove.Type;
 
@@ -134,8 +129,18 @@ export const Command = Schema.TaggedUnion({
     nodes: Schema.Array(NodeId),
     color: Schema.NullOr(Color),
   },
-  /** Change fields of one node. */
+  /** Change fields of one node. `change.kind` must be the node's kind. */
   Edit: { canvas: CanvasName, id: NodeId, change: NodeEdit },
+  /**
+   * Give or take away a seat's authority to administer the canvas. Its own
+   * command because it is the operator's decision alone: main admits it only
+   * from the operator, never from a seat and never as part of another edit.
+   */
+  GrantOverseer: { canvas: CanvasName, id: NodeId, overseer: Schema.Boolean },
+  /** Record the harness session a seat is now running, or that it has none. */
+  RecordSession: { canvas: CanvasName, id: NodeId, sessionId: Schema.NullOr(Schema.String) },
+  /** Replace what a sheet holds. */
+  WriteSheet: { canvas: CanvasName, id: NodeId, grid: SheetGrid },
   /** Change what a wire grants or where it attaches. Its ends are fixed. */
   Rewire: {
     canvas: CanvasName,
@@ -155,3 +160,12 @@ export type Command = typeof Command.Type;
 
 /** The edit a given kind accepts. */
 export type NodeEditOf<K extends NodeKind> = Extract<NodeEdit, { readonly kind: K }>;
+
+const strict = { onExcessProperty: "error" } as const;
+
+/**
+ * Read a command from outside the process. An unknown field anywhere in it,
+ * including on a node it carries, is an error.
+ */
+export const decodeCommand = (input: unknown) =>
+  Schema.decodeUnknownEffect(Command)(input, strict);

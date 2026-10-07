@@ -116,7 +116,7 @@ export type RegionPageDefaults = typeof RegionPageDefaults.Type;
 export const RegionDefaults = Schema.Struct({
   page: Schema.optionalKey(RegionPageDefaults),
   /** Host id to the working directory seats and terminals start in there. */
-  paths: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  paths: Schema.optionalKey(Schema.Record(HostId, Schema.String)),
 });
 export type RegionDefaults = typeof RegionDefaults.Type;
 

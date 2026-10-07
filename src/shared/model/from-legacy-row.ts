@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { EtherNodeExtension } from "../canvas";
 import { Node } from "./kinds";
+import { SheetGrid } from "./sheet";
 import { Wire } from "./wire";
 
 /** Temporary cutover input, confined to the migration and old-row reader. */
@@ -33,7 +34,7 @@ const present = <T>(key: string, value: T | null | undefined): Record<string, T>
 export const nodeFromLegacyRow = (row: LegacyNodeRow): Node => {
   const old = row.ether_json == null ? undefined : decodeExtension(row.ether_json);
   const base = {
-    canvas: row.canvas_name, id: row.node_id,
+    id: row.node_id,
     x: row.x, y: row.y, width: row.width, height: row.height, z: row.z_index,
     ...present("color", row.color),
   };
@@ -72,9 +73,7 @@ export const nodeFromLegacyRow = (row: LegacyNodeRow): Node => {
     case "requests": return decodeNode({ ...base, kind: "requests", ...present("name", old.requests?.name) });
     case "artifacts": case "board": case "pad": case "relay":
       return decodeNode({ ...labelled, kind: old.entity.kind });
-    case "sheet": return decodeNode({
-      ...labelled, kind: "sheet", columns: old.sheet?.columns ?? [], rows: old.sheet?.rows ?? [],
-    });
+    case "sheet": return decodeNode({ ...labelled, kind: "sheet" });
     case "cron": case "timer": {
       const minutes = old.timer?.everyMinutes;
       const expression = old.timer?.expression ?? (
@@ -100,6 +99,15 @@ export const nodeFromLegacyRow = (row: LegacyNodeRow): Node => {
   }
 };
 
+const decodeGrid = Schema.decodeUnknownSync(SheetGrid);
+
+/** What an old sheet row held, or nothing when the row is not a sheet. */
+export const sheetGridFromLegacyRow = (row: LegacyNodeRow): SheetGrid | undefined => {
+  const old = row.ether_json == null ? undefined : decodeExtension(row.ether_json);
+  if (old?.entity?.kind !== "sheet") return undefined;
+  return decodeGrid({ columns: old.sheet?.columns ?? [], rows: old.sheet?.rows ?? [] });
+};
+
 export interface LegacyWireRow {
   readonly canvas_name: string;
   readonly edge_id: string;
@@ -118,7 +126,7 @@ const decodeWire = Schema.decodeUnknownSync(Wire);
 export const wireFromLegacyRow = (row: LegacyWireRow): Wire => {
   const old = decodeOldWire(row.ether_json);
   return decodeWire({
-    canvas: row.canvas_name, id: row.edge_id, from: row.from_node_id, to: row.to_node_id,
+    id: row.edge_id, from: row.from_node_id, to: row.to_node_id,
     ...old, ...present("fromSide", row.from_side), ...present("toSide", row.to_side),
   });
 };

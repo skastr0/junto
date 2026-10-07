@@ -4,6 +4,7 @@
 export * from "./base";
 export * from "./kinds";
 export * from "./region";
+export * from "./sheet";
 export * from "./wire";
 export * from "./commands";
 export * from "./events";

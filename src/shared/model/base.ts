@@ -3,12 +3,13 @@ import { CANONICAL_CANVAS_NAME_PATTERN } from "../canvas-name";
 import { NodeId } from "../physics/schema";
 import { HostId } from "../remote-hosts";
 
-// What every thing on a canvas has in common: which canvas it is on, its own
-// id, and where it sits. Nothing else is shared. Whatever a kind knows beyond
-// this is a named field on that kind (see kinds.ts), so there is no place to
-// put a field that belongs to no kind.
+// What every thing on a canvas has in common: its own id and where it sits.
+// Nothing else is shared. Which canvas it is on is said once, by whatever
+// carries it (a command, an event, a table row), never repeated on the node.
+// Whatever a kind knows beyond this is a named field on that kind (see
+// kinds.ts), so there is no place to put a field that belongs to no kind.
 
-/** The canvas a thing is on. Identity is always canvas name plus id. */
+/** The name of a canvas. A thing's identity is always canvas name plus id. */
 export const CanvasName = Schema.String.pipe(
   Schema.check(Schema.isPattern(CANONICAL_CANVAS_NAME_PATTERN)),
   Schema.brand("CanvasName"),
@@ -41,7 +42,6 @@ const Length = Schema.Finite.pipe(Schema.check(Schema.isGreaterThan(0)));
  * canvas, lowest first.
  */
 export const placement = {
-  canvas: CanvasName,
   id: NodeId,
   x: Schema.Finite,
   y: Schema.Finite,

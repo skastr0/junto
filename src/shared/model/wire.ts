@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { Port } from "../physics/schema";
 import { Verb } from "../physics/verbs";
-import { CanvasName, NodeId, Side } from "./base";
+import { NodeId, Side } from "./base";
 
 // A wire is the operator saying one thing may act on another, and how. What it
 // grants is worked out from the verb and the kinds at its two ends; the wire
@@ -9,6 +9,7 @@ import { CanvasName, NodeId, Side } from "./base";
 
 export const WireId = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(256)),
   Schema.brand("WireId"),
 );
 export type WireId = typeof WireId.Type;
@@ -17,7 +18,6 @@ export type WireId = typeof WireId.Type;
 export const asWireId = (id: string): WireId => id as WireId;
 
 export const Wire = Schema.Struct({
-  canvas: CanvasName,
   id: WireId,
   /** The verb's subject: the end that acts. */
   from: NodeId,
@@ -28,7 +28,11 @@ export const Wire = Schema.Struct({
   /** Where the line attaches. Absent means the nearest side. */
   fromSide: Schema.optionalKey(Side),
   toSide: Schema.optionalKey(Side),
-});
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((wire) => wire.from !== wire.to || "a wire joins two different nodes"),
+  ),
+);
 export type Wire = typeof Wire.Type;
 
 /** Read a wire from outside the process. An unknown field is an error. */
