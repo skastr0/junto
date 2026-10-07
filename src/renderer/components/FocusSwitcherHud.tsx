@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
+import { asNodeId, type Seat } from "@shared/model";
 import { claimFocus } from "../lib/focus-ownership";
 import {
   cancelFocusSwitcher,
@@ -18,7 +18,7 @@ import { state$ } from "../lib/state";
 import { useCanvas } from "../lib/use-model";
 import { accentColor } from "../lib/theme";
 import { RegionCrumb } from "./RegionCrumb";
-import { SeatRingView, useSeatGlance } from "./SeatRing";
+import { SeatRingView, useSeatGlanceOf } from "./SeatRing";
 import { Kbd } from "./ui";
 
 const optionId = (nodeId: string): string => `focus-switcher-${nodeId}`;
@@ -38,13 +38,13 @@ function SwitcherCard({
   onCommit,
 }: {
   readonly entry: FocusSwitcherEntry;
-  readonly node: CanvasNode;
+  readonly node: Seat;
   readonly trail: ReadonlyArray<RegionStep> | undefined;
   readonly selected: boolean;
   readonly onSelect: () => void;
   readonly onCommit: () => void;
 }) {
-  const glance = useSeatGlance(node);
+  const glance = useSeatGlanceOf(node);
   const saying = seatSaying({
     activity: glance.activity,
     signal: glance.signal?.signal,
@@ -106,8 +106,6 @@ function SwitcherCard({
  * to where it was. The keys themselves are rows in the key table.
  */
 function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) {
-  const doc = use$(state$.doc);
-  // Region membership is the model's; the rest of this HUD still reads the document.
   const canvas = useCanvas(use$(state$.canvasName));
   const trails = useMemo(() => regionTrails(canvas), [canvas]);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -155,9 +153,9 @@ function SwitcherShell({ session }: { readonly session: FocusSwitcherSession }) 
           tabIndex={-1}
         >
           {session.entries.map((entry, index) => {
-            const node = doc.nodes.find((candidate) => candidate.id === entry.nodeId);
+            const node = canvas.nodes.get(asNodeId(entry.nodeId));
             // Deleted while the switcher was up: nothing left to open.
-            if (!node) return null;
+            if (node?.kind !== "agent") return null;
             return (
               <SwitcherCard
                 key={entry.nodeId}
