@@ -43,12 +43,21 @@ export type OffboardClosePorts = {
    * on, so lift the fence that was keeping everything out of it.
    */
   readonly release?: (seat: SeatAddress) => void;
+  /**
+   * Keep everything out of the seat's running session from now: it is being
+   * closed from outside. (An agent's own offboard is sealed where it is
+   * answered, before its reply.)
+   */
+  readonly seal?: (seat: SeatAddress) => Promise<void> | void;
   readonly publish: (progress: SeatOffboardProgress) => void;
   /** Told whenever an agent's `junto offboard` has been answered. */
   readonly onOffboard?: (listener: (event: SeatOffboardEvent) => void) => () => void;
   readonly now?: () => number;
   readonly log?: (message: string) => void;
 };
+
+/** Who can end a session from outside it. */
+export type OffboardOutside = Exclude<NonNullable<SeatOffboardProgress["by"]>, "agent">;
 
 const addressOf = (entry: SeatAddress): SeatAddress => ({ seatId: entry.seatId, canvasName: entry.canvasName });
 
@@ -58,6 +67,8 @@ export class SeatOffboardCloser {
   /** Seats being closed right now, each with its own flight. */
   private readonly closing = new Map<string, Promise<void>>();
   private readonly progress = new Map<string, SeatOffboardProgress>();
+  /** Closes in flight that did not come from the seat's own agent, and who asked. */
+  private readonly outside = new Map<string, OffboardOutside>();
   private unsubscribeOffboard: (() => void) | undefined;
 
   constructor(private readonly ports: OffboardClosePorts) {}
@@ -79,6 +90,7 @@ export class SeatOffboardCloser {
 
   private report(seat: SeatAddress, mode: OffboardMode, stage: SeatOffboardStage, message?: string): void {
     const key = keyOf(seat);
+    const outside = this.outside.get(key);
     const at = this.now();
     // An ask carries through to the close it led to; a new ask starts over.
     const previous = this.progress.get(key);
@@ -91,6 +103,8 @@ export class SeatOffboardCloser {
       at,
       ...(askedAt !== undefined ? { askedAt } : {}),
       ...(message ? { message } : {}),
+      // Closed from outside the session: who did it, and that it left no notes.
+      ...(outside !== undefined && stage !== "asked" ? { by: outside, notes: false } : {}),
     };
     this.progress.set(key, progress);
     this.ports.publish(progress);
@@ -118,6 +132,40 @@ export class SeatOffboardCloser {
     this.report(seat, event.mode, "saved");
     const flight = this.close(seat, event.mode).finally(() => {
       if (this.closing.get(key) === flight) this.closing.delete(key);
+    });
+    this.closing.set(key, flight);
+    return flight;
+  }
+
+  /** A close of this seat's session is in flight, whoever started it. */
+  isClosing(seat: SeatAddress): boolean {
+    return this.closing.has(keyOf(seat));
+  }
+
+  /**
+   * Close a seat's session from outside it: the operator, the overseer, or a
+   * rule. No agent turn and no notes; from there it is the same close an
+   * agent's own offboard gets. Whether the seat may be closed is the
+   * caller's to decide. A seat already closing is not closed twice: this
+   * returns the flight in progress.
+   */
+  closeNow(seat: SeatAddress, options: { readonly mode: OffboardMode; readonly by: OffboardOutside }): Promise<void> {
+    const address = addressOf(seat);
+    const key = keyOf(address);
+    const flying = this.closing.get(key);
+    if (flying !== undefined) return flying;
+    this.outside.set(key, options.by);
+    this.report(address, options.mode, "saved");
+    const flight = (async () => {
+      try {
+        await this.ports.seal?.(address);
+      } catch (error) {
+        this.ports.log?.(`could not seal ${address.seatId} before closing it: ${String(error)}`);
+      }
+      await this.close(address, options.mode);
+    })().finally(() => {
+      if (this.closing.get(key) === flight) this.closing.delete(key);
+      this.outside.delete(key);
     });
     this.closing.set(key, flight);
     return flight;

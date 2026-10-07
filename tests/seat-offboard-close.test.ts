@@ -84,12 +84,13 @@ describe("SeatOffboardCloser", () => {
       close: true,
       kickoff: true,
       release: true,
+      seal: true,
       publish: true,
       onOffboard: true,
       now: true,
       log: true,
     };
-    expect(Object.keys(ports).sort()).toEqual(["close", "kickoff", "log", "now", "onOffboard", "publish", "release"]);
+    expect(Object.keys(ports).sort()).toEqual(["close", "kickoff", "log", "now", "onOffboard", "publish", "release", "seal"]);
     expect(closerModule).not.toHaveProperty("OFFBOARD_SETTLE_MS");
     expect(closerModule).not.toHaveProperty("OFFBOARD_CLOSE_TICK_MS");
     expect(closerModule).not.toHaveProperty("seatClosable");
@@ -348,5 +349,101 @@ describe("rotateSeatSession wake", () => {
     const { acts, ports } = recorder();
     expect(await rotateSeatSession("a", ports, { wake: true })).toMatchObject({ ok: true, woke: true });
     expect(acts.at(-1)).toBe("wake a");
+  });
+});
+
+describe("closing a session from outside it (operator, overseer, a rule)", () => {
+  const seat = { seatId: "a", canvasName: "c" };
+
+  it("seals the seat, then runs the same close, and says who closed it and that it left no notes", async () => {
+    const sealed: string[] = [];
+    const { h, closer } = harness({
+      seal: ({ seatId }) => {
+        h.order.push(`seal:${seatId}`);
+        sealed.push(seatId);
+      },
+    });
+    await closer.closeNow(seat, { mode: "rest", by: "operator" });
+    expect(h.order).toEqual(["seal:a", "close:a"]);
+    expect(h.closes).toEqual([{ seatId: "a", canvasName: "c", wake: false }]);
+    expect(h.progress.map(({ stage, by, notes }) => ({ stage, by, notes }))).toEqual([
+      { stage: "saved", by: "operator", notes: false },
+      { stage: "resting", by: "operator", notes: false },
+    ]);
+  });
+
+  it("is closing from the moment it starts until it is through", async () => {
+    let finish: (() => void) | undefined;
+    const { closer } = harness({
+      close: () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ ok: true, woke: false });
+        }),
+    });
+    expect(closer.isClosing(seat)).toBe(false);
+    const flight = closer.closeNow(seat, { mode: "rest", by: "automatic" });
+    expect(closer.isClosing(seat)).toBe(true);
+    expect(closer.isClosing({ seatId: "b", canvasName: "c" })).toBe(false);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    finish?.();
+    await flight;
+    expect(closer.isClosing(seat)).toBe(false);
+  });
+
+  it("does not close twice: a second ask, or the agent's own offboard, joins the flight", async () => {
+    let finish: (() => void) | undefined;
+    const { h, closer } = harness({
+      close: ({ seatId, canvasName }, wake) =>
+        new Promise((resolve) => {
+          h.closes.push({ seatId, canvasName, wake });
+          finish = () => resolve({ ok: true, woke: false });
+        }),
+    });
+    const first = closer.closeNow(seat, { mode: "rest", by: "overseer" });
+    const second = closer.closeNow(seat, { mode: "rest", by: "automatic" });
+    const agents = closer.offboarded(offboard("continue"));
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    finish?.();
+    await Promise.all([first, second, agents]);
+    expect(h.closes).toHaveLength(1);
+    expect(h.progress.at(-1)).toMatchObject({ stage: "resting", by: "overseer" });
+  });
+
+  it("an agent's own offboard in flight is not closed again from outside", async () => {
+    let finish: (() => void) | undefined;
+    const { h, closer } = harness({
+      close: ({ seatId, canvasName }, wake) =>
+        new Promise((resolve) => {
+          h.closes.push({ seatId, canvasName, wake });
+          finish = () => resolve({ ok: true, woke: false });
+        }),
+    });
+    const agents = closer.offboarded(offboard("rest"));
+    expect(closer.isClosing(seat)).toBe(true);
+    const outside = closer.closeNow(seat, { mode: "rest", by: "operator" });
+    finish?.();
+    await Promise.all([agents, outside]);
+    expect(h.closes).toHaveLength(1);
+    // The agent's close is the agent's: it wrote notes, and nobody else is named.
+    expect(h.progress.every((entry) => entry.by === undefined && entry.notes === undefined)).toBe(true);
+  });
+
+  it("a failed close says so, with who asked, and the next agent offboard is the agent's again", async () => {
+    const { h, closer } = harness({ close: async () => ({ ok: false, reason: "no agent seat with that id is on a canvas" }) });
+    await closer.closeNow(seat, { mode: "rest", by: "automatic" });
+    expect(h.progress.at(-1)).toMatchObject({ stage: "failed", by: "automatic", notes: false });
+    expect(h.released).toEqual(["a"]);
+    await closer.offboarded(offboard("rest"));
+    expect(h.progress.at(-1)?.by).toBeUndefined();
+  });
+
+  it("a seal that fails does not stop the close", async () => {
+    const { h, closer } = harness({
+      seal: () => {
+        throw new Error("no such seat");
+      },
+    });
+    await closer.closeNow(seat, { mode: "rest", by: "operator" });
+    expect(h.closes).toHaveLength(1);
   });
 });
