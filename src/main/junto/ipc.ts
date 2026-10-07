@@ -21,7 +21,7 @@ import { CanvasesService } from "./canvases";
 import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { ModelNotFound } from "./model/records";
-import { Command, CanvasName, NodeId } from "@shared/model";
+import { Command, CanvasName, NodeId, asNodeId } from "@shared/model";
 import { BoxActivityPolicy } from "./box";
 
 import { registerChatIpc } from "./chat/ipc";
@@ -194,7 +194,6 @@ import {
   normalizeSeatCollaborationAsk,
   type SeatCollaborationAskResult,
 } from "@shared/seat-collaboration";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import { mailExtensionMetadata } from "@shared/crew";
 import { operatorActorRef } from "@shared/work-reference";
 import { ulid } from "ulid";
@@ -310,10 +309,10 @@ type RendererActorResolution =
 const resolveRendererActor = (
   canvasName: string,
   nodeId: string,
-): Effect.Effect<RendererActorResolution, never, CanvasesService> =>
+): Effect.Effect<RendererActorResolution, never, ModelActorRefs> =>
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    const read = yield* canvases.read(canvasName, "ipc.rendererActor").pipe(Effect.result);
+    const refs = yield* ModelActorRefs;
+    const read = yield* refs.read(canvasName).pipe(Effect.result);
     if (read._tag === "Failure") {
       return {
         ok: false,
@@ -327,7 +326,7 @@ const resolveRendererActor = (
       };
     }
     const actor = resolveProjectedIpcActorRef(
-      read.success.actorRefs,
+      read.success,
       canvasName,
       nodeId,
     );
@@ -624,9 +623,9 @@ export const registerJuntoIpc = (): void => {
           AppRuntime.runPromise(
             Effect.gen(function* () {
               yield* denyUnlessCommandCenterAuthorial;
-              const canvases = yield* CanvasesService;
+              const model = yield* ModelService;
               const read = yield* Effect.result(
-                canvases.read(draft.canvas, "ipc.work.collaboration-ask"),
+                model.canvas(draft.canvas),
               );
               if (read._tag === "Failure") {
                 return {
@@ -634,9 +633,9 @@ export const registerJuntoIpc = (): void => {
                   error: `canvas ${JSON.stringify(draft.canvas)} could not be read`,
                 };
               }
-              const nodes = read.success.doc.nodes;
-              const source = nodes.find((node) => node.id === draft.sourceNodeId);
-              const target = nodes.find((node) => node.id === draft.targetNodeId);
+              const nodes = read.success.nodes;
+              const source = nodes.get(asNodeId(draft.sourceNodeId));
+              const target = nodes.get(asNodeId(draft.targetNodeId));
               if (source === undefined) {
                 return {
                   ok: false as const,
@@ -649,7 +648,7 @@ export const registerJuntoIpc = (): void => {
                   error: `seat ${JSON.stringify(draft.targetNodeId)} is not on this canvas`,
                 };
               }
-              if (target.ether?.entity?.kind !== "agent") {
+              if (target.kind !== "agent") {
                 return {
                   ok: false as const,
                   error: "a collaboration request can only be sent to an agent seat",
@@ -2074,16 +2073,12 @@ export const registerJuntoIpc = (): void => {
                   Effect.gen(function* () {
                     const denied = yield* denyRemoteWork;
                     if (denied) return denied;
-                    const canvases = yield* CanvasesService;
-                    const read = yield* canvases.read(
-                      canvasName,
-                      "ipc.terminalManagedPrompt",
-                    );
-                    const node = read.doc.nodes.find((n) => n.id === nodeId);
-                    const surface =
-                      node === undefined
-                        ? undefined
-                        : actorDeliverySurfaceOf(node);
+                    const model = yield* ModelService;
+                    const canvas = yield* model.canvas(canvasName);
+                    const node = canvas.nodes.get(asNodeId(nodeId));
+                    const surface = node?.kind === "agent" ? {
+                      bindingId: node.bindingId, hostId: node.host,
+                    } : undefined;
                     if (
                       surface === undefined ||
                       surface.hostId !== "local"
@@ -2146,16 +2141,15 @@ export const registerJuntoIpc = (): void => {
       const managedSeatOn = ({ canvasName, seatId }: SeatAddress) =>
         AppRuntime.runPromise(
           Effect.gen(function* () {
-            const canvases = yield* CanvasesService;
-            const read = yield* Effect.result(canvases.read(canvasName, "seatSessions.offboard"));
+            const model = yield* ModelService;
+            const read = yield* Effect.result(model.canvas(canvasName));
             if (read._tag === "Failure") return undefined;
-            const node = read.success.doc.nodes.find((candidate) => candidate.id === seatId);
-            const surface = node === undefined ? undefined : actorDeliverySurfaceOf(node);
-            if (node === undefined || surface?._tag !== "managedAgent") return undefined;
-            const sessionId = node.ether?.terminal?.sessionId?.trim();
+            const node = read.success.nodes.get(asNodeId(seatId));
+            if (node?.kind !== "agent") return undefined;
+            const sessionId = node.sessionId?.trim();
             return {
-              bindingId: surface.bindingId,
-              local: surface.hostId === "local",
+              bindingId: node.bindingId,
+              local: node.host === "local",
               ...(sessionId ? { sessionId } : {}),
             };
           }),
