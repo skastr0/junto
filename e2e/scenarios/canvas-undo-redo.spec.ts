@@ -97,7 +97,11 @@ test("undo and redo: three deep across a drag, a delete and a drag", async ({ ju
   }).toBeGreaterThan(firstHome.y + 40);
   const firstMoved = await stored(page, canvas, "first");
 
-  // Two: select the second note and delete it.
+  // Two: select the second note and delete it. Deleting asks first, through
+  // the window's confirm; the operator says yes.
+  await page.evaluate(() => {
+    window.confirm = () => true;
+  });
   await card(page, "second").click();
   await expect(card(page, "second")).toHaveClass(/selected/);
   await page.keyboard.press("Backspace");
