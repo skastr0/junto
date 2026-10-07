@@ -1,11 +1,11 @@
 import { batch } from "@legendapp/state";
 import type { CanvasNode } from "@shared/canvas";
-import { roleOf } from "@shared/physics";
 import { fuzzyMatch } from "./fuzzy-match";
 import { touchActiveMru } from "./hotbar-slots";
-import { specOf } from "./node-spec";
+import { roleOfKind } from "./model-kind";
 import { nodeTitle, searchText } from "./presentation";
 import { selectNode, state$ } from "./state";
+import { nodeAt } from "./use-model";
 
 /**
  * Command bar (cmd+K) — quick node navigation without touching the canvas.
@@ -16,20 +16,19 @@ import { selectNode, state$ } from "./state";
  * search field.
  */
 
-/** Hotbar lease eligibility is crew-role based: actors only. Shared with
- * RtsBottomBar so the command bar focus commit and the RTS focus key apply
- * identical lease semantics. */
-export const isHotbarLeaseActor = (node: CanvasNode | undefined): boolean =>
-  node !== undefined && roleOf(specOf(node)) === "actor";
+/** A seat or terminal earns a slot on the hotbar by being used: the kinds that act. */
+const leasesHotbarSlot = (canvas: string, nodeId: string): boolean => {
+  const node = nodeAt(canvas, nodeId);
+  return node !== undefined && roleOfKind(node.kind) === "actor";
+};
 
 /** Focus a node from the command bar: select it, request the one-shot camera
  * fit, and lease actor MRU exactly like the RTS focus key. */
 export const focusCanvasNode = (nodeId: string): void => {
-  const node = state$.doc.peek().nodes.find((candidate) => candidate.id === nodeId);
   batch(() => {
     selectNode(nodeId);
     state$.focusNodeId.set(nodeId);
-    if (isHotbarLeaseActor(node)) {
+    if (leasesHotbarSlot(state$.canvasName.peek(), nodeId)) {
       state$.hotbarActiveMru.set(
         touchActiveMru(state$.hotbarActiveMru.peek(), nodeId),
       );
