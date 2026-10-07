@@ -25,6 +25,12 @@ type FileContents = Parameters<typeof File>[0]["file"];
 
 const THEME = { dark: "pierre-dark", light: "pierre-light" } as const;
 
+// The library draws the plus inside its own tree, where only this reaches:
+// a quiet house button, not its blue one. The values are house tokens.
+const PLUS_STYLE =
+  "[data-utility-button]{background-color:var(--color-raise);color:var(--color-ink);border:1px solid var(--color-stroke);border-radius:var(--radius-sm)}" +
+  "[data-utility-button]:hover{border-color:var(--color-dim)}";
+
 const useThemeType = (): "light" | "dark" => (use$(themeMode$) === "bright" ? "light" : "dark");
 
 // What people call a language, as the file ending the library knows it by.
@@ -125,7 +131,7 @@ export function DiffView<A = undefined>({
     overflow: "scroll" as const,
     diffStyle: layout,
     disableFileHeader: !header,
-    ...(onGutterPress ? { enableGutterUtility: true, onGutterUtilityClick: onGutterPress } : {}),
+    ...(onGutterPress ? { enableGutterUtility: true, onGutterUtilityClick: onGutterPress, unsafeCSS: PLUS_STYLE } : {}),
     ...(onLineSelected ? { enableLineSelection: true, onLineSelected } : {}),
   };
   if ("patch" in source) {
