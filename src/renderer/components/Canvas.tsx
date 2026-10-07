@@ -46,7 +46,6 @@ import { canvasZoomRequest$ } from "../lib/canvas-zoom";
 import { useMenuDismiss } from "../lib/menu-dismiss";
 import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
 import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-gesture";
-import { nodeTitle } from "../lib/presentation";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes } from "../lib/mutations";
@@ -561,8 +560,10 @@ function useCanvasInteractions(
     const nodeEl = element?.closest?.(".react-flow__node");
     const targetId = nodeEl?.getAttribute("data-id");
     if (!targetId || targetId === from) return;
-    const targetNode = state$.doc.peek().nodes.find((node) => node.id === targetId);
-    if (!targetNode || targetNode.type === "group") return;
+    // The card under the drop, from the store. A region is not a target; the
+    // wire writer refuses one too, and a card that has gone.
+    const targetNode = nodeAt(state$.canvasName.peek(), targetId);
+    if (!targetNode || targetNode.kind === "region") return;
     addEdge({ source: from, target: targetId, sourceHandle: connectionState.fromHandle?.id });
   }, []);
   // Region hold: dragging a `hold` region moves every node geometrically
@@ -1282,8 +1283,7 @@ function TargetConnectMenu({
   useMenuDismiss(true, onClose);
   const menuRef = useRef<HTMLDivElement>(null);
   const onMenuKeyDown = useMenuKeys(menuRef, true, onClose);
-  const target = state$.doc.peek().nodes.find((node) => node.id === targetId);
-  const title = target ? nodeTitle(target) : targetId;
+  const title = titleAt(state$.canvasName.peek(), targetId);
   const count = sourceIds.length;
   const label = count === 1 ? "Connect → target" : "Connect all → target";
 
