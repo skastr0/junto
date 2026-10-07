@@ -1,7 +1,6 @@
 import { Component, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { X } from "lucide-react";
-import { PatchDiff } from "@pierre/diffs/react";
 import type { CanvasNode } from "@shared/canvas";
 import {
   gitReviewTitle,
@@ -18,10 +17,9 @@ import { agentSeat$, seatEventForNode } from "../../lib/agent-seat-state";
 import { nodeTitle } from "../../lib/presentation";
 import { reviewCandidates } from "@shared/review-candidates";
 import { state$ } from "../../lib/state";
-import { themeMode$ } from "../../lib/theme-mode";
 import { InspectorTabs } from "../chat/InspectorTabs";
 import { FocusSurface } from "../FocusSurface";
-import { IconButton, OverlayHeader } from "../ui";
+import { DiffView, IconButton, OverlayHeader } from "../ui";
 import { ReviewDiff } from "./ReviewDiff";
 import { ReviewFooter } from "./ReviewFooter";
 import "./git.css";
@@ -255,7 +253,6 @@ export function GitRepositoryDetail({
   }, [cwd, selected, view]);
 
   // The diff view follows Junto's theme, not the system's.
-  const themeType = use$(themeMode$) === "bright" ? "light" : "dark";
   const fileDiffs = useMemo(() => splitPatchFiles(patch), [patch]);
   // One file per frame: the view highlights a file in one task, so a commit
   // of many files never holds the renderer longer than its largest file.
@@ -386,21 +383,11 @@ export function GitRepositoryDetail({
                         root={cwd}
                         section={file}
                         path={filePaths[index] ?? "file"}
-                        themeType={themeType}
                         candidates={candidates}
                         offline={offline}
                       />
                     ) : (
-                      <PatchDiff
-                        patch={file}
-                        disableWorkerPool
-                        options={{
-                          theme: { dark: "pierre-dark", light: "pierre-light" },
-                          themeType,
-                          overflow: "scroll",
-                          disableBackground: true,
-                        }}
-                      />
+                      <DiffView patch={file} />
                     )}
                   </div>
                 </FileDiffBoundary>

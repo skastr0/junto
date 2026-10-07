@@ -9,8 +9,6 @@
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { PatchDiff } from "@pierre/diffs/react";
-import type { DiffLineAnnotation } from "@pierre/diffs";
 import {
   applyMention,
   commentableLines,
@@ -36,7 +34,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { keyAria, keyIs } from "../../lib/key-match";
 import { modKeyGlyph } from "../../lib/platform";
 import { AgentPortrait } from "../AgentPortrait";
-import { Button, IconButton, StatusDot, Textarea } from "../ui";
+import { Button, DiffView, IconButton, StatusDot, Textarea, type DiffLineAnnotation } from "../ui";
 
 type Draft = {
   /** Set when an existing comment is being edited. */
@@ -220,7 +218,6 @@ export function ReviewDiff({
   root,
   section,
   path,
-  themeType,
   candidates,
   offline,
 }: {
@@ -229,7 +226,6 @@ export function ReviewDiff({
   /** This file's section of the patch. */
   readonly section: string;
   readonly path: string;
-  readonly themeType: "light" | "dark";
   /** Who a comment can mention. */
   readonly candidates: ReadonlyArray<ReviewCandidate>;
   /** Candidates whose session is not running; they are still mailable. */
@@ -319,28 +315,18 @@ export function ReviewDiff({
         </Button>
       </div>
     ) : null}
-    <PatchDiff<Row>
+    <DiffView<Row>
       patch={section}
-      disableWorkerPool
-      options={{
-        theme: { dark: "pierre-dark", light: "pierre-light" },
-        themeType,
-        overflow: "scroll",
-        // The diff shows the surface it sits on, in both themes, not the syntax theme's own background.
-        disableBackground: true,
-        enableGutterUtility: true,
-        enableLineSelection: true,
-        onLineSelected: (range) => {
-          if (range === null || (range.endSide !== undefined && range.endSide !== range.side)) {
-            setSelected(null);
-            return;
-          }
-          setSelected({
-            side: range.side ?? "additions",
-            start: Math.min(range.start, range.end),
-            end: Math.max(range.start, range.end),
-          });
-        },
+      onLineSelected={(range) => {
+        if (range === null || (range.endSide !== undefined && range.endSide !== range.side)) {
+          setSelected(null);
+          return;
+        }
+        setSelected({
+          side: range.side ?? "additions",
+          start: Math.min(range.start, range.end),
+          end: Math.max(range.start, range.end),
+        });
       }}
       lineAnnotations={annotations}
       renderGutterUtility={(getHoveredLine) => (

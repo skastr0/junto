@@ -47,28 +47,6 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  color-scheme: dark;
-  /* The diff library is styled through its variables only. The row height is
-     the one number here that is not a token: the library lays rows on a grid
-     and needs a whole pixel length, 1.5 times the code size. */
-  --diffs-font-family: var(--font-mono);
-  --diffs-header-font-family: var(--font-mono);
-  --diffs-font-size: var(--text-body-lg);
-  --diffs-line-height: calc(var(--text-body-lg) * 1.5);
-  --diffs-addition-color: var(--color-green);
-  --diffs-deletion-color: var(--color-crimson);
-  --diffs-modified-color: var(--color-amber);
-  --diffs-fg-number: var(--color-faint);
-  /* The line being commented on, or a selected range: the house cyan, not the library's blue. */
-  --diffs-selection-base: var(--color-second);
-  --diffs-dark-bg: var(--color-ground);
-  --diffs-dark: var(--color-ink);
-}
-
-html[data-theme="bright"] .git-browser__diff {
-  color-scheme: light;
-  --diffs-light-bg: var(--color-ground);
-  --diffs-light: var(--color-ink);
 }
 
 /* A changed file in the review's list: its name, then its folder, quieter. */
