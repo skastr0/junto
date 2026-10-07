@@ -2,6 +2,8 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import type { CanvasNode } from "../src/shared/canvas";
+import { AppRuntime } from "../src/main/runtime";
+import * as ampSeatThread from "../src/main/junto/term/amp-seat-thread";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
@@ -159,5 +161,41 @@ describe("terminal IPC node-delete admission", () => {
       },
     ))).rejects.toThrow(hostSentinel);
     expect(ensureHostAvailable).toHaveBeenCalledWith("remote-a");
+  });
+
+  it("forwards the selected Amp launch to provisioning on an operator open", async () => {
+    const runtime = harness();
+    const base = agentNode("amp-low", "local", "amp", "local:amp-low");
+    const launch = { kind: "harness" as const, argv: ["amp", "--no-ide", "-m", "low"], cwd: "/work" };
+    const node: CanvasNode = {
+      ...base,
+      ether: { ...base.ether!, terminal: { ...base.ether!.terminal!, launch } },
+    };
+    const provision = vi.spyOn(ampSeatThread, "ensureProvisionedSessionId").mockResolvedValue({
+      ok: true,
+      sessionId: "T-00000000-0000-4000-8000-000000000001",
+      minted: true,
+    });
+    const occupied = { bindingId: "amp-low", status: "running" };
+    const run = vi.spyOn(AppRuntime, "runPromise")
+      .mockResolvedValueOnce({ _tag: "Success", success: { doc: { nodes: [node], edges: [] } } })
+      .mockResolvedValueOnce(occupied);
+    try {
+      expect(await runtime.handler(IPC_CHANNELS.terminalCreate)(event, {
+        node,
+        canvasName: "factory",
+      })).toEqual(occupied);
+      expect(provision).toHaveBeenCalledExactlyOnceWith({
+        canvasName: "factory",
+        nodeId: "node-amp-low",
+        harness: "amp",
+        cwd: "/work",
+        documentLaunch: launch,
+      });
+      expect(run).toHaveBeenCalledTimes(2);
+    } finally {
+      provision.mockRestore();
+      run.mockRestore();
+    }
   });
 });

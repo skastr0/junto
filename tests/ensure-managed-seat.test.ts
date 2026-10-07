@@ -7,6 +7,7 @@ import {
   ActorSeatOccupy,
   type ActorOccupySpec,
 } from "../src/main/junto/term/actor-seat-occupy";
+import * as ampSeatThread from "../src/main/junto/term/amp-seat-thread";
 import { termPlane } from "../src/main/junto/term/plane";
 import {
   AUTO_RESTART_BACKOFF_MS,
@@ -235,6 +236,51 @@ describe("managed-seat occupation", () => {
         agentKey: "box-a:codex",
       });
     } finally {
+      get.mockRestore();
+    }
+  });
+
+  it("forwards the selected Amp launch to provisioning on an automatic first wake", async () => {
+    resetAutoRestartBudgetsForTest();
+    const fixture = managedFixture();
+    const launch = { kind: "harness" as const, argv: ["amp", "--no-ide", "-m", "low"], cwd: "/work" };
+    const node: CanvasNode = {
+      ...fixture.node,
+      ether: {
+        ...fixture.node.ether!,
+        entity: { kind: "agent", name: "box-a:amp" },
+        terminal: { ...fixture.node.ether!.terminal!, harness: "amp", launch },
+      },
+    };
+    const provision = vi.spyOn(ampSeatThread, "ensureProvisionedSessionId").mockResolvedValue({
+      ok: true,
+      sessionId: "T-00000000-0000-4000-8000-000000000001",
+      minted: true,
+    });
+    const get = vi.spyOn(termPlane.host, "get").mockReturnValue(undefined);
+    const occupy = vi.fn((_spec: ActorOccupySpec) => Effect.succeed(runningSummary));
+    const actorSeatOccupy = ActorSeatOccupy.of({
+      occupy,
+      occupancy: () => Effect.die(new Error("unexpected occupancy call")),
+    });
+    try {
+      expect(await Effect.runPromise(ensureManagedSeatRunning(
+        "factory",
+        { ...fixture.doc, nodes: [node] },
+        node,
+        fixture.authority,
+        actorSeatOccupy,
+      ))).toBe(true);
+      expect(provision).toHaveBeenCalledExactlyOnceWith({
+        canvasName: "factory",
+        nodeId: "actor",
+        harness: "amp",
+        cwd: "/work",
+        documentLaunch: launch,
+      });
+      expect(occupy).toHaveBeenCalledOnce();
+    } finally {
+      provision.mockRestore();
       get.mockRestore();
     }
   });

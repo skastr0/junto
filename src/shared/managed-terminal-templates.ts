@@ -1342,11 +1342,20 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
  *   Never `amp last`, `threads continue --last`, or bare `threads continue`.
  * - Dial and `--no-ide` hold.
  *   OSC/grid paint was not re-smoked on this build (UNVERIFIED).
+ *
+ * Re-probed 0.0.1791331298-ge8fb65 (2026-10-07), without sending a prompt:
+ * - `amp --mode low threads new --visibility private` stores low on the thread.
+ *   Named resumes without a mode override retained low across two startups.
+ * - Continuing a default-high empty thread with `-m low` briefly paints low,
+ *   then restores the saved high mode. Selection must reach thread creation.
+ * - The CLI also accepts plugin mode keys/labels; the picker lists built-ins.
+ *   Model and reasoning effort are Amp mode settings, not separate CLI dials.
+ * - First-message behavior and turn/approval OSC/grid paint were not re-smoked.
  */
 export const AMP_TEMPLATE: ManagedTerminalTemplate = {
   harness: "amp",
   displayName: "Amp",
-  probedVersion: "0.0.1789113641",
+  probedVersion: "0.0.1791331298",
   argvSpec: {
     binary: "amp",
     // Structural only: `--no-ide` decides what the seat IS (a standalone

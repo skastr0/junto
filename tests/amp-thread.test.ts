@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as ampThread from "../src/main/junto/term/templates/amp-thread";
+import * as seatSession from "../src/main/junto/term/seat-session-id";
 import {
   isAmpThreadId,
   parseAmpThreadReceipt,
@@ -97,6 +99,19 @@ describe("provisionAmpThread", () => {
     ]);
   });
 
+  it.each(["low", "fixture-reviewer"])("sets %s when creating the private thread", async (mode) => {
+    const run = vi.fn(async () => REAL_RECEIPT);
+    expect(await provisionAmpThread({ mode, cwd: "/work", run })).toEqual({
+      ok: true,
+      threadId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+    });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "amp",
+      ["--mode", mode, "threads", "new", "--visibility", "private"],
+      { cwd: "/work", timeoutMs: 20_000 },
+    );
+  });
+
   it("mints from the live URL receipt the same way as a bare id", async () => {
     const result = await provisionAmpThread({
       run: async () => REAL_URL_RECEIPT,
@@ -167,20 +182,58 @@ describe("amp launch shape depends on a provisioned thread", () => {
 });
 
 describe("ensureProvisionedSessionId", () => {
-  it("returns a valid stored thread without calling the CLI again", async () => {
-    const result = await ensureProvisionedSessionId({
-      canvasName: "factory",
-      nodeId: "n1",
-      harness: "amp",
-      storedSessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
-    });
-    expect(result).toEqual({
+  it("provisions the picker mode before persisting the new session id", async () => {
+    const provision = vi.spyOn(ampThread, "provisionAmpThread").mockResolvedValue({
       ok: true,
-      sessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
-      // Not minted here: the seat is resuming its own thread, so the doctrine
-      // must not be typed in again.
-      minted: false,
+      threadId: "T-00000000-0000-4000-8000-000000000001",
     });
+    const store = vi.spyOn(seatSession, "writeSeatSessionId").mockResolvedValue({ ok: true });
+    const node = makeManagedAgentNode(0, 0, { harness: "amp", host: "local", mode: "low" });
+    try {
+      expect(await ensureProvisionedSessionId({
+        canvasName: "factory",
+        nodeId: "n1",
+        harness: "amp",
+        cwd: "/work",
+        documentLaunch: node.ether?.terminal?.launch,
+      })).toEqual({
+        ok: true,
+        sessionId: "T-00000000-0000-4000-8000-000000000001",
+        minted: true,
+      });
+      expect(provision).toHaveBeenCalledExactlyOnceWith({ cwd: "/work", mode: "low" });
+      expect(store).toHaveBeenCalledExactlyOnceWith({
+        canvasName: "factory",
+        nodeId: "n1",
+        sessionId: "T-00000000-0000-4000-8000-000000000001",
+      });
+    } finally {
+      provision.mockRestore();
+      store.mockRestore();
+    }
+  });
+
+  it("returns a valid stored thread without calling the CLI again", async () => {
+    const provision = vi.spyOn(ampThread, "provisionAmpThread").mockRejectedValue(new Error("must not provision"));
+    try {
+      const result = await ensureProvisionedSessionId({
+        canvasName: "factory",
+        nodeId: "n1",
+        harness: "amp",
+        storedSessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+        documentLaunch: { kind: "harness", argv: ["amp", "-m", "low"] },
+      });
+      expect(result).toEqual({
+        ok: true,
+        sessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+        // Not minted here: the seat is resuming its own thread, so the doctrine
+        // must not be typed in again.
+        minted: false,
+      });
+      expect(provision).not.toHaveBeenCalled();
+    } finally {
+      provision.mockRestore();
+    }
   });
 
   it("passes non-provisioned harnesses straight through", async () => {

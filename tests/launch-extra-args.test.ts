@@ -42,6 +42,16 @@ describe("sanitizeExtraArgs", () => {
     expect(out.rejected.map((item) => item.token)).toEqual(["--model", "--permission-mode=plan"]);
   });
 
+  it("refuses both Amp mode aliases without consuming unrelated feature arguments", () => {
+    const out = sanitizeExtraArgs("amp", ["-m", "high", "--mode", "ultra", "--mode=medium", "--features", "fast"]);
+    expect(out.args).toEqual(["--features", "fast"]);
+    expect(out.rejected).toEqual([
+      { token: "-m", reason: "set by the mode choice" },
+      { token: "--mode", reason: "set by the mode choice" },
+      { token: "--mode=medium", reason: "set by the mode choice" },
+    ]);
+  });
+
   it("refuses the flags that carry the seat's session", () => {
     const reserved = reservedLaunchFlags("claude");
     expect(reserved.has("--session-id")).toBe(true);

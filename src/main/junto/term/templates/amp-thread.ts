@@ -78,6 +78,8 @@ export const parseAmpThreadReceipt = (
 
 export type AmpThreadProvisionOptions = {
   readonly cwd?: string;
+  /** Set on creation: continuing a thread loads its saved mode. */
+  readonly mode?: string;
   readonly timeoutMs?: number;
   /** Test seam — the real runner is `execFile`, never a shell. */
   readonly run?: (
@@ -116,9 +118,13 @@ export const provisionAmpThread = async (
 ): Promise<AmpThreadProvisionResult> => {
   const run = options.run ?? runAmp;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const mode = options.mode?.trim();
   let stdout: string;
   try {
-    stdout = await run("amp", ["threads", "new", "--visibility", "private"], {
+    stdout = await run("amp", [
+      ...(mode ? ["--mode", mode] : []),
+      "threads", "new", "--visibility", "private",
+    ], {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       timeoutMs,
     });

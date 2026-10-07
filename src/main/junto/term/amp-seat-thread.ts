@@ -20,11 +20,13 @@
 
 import { Effect } from "effect";
 import type { CanvasDoc } from "@shared/canvas";
+import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import {
   isHarnessId,
   templateFor,
   type HarnessId,
 } from "@shared/managed-terminal-templates";
+import type { TerminalLaunch } from "@shared/terminal";
 import { writeSeatSessionId } from "./seat-session-id";
 import { isAmpThreadId, provisionAmpThread } from "./templates/amp-thread";
 
@@ -48,12 +50,14 @@ export const usesProvisionedSession = (harness: string): boolean =>
 const provisionFor = async (
   harness: HarnessId,
   cwd: string | undefined,
+  mode: string | undefined,
 ): Promise<SeatThreadResult> => {
   switch (harness) {
     case "amp": {
-      const minted = await provisionAmpThread(
-        cwd === undefined ? {} : { cwd },
-      );
+      const minted = await provisionAmpThread({
+        ...(cwd === undefined ? {} : { cwd }),
+        ...(mode === undefined ? {} : { mode }),
+      });
       return minted.ok
         ? { ok: true, sessionId: minted.threadId, minted: true }
         : { ok: false, reason: minted.failure.reason };
@@ -88,6 +92,7 @@ export const ensureProvisionedSessionId = async (input: {
   readonly harness: string;
   readonly storedSessionId?: string;
   readonly cwd?: string;
+  readonly documentLaunch?: TerminalLaunch;
 }): Promise<SeatThreadResult> => {
   const harness = input.harness.trim();
   if (!isHarnessId(harness) || !usesProvisionedSession(harness)) {
@@ -102,7 +107,8 @@ export const ensureProvisionedSessionId = async (input: {
     return { ok: true, sessionId: existing, minted: false };
   }
 
-  const minted = await provisionFor(harness, input.cwd);
+  const { mode } = recoverDocumentLaunchChoices(harness, input.documentLaunch);
+  const minted = await provisionFor(harness, input.cwd, mode);
   if (!minted.ok) return minted;
 
   const stored = await writeSeatSessionId({

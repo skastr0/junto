@@ -210,6 +210,7 @@ export const ensureManagedSeatRunning = (
         canvasName,
         nodeId: node.id,
         harness: surface.harness,
+        documentLaunch: surface.launch,
         ...(node.ether?.terminal?.sessionId
           ? { storedSessionId: node.ether.terminal.sessionId }
           : {}),

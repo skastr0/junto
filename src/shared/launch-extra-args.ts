@@ -63,6 +63,7 @@ export const reservedLaunchFlags = (
   // config-override flag, so it stays open to the operator.
   if (!spec.effortConfigKey) reserve(spec.effortFlag, "set by the effort choice");
   reserve(spec.modeFlag, "set by the mode choice");
+  if (harness === "amp") reserve("--mode", "set by the mode choice");
   reserve(spec.permissionModeFlag, "set by the permission mode choice");
   reserve(spec.profileFlag, "set by the profile choice");
   reserve(spec.providerFlag, "set by the provider choice");

@@ -598,7 +598,7 @@ describe("resolveManagedLaunch argv", () => {
     expect(AMP_TEMPLATE.efforts).toEqual([]);
     expect(AMP_TEMPLATE.modes).toEqual(["low", "medium", "high", "ultra"]);
     expect(AMP_TEMPLATE.capabilityBadges.sessionId).toBe("provision");
-    expect(AMP_TEMPLATE.probedVersion).toBe("0.0.1789113641");
+    expect(AMP_TEMPLATE.probedVersion).toBe("0.0.1791331298");
   });
 
   it("amp: no permission-mode override is ever spawned", () => {
