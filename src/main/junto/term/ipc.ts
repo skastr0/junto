@@ -1,10 +1,12 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
-import type { CanvasDoc } from "@shared/canvas";
+import { resolveTerminalBinding } from "@shared/terminal";
+import type { TerminalCreateInput } from "@shared/ipc";
+import { ModelService } from "../model/service";
+import type { JuntoApi } from "@shared/ipc";
 import {
   IPC_CHANNELS,
   type TerminalAttachInput,
-  type TerminalCreateInput,
   type TerminalFinishNodeDeleteOutcome,
   type TerminalNodeDeleteResource,
 } from "@shared/ipc";
@@ -13,7 +15,6 @@ import {
   templateFor,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
-import { resolveTerminalBinding } from "@shared/terminal";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
@@ -236,41 +237,6 @@ export const registerTerminalIpc = (
         );
         await ensureHostAvailable(surface.hostId);
 
-        // The supplied node is immediate authorial intent. Canvas persistence
-        // is debounced, so this read can enrich launch injection with live
-        // edges but is never a prerequisite for occupying a LOCAL actor seat.
-        // Remote placement is different: the renderer flushes its debounced
-        // save before invoking, and ActorSeatOccupy holds the seat behind the
-        // destination's projection acknowledgement of that committed state.
-        let docForPlan: CanvasDoc | undefined;
-        if (canvasName) {
-          try {
-            const { CanvasesService } = await import("../canvases");
-            const read = await AppRuntime.runPromise(
-              Effect.gen(function* () {
-                const canvases = yield* CanvasesService;
-                return yield* canvases.read(canvasName, "term.seatPlan").pipe(Effect.result);
-              }),
-            );
-            if (read._tag === "Success") {
-              const persisted = read.success.doc;
-              const found = persisted.nodes.some((candidate) => candidate.id === node.id);
-              docForPlan = {
-                ...persisted,
-                nodes: found
-                  ? persisted.nodes.map((candidate) =>
-                      candidate.id === node.id ? node : candidate,
-                    )
-                  : [...persisted.nodes, node],
-              };
-            }
-          } catch (err) {
-            console.error(
-              "[term] managed spawn context enrichment failed; using immediate node:",
-              err,
-            );
-          }
-        }
         // A provisioned-session harness (Amp) has its thread minted by its own
         // CLI and stored on the node before any PTY opens. Idempotent: a node
         // that already carries a thread never mints a second one.
@@ -301,7 +267,6 @@ export const registerTerminalIpc = (
         // Pure compilation only. Session proof, isolation, and final argv
         // belong to the selected process host.
         const spawnIntent = makeManagedSpawnIntent({
-          ...(docForPlan ? { doc: docForPlan } : {}),
           nodeId: node.id,
           harness: surface.harness,
           documentLaunch: surface.launch,
@@ -385,6 +350,77 @@ export const registerTerminalIpc = (
       );
     },
   );
+
+  const readSeat = async (canvas: string, id: string) => {
+    if (typeof canvas !== "string" || !canvas.trim() || typeof id !== "string" || !id.trim())
+      return deny("terminal ipc: canvas and node id required");
+    const node = await AppRuntime.runPromise(Effect.gen(function* () {
+      const model = yield* ModelService;
+      const current = yield* model.canvas(canvas);
+      return current.nodes.get(id as never);
+    }));
+    if (node?.kind !== "agent" && node?.kind !== "terminal")
+      return deny("terminal ipc: this node is not a seat or terminal");
+    return node;
+  };
+
+  ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {
+    assertTrusted(event);
+    const node = await readSeat(input?.canvas, input?.id);
+    const createAdmission = nodeDelete.admitCreate(node.bindingId, node.host);
+    if (node.kind === "agent") {
+      if (!managedHarnessEnabled(node.harness)) return deny(`terminal ipc: harness ${node.harness} is disabled in this build`);
+      if (!templateFor(node.harness).capabilityBadges.remote && !router.isLocalHostId(node.host))
+        return deny(`terminal ipc: harness ${node.harness} is local-only and cannot use a Remote host`);
+    }
+    await ensureHostAvailable(node.host);
+    const assertCurrent = async () => {
+      nodeDelete.assertCreate(createAdmission);
+      const current = await readSeat(input.canvas, input.id);
+      nodeDelete.assertCreate(createAdmission);
+      if (current.kind !== node.kind || current.bindingId !== node.bindingId || current.host !== node.host ||
+        (current.kind === "agent" && node.kind === "agent" && (current.harness !== node.harness || current.agentKey !== node.agentKey)))
+        return deny("terminal ipc: seat changed while starting");
+    };
+    if (node.kind === "terminal") {
+      await assertCurrent();
+      return router.create({ bindingId: node.bindingId, hostId: node.host,
+        ...(node.launch ? { launch: node.launch } : {}), canvasName: input.canvas, nodeId: node.id,
+        seatRect: { x: node.x, y: node.y, width: node.width, height: node.height },
+        ...(node.label ? { label: node.label } : {}),
+      });
+    }
+    const { ensureProvisionedSessionId } = await import("./amp-seat-thread");
+    const provisioned = await ensureProvisionedSessionId({ canvasName: input.canvas, nodeId: node.id,
+      harness: node.harness, documentLaunch: node.launch,
+      ...(node.sessionId ? { storedSessionId: node.sessionId } : {}),
+      ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}),
+    });
+    if (!provisioned.ok) return deny(`terminal ipc: ${node.harness} session unavailable — ${provisioned.reason}`);
+    const { makeManagedSpawnIntent } = await import("./managed-spawn-plan");
+    const spawnIntent = makeManagedSpawnIntent({ nodeId: node.id, harness: node.harness,
+      documentLaunch: node.launch, agentKey: node.agentKey, cwd: node.launch?.cwd,
+      sessionId: provisioned.sessionId || node.sessionId,
+      resume: provisioned.minted ? false : input.resume !== false,
+    });
+    await assertCurrent();
+    return AppRuntime.runPromise(Effect.gen(function* () {
+      const seats = yield* ActorSeatOccupy;
+      return yield* seats.occupy({ bindingId: node.bindingId, harness: node.harness,
+        agentKey: node.agentKey, hostId: node.host, spawnIntent, canvasName: input.canvas, nodeId: node.id,
+        seatRect: { x: node.x, y: node.y, width: node.width, height: node.height }, label: node.label,
+      }).pipe(Effect.catchIf(
+        (error): error is ActorSeatProjectionPending => error instanceof ActorSeatProjectionPending,
+        (pending) => Effect.fail(new Error(pending.message)),
+      ));
+    }));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.modelStop, async (event, input: Parameters<JuntoApi["modelStop"]>[0]) => {
+    assertTrusted(event);
+    const node = await readSeat(input?.canvas, input?.id);
+    await router.kill(node.bindingId, node.host);
+  });
 
   ipcMain.handle(
     IPC_CHANNELS.managedTerminalModels,

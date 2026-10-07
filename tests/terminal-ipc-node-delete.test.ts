@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
-import type { CanvasNode } from "../src/shared/canvas";
+import { Node, type Node as ModelNode } from "../src/shared/model";
+import { Schema } from "effect";
 import { AppRuntime } from "../src/main/runtime";
 import * as ampSeatThread from "../src/main/junto/term/amp-seat-thread";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
@@ -19,7 +20,9 @@ type Handler = (...args: readonly unknown[]) => unknown;
 
 const harness = (options: {
   readonly ensureHostAvailable?: (hostId: string) => Promise<void>;
+  readonly node?: ModelNode;
 } = {}) => {
+  if (options.node) vi.spyOn(AppRuntime, "runPromise").mockResolvedValue(options.node);
   const handlers = new Map<string, Handler>();
   const ipcMain = {
     handle: (channel: string, handler: Handler) => {
@@ -41,6 +44,7 @@ const harness = (options: {
       detached: true,
       createdAt: 1,
     })),
+    kill: vi.fn(async () => {}),
     deleteBinding: vi.fn(async () => true),
     release: vi.fn(),
     setTerminalEnvironment: vi.fn(),
@@ -62,47 +66,16 @@ const harness = (options: {
   return { handler, router };
 };
 
-const geographyNode = (
-  bindingId: string,
-  hostId: string,
-): CanvasNode => ({
-  id: `node-${bindingId}`,
-  type: "text",
-  text: bindingId,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    host: hostId,
-    entity: { kind: "terminal" },
-    terminal: { bindingId },
-  },
+const geographyNode = (bindingId: string, host: string): ModelNode => Schema.decodeUnknownSync(Node)({
+  id: `node-${bindingId}`, kind: "terminal", x: 0, y: 0, width: 200, height: 80, z: 0,
+  host, bindingId, onRemove: "detach",
 });
-
-const agentNode = (
-  bindingId: string,
-  hostId: string,
-  harnessId: HarnessId,
-  agentKey: string,
-): CanvasNode => ({
-  id: `node-${bindingId}`,
-  type: "text",
-  text: bindingId,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    host: hostId,
-    entity: { kind: "agent", name: agentKey },
-    terminal: {
-      bindingId,
-      harness: harnessId,
-      launch: { kind: "harness", argv: [harnessId] },
-    },
-  },
+const agentNode = (bindingId: string, host: string, harness: HarnessId, agentKey: string): ModelNode => Schema.decodeUnknownSync(Node)({
+  id: `node-${bindingId}`, kind: "agent", label: bindingId, x: 0, y: 0, width: 200, height: 80, z: 0,
+  host, bindingId, harness, agentKey, overseer: false, onRemove: "detach",
+  launch: { kind: "harness", argv: [harness] },
 });
+afterEach(() => vi.restoreAllMocks());
 
 describe("terminal IPC node-delete admission", () => {
   it("revokes a create that was awaiting host activation before deletion", async () => {
@@ -111,12 +84,12 @@ describe("terminal IPC node-delete admission", () => {
       finishHostActivation = resolve;
     });
     const ensureHostAvailable = vi.fn(() => hostActivation);
-    const runtime = harness({ ensureHostAvailable });
+    const runtime = harness({ ensureHostAvailable, node: geographyNode("binding-race", "remote-race") });
     runtime.router.deleteBinding.mockResolvedValueOnce(false);
 
-    const create = Promise.resolve(runtime.handler(IPC_CHANNELS.terminalCreate)(
+    const create = Promise.resolve(runtime.handler(IPC_CHANNELS.modelStart)(
       event,
-      { node: geographyNode("binding-race", "remote-race") },
+      { canvas: "factory", id: "node-binding-race" },
     ));
     await vi.waitFor(() => expect(ensureHostAvailable).toHaveBeenCalledOnce());
 
@@ -137,27 +110,26 @@ describe("terminal IPC node-delete admission", () => {
     const ensureHostAvailable = vi.fn(async () => {
       throw hostSentinel;
     });
-    const runtime = harness({ ensureHostAvailable });
+    const runtime = harness({ ensureHostAvailable, node: agentNode("claude-remote", "remote-a", "claude", "local:claude-remote") });
 
     // Claude remains a local-only harness: the badge gate refuses before any
     // host activation or seat occupation.
-    await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.terminalCreate)(
+    await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.modelStart)(
       event,
       {
-        node: agentNode("claude-remote", "remote-a", "claude", "local:claude-remote"),
-        canvasName: "factory",
+        id: "node-claude-remote", canvas: "factory",
       },
     ))).rejects.toThrow(/local-only.*Remote/u);
     expect(ensureHostAvailable).not.toHaveBeenCalled();
 
+    vi.mocked(AppRuntime.runPromise).mockResolvedValue(agentNode("prime-remote", "remote-a", "prime-agent", "local:prime-remote"));
     // Prime Agent is remote-capable: the create passes the badge gate and
     // reaches host activation for the Remote target. The sentinel stops the
     // flow there so the ordering is proven without occupying a real seat.
-    await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.terminalCreate)(
+    await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.modelStart)(
       event,
       {
-        node: agentNode("prime-remote", "remote-a", "prime-agent", "local:prime-remote"),
-        canvasName: "factory",
+        id: "node-prime-remote", canvas: "factory",
       },
     ))).rejects.toThrow(hostSentinel);
     expect(ensureHostAvailable).toHaveBeenCalledWith("remote-a");
@@ -167,10 +139,7 @@ describe("terminal IPC node-delete admission", () => {
     const runtime = harness();
     const base = agentNode("amp-low", "local", "amp", "local:amp-low");
     const launch = { kind: "harness" as const, argv: ["amp", "--no-ide", "-m", "low"], cwd: "/work" };
-    const node: CanvasNode = {
-      ...base,
-      ether: { ...base.ether!, terminal: { ...base.ether!.terminal!, launch } },
-    };
+    const node = Schema.decodeUnknownSync(Node)({ ...base, launch });
     const provision = vi.spyOn(ampSeatThread, "ensureProvisionedSessionId").mockResolvedValue({
       ok: true,
       sessionId: "T-00000000-0000-4000-8000-000000000001",
@@ -178,12 +147,12 @@ describe("terminal IPC node-delete admission", () => {
     });
     const occupied = { bindingId: "amp-low", status: "running" };
     const run = vi.spyOn(AppRuntime, "runPromise")
-      .mockResolvedValueOnce({ _tag: "Success", success: { doc: { nodes: [node], edges: [] } } })
+      .mockResolvedValueOnce(node)
+      .mockResolvedValueOnce(node)
       .mockResolvedValueOnce(occupied);
     try {
-      expect(await runtime.handler(IPC_CHANNELS.terminalCreate)(event, {
-        node,
-        canvasName: "factory",
+      expect(await runtime.handler(IPC_CHANNELS.modelStart)(event, {
+        id: node.id, canvas: "factory",
       })).toEqual(occupied);
       expect(provision).toHaveBeenCalledExactlyOnceWith({
         canvasName: "factory",
@@ -192,7 +161,7 @@ describe("terminal IPC node-delete admission", () => {
         cwd: "/work",
         documentLaunch: launch,
       });
-      expect(run).toHaveBeenCalledTimes(2);
+      expect(run).toHaveBeenCalledTimes(3);
     } finally {
       provision.mockRestore();
       run.mockRestore();

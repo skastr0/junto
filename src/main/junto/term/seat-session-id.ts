@@ -4,8 +4,7 @@
  * Two harness families need this and they learn the id at opposite ends of the
  * spawn: a provisioned harness (Amp) is told its thread before the PTY opens,
  * while a capture harness (Muse) only reveals its id after the process is
- * already running. Both end in the same place — `ether.terminal.sessionId` on
- * the canvas — because that is the one field a cold wake reads to resume the
+ * already running. Both end in the same place — the seat session column — because that is the one field a cold wake reads to resume the
  * exact session rather than starting a new one.
  *
  * Transactional by construction: a full-document write from this path could
@@ -13,11 +12,11 @@
  * forks its session on the next wake.
  */
 
-import { Effect } from "effect";
-import type { CanvasDoc } from "@shared/canvas";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import { Effect, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { Command } from "@shared/model";
 import { AppRuntime } from "../../runtime";
-import { CanvasesService } from "../canvases";
+import { ModelService } from "../model/service";
 import { StationRepository } from "../station/repository";
 
 type SeatSessionIdInput = {
@@ -38,101 +37,47 @@ type SeatSessionIdInput = {
  * This existing writer is Command Center authoring: Remote was already
  * refused by CanvasesService and needs a separate home-owned capture route.
  */
-const persistSeatSessionId = (
-  input: SeatSessionIdInput,
-): Effect.Effect<void, unknown, CanvasesService | StationRepository> =>
-  Effect.gen(function* () {
+const persistSeatSessionId = (input: SeatSessionIdInput) => Effect.gen(function* () {
+  const model = yield* ModelService;
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql.withTransaction(Effect.gen(function* () {
+    const current = yield* model.canvas(input.canvasName);
+    const target = current.nodes.get(input.nodeId as never);
+    if (target?.kind !== "agent") return yield* Effect.fail(new Error("session target is not an agent seat"));
     const capture = input.capture;
+    const record = (canvas: string, id: string) => model.command(Schema.decodeUnknownSync(Command)({
+      _tag: "RecordSession", canvas, id, sessionId: input.sessionId,
+    }), "runtime");
     if (capture === undefined) {
-      return yield* mutation(input.canvasName, input.nodeId, input.sessionId, input.onlyIfAbsent === true);
+      if (input.onlyIfAbsent && target.sessionId?.trim()) return;
+      yield* record(input.canvasName, target.id);
+      return;
     }
     const stations = yield* StationRepository;
     const configuration = yield* stations.configuration;
-    if (configuration?.configuration.role !== "command-center") {
+    if (configuration?.configuration.role !== "command-center")
       return yield* Effect.fail(new Error("captured session persistence requires Command Center authoring"));
-    }
-    // The installation's configured HostId is immutable. The literal `local`
-    // is not an alias when this Command Center has another configured host.
     const localHost = configuration.configuration.hostId;
-    const canvases = yield* CanvasesService;
-    yield* canvases.mutatePortfolio((view) => {
-      const refuse = (message: string) => ({
-        ok: false as const,
-        error: { type: "InternalError" as const, message },
-      });
-      if (!capture.isCurrent()) return refuse("session capture generation changed");
-      const doc = view.documents.get(input.canvasName);
-      const target = doc?.nodes.find((node) => node.id === input.nodeId);
-      const surface = target === undefined ? undefined : actorDeliverySurfaceOf(target);
-      if (
-        surface === undefined ||
-        surface.bindingId !== capture.bindingId ||
-        surface.harness !== capture.harness ||
-        surface.hostId !== localHost
-      ) return refuse("session capture target changed or belongs to another installation");
-      for (const current of view.documents.values()) {
-        for (const node of current.nodes) {
-          const other = actorDeliverySurfaceOf(node);
-          if (other === undefined || other.harness !== capture.harness || other.hostId !== localHost) continue;
-          const existing = node.ether?.terminal?.sessionId?.trim();
-          if (existing === input.sessionId && other.bindingId !== capture.bindingId) {
-            return refuse("captured harness session already belongs to another seat");
-          }
-          if (other.bindingId === capture.bindingId && existing && existing !== input.sessionId) {
-            return refuse("capture cannot replace the seat's named session");
-          }
+    if (!capture.isCurrent()) return yield* Effect.fail(new Error("session capture generation changed"));
+    if (target.bindingId !== capture.bindingId || target.harness !== capture.harness || target.host !== localHost)
+      return yield* Effect.fail(new Error("session capture target changed or belongs to another installation"));
+    const aliases: { canvas: string; id: string }[] = [];
+    for (const name of yield* model.listCanvases()) {
+      for (const node of (yield* model.canvas(name)).nodes.values()) {
+        if (node.kind !== "agent" || node.harness !== capture.harness || node.host !== localHost) continue;
+        const existing = node.sessionId?.trim();
+        if (existing === input.sessionId && node.bindingId !== capture.bindingId)
+          return yield* Effect.fail(new Error("captured harness session already belongs to another seat"));
+        if (node.bindingId === capture.bindingId) {
+          if (existing && existing !== input.sessionId)
+            return yield* Effect.fail(new Error("capture cannot replace the seat's named session"));
+          aliases.push({ canvas: name, id: node.id });
         }
       }
-      const documents = new Map(view.documents);
-      for (const [name, current] of view.documents) {
-        let changed = false;
-        const nodes = current.nodes.map((node) => {
-          const other = actorDeliverySurfaceOf(node);
-          if (
-            other === undefined || other.bindingId !== capture.bindingId ||
-            other.harness !== capture.harness || other.hostId !== localHost ||
-            node.ether?.terminal?.sessionId === input.sessionId
-          ) return node;
-          changed = true;
-          return {
-            ...node,
-            ether: { ...node.ether, terminal: { ...node.ether!.terminal!, sessionId: input.sessionId } },
-          };
-        });
-        if (changed) documents.set(name, { ...current, nodes });
-      }
-      return { ok: true as const, mutation: { documents, result: undefined } };
-    });
-  });
-
-const mutation = (
-  canvasName: string,
-  nodeId: string,
-  sessionId: string,
-  onlyIfAbsent: boolean,
-): Effect.Effect<void, unknown, CanvasesService> =>
-  Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    yield* canvases.mutate(canvasName, (doc: CanvasDoc) => ({
-      ...doc,
-      nodes: doc.nodes.map((node) => {
-        if (node.id !== nodeId || !node.ether?.terminal) return node;
-        // Check-and-set inside the transaction. A seat that is resuming
-        // already carries its id, and overwriting it with a sibling session
-        // discovered in the store is how a seat quietly loses its history.
-        if (onlyIfAbsent && (node.ether.terminal.sessionId ?? "").trim()) {
-          return node;
-        }
-        return {
-          ...node,
-          ether: {
-            ...node.ether,
-            terminal: { ...node.ether.terminal, sessionId },
-          },
-        };
-      }),
-    }));
-  });
+    }
+    for (const alias of aliases) yield* record(alias.canvas, alias.id);
+  }));
+});
 
 /**
  * Persist the id, or report why it did not land. Never throws: a caller in a
