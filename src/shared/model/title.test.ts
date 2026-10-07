@@ -29,11 +29,30 @@ describe("what a node is called", () => {
       "requests",
       "requests",
       "board",
-      "note",
+      "untitled",
       "first",
       "unnamed region",
       "notes.md",
       "junto",
+    ]);
+  });
+
+  it("names a link and a page by their site, and a note by its first line without heading marks", () => {
+    const nodes: ReadonlyArray<Node> = [
+      { kind: "link", ...at, url: "https://example.com/a/long/path?with=query" },
+      { kind: "link", ...at, url: "example.com/docs" },
+      { kind: "link", ...at, url: "" },
+      { kind: "page", ...at, url: "http://localhost:3000/x", host: "local", profile: "p", onRemove: "detach" },
+      { kind: "note", ...at, text: "## Plan\nbody" },
+      { kind: "label", ...at, text: "" },
+    ];
+    expect(nodes.map(titleOf)).toEqual([
+      "example.com",
+      "example.com",
+      "link",
+      "localhost:3000",
+      "Plan",
+      "untitled",
     ]);
   });
 });

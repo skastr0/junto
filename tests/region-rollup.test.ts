@@ -259,7 +259,7 @@ describe("deriveRegionRollups — region shape", () => {
     expect(rollups).toHaveLength(2);
   });
 
-  it("member labels follow the titleOf convention: text first line, file basename, link url", () => {
+  it("member labels follow the titleOf convention: text first line, file basename, link site", () => {
     const doc: Fixture = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
@@ -270,7 +270,7 @@ describe("deriveRegionRollups — region shape", () => {
       edges: [],
     };
     const [rollup] = deriveRegionRollups({ doc });
-    expect(rollup?.members.map((member) => member.label)).toEqual(["First line", "plan.md", "https://example.com/spec"]);
+    expect(rollup?.members.map((member) => member.label)).toEqual(["First line", "plan.md", "example.com"]);
   });
 });
 

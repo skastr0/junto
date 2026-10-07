@@ -69,8 +69,18 @@ export const taskBoardTitle = (
   };
 };
 
+/** The first line, read as a name: a markdown heading loses its marks. */
 const firstLine = (text: string): string | undefined =>
-  compact(text.split(/\r?\n/, 1)[0]);
+  compact(text.split(/\r?\n/, 1)[0]?.replace(/^\s*#+\s*/, ""));
+
+/** The host says which site; the whole address is on the card itself. */
+const hostOf = (url: string): string | undefined => {
+  try {
+    return compact(new URL(url).host);
+  } catch {
+    return compact(url.replace(/^https?:\/\//, "").split("/")[0]);
+  }
+};
 
 /** What any node is called. Never empty. */
 export const titleOf = (node: Node): string => {
@@ -85,12 +95,12 @@ export const titleOf = (node: Node): string => {
       return named(node.name, ["request", "requests"]) ?? "requests";
     case "note":
     case "label":
-      return firstLine(node.text) ?? node.kind;
+      return firstLine(node.text) ?? "untitled";
     case "file":
       return node.path.split("/").pop() || node.path;
     case "link":
     case "page":
-      return node.url || node.kind;
+      return hostOf(node.url) ?? node.kind;
     case "git":
       return compact(node.label) ?? (node.cwd.split("/").pop() || node.cwd);
     case "terminal":
