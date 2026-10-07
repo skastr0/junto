@@ -222,6 +222,13 @@ describe("WorkRepository stateSince projection", () => {
     expect(await runtime.runPromise(repository.taskRowsByIds(canvasName, []))).toEqual([]);
     expect(await runtime.runPromise(repository.taskRowsByIds(otherCanvasName, ["selected"]))).toEqual([]);
     await expect(runtime.runPromise(repository.taskLane(canvasName, "board", "task"))).rejects.toThrow();
+    // A commit must not hydrate that same unrelated history as a result snapshot.
+    const changed = await runtime.runPromise(repository.describeTask({
+      sink: board, basis, taskId: "selected", message: note("changed-brief", "Changed selected task."),
+    }));
+    expect(changed).not.toHaveProperty("snapshot");
+    const selected = await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "board", itemId: "selected", kind: "task" }));
+    expect(selected?.history.some((message) => message.messageId === "changed-brief")).toBe(true);
   });
 
   it("stamps the fact time of each state change and keeps it through facts that change nothing", async () => {
@@ -261,8 +268,8 @@ describe("WorkRepository stateSince projection", () => {
     // fact it wrote nor the value it returned may contain one.
     expect(JSON.stringify(transition.record)).not.toContain("stateSince");
     expect(transition.value).not.toHaveProperty("stateSince");
-    // The projection it hands back is the one place that carries it.
-    expect(transition.snapshot.tasks?.items[0]?.stateSince).toBe(atMinute(9));
+    // Reader-local stamps are obtained by the explicit item query.
+    expect((await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "board", itemId: "t1", kind: "task" })))?.stateSince).toBe(atMinute(9));
 
     // A note on the waiting task is a fact that leaves the state alone.
     await runtime.runPromise(

@@ -1395,7 +1395,6 @@ export type EnqueueRemoteCommandInput = WorkRepositoryInput & {
 export type LocalFactResult<A> = {
   readonly value: A;
   readonly record: WorkFactValue;
-  readonly snapshot: WorkSnapshotValue;
   /**
    * Receipt mail minted in the same transaction as a task transition (see
    * `receiptAuthor`). The caller notifies delivery for each record AFTER the
@@ -6390,7 +6389,6 @@ const commitLocalFact = Effect.fn("work.commitLocalFact")(function* <A>(
   return {
     value: input.value,
     record: fact,
-    snapshot: yield* loadSnapshot(writer, input.sink),
   };
 });
 
@@ -9766,7 +9764,6 @@ export const WorkRepositoryLive = Layer.effect(
             return {
               value: { completed, next: nextTask },
               record: sourceFact.record,
-              snapshot: yield* loadSnapshot(writer, input.sink),
               ...(reviewReceipts.length > 0 ? { reviewReceipts } : {}),
             };
           }),
@@ -9948,7 +9945,6 @@ export const WorkRepositoryLive = Layer.effect(
             return {
               value: { rejected, sentBack: sentBackTask },
               record: rejectedFact.record,
-              snapshot: yield* loadSnapshot(writer, input.sink),
             };
           }),
       );
