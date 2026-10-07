@@ -4,6 +4,7 @@ import {
   TERMINAL_SELECTOR,
   dispatchKey,
   dispatchRelease,
+  holdKeyDispatch,
   keyContextOf,
   type KeyActions,
 } from "../src/renderer/lib/key-dispatcher";
@@ -149,6 +150,25 @@ describe("dispatchKey", () => {
     const event = press({ key: "k", metaKey: true });
     expect(dispatchKey(event, {}, at("canvas"))).toBeNull();
     expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe("holdKeyDispatch", () => {
+  it("stands the menu bar down for as long as anything holds, and gives it back once", () => {
+    const calls: boolean[] = [];
+    (globalThis as { window?: unknown }).window = { junto: { ignoreMenuShortcuts: (ignore: boolean) => calls.push(ignore) } };
+    try {
+      const first = holdKeyDispatch();
+      const second = holdKeyDispatch();
+      expect(calls).toEqual([true]);
+      first();
+      first();
+      expect(calls).toEqual([true]);
+      second();
+      expect(calls).toEqual([true, false]);
+    } finally {
+      delete (globalThis as { window?: unknown }).window;
+    }
   });
 });
 

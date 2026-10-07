@@ -961,6 +961,24 @@ const createWindow = () => {
     mainWindow.close();
   };
   ipcMain.on(IPC_CHANNELS.windowClose, closeFromKeyboard);
+  // A chord being recorded in Settings must be recorded, not run by the menu
+  // bar. The menu comes back whenever the window loses focus or its page
+  // loads again, so a page that goes away mid-recording cannot leave Cmd+Q
+  // dead.
+  const ignoreMenuShortcuts = (event: IpcMainEvent, ignore: unknown): void => {
+    if (
+      event.sender !== mainWindow.webContents ||
+      mainWindow.isDestroyed() ||
+      !rendererOrigin.allows(event.sender.getURL())
+    ) return;
+    mainWindow.webContents.setIgnoreMenuShortcuts(ignore === true);
+  };
+  ipcMain.on(IPC_CHANNELS.menuShortcutsIgnored, ignoreMenuShortcuts);
+  const restoreMenuShortcuts = (): void => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.setIgnoreMenuShortcuts(false);
+  };
+  mainWindow.on("blur", restoreMenuShortcuts);
+  mainWindow.webContents.on("did-start-loading", restoreMenuShortcuts);
 
   const rendererNavigation = createTrustedRendererNavigation({
     origin: rendererOrigin,
@@ -1087,6 +1105,7 @@ const createWindow = () => {
     surfaceReadiness.dispose();
     ipcMain.removeListener(IPC_CHANNELS.rendererSurfaceReady, acknowledgeRendererSurface);
     ipcMain.removeListener(IPC_CHANNELS.windowClose, closeFromKeyboard);
+    ipcMain.removeListener(IPC_CHANNELS.menuShortcutsIgnored, ignoreMenuShortcuts);
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
     quitWhenNoOperatorWindow();

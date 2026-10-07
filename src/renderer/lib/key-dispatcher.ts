@@ -12,6 +12,7 @@ import {
 import { dock$ } from "./dock-state";
 import { isOperatorTyping } from "./focus-ownership";
 import { focusSwitcher$ } from "./focus-switcher";
+import { getJuntoApi } from "./junto-api";
 import { frontModalLayer } from "./modal-stack";
 import { isOperatorModalOpen } from "./operator-modal";
 import { isMac } from "./platform";
@@ -91,16 +92,19 @@ const storedOverrides = (): KeyOverrides => keyboardSettings(state$.settings.pee
 let holds = 0;
 
 /**
- * Stand the dispatcher down while a new chord is being recorded: every key
- * then belongs to the recorder. Call the returned function to let go.
+ * Stand every shortcut down while a new chord is being recorded: the
+ * dispatcher's and the menu bar's. Every key then belongs to the recorder,
+ * Cmd+Q included. Call the returned function to let go.
  */
 export const holdKeyDispatch = (): (() => void) => {
   holds += 1;
+  if (holds === 1) getJuntoApi()?.ignoreMenuShortcuts(true);
   let released = false;
   return () => {
     if (released) return;
     released = true;
     holds -= 1;
+    if (holds === 0) getJuntoApi()?.ignoreMenuShortcuts(false);
   };
 };
 

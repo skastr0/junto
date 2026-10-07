@@ -311,6 +311,8 @@ export const IPC_CHANNELS = {
   rendererSurfaceReady: "junto:renderer-surface-ready",
   // renderer -> main: the operator closed the window from the keyboard.
   windowClose: "junto:window-close",
+  // renderer -> main: a new chord is being recorded; the menu bar stands down.
+  menuShortcutsIgnored: "junto:menu-shortcuts-ignored",
   // Command Center auto-update (Mac; readiness-gated install)
   updateGetState: "junto:update-get-state",
   updateCheck: "junto:update-check",
@@ -763,6 +765,11 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
    * first, and on macOS the app and its sessions keep running.
    */
   readonly closeWindow: () => void;
+  /**
+   * While true the menu bar answers no chord in this window, so a chord
+   * being recorded in Settings is recorded and not run (Cmd+Q would quit).
+   */
+  readonly ignoreMenuShortcuts: (ignore: boolean) => void;
   readonly listCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
   readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly writeCanvas: (
