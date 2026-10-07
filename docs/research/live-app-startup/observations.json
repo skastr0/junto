@@ -1,0 +1,2171 @@
+{
+  "capturedOn": "2026-10-07",
+  "installed": {
+    "path": "/Applications/Junto.app/Contents/Resources/app.asar",
+    "asarMtime": "2026-10-07T05:45:14.000Z",
+    "entry": "out/main/index.js",
+    "sha256": "95d83a387f0ce1811ab21af940dd0dafaeffea9f7ef085734ce1d7466e4dfbd8",
+    "excerpts": [
+      {
+        "start": 3965,
+        "end": 3980,
+        "text": "const systemPsRunner = (request2) => {\n  const result = spawnSync(request2.command, [...request2.args], {\n    encoding: \"utf8\",\n    env: request2.env,\n    maxBuffer: request2.maxBuffer,\n    timeout: request2.timeoutMs\n  });\n  return {\n    status: result.status,\n    stdout: typeof result.stdout === \"string\" ? result.stdout : void 0,\n    stderr: typeof result.stderr === \"string\" ? result.stderr : void 0,\n    error: result.error\n  };\n};\nconst parseSafeInteger = (value, minimum) => {\n  const parsed = Number(value);"
+      },
+      {
+        "start": 4019,
+        "end": 4040,
+        "text": "const readSingleProcessEpochSnapshot = (pid, runPs = systemPsRunner) => {\n  if (!Number.isSafeInteger(pid) || pid < 1) return void 0;\n  const ps = resolveSystemPs();\n  if (ps === void 0) return void 0;\n  let result;\n  try {\n    result = runPs({\n      command: ps,\n      args: [\"-p\", String(pid), \"-o\", PS_COLUMNS],\n      env: psEnv(),\n      timeoutMs: PS_TIMEOUT_MS$1,\n      maxBuffer: PS_ROW_MAX_BUFFER\n    });\n  } catch {\n    return void 0;\n  }\n  if (result.error !== void 0 || result.stdout === void 0 || (result.stderr ?? \"\").trim() !== \"\" || result.status !== 0 && result.status !== 1) return void 0;\n  const rows = parseProcessEpochRows(result.stdout);\n  if (rows === void 0) return void 0;\n  if (rows.length === 0) return [];\n  return rows.length === 1 && rows[0].pid === pid ? rows : void 0;\n};"
+      },
+      {
+        "start": 4053,
+        "end": 4053,
+        "text": "const captureChildProcessEpoch = (pid) => captureProcessEpoch(pid)?.child;"
+      },
+      {
+        "start": 4160,
+        "end": 4166,
+        "text": "    );\n  }\n  const epoch = captureChildProcessEpoch(decoded.success);\n  return epoch ? mintVerifiedChild(input.source, input.child, decoded.success, epoch) : mintRefusedChild(input.source, input.child, decoded.success, \"child-epoch-unavailable\");\n};\nconst spawnDetachedProcessGroup = (input) => {\n  const child = spawn(input.command, [...input.args], { ...input.options, detached: true, stdio: \"pipe\" });"
+      },
+      {
+        "start": 4629,
+        "end": 4636,
+        "text": "  const registerTerminal = (spec, backend) => {\n    const owned2 = admitChildProcess({\n      source: spec.source,\n      child: backend.signalSink\n    });\n    const record2 = {\n      generation: nextGeneration++,\n      source: spec.source,"
+      },
+      {
+        "start": 4830,
+        "end": 4850,
+        "text": "  };\n  const spawnTerminal = (spec) => {\n    assertSpawnAllowed();\n    let pty;\n    try {\n      const nodePty = require2(\"node-pty\");\n      pty = nodePty.spawn(spec.command, [...spec.args ?? []], {\n        name: \"xterm-256color\",\n        cols: spec.cols,\n        rows: spec.rows,\n        cwd: spec.cwd,\n        env: spec.env === void 0 ? void 0 : { ...spec.env }\n        // Never enable node-pty `handleFlowControl`: it swallows a lone\n        // Ctrl+S (XOFF) write and pauses the master read with no resume, so\n        // output backs up and the child can never finish exiting (macOS\n        // drains the terminal on exit). Ctrl+S belongs to the harness.\n      });\n    } catch (error) {\n      throw new TerminalBackendUnavailableError(error);\n    }\n    return registerTerminal(spec, makePtyBackend(pty));"
+      },
+      {
+        "start": 51543,
+        "end": 51560,
+        "text": "const readProcessStartKey = (pid) => {\n  if (!Number.isInteger(pid) || pid <= 0) return void 0;\n  const ps = resolveSystemPs();\n  if (ps === void 0) return void 0;\n  try {\n    const result = spawnSync(ps, [\"-p\", String(pid), \"-o\", \"lstart=\"], {\n      encoding: \"utf8\",\n      timeout: 500\n    });\n    if (result.status !== 0) return void 0;\n    const raw = (result.stdout ?? \"\").trim();\n    return raw.length > 0 ? raw : void 0;\n  } catch {\n    return void 0;\n  }\n};\nconst processAlive = (pid) => {\n  if (!Number.isInteger(pid) || pid <= 0) return false;"
+      },
+      {
+        "start": 51569,
+        "end": 51601,
+        "text": "  const byPid = /* @__PURE__ */ new Map();\n  const offboarded = /* @__PURE__ */ new Map();\n  const bindings = /* @__PURE__ */ new WeakMap();\n  const listeners2 = /* @__PURE__ */ new Set();\n  const isAlive = options.processAlive ?? processAlive;\n  const startKeyOf = options.readProcessStartKey ?? readProcessStartKey;\n  const parentOf = options.readParentPid ?? readParentPid;\n  const notify2 = (principal) => {\n    for (const listener of listeners2) listener(principal);\n  };\n  const unbind = (pid) => {\n    const existing = byPid.get(pid);\n    if (existing === void 0) return;\n    byPid.delete(pid);\n    notify2(existing.principal);\n  };\n  const bindRecord = (pid, principal) => {\n    if (!Number.isInteger(pid) || pid <= 0) return void 0;\n    if (!principal.agentKey) {\n      if (!principal.bindingId || !principal.canvasName || !principal.nodeId) {\n        return void 0;\n      }\n    }\n    if (!isAlive(pid)) return void 0;\n    const startKey = startKeyOf(pid);\n    if (startKey === void 0) return void 0;\n    const existing = byPid.get(pid);\n    if (existing !== void 0 && existing.startKey === startKey && !samePrincipal$1(existing.principal, principal)) {\n      return void 0;\n    }\n    const record2 = Object.freeze({\n      principal: Object.freeze({ ...principal }),\n      startKey"
+      },
+      {
+        "start": 65664,
+        "end": 65672,
+        "text": "        (event) => this.observeExit(rec, event.code, event.signal),\n        (error) => this.observeWitnessFailure(rec, error)\n      );\n      if (!this.bindPtyProcessIdentity(rec)) {\n        throw new Error(\"terminal process identity bind failed\");\n      }\n      if (!this.publishSeatCredential(rec)) {\n        throw new Error(\"terminal seat credential publish failed\");\n      }"
+      },
+      {
+        "start": 66963,
+        "end": 66975,
+        "text": "  bindPtyProcessIdentity(rec) {\n    const principal = this.processPrincipal(rec);\n    if (principal === void 0) return true;\n    if (rec.pid === void 0 || sessionStatusOf(rec) !== \"running\") return false;\n    try {\n      const binding = getProcessIdentityMap().bindGeneration(rec.pid, principal);\n      if (binding === void 0) return false;\n      rec.ptyIdentityBinding = binding;\n      return true;\n    } catch (error) {\n      console.error(\n        `[term] terminal identity bind failed for ${rec.bindingId}@${rec.epoch}:`,\n        error"
+      }
+    ],
+    "nodePty": {
+      "entry": "node_modules/node-pty/lib/unixTerminal.js",
+      "sha256": "a62e3a60c3bc1b0e7261f58284856df748dcee6761a2bc7a5a5ba98b22660473",
+      "line": 92,
+      "excerpt": "        };\n        // fork\n        var term = pty.fork(file, args, parsedEnv, cwd, _this._cols, _this._rows, uid, gid, (encoding === 'utf8'), helperPath, onexit);\n        _this._socket = new tty.ReadStream(term.fd);\n        if (encoding !== null) {"
+    }
+  },
+  "survey": {
+    "machine": {
+      "logicalCpus": 10,
+      "memoryGiB": 64
+    },
+    "rootPid": 40070,
+    "seconds": 20.662390583,
+    "notes": [
+      "CPU 100% means one logical core. Interval CPU uses cumulative ps time differences for processes present at both endpoints; new/exited children are not included in CPU totals.",
+      "RSS totals are resident-set sums, not unique physical memory.",
+      "Natural current workload; no seats stopped or spawned and no synthetic CLI burst."
+    ],
+    "summary": {
+      "main": {
+        "count": 1,
+        "rssMiB": 442.5,
+        "intervalCpuPercent": 6.340021473980807,
+        "pids": [
+          40070
+        ]
+      },
+      "renderer": {
+        "count": 1,
+        "rssMiB": 972.8125,
+        "intervalCpuPercent": 11.71210073819401,
+        "pids": [
+          40088
+        ]
+      },
+      "helpers": {
+        "count": 3,
+        "rssMiB": 365.09375,
+        "intervalCpuPercent": 6.3400214739810625,
+        "pids": [
+          40077,
+          40078,
+          41004
+        ]
+      },
+      "claude": {
+        "count": 9,
+        "rssMiB": 4884.328125,
+        "intervalCpuPercent": 14.277147594079038,
+        "pids": [
+          52653,
+          56667,
+          57326,
+          57333,
+          57344,
+          57361,
+          61593,
+          60534,
+          61613
+        ]
+      },
+      "allDescendants": {
+        "count": 64,
+        "rssMiB": 9655.96875,
+        "intervalCpuPercent": 39.34685082707262,
+        "pids": [
+          40077,
+          40078,
+          40088,
+          41004,
+          53057,
+          53058,
+          53059,
+          53060,
+          53061,
+          53062,
+          53063,
+          53064,
+          53065,
+          53066,
+          53067,
+          53068,
+          53069,
+          53070,
+          53071,
+          60880,
+          64678,
+          64710,
+          64711,
+          66577,
+          67495,
+          67620,
+          68337,
+          68342,
+          68343,
+          68388,
+          68463,
+          68464,
+          68465,
+          68472,
+          68537,
+          68809,
+          68823,
+          68914,
+          68915,
+          68916,
+          68926,
+          68939,
+          68940,
+          40751,
+          40772,
+          40954,
+          40955,
+          40974,
+          56558,
+          40754,
+          52653,
+          67287,
+          53022,
+          56667,
+          57326,
+          68624,
+          57333,
+          57344,
+          67177,
+          57361,
+          68601,
+          61593,
+          60534,
+          61613
+        ]
+      }
+    },
+    "processes": [
+      {
+        "pid": 40070,
+        "ppid": 1,
+        "reportedCpu": 3.7,
+        "rssMiB": 442.5,
+        "cpuSeconds": 105.75999999999999,
+        "comm": "/Applications/Junto.app/Contents/MacOS/Junto",
+        "intervalCpuPercent": 6.340021473980807
+      },
+      {
+        "pid": 40077,
+        "ppid": 40070,
+        "reportedCpu": 3.4,
+        "rssMiB": 269.609375,
+        "cpuSeconds": 295.24,
+        "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper",
+        "intervalCpuPercent": 5.226887932747781
+      },
+      {
+        "pid": 40078,
+        "ppid": 40070,
+        "reportedCpu": 0,
+        "rssMiB": 53.5625,
+        "cpuSeconds": 0.2,
+        "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper",
+        "intervalCpuPercent": 0.09679422097680718
+      },
+      {
+        "pid": 40088,
+        "ppid": 40070,
+        "reportedCpu": 12.2,
+        "rssMiB": 972.8125,
+        "cpuSeconds": 571.98,
+        "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)",
+        "intervalCpuPercent": 11.71210073819401
+      },
+      {
+        "pid": 41004,
+        "ppid": 40070,
+        "reportedCpu": 0,
+        "rssMiB": 41.921875,
+        "cpuSeconds": 4.97,
+        "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper",
+        "intervalCpuPercent": 1.0163393202564743
+      },
+      {
+        "pid": 52653,
+        "ppid": 40070,
+        "reportedCpu": 0.1,
+        "rssMiB": 626.234375,
+        "cpuSeconds": 27.86,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 0.6291624363492413
+      },
+      {
+        "pid": 56667,
+        "ppid": 40070,
+        "reportedCpu": 0.3,
+        "rssMiB": 620.53125,
+        "cpuSeconds": 15.05,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 0.82275087830286
+      },
+      {
+        "pid": 57326,
+        "ppid": 40070,
+        "reportedCpu": 1.7,
+        "rssMiB": 517.125,
+        "cpuSeconds": 13.17,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 3.387797734188245
+      },
+      {
+        "pid": 57333,
+        "ppid": 40070,
+        "reportedCpu": 1.1,
+        "rssMiB": 565.875,
+        "cpuSeconds": 9.82,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 1.3067219831868937
+      },
+      {
+        "pid": 57344,
+        "ppid": 40070,
+        "reportedCpu": 0.1,
+        "rssMiB": 645.609375,
+        "cpuSeconds": 13.67,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 4.452534164933127
+      },
+      {
+        "pid": 57361,
+        "ppid": 40070,
+        "reportedCpu": 0,
+        "rssMiB": 558.171875,
+        "cpuSeconds": 12.63,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 1.5003104251405124
+      },
+      {
+        "pid": 61593,
+        "ppid": 40070,
+        "reportedCpu": 0,
+        "rssMiB": 424.53125,
+        "cpuSeconds": 4.37,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 0.6775595468376481
+      },
+      {
+        "pid": 60534,
+        "ppid": 40070,
+        "reportedCpu": 0.6,
+        "rssMiB": 498.40625,
+        "cpuSeconds": 9.6,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 1.1131335412332837
+      },
+      {
+        "pid": 61613,
+        "ppid": 40070,
+        "reportedCpu": 0.1,
+        "rssMiB": 427.84375,
+        "cpuSeconds": 4.34,
+        "comm": "~/.local/bin/claude",
+        "intervalCpuPercent": 0.3871768839072287
+      }
+    ],
+    "shots": [
+      {
+        "at": "2026-10-07T07:17:44.055Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 6.2,
+            "rssMiB": 552.75,
+            "cpuSeconds": 104.45,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 5.5,
+            "rssMiB": 270.015625,
+            "cpuSeconds": 294.15999999999997,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5,
+            "cpuSeconds": 0.18,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 15.3,
+            "rssMiB": 972.484375,
+            "cpuSeconds": 569.56,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.76,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 6.5,
+            "rssMiB": 626.296875,
+            "cpuSeconds": 27.73,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0.6,
+            "rssMiB": 620.59375,
+            "cpuSeconds": 14.88,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 6.7,
+            "rssMiB": 514.15625,
+            "cpuSeconds": 12.47,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 562.828125,
+            "cpuSeconds": 9.55,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 4.5,
+            "rssMiB": 640.296875,
+            "cpuSeconds": 12.75,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0.4,
+            "rssMiB": 554.296875,
+            "cpuSeconds": 12.32,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 424.46875,
+            "cpuSeconds": 4.23,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0.6,
+            "rssMiB": 497.515625,
+            "cpuSeconds": 9.37,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 427.546875,
+            "cpuSeconds": 4.26,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 79.8,
+          "rssMiB": 151.71875,
+          "cpuSeconds": 157138.28,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:17:46.118Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 3.7,
+            "rssMiB": 552.890625,
+            "cpuSeconds": 104.53999999999999,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 4.4,
+            "rssMiB": 270.03125,
+            "cpuSeconds": 294.27,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5,
+            "cpuSeconds": 0.18,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 11.9,
+            "rssMiB": 972.484375,
+            "cpuSeconds": 569.83,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.78,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0.4,
+            "rssMiB": 626.296875,
+            "cpuSeconds": 27.74,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 1.8,
+            "rssMiB": 620.59375,
+            "cpuSeconds": 14.9,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.4,
+            "rssMiB": 514.15625,
+            "cpuSeconds": 12.51,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 562.828125,
+            "cpuSeconds": 9.56,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 2,
+            "rssMiB": 640.484375,
+            "cpuSeconds": 12.91,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0.6,
+            "rssMiB": 554.296875,
+            "cpuSeconds": 12.33,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 424.359375,
+            "cpuSeconds": 4.23,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 5.8,
+            "rssMiB": 497.609375,
+            "cpuSeconds": 9.46,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 427.546875,
+            "cpuSeconds": 4.27,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 69.9,
+          "rssMiB": 151.765625,
+          "cpuSeconds": 157139.78,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:17:48.181Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 6.5,
+            "rssMiB": 478.875,
+            "cpuSeconds": 104.72999999999999,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 4.3,
+            "rssMiB": 269.640625,
+            "cpuSeconds": 294.37,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5,
+            "cpuSeconds": 0.18,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 11.1,
+            "rssMiB": 972.484375,
+            "cpuSeconds": 570.07,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.8,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0.3,
+            "rssMiB": 626.296875,
+            "cpuSeconds": 27.75,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 620.59375,
+            "cpuSeconds": 14.9,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.9,
+            "rssMiB": 514.15625,
+            "cpuSeconds": 12.58,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 562.828125,
+            "cpuSeconds": 9.58,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 6.2,
+            "rssMiB": 640.71875,
+            "cpuSeconds": 12.99,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 554.296875,
+            "cpuSeconds": 12.35,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 424.3125,
+            "cpuSeconds": 4.24,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 498.359375,
+            "cpuSeconds": 9.48,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 427.546875,
+            "cpuSeconds": 4.27,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 70.2,
+          "rssMiB": 151.71875,
+          "cpuSeconds": 157141.28,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:17:50.242Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 4.7,
+            "rssMiB": 479.078125,
+            "cpuSeconds": 104.84,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 4.3,
+            "rssMiB": 269.546875,
+            "cpuSeconds": 294.46,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5,
+            "cpuSeconds": 0.18,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 7.9,
+            "rssMiB": 972.484375,
+            "cpuSeconds": 570.25,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.82,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 3.3,
+            "rssMiB": 626.296875,
+            "cpuSeconds": 27.77,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 620.59375,
+            "cpuSeconds": 14.91,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.9,
+            "rssMiB": 514.15625,
+            "cpuSeconds": 12.63,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 562.828125,
+            "cpuSeconds": 9.59,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 3.1,
+            "rssMiB": 640.734375,
+            "cpuSeconds": 13.04,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 554.265625,
+            "cpuSeconds": 12.36,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 1.7,
+            "rssMiB": 424.375,
+            "cpuSeconds": 4.25,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 1.2,
+            "rssMiB": 498.359375,
+            "cpuSeconds": 9.49,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 427.546875,
+            "cpuSeconds": 4.28,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 76.8,
+          "rssMiB": 151.734375,
+          "cpuSeconds": 157142.78,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:17:52.304Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 3,
+            "rssMiB": 482.484375,
+            "cpuSeconds": 104.95,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 3.7,
+            "rssMiB": 269.4375,
+            "cpuSeconds": 294.56,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5,
+            "cpuSeconds": 0.18,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 7.8,
+            "rssMiB": 972.5,
+            "cpuSeconds": 570.41,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.84,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 626.296875,
+            "cpuSeconds": 27.79,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 620.59375,
+            "cpuSeconds": 14.92,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.7,
+            "rssMiB": 514.15625,
+            "cpuSeconds": 12.67,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 562.78125,
+            "cpuSeconds": 9.6,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 2.7,
+            "rssMiB": 640.734375,
+            "cpuSeconds": 13.1,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 554.265625,
+            "cpuSeconds": 12.38,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 424.40625,
+            "cpuSeconds": 4.26,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0.4,
+            "rssMiB": 498.359375,
+            "cpuSeconds": 9.49,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 427.546875,
+            "cpuSeconds": 4.29,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 73.3,
+          "rssMiB": 151.734375,
+          "cpuSeconds": 157144.25,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:17:54.375Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 2.8,
+            "rssMiB": 482.484375,
+            "cpuSeconds": 105.03,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 4.4,
+            "rssMiB": 269.4375,
+            "cpuSeconds": 294.65999999999997,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0.3,
+            "rssMiB": 53.5625,
+            "cpuSeconds": 0.2,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 7.8,
+            "rssMiB": 972.546875,
+            "cpuSeconds": 570.59,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.87,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 626.234375,
+            "cpuSeconds": 27.8,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 620.59375,
+            "cpuSeconds": 14.92,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.9,
+            "rssMiB": 514.15625,
+            "cpuSeconds": 12.74,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 562.78125,
+            "cpuSeconds": 9.6,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 2.9,
+            "rssMiB": 640.734375,
+            "cpuSeconds": 13.17,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0.3,
+            "rssMiB": 554.265625,
+            "cpuSeconds": 12.39,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 424.515625,
+            "cpuSeconds": 4.27,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 498.359375,
+            "cpuSeconds": 9.5,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 427.890625,
+            "cpuSeconds": 4.3,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 68.6,
+          "rssMiB": 151.6875,
+          "cpuSeconds": 157145.71,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:17:56.448Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 4.2,
+            "rssMiB": 482.765625,
+            "cpuSeconds": 105.12,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 3.8,
+            "rssMiB": 269.4375,
+            "cpuSeconds": 294.75,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5625,
+            "cpuSeconds": 0.2,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 8.2,
+            "rssMiB": 972.5625,
+            "cpuSeconds": 570.77,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.89,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 626.234375,
+            "cpuSeconds": 27.82,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0.6,
+            "rssMiB": 620.53125,
+            "cpuSeconds": 15.02,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.8,
+            "rssMiB": 514.15625,
+            "cpuSeconds": 12.79,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 562.828125,
+            "cpuSeconds": 9.62,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 13,
+            "rssMiB": 641.078125,
+            "cpuSeconds": 13.28,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0.3,
+            "rssMiB": 554.265625,
+            "cpuSeconds": 12.42,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 424.5,
+            "cpuSeconds": 4.28,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 498.359375,
+            "cpuSeconds": 9.51,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 427.890625,
+            "cpuSeconds": 4.3,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 70,
+          "rssMiB": 151.6875,
+          "cpuSeconds": 157147.13,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:17:58.519Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 4.8,
+            "rssMiB": 485.015625,
+            "cpuSeconds": 105.27000000000001,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 4.3,
+            "rssMiB": 269.6875,
+            "cpuSeconds": 294.89,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5625,
+            "cpuSeconds": 0.2,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 11.8,
+            "rssMiB": 972.609375,
+            "cpuSeconds": 571.06,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.91,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 626.234375,
+            "cpuSeconds": 27.83,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 620.53125,
+            "cpuSeconds": 15.02,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 12.4,
+            "rssMiB": 517.109375,
+            "cpuSeconds": 13.01,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 566.046875,
+            "cpuSeconds": 9.8,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 5.8,
+            "rssMiB": 642.03125,
+            "cpuSeconds": 13.45,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 10.7,
+            "rssMiB": 558.15625,
+            "cpuSeconds": 12.6,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0.9,
+            "rssMiB": 424.5,
+            "cpuSeconds": 4.29,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 498.359375,
+            "cpuSeconds": 9.52,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 427.890625,
+            "cpuSeconds": 4.32,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 73.7,
+          "rssMiB": 151.703125,
+          "cpuSeconds": 157148.71,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:18:00.588Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 10.6,
+            "rssMiB": 459.859375,
+            "cpuSeconds": 105.53,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 3.8,
+            "rssMiB": 269.828125,
+            "cpuSeconds": 295.02,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5625,
+            "cpuSeconds": 0.2,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 13.8,
+            "rssMiB": 972.671875,
+            "cpuSeconds": 571.4,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.93,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 626.234375,
+            "cpuSeconds": 27.84,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 620.53125,
+            "cpuSeconds": 15.03,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.8,
+            "rssMiB": 517.125,
+            "cpuSeconds": 13.07,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 566.046875,
+            "cpuSeconds": 9.8,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 2.6,
+            "rssMiB": 642.03125,
+            "cpuSeconds": 13.5,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 558.171875,
+            "cpuSeconds": 12.62,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 424.5625,
+            "cpuSeconds": 4.34,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0.9,
+            "rssMiB": 498.390625,
+            "cpuSeconds": 9.57,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 427.890625,
+            "cpuSeconds": 4.33,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 70.6,
+          "rssMiB": 151.734375,
+          "cpuSeconds": 157150.27,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:18:02.651Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 5.6,
+            "rssMiB": 442.375,
+            "cpuSeconds": 105.67,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 4.7,
+            "rssMiB": 269.609375,
+            "cpuSeconds": 295.15,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5625,
+            "cpuSeconds": 0.2,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 15.8,
+            "rssMiB": 972.75,
+            "cpuSeconds": 571.71,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.95,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0.7,
+            "rssMiB": 626.234375,
+            "cpuSeconds": 27.86,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 620.53125,
+            "cpuSeconds": 15.04,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.5,
+            "rssMiB": 517.125,
+            "cpuSeconds": 13.12,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 565.875,
+            "cpuSeconds": 9.81,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 2.2,
+            "rssMiB": 645.609375,
+            "cpuSeconds": 13.65,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 558.171875,
+            "cpuSeconds": 12.63,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 424.53125,
+            "cpuSeconds": 4.37,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0.7,
+            "rssMiB": 498.40625,
+            "cpuSeconds": 9.59,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0.2,
+            "rssMiB": 427.84375,
+            "cpuSeconds": 4.33,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 75.2,
+          "rssMiB": 151.765625,
+          "cpuSeconds": 157151.81,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      },
+      {
+        "at": "2026-10-07T07:18:04.718Z",
+        "processes": [
+          {
+            "pid": 40070,
+            "ppid": 1,
+            "reportedCpu": 3.7,
+            "rssMiB": 442.5,
+            "cpuSeconds": 105.75999999999999,
+            "comm": "/Applications/Junto.app/Contents/MacOS/Junto"
+          },
+          {
+            "pid": 40077,
+            "ppid": 40070,
+            "reportedCpu": 3.4,
+            "rssMiB": 269.609375,
+            "cpuSeconds": 295.24,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40078,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 53.5625,
+            "cpuSeconds": 0.2,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 40088,
+            "ppid": 40070,
+            "reportedCpu": 12.2,
+            "rssMiB": 972.8125,
+            "cpuSeconds": 571.98,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)"
+          },
+          {
+            "pid": 41004,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 41.921875,
+            "cpuSeconds": 4.97,
+            "comm": "/Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper"
+          },
+          {
+            "pid": 52653,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 626.234375,
+            "cpuSeconds": 27.86,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 56667,
+            "ppid": 40070,
+            "reportedCpu": 0.3,
+            "rssMiB": 620.53125,
+            "cpuSeconds": 15.05,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57326,
+            "ppid": 40070,
+            "reportedCpu": 1.7,
+            "rssMiB": 517.125,
+            "cpuSeconds": 13.17,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57333,
+            "ppid": 40070,
+            "reportedCpu": 1.1,
+            "rssMiB": 565.875,
+            "cpuSeconds": 9.82,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57344,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 645.609375,
+            "cpuSeconds": 13.67,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 57361,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 558.171875,
+            "cpuSeconds": 12.63,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61593,
+            "ppid": 40070,
+            "reportedCpu": 0,
+            "rssMiB": 424.53125,
+            "cpuSeconds": 4.37,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 60534,
+            "ppid": 40070,
+            "reportedCpu": 0.6,
+            "rssMiB": 498.40625,
+            "cpuSeconds": 9.6,
+            "comm": "~/.local/bin/claude"
+          },
+          {
+            "pid": 61613,
+            "ppid": 40070,
+            "reportedCpu": 0.1,
+            "rssMiB": 427.84375,
+            "cpuSeconds": 4.34,
+            "comm": "~/.local/bin/claude"
+          }
+        ],
+        "windowServer": {
+          "pid": 444,
+          "ppid": 1,
+          "reportedCpu": 73.3,
+          "rssMiB": 151.75,
+          "cpuSeconds": 157153.27,
+          "comm": "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        }
+      }
+    ]
+  },
+  "ping": {
+    "at": "2026-10-07T07:19:39.058Z",
+    "count": 24,
+    "wallMs": 469.7382920000001,
+    "successes": 24,
+    "medianMs": 261.9328750000001,
+    "p95Ms": 461.53079200000013,
+    "maxMs": 466.5599169999999,
+    "samples": [
+      {
+        "ms": 248.17895799999997,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 232.931875,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 233.47404199999994,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 443.907875,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 261.9328750000001,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 458.604792,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 220.4632079999999,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 466.5599169999999,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 241.919125,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 461.53079200000013,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 444.830375,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 410.49699999999996,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 242.568083,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 441.58570799999995,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 452.288042,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 221.05591600000002,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 203.30162499999994,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 240.8119999999999,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 227.676291,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 442.43104100000005,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 219.83687500000008,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 458.36912500000005,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 183.07666700000004,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      },
+      {
+        "ms": 431.3225,
+        "exitCode": 0,
+        "success": true,
+        "version": "0.5.0",
+        "stderrBytes": 0
+      }
+    ]
+  },
+  "helpers": {
+    "at": "2026-10-07T07:21:13.862Z",
+    "pid": 52653,
+    "context": "External Bun process executing current source helpers against one already-live Claude PID; not an Electron startup measurement",
+    "samples": [
+      {
+        "epochMs": 5.106709,
+        "bindingMs": 4.552165999999998,
+        "success": true
+      },
+      {
+        "epochMs": 8.923375,
+        "bindingMs": 3.531167,
+        "success": true
+      },
+      {
+        "epochMs": 3.1794999999999973,
+        "bindingMs": 3.303625000000004,
+        "success": true
+      },
+      {
+        "epochMs": 3.2971670000000017,
+        "bindingMs": 3.227499999999999,
+        "success": true
+      },
+      {
+        "epochMs": 3.2200419999999994,
+        "bindingMs": 3.076082999999997,
+        "success": true
+      },
+      {
+        "epochMs": 3.130834,
+        "bindingMs": 4.643957999999998,
+        "success": true
+      },
+      {
+        "epochMs": 3.2774160000000023,
+        "bindingMs": 2.992584000000001,
+        "success": true
+      },
+      {
+        "epochMs": 2.9466249999999974,
+        "bindingMs": 3.6809590000000014,
+        "success": true
+      },
+      {
+        "epochMs": 3.501125000000002,
+        "bindingMs": 3.4476669999999956,
+        "success": true
+      },
+      {
+        "epochMs": 2.9892499999999984,
+        "bindingMs": 3.133791000000002,
+        "success": true
+      },
+      {
+        "epochMs": 3.54225000000001,
+        "bindingMs": 3.371583000000001,
+        "success": true
+      },
+      {
+        "epochMs": 3.576834000000005,
+        "bindingMs": 3.2239159999999885,
+        "success": true
+      },
+      {
+        "epochMs": 3.0578330000000022,
+        "bindingMs": 3.622792000000004,
+        "success": true
+      },
+      {
+        "epochMs": 3.9480839999999944,
+        "bindingMs": 3.771500000000003,
+        "success": true
+      },
+      {
+        "epochMs": 3.4442499999999967,
+        "bindingMs": 4.390042000000008,
+        "success": true
+      },
+      {
+        "epochMs": 4.352417000000003,
+        "bindingMs": 3.3461250000000007,
+        "success": true
+      },
+      {
+        "epochMs": 3.26700000000001,
+        "bindingMs": 4.108125000000001,
+        "success": true
+      },
+      {
+        "epochMs": 7.725583,
+        "bindingMs": 3.683249999999987,
+        "success": true
+      },
+      {
+        "epochMs": 3.233208000000019,
+        "bindingMs": 3.7632919999999785,
+        "success": true
+      },
+      {
+        "epochMs": 4.700625000000002,
+        "bindingMs": 4.491125000000011,
+        "success": true
+      }
+    ],
+    "medianPairMs": 6.9964999999999975,
+    "maxPairMs": 12.454542,
+    "serialTenPairsEstimateMs": 69.96499999999997
+  },
+  "traces": [
+    {
+      "name": "main.sample.txt",
+      "scratchPath": "/tmp/junto-live-profile.kGOJlp/main.sample.txt",
+      "sha256": "f658bbab93f6cc48d1aa2bd2f22ef25373cdad30718fffc2d874424504e9e07e",
+      "metadata": [
+        "Analysis of sampling Junto (pid 40070) every 2 milliseconds",
+        "Process:         Junto [40070]",
+        "Path:            /Applications/Junto.app/Contents/MacOS/Junto",
+        "Load Address:    0x100a34000",
+        "Identifier:      com.skastr0.junto",
+        "Version:         0.5.0 (0.5.0)",
+        "Code Type:       ARM64",
+        "Platform:        macOS",
+        "Parent Process:  launchd [1]",
+        "Target Type:     live task",
+        "",
+        "Date/Time:       2026-10-07 04:16:54.082 -0300",
+        "Launch Time:     2026-10-07 03:09:32.859 -0300",
+        "OS Version:      macOS 26.5.2 (25F84)",
+        "Report Version:  7",
+        "Analysis Tool:   /usr/bin/sample",
+        "",
+        "Physical footprint:         247.9M",
+        "Physical footprint (peak):  375.2M",
+        "Idle exit:                  untracked",
+        "----",
+        "",
+        "Call graph:"
+      ],
+      "mainThreadHeader": "    2095 Thread_28750490   DispatchQueue_1: com.apple.main-thread  (serial)",
+      "mainThreadWaits": [
+        "    +                         !   :       | + ! : |     + 1889 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                         !   :       | + ! : |     +   ! : |   ! :   |         +   ! :               +                       1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                         !   :       | + ! :           |           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                         !   :       |             1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                               :                       1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                                               1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]"
+      ],
+      "gpuThreadHeaders": [
+        "    2095 Thread_28750709: CompositorTileWorker1"
+      ]
+    },
+    {
+      "name": "renderer.sample.txt",
+      "scratchPath": "/tmp/junto-live-profile.kGOJlp/renderer.sample.txt",
+      "sha256": "92e90b67533330035d76a93b29fa4eaf0966585954a44063cbad0a8c808fa291",
+      "metadata": [
+        "Analysis of sampling Junto Helper (Renderer) (pid 40088) every 2 milliseconds",
+        "Process:         Junto Helper (Renderer) [40088]",
+        "Path:            /Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)",
+        "Load Address:    0x100d44000",
+        "Identifier:      com.skastr0.junto.helper.Renderer",
+        "Version:         0.5.0",
+        "Code Type:       ARM64",
+        "Platform:        macOS",
+        "Parent Process:  Junto [40070]",
+        "Target Type:     live task",
+        "",
+        "Date/Time:       2026-10-07 04:16:54.058 -0300",
+        "Launch Time:     2026-10-07 03:09:36.940 -0300",
+        "OS Version:      macOS 26.5.2 (25F84)",
+        "Report Version:  7",
+        "Analysis Tool:   /usr/bin/sample",
+        "",
+        "Physical footprint:         620.3M",
+        "Physical footprint (peak):  1.1G",
+        "Idle exit:                  untracked",
+        "----",
+        "",
+        "Call graph:"
+      ],
+      "mainThreadHeader": "    2069 Thread_28750934   DispatchQueue_1: com.apple.main-thread  (serial)",
+      "mainThreadWaits": [
+        "    +                 ! :       1613 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : | +   ! :       +                                                                               1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : | + ! : |         +         ! :                   |                                                   1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : | +           :   |                         1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : | +             4 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : |           + !               |                                       +   !                                   :                 |               + !   :                                   1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : |           + !               |                                       +   !                                   :                 |               +                                                           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : |           + !               |                                       +   !                                   :                 |                         !                           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : |           + !               |                                       +   !                                   :                 |                                                                         1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                   : |           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]"
+      ],
+      "gpuThreadHeaders": [
+        "    2069 Thread_28750982: Compositor"
+      ]
+    },
+    {
+      "name": "helper.sample.txt",
+      "scratchPath": "/tmp/junto-live-profile.kGOJlp/helper.sample.txt",
+      "sha256": "8ec9269addf982877a6d864742431b8c13c5ae996580f651eacbcfb0921f46da",
+      "metadata": [
+        "Analysis of sampling Junto Helper (pid 40077) every 2 milliseconds",
+        "Process:         Junto Helper [40077]",
+        "Path:            /Applications/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper",
+        "Load Address:    0x104b08000",
+        "Identifier:      com.skastr0.junto.helper",
+        "Version:         0.5.0",
+        "Code Type:       ARM64",
+        "Platform:        macOS",
+        "Parent Process:  Junto [40070]",
+        "Target Type:     live task",
+        "",
+        "Date/Time:       2026-10-07 04:16:54.057 -0300",
+        "Launch Time:     2026-10-07 03:09:35.283 -0300",
+        "OS Version:      macOS 26.5.2 (25F84)",
+        "Report Version:  7",
+        "Analysis Tool:   /usr/bin/sample",
+        "",
+        "Physical footprint:         1.6G",
+        "Physical footprint (peak):  1.9G",
+        "Idle exit:                  untracked",
+        "----",
+        "",
+        "Call graph:"
+      ],
+      "mainThreadHeader": "    2051 Thread_28750710   DispatchQueue_1: com.apple.main-thread  (serial)",
+      "mainThreadWaits": [
+        "    +                     ! : |         1492 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                     ! : |             + ! : |     +   !       | + !         :   |               2 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                     ! : |             + ! : |     +   !       | + !           2 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                     ! : |             + ! : | + !   : | +     :     |   +                                 2 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                     ! : |             + ! : | + !   : | +                                           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                     ! : |             + ! : | + !   : | +   !                                   1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                     ! : |             + ! : | + !   : |                           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                     ! : |             + ! : |   !     :             2 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                     ! : |             + !         :           2 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]"
+      ],
+      "gpuThreadHeaders": [
+        "    2051 Thread_28750740: GpuWatchdog",
+        "    2051 Thread_28750798: VizCompositorThread",
+        "    2051 Thread_28802289: CVDisplayLink",
+        "    1343 Thread_29042636: CVDisplayLink",
+        "    340 Thread_29043340: CVDisplayLink",
+        "    268 Thread_29043310: CVDisplayLink"
+      ]
+    },
+    {
+      "name": "main-ping-burst.sample.txt",
+      "scratchPath": "/tmp/junto-live-profile.kGOJlp/main-ping-burst.sample.txt",
+      "sha256": "a1fc35c2f5cc60ee48efc7812265f839f3766ab7e916e84ae03d0f7a8f2a6735",
+      "metadata": [
+        "Analysis of sampling Junto (pid 40070) every 2 milliseconds",
+        "Process:         Junto [40070]",
+        "Path:            /Applications/Junto.app/Contents/MacOS/Junto",
+        "Load Address:    0x100a34000",
+        "Identifier:      com.skastr0.junto",
+        "Version:         0.5.0 (0.5.0)",
+        "Code Type:       ARM64",
+        "Platform:        macOS",
+        "Parent Process:  launchd [1]",
+        "Target Type:     live task",
+        "",
+        "Date/Time:       2026-10-07 04:19:38.367 -0300",
+        "Launch Time:     2026-10-07 03:09:32.859 -0300",
+        "OS Version:      macOS 26.5.2 (25F84)",
+        "Report Version:  7",
+        "Analysis Tool:   /usr/bin/sample",
+        "",
+        "Physical footprint:         245.7M",
+        "Physical footprint (peak):  375.2M",
+        "Idle exit:                  untracked",
+        "----",
+        "",
+        "Call graph:"
+      ],
+      "mainThreadHeader": "    2102 Thread_28750490   DispatchQueue_1: com.apple.main-thread  (serial)",
+      "mainThreadWaits": [
+        "    +                         !   :   |   +   ! : |       1948 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                         !   :   |   +   ! : |         + !             1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                         !   :   |   +   ! :                           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                               :             |                           11 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+        "    +                               :                       7 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]"
+      ],
+      "gpuThreadHeaders": [
+        "    2102 Thread_28750709: CompositorTileWorker1"
+      ]
+    }
+  ],
+  "systemTop": "Processes: 1218 total, 2 running, 1216 sleeping, 8019 threads \n2026/10/07 04:18:36\nLoad Avg: 10.49, 12.82, 10.17 \nCPU usage: 34.54% user, 23.5% sys, 42.40% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 1283600 total, 17G resident, 489M private, 6041M shared.\nPhysMem: 60G used (6831M wired, 13G compressor), 2809M unused.\nVM: 594T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254752615/168G in, 240647693/281G out.\nDisks: 251105284/5973G read, 149955566/3897G written.\n\n\nProcesses: 1221 total, 3 running, 1218 sleeping, 8041 threads \n2026/10/07 04:18:39\nLoad Avg: 10.53, 12.79, 10.17 \nCPU usage: 19.11% user, 9.98% sys, 70.89% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 155 total, 14M resident, 489M private, 6042M shared.\nPhysMem: 60G used (6114M wired, 13G compressor), 3184M unused.\nVM: 595T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254753804/168G in, 240649567/281G out.\nDisks: 251105284/5973G read, 149955578/3897G written.\n\n\nProcesses: 1222 total, 7 running, 1215 sleeping, 7957 threads \n2026/10/07 04:18:41\nLoad Avg: 10.53, 12.79, 10.17 \nCPU usage: 34.21% user, 18.50% sys, 47.28% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 211 total, 26M resident, 489M private, 6044M shared.\nPhysMem: 61G used (6791M wired, 13G compressor), 2649M unused.\nVM: 596T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254756338/168G in, 240653171/281G out.\nDisks: 251105308/5973G read, 149955854/3897G written.\n\n\n"
+}
