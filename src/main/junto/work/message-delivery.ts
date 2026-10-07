@@ -331,6 +331,13 @@ export class MessageDeliveryService {
         this.wake(transport, target.bindingId, canvas, nodeId, generation);
         return "waiting";
       }
+      // Another message for this seat may have cut its session while this
+      // one was asking. Look again before typing: a seat that is down, or a
+      // fresh generation not yet ready, takes this mail when it is up.
+      if (!transport.seatLive(target.bindingId)) {
+        this.wake(transport, target.bindingId, canvas, nodeId, generation);
+        return "waiting";
+      }
     }
     const payload = mailPayloadOf(message, {
       onboarded: onboardedOf(transport, target.bindingId),

@@ -162,6 +162,45 @@ describe("mail delivery", () => {
     expect(seat.messages[0]?.metadata?.deliveredAt).toBeTypeOf("number");
   });
 
+  it("two messages arriving together for one cold seat: neither is typed until the fresh session is up, then both in order", async () => {
+    let calls = 0;
+    const seat = rig({
+      cut: async () => {
+        calls += 1;
+        const mine = calls;
+        // The first asker cuts the session; the second finds it already cut.
+        await new Promise((resolve) => setTimeout(resolve, mine === 1 ? 1 : 3));
+        if (mine === 1) {
+          seat.setLive(false);
+          return true;
+        }
+        return false;
+      },
+      wake: () => true,
+    });
+    seat.append(mail("01A", "First."));
+    seat.append(mail("01B", "Second."));
+    const [first, second] = await Promise.all([
+      seat.service.deliver(canvas, nodeId, "01A"),
+      seat.service.deliver(canvas, nodeId, "01B"),
+    ]);
+    expect([first, second]).toEqual(["waiting", "waiting"]);
+    await settle();
+    // Nothing was typed into a seat that is down, and nothing reads as lost.
+    expect(seat.writes).toEqual([]);
+    // Each waiting message may ask for the wake; the transport answers a
+    // seat that is already starting without starting it twice.
+    expect(seat.wakes.length).toBeGreaterThanOrEqual(1);
+    expect(seat.wakes.every((wake) => wake.bindingId === bindingId)).toBe(true);
+    seat.setLive(true);
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes).toHaveLength(2);
+    expect(seat.writes[0]).toContain("junto msg read 01A");
+    expect(seat.writes[1]).toContain("junto msg read 01B");
+    expect(seat.overlapped()).toBe(false);
+  });
+
   it("a session that is not cold, or a check that fails, changes nothing: the mail is typed as usual", async () => {
     const warm = rig({ cut: async () => false });
     warm.append(mail("01A", "Please review the contract."));
