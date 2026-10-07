@@ -5,11 +5,9 @@
  * tree (stdio wire protocols + browser control socket). Operator `station *`
  * and agent `content *` remain on the Effect CLI surface.
  */
-import {
-  CONTENT_TRANSFER_COMMAND,
-} from "./content-transfer";
-import { COMPANION_STDIO_COMMAND } from "./companion-stdio";
-import { STATION_STDIO_COMMAND } from "./station-stdio";
+import { CONTENT_TRANSFER_COMMAND } from "../main/junto/content/helper-contract";
+import { STATION_STDIO_COMMAND } from "../main/junto/station/helper-contract";
+import { COMPANION_STDIO_COMMAND } from "./protocol-command-names";
 
 export type EarlyDispatch =
   | { readonly kind: "overseer-host"; readonly args: ReadonlyArray<string> }

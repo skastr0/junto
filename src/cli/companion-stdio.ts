@@ -32,7 +32,7 @@ import {
 } from "../shared/operator-control";
 import { OperatorSocket, OperatorSocketLive } from "./core/operator-socket";
 
-export const COMPANION_STDIO_COMMAND = "companion-stdio";
+export { COMPANION_STDIO_COMMAND } from "./protocol-command-names";
 
 export type CompanionStdioArgs =
   | { readonly ok: true; readonly mode: "demo" }

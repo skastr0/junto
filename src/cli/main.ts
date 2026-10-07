@@ -1,125 +1,13 @@
 #!/usr/bin/env bun
-import * as Cause from "effect/Cause";
-// V4: @effect/cli → effect/unstable/cli - platform-bun stays separate (lockstep V4)
-// Map: ./effect-v4-import-map.ts
-import { Command } from "effect/unstable/cli";
-import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Effect, Layer } from "effect";
-import {
-  capabilitiesCommand,
-  doctorCommand,
-  examplesCommand,
-  onboardCommand,
-  offboardCommand,
-  pingCommand,
-  schemaCommand,
-} from "./commands/discovery";
-import { envCommand } from "./commands/env";
-import { overseerCommand } from "./commands/overseer";
-import { padCommand } from "./commands/pad";
-import { sheetCommand } from "./commands/sheet";
-import { seatCommand } from "./commands/seat";
-import {
-  artifactCommand,
-  boardCommand,
-  msgCommand,
-  preambleCommand,
-  rulingsCommand,
-  tasksCommand,
-  verdictCommand,
-} from "./commands/work";
-import {
-  blockedCommand,
-  escalateCommand,
-  feedbackCommand,
-  signalCommand,
-} from "./commands/signals";
-import { contentCommand } from "./commands/content";
-import { docsCommand } from "./commands/docs";
-import {
-  fleetOperatorCommand,
-  qualificationOperatorCommand,
-  stationOperatorCommand,
-} from "./commands/operator";
-import { runBrowserCli } from "../../scripts/browser-cli";
+import { CLI_VERSION } from "./core/constants";
 import { earlyDispatchFromArgv } from "./early-dispatch";
-import { runContentTransfer } from "./content-transfer";
-import { runStationStdio } from "./station-stdio";
-import { runCompanionStdio } from "./companion-stdio";
-import { CLI_NAME, CLI_VERSION } from "./core/constants";
-import {
-  ARTIFACTS_ENABLED,
-  BOARD_ENABLED,
-  BROWSER_ENABLED,
-  FLEET_UI_ENABLED,
-  LIVE_OVERSEER_ENABLED,
-  PAD_ENABLED,
-  SHEET_ENABLED,
-  TASKS_ENABLED,
-} from "@shared/features";
-import { runOverseerHost } from "../overseer-host/main";
+import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED, FLEET_UI_ENABLED,
+  LIVE_OVERSEER_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
-const browserCliAvailable =
-  typeof __JUNTO_BROWSER_ENABLED__ !== "boolean" || BROWSER_ENABLED;
-import {
-  setExitCode,
-  writeCauseEnvelope,
-  writeFailureEnvelope,
-} from "./core/output";
-import { OperatorSocketLive } from "./core/operator-socket";
-import { WorkSocketLive } from "./core/socket";
-
+const browserCliAvailable = typeof __JUNTO_BROWSER_ENABLED__ !== "boolean" || BROWSER_ENABLED;
 export { browserCliArgsFromArgv } from "./browser-argv";
 export { earlyDispatchFromArgv } from "./early-dispatch";
-
-
-export const rootCommand = Command.make(CLI_NAME).pipe(
-  Command.withDescription(
-    "Junto agent and direct-operator protocol surfaces (JSON only)",
-  ),
-  Command.withSubcommands([
-    pingCommand,
-    doctorCommand,
-    capabilitiesCommand,
-    onboardCommand,
-    offboardCommand,
-    schemaCommand,
-    examplesCommand,
-    preambleCommand,
-    escalateCommand,
-    blockedCommand,
-    feedbackCommand,
-    signalCommand,
-    ...(TASKS_ENABLED ? [tasksCommand, rulingsCommand] : []),
-    msgCommand,
-    seatCommand,
-    envCommand,
-    verdictCommand,
-    ...(TASKS_ENABLED ? [contentCommand] : []),
-    docsCommand,
-    ...(BOARD_ENABLED ? [boardCommand] : []),
-    ...(PAD_ENABLED ? [padCommand] : []),
-    ...(SHEET_ENABLED ? [sheetCommand] : []),
-    ...(ARTIFACTS_ENABLED ? [artifactCommand] : []),
-    overseerCommand,
-    stationOperatorCommand,
-    ...(FLEET_UI_ENABLED
-      ? [fleetOperatorCommand, qualificationOperatorCommand]
-      : []),
-  ]),
-);
-
-// V4: runWith takes explicit argv; run() pulls from Stdio only.
-const cli = Command.runWith(rootCommand, {
-  version: CLI_VERSION,
-});
-
-const runtimeLayer = Layer.mergeAll(
-  BunServices.layer,
-  WorkSocketLive,
-  OperatorSocketLive,
-);
 
 /**
  * A command group whose product feature is off in this build. Named so the
@@ -138,17 +26,6 @@ const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   return undefined;
 };
 
-export const runCli = (args: ReadonlyArray<string>) =>
-  Effect.suspend(() => cli(args)).pipe(
-    Effect.catch((error) =>
-      setExitCode(1).pipe(Effect.andThen(writeFailureEnvelope(undefined, error))),
-    ),
-    Effect.catchCause((cause) =>
-      setExitCode(1).pipe(Effect.andThen(writeCauseEnvelope(undefined, cause))),
-    ),
-    Effect.provide(runtimeLayer),
-  );
-
 // When executed as the CLI entrypoint (bun / compiled binary).
 if (import.meta.main) {
   // Bun puts user args at index 2 in both modes: source is
@@ -157,7 +34,7 @@ if (import.meta.main) {
   const dispatch = earlyDispatchFromArgv(Bun.argv);
   if (dispatch.kind === "overseer-host") {
     if (LIVE_OVERSEER_ENABLED) {
-      await runOverseerHost(dispatch.args);
+      await (await import("../overseer-host/main")).runOverseerHost(dispatch.args);
     } else {
       process.stderr.write("Junto live conversation is disabled in this build\n");
       process.exitCode = 2;
@@ -167,7 +44,7 @@ if (import.meta.main) {
       process.stderr.write("junto browser: disabled in this build\n");
       process.exitCode = 2;
     } else {
-      await runBrowserCli(dispatch.args);
+      await (await import("../../scripts/browser-cli")).runBrowserCli(dispatch.args);
     }
   } else if (
     dispatch.kind === "cli" &&
@@ -187,16 +64,18 @@ if (import.meta.main) {
     );
     process.exitCode = 2;
   } else if (dispatch.kind === "station-stdio") {
-    await runStationStdio(dispatch.args);
+    await (await import("./station-stdio")).runStationStdio(dispatch.args);
   } else if (dispatch.kind === "content-transfer") {
-    await runContentTransfer(dispatch.args);
+    await (await import("./content-transfer")).runContentTransfer(dispatch.args);
   } else if (dispatch.kind === "companion-stdio") {
-    await runCompanionStdio(dispatch.args);
+    await (await import("./companion-stdio")).runCompanionStdio(dispatch.args);
+  } else if (dispatch.args.length === 1 && dispatch.args[0] === "--version") {
+    process.stdout.write(`junto v${CLI_VERSION}\n`);
   } else {
+    const { BunRuntime } = await import("@effect/platform-bun");
+    const { runCli } = await import("./command-runner");
     BunRuntime.runMain(
-      runCli(dispatch.args) as Effect.Effect<void, never, never>,
+      runCli(dispatch.args),
     );
   }
 }
-
-void Cause;
