@@ -53,7 +53,7 @@ import { addEdge, canConnect, connectAllToTarget, connectMesh, deleteEdges, disc
 import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
 import { openAgentEditor } from "../lib/agent-editor-state";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
-import { planSeatMessage } from "../lib/seat-message";
+import { planSeatMessageFor } from "../lib/seat-message";
 import { SeatMessageForm } from "./nodes/SeatMessage";
 import { SeatOffboardMenuRows } from "./nodes/SeatOffboard";
 import { AGENT_BROADCAST_PROMPTS, type AgentBroadcastKind } from "@shared/agent-broadcast-prompts";
@@ -1106,7 +1106,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   const meshAdds = meshPlanOn(held, agentIds).toAdd.length;
   const innerEdges = wireIdsWithin(held, agentIds).length;
   const broadcast = planAgentBroadcast(doc.nodes.filter((node) => agentIds.includes(node.id)));
-  const reachable = planSeatMessage(doc.nodes.filter((node) => agentIds.includes(node.id))).targets.length;
+  const reachable = planSeatMessageFor(agentIds).targets.length;
 
   const run = (mutate: (ids: ReadonlyArray<string>) => void) => {
     mutate(rf.getNodes().filter((node) => node.selected).map((node) => node.id));
