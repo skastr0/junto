@@ -1,5 +1,6 @@
 import { useActorPage, useAttentionRows, usePeerBoards } from "../../lib/use-actor-work";
 import { WorkPageControls } from "../work/WorkPageControls";
+import { useCanvas } from "../../lib/use-model";
 import { useWorkMail } from "../../lib/use-work-mail";
 /**
  * Seat details: everything about one agent seat that is worth a look now and
@@ -399,9 +400,11 @@ function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly se
     0,
   );
   const mail = useWorkMail(canvas, node.id, live);
+  // Who each letter is from is named off the canvas the store holds.
+  const mailCanvas = useCanvas(canvas);
   const rows = useMemo(
-    () => (live ? mailboxRows(doc, mail.items.map((item) => item.message)) : []),
-    [doc, mail.items, live],
+    () => (live ? mailboxRows(mailCanvas, mail.items.map((item) => item.message)) : []),
+    [mailCanvas, mail.items, live],
   );
   const counts = useMemo(() => mailboxCounts(rows), [rows]);
 

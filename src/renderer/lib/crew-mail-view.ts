@@ -5,7 +5,6 @@ import { asNodeId, type Canvas } from "@shared/model";
  * recipient's input; until then it waits for the seat to start. Nothing here
  * invents a status the document did not record.
  */
-import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
 import {
   isMessageDelivered,
@@ -129,16 +128,16 @@ export const resolveMailSenderStamp = (
  * that value is still a node id.
  */
 export const resolveMailSenderNodeId = (
-  doc: CanvasDoc | Canvas,
+  canvas: Pick<Canvas, "nodes">,
   metadata: unknown,
 ): string | undefined => {
   const stamp = resolveMailSenderStamp(metadata);
-  if (stamp !== undefined && ("edges" in doc ? doc.nodes.some((node) => node.id === stamp) : doc.nodes.has(asNodeId(stamp)))) {
+  if (stamp !== undefined && canvas.nodes.has(asNodeId(stamp))) {
     return stamp;
   }
   const extension = readMailExtension(metadata);
   const fromSeat = nonempty(extension?.fromSeat) ?? nonempty(metadataRecord(metadata)?.fromSeat);
-  if (fromSeat !== undefined && ("edges" in doc ? doc.nodes.some((node) => node.id === fromSeat) : doc.nodes.has(asNodeId(fromSeat)))) {
+  if (fromSeat !== undefined && canvas.nodes.has(asNodeId(fromSeat))) {
     return fromSeat;
   }
   return undefined;
@@ -192,13 +191,4 @@ export const countMailViews = (
     if (view.direction === "in" && !view.read) unread += 1;
   }
   return { total: views.length, unread };
-};
-
-export const resolveSenderLabel = (
-  doc: CanvasDoc,
-  fromNodeId: string | undefined,
-  titleOf: (nodeId: string) => string | undefined,
-): string => {
-  if (fromNodeId === undefined) return "system";
-  return titleOf(fromNodeId) ?? fromNodeId;
 };

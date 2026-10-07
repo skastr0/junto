@@ -10,7 +10,6 @@ import { titleOf } from "@shared/model/title";
  *   - delivery: `metadata.deliveredAt` (written into the seat), else waiting
  *   - age: the messageId is a ULID — its timestamp is birth time
  */
-import type { CanvasDoc } from "@shared/canvas";
 import type { Message, Part } from "@shared/work-model";
 import type { WorkSeatRecentOp } from "@shared/work-recent-ops";
 import {
@@ -29,7 +28,6 @@ import {
   type MailEvidenceRef,
   type MailKind,
 } from "./crew-mail-view";
-import { nodeTitle } from "./presentation";
 
 export type { MailCounts };
 
@@ -60,9 +58,9 @@ const textOfParts = (parts: ReadonlyArray<Part>): string =>
 /** msg.send wraps the text as "mail from <seat> …" — strip for display. */
 const stripFactoryMailPrefix = stripMailEnvelope;
 
-const toMailRow = (doc: CanvasDoc | Canvas, message: Message): MailRow => {
+const toMailRow = (canvas: Pick<Canvas, "nodes">, message: Message): MailRow => {
   const fromNodeId =
-    resolveMailSenderNodeId(doc, message.metadata) ??
+    resolveMailSenderNodeId(canvas, message.metadata) ??
     resolveMailSenderStamp(message.metadata);
   const rawBody = textOfParts(message.parts);
   const body = stripFactoryMailPrefix(rawBody, message);
@@ -75,11 +73,7 @@ const toMailRow = (doc: CanvasDoc | Canvas, message: Message): MailRow => {
     direction: message.role === "user" ? "in" : "note",
     fromNodeId,
     fromLabel: resolveMailSenderLabel(message.metadata, fromNodeId, (id) => {
-      if ("edges" in doc) {
-        const peer = doc.nodes.find((node) => node.id === id);
-        return peer ? nodeTitle(peer) : undefined;
-      }
-      const peer = doc.nodes.get(asNodeId(id));
+      const peer = canvas.nodes.get(asNodeId(id));
       return peer ? titleOf(peer) : undefined;
     }),
     sentAtMs,
@@ -95,11 +89,11 @@ const toMailRow = (doc: CanvasDoc | Canvas, message: Message): MailRow => {
 };
 
 export const mailboxRows = (
-  doc: CanvasDoc | Canvas,
+  canvas: Pick<Canvas, "nodes">,
   messages: ReadonlyArray<Message>,
 ): ReadonlyArray<MailRow> =>
   messages
-    .map((message) => toMailRow(doc, message))
+    .map((message) => toMailRow(canvas, message))
     .sort((a, b) => compareMessageIdsNewestFirst(a.messageId, b.messageId));
 
 export const mailboxCounts = (rows: ReadonlyArray<MailRow>): MailCounts =>

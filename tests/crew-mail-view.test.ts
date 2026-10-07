@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { canvasOf, note } from "./support/model-nodes";
 import type { Message } from "../src/shared/work-model";
 import {
   countMailViews,
@@ -62,20 +62,7 @@ describe("crewMailViewOf", () => {
 });
 
 describe("resolveMailSenderNodeId", () => {
-  const doc: CanvasDoc = {
-    nodes: [
-      {
-        id: "bravo",
-        type: "text",
-        text: "Bravo",
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 80,
-      },
-    ],
-    edges: [],
-  };
+  const doc = canvasOf([note("bravo", "Bravo")]);
 
   it("prefers senderNodeId and only uses fromSeat when it is a node id", () => {
     expect(
