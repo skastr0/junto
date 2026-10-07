@@ -883,6 +883,22 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   .station-save span:last-child { display: none; }
 }
 
+/* A small window at a large interface size. What gives way, in order: the
+   command groups (they scroll in what is left), the search field down to its
+   icon, then the canvas name. The actions on the right never do, so Settings
+   and the needs-you inbox stay inside the window. */
+.station-actions { flex-shrink: 0; }
+@media (max-width: 720px) {
+  .station-bar { gap: 6px; padding-right: 8px; }
+  .station-command-trigger { flex: none; width: 34px; min-width: 34px; justify-content: center; padding: 0; }
+  .station-command-trigger__label,
+  .station-command-trigger__kbd { display: none; }
+  .station-canvas { min-width: 0; flex-shrink: 1; }
+  .station-select-wrap { min-width: 0; flex: 1 1 auto; }
+  .station-select { min-width: 0; padding: 0 6px 0 8px; }
+  .station-actions { gap: 4px !important; }
+}
+
 .error-banner { position: relative; display: flex; max-width: min(680px, calc(100vw - 32px)); max-height: 84px; flex-direction: column; gap: 4px; overflow: auto; padding-right: 30px !important; box-shadow: 0 12px 30px var(--color-shadow-2); backdrop-filter: blur(14px); }
 .error-banner__close { position: absolute; top: 5px; right: 7px; color: var(--color-crimson); font-size: var(--text-display); line-height: 1; }
 .error-banner__close:hover { color: var(--color-ink); }
