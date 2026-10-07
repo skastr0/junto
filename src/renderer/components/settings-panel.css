@@ -127,9 +127,21 @@
 .settings-field {
   transition: background-color 400ms ease, box-shadow 400ms ease;
 }
-.settings-results {
+.settings-results__list {
   display: flex;
   flex-direction: column;
+}
+.settings-content__head .settings-results__count {
+  margin: 0;
+  font-size: var(--text-display);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.settings-content__head h2:focus {
+  outline: none;
+}
+.settings-field:focus {
+  outline: none;
 }
 .settings-result {
   display: grid;

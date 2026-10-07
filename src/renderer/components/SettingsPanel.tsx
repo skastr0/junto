@@ -46,6 +46,7 @@ import {
   updateState$,
 } from "../lib/update-state";
 import { HUE_TEXT, INK, themeFor } from "../lib/theme";
+import { claimFocus } from "../lib/focus-ownership";
 import { getJuntoApi } from "../lib/junto-api";
 import { FocusSurface } from "./FocusSurface";
 import { Button, ConfirmDialog, Eyebrow, IconButton, Input, OverlayHeader, Select } from "./ui";
@@ -1175,12 +1176,20 @@ export function SettingsPanel() {
       contentRef.current?.querySelectorAll<HTMLElement>("[data-setting]") ?? [],
     ).find((element) => element.dataset.setting === found);
     if (!row) {
+      // No row of its own on this page: the keyboard goes to the page's title.
       contentRef.current?.scrollTo({ top: 0 });
+      claimFocus(contentRef.current?.querySelector<HTMLElement>(".settings-content__head h2"), "gesture");
       setFound(undefined);
       return;
     }
     row.scrollIntoView({ block: "center" });
     row.dataset.found = "";
+    // The keyboard follows: the row's control, or the row itself when it has none.
+    const control = row.querySelector<HTMLElement>(
+      "input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [role='radio'], [role='switch']",
+    );
+    if (!control) row.tabIndex = -1;
+    claimFocus(control ?? row, "gesture");
     const timer = window.setTimeout(() => {
       delete row.dataset.found;
       setFound(undefined);
@@ -1190,6 +1199,12 @@ export function SettingsPanel() {
       delete row.dataset.found;
     };
   }, [found, section, loading]);
+
+  // Keep the marked result in view as Up and Down move it.
+  useEffect(() => {
+    if (query.trim().length === 0) return;
+    contentRef.current?.querySelector("[role='option'][aria-selected='true']")?.scrollIntoView({ block: "nearest" });
+  }, [activeHit, query]);
 
   if (!open) return null;
 
@@ -1256,6 +1271,7 @@ export function SettingsPanel() {
               className="settings-search__input"
               placeholder="Search settings"
               aria-label="Search settings"
+              aria-autocomplete="list"
               aria-expanded={searching}
               aria-controls={resultsId}
               aria-activedescendant={searching && hits.length > 0 ? hitId(shownHit) : undefined}
@@ -1318,52 +1334,51 @@ export function SettingsPanel() {
           </nav>
         </div>
         <div className="settings-content" ref={contentRef}>
-          {/* Always mounted, so the search field can name it. */}
-          <div
-            id={resultsId}
-            role="listbox"
-            aria-label="Settings found"
-            className="settings-page settings-results"
-            hidden={!searching}
-          >
-            {searching ? (
-              <>
-                <div className="settings-content__head">
-                  <h2>
-                    {hits.length === 0
-                      ? "No setting found"
-                      : `${String(hits.length)} ${hits.length === 1 ? "setting" : "settings"}`}
-                  </h2>
-                  <p>
-                    {hits.length === 0
-                      ? "Try a setting's name, a word from its description, or the name of a page."
-                      : "Enter opens the marked one."}
-                  </p>
-                </div>
-                {hits.map((hit, index) => (
-                  <button
-                    key={`${hit.section}:${hit.name}`}
-                    id={hitId(index)}
-                    type="button"
-                    role="option"
-                    tabIndex={-1}
-                    aria-selected={index === shownHit}
-                    className="settings-result"
-                    onMouseMove={() => setActiveHit(index)}
-                    onClick={() => openHit(hit)}
-                  >
-                    <span className="settings-result__name">{hit.name}</span>
-                    <span className="settings-result__page">{hit.sectionLabel}</span>
-                    <span className="settings-result__about">{hit.description}</span>
-                  </button>
-                ))}
-              </>
-            ) : null}
+          <div className="settings-page settings-results" hidden={!searching}>
+            {/* The count is said as it changes; the listbox below holds only options. */}
+            <div className="settings-content__head">
+              <p className="settings-results__count" role="status">
+                {searching
+                  ? hits.length === 0
+                    ? "No setting found"
+                    : `${String(hits.length)} ${hits.length === 1 ? "setting" : "settings"}`
+                  : ""}
+              </p>
+              {searching ? (
+                <p>
+                  {hits.length === 0
+                    ? "Try a setting's name, a word from its description, or the name of a page."
+                    : "Enter opens the marked one."}
+                </p>
+              ) : null}
+            </div>
+            {/* Always mounted, so the search field can name it. */}
+            <div id={resultsId} role="listbox" aria-label="Settings found" className="settings-results__list">
+              {searching
+                ? hits.map((hit, index) => (
+                    <button
+                      key={`${hit.section}:${hit.name}`}
+                      id={hitId(index)}
+                      type="button"
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={index === shownHit}
+                      className="settings-result"
+                      onMouseMove={() => setActiveHit(index)}
+                      onClick={() => openHit(hit)}
+                    >
+                      <span className="settings-result__name">{hit.name}</span>
+                      <span className="settings-result__page">{hit.sectionLabel}</span>
+                      <span className="settings-result__about">{hit.description}</span>
+                    </button>
+                  ))
+                : null}
+            </div>
           </div>
           {searching ? null : (
             <div className="settings-page">
               <div className="settings-content__head">
-                <h2>{meta.label}</h2>
+                <h2 tabIndex={-1}>{meta.label}</h2>
                 {meta.blurb ? <p>{meta.blurb}</p> : null}
               </div>
               {loading ? (
