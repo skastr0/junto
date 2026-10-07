@@ -267,6 +267,7 @@ export function HostDirectoryPicker({
           type="button"
           size="xs"
           variant="subtle"
+          className="shrink-0 whitespace-nowrap"
           disabled={!snapshot || loading}
           onClick={() => {
             if (!snapshot) return;
