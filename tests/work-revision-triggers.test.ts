@@ -158,4 +158,3 @@ describe("Work revision triggers", () => {
     }
   });
 });
-
