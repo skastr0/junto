@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./fixtures/state-v1/canvas-schema";
 import { STATION_STATE_SCHEMA_SQL } from "../src/main/junto/station/state-schema";
-import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "../src/main/junto/work/state-schema";
+import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "./fixtures/state-v1/work-head-schema";
 
 const databases: DatabaseSync[] = [];
 const observedAt = "2026-07-27T12:00:00.000Z";

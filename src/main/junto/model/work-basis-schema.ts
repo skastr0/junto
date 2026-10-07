@@ -1,7 +1,4 @@
-import {
-  WORK_FACT_BASIS_TRIGGER_HEAD_SQL,
-  WORK_STATE_SCHEMA_HEAD_BASIS_SQL,
-} from "../work/state-schema";
+import { workSchemaWithBasisTrigger } from "../work/state-schema";
 
 export const WORK_FACT_CANVAS_BASIS_TRIGGER_SQL = `
   CREATE TRIGGER IF NOT EXISTS work_fact_authorial_basis_resolves
@@ -21,22 +18,24 @@ export const WORK_FACT_CANVAS_BASIS_TRIGGER_SQL = `
   END;
 `;
 
+const base = workSchemaWithBasisTrigger(WORK_FACT_CANVAS_BASIS_TRIGGER_SQL);
+
 const replace = (source: string, from: string, to: string): string => {
   if (!source.includes(from))
     throw new Error("canvas Work schema derivation lost its source fragment");
   return source.replace(from, to);
 };
 
-const authoredColumnsStart = WORK_STATE_SCHEMA_HEAD_BASIS_SQL.indexOf(
+const authoredColumnsStart = base.indexOf(
   "    basis_authorial_generation TEXT",
 );
-const projectedColumnsStart = WORK_STATE_SCHEMA_HEAD_BASIS_SQL.indexOf(
+const projectedColumnsStart = base.indexOf(
   "    basis_projected_generation TEXT",
   authoredColumnsStart,
 );
 if (authoredColumnsStart < 0 || projectedColumnsStart < 0)
   throw new Error("Work fact columns are missing");
-const authoredColumns = WORK_STATE_SCHEMA_HEAD_BASIS_SQL.slice(
+const authoredColumns = base.slice(
   authoredColumnsStart,
   projectedColumnsStart,
 );
@@ -46,16 +45,16 @@ const canvasColumns = `    basis_canvas_name TEXT,
     ),
 `;
 
-const authoredShapeStart = WORK_STATE_SCHEMA_HEAD_BASIS_SQL.indexOf(
+const authoredShapeStart = base.indexOf(
   "        basis_kind = 'authorial-intent'",
 );
-const authoredShapeEnd = WORK_STATE_SCHEMA_HEAD_BASIS_SQL.indexOf(
+const authoredShapeEnd = base.indexOf(
   "      )\n      OR",
   authoredShapeStart,
 );
 if (authoredShapeStart < 0 || authoredShapeEnd < 0)
   throw new Error("Work fact basis check is missing");
-const authoredShape = WORK_STATE_SCHEMA_HEAD_BASIS_SQL.slice(
+const authoredShape = base.slice(
   authoredShapeStart,
   authoredShapeEnd,
 );
@@ -84,11 +83,7 @@ const canvasShape = `        basis_kind = 'historical'
 /** Station storage remains inert; local facts name a canvas and logical seq. */
 export const WORK_STATE_SCHEMA_CANVAS_BASIS_SQL = replace(
   replace(
-    replace(
-      WORK_STATE_SCHEMA_HEAD_BASIS_SQL,
-      WORK_FACT_BASIS_TRIGGER_HEAD_SQL,
-      WORK_FACT_CANVAS_BASIS_TRIGGER_SQL,
-    ),
+    base,
     authoredColumns,
     canvasColumns,
   ),

@@ -32,7 +32,7 @@ import { withoutProposalStorage } from "../../../src/main/junto/work/state-schem
 
 import { MODEL_STATE_SCHEMA_SQL } from "../../../src/main/junto/model/state-schema";
 import { WORK_STATE_SCHEMA_CANVAS_BASIS_SQL } from "../../../src/main/junto/model/work-basis-schema";
-import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "../../../src/main/junto/work/state-schema";
+import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "./work-head-schema";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../domain-cutover/entities-schema";
 
