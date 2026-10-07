@@ -79,7 +79,6 @@ const redoKey = process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+
 
 test("undo and redo: three deep across a drag, a delete and a drag", async ({ junto }) => {
   const { page } = junto;
-  page.on("dialog", (dialog) => void dialog.accept());
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const canvas = await installBoard(page);
   for (const id of ["first", "second", "third"]) await expect(card(page, id)).toBeVisible({ timeout: 30_000 });
