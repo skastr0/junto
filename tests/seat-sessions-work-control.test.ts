@@ -14,7 +14,12 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame, workControlTokenPath } from "../src/shared/work-control";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
-import { respondThen, startWorkControlServer, type WorkControlServer } from "../src/main/junto/work/control";
+import {
+  respondThen,
+  setSeatSessionLookup,
+  startWorkControlServer,
+  type WorkControlServer,
+} from "../src/main/junto/work/control";
 import { closingFence } from "../src/main/junto/term/closing-fence";
 import { WorkLive } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
@@ -282,6 +287,51 @@ describe("junto offboard", () => {
     const unknown = await op("offboard", { notes: "Notes" });
     expect(unknown).toMatchObject({ ok: false, error: { type: "InvalidTransition" } });
     expect(unknown.error.details.retryable).toBe(true);
+  });
+});
+
+describe("junto offboard on a seat whose session id is not known yet", () => {
+  afterEach(() => setSeatSessionLookup(undefined));
+
+  it("looks once, on the spot, and offboards the session it finds", async () => {
+    await writeSession(undefined);
+    const asked: string[] = [];
+    setSeatSessionLookup(async (bindingId) => {
+      asked.push(bindingId);
+      return "found-now";
+    });
+    const result = await op("offboard", { notes: "# Early stop\n\n- first turn of a fresh session" });
+    expect(result.ok).toBe(true);
+    expect(result.data).toMatchObject({ session_id: "found-now", gist: "Early stop" });
+    expect(asked).toEqual(["bind-agent"]);
+    expect(await readFile(result.data.notes_path, "utf8")).toContain("first turn of a fresh session");
+  });
+
+  it("still refuses, in the same words, when the look finds nothing or fails", async () => {
+    await writeSession(undefined);
+    setSeatSessionLookup(async () => undefined);
+    const nothing = await op("offboard", { notes: "Notes" });
+    expect(nothing).toMatchObject({
+      ok: false,
+      error: { type: "InvalidTransition", message: "Junto does not know this session's id yet" },
+    });
+    setSeatSessionLookup(async () => {
+      throw new Error("store unreadable");
+    });
+    const failed = await op("offboard", { notes: "Notes" });
+    expect(failed).toMatchObject({ ok: false, error: { type: "InvalidTransition" } });
+    expect(failed.error.details.retryable).toBe(true);
+  });
+
+  it("does not look when the id is already known", async () => {
+    const asked: string[] = [];
+    setSeatSessionLookup(async (bindingId) => {
+      asked.push(bindingId);
+      return "another";
+    });
+    const result = await op("offboard", { notes: "# Known\n\n- fine" });
+    expect(result.data).toMatchObject({ session_id: "s1" });
+    expect(asked).toEqual([]);
   });
 });
 

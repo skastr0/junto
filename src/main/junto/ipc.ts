@@ -96,6 +96,7 @@ import {
   type SeatOffboardAskResult,
 } from "@shared/seat-sessions";
 import { wireTrafficPreview, type WireTrafficEvent } from "@shared/wire-traffic";
+import { setSeatSessionLookup } from "./work/control";
 import { seatGuidanceIndex } from "./seat-guidance/index-memory";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
@@ -156,6 +157,7 @@ import { injectionSupervisor } from "./term/injection-supervisor";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import { handleSeatOffboardRun, handleSeatOffboardStatus } from "./seat-sessions/operator-offboard-ipc";
 import { startOperatorOffboard } from "./seat-sessions/operator-offboard-live";
+import { cutBeforeMail } from "./seat-sessions/operator-offboard";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
   scheduleManagedPulseReady,
@@ -1953,6 +1955,9 @@ export const registerJuntoIpc = (): void => {
       // Post-spawn session capture for harnesses that mint an id and never
       // print it (Muse, fx). Home is read lazily so a test seam can move it.
       const seatSessionCapture = new SeatSessionCapture(() => homedir());
+      // junto offboard in the first turn of a fresh session: the id may be on
+      // disk before the seat's next state boundary reads it. Look then.
+      setSeatSessionLookup((bindingId) => seatSessionCapture.attempt(bindingId));
       // Operator multi-prompt (RTS): the operator's text is prompt mail from
       // the operator, delivered like any other mail — at once when the seat
       // is live, else when it comes up.
@@ -2486,6 +2491,13 @@ export const registerJuntoIpc = (): void => {
           // Mail to a seat that has not run `junto onboard` carries the
           // pointer on its own line.
           seatOnboarded: (bindingId) => injectionSupervisor.isOnboarded(bindingId),
+          // Auto offboard: a running, idle seat about to be given a turn on
+          // a session that has gone cold gets a fresh session first, and this
+          // mail wakes it there. One seat, at its own delivery; never a timer.
+          cutColdSession: (_bindingId, canvas, nodeId) =>
+            productAutomationSuspended
+              ? Promise.resolve(false)
+              : cutBeforeMail({ canvasName: canvas, seatId: nodeId }),
           // The kernel wake owns locality, the pause law, and the restart
           // budget. A generation already starting needs no second wake.
           wakeSeat: (bindingId, canvas, nodeId) => {

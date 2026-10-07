@@ -944,6 +944,36 @@ const currentSeatSession = (node: CanvasNode): SeatSessionObservation | undefine
   return { seatId: node.id, sessionId: captured, harness: surface.harness, ...(cwd ? { cwd } : {}) };
 };
 
+/**
+ * Look for a seat's session id right now. A harness that mints its own id is
+ * read at the seat's state boundaries, so in the first turn of a fresh
+ * session the id can be on disk and not yet known here; an agent that
+ * offboards then would be refused and left with no turn in which to try again.
+ */
+let seatSessionLookup: ((bindingId: string) => Promise<string | undefined>) | undefined;
+
+/** Wired by the app to the seat's session capture. */
+export const setSeatSessionLookup = (
+  lookup: ((bindingId: string) => Promise<string | undefined>) | undefined,
+): void => {
+  seatSessionLookup = lookup;
+};
+
+/** The session found by looking once, or undefined (never a failure). */
+const lookForSeatSession = (node: CanvasNode): Effect.Effect<SeatSessionObservation | undefined> => {
+  const surface = actorDeliverySurfaceOf(node);
+  const lookup = seatSessionLookup;
+  if (surface?._tag !== "managedAgent" || lookup === undefined) return Effect.succeed(undefined);
+  const cwd = node.ether?.terminal?.launch?.cwd?.trim();
+  return Effect.promise(() => lookup(surface.bindingId).catch(() => undefined)).pipe(
+    Effect.map((sessionId) =>
+      sessionId?.trim()
+        ? { seatId: node.id, sessionId: sessionId.trim(), harness: surface.harness, ...(cwd ? { cwd } : {}) }
+        : undefined,
+    ),
+  );
+};
+
 const isoAt = (ms: number | undefined): string | undefined =>
   ms === undefined ? undefined : new Date(ms).toISOString();
 
@@ -1300,7 +1330,8 @@ const dispatchOp = (
       // Seat identity is the process-bound caller, never an argument: a seat
       // writes only its own current session's notes.
       const self = findNode(board, caller.nodeId)!;
-      const current = currentSeatSession(self);
+      // Not known yet: look once, now, before refusing.
+      const current = currentSeatSession(self) ?? (yield* lookForSeatSession(self));
       if (current === undefined) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "InvalidTransition",
