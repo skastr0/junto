@@ -61,6 +61,8 @@ type SeatSupervision = {
   /** Turns started since the first message, or since the last nudge. */
   turnsWaited: number;
   nudgesDelivered: number;
+  /** The seat ran `junto offboard`: this session waits to be closed. */
+  closing: boolean;
   /** One transport request owns this generation's next nudge receipt. */
   nudgeInFlight: boolean;
 };
@@ -203,6 +205,7 @@ export class InjectionSupervisor {
       inTurn: false,
       turnsWaited: 0,
       nudgesDelivered: 0,
+      closing: false,
       nudgeInFlight: false,
     };
     this.seats.set(bindingId, seat);
@@ -255,6 +258,18 @@ export class InjectionSupervisor {
     seat.onboarding = "onboarded";
     this.publish(bindingId, "onboarded");
     this.record(bindingId, seat);
+  }
+
+  /**
+   * `junto offboard` ran from the seat's own process: its notes are saved and
+   * the session waits to be closed at its next idle moment. From here to the
+   * end of this generation it is not nudged; a nudge would start a turn in a
+   * session that is about to end. The generation that replaces it is new.
+   */
+  noteOffboardSaved(bindingId: string | undefined): void {
+    if (!bindingId) return;
+    const seat = this.seats.get(bindingId);
+    if (seat !== undefined) seat.closing = true;
   }
 
   /** `junto onboard` ran in the harness session this binding is running now. */
@@ -465,6 +480,7 @@ export class InjectionSupervisor {
       firstMessageSeen: seat.firstMessageSeen,
       turnsWaited: seat.turnsWaited,
       nudgesDelivered: seat.nudgesDelivered,
+      closing: seat.closing,
     };
     if (decideIntervention(ctx).kind !== "nudge") return;
     const writer = this.writer;

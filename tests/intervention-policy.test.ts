@@ -32,6 +32,7 @@ const DEFAULT_CTX: InteractionContextT = {
   firstMessageSeen: true,
   turnsWaited: 0,
   nudgesDelivered: 0,
+  closing: false,
 };
 
 const ctxFrom = (over: Partial<InteractionContextT>): InteractionContextT => ({
@@ -164,6 +165,25 @@ describe("intervention policy", () => {
     });
   });
 
+  describe("never into a session that has offboarded and waits to close", () => {
+    it("is silent whatever else is true", () => {
+      for (const seat of SEAT_SIGNALS) {
+        for (const composer of COMPOSER_SIGNALS) {
+          for (const turnsWaited of TURN_VALUES) {
+            for (const nudgesDelivered of NUDGE_VALUES) {
+              expect(decide({ closing: true, seat, composer, turnsWaited, nudgesDelivered })).toBe("silent");
+            }
+          }
+        }
+      }
+    });
+
+    it("a nudge that was due and held is dropped, not sent as the session ends", () => {
+      expect(decide({ turnsWaited: 1, seat: "idle" })).toBe("nudge");
+      expect(decide({ turnsWaited: 1, seat: "idle", closing: true })).toBe("silent");
+    });
+  });
+
   describe("stops for good once the seat onboards", () => {
     it("is silent whatever else is true", () => {
       for (const seat of SEAT_SIGNALS) {
@@ -207,6 +227,7 @@ describe("intervention policy", () => {
           for (const firstMessageSeen of [false, true]) {
             for (const turnsWaited of TURN_VALUES) {
               for (const nudgesDelivered of NUDGE_VALUES) {
+               for (const closing of [false, true]) {
                 combos += 1;
                 const ctx = Schema.decodeUnknownSync(InteractionContext)({
                   seat,
@@ -215,10 +236,12 @@ describe("intervention policy", () => {
                   firstMessageSeen,
                   turnsWaited,
                   nudgesDelivered,
+                  closing,
                 });
                 const decision = decode(decideIntervention(ctx));
                 if (decision.kind !== "nudge") continue;
                 // A write happens only when every clause allows it.
+                expect(closing).toBe(false);
                 expect(onboarding).toBe("not-onboarded");
                 expect(firstMessageSeen).toBe(true);
                 expect(["idle", "working"]).toContain(seat);
@@ -226,12 +249,13 @@ describe("intervention policy", () => {
                 if (seat === "idle") expect(composer).toBe("empty");
                 expect(nudgesDelivered).toBeLessThan(NUDGE_AFTER_TURNS.length);
                 expect(turnsWaited).toBeGreaterThanOrEqual(NUDGE_AFTER_TURNS[nudgesDelivered]!);
+               }
               }
             }
           }
         }
       }
     }
-    expect(combos).toBe(5 * 3 * 3 * 2 * 8 * 4);
+    expect(combos).toBe(5 * 3 * 3 * 2 * 8 * 4 * 2);
   });
 });

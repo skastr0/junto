@@ -3383,6 +3383,8 @@ export const startWorkControlServer = async (
         // Onboarded means exactly this: `junto onboard` answered the seat's
         // own process. No other work-plane call counts.
         if (req.op === "onboard") injectionSupervisor.noteOnboarded(admittedBindingId);
+        // An offboarded session waits to be closed: it is not nudged again.
+        if (req.op === "offboard") injectionSupervisor.noteOffboardSaved(admittedBindingId);
         if (req.op === "preamble" && options.onPreamble) {
           const value = outcome.success as {
             readonly preambleId?: unknown;

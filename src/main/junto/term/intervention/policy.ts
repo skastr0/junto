@@ -18,6 +18,7 @@
  *
  *   onboarded            → silent            (`junto onboard` ran in this harness session)
  *   seat gone            → silent            (no reachable PTY)
+ *   session closing      → silent            (it ran `junto offboard`; it is about to end)
  *   onboarding unknown   → hold("loading")   (a resumed session's status is still being read)
  *   no first message     → hold("no-message")(the session has not been spoken to yet)
  *   budget spent         → silent            (NUDGE_AFTER_TURNS.length nudges delivered)
@@ -99,6 +100,11 @@ export const InteractionContext = Schema.Struct({
   turnsWaited: Count,
   /** Nudges delivered to this generation. */
   nudgesDelivered: Count,
+  /**
+   * The seat ran `junto offboard` and this session waits to be closed. A
+   * nudge here would start a turn in a session that is about to end.
+   */
+  closing: Schema.Boolean,
 });
 export type InteractionContext = typeof InteractionContext.Type;
 
@@ -126,6 +132,9 @@ export const PTY_WRITE_KINDS: ReadonlySet<string> = new Set(["nudge"]);
 export const decideIntervention = (ctx: InteractionContext): Intervention => {
   if (ctx.onboarding === "onboarded") return { kind: "silent" };
   if (ctx.seat === "gone") return { kind: "silent" };
+  // Offboarded and waiting to close: nothing more is said to this session.
+  // The one that replaces it starts its own count.
+  if (ctx.closing) return { kind: "silent" };
   if (ctx.onboarding === "unknown") return { kind: "hold", reason: "loading" };
 
   // A fresh seat opens to the harness's own empty composer and stays that

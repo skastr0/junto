@@ -414,6 +414,58 @@ describe("InjectionSupervisor", () => {
     });
   });
 
+  describe("a session that has offboarded and is waiting to close", () => {
+    it("is not nudged when its offboard turn ends, however due a nudge is", async () => {
+      // The operator's report: the seat never onboarded, ran junto offboard,
+      // and the nudge was typed into the session as its turn ended.
+      const writer = vi.fn<NoticeWriter>().mockReturnValueOnce(false).mockReturnValue(true);
+      const { supervisor, start, state } = rig(writer);
+      await start();
+      state("working");
+      supervisor.noteMailWritten("b1");
+      // The first nudge was held by the gate for the whole turn.
+      expect(writer).toHaveBeenCalledTimes(1);
+      supervisor.noteOffboardSaved("b1");
+      state("idle");
+      supervisor.noteWritable("b1");
+      supervisor.onSnapshot(snap({ seq: 5n }));
+      expect(writer).toHaveBeenCalledTimes(1);
+    });
+
+    it("gets no second nudge either, while it waits to be closed", async () => {
+      const { writer, supervisor, start, mailTurn, turn, state } = rig();
+      await start();
+      mailTurn();
+      turn();
+      turn();
+      expect(writer).toHaveBeenCalledTimes(1);
+      supervisor.noteOffboardSaved("b1");
+      // The turn that would have earned the second nudge.
+      state("working");
+      state("idle");
+      for (let i = 0; i < 4; i += 1) turn();
+      expect(writer).toHaveBeenCalledTimes(1);
+    });
+
+    it("the session that replaces it starts clean and is nudged like any other", async () => {
+      const { writer, supervisor, session, start, mailTurn, exit } = rig();
+      await start();
+      mailTurn();
+      supervisor.noteOffboardSaved("b1");
+      exit();
+      session.id = "session-2";
+      await start("e2");
+      mailTurn();
+      expect(writer).toHaveBeenCalledTimes(2);
+    });
+
+    it("an offboard for a seat the supervisor has not seen is ignored", () => {
+      const { supervisor } = rig();
+      expect(() => supervisor.noteOffboardSaved("nope")).not.toThrow();
+      expect(() => supervisor.noteOffboardSaved(undefined)).not.toThrow();
+    });
+  });
+
   describe("the status follows the harness session", () => {
     it("a resumed onboarded session is not nudged again", async () => {
       const { writer, supervisor, onboardedSessions, start, mailTurn, turn, exit } = rig();
