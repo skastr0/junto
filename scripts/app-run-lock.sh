@@ -19,12 +19,12 @@
 # released when the calling shell exits. A caller that already holds it (a
 # build wrapper that then runs the e2e script) passes through.
 #
-# A holder limits itself: when its command has held the lock for
-# JUNTO_APP_RUN_LOCK_MAX_HOLD seconds (default 1200) it says so in one line,
-# ends its own command, gives the lock back and exits 124, so a run stuck on a
-# dialog or a window that never comes cannot sit on the machine. A run that
-# truly needs longer sets the variable higher on purpose. A waiter prints once
-# a minute how long the current holder has held.
+# A holder watches its own hold: when its command has held the lock for
+# JUNTO_APP_RUN_LOCK_MAX_HOLD seconds (default 1200) it says so in one loud
+# line, so a run stuck on a dialog or a window that never comes is seen. It
+# does not end the command: this tooling never signals a process by pid. A run
+# that truly needs longer sets the variable higher on purpose. A waiter prints
+# once a minute how long the current holder has held.
 
 junto_app_run_lock_dir() {
   printf '%s/app-run.lock' "${JUNTO_APP_RUN_LOCK_HOME:-${HOME}/.junto/locks}"
@@ -183,66 +183,29 @@ junto_app_run_lock_acquire() {
   JUNTO_APP_RUN_LOCK_WHAT="$what"
 }
 
-# End the command this shell runs under the lock: TERM, then KILL after ten
-# seconds. Its own child only, never anything else on the machine.
-junto_app_run_lock_end_command() {
-  local child="${JUNTO_APP_RUN_LOCK_CHILD:-}" deadline=$(( SECONDS + 10 ))
-  if [[ -n "${JUNTO_APP_RUN_LOCK_TIMER:-}" ]]; then
-    kill "$JUNTO_APP_RUN_LOCK_TIMER" 2>/dev/null || true
-    JUNTO_APP_RUN_LOCK_TIMER=""
-  fi
-  [[ -n "$child" ]] || return 0
-  kill -TERM "$child" 2>/dev/null || true
-  while kill -0 "$child" 2>/dev/null && (( SECONDS < deadline )); do
-    sleep 0.2
-  done
-  kill -KILL "$child" 2>/dev/null || true
-  wait "$child" 2>/dev/null || true
-  JUNTO_APP_RUN_LOCK_CHILD=""
-}
-
 # Run the command the lock was taken for and return its status. The shell that
-# took the lock holds it for at most JUNTO_APP_RUN_LOCK_MAX_HOLD seconds, then
-# ends the command and exits 124. A shell that passed through runs it as is.
+# took the lock says so, once, when the command has held it for
+# JUNTO_APP_RUN_LOCK_MAX_HOLD seconds. A shell that passed through runs it as is.
 junto_app_run_lock_run() {
   if [[ "${JUNTO_APP_RUN_LOCK_OWNER:-}" != "$$" ]]; then
     "$@"
     return $?
   fi
 
-  local max_hold="${JUNTO_APP_RUN_LOCK_MAX_HOLD:-1200}" status
+  local max_hold="${JUNTO_APP_RUN_LOCK_MAX_HOLD:-1200}" lock_dir
   local deadline=$(( JUNTO_APP_RUN_LOCK_SINCE + max_hold ))
-  JUNTO_APP_RUN_LOCK_OVERHELD=""
+  lock_dir="$(junto_app_run_lock_dir)"
 
-  # In the background so the limit can interrupt the wait; stdin stays the caller's.
-  "$@" <&0 &
-  JUNTO_APP_RUN_LOCK_CHILD=$!
-  trap 'JUNTO_APP_RUN_LOCK_OVERHELD=1' USR1
-  trap 'junto_app_run_lock_end_command; exit 130' INT
-  trap 'junto_app_run_lock_end_command; exit 143' TERM
+  # The watcher ends by itself within a second of the lock being given back.
   (
-    while (( SECONDS < deadline )); do sleep 1; done
-    kill -USR1 "$$" 2>/dev/null
-  ) </dev/null >/dev/null 2>&1 &
-  JUNTO_APP_RUN_LOCK_TIMER=$!
+    while [[ "$(cat "$lock_dir/pid" 2>/dev/null)" == "$$" ]]; do
+      if (( SECONDS >= deadline )); then
+        printf 'junto: WARNING: this run (%s, pid %s, seat %s) has held the app-run lock for %ss, its limit, and still holds it. It is not ended from here; if it is stuck, end it. A run that truly needs longer sets JUNTO_APP_RUN_LOCK_MAX_HOLD higher.\n' "$JUNTO_APP_RUN_LOCK_WHAT" "$$" "${JUNTO_NODE_REF:-${USER:-unknown}}" "$max_hold" >&2
+        break
+      fi
+      sleep 1
+    done
+  ) </dev/null >/dev/null &
 
-  while true; do
-    status=0
-    wait "$JUNTO_APP_RUN_LOCK_CHILD" || status=$?
-    if [[ -n "$JUNTO_APP_RUN_LOCK_OVERHELD" ]]; then
-      printf 'junto: error: this run (%s, pid %s, seat %s) has held the app-run lock for %ss, its limit; ending its command and giving the lock back. A run that truly needs longer sets JUNTO_APP_RUN_LOCK_MAX_HOLD higher.\n' "$JUNTO_APP_RUN_LOCK_WHAT" "$$" "${JUNTO_NODE_REF:-${USER:-unknown}}" "$max_hold" >&2
-      junto_app_run_lock_end_command
-      exit 124
-    fi
-    kill -0 "$JUNTO_APP_RUN_LOCK_CHILD" 2>/dev/null || break
-  done
-
-  kill "$JUNTO_APP_RUN_LOCK_TIMER" 2>/dev/null || true
-  wait "$JUNTO_APP_RUN_LOCK_TIMER" 2>/dev/null || true
-  JUNTO_APP_RUN_LOCK_TIMER=""
-  JUNTO_APP_RUN_LOCK_CHILD=""
-  trap - USR1
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  return "$status"
+  "$@"
 }
