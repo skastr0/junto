@@ -8,6 +8,7 @@
  * adds an overall note, closes and reopens the review, and sends.
  *
  * Asserts:
+ *   - a comment can be started from the keyboard, and Escape keeps its words
  *   - the plus in the gutter opens a composer under the line, with the keyboard in it
  *   - @ offers the region's agents; Enter picks; the comment then goes to that agent
  *   - the pending review survives closing and reopening the surface
@@ -100,6 +101,26 @@ test("[fake-tui] a review's comments reach each agent as exactly one mail", asyn
     await expect(status).toHaveText("No comments yet");
     await expect(send).toHaveText("Send to Atlas");
     await expect(send).toBeDisabled();
+
+    // From the keyboard: the file's own button opens a composer on its first changed line,
+    // Escape hands the keyboard back to the button, and the words typed are kept for that line.
+    const onFile = detail.getByTestId("git-review-comment-on-file").first();
+    await expect(onFile).toHaveText("Comment on parser.ts");
+    await onFile.focus();
+    await page.keyboard.press("Enter");
+    const typed = detail.getByTestId("git-review-composer").locator("textarea");
+    await expect(typed).toBeFocused();
+    await expect(detail.getByLabel("Line this comment is on")).toHaveValue("3");
+    await page.keyboard.type("Kept words");
+    await page.keyboard.press("Escape");
+    await expect(detail.getByTestId("git-review-composer")).toHaveCount(0);
+    await expect(detail).toBeVisible();
+    await expect(onFile).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(typed).toHaveValue("Kept words");
+    await page.keyboard.press("Escape");
+    await expect(detail.getByTestId("git-review-composer")).toHaveCount(0);
+    await expect(status).toHaveText("No comments yet");
 
     // A comment on the first added line: the composer opens under it with the keyboard in it.
     await pressPlusOn(page, detail, 0);
