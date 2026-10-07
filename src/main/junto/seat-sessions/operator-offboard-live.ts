@@ -28,6 +28,7 @@ import { SettingsService } from "../settings/service";
 import { seatStateRuntime } from "../term/agent-state/runtime";
 import { terminalObserverPlane } from "../term/observer";
 import { termPlane } from "../term/plane";
+import { sessionSizeOf } from "../term/session-size";
 import { defaultSeatsRoot, seatSessionNotesPath, writeEndedMarker } from "./notes-file";
 import {
   OFFBOARD_TICK_MS,
@@ -232,6 +233,19 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       },
       markEnded: (seat, sessionId, by, at) =>
         writeEndedMarker(seatSessionNotesPath(defaultSeatsRoot(), seat.seatId, sessionId), { by, at }),
+      // The session's transcript as tokens (term/session-size.ts): a stat and
+      // a bounded read, never the whole file. Undefined when the transcript
+      // cannot be located, and the session is then judged on work time alone.
+      sessionSize: (seat) => {
+        if (seat.sessionId === undefined) return undefined;
+        const cwd = cwds.get(seat.bindingId);
+        const size = sessionSizeOf({
+          harness: seat.harness,
+          sessionId: seat.sessionId,
+          ...(cwd ? { cwd } : {}),
+        });
+        return size ? { tokens: size.tokens } : undefined;
+      },
       rules: () => rules,
       saveClock: (record) => writeClock(clockPath, record),
       log: (message) => console.info(`[offboard] ${message}`),
