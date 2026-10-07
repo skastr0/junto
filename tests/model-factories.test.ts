@@ -33,8 +33,8 @@ import {
   newSheet,
   newTaskBoard,
   newTerminal,
-  seatParts,
 } from "../src/renderer/lib/model-factories";
+import { seatParts } from "../src/shared/model/seat-parts";
 import { buildManagedAgentSeat, makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
 const name = asCanvasName("factory");

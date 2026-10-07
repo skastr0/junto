@@ -18,7 +18,7 @@ import {
 } from "@shared/features";
 import { emptySheet } from "@shared/sheet";
 import { isValidStationHostId } from "@shared/station";
-import { seatParts } from "./model-factories";
+import { seatParts } from "@shared/model/seat-parts";
 import { AGENT_NODE_SIZE, INSTRUMENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-geometry";
 
 const requireHostId = (value: string): string => {

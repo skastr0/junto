@@ -2,18 +2,14 @@ import { ulid } from "ulid";
 import {
   ARTIFACTS_ENABLED,
   BOARD_ENABLED,
-  managedHarnessEnabled,
   PAD_ENABLED,
   REQUESTS_ENABLED,
   SHEET_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
-import { sanitizeExtraArgs } from "@shared/launch-extra-args";
-import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
-import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { asNodeId, type NodeOf } from "@shared/model";
 import type { Region } from "@shared/model/region";
-import { isValidStationHostId } from "@shared/station";
+import { newBinding, requireHostId, seatParts, type SeatChoices } from "@shared/model/seat-parts";
 import { AGENT_NODE_SIZE, INSTRUMENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-geometry";
 
 // Each kind of thing the operator can put on a canvas, as it is when new: its
@@ -28,7 +24,6 @@ export type Spot = { readonly x: number; readonly y: number; readonly z: number 
 
 type Size = { readonly width: number; readonly height: number };
 type Launch = NonNullable<NodeOf<"agent">["launch"]>;
-type BindingId = NodeOf<"agent">["bindingId"];
 
 const placed = (prefix: string, spot: Spot, size: Size) => ({
   id: asNodeId(`${prefix}-${ulid()}`),
@@ -38,16 +33,6 @@ const placed = (prefix: string, spot: Spot, size: Size) => ({
   height: Math.round(size.height),
   z: spot.z,
 });
-
-const newBinding = (): BindingId => ulid() as BindingId;
-
-const requireHostId = (value: string): string => {
-  const host = value.trim();
-  if (!isValidStationHostId(host)) {
-    throw new Error(`invalid station host id: ${JSON.stringify(value)}`);
-  }
-  return host;
-};
 
 /** A kind this build has off cannot be made, though one already there still shows. */
 const requireFeature = (enabled: boolean, label: string): void => {
@@ -95,90 +80,6 @@ export const newGit = (spot: Spot, cwd: string, label?: string): NodeOf<"git"> =
 });
 
 // ── Seats and terminals ─────────────────────────────────────────────────────
-
-/** What the operator chooses when seating an agent. */
-export type SeatChoices = {
-  readonly harness: HarnessId;
-  /** The machine the seat runs on. */
-  readonly host: string;
-  /** Hermes routing prefix when the host declares a distinct key. */
-  readonly agentHost?: string;
-  readonly profile?: string;
-  readonly model?: string;
-  readonly effort?: string;
-  /** Named agent mode (Amp `-m low|medium|high|ultra`). */
-  readonly mode?: string;
-  readonly permissionMode?: string;
-  /** Extra harness arguments beyond the dials. */
-  readonly extraArgs?: readonly string[];
-  readonly cwd?: string;
-  readonly label?: string;
-};
-
-/** Everything that says which agent runs in a seat and how it is started. */
-export type SeatParts = {
-  readonly label: string;
-  readonly agentKey: string;
-  readonly host: string;
-  readonly bindingId: BindingId;
-  readonly harness: HarnessId;
-  readonly launch: Launch;
-  /** Minted here for a harness that pins its session, so every wake resumes that one. */
-  readonly sessionId?: string;
-};
-
-/**
- * Work out a seat from the operator's choices: the one place for the launch
- * rules, shared by a new seat and a reseat. The launch holds arguments only;
- * main adds the seat's environment when it starts it, and no secret is kept.
- */
-export const seatParts = (choices: SeatChoices): SeatParts => {
-  if (!managedHarnessEnabled(choices.harness)) {
-    throw new Error(`managed harness ${choices.harness} is disabled in this build`);
-  }
-  const host = requireHostId(choices.host);
-  const agentHost = requireHostId(choices.agentHost ?? host);
-  const template = templateFor(choices.harness);
-  const extraArgs = sanitizeExtraArgs(choices.harness, choices.extraArgs).args;
-  // A pinning harness wants a UUID for its session flag, and refuses a ULID.
-  const sessionId = template.capabilityBadges.sessionId === "pin" ? crypto.randomUUID() : undefined;
-  const resolved = resolveManagedLaunch(
-    choices.harness,
-    {
-      ...(choices.profile ? { profile: choices.profile } : {}),
-      ...(choices.model ? { model: choices.model } : {}),
-      ...(choices.effort ? { effort: choices.effort } : {}),
-      ...(choices.mode ? { mode: choices.mode } : {}),
-      ...(choices.permissionMode ? { permissionMode: choices.permissionMode } : {}),
-      ...(extraArgs.length > 0 ? { extraArgs } : {}),
-      ...(choices.cwd ? { cwd: choices.cwd } : {}),
-      ...(sessionId ? { sessionId } : {}),
-    },
-    {},
-  );
-  const launch: Launch = {
-    kind: "harness",
-    argv: resolved.argv,
-    ...(resolved.cwd ? { cwd: resolved.cwd } : {}),
-    ...(extraArgs.length > 0 ? { extraArgs: [...extraArgs] } : {}),
-  };
-  const agentKey =
-    choices.harness === "hermes" && choices.profile
-      ? `${agentHost}:${choices.profile}`
-      : `${agentHost}:${choices.harness}`;
-  const dials = [template.displayName, choices.profile, choices.model, choices.effort, choices.mode].filter(
-    (part): part is string => Boolean(part && part.trim()),
-  );
-  return {
-    label: choices.label?.trim() || dials.join(" - "),
-    agentKey,
-    host,
-    bindingId: newBinding(),
-    harness: choices.harness,
-    launch,
-    ...(sessionId ? { sessionId } : {}),
-  };
-};
 
 /** A seat: an agent with a harness, a terminal session and a mailbox. Never an overseer when new. */
 export const newSeat = (spot: Spot, choices: SeatChoices): NodeOf<"agent"> => ({
