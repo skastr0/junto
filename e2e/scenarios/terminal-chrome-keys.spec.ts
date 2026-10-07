@@ -6,16 +6,21 @@
  *   bun run test:e2e:fast e2e/scenarios/terminal-chrome-keys.spec.ts
  */
 import type { Locator, Page } from "@playwright/test";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+import {
+  crewDoc,
+  crewMessagesEdge,
+  crewOccupySeat,
+  crewPlayFactory,
+  crewSeat,
+  crewSeatNode,
+  installCrewSeatHarness,
+} from "../harness/crew-fixture";
 import { expect, launchJunto, test } from "../harness/launch";
 
-const CANVAS = "terminal-chrome-keys";
-const PEERS = ["ada", "bea"];
-const nodes = [
-  agentTextNode({ id: "lead", key: "local:chrome-lead", label: "lead", x: 40, y: 40 }),
-  ...PEERS.map((id, i) => agentTextNode({ id, key: `local:chrome-${id}`, label: id, x: 360, y: 40 + i * 130 })),
-];
-const fixture = canvasDoc(nodes, PEERS.map((id) => verbEdge(`e-lead-${id}`, "lead", id, "messages", nodes)));
+const CANVAS = "chrome-keys";
+const lead = crewSeatNode({ id: "lead", x: 40, y: 40 });
+const peer = crewSeatNode({ id: "peer", x: 360, y: 40 });
+const fixture = crewDoc([lead, peer], [crewMessagesEdge("e-lead-peer", "lead", "peer", [lead, peer])]);
 
 const front = (page: Page): Locator =>
   page.locator(".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface");
@@ -31,18 +36,23 @@ const place = (page: Page): Promise<string> =>
     return "elsewhere";
   });
 
-test("Cmd+Up shows where it landed, Tab reaches the connections, Cmd+Down returns typing", async ({}, testInfo) => {
-  test.setTimeout(150_000);
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+test("[fake-tui] Cmd+Up shows where it landed, Tab reaches the connections, Cmd+Down returns typing", async ({}, testInfo) => {
+  test.setTimeout(240_000);
+  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture }, afterSeed: installCrewSeatHarness });
   try {
-    const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
+    const { page, sandbox } = junto;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await crewPlayFactory(page);
+    const seat = crewSeat(sandbox, CANVAS, "lead");
+    await crewOccupySeat(page, CANVAS, lead, seat);
+    await crewOccupySeat(page, CANVAS, peer, crewSeat(sandbox, CANVAS, "peer"));
+
     await page.locator('.react-flow__node[data-id="lead"]').dblclick();
-    await expect(front(page).locator("header").first()).toContainText("lead", { timeout: 20_000 });
-    await expect(front(page).locator(".native-terminal-surface__status")).not.toContainText("starting", { timeout: 20_000 });
+    await expect(front(page)).toBeVisible({ timeout: 20_000 });
+    await expect(front(page).getByTestId("actor-rail-go").first()).toBeVisible({ timeout: 10_000 });
 
     // Enter the terminal as an operator does: with a click.
-    await front(page).locator(".xterm").click();
+    await front(page).locator(".xterm").first().click();
     await expect.poll(() => place(page)).toBe("terminal");
 
     // Out: the first header control has the keyboard, and a ring is drawn on it.
@@ -81,6 +91,9 @@ test("Cmd+Up shows where it landed, Tab reaches the connections, Cmd+Down return
     await expect.poll(() => place(page)).toBe("header");
     await page.keyboard.press("Meta+ArrowDown");
     await expect.poll(() => place(page)).toBe("terminal");
+    // And what is typed next reaches the agent's own process.
+    await page.keyboard.type("back in the shell");
+    await expect.poll(() => seat.stdinLog(), { timeout: 20_000 }).toContain("back in the shell");
   } finally {
     await junto.close();
   }
