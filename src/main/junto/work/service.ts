@@ -29,6 +29,7 @@ import {
   tagNotifyNodeIds,
 } from "@shared/board-actors";
 import { resolveBoardWakeSet } from "@shared/board-wake";
+import { canvasFromDocument } from "@shared/model/from-document";
 import {
   addedPadMentions,
   inboundActorNodeIds,
@@ -3950,7 +3951,7 @@ export const WorkLive = Layer.effect(
             const rule = padAuthorRuleError(
               author,
               stamped,
-              inboundActorNodeIds(read.doc, nodeId),
+              inboundActorNodeIds(canvasFromDocument(canvas, read.doc), nodeId),
               overseer === undefined ? undefined : { overseer: true },
             );
             if (rule !== undefined) {
@@ -4019,7 +4020,7 @@ export const WorkLive = Layer.effect(
               home === context.localInstallationId &&
               addedMentions.length > 0
             ) {
-              const actors = resolvePadInboundActors(read.doc, nodeId);
+              const actors = resolvePadInboundActors(canvasFromDocument(canvas, read.doc), nodeId);
               const notifyIds = new Set(
                 tagNotifyNodeIds(
                   addedMentions,
@@ -4027,7 +4028,7 @@ export const WorkLive = Layer.effect(
                   author.kind === "actor" ? author.nodeId : undefined,
                 ),
               );
-              const seats = resolveBoardWakeSet(read.doc, nodeId).filter(
+              const seats = resolveBoardWakeSet(canvasFromDocument(canvas, read.doc), nodeId).filter(
                 (seat) => notifyIds.has(seat.nodeId),
               );
               if (seats.length > 0) {

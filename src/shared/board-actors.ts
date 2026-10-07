@@ -1,16 +1,16 @@
 /**
  * Board collaboration: connected-actor registry + post tags.
  *
- * Connected actors are derived from the canvas (edges to the board node).
+ * Connected actors are derived from the canvas (wires at the board node).
  * Tags on posts name actor node ids; tag notify is opt-in via edge wake
  * (same default as operator megaphone: ON unless wake:false) but is a soft
  * inject — no reply / ack required, less urgent copy than mailbox.
  */
 
-import type { CanvasDoc, CanvasNode } from "./canvas";
-import { isGroup } from "./graph";
-import { resolveSpec, roleOf } from "./physics";
-import { edgeNotifyOn, authorLabel } from "./board-wake";
+import type { CanvasNode } from "./canvas";
+import type { NodeId } from "./model/base";
+import { nodeOf, wiresAt, type Canvas } from "./model/canvas";
+import { edgeNotifyOn } from "./board-wake";
 import { sanitizeDeliveryLine } from "./message-delivery";
 
 export type BoardConnectedActor = {
@@ -22,76 +22,56 @@ export type BoardConnectedActor = {
   readonly wake: boolean;
 };
 
-const actorFromNode = (
-  doc: CanvasDoc,
+const actorAt = (
+  canvas: Canvas,
   sinkNodeId: string,
-  node: CanvasNode,
+  nodeId: NodeId,
 ): BoardConnectedActor | undefined => {
-  const spec = resolveSpec({
-    isGroup: isGroup(node),
-    kind: node.ether?.entity?.kind,
-  });
-  if (roleOf(spec) !== "actor") return undefined;
-  const agentKey =
-    typeof node.ether?.entity?.name === "string" &&
-    node.ether.entity.name.trim().length > 0
-      ? node.ether.entity.name.trim()
-      : undefined;
+  const seat = nodeOf(canvas, nodeId, "agent");
+  if (seat === undefined) return undefined;
   return {
-    nodeId: node.id,
-    ...(agentKey ? { agentKey } : {}),
-    label: authorLabel(node),
-    wake: edgeNotifyOn(doc, sinkNodeId, node.id),
+    nodeId: seat.id,
+    agentKey: seat.name,
+    label: seat.name,
+    wake: edgeNotifyOn(canvas, sinkNodeId, seat.id),
   };
 };
 
-/** Actors with an undirected edge to the board sink (actor role only). */
+/** Seats joined to the board by a wire in either direction. */
 export const resolveBoardConnectedActors = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   boardNodeId: string,
 ): ReadonlyArray<BoardConnectedActor> => {
-  const board = doc.nodes.find((n) => n.id === boardNodeId);
-  if (!board) return [];
-
-  const neighborIds = new Set<string>();
-  for (const edge of doc.edges) {
-    if (edge.fromNode === boardNodeId) neighborIds.add(edge.toNode);
-    if (edge.toNode === boardNodeId) neighborIds.add(edge.fromNode);
+  const board = boardNodeId as NodeId;
+  if (!canvas.nodes.has(board)) return [];
+  const out = new Map<string, BoardConnectedActor>();
+  for (const wire of wiresAt(canvas, board)) {
+    const other = wire.from === board ? wire.to : wire.from;
+    if (out.has(other)) continue;
+    const actor = actorAt(canvas, boardNodeId, other);
+    if (actor) out.set(other, actor);
   }
-
-  const out: BoardConnectedActor[] = [];
-  for (const nodeId of neighborIds) {
-    const node = doc.nodes.find((n) => n.id === nodeId);
-    if (!node) continue;
-    const actor = actorFromNode(doc, boardNodeId, node);
-    if (actor) out.push(actor);
-  }
-  return out.sort((a, b) => a.nodeId.localeCompare(b.nodeId));
+  return [...out.values()].sort((a, b) => a.nodeId.localeCompare(b.nodeId));
 };
 
 /**
- * Pad mention universe: inbound actor edges only. `@` cannot name an
- * unwired or outbound-only seat. Same BoardConnectedActor shape as board
+ * Pad mention universe: seats with a wire into the pad only. `@` cannot name
+ * an unwired or outbound-only seat. Same BoardConnectedActor shape as board
  * tags so tag-notify reuse stays one roster.
  */
 export const resolvePadInboundActors = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   padNodeId: string,
 ): ReadonlyArray<BoardConnectedActor> => {
-  if (!doc.nodes.some((node) => node.id === padNodeId)) return [];
-  const out: BoardConnectedActor[] = [];
-  const seen = new Set<string>();
-  for (const edge of doc.edges) {
-    if (edge.toNode !== padNodeId) continue;
-    if (seen.has(edge.fromNode)) continue;
-    const node = doc.nodes.find((candidate) => candidate.id === edge.fromNode);
-    if (!node) continue;
-    const actor = actorFromNode(doc, padNodeId, node);
-    if (!actor) continue;
-    seen.add(actor.nodeId);
-    out.push(actor);
+  const pad = padNodeId as NodeId;
+  if (!canvas.nodes.has(pad)) return [];
+  const out = new Map<string, BoardConnectedActor>();
+  for (const wire of wiresAt(canvas, pad)) {
+    if (wire.to !== pad || out.has(wire.from)) continue;
+    const actor = actorAt(canvas, padNodeId, wire.from);
+    if (actor) out.set(wire.from, actor);
   }
-  return out.sort((a, b) => a.nodeId.localeCompare(b.nodeId));
+  return [...out.values()].sort((a, b) => a.nodeId.localeCompare(b.nodeId));
 };
 
 const MAX_TAGS = 16;
@@ -182,5 +162,8 @@ export const postTagsActor = (
 ): boolean =>
   Boolean(tags?.some((id) => id === actorNodeId));
 
-export const nodeDisplayLabel = (node: CanvasNode | undefined): string =>
-  authorLabel(node);
+export const nodeDisplayLabel = (node: CanvasNode | undefined): string => {
+  const name = node?.ether?.entity?.name;
+  if (typeof name === "string" && name.trim()) return name.trim();
+  return node?.id ?? "agent";
+};

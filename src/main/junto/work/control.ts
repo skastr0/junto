@@ -223,6 +223,7 @@ import {
 import { regionStack } from "@shared/graph";
 import { sheetToMarkdown } from "@shared/sheet";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
+import { canvasFromDocument } from "@shared/model/from-document";
 import { wiresFromDocument } from "@shared/model/from-document";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import {
@@ -2378,7 +2379,7 @@ const dispatchOp = (
         () => import("@shared/board-actors"),
       );
       const actors = resolveBoardConnectedActors(
-        board,
+        canvasFromDocument(caller.canvasName, board),
         decoded.success.target,
       );
       return {
@@ -2459,7 +2460,7 @@ const dispatchOp = (
         () => import("@shared/board-wake"),
       );
       const actors = resolveBoardConnectedActors(
-        board,
+        canvasFromDocument(caller.canvasName, board),
         decoded.success.target,
       );
       const tags = filterTagsToConnected(
@@ -2483,7 +2484,10 @@ const dispatchOp = (
           tagNotifyNodeIds(tags, actors, bound.success.nodeId),
         );
         if (notifyIds.size > 0) {
-          const seats = resolveBoardWakeSet(board, decoded.success.target).filter(
+          const seats = resolveBoardWakeSet(
+            canvasFromDocument(caller.canvasName, board),
+            decoded.success.target,
+          ).filter(
             (s) => notifyIds.has(s.nodeId),
           );
           if (seats.length > 0) {

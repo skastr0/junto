@@ -150,6 +150,7 @@ import {
   padAuthorRuleError,
   stampPadPatchAuthors,
 } from "./pad-rules";
+import { canvasFromDocument } from "@shared/model/from-document";
 import { ContentManifest, ContentManifestError } from "../content/manifest";
 import {
   mailboxMessageDeliveryId,
@@ -2761,7 +2762,7 @@ const inboundActorsForPad = Effect.fn("work.inboundActorsForPad")(function* (
   if (index.doc === undefined) return new Set();
   const cached = index.byNode.get(sink.nodeId);
   if (cached !== undefined) return cached;
-  const actors = inboundActorNodeIds(index.doc, sink.nodeId);
+  const actors = inboundActorNodeIds(canvasFromDocument(sink.canvasName, index.doc), sink.nodeId);
   index.byNode.set(sink.nodeId, actors);
   return actors;
 });

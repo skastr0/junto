@@ -2,15 +2,15 @@
  * Work-plane author rules for pad patches. Author class is not in pad.ts.
  */
 import { resolvePadInboundActors } from "@shared/board-actors";
-import type { CanvasDoc } from "@shared/canvas";
+import type { Canvas } from "@shared/model/canvas";
 import type { Pad, PadPatch } from "@shared/pad";
 import type { BoardAuthor } from "@shared/work-model";
 
 export const inboundActorNodeIds = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   padNodeId: string,
 ): ReadonlySet<string> =>
-  new Set(resolvePadInboundActors(doc, padNodeId).map((actor) => actor.nodeId));
+  new Set(resolvePadInboundActors(canvas, padNodeId).map((actor) => actor.nodeId));
 
 const mentionsOf = (patch: PadPatch): ReadonlyArray<string> => {
   if (patch.op === "pin.upsert") return patch.pin.mentions;

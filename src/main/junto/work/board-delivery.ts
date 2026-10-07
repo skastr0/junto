@@ -12,6 +12,7 @@ import {
   type BoardWakeEvent,
   type BoardWakeKind,
 } from "@shared/board-wake";
+import { canvasFromDocument } from "@shared/model/from-document";
 import { CanvasesService } from "../canvases";
 
 export type BoardDeliveryTransport = {
@@ -104,7 +105,7 @@ export const deliverBoardWake = (input: {
       excerptSource: input.excerptSource,
       createdAt: Date.now(),
     };
-    const seats = resolveBoardWakeSet(doc, input.boardNodeId);
+    const seats = resolveBoardWakeSet(canvasFromDocument(input.canvas, doc), input.boardNodeId);
     const payload = composeBoardInjectEnvelope(wake);
     return yield* Effect.promise(() =>
       deliverBoardWakeSeats({

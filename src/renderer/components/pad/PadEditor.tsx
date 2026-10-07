@@ -22,6 +22,7 @@ import {
 import { use$ } from "@legendapp/state/react";
 import { Result } from "effect";
 import { resolvePadInboundActors } from "@shared/board-actors";
+import { canvasFromDocument } from "@shared/model/from-document";
 import type { ContentRef } from "@shared/content";
 import { contentObjectUrl } from "@shared/content-url";
 import {
@@ -356,7 +357,7 @@ export function PadEditor({
   const inkColor = defaultInkColor(theme);
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName) || "";
-  const mentionActors = resolvePadInboundActors(doc, padNodeId);
+  const mentionActors = resolvePadInboundActors(canvasFromDocument(canvasName, doc), padNodeId);
   const selectedPin = selectedId ? pinById(pad, selectedId) : undefined;
 
   const selected = selectedId

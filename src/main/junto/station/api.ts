@@ -81,6 +81,7 @@ import {
   type ProjectedActorSeat,
 } from "./actor-seat-compiler";
 import { decodeStationPortfolioBody } from "./portfolio";
+import { canvasFromDocument } from "@shared/model/from-document";
 import {
   StationRepository,
   type StationConfigurationRecord,
@@ -1099,7 +1100,10 @@ export const makeStationWorkAdmission = (
           const rule = padAuthorRuleError(
             author,
             command.body.patches,
-            inboundActorNodeIds(canvas, command.item.sink.nodeId),
+            inboundActorNodeIds(
+              canvasFromDocument(command.item.sink.canvasName, canvas),
+              command.item.sink.nodeId,
+            ),
           );
           if (rule !== undefined) {
             return rejected("capability-denied", rule);

@@ -1,15 +1,10 @@
 // Pure bulletin wake-set + inject envelope.
 // Operator megaphone only — agent posts never mint wakes.
 
-import type { CanvasDoc, CanvasNode } from "./canvas";
-import { compileEdgeGrant, edgeKindIndex } from "./canvas";
-import { isGroup } from "./graph";
-import {
-  actorDeliverySurfaceOf,
-  deliveryTargetFromSurface,
-  type SurfaceDeliveryTarget,
-} from "./actor-surface";
-import { resolveSpec, roleOf } from "./physics";
+import type { SurfaceDeliveryTarget } from "./actor-surface";
+import { nodeOf, wiresAt, type Canvas } from "./model/canvas";
+import type { NodeId } from "./model/base";
+import { wireGrant, wireKinds } from "./model/wire";
 import { sanitizeDeliveryLine } from "./message-delivery";
 
 export type BoardWakeKind =
@@ -44,55 +39,37 @@ export type BoardWakeSeat = {
  * being called into the room.
  */
 export const edgeNotifyOn = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   a: string,
   b: string,
 ): boolean => {
-  const kinds = edgeKindIndex(doc);
-  for (const edge of doc.edges) {
-    const pair =
-      (edge.fromNode === a && edge.toNode === b) ||
-      (edge.fromNode === b && edge.toNode === a);
-    if (!pair) continue;
-    if (compileEdgeGrant(edge, kinds)?.wake === true) return true;
+  const kinds = wireKinds(canvas.nodes.values());
+  for (const wire of wiresAt(canvas, a as NodeId)) {
+    if (wire.from !== b && wire.to !== b) continue;
+    if (wireGrant(wire, kinds)?.wake === true) return true;
   }
   return false;
 };
 
 /**
- * Resolve live actor seats eligible for a board wake.
- * Connected actors are in by default; operator can opt a seat out.
+ * Seats a board wake reaches: every seat joined to the board by a wire that
+ * wakes, once each, in the order the canvas holds its wires.
  */
 export const resolveBoardWakeSet = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   boardNodeId: string,
 ): ReadonlyArray<BoardWakeSeat> => {
-  const board = doc.nodes.find((n) => n.id === boardNodeId);
-  if (!board) return [];
-
-  const neighborIds = new Set<string>();
-  for (const edge of doc.edges) {
-    if (edge.fromNode === boardNodeId) neighborIds.add(edge.toNode);
-    if (edge.toNode === boardNodeId) neighborIds.add(edge.fromNode);
+  const board = boardNodeId as NodeId;
+  if (!canvas.nodes.has(board)) return [];
+  const kinds = wireKinds(canvas.nodes.values());
+  const out = new Map<string, BoardWakeSeat>();
+  for (const wire of wiresAt(canvas, board)) {
+    if (wireGrant(wire, kinds)?.wake !== true) continue;
+    const seat = nodeOf(canvas, wire.from === board ? wire.to : wire.from, "agent");
+    if (seat === undefined || out.has(seat.id)) continue;
+    out.set(seat.id, { nodeId: seat.id, target: { bindingId: seat.bindingId } });
   }
-
-  const out: BoardWakeSeat[] = [];
-  for (const nodeId of neighborIds) {
-    if (!edgeNotifyOn(doc, boardNodeId, nodeId)) continue;
-    const node = doc.nodes.find((n) => n.id === nodeId);
-    if (!node) continue;
-    const spec = resolveSpec({
-      isGroup: isGroup(node),
-      kind: node.ether?.entity?.kind,
-    });
-    if (roleOf(spec) !== "actor") continue;
-    const surface = actorDeliverySurfaceOf(node);
-    if (!surface) continue;
-    const target = deliveryTargetFromSurface(surface);
-    if (!target) continue;
-    out.push({ nodeId, target });
-  }
-  return out;
+  return [...out.values()];
 };
 
 const EXCERPT_MAX = 200;
@@ -140,10 +117,4 @@ export const boardWakeInjectId = (
   let out = "";
   while (out.length < 64) out += hex;
   return out.slice(0, 64);
-};
-
-export const authorLabel = (node: CanvasNode | undefined): string => {
-  const name = node?.ether?.entity?.name;
-  if (typeof name === "string" && name.trim()) return name.trim();
-  return node?.id ?? "agent";
 };
