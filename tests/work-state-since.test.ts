@@ -196,6 +196,34 @@ const note = (messageId: string, text: string) => ({
 });
 
 describe("WorkRepository stateSince projection", () => {
+  it("hydrates only selected policy rows and keeps the explicit full-lane reader separate", async () => {
+    const { runtime, repository, basis } = await openRepository(installation("cc-selected-policy"));
+    const dependencyScope = createCanvasTaskDependencyScopeCapability({
+      canvas: { ...canvasFromDocument(canvasName, factoryTopology), seq: 1 }, authoringSink: board,
+    });
+    for (const id of ["selected", "unrelated"]) await runtime.runPromise(repository.createTask({
+      sink: board, basis, dependencyScope,
+      task: { id, state: "submitted", history: [note(`brief-${id}`, id)] },
+      originAt: atMinute(1), receivedAt: atMinute(1),
+    }));
+    expect(await runtime.runPromise(repository.taskLane(canvasName, "board", "task"))).toHaveLength(2);
+    await runtime.runPromise(Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      // Disposable fixture corruption proves unrelated histories are not decoded.
+      yield* sql`PRAGMA ignore_check_constraints=ON`;
+      yield* sql.withTransaction(unjournaledWorkMutationEffect("test.fixture-seed",
+        sql`UPDATE work_task_messages SET parts_json='invalid unrelated JSON'
+          WHERE canvas_name=${canvasName} AND node_id='board' AND item_id='unrelated'`,
+      )).pipe(Effect.ensuring(sql`PRAGMA ignore_check_constraints=OFF`));
+    }));
+    const rows = await runtime.runPromise(repository.taskRowsByIds(canvasName, ["selected", "selected"]));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ nodeId: "board", item: { id: "selected", history: [{ parts: [{ kind: "text", text: "selected" }] }] } });
+    expect(await runtime.runPromise(repository.taskRowsByIds(canvasName, []))).toEqual([]);
+    expect(await runtime.runPromise(repository.taskRowsByIds(otherCanvasName, ["selected"]))).toEqual([]);
+    await expect(runtime.runPromise(repository.taskLane(canvasName, "board", "task"))).rejects.toThrow();
+  });
+
   it("stamps the fact time of each state change and keeps it through facts that change nothing", async () => {
     const { runtime, repository, basis } = await openRepository(installation("cc-state-since"));
     const seat = actor("1", "recipient");

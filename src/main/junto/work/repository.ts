@@ -8488,6 +8488,11 @@ export type CurrentTaskClaim = {
 };
 
 export interface WorkRepositoryShape {
+  /** Exact policy inputs across the task's visited boards and prerequisite ids. */
+  readonly taskRowsByIds: (canvasName: string, ids: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly item: TaskValue }>, WorkRepositoryError>;
+  /** Explicit full lane read for agent list commands. */
+  readonly taskLane: (canvasName: string, nodeId: string, kind: "task" | "requests") => Effect.Effect<ReadonlyArray<TaskValue>, WorkRepositoryError>;
+  readonly artifactItem: (canvasName: string, nodeId: string, id: string) => Effect.Effect<ArtifactValue | undefined, WorkRepositoryError>;
   readonly taskItem: (query: WorkItemQuery) => Effect.Effect<TaskValue | undefined, WorkRepositoryError>;
   readonly actorPage: (query: WorkActorQuery) => Effect.Effect<WorkActorPage, WorkRepositoryError>;
   readonly attentionSnapshot: (query: WorkAttentionQuery) => Effect.Effect<WorkAttentionSnapshot, WorkRepositoryError>;
@@ -12190,6 +12195,38 @@ export const WorkRepositoryLive = Layer.effect(
     };
 
     return WorkRepository.of({
+      taskRowsByIds: Effect.fn("WorkRepository.taskRowsByIds")((canvasName: string, requested: ReadonlyArray<string>) =>
+        withSqlRead(sql, Effect.gen(function* () {
+          const ids = [...new Set(requested)];
+          if (ids.length === 0) return [];
+          const rows = yield* SqlSchema.findAll({
+            Request: Schema.Array(Schema.String),
+            Result: Schema.Struct({ node_id: Schema.String, task_id: Schema.String }),
+            execute: (values) => sql.unsafe(`SELECT work.node_id,work.task_id FROM work_tasks AS work
+              JOIN task_boards AS node ON node.canvas_name=work.canvas_name AND node.id=work.node_id
+              WHERE work.canvas_name=? AND work.task_id IN (${ids.map(() => "?").join(",")})
+              ORDER BY node.z_index,node.id,work.created_at,work.task_id`, values),
+          })([canvasName, ...ids]);
+          const grouped = new Map<string, string[]>();
+          for (const row of rows) {
+            const selected = grouped.get(row.node_id) ?? [];
+            selected.push(row.task_id); grouped.set(row.node_id, selected);
+          }
+          const result: Array<{ nodeId: string; item: TaskValue }> = [];
+          for (const [nodeId, selected] of grouped)
+            for (const item of yield* loadLaneTasks(sql, { canvasName, nodeId }, "task", selected))
+              result.push({ nodeId, item });
+          return result;
+        })).pipe(Effect.mapError((error) => toRepositoryError("work.tasks.selected", error))),
+      ),
+      taskLane: Effect.fn("WorkRepository.taskLane")((canvasName: string, nodeId: string, kind: "task" | "requests") =>
+        withSqlRead(sql, loadLaneTasks(sql, { canvasName, nodeId }, kind === "task" ? "task" : "request")).pipe(
+          Effect.mapError((error) => toRepositoryError("work.tasks.list", error)),
+        )),
+      artifactItem: Effect.fn("WorkRepository.artifactItem")((canvasName: string, nodeId: string, id: string) =>
+        withSqlRead(sql, loadArtifacts(sql, { canvasName, nodeId }, [id])).pipe(
+          Effect.map((items) => items[0]), Effect.mapError((error) => toRepositoryError("work.artifact.item", error)),
+        )),
       taskItem: Effect.fn("WorkRepository.taskItem")((input: WorkItemQuery) =>
         withSqlRead(sql, Effect.gen(function* () {
           const query = yield* Schema.decodeUnknownEffect(WorkItemQuery, strictDecode)(input);
