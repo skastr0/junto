@@ -10,9 +10,11 @@
  *
  * Lifecycle contract: mint before spawn, publish after the live lease confirms
  * the process exists, revoke when the generation ends (offboard ask-accepted,
- * offboard now, rest, seat close). A published value is never reused; a
- * revoked value keeps a bounded tombstone so callers hear "this seat moved on"
- * instead of "unknown credential". Only main publishes; callers only present.
+ * offboard now, rest, seat close). Every issuance mints a fresh 256-bit value,
+ * which is the permanent non-reuse guarantee; publish additionally refuses a
+ * value that is live, suspended, or still remembered. A revoked value keeps a
+ * bounded tombstone so callers hear "this seat moved on" instead of "unknown
+ * credential". Only main publishes; callers only present.
  *
  * A live seat can lose its canvas anchors while its process keeps running
  * (canvas detach) and regain them later (reattach). A replacement value cannot

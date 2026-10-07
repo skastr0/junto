@@ -62,7 +62,7 @@ describe("seat credential registry", () => {
     expect(registry.publish(minted, { ...PRINCIPAL })).toBe(false);
   });
 
-  it("revokes to a tombstone and never reissues the value", () => {
+  it("revokes to a tombstone and refuses reissue while remembered", () => {
     const registry = makeSeatCredentialRegistry();
     const minted = mintSeatCredential();
     registry.publish(minted, { ...PRINCIPAL });
@@ -153,6 +153,18 @@ describe("seat credential registry", () => {
     registry.suspend(minted.credential);
     expect(registry.revokePrincipal({ ...PRINCIPAL })).toBe(1);
     expect(registry.lookup(minted.credential).status).toBe("revoked");
+  });
+
+  it("notifies synchronously within the mutating call", () => {
+    const registry = makeSeatCredentialRegistry();
+    const minted = mintSeatCredential();
+    registry.publish(minted, { ...PRINCIPAL });
+    let fired = false;
+    registry.subscribe(() => {
+      fired = true;
+    });
+    registry.revoke(minted.credential, "offboarded");
+    expect(fired).toBe(true);
   });
 
   it("caps tombstones by evicting the oldest", () => {
