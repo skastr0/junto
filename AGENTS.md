@@ -190,11 +190,11 @@ to an exported document or the database:
 | surface | detail |
 |---|---|
 | CLI | `dist/junto` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops; overseer seats also `overseer` |
-| Socket | `~/.junto/work/control.sock` + bearer token `~/.junto/work/token` |
-| Identity | **process-bind** — CLI must run as a descendant of a live Junto agent (ACP) process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `JUNTO_NODE_REF` identity claim. |
+| Socket | `~/.junto/work/control.sock` (mode 0600). The seat presents `JUNTO_WORK_TOKEN`. |
+| Identity | **generation credential** — main mints one value per occupant generation, injects it at spawn, and admits by registry lookup of the frame token. No token file, no token on argv, no client-supplied nodeRef / `JUNTO_NODE_REF`. `overseer.live` still reads the Unix peer PID once per connection. Browser-protected routes still admit by peer PID. |
 | Authz | **edges** — ordinary agents only act on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
 
-**How to use:** open the agent chat in Junto so the process is registered, then run `dist/junto` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+**How to use:** open the agent chat in Junto so the seat is spawned with `JUNTO_WORK_TOKEN`, then run `dist/junto` from that agent tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
 **How a seat learns Junto: `junto onboard`, and nothing before it.** Junto
 sends nothing to a harness at session start, on any harness: no doctrine by
@@ -467,7 +467,7 @@ phase, and attention/occupancy are separate planes.
   must not appear as a kind. Geography holds no seat, no ports, no inbox, and no
   work claim — but it *may* display agent state, because display is not a canvas
   power. Placement (`Cc | Station{hostId}`) is data: it never gates a port.
-- **PR test:** no host capability without connected edge + port + process-bind.
+- **PR test:** no ordinary work capability without a connected edge, a matching port, and a live generation credential. Browser-protected ops still also require peer process-bind.
 - **Full doctrine:** [`docs/architecture-factory-physics.md`](docs/architecture-factory-physics.md).
 
 ## Discipline
@@ -487,7 +487,7 @@ phase, and attention/occupancy are separate planes.
 - Board/source IDs and tokens never leak into committed source.
 - `bun run typecheck && bun run test` gate every change.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
-- Agent reach follows Factory physics (above) — edges + ports + process-bind; no ambient region grants.
+- Agent reach follows Factory physics (above): edges, ports, and a live generation credential. No ambient region grants. Browser-protected ops still also require peer process-bind.
 
 ## State migrations — hard law
 

@@ -97,6 +97,11 @@ const scriptedSsh = (script: {
             ? Effect.succeed({ stdout: "", stderr: "" })
             : absent(endpoint, "test");
         }
+        if (line.includes("/work/control.sock")) {
+          return script.forwardTo === undefined
+            ? absent(endpoint, "test")
+            : Effect.succeed({ stdout: "", stderr: "" });
+        }
         return absent(endpoint, "test");
       }
       if (line.includes("/bin/test")) {
@@ -564,7 +569,6 @@ describe("host-ops layers", () => {
     workServer = await listenWorkPing(sock);
     const ssh = scriptedSsh({
       home: "/home/alice",
-      token: "work-token",
       forwardTo: sock,
     });
     const target = await parseTarget("studio");
@@ -585,6 +589,26 @@ describe("host-ops layers", () => {
     expect(receipt.workAttach).toBe("up");
   });
 
+  it("Linux attach is down when the work socket is absent", async () => {
+    const ssh = scriptedSsh({ home: "/home/alice" });
+    const target = await parseTarget("studio");
+    const receipt = await Effect.runPromise(
+      Effect.gen(function* () {
+        const ops = yield* HostOps;
+        return yield* ops.attach();
+      }).pipe(
+        Effect.provide(
+          HostOps.layerLinux.pipe(
+            Layer.provide(HostTarget.layer(target)),
+            Layer.provide(Layer.succeed(SshTransport, ssh)),
+          ),
+        ),
+      ),
+    );
+    expect(receipt.ok).toBe(false);
+    expect(receipt.workAttach).toBe("down");
+  });
+
   it("Darwin attach is a term connect; Linux attach is work-control handshake", () => {
     const darwin = readFileSync(
       new URL("../src/main/junto/hosts/host-ops-darwin.ts", import.meta.url),
@@ -600,6 +624,8 @@ describe("host-ops layers", () => {
     expect(darwin).toContain('stationDoorSocketPath(stationHome, "peer")');
     expect(darwin).not.toContain("handshakeLinuxWorkControl");
     expect(linux).toContain("handshakeLinuxWorkControl");
+    expect(linux).not.toContain("workControlTokenPath");
+    expect(linux).not.toContain("work/token");
     expect(linux).toContain('stationDoorSocketPath(stationHome, "enroll")');
     expect(linux).toContain('stationDoorSocketPath(stationHome, "peer")');
     expect(linux).not.toContain("TermControlClient");

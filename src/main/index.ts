@@ -1698,7 +1698,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     }
 
     // Work control socket: agent protocol surface over the work plane.
-    // Independent of browser composition; owns ~/.junto/work/{control.sock,token}.
+    // Independent of browser composition; owns ~/.junto/work/control.sock.
     try {
       overseerComposition = await composeOverseer({
         run: AppRuntime.runPromise,

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:net";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -17,6 +17,7 @@ import {
 } from "../src/main/junto/ssh/remote-plan";
 import {
   encodeWorkFrame,
+  WORK_LIVENESS_PROBE_TOKEN,
   workErr,
 } from "../src/shared/work-control";
 
@@ -108,7 +109,8 @@ describe("named deploy compilers", () => {
     expect(source).toContain("$GENERATION_MARKER/resources/bin/junto-remote");
     expect(source).toContain("state=idempotent");
     expect(source).toContain('"$HOME/.junto/work/control.sock"');
-    expect(source).toContain('"$HOME/.junto/work/token"');
+    expect(source).not.toContain(".junto/work/token");
+    expect(source).toContain(WORK_LIVENESS_PROBE_TOKEN);
     expect(source).toContain("socket.AF_UNIX");
     expect(source).toContain(remotePlan.LINUX_WORK_CONTROL_HANDSHAKE_PYTHON);
     expect(source).toContain('"op": "ping"');
@@ -126,8 +128,6 @@ describe("named deploy compilers", () => {
   it("work-control handshake python requires a ping envelope, not a connect-only", async () => {
     const dir = await mkdtemp(join(tmpdir(), "junto-linux-handshake-"));
     const sock = join(dir, "control.sock");
-    const tokenPath = join(dir, "token");
-    await writeFile(tokenPath, "secret\n", { mode: 0o600 });
     let seen = "";
     const server: Server = await new Promise((resolve, reject) => {
       const next = createServer((socket) => {
@@ -152,7 +152,6 @@ describe("named deploy compilers", () => {
           "-c",
           LINUX_WORK_CONTROL_HANDSHAKE_PYTHON,
           sock,
-          tokenPath,
         ]);
         let stderr = "";
         child.stderr.on("data", (chunk: Buffer) => {
@@ -165,7 +164,10 @@ describe("named deploy compilers", () => {
       });
       expect(result.stderr).toBe("");
       expect(result.status).toBe(0);
-      expect(JSON.parse(seen)).toEqual({ token: "secret", op: "ping" });
+      expect(JSON.parse(seen)).toEqual({
+        token: WORK_LIVENESS_PROBE_TOKEN,
+        op: "ping",
+      });
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

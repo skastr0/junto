@@ -39,7 +39,7 @@ An edge compiles into grants. A `messages` edge between two agents gives each on
 
 ## The CLI
 
-The `junto` CLI talks to the app over a local socket, `~/.junto/work/control.sock` (mode 600). Identity comes from the process: the app reads the caller's PID from the socket and admits it only if it descends from a seat the app started. There is no token to paste.
+The `junto` CLI talks to the app over a local socket, `~/.junto/work/control.sock` (mode 600). Main mints a generation credential into `JUNTO_WORK_TOKEN` when the seat starts, and the CLI presents that value. There is no token file and nothing to paste.
 
 | command | what it does |
 | --- | --- |

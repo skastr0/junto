@@ -47,9 +47,7 @@ describe("Linux work-control handshake", () => {
     server = await listen(sock, () =>
       encodeWorkFrame(workErr("AuthError", "process unbound")),
     );
-    await expect(handshakeLinuxWorkControl(sock, "token", 500)).resolves.toBe(
-      "up",
-    );
+    await expect(handshakeLinuxWorkControl(sock, 500)).resolves.toBe("up");
   });
 
   it("is up on a successful ping", async () => {
@@ -58,15 +56,13 @@ describe("Linux work-control handshake", () => {
     server = await listen(sock, () =>
       encodeWorkFrame(workOk("ping", { pong: true })),
     );
-    await expect(handshakeLinuxWorkControl(sock, "token", 500)).resolves.toBe(
-      "up",
-    );
+    await expect(handshakeLinuxWorkControl(sock, 500)).resolves.toBe("up");
   });
 
   it("is down when nothing accepts the connect", async () => {
     dir = await mkdtemp(join(tmpdir(), "junto-work-attach-"));
     await expect(
-      handshakeLinuxWorkControl(join(dir, "missing.sock"), "token", 200),
+      handshakeLinuxWorkControl(join(dir, "missing.sock"), 200),
     ).resolves.toBe("down");
   });
 
@@ -74,7 +70,7 @@ describe("Linux work-control handshake", () => {
     dir = await mkdtemp(join(tmpdir(), "junto-work-attach-"));
     const sock = join(dir, "control.sock");
     server = await listen(sock, () => "not-json\n");
-    await expect(handshakeLinuxWorkControl(sock, "token", 500)).resolves.toBe(
+    await expect(handshakeLinuxWorkControl(sock, 500)).resolves.toBe(
       "unknown",
     );
   });

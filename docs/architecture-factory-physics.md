@@ -63,19 +63,21 @@ No “same region ⇒ power.”
 | Human **deletes** edge | Revoke ocap immediately |
 | Edge reaching a sink with no claimed blocking item | Capability to *relate*; never invents stoppage |
 
-Wielding requires **process-bind**: a live registered descendant process of the
-host-local actor seat, admitted by Unix peer PID (+ PPID walk). For ordinary
-agents the document edge is necessary but not sufficient; the seat must be
-occupied by a bound process on that installation to exercise host-adjacent ops.
-A human-toggled overseer still requires process-bind and a live grant. It does
-not require connecting edges for closed `overseer` operations. Pause and play
-do not revoke that grant. Ordinary edge-scoped ops stay edge-scoped.
+Wielding ordinary work requires the seat generation credential main minted
+into that occupant (`JUNTO_WORK_TOKEN`). For ordinary agents the document edge
+is necessary but not sufficient; the seat must hold a live credential on that
+installation. A human-toggled overseer still requires that credential and a
+live grant. It does not require connecting edges for closed `overseer`
+operations. `overseer.live` also reads the Unix peer PID once per connection,
+because descendants share the seat credential. Pause and play do not revoke
+that grant. Ordinary edge-scoped ops stay edge-scoped. Browser-protected ops
+still admit by peer PID.
 
 ### 2. Roles are derived from kind — never authorial
 
 | Role | Typical kinds | Factory function |
 |------|---------------|------------------|
-| **Actor** | `agent` only | Junto-spawned template terminal; occupies one host-local seat and wields outbound edges under process-bind |
+| **Actor** | `agent` only | Junto-spawned template terminal; occupies one host-local seat and wields outbound edges with its generation credential |
 | **Sink** | `task`, `requests`, `artifacts`, `page` | Receives ops; target of inbound capability |
 | **Scheduler** | product: `cron`/`timer`, `relay`; dormant: `watcher`/`gauge` (hermes stub, palette-hidden) | Sensors/clocks that fire **edge effects** (enqueue / inject prompt); no seats, no region inject. Live product pair is time + board-state — not hermes roster. |
 | **Region** | group + `ether.region` | Geography + optional briefing text |
@@ -259,8 +261,8 @@ board notify, and the managed-terminal seat UI.
 |-----------|----------|
 | No edge from actor to target | `ScopeError` naming the missing edge |
 | Edge exists, port denies op | Refuse op (no ambient escalate) |
-| Edge + port ok, process not bound | Refuse — missing process-bind |
-| Client claims `nodeRef` / env identity | Ignored; peer PID only |
+| Edge + port ok, credential missing or not live | Refuse |
+| Client claims `nodeRef` | Ignored. Ordinary work identity is the generation credential main injected, not a caller-chosen node id |
 | Region membership alone | Not a grant |
 | Soft relates edge | Reach/relate only; no invented block phase |
 
@@ -268,16 +270,17 @@ board notify, and the managed-terminal seat UI.
 
 ## PR test
 
-> Can an ordinary agent (or a bad test) obtain a **host capability** without a
-> **connected edge**, a matching **port**, and **process-bind** admission?
-> If yes, the change is not done.
+> Can an ordinary agent (or a bad test) obtain a **work-control host
+> capability** without a **connected edge**, a matching **port**, and a live
+> **generation credential**? Can it obtain a browser-protected op without
+> those plus peer process-bind? If yes, the change is not done.
 
 Host capability here means any ordinary work-control or browser-protected op
 that can mutate tasks, messages, requests, artifacts, or page control — not
 merely reading a digest projection. Closed `overseer` ops are a separate
-human-granted administrative plane: they still require process-bind and a
-live grant, never ambient reach, never the operator socket, and never a
-minted edge.
+human-granted administrative plane: they still require the seat credential
+and a live grant. `overseer.live` also checks the Unix peer PID. They never
+get ambient reach, the operator socket, or a minted edge.
 
 Pair with machine safety’s PR test for the sealed kill/path plane: factory
 physics decides *whether* the seat may act; machine safety decides *whether*
@@ -292,7 +295,7 @@ the act can touch the OS.
 | **ACL matrix** (principal × resource × verb tables) | Ocaps + edges scale with the drawn factory; matrices diverge from the document |
 | **Ambient region grants** | Region is geography, not a security domain |
 | **Authorial `ether.role`** | Role is derived from kind; mirrors stay derived |
-| **Client-supplied identity** | Process-bind only; no `JUNTO_NODE_REF` claims |
+| **Client-supplied identity** | No `JUNTO_NODE_REF`. Ordinary work identity is the generation credential main injected at spawn |
 | **Encoding occupancy in the authorial document as authority** | Occupancy is live; restart re-baselines seats |
 | **Stops as access control** | Derived stoppage filters phase only, never access |
 | **Attention as authz** | Operator focus never mints edges |
@@ -307,8 +310,8 @@ the act can touch the OS.
 | `ether.verb` on edge | Sole authored fact; compiles ports, stoppage-eligibility, wake, and every scheduler facet |
 | Compiled `wake` (board verbs) | Operator megaphone eligibility (`participates` on, `messages` off) |
 | Compiled `when` / `does` / `flow` / `chain` | Scheduler watch predicate / fire action / task-path hop / chain — all from the verb |
-| Work control socket + token | Transport; not identity |
-| Process-bind (peer PID) | Occupant admission to seat |
+| Work control socket + generation credential | Occupant admission. The credential names the generation. It is not a shared file |
+| Browser and `overseer.live` peer PID | Remaining process observation. Not ordinary work admission |
 | `authz` / `ScopeError` | Capability plane enforcement |
 | Derived `blocks` / `relates` | Phase plane (stoppage vs soft relate; no depends) |
 | Region `instruction` + watchers/timers | Onboard briefing text + status/clock sensors |
@@ -364,7 +367,7 @@ Each row was real code once; none of it is representable now.
 | an actor that silently becomes a shell | an unresolvable launch fell back to a login shell, so a dead agent looked like a working terminal. It is an error state; the shell is a different variant. |
 | a decoder that rewrites the document | `sanitizeActorSurfacePorts` deleted an actor's entity to satisfy a cross-kind rule. The document is the product: it is decoded, never corrected. |
 | geography with a seat, ports, an inbox, or a work claim | a geography kind once held message offers while hidden behind a flag. Re-kind, never hide. **Display is exempt** — a geography node may show agent state. |
-| a second admission path | route tokens minted seat identity for callers with no local Junto. One path: the work-file token proves reach, process-bind proves who. |
+| a second admission path | route tokens for a caller that has no local seat. Ordinary work has one identity: the generation credential minted for that occupant. No shared token file. |
 | a port gated by a tier number | `PORT_TIER_FLOOR` crossed a 1–4 scale with each port. Placement is data; admission is role-pair law × kind offers × authorial mask. |
 | a principal that resolves to nothing | three principal kinds × three optional ids, one of which matched no node. One shape, at least one anchor, canvas-pinned when it has no agent key. |
 | ACP as a kind | ACP is a **transport**. It was wired into physics — an ACP child PID bound as an actor seat — which is what made it look like a kind. The chat surface and transport are kept, hidden, and severed; ACP will later carry the `worker` node. |

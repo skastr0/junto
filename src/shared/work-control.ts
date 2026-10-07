@@ -23,9 +23,11 @@ export {
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.junto/work/control.sock. Pure module — no Node imports — so
 // the Electron-hosted daemon, the standalone CLI, and tests share one source
-// of truth. Transport is owner-local only; every request carries a bearer
-// token. Domain mutations route through WorkService — this file only knows
-// shapes, paths-as-strings, and admission bounds.
+// of truth. Transport is owner-local only. A seat call carries its generation
+// credential in the frame token field. A liveness probe presents
+// `WORK_LIVENESS_PROBE_TOKEN`, which is not a credential. Domain mutations
+// route through WorkService — this file only knows shapes, paths-as-strings,
+// and admission bounds.
 
 // ---------------------------------------------------------------------------
 // Paths (functions of home so the module stays platform-pure)
@@ -36,10 +38,12 @@ export const workControlDir = (home: string): string => `${home}/.junto/work`;
 export const workControlSocketPath = (workHome: string): string =>
   `${workHome}/control.sock`;
 
-export const workControlTokenPath = (workHome: string): string =>
-  `${workHome}/token`;
-
 export const WORK_HOME_ENV = "JUNTO_WORK_HOME";
+/**
+ * Presented by Command Center and deploy activation when they only need to
+ * know the work daemon answered. Not a seat credential, and not a secret.
+ */
+export const WORK_LIVENESS_PROBE_TOKEN = "probe";
 /**
  * Seat generation credential for the work control socket. Main mints one value
  * per occupant generation, injects it into the seat process environment at

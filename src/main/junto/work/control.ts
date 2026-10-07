@@ -264,7 +264,7 @@ import {
 // mutations route through WorkService. One admission path, no second identity.
 
 // ---------------------------------------------------------------------------
-// Token rotation (browser control pattern)
+// Work home. The seat credential is minted at spawn, not written to a file.
 
 export const resolveWorkHome = (home?: string, workHome?: string): string => {
   if (workHome && workHome.trim().length > 0) return workHome.trim();
@@ -293,9 +293,9 @@ const systemdReadinessReceipt = (): { readonly generation: string; readonly path
 };
 
 /**
- * Witness the exact systemd invocation after this process has rotated its
- * token and bound the work listener. Deep terminal, browser, and canvas checks
- * belong to Doctor and release qualification; they never block station boot.
+ * Witness the exact systemd invocation after this process has bound the work
+ * listener. Deep terminal, browser, and canvas checks belong to Doctor and
+ * release qualification; they never block station boot.
  */
 export const publishSystemdGenerationReadiness = (): void => {
   const readiness = systemdReadinessReceipt();

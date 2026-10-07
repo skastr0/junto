@@ -14,6 +14,7 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import {
   decodeWorkResponse,
   encodeWorkFrame,
+  WORK_LIVENESS_PROBE_TOKEN,
 } from "@shared/work-control";
 import { parseRemoteUnixSocketPath, SshExitError, type SshTarget } from "../ssh/domain";
 import { oneShot, unixForward } from "../ssh/program";
@@ -133,7 +134,6 @@ export const withRemoteUnixForward = (
  */
 export const handshakeLinuxWorkControl = (
   socketPath: string,
-  token: string,
   timeoutMs = 2_000,
 ): Promise<HostWorkAttach> =>
   new Promise((resolve) => {
@@ -159,7 +159,9 @@ export const handshakeLinuxWorkControl = (
       return;
     }
     sock.on("connect", () => {
-      sock?.write(encodeWorkFrame({ token, op: "ping" }));
+      sock?.write(
+        encodeWorkFrame({ token: WORK_LIVENESS_PROBE_TOKEN, op: "ping" }),
+      );
     });
     sock.on("data", (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);

@@ -20,9 +20,9 @@ implementation is migration evidence only and cannot close this checklist.
 Field meanings, truth precedence, failure isolation, and the qualification
 record are defined in [Fleet observability and qualification](fleet-observability.md).
 
-Run `junto doctor` from an attached Junto agent/tooling process so
-process-bind admission is real. Fleet identity and synchronization truth come
-from the live Remote `status` response, not a file read.
+Run `junto doctor` from an attached Junto seat so the generation credential
+is present. Fleet identity and synchronization truth come from the live
+Remote `status` response, not a file read.
 
 For every registered Remote, retain:
 

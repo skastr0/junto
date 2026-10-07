@@ -1,5 +1,6 @@
 /** Closed SSH programs for deployment. */
 import { Effect } from "effect";
+import { WORK_LIVENESS_PROBE_TOKEN } from "@shared/work-control";
 import { makeRemoteCommand, type RemoteCommand, SshInputError } from "./domain";
 
 const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
@@ -7,24 +8,22 @@ const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 /**
  * Remote-side work-control ping. A Unix connect that immediately closes is
  * not Ready — the daemon must answer a well-formed NDJSON envelope.
+ * The probe token is not a seat credential.
  */
-export const LINUX_WORK_CONTROL_HANDSHAKE_PYTHON = String.raw`import json,socket,sys
-sock, token_path = sys.argv[1], sys.argv[2]
-token = open(token_path, encoding="utf-8").read().strip()
-if not token:
-    raise SystemExit(1)
+export const LINUX_WORK_CONTROL_HANDSHAKE_PYTHON = `import json,socket,sys
+sock = sys.argv[1]
 s = socket.socket(socket.AF_UNIX)
 s.settimeout(2)
 s.connect(sock)
-s.sendall((json.dumps({"token": token, "op": "ping"}) + "\n").encode())
+s.sendall((json.dumps({"token": ${JSON.stringify(WORK_LIVENESS_PROBE_TOKEN)}, "op": "ping"}) + "\\n").encode())
 buf = b""
-while b"\n" not in buf:
+while b"\\n" not in buf:
     chunk = s.recv(4096)
     if not chunk:
         raise SystemExit(1)
     buf += chunk
 s.close()
-resp = json.loads(buf.split(b"\n", 1)[0].decode())
+resp = json.loads(buf.split(b"\\n", 1)[0].decode())
 raise SystemExit(0 if isinstance(resp, dict) and "ok" in resp else 1)
 `;
 
@@ -88,14 +87,11 @@ prove_activation() {
   /usr/bin/systemctl --user restart junto-remote.service >/dev/null 2>&1 || return 1
   /usr/bin/systemctl --user is-active --quiet junto-remote.service || return 1
   SOCK="$HOME/.junto/work/control.sock"
-  TOKEN="$HOME/.junto/work/token"
   WAIT=0
   while [ "$WAIT" -lt 30 ]; do
     if [ -S "$SOCK" ] && [ ! -L "$SOCK" ] \
-      && [ -f "$TOKEN" ] && [ ! -L "$TOKEN" ] \
       && [ "$(/usr/bin/stat -c '%a' "$SOCK" 2>/dev/null || true)" = 600 ] \
-      && [ "$(/usr/bin/stat -c '%a' "$TOKEN" 2>/dev/null || true)" = 600 ] \
-      && /usr/bin/python3 -c '${LINUX_WORK_CONTROL_HANDSHAKE_PYTHON}' "$SOCK" "$TOKEN"
+      && /usr/bin/python3 -c '${LINUX_WORK_CONTROL_HANDSHAKE_PYTHON}' "$SOCK"
     then
       return 0
     fi

@@ -40,11 +40,11 @@ docs$ junto msg send --no-prompt '{"target":"builder","text":"can I see your dif
 {"ok":true,"command":"msg send","data":{"outcome":"failed", …"error":{"type":"ScopeError","message":"target \"builder\" is not visible from \"docs\" — no edge and not region co-members", …}}}
 ```
 
-**An agent you did not start from the canvas cannot reach the others.** There is no token to paste; the app checks which process is calling.
+**An agent you did not start from the canvas cannot reach the others.** There is no token file and nothing to paste. The app admits the generation credential it minted into that seat.
 
 ```text
 $ dist/junto capabilities
-{"ok":false,"command":"capabilities","error":{"type":"AuthError","message":"connecting process is not a registered agent process — open the agent in Junto first", …}}
+{"ok":false,"command":"capabilities","error":{"type":"AuthError","message":"connecting process presents no live seat credential — run the CLI from inside your Junto seat", …}}
 ```
 
 **Mail arrives, and erasing the line closes it.** GUI specs drive the built app with two seats and a scripted terminal harness.
@@ -70,12 +70,12 @@ source=Notarized Developer ID
 
 ## How it works
 
-Each seat is an agent node on a JSON Canvas document, running its harness in a managed PTY in the folder you chose. The harness templates in `src/shared/managed-terminal-templates.ts` (14, from Claude Code at :767 to Oh My Pi at :1719) record how each one launches and resumes its session. A `messages` line compiles into mail grants for the two seats (`MSG_OPS`, `src/main/junto/work/authz.ts:374-401`). The `junto` CLI calls the app over `~/.junto/work/control.sock`, and the app admits it only if the caller's process descends from a seat it started (`src/main/junto/process-identity.ts:12-13`). The receiving seat gets one typed line in its terminal naming the sender and `junto msg read <id>` (one message) or `junto msg list` (several) (`src/shared/message-delivery.ts:170-209`), and reads the mail when it is ready. Everything lives in `~/.junto/state/junto.db`; Junto writes nothing to `~/.claude`, `~/.codex`, or other harness config (`docs/how-junto-works.md`, "What Junto changes in your setup").
+Each seat is an agent node on a JSON Canvas document, running its harness in a managed PTY in the folder you chose. The harness templates in `src/shared/managed-terminal-templates.ts` (14, from Claude Code at :767 to Oh My Pi at :1719) record how each one launches and resumes its session. A `messages` line compiles into mail grants for the two seats (`MSG_OPS`, `src/main/junto/work/authz.ts:374-401`). The `junto` CLI calls the app over `~/.junto/work/control.sock`, and the app admits the generation credential it minted into that seat (`JUNTO_WORK_TOKEN`). The receiving seat gets one typed line in its terminal naming the sender and `junto msg read <id>` (one message) or `junto msg list` (several) (`src/shared/message-delivery.ts:170-209`), and reads the mail when it is ready. Everything lives in `~/.junto/state/junto.db`; Junto writes nothing to `~/.claude`, `~/.codex`, or other harness config (`docs/how-junto-works.md`, "What Junto changes in your setup").
 
 Diagram spec:
 
 - nodes: `seat A (claude, ~/app)`, `seat B (codex, ~/app)`, `messages line`, `junto CLI`, `control.sock`, `Junto.app`, `junto.db`, `seat B terminal`
-- edges: `seat A — messages line — seat B`; `seat A → junto CLI` (`junto msg send`); `junto CLI → control.sock → Junto.app` (caller checked against its seats); `Junto.app → junto.db` (mail stored); `Junto.app → seat B terminal` (one notice line); `seat B → junto CLI` (`junto msg list`)
+- edges: `seat A — messages line — seat B`; `seat A → junto CLI` (`junto msg send`); `junto CLI → control.sock → Junto.app` (generation credential); `Junto.app → junto.db` (mail stored); `Junto.app → seat B terminal` (one notice line); `seat B → junto CLI` (`junto msg list`)
 
 ## Who it is for / not for
 

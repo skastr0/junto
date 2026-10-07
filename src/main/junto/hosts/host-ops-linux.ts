@@ -7,11 +7,7 @@ import type {
   HostOpsCopy,
   HostOpsInspect,
 } from "@shared/host-ops";
-import {
-  workControlDir,
-  workControlSocketPath,
-  workControlTokenPath,
-} from "@shared/work-control";
+import { workControlDir, workControlSocketPath } from "@shared/work-control";
 import { stationControlDir, stationDoorSocketPath } from "@shared/station-ssh-control";
 import { inspectSshTarget, type SshTarget } from "../ssh/domain";
 import { homeDirectoryLookup } from "../ssh/program";
@@ -21,9 +17,7 @@ import {
   combineHostProcessPlanes,
   handshakeLinuxWorkControl,
   probeRemoteDoorSocket,
-  readRemoteTextFile,
   withRemoteUnixForward,
-  workAttachFromTokenFile,
 } from "./host-runtime-platform";
 import { decodeRemoteHomeDirectoryOutput } from "./remote-home";
 
@@ -62,29 +56,28 @@ const attachReceipt = (
   observedAt,
 });
 
-/** Ready is an NDJSON work-control handshake. Sock-on-disk is not Ready. */
+/**
+ * Ready is an NDJSON work-control handshake. A missing socket is down.
+ * Forward or SSH failure is unknown. Sock-on-disk alone is not Ready.
+ * The probe token is not a seat credential: any decoded envelope, including
+ * AuthError, means the daemon answered.
+ */
 const probeLinuxWorkAttach = (
   ssh: Context.Service.Shape<typeof SshTransport>,
   target: SshTarget,
   home: string,
 ): Effect.Effect<HostWorkAttach> =>
   Effect.gen(function* () {
-    const workHome = workControlDir(home);
-    const token = yield* readRemoteTextFile(
-      ssh,
-      target,
-      workControlTokenPath(workHome),
-    );
-    const fromToken = workAttachFromTokenFile(token);
-    if (fromToken !== undefined) return fromToken;
-    if (token._tag !== "present") return "unknown";
+    const socketPath = workControlSocketPath(workControlDir(home));
+    const present = yield* probeRemoteDoorSocket(ssh, target, socketPath);
+    if (present !== "up") return present;
     return yield* withRemoteUnixForward(
       ssh,
       target,
-      workControlSocketPath(workHome),
+      socketPath,
       (localSocket) =>
         Effect.tryPromise({
-          try: () => handshakeLinuxWorkControl(localSocket, token.text),
+          try: () => handshakeLinuxWorkControl(localSocket),
           catch: () => new Error("work-control handshake failed"),
         }).pipe(Effect.orElseSucceed(() => "unknown" as const)),
     );

@@ -3292,7 +3292,6 @@ const observeCommandCenterRuntimeSecurity = async (
         path.posix.join(guestHome(machine), ".junto/work/control.sock"),
         "socket",
       ],
-      [path.posix.join(guestHome(machine), ".junto/work/token"), "regular file"],
       [path.posix.join(guestHome(machine), ".junto/station"), "directory"],
       [
         path.posix.join(guestHome(machine), ".junto/station/control.sock"),
@@ -3409,7 +3408,6 @@ const observeRemoteDisplaylessSecurity = async (
         path.posix.join(guestHome(machine), ".junto/work/control.sock"),
         "socket",
       ],
-      [path.posix.join(guestHome(machine), ".junto/work/token"), "regular file"],
       [path.posix.join(guestHome(machine), ".junto/station"), "directory"],
       [
         path.posix.join(guestHome(machine), ".junto/station/control.sock"),
