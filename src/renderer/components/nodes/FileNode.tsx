@@ -17,19 +17,18 @@ import { FocusSurface } from "../FocusSurface";
 import { Button, Eyebrow, IconButton } from "../ui";
 import { NodeShell } from "./NodeShell";
 
-export function FileNode({ data, selected }: NodeProps<FlowNode>) {
-  const node = data.node;
+export function FileNode({ id, data, selected }: NodeProps<FlowNode>) {
   const canvasName = use$(state$.canvasName);
-  const path = useNodeFieldOf(canvasName, node.id, "file", (file) => file.path) ?? "";
+  const path = useNodeFieldOf(canvasName, id, "file", (file) => file.path) ?? "";
   const imageRef = imageContentRefFromFile(path);
   const [expanded, setExpanded] = useState(false);
-  const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
+  const isEditTarget = use$(() => state$.editNodeId.get() === id);
 
   useEffect(() => {
     if (!isEditTarget) return;
     if (imageRef) setExpanded(true);
     state$.editNodeId.set("");
-  }, [isEditTarget, node.id, imageRef]);
+  }, [isEditTarget, id, imageRef]);
 
   if (imageRef) {
     const title = imageRef.displayName ?? imageRef.mediaType;
@@ -37,7 +36,7 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
       <>
         <NodeShell
           canvas={canvasName}
-          id={node.id}
+          id={id}
           selected={selected}
           blocked={data.blocked}
         >
@@ -113,7 +112,7 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
   // Legacy plain path furniture — decode-admits-history only.
   const base = path.split("/").filter(Boolean).pop() ?? (path || "retired file");
   return (
-    <NodeShell canvas={canvasName} id={node.id} selected={selected} blocked={data.blocked}>
+    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked}>
       <div className="flex h-full w-full items-start gap-2 opacity-55">
         <FileText size={15} className="mt-0.5 shrink-0" style={{ color: DIM }} />
         <div className="min-w-0">

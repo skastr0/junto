@@ -15,30 +15,34 @@ import { openDockBrowser } from "../../lib/dock-state";
 import { browser$ } from "../../lib/browser-state";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
+import { useDocumentNode } from "../../lib/document-node";
+import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { DIM, HUE, INK } from "../../lib/theme";
 import { NodeShell } from "./NodeShell";
 import { BROWSER_ENABLED } from "@shared/features";
 
-const isPageSurface = (node: FlowNode["data"]["node"]): boolean =>
-  BROWSER_ENABLED &&
-  node.type === "link" &&
-  node.ether?.entity?.kind === "page" &&
-  Boolean(node.ether?.browser);
-
-export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
-  const node = data.node;
-  const url = node.type === "link" ? node.url : "";
-  const isPage = isPageSurface(node);
-  const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
+export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
   const canvasName = use$(state$.canvasName);
+  // A page or a plain link, its address and how its session is kept, from the
+  // node store.
+  const kind = useNodeValue(canvasName, id, (node) => node?.kind);
+  const url = useNodeValue(canvasName, id, (node) =>
+    node?.kind === "page" || node?.kind === "link" ? node.url : "",
+  );
+  const profile = useNodeFieldOf(canvasName, id, "page", (page) => page.profile);
+  const onRemove = useNodeFieldOf(canvasName, id, "page", (page) => page.onRemove);
+  // The page card and its toolbar have not moved and take the document's node.
+  const node = useDocumentNode(id);
+  const isPage = BROWSER_ENABLED && kind === "page";
+  const isEditTarget = use$(() => state$.editNodeId.get() === id);
   const pageRef = useMemo(() => {
     if (!isPage) return undefined;
     try {
-      return formatNodeRef({ canvasName, nodeId: node.id });
+      return formatNodeRef({ canvasName, nodeId: id });
     } catch {
       return undefined;
     }
-  }, [canvasName, isPage, node.id]);
+  }, [canvasName, isPage, id]);
   const session = use$(browser$.sessionByRef[pageRef ?? ""]);
 
   // No inline path edit surface remains for link cards — clear edit targeting.
@@ -48,12 +52,11 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
   }, [isEditTarget]);
 
   if (isPage) {
-    const browser = node.ether?.browser;
     const open = () => {
-      if (!pageRef || !browser) return;
+      if (!pageRef || profile === undefined) return;
       void openDockBrowser(pageRef, {
-        nodeId: node.id,
-        browser,
+        nodeId: id,
+        browser: { profile, onDelete: onRemove ?? "kill-session" },
         url,
         title: session?.title ?? hostOf(url),
       });
@@ -61,10 +64,10 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
     return (
       <NodeShell
         canvas={canvasName}
-        id={node.id}
+        id={id}
         selected={selected}
         blocked={data.blocked}
-        toolbarExtras={<PageToolbarActions node={node} />}
+        toolbarExtras={node ? <PageToolbarActions node={node} /> : undefined}
       >
         <div
           className="nopan h-full w-full"
@@ -75,7 +78,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
             open();
           }}
         >
-          <PageCard node={node} />
+          {node ? <PageCard node={node} /> : null}
         </div>
       </NodeShell>
     );
@@ -83,7 +86,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
 
   const host = hostOf(url) || "retired link";
   return (
-    <NodeShell canvas={canvasName} id={node.id} selected={selected} blocked={data.blocked}>
+    <NodeShell canvas={canvasName} id={id} selected={selected} blocked={data.blocked}>
       <div className="flex h-full w-full items-start gap-2 opacity-55">
         <Link2 size={15} className="mt-0.5 shrink-0" style={{ color: HUE.cyan }} />
         <div className="min-w-0">
