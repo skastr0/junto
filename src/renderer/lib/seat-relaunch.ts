@@ -141,11 +141,9 @@ const isRunning = async (node: TextNode): Promise<boolean> => {
  * conversation. Nothing about the seat's stored launch changes.
  */
 export const restartSeatOnSameSession = async (
-  // The document form is still accepted for the region environment's host,
-  // until it hands the store's seat.
-  seat: Seat | TextNode,
+  seat: Seat,
 ): Promise<RestartOutcome> => {
-  const node = "kind" in seat ? documentSeat(seat) : seat;
+  const node = documentSeat(seat);
   return restartRunningSeat(
     node,
     node,
