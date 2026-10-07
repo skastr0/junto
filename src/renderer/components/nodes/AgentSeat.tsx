@@ -160,11 +160,12 @@ export function AgentSeatView({
           <span className="max-w-full min-w-0 flex-[1_0_auto] truncate" data-testid="agent-seat-line">
             {line}
           </span>
-          {onboarding ? (
+          {onboarding === "not-onboarded" ? (
             // A quiet fact beside the line, never the line itself: a seat
             // nobody has spoken to yet is not onboarded and nothing is wrong.
+            // A seat that has onboarded says nothing: that is the normal state.
             <span
-              className={`shrink-0 font-display text-[9px] tracking-[0.12em] uppercase ${onboarding === "onboarded" ? "text-faint" : "text-dim"}`}
+              className="shrink-0 font-display text-[9px] tracking-[0.12em] text-dim uppercase"
               data-testid="agent-seat-onboarding"
               data-onboarding={onboarding}
             >

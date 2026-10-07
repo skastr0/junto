@@ -101,8 +101,8 @@ describe("AgentSeatView onboarding", () => {
     expect(tag(seat({ onboarding: "not-onboarded" }))).toBe("not-onboarded Not onboarded");
   });
 
-  it("shows a seat that has", () => {
-    expect(tag(seat({ onboarding: "onboarded" }))).toBe("onboarded Onboarded");
+  it("says nothing for a seat that has: that is the normal state", () => {
+    expect(tag(seat({ onboarding: "onboarded" }))).toBeUndefined();
   });
 
   it("sits beside the line and never replaces it", () => {

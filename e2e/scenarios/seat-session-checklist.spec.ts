@@ -432,8 +432,7 @@ test("A2 [fake-tui] the onboarding nudge follows a first message, at most twice,
       note(testInfo, "A2-onboard-via", "dist/junto is missing: ran the `onboard` work-control op from the seat instead of the CLI");
       opData(await seats.learner.op("onboard", {}));
     }
-    await expect(mark("learner"), "learner card after junto onboard").toHaveText("Onboarded", { timeout: 15_000 });
-    await expect(mark("learner")).toHaveAttribute("data-onboarding", "onboarded");
+    await expect(mark("learner"), "learner card says nothing after junto onboard").toHaveCount(0, { timeout: 15_000 });
     await expect(mark("stray"), "stray card, never onboarded").toHaveText("Not onboarded");
     await shot(page, testInfo, "A2-cards-onboarded-and-not");
 
