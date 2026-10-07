@@ -129,9 +129,3 @@ export const reseatSeat = async (
   }
   return { ok: true };
 };
-
-/** The same, for a caller that still holds a document node. Goes with its last caller. */
-export const performManagedAgentReseat = (
-  node: TextNode,
-  choices: AgentConfigurationChoices,
-): Promise<ReseatResult> => reseatSeat(state$.canvasName.peek(), node.id, choices);

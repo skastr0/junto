@@ -1,15 +1,14 @@
 import { useCallback, useState } from "react";
-import type { TextNode } from "@shared/canvas";
-import { nodeToDocument } from "@shared/model/from-document";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {
   harnessDisplayName,
-  performManagedAgentReseat,
+  reseatSeat,
   readSkipReseatConfirm,
   writeSkipReseatConfirm,
 } from "../../lib/agent-reseat";
 import { openSaveProfile } from "../../lib/profiles-state";
+import { state$ } from "../../lib/state";
 import {
   AgentHarnessPick,
   type AgentConfigurationChoices,
@@ -96,8 +95,7 @@ function SeatLaunch({ seat }: AgentEditorSectionProps) {
       if (!node) return;
       setBusy(true);
       setError("");
-      // The re-seat writer still takes the document form of a seat.
-      const result = await performManagedAgentReseat(nodeToDocument(node) as TextNode, next);
+      const result = await reseatSeat(state$.canvasName.peek(), node.id, next);
       setBusy(false);
       setPending(null);
       if (!result.ok) setError(result.message);
