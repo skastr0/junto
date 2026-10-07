@@ -7,15 +7,12 @@
  */
 import { useCallback, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
-import { useRtsNodes, readRtsNode } from "../../lib/rts-selection";
+import { useRtsNodes } from "../../lib/rts-selection";
 import { state$ } from "../../lib/state";
 import { use$ } from "@legendapp/state/react";
-import { resolveTerminalBinding } from "@shared/terminal";
-import type { HarnessId } from "@shared/managed-terminal-templates";
 import {
   harnessDisplayName,
-  performManagedAgentReseat,
+  reseatSeat,
   readSkipReseatConfirm,
   writeSkipReseatConfirm,
 } from "../../lib/agent-reseat";
@@ -27,12 +24,6 @@ import { Popover } from "../ui";
 import { KindKey } from "./RtsControls";
 import { ReseatConfirmDialog } from "./ReseatConfirmDialog";
 
-const currentHarnessOf = (node: CanvasNode): HarnessId | undefined => {
-  const binding = resolveTerminalBinding(node);
-  if (binding?.kind !== "native" || !binding.harness) return undefined;
-  return binding.harness as HarnessId;
-};
-
 // Module-level so the popover's placement effect sees one stable array.
 const POP_SIDES = ["above", "below"] as const;
 
@@ -43,16 +34,14 @@ export function AgentReseatControl({ nodeId }: { readonly nodeId: string }) {
   const [pending, setPending] = useState<AgentConfigurationChoices | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const current = node ? currentHarnessOf(node) : undefined;
+  const current = node?.kind === "agent" ? node.harness : undefined;
   const close = useCallback(() => setAnchor(null), []);
 
   const runReseat = useCallback(
     async (choices: AgentConfigurationChoices) => {
-      const live = readRtsNode(canvasName, nodeId);
-      if (live?.type !== "text") return;
       setBusy(true);
       setError(undefined);
-      const result = await performManagedAgentReseat(live, choices);
+      const result = await reseatSeat(canvasName, nodeId, choices);
       setBusy(false);
       setPending(null);
       if (!result.ok) setError(result.message);
@@ -78,8 +67,7 @@ export function AgentReseatControl({ nodeId }: { readonly nodeId: string }) {
     [close, current, runReseat],
   );
 
-  if (node?.ether?.entity?.kind !== "agent") return null;
-  if (resolveTerminalBinding(node)?.kind !== "native") return null;
+  if (node?.kind !== "agent") return null;
 
   return (
     <div className="relative inline-flex">
@@ -109,7 +97,7 @@ export function AgentReseatControl({ nodeId }: { readonly nodeId: string }) {
           <div className="agent-reseat-pop__title">Re-seat harness</div>
           <AgentHarnessPick
             currentHarness={current}
-            cwd={node.ether?.terminal?.launch?.cwd}
+            cwd={node.launch?.cwd}
             onConfigure={onConfigure}
             listLabel="Available harnesses"
           />

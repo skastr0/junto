@@ -1,6 +1,6 @@
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { observable } from "@legendapp/state";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
 import type { LiveAttention } from "@shared/overseer-live";
 import { state$ } from "./state";
 
@@ -16,9 +16,9 @@ export const overseerLive$ = observable({
   expanded: false,
 });
 
-export const canStartOverseerLive = (node: CanvasNode): boolean =>
-  LIVE_OVERSEER_ENABLED && node.ether?.entity?.kind === "agent" && node.ether.overseer === true &&
-  node.ether.terminal?.harness === "junto-overseer";
+export const canStartOverseerLive = (node: Node): boolean =>
+  LIVE_OVERSEER_ENABLED && node.kind === "agent" && node.overseer &&
+  node.harness === "junto-overseer";
 
 export const openOverseerLive = (target: LiveSeatTarget): void => {
   if (!LIVE_OVERSEER_ENABLED) return;

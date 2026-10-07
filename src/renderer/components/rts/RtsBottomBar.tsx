@@ -22,7 +22,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Region } from "@shared/model";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
@@ -36,10 +36,10 @@ import {
   setRegionHold,
 } from "../../lib/mutations";
 import {
-  classifyMultiSelection,
-  multiSelectionLabel,
+  classifySelectionOf,
+  selectionLabelOf,
 } from "../../lib/multi-selection";
-import { nodeTitle } from "../../lib/presentation";
+import { titleOf } from "@shared/model/title";
 import {
   commandSelectionKind,
   hotbarSlotIndexOf,
@@ -128,7 +128,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
     const selectedNodes = nodes;
     // Actions apply only to selected rows that still exist.
     const liveIds = selectedNodes.map((n) => n.id);
-    const classified = classifyMultiSelection(selectedNodes);
+    const classified = classifySelectionOf(selectedNodes);
     const colorsMatch =
       selectedNodes.length > 0 &&
       selectedNodes.every((n) => n.color === selectedNodes[0]?.color);
@@ -143,7 +143,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
               <div className="rts-cmd__title">
                 {classified.mode === "homogeneous" ? "shared settings" : "shared settings only"}
               </div>
-              <div className="rts-cmd__live">{multiSelectionLabel(classified)}</div>
+              <div className="rts-cmd__live">{selectionLabelOf(classified)}</div>
             </div>
             <AccentColorSwatches
               nodeIds={liveIds}
@@ -163,7 +163,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
     );
   }
 
-  if (node?.type === "group" && regionRollup) {
+  if (node?.kind === "region" && regionRollup) {
     return <RegionCommandCard node={node} regionRollup={regionRollup} />;
   }
 
@@ -184,10 +184,10 @@ function RegionCommandCard({
   node,
   regionRollup,
 }: {
-  readonly node: CanvasNode;
+  readonly node: Region;
   readonly regionRollup: RegionRollup;
 }) {
-  const hold = Boolean(node.ether?.region?.hold);
+  const hold = node.hold;
   const slot = use$(() => hotbarSlotIndexOf(state$.hotbarSlots.get(), node.id));
   const primary = primaryCommandActions("region");
   const title = regionRollup.label || "unnamed region";
@@ -360,7 +360,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   }
 
   const kind = commandSelectionKind(node);
-  const entityKind = node.ether?.entity?.kind;
+  const entityKind = node.kind;
   // Physics role from the kind registry — never hardcoded per node.
   const role = roleOfKind(modelKind);
   // Kind-specific actions live in the middle-bar kind strip now; the left
@@ -404,7 +404,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
   // Kind-specific primaries + slot cue (any node). Entity actions live mid-strip.
   const renderPrimary = (action: PrimaryCommandAction) => {
-    if (action === "open-link" && node.type === "link") {
+    if (action === "open-link" && node.kind === "page") {
       return (
         <CmdKey key={action} label="Open link" onClick={() => window.open(node.url, "_blank")}>
           <ExternalLink size={ICON} />
@@ -437,7 +437,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
       <div className="rts-panel__body rts-cmd-shell">
         <div className="rts-cmd-main">
           <div className="rts-cmd-head">
-            <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
+            <div className="rts-cmd__title" title={titleOf(node)}>{titleOf(node)}</div>
             {subtitle ? <div className="rts-cmd__live">{subtitle}</div> : null}
           </div>
           <AccentColorSwatches nodeId={nodeId} color={node.color} />

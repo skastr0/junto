@@ -1,10 +1,9 @@
 import type { HotbarSlot } from "./hotbar-slots";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
 
 /**
  * Selection kind for the RTS left command card primary row.
- * Derived from node shape. Open vocabulary entity.kind is
- * folded into these tactical surfaces only.
+ * Derived from the node kind.
  */
 export type CommandSelectionKind =
   | "region"
@@ -27,15 +26,9 @@ export type CommandCardCaps = {
  * Precedence: region → page (link+page) → default.
  * Plain link furniture is retired.
  */
-export function commandSelectionKind(node: CanvasNode): CommandSelectionKind {
-  if (node.type === "group") return "region";
-  if (
-    node.type === "link" &&
-    node.ether?.entity?.kind === "page" &&
-    Boolean(node.ether?.browser)
-  ) {
-    return "link";
-  }
+export function commandSelectionKind(node: Node): CommandSelectionKind {
+  if (node.kind === "region") return "region";
+  if (node.kind === "page") return "link";
   return "default";
 }
 

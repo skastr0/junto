@@ -1,30 +1,16 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
-import { managedAgentEther } from "./helpers/managed-agent-ether";
+import type { Node } from "../src/shared/model";
+import { seat, note } from "./support/model-nodes";
 import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
-import { canvasFromDocument } from "../src/shared/model/from-document";
 import { OverseerToggleKey } from "../src/renderer/components/rts/OverseerToggle";
 
-const managed = (overseer?: boolean): CanvasNode =>
-  ({
-    id: "seat",
-    type: "text",
-    text: "worker",
-    x: 0,
-    y: 0,
-    width: 240,
-    height: 96,
-    ether: overseer
-      ? { ...managedAgentEther("local:worker"), overseer: true }
-      : managedAgentEther("local:worker"),
-  }) as CanvasNode;
+const managed = (overseer = false) => seat("seat", { label: "worker", overseer });
 
-const seed = (node: CanvasNode): string => {
-  const canvas = canvasFromDocument("Workshop", { nodes: [node], edges: [] });
-  modelStore.canvas$("Workshop").nodes.set(Object.fromEntries(canvas.nodes));
-  modelStore.canvas$("Workshop").nodeIds.set([...canvas.nodes.keys()]);
+const seed = (node: Node): string => {
+  modelStore.canvas$("Workshop").nodes.set({ [node.id]: node });
+  modelStore.canvas$("Workshop").nodeIds.set([node.id]);
   return node.id;
 };
 
@@ -60,11 +46,7 @@ describe("OverseerToggleKey", () => {
   });
 
   it("hides on non-agent nodes and Remote stations", () => {
-    const note: CanvasNode = {
-      ...managed(),
-      ether: undefined,
-    };
-    expect(renderToStaticMarkup(<OverseerToggleKey nodeId={seed(note)} />)).toBe("");
+    expect(renderToStaticMarkup(<OverseerToggleKey nodeId={seed(note("note"))} />)).toBe("");
     state$.settings.station.role.set("remote");
     expect(renderToStaticMarkup(<OverseerToggleKey nodeId={seed(managed())} />)).toBe("");
   });

@@ -4,11 +4,7 @@ import { useRtsNodes } from "../../lib/rts-selection";
 import { use$ } from "@legendapp/state/react";
 import { HUE } from "../../lib/theme";
 import { state$ } from "../../lib/state";
-import {
-  canToggleOverseer,
-  isOverseerGranted,
-  setOverseerSeat,
-} from "../../lib/overseer-set";
+import { setOverseerSeat } from "../../lib/overseer-set";
 import { KindKey } from "./RtsControls";
 
 const ICON = 12;
@@ -20,11 +16,12 @@ const ICON = 12;
 export function OverseerToggleKey({ nodeId }: { readonly nodeId: string }) {
   const canvasName = use$(state$.canvasName);
   const node = useRtsNodes(canvasName, [nodeId])[0];
-  const granted = node ? isOverseerGranted(node) : false;
+  const stationRole = use$(state$.settings.station.role);
+  const granted = node?.kind === "agent" && node.overseer;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  if (!node || !canToggleOverseer(node)) return null;
+  if (node?.kind !== "agent" || stationRole === "remote") return null;
 
   const toggle = () => {
     if (busy || !canvasName) return;

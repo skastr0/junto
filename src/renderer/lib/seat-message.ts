@@ -1,16 +1,15 @@
-import type { CanvasNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
 import { nodeAt } from "./use-model";
-import { nodeToDocument } from "@shared/model/from-document";
 import { factoryPause$ } from "./factory-pause";
 import {
   multiPromptAgents,
-  multiPromptTargetsFromNodes,
+  multiPromptTargetsOf,
   type MultiPromptOps,
   type MultiPromptResult,
   type MultiPromptTarget,
 } from "./multi-prompt";
-import { agentCountLabel, isAgentSeatNode } from "./multi-selection";
-import { nodeTitle } from "./presentation";
+import { agentCountLabel, seatsAmong } from "./multi-selection";
+import { titleOf } from "@shared/model/title";
 import { state$ } from "./state";
 
 /**
@@ -31,24 +30,23 @@ export type SeatMessagePlan = {
   readonly names: ReadonlyMap<string, string>;
 };
 
-export const planSeatMessage = (nodes: ReadonlyArray<CanvasNode>): SeatMessagePlan => {
-  const agents = [...new Map(nodes.map((node) => [node.id, node])).values()].filter(isAgentSeatNode);
-  const targets = multiPromptTargetsFromNodes(agents);
+export const planSeatMessage = (nodes: ReadonlyArray<Node>): SeatMessagePlan => {
+  const agents = seatsAmong([...new Map(nodes.map((node) => [node.id, node])).values()]);
+  const targets = multiPromptTargetsOf(agents);
   return {
     targets,
     unreachable: agents.length - targets.length,
-    names: new Map(agents.map((node) => [node.id, nodeTitle(node)])),
+    names: new Map(agents.map((node) => [node.id, titleOf(node)])),
   };
 };
 
 /** The seats the operator is about to message, read fresh off the canvas. */
 export const planSeatMessageFor = (nodeIds: ReadonlyArray<string>): SeatMessagePlan => {
   const canvas = state$.canvasName.peek();
-  // canvas-nodes owns this last inner boundary until planSeatMessage takes native nodes.
   return planSeatMessage(
     [...new Set(nodeIds)].flatMap((id) => {
       const node = nodeAt(canvas, id);
-      return node ? [nodeToDocument(node)] : [];
+      return node ? [node] : [];
     }),
   );
 };

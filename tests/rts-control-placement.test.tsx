@@ -8,7 +8,7 @@ import { Node } from "../src/shared/model";
 import { nodeToDocument } from "../src/shared/model/from-document";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { state$ } from "../src/renderer/lib/state";
-import { rtsNode } from "../src/renderer/lib/rts-selection";
+import { rtsNode, readRtsNode, useRtsNodes } from "../src/renderer/lib/rts-selection";
 import { terminal$ } from "../src/renderer/lib/terminal-state";
 import { dock$ } from "../src/renderer/lib/dock-state";
 import { profileDialog$ } from "../src/renderer/lib/profiles-state";
@@ -95,7 +95,7 @@ it("keeps placement when an open page URL editor saves after a move", async () =
   expect(state$.doc.peek().nodes[0]).toMatchObject({ url: "https://after.example" }); assertPlacement();
 });
 
-it("keeps placement when browser binding and queue home editors save after a move", async () => {
+it("keeps placement when browser binding editor save after a move", async () => {
   const page = await mount({ kind: "page", url: "https://example.test", profile: "personal", host: "local" });
   await click("Browser binding"); await move(page);
   await click("Page browser profile");
@@ -103,13 +103,7 @@ it("keeps placement when browser binding and queue home editors save after a mov
   expect(option).toBeTruthy();
   await act(async () => { option.dispatchEvent(new MouseEvent("click", { bubbles: true })); await flush(); });
   expect(state$.doc.peek().nodes[0]?.ether?.browser?.profile).toBe("work"); assertPlacement();
-  const task = await mount({ kind: "task", name: "Queue", host: "local" });
-  await click("Queue home"); await move(task);
-  await click("Task queue home host");
-  const remote = [...document.querySelectorAll('[role="option"]')].find(el => el.textContent?.includes("Remote"))!;
-  expect(remote).toBeTruthy();
-  await act(async () => { remote.dispatchEvent(new MouseEvent("click", { bubbles: true })); await flush(); });
-  expect(state$.doc.peek().nodes[0]?.ether?.host).toBe("remote-one"); assertPlacement();
+
 });
 
 it("keeps placement for task admission and wait writes from the bar", async () => {
@@ -147,4 +141,25 @@ it("grants overseer by id without sending or changing placement", async () => {
   await click("Grant overseer");
   expect(modelCommand).toHaveBeenCalledWith(expect.objectContaining({ _tag: "GrantOverseer", id: "subject", overseer: true }));
   expect(modelCommand.mock.calls[0]?.[0]).not.toHaveProperty("node"); assertPlacement();
+});
+
+it("keeps native identity and excludes placement and paint order from the bar comparison", async () => {
+  let renders = 0;
+  let shown: Node | undefined;
+  function Probe() {
+    shown = useRtsNodes(canvas, ["subject"])[0];
+    renders++;
+    return <span>{shown?.kind === "agent" ? shown.label : ""}</span>;
+  }
+  const node = decode({ ...frame, ...agent });
+  await act(async () => { publish(node); root.render(<Probe />); await flush(); });
+  expect(shown).toMatchObject({ kind: "agent", ...frame, bindingId: "worker-binding" });
+  expect(shown).not.toHaveProperty("ether");
+  const before = renders;
+  await act(async () => { publish(decode({ ...node, ...moved, z: 19 })); await flush(); });
+  expect(renders).toBe(before);
+  expect(readRtsNode(canvas, "subject")).toMatchObject({ kind: "agent", ...moved, z: 19 });
+  await act(async () => { publish(decode({ ...node, ...moved, z: 19, label: "Renamed" })); await flush(); });
+  expect(renders).toBe(before + 1);
+  expect(shown).toMatchObject({ kind: "agent", ...moved, z: 19, label: "Renamed" });
 });

@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
 import type { TerminalManagedPromptResult } from "../src/shared/ipc";
 import { asCanvasName } from "../src/shared/model";
 import { state$ } from "../src/renderer/lib/state";
@@ -14,37 +13,21 @@ import {
   sendSeatMessage,
 } from "../src/renderer/lib/seat-message";
 
-const base = { x: 0, y: 0, width: 200, height: 80 } as const;
-
-const seat = (id: string, name: string): CanvasNode => ({
-  ...base,
-  id,
-  type: "text",
-  text: name,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId: `bind-${id}`, harness: "claude", launch: { kind: "harness", argv: ["claude"] } },
-  },
+const seat = (id: string, name: string) => seatNode(id, {
+  label: name,
+  bindingId: `bind-${id}` as ReturnType<typeof seatNode>["bindingId"],
 });
-
-const unbound = (id: string, name: string): CanvasNode => ({
-  ...base,
-  id,
-  type: "text",
-  text: name,
-  ether: { entity: { kind: "agent", name: `local:${id}` } },
-});
-
-const note: CanvasNode = { ...base, id: "n", type: "text", text: "a note" };
+const note = noteNode("n", "a note");
 
 describe("planSeatMessage", () => {
-  it("targets agents with a terminal, names them as the canvas does, and counts the rest", () => {
-    const plan = planSeatMessage([seat("a", "Cursor Agent\nsecond line"), unbound("b", "Chat"), note]);
-    expect(plan.targets.map((target) => target.nodeId)).toEqual(["a"]);
-    expect(plan.unreachable).toBe(1);
+  it("targets each selected seat once, uses its authored name, and skips other kinds", () => {
+    const a = seat("a", "Cursor Agent");
+    const plan = planSeatMessage([a, seat("b", "Chat"), a, note]);
+    expect(plan.targets.map((target) => target.nodeId)).toEqual(["a", "b"]);
+    expect(plan.unreachable).toBe(0);
     expect(plan.names.get("a")).toBe("Cursor Agent");
-    expect(seatMessageTitle(plan)).toBe("Message 1 agent");
-    expect(seatMessageReach(plan)).toBe("1 of 2 agents has no terminal and will not get it.");
+    expect(seatMessageTitle(plan)).toBe("Message 2 agents");
+    expect(seatMessageReach(plan)).toBe("");
   });
 
   it("titles a single seat by its name and says nothing about reach", () => {

@@ -1,16 +1,15 @@
 import { memo } from "react";
 import { X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
-import { isHarnessId } from "@shared/managed-terminal-templates";
+import type { Node, Seat } from "@shared/model";
 import { NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
 import { clearSelection, state$ } from "../lib/state";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
-import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
-import { SeatRing } from "./SeatRing";
+import { titleOf } from "@shared/model/title";
+import { detailOf } from "../lib/node-presentation";
+import { SeatRingView, useSeatGlanceOf } from "./SeatRing";
 import { CustomizeAgentButton } from "./agent-editor/AgentEditor";
 import { OverseerMark } from "./OverseerMark";
-import { isOverseerSeat } from "../lib/overseer-set";
 import { NoteMarkdown } from "../lib/note-markdown";
 import { WaitingOnSection } from "./WaitingOnSection";
 import { useRtsNodes } from "../lib/rts-selection";
@@ -35,26 +34,22 @@ function AccentControls({ value, onChange }: { readonly value?: string; readonly
 }
 
 /** Seat-native agent readout — harness + document label only. */
-function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
-  const harness =
-    typeof node.ether?.terminal?.harness === "string"
-      ? node.ether.terminal.harness
-      : undefined;
-  const managed = harness !== undefined && isHarnessId(harness);
-  const overseer = isOverseerSeat(node);
+function AgentSeatSection({ node }: { readonly node: Seat }) {
+  const glance = useSeatGlanceOf(node);
+  const overseer = node.overseer;
   return (
     <div className="inspector-section" data-overseer={overseer ? "true" : undefined}>
       <div className="inspector-section__label">seat</div>
       <div className="mt-2 flex items-center gap-2.5">
-        <CustomizeAgentButton identity={node.id} name={nodeTitle(node)} hint>
-          <SeatRing node={node} px={48} />
+        <CustomizeAgentButton identity={node.id} name={titleOf(node)} hint>
+          <SeatRingView node={node} px={48} glance={glance} />
         </CustomizeAgentButton>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px]" style={{ color: INK }} title={nodeTitle(node)}>
-            {nodeTitle(node)}
+          <div className="truncate text-[12px]" style={{ color: INK }} title={titleOf(node)}>
+            {titleOf(node)}
           </div>
           <div className="mt-0.5 truncate text-[9px]" style={{ color: DIM }}>
-            {managed ? harness : "agent seat"}
+            {node.harness}
           </div>
           {overseer ? (
             <div className="mt-1">
@@ -72,22 +67,21 @@ function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
 // Node accent / focus / connect / delete / copy-ref live in the RTS
 // command bar (lower-left). This panel keeps surface-specific detail only.
 // Only the selected node's displayed facts rebuild the inspector tree.
-const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
+const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly node: Node; readonly onClose: () => void }) {
 
-  const isEntity = Boolean(node.ether?.entity);
-  const isAgent = isEntity && node.ether?.entity?.kind === "agent";
-  const isLabel = node.ether?.entity?.kind === "label";
+  const isAgent = node.kind === "agent";
+  const isLabel = node.kind === "label";
   const detail =
-    nodeDetail(node) || "";
+    detailOf(node) || "";
 
   return <aside className="inspector-panel">
-    <InspectorHeader eyebrow={nodeTypeLabel(node)} title={nodeTitle(node)} onClose={onClose} />
+    <InspectorHeader eyebrow={node.kind} title={titleOf(node)} onClose={onClose} />
     <div className="inspector-body">
       {isLabel ? (
         <div className="inspector-detail">Bare map text - color and size from the canvas controls</div>
       ) : isAgent ? (
         <AgentSeatSection key={node.id} node={node} />
-      ) : !isEntity && node.type === "text" ? (
+      ) : node.kind === "note" ? (
         <div className="inspector-detail note-surface">
           <NoteMarkdown source={node.text.split("\n").slice(1).join("\n").trim()} />
         </div>
@@ -95,7 +89,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
         <div className="inspector-detail">{detail}</div>
       ) : null}
       {!isLabel ? <WaitingOnSection key={`waiting:${node.id}`} nodeId={node.id} /> : null}
-      {!isLabel && node.type !== "group" ? (
+      {!isLabel && node.kind !== "region" ? (
         <NodePlacementSection key={`place:${node.id}`} nodeId={node.id} />
       ) : null}
       {!isLabel ? <NodeCapabilityInventory key={`cap:${node.id}`} nodeId={node.id} /> : null}

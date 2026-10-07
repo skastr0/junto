@@ -1,5 +1,5 @@
-import { useRtsNodes, withCurrentRtsNode, useRtsValue, useRtsWire } from "../../lib/rts-selection";
-import { asWireId, type Wire } from "@shared/model";
+import { useRtsNodes, useRtsValue, useRtsWire } from "../../lib/rts-selection";
+import { asWireId, type Wire, type Node, type Page, type TaskBoard } from "@shared/model";
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -26,13 +26,11 @@ import {
   Timer,
   Trash2,
 } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
 import type { TaskAdmission, TasksContract, TasksIncoming } from "@shared/work-model";
 import { resolveTaskAdmission } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
-  FLEET_UI_ENABLED,
   RELAY_ENABLED,
   productNodeKindEnabled,
   productVerbEnabled,
@@ -46,26 +44,24 @@ import {
   admissionLabel,
 } from "../../lib/admission-labels";
 import { HUE } from "../../lib/theme";
-import { isCommandCenterAuthoring } from "../../lib/canvas-boot";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
-import { resolveTerminalBinding } from "@shared/terminal";
+import { terminalBindingOf } from "@shared/terminal";
 import { openAgentChatSurface, openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentEditor } from "../../lib/agent-editor-state";
 import { isProfileSeat } from "../../lib/agent-profiles";
 import { openSaveProfile } from "../../lib/profiles-state";
 import { deleteEdges } from "../../lib/edge-mutations";
-import { hostOf, nodeTitle } from "../../lib/presentation";
+import { hostOf } from "../../lib/presentation";
 import { browser$ } from "../../lib/browser-state";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   PageBindingControl,
   PageUrlControl,
   RelayEditor,
-  TaskQueueHomeControl,
   TimerEditor,
   WatcherEditor,
 } from "../InspectorFields";
@@ -209,7 +205,7 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
 
 // --- middle panel: kind strip ------------------------------------------------
 
-function PageKindKeys({ node }: { readonly node: CanvasNode }) {
+function PageKindKeys({ node }: { readonly node: Page }) {
   const [pop, setPop] = useState<"url" | "binding" | null>(null);
   const canvasName = use$(state$.canvasName);
   const pageRef = (() => {
@@ -220,8 +216,8 @@ function PageKindKeys({ node }: { readonly node: CanvasNode }) {
     }
   })();
   const session = use$(browser$.sessionByRef[pageRef ?? ""]);
-  const browser = node.ether?.browser;
-  const url = node.type === "link" ? node.url : "";
+  const browser = { profile: node.profile };
+  const url = node.url;
 
   useEffect(() => {
     setPop(null);
@@ -272,12 +268,9 @@ function PageKindKeys({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
-  const [pop, setPop] = useState<"home" | "admission" | "wait" | null>(null);
-  const fleetUi =
-    FLEET_UI_ENABLED &&
-    isCommandCenterAuthoring(use$(state$.settings.station.role));
-  const contract = node.ether?.tasks?.contract;
+function TaskKindKeys({ node }: { readonly node: TaskBoard }) {
+  const [pop, setPop] = useState<"admission" | "wait" | null>(null);
+  const contract = node.contract;
   const admission = resolveTaskAdmission(contract);
   const waitMs = contract?.incoming?.waitMs;
 
@@ -338,17 +331,6 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       >
         <Timer size={ICON} />
       </KindKey>
-      {/* Queue home is pure host choice — a fleet surface. */}
-      {fleetUi ? (
-        <KindKey
-          label={pop === "home" ? "Close queue home" : "Queue home"}
-          title="Host for new tasks"
-          active={pop === "home"}
-          onClick={() => setPop((current) => (current === "home" ? null : "home"))}
-        >
-          <Server size={ICON} />
-        </KindKey>
-      ) : null}
       {pop === "admission" ? (
         <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Admission quick select">
           <span className="rts-kind-pop__title">Who starts tasks</span>
@@ -402,11 +384,6 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
           </span>
         </div>
       ) : null}
-      {fleetUi && pop === "home" ? (
-        <div className="rts-kind-pop rts-kind-pop--queue-home">
-          <TaskQueueHomeControl nodeId={node.id} />
-        </div>
-      ) : null}
     </>
   );
 }
@@ -416,14 +393,14 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
   const canvasName = use$(state$.canvasName);
   const node = useRtsNodes(canvasName, [nodeId])[0];
   if (!node) return null;
-  const kind = node.ether?.entity?.kind;
+  const kind = node.kind;
   // A feature-gated kind turned off in this build keeps its historical card
   // but loses every kind action, so no pop or surface can reopen it.
   if (kind !== undefined && !productNodeKindEnabled(kind)) return null;
   switch (kind) {
     case "agent": {
       // Managed terminal is the product surface; ACP chat stays hard-hidden.
-      const terminalBound = resolveTerminalBinding(node)?.kind === "native";
+      const terminalBound = terminalBindingOf(node)?.kind === "native";
       const rename = (
         <KindKey
           label="Rename"
@@ -470,7 +447,7 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
             <KindKey
               label="Open terminal"
               title="Open agent terminal (double-click node or re-tap slot)"
-              onClick={() => withCurrentRtsNode(node.id, openTerminal)}
+              onClick={() => void openTerminal(state$.canvasName.peek(), node.id)}
             >
               <Terminal size={ICON} />
             </KindKey>
@@ -480,7 +457,7 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
               label="Start live conversation"
               title="Talk with this Overseer"
               testId="rts-overseer-live"
-              onClick={() => openOverseerLive({ canvasName: state$.canvasName.peek(), nodeId: node.id, title: nodeTitle(node) })}
+              onClick={() => openOverseerLive({ canvasName: state$.canvasName.peek(), nodeId: node.id, title: titleOf(node) })}
             ><Mic size={ICON} /></KindKey>}
             {customize}
             {rename}
@@ -505,7 +482,7 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
           <KindKey
             label="Open chat"
             title="Open chat"
-            onClick={() => withCurrentRtsNode(node.id, openAgentChatSurface)}
+            onClick={() => openAgentChatSurface(state$.canvasName.peek(), node.id)}
           >
             <MessageSquareText size={ICON} />
           </KindKey>
@@ -522,7 +499,7 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
         <KindKey
           label="Open terminal"
           title="Open terminal"
-          onClick={() => withCurrentRtsNode(node.id, openTerminal)}
+          onClick={() => void openTerminal(state$.canvasName.peek(), node.id)}
         >
           <Terminal size={ICON} />
         </KindKey>
@@ -618,7 +595,6 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
         </>
       );
     case "watcher":
-    case "timer":
     case "cron":
     case "relay":
       return productNodeKindEnabled(kind) ? <SchedulerKindKeys node={node} /> : null;
@@ -629,12 +605,13 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
 }
 
 /** Cron / gauge / relay: rename + sensor body pop (no fields sheet). */
-function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
-  const kind = node.ether?.entity?.kind;
+function SchedulerKindKeys({ node }: { readonly node: Node }) {
+  const canvasName = use$(state$.canvasName);
+  const kind = node.kind;
   const [configOpen, setConfigOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [fireBusy, setFireBusy] = useState(false);
-  const isCron = kind === "cron" || kind === "timer";
+  const isCron = kind === "cron";
 
   useEffect(() => {
     setConfigOpen(false);
@@ -644,7 +621,7 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
 
   if ((isCron && !CRON_ENABLED) || (!isCron && !RELAY_ENABLED)) return null;
   const canFire =
-    isCron || kind === "relay" || kind === "watcher" || kind === "gauge";
+    isCron || kind === "relay" || kind === "watcher";
   const fireTitle = isCron
     ? "Run this cron's linked actions now"
     : kind === "relay"
@@ -669,21 +646,21 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
           label: configOpen ? "Close expression" : "Expression",
           title: "Cron expression",
           Icon: Timer,
-          body: <TimerEditor node={node} />,
+          body: <TimerEditor nodeId={node.id} />,
         }
       : kind === "watcher"
         ? {
             label: configOpen ? "Close threshold" : "Threshold",
             title: "Hermes stat threshold",
             Icon: Gauge,
-            body: <WatcherEditor node={node} />,
+            body: <WatcherEditor nodeId={node.id} />,
           }
         : kind === "relay"
           ? {
               label: configOpen ? "Close links" : "Links",
               title: "Watch inputs and effect outputs",
               Icon: Radio,
-              body: <RelayEditor node={node} />,
+              body: <RelayEditor nodeId={node.id} />,
             }
           : null;
 
@@ -738,7 +715,8 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
       ) : null}
       {scheduleOpen && isCron ? (
         <CronScheduleSurface
-          node={node}
+          canvas={canvasName}
+          id={node.id}
           onClose={() => setScheduleOpen(false)}
         />
       ) : null}

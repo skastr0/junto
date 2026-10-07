@@ -1,8 +1,6 @@
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
-import { nodeToDocument } from "@shared/model/from-document";
-import type { Wire } from "@shared/model";
+import type { Node, Wire } from "@shared/model";
 import { modelStore } from "./use-model";
 import { state$ } from "./state";
 
@@ -15,29 +13,24 @@ export function useRtsValue<T>(read: () => T): T {
 export const useSelectedNodeIds = (): ReadonlyArray<string> =>
   useRtsValue(() => [...new Set(state$.selectedNodeIds.get())].sort());
 
-export function rtsNode(canvas: string, id: string): CanvasNode | undefined {
+export function rtsNode(canvas: string, id: string): Node | undefined {
   const node = modelStore.node$(canvas, id).get();
   if (!node) return undefined;
-  return nodeToDocument(node);
+  return node;
 }
 
 /** Resolve complete current data at the gesture, never from a displayed snapshot. */
-export function readRtsNode(canvas: string, id: string): CanvasNode | undefined {
+export function readRtsNode(canvas: string, id: string): Node | undefined {
   const node = modelStore.node$(canvas, id).peek();
-  return node ? nodeToDocument(node) : undefined;
+  return node;
 }
 
-export function withCurrentRtsNode(id: string, action: (node: CanvasNode) => unknown): void {
-  const node = readRtsNode(state$.canvasName.peek(), id);
-  if (node) void action(node);
-}
-
-export function useRtsNodes(canvas: string, ids: ReadonlyArray<string>): ReadonlyArray<CanvasNode> {
+export function useRtsNodes(canvas: string, ids: ReadonlyArray<string>): ReadonlyArray<Node> {
   const key = use$(() => JSON.stringify(ids.flatMap(id => {
     const node = rtsNode(canvas, id);
     if (!node) return [];
     // Only the comparison omits placement. No fabricated node escapes it.
-    const { x, y, width, height, ...displayed } = node;
+    const { x, y, width, height, z, ...displayed } = node;
     return [displayed];
   })));
   return useMemo(() => JSON.parse(key).flatMap(({ id }: { id: string }) => {

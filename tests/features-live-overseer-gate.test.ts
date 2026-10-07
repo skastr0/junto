@@ -9,7 +9,7 @@ import { LIVE_OVERSEER_ENABLED, managedHarnessEnabled } from "../src/shared/feat
 import { HARNESS_IDS, allTemplates } from "../src/shared/managed-terminal-templates";
 import { defaultSettings } from "../src/shared/settings";
 import { ProvidersSettingsSection } from "../src/renderer/components/settings/ProvidersSettingsSection";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { newSeat } from "../src/renderer/lib/model-factories";
 import { canStartOverseerLive, openOverseerLive, overseerLive$ } from "../src/renderer/lib/overseer-live-state";
 import { state$ } from "../src/renderer/lib/state";
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
@@ -48,7 +48,7 @@ describe("Live Overseer product gate", () => {
   });
 
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses new native seats and the executable entry point", () => {
-    expect(() => makeManagedAgentNode(0, 0, { harness: "junto-overseer", host: "local" })).toThrow(/disabled/u);
+    expect(() => newSeat({ x: 0, y: 0, z: 0 }, { harness: "junto-overseer", host: "local" })).toThrow(/disabled/u);
     const process = spawnSync("bun", ["src/cli/main.ts", "overseer-host"], {
       encoding: "utf8",
       timeout: 15_000,
@@ -60,9 +60,9 @@ describe("Live Overseer product gate", () => {
   });
 
   it.runIf(LIVE_OVERSEER_ENABLED)("allows explicitly enabled managed seats", () => {
-    const node = makeManagedAgentNode(0, 0, { harness: "junto-overseer", host: "local" });
+    const node = newSeat({ x: 0, y: 0, z: 0 }, { harness: "junto-overseer", host: "local" });
     expect(canStartOverseerLive(node)).toBe(false);
-    expect(canStartOverseerLive({ ...node, ether: { ...node.ether, overseer: true } })).toBe(true);
+    expect(canStartOverseerLive({ ...node, overseer: true })).toBe(true);
   });
 
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses internal occupation of an existing native seat before spawning", async () => {

@@ -23,7 +23,7 @@ import { resolveHostPlacement } from "@shared/physics/placement";
 import { addEdge } from "../lib/edge-mutations";
 import { releaseFocus } from "../lib/focus-ownership";
 import { regionEdited } from "../lib/model-edits";
-import { commitCommands, editLink, editText, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults } from "../lib/mutations";
+import { commitCommands, editLink, editText, setGitCwd, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults } from "../lib/mutations";
 import {
   describeCronExpression,
   isValidCronExpression,
@@ -219,34 +219,11 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
 type EditorTarget = { readonly nodeId?: string; readonly node?: { readonly id: string } };
 const targetId = (target: EditorTarget): string => target.nodeId ?? target.node?.id ?? "";
 
-/** Queue home host for a tasks sink — used from RTS kind strip pop. */
-export function TaskQueueHomeControl({ nodeId }: { readonly nodeId: string }) {
-  const board = useNodeOf(use$(state$.canvasName), nodeId, "task");
-  // A task board in the model names no host, so its queue home reads as this
-  // machine; see the note to canvas-lead on where a chosen host is kept.
-  const storedHost = "local";
-  if (!board) return null;
-  return (
-    <div className="inspector-section" style={{ marginTop: 0 }}>
-      <div className="inspector-section__label">queue home</div>
-      <label className="inspector-editor">
-        <span>host for new tasks</span>
-        <EnrolledHostSelect
-          ariaLabel="Task queue home host"
-          value={storedHost}
-          onChange={(next) => setNodeHost(nodeId, next)}
-        />
-      </label>
-      <div className="inspector-detail">Existing tasks stay where they are.</div>
-    </div>
-  );
-}
-
 /** Host + profile for a page — used from RTS kind-strip pop. */
 export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
   const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
-  const storedProfile = node?.ether?.browser?.profile ?? "personal";
-  const storedHost = node ? resolveNodeHostId(node) : "local";
+  const storedProfile = node?.kind === "page" ? node.profile : "personal";
+  const storedHost = node?.kind === "page" ? node.host : "local";
   const [profile, setProfile] = useState(storedProfile);
   const [host, setHost] = useState(storedHost);
 
@@ -259,7 +236,7 @@ export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
     setPageBinding(nodeId, { profile: nextProfile, host: nextHost });
   };
 
-  if (!node) return null;
+  if (node?.kind !== "page") return null;
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
       <div className="inspector-section__label">browser binding</div>
@@ -295,17 +272,17 @@ export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
 /** Page URL — used from RTS kind-strip pop. */
 export function PageUrlControl({ nodeId }: { readonly nodeId: string }) {
   const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
-  const url = node?.type === "link" ? node.url : "";
+  const url = node?.kind === "page" ? node.url : "";
   const [draft, setDraft] = useState(url);
   useEffect(() => {
     setDraft(url);
   }, [nodeId, url]);
   const commit = () => {
     const next = draft.trim();
-    if (!next || next === url || node?.type !== "link") return;
+    if (!next || next === url || node?.kind !== "page") return;
     editLink(nodeId, next);
   };
-  if (!node) return null;
+  if (node?.kind !== "page") return null;
   return (
     <div className="inspector-section" style={{ marginTop: 0 }}>
       <div className="inspector-section__label">page url</div>

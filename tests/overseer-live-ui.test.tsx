@@ -1,6 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
+import { seat as seatNode, canvasOf } from "./support/model-nodes";
+import { Result, Schema } from "effect";
+import { resolveOverseerActor } from "../src/main/junto/overseer/admission";
+import { InstallationId } from "../src/shared/station-api";
 import type { LiveSnapshot } from "../src/shared/overseer-live";
 import { LiveConversationBody } from "../src/renderer/components/live/LiveConversation";
 import { canStartOverseerLive, openOverseerLive, overseerLive$, readLiveAttention } from "../src/renderer/lib/overseer-live-state";
@@ -49,11 +52,25 @@ describe("live conversation controls", () => {
 });
 
 describe("live conversation seat and attention", () => {
-  const seat: CanvasNode = { id: "o1", type: "text", text: "Overseer", x: 0, y: 0, width: 240, height: 96, ether: { entity: { kind: "agent" }, overseer: true, terminal: { bindingId: "binding", harness: "junto-overseer" } } };
+  const seat = seatNode("o1", { label: "Overseer", overseer: true, harness: "junto-overseer" });
   it("requires a granted native controller seat and never upgrades an ordinary worker", () => {
     expect(canStartOverseerLive(seat)).toBe(true);
-    expect(canStartOverseerLive({ ...seat, ether: { ...seat.ether, overseer: false } })).toBe(false);
-    expect(canStartOverseerLive({ ...seat, ether: { ...seat.ether, terminal: { bindingId: "worker", harness: "codex" } } })).toBe(false);
+    expect(canStartOverseerLive({ ...seat, overseer: false })).toBe(false);
+    expect(canStartOverseerLive({ ...seat, harness: "codex" })).toBe(false);
+  });
+
+  it("eligibility in the window never grants anything: main refuses an eligible seat without its live grant", () => {
+    expect(canStartOverseerLive(seat)).toBe(true);
+    const admitted = resolveOverseerActor(
+      { canvasName: "Factory", nodeId: seat.id },
+      { name: "Factory", canvas: canvasOf([{ ...seat, overseer: false }]), actorRefs: [] },
+      Schema.decodeUnknownSync(InstallationId)("window-eligibility-test"),
+    );
+    expect(Result.isFailure(admitted)).toBe(true);
+    if (Result.isFailure(admitted)) {
+      expect(admitted.failure).toMatchObject({ type: "ScopeError", message: "the caller no longer has human-granted overseer authority" });
+    }
+    expect(seat.overseer).toBe(true);
   });
 
   it("does not replace a call's occupant when another seat is opened", () => {

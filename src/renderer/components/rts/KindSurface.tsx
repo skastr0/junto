@@ -25,33 +25,32 @@ import {
   Settings2,
   X,
 } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node, Seat, Region } from "@shared/model";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   productNodeKindEnabled,
   RELAY_ENABLED,
 } from "@shared/features";
-import { isHarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../../lib/state";
-import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
+import { titleOf } from "@shared/model/title";
+import { detailOf } from "../../lib/node-presentation";
 import { HUE } from "../../lib/theme";
 import {
-  classifyMultiSelection,
-  multiSelectionLabel,
+  classifySelectionOf,
+  selectionLabelOf,
   surfaceLabel,
 } from "../../lib/multi-selection";
 import {
   formatMultiPromptStatus,
   multiPromptAgents,
-  multiPromptTargetsFromNodes,
+  multiPromptTargetsOf,
 } from "../../lib/multi-prompt";
 import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
-import { SeatRing } from "../SeatRing";
+import { SeatRingView, useSeatGlanceOf } from "../SeatRing";
 import { CustomizeAgentButton } from "../agent-editor/AgentEditor";
 import { OverseerMark } from "../OverseerMark";
-import { isOverseerSeat } from "../../lib/overseer-set";
 import { WaitingOnSection } from "../WaitingOnSection";
 import { RegionPathsModal } from "../RegionPathsModal";
 import { RegionEnvironmentModal } from "../region-environment/RegionEnvironmentModal";
@@ -77,21 +76,17 @@ type RegionFormKey = "briefing" | "page";
  * Seat-native agent glance — harness mark + document label.
  * No hermes corpus join, no matrix/avatar IPC, no adapter freshness copy.
  */
-function AgentSeatGlance({ node }: { readonly node: CanvasNode }) {
-  const harness =
-    typeof node.ether?.terminal?.harness === "string"
-      ? node.ether.terminal.harness
-      : undefined;
-  const managed = harness !== undefined && isHarnessId(harness);
-  const overseer = isOverseerSeat(node);
+function AgentSeatGlance({ node }: { readonly node: Seat }) {
+  const glance = useSeatGlanceOf(node);
+  const overseer = node.overseer;
   return (
-    <div className="rts-kind-id" title={nodeTitle(node)} data-overseer={overseer ? "true" : undefined}>
-      <CustomizeAgentButton identity={node.id} name={nodeTitle(node)} hint>
-        <SeatRing node={node} px={44} />
+    <div className="rts-kind-id" title={titleOf(node)} data-overseer={overseer ? "true" : undefined}>
+      <CustomizeAgentButton identity={node.id} name={titleOf(node)} hint>
+        <SeatRingView node={node} px={44} glance={glance} />
       </CustomizeAgentButton>
       <div className="rts-kind-id__text">
-        <div className="rts-kind-id__name">{nodeTitle(node)}</div>
-        <div className="rts-kind-id__live">{managed ? harness : "agent seat"}</div>
+        <div className="rts-kind-id__name">{titleOf(node)}</div>
+        <div className="rts-kind-id__live">{node.harness}</div>
         {overseer ? (
           <div className="mt-0.5">
             <OverseerMark size="card" />
@@ -111,21 +106,21 @@ function NodeFormFocus({
 }) {
   const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
   if (!node) return null;
-  const kind = node.ether?.entity?.kind;
+  const kind = node.kind;
   const isLabel = kind === "label";
   return (
     <FocusSurface
       measure="form"
       height="fit"
-      label={`${nodeTypeLabel(node)} fields`}
+      label={`${node.kind} fields`}
       onClose={onClose}
       closeOnEscape
       closeOnBackdrop
       panelClassName="rts-kind-form-panel nowheel"
     >
       <OverlayHeader
-        eyebrow={kind ?? nodeTypeLabel(node)}
-        title={nodeTitle(node)}
+        eyebrow={kind}
+        title={titleOf(node)}
 
         actions={
           <IconButton aria-label="Close fields" title="Close fields" onClick={onClose}>
@@ -141,12 +136,11 @@ function NodeFormFocus({
         kind !== "artifacts" &&
         kind !== "board" &&
         kind !== "watcher" &&
-        kind !== "timer" &&
         kind !== "cron" &&
         kind !== "relay" &&
         kind !== "page" &&
         kind !== "git" &&
-        Boolean(node.ether?.entity) ? (
+        !["note", "file", "link", "region"].includes(node.kind) ? (
           <WaitingOnSection nodeId={node.id} />
         ) : null}
         {!isLabel &&
@@ -156,13 +150,12 @@ function NodeFormFocus({
         kind !== "artifacts" &&
         kind !== "board" &&
         kind !== "watcher" &&
-        kind !== "timer" &&
         kind !== "cron" &&
         kind !== "relay" &&
         kind !== "page" &&
         kind !== "git" &&
-        node.type !== "group" &&
-        Boolean(node.ether?.entity) ? (
+        node.kind !== "region" &&
+        !["note", "file", "link", "region"].includes(node.kind) ? (
           <NodePlacementSection nodeId={nodeId} />
         ) : null}
         {!isLabel &&
@@ -172,16 +165,15 @@ function NodeFormFocus({
         kind !== "artifacts" &&
         kind !== "board" &&
         kind !== "watcher" &&
-        kind !== "timer" &&
         kind !== "cron" &&
         kind !== "relay" &&
         kind !== "page" &&
         kind !== "git" &&
-        Boolean(node.ether?.entity) ? (
+        !["note", "file", "link", "region"].includes(node.kind) ? (
           <NodeCapabilityInventory nodeId={nodeId} />
         ) : null}
-        {node.ether?.entity && !isLabel && nodeDetail(node) ? (
-          <div className="inspector-detail">{nodeDetail(node)}</div>
+        {!["note", "file", "link", "region"].includes(node.kind) && !isLabel && detailOf(node) ? (
+          <div className="inspector-detail">{detailOf(node)}</div>
         ) : null}
         {isLabel ? (
           <div className="inspector-detail">Bare map text — color and size from the canvas controls</div>
@@ -197,7 +189,7 @@ function RegionFieldFocus({
   form,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly node: Region;
   readonly form: RegionFormKey;
   readonly onClose: () => void;
 }) {
@@ -208,12 +200,12 @@ function RegionFieldFocus({
     briefing: {
       title: "Briefing",
       measure: "document",
-      body: <RegionBriefingEditor node={node} />,
+      body: <RegionBriefingEditor nodeId={node.id} />,
     },
     page: {
       title: "Page defaults",
       measure: "form",
-      body: <RegionPageDefaultsControl node={node} />,
+      body: <RegionPageDefaultsControl nodeId={node.id} />,
     },
   };
   const panel = copy[form];
@@ -242,13 +234,13 @@ function RegionFieldFocus({
 }
 
 /** Region kind strip — field keys only. No title, no flag glance, no plate/placement. */
-function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
+function RegionKindSurface({ node }: { readonly node: Region }) {
   const [form, setForm] = useState<RegionFormKey | null>(null);
   const [pathsOpen, setPathsOpen] = useState(false);
   const [environmentOpen, setEnvironmentOpen] = useState(false);
-  const hasEnvironment = node.ether?.region?.environment !== undefined;
-  const instruction = Boolean(node.ether?.region?.instruction?.trim());
-  const defaults = node.ether?.region?.defaults;
+  const hasEnvironment = node.environment !== undefined;
+  const instruction = Boolean(node.instruction?.trim());
+  const defaults = node.defaults;
   const hasPage = Boolean(
     defaults?.page?.url || defaults?.page?.profile || defaults?.page?.host,
   );
@@ -340,14 +332,14 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
  * Agents get multi-prompt (same text → every selected managed seat) via ChatComposer.
  * Send / label / status float over the textarea so the mid panel never clips them.
  */
-const canonicalSelection = (nodes: ReadonlyArray<CanvasNode>): ReadonlyArray<CanvasNode> =>
+const canonicalSelection = (nodes: ReadonlyArray<Node>): ReadonlyArray<Node> =>
   [...new Map(nodes.map((node) => [node.id, node])).values()].sort((left, right) =>
     left.id.localeCompare(right.id),
   );
 
 const promptOwnerIdentity = (
-  nodes: ReadonlyArray<CanvasNode>,
-  targets: ReturnType<typeof multiPromptTargetsFromNodes>,
+  nodes: ReadonlyArray<Node>,
+  targets: ReturnType<typeof multiPromptTargetsOf>,
 ): string =>
   JSON.stringify([
     nodes.map((node) => node.id),
@@ -365,7 +357,7 @@ const MultiPromptComposer = memo(
     targets,
   }: {
     readonly ownerIdentity: string;
-    readonly targets: ReturnType<typeof multiPromptTargetsFromNodes>;
+    readonly targets: ReturnType<typeof multiPromptTargetsOf>;
   }) {
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState<string>("");
@@ -406,13 +398,13 @@ const MultiPromptComposer = memo(
   (previous, next) => previous.ownerIdentity === next.ownerIdentity,
 );
 
-function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode> }) {
+function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<Node> }) {
   const selectedNodes = useMemo(() => canonicalSelection(nodes), [nodes]);
-  const classified = useMemo(() => classifyMultiSelection(selectedNodes), [selectedNodes]);
+  const classified = useMemo(() => classifySelectionOf(selectedNodes), [selectedNodes]);
   const targets = useMemo(
     () =>
       classified.mode === "homogeneous" && classified.surface === "kind:agent"
-        ? multiPromptTargetsFromNodes(classified.nodes)
+        ? multiPromptTargetsOf(classified.nodes)
         : [],
     [classified],
   );
@@ -425,7 +417,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
     return (
       <div className="rts-kind-surface">
         <div className="rts-quiet rts-quiet--compact">
-          {multiSelectionLabel(classified)} — colors on command card
+          {selectionLabelOf(classified)} — colors on command card
         </div>
       </div>
     );
@@ -515,12 +507,12 @@ export function KindSurface() {
     return <div className="rts-quiet rts-quiet--compact"></div>;
   }
 
-  if (node.type === "group") {
+  if (node.kind === "region") {
     return <RegionKindSurface node={node} />;
   }
 
-  const kind = node.ether?.entity?.kind;
-  const isFreeNote = node.type === "text" && !node.ether?.entity;
+  const kind = node.kind;
+  const isFreeNote = node.kind === "note";
   const hasKindActions =
     kind !== undefined &&
     productNodeKindEnabled(kind) &&
@@ -534,7 +526,7 @@ export function KindSurface() {
       "pad",
       "sheet",
       ...(RELAY_ENABLED ? (["watcher", "relay"] as const) : []),
-      ...(CRON_ENABLED ? (["timer", "cron"] as const) : []),
+      ...(CRON_ENABLED ? (["cron"] as const) : []),
       ...(BROWSER_ENABLED ? (["page"] as const) : []),
     ].includes(kind);
   // Agent seats keep a live glance. Everything else is strip-only (kind once +
@@ -545,7 +537,7 @@ export function KindSurface() {
   // noise.
   const showFieldsKey =
     !isFreeNote &&
-    (kind === undefined || productNodeKindEnabled(kind)) &&
+    productNodeKindEnabled(kind) &&
     kind !== "agent" &&
     kind !== "terminal" &&
     kind !== "label" &&
@@ -554,11 +546,10 @@ export function KindSurface() {
     kind !== "artifacts" &&
     kind !== "board" &&
     kind !== "watcher" &&
-    kind !== "timer" &&
     kind !== "cron" &&
     kind !== "relay" &&
     kind !== "page";
-  const stripLabel = kind ?? nodeTypeLabel(node);
+  const stripLabel = kind;
 
   return (
     <div className={`rts-kind-surface${showSeatGlance ? "" : " rts-kind-surface--simple"}`}>

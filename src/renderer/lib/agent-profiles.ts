@@ -19,7 +19,6 @@
  * - The seat gets a new node id, binding id, and (when its harness pins one)
  *   launch from the ordinary seat factory. Main records its session on start.
  */
-import type { CanvasNode, TextNode } from "@shared/canvas";
 import type { Node, NodeOf } from "@shared/model";
 import {
   cleanProfileName,
@@ -42,12 +41,8 @@ export type ProfileCaptureSources = {
 };
 
 /** An agent seat a profile can be captured from. */
-export const isProfileSeat = (node: CanvasNode | undefined): node is TextNode =>
-  node !== undefined &&
-  node.type === "text" &&
-  node.ether?.entity?.kind === "agent" &&
-  typeof node.ether.terminal?.harness === "string" &&
-  node.ether.terminal.launch?.kind === "harness";
+export const isProfileSeat = (node: Node | undefined): node is NodeOf<"agent"> =>
+  node?.kind === "agent" && node.launch?.kind === "harness";
 
 /** Every portrait trait, resolved, so a new id draws the same face. */
 export const resolvedPortrait = (nodeId: string, override?: PortraitConfig): PortraitOverride | undefined =>
