@@ -180,23 +180,54 @@ export const lastPrintedLine = (output: string): string => {
   return "";
 };
 
+/** Why Junto, or the operator through it, stopped a seat's process. */
+export type SeatStopCause = "operator" | "offboard" | "removed" | "junto";
+
+/** The signals a process is commonly ended by, by number. */
+const SIGNAL_NAMES: Readonly<Record<number, string>> = {
+  1: "SIGHUP",
+  2: "SIGINT",
+  3: "SIGQUIT",
+  6: "SIGABRT",
+  9: "SIGKILL",
+  11: "SIGSEGV",
+  13: "SIGPIPE",
+  15: "SIGTERM",
+};
+
+const STOPPED: Readonly<Record<SeatStopCause, string>> = {
+  operator: "was stopped by the operator",
+  offboard: "was stopped by Junto: its seat offboarded",
+  removed: "was stopped: its seat was removed",
+  junto: "was stopped by Junto",
+};
+
 /**
- * Operator copy for a harness that exited on its own: who exited, how, and
- * the last thing it printed, which is where a harness states why.
+ * Operator copy for how a seat's process ended, in plain words: stopped (and
+ * by whom), killed by a named signal, or exited by itself with its code.
+ *
+ * A PTY reports "no signal" as 0, which is not a signal and ended nothing.
+ * The reason never quotes the terminal: a TUI's last line is a piece of its
+ * screen, not an explanation. The one exception is a process that failed
+ * before it ever drew its interface, whose last line is its error message;
+ * the caller passes that as `startupError` and nothing else.
  */
 export const seatExitMessage = (input: {
   readonly harness?: HarnessId | string | undefined;
   readonly code?: number | undefined;
   readonly signal?: number | undefined;
-  readonly output?: string | undefined;
+  /** Set when the process was told to stop; it wins over how it then died. */
+  readonly stopped?: SeatStopCause | undefined;
+  /** Output of a process that exited before its interface came up. */
+  readonly startupError?: string | undefined;
 }): string => {
   const subject = harnessDisplayName(input.harness) ?? "The seat";
-  const how =
-    input.signal !== undefined
-      ? `was stopped by signal ${input.signal}`
-      : input.code !== undefined && input.code !== 0
-        ? `exited with code ${input.code}`
-        : "exited";
-  const said = lastPrintedLine(input.output ?? "");
+  if (input.stopped !== undefined) return `${subject} ${STOPPED[input.stopped]}`;
+  if (input.signal !== undefined && input.signal > 0) {
+    return `${subject} was killed by ${SIGNAL_NAMES[input.signal] ?? `signal ${input.signal}`}`;
+  }
+  if (input.code === undefined || input.code === 0) return `${subject} exited by itself`;
+  const said = lastPrintedLine(input.startupError ?? "");
+  const how = `exited by itself with code ${input.code}`;
   return said ? `${subject} ${how}: ${said}` : `${subject} ${how}`;
 };

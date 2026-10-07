@@ -23,6 +23,7 @@ import {
   LaunchRefusedError,
   launchRefusalCopy,
   seatExitMessage,
+  type SeatStopCause,
 } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import {
@@ -367,6 +368,10 @@ type SessionRec = {
    * manager says so. `stopped` is why, once it has been told to stop.
    */
   draining: { readonly key: string; stopped: string | undefined } | undefined;
+  /** Why the process was told to stop, when it was. */
+  stopCause: SeatStopCause | undefined;
+  /** The process drew a terminal interface (alternate screen or bracketed paste). */
+  interfaceSeen: boolean;
   /**
    * This generation used harness resume argv (`-r` / `--resume` / `resume`).
    * On proven resume failure we fail open to a fresh pin session once.
@@ -877,6 +882,9 @@ export const resolveLaunch = (
   return Result.succeed({ file: shell, args: [], cwd, env });
 };
 
+/** A terminal interface coming up: the alternate screen, or bracketed paste turned on. */
+const INTERFACE_UP_RE = /\x1b\[\?(?:1049|1047|47|2004)h/;
+
 export class LocalSessionHost extends EventEmitter {
   /** Current presentation generation by binding. */
   private readonly sessions = new Map<string, SessionRec>();
@@ -1200,6 +1208,8 @@ export class LocalSessionHost extends EventEmitter {
       escalationTimer: undefined,
       unconfirmedStop: undefined,
       draining: undefined,
+      stopCause: undefined,
+      interfaceSeen: false,
       resumeAttempt: agentMeta?.resumeAttempt === true,
       resumeFailureSeen: false,
       failOpenUsed: agentMeta?.failOpenUsed === true,
@@ -1951,6 +1961,8 @@ export class LocalSessionHost extends EventEmitter {
 
   private requestStop(rec: SessionRec, reason: string): void {
     const alreadyKilled = rec.killed;
+    // The first reason stands: it is why the process was told to stop.
+    if (!alreadyKilled) rec.stopCause = this.stopCauseOf(rec, reason);
     rec.killed = true;
     rec.controlLeaseId = undefined;
     // Identity revocation is synchronous and exact. Neither daemon shutdown nor
@@ -2061,6 +2073,15 @@ export class LocalSessionHost extends EventEmitter {
       status: "exited",
       pid: rec.pid,
     });
+  }
+
+  /** Who told this process to stop, for the reason its seat shows. */
+  private stopCauseOf(rec: SessionRec, reason: string): SeatStopCause {
+    if (reason === "node_delete") return "removed";
+    if (reason !== "explicit_kill") return "junto";
+    // An explicit stop of a seat sealed by an offboard is that offboard's
+    // (the close stops what it could not leave to wind down).
+    return this.inputSealed?.(rec.bindingId) === true ? "offboard" : "operator";
   }
 
   // ── Draining: a session that offboarded, detached from its seat ──────────
@@ -2522,6 +2543,9 @@ export class LocalSessionHost extends EventEmitter {
       !this.liveRecords.has(rec)
     ) return;
     rec.seq = rec.seq + 1n;
+    if (!rec.interfaceSeen && INTERFACE_UP_RE.test(`${rec.sessionCaptureTail.slice(-16)}${data}`)) {
+      rec.interfaceSeen = true;
+    }
     if (rec.draining !== undefined) {
       // A detached session is read, and that is all: its bytes go to its own
       // grid under its drain key. No journal for a surface, no event for the
@@ -2639,14 +2663,17 @@ export class LocalSessionHost extends EventEmitter {
     });
     rec.lease = undefined;
     rec.exitWitness = undefined;
-    // An agent seat that exits on its own says why at once, in the harness's
-    // own last words; the surface shows this instead of retrying blind.
-    if (rec.harness && !rec.killed) {
+    // An agent seat says how its process ended, in plain words: stopped and
+    // by whom, killed by a signal, or exited by itself. Only a process that
+    // failed before its interface ever came up is quoted (that line is its
+    // error); a TUI's last line is a piece of its screen and explains nothing.
+    if (rec.harness) {
       rec.exitMessage = seatExitMessage({
         harness: rec.harness,
         code,
         signal,
-        output: rec.sessionCaptureTail,
+        ...(rec.killed ? { stopped: rec.stopCause ?? "junto" } : {}),
+        ...(rec.interfaceSeen ? {} : { startupError: rec.sessionCaptureTail }),
       });
     }
     if (current !== rec) return;

@@ -1217,9 +1217,101 @@ describe("LocalSessionHost", () => {
 
     await vi.waitFor(() => expect(host.get(bindingId)?.status).toBe("exited"));
     const dead = host.get(bindingId);
-    expect(dead?.exitMessage).toBe("Claude Code exited with code 1: Error: not logged in");
+    expect(dead?.exitMessage).toBe("Claude Code exited by itself with code 1: Error: not logged in");
     // A natural exit is not a pre-ownership refusal.
     expect(dead?.exitReason).toBeUndefined();
+  });
+
+  describe("why a seat's process ended, in plain words", () => {
+    const seat = (bindingId: string) => ({
+      bindingId,
+      harness: "codex" as const,
+      agentKey: `local:${bindingId}`,
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
+    });
+    const started = (bindingId: string, exitOnSignal: "SIGTERM" | false = false) => {
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(43_100 + index),
+        exitOnSignal,
+      }));
+      const host = hostWith(fake);
+      host.createAgentSeat(seat(bindingId));
+      return { fake, host };
+    };
+    const reasonOf = async (host: LocalSessionHost, bindingId: string) => {
+      await vi.waitFor(() => expect(host.get(bindingId)?.status).toBe("exited"));
+      return host.get(bindingId)?.exitMessage;
+    };
+    /** The interface comes up (bracketed paste on) and paints its input box. */
+    const TUI = "\x1b[?2004h\x1b[2J\x1b[H› Ask Codex to do anything\r\n";
+
+    // The Product team's finding: an ended fake session read "Codex was
+    // stopped by signal 0: Ask Codex to do anything".
+    it("a clean exit reports no signal and never quotes the screen", async () => {
+      const { fake, host } = started("exit-clean");
+      fake.controllers[0]?.emitData(TUI);
+      fake.controllers[0]?.exit(0, 0);
+      expect(await reasonOf(host, "exit-clean")).toBe("Codex exited by itself");
+    });
+
+    it("a failure after the interface came up gives the code and no screen text", async () => {
+      const { fake, host } = started("exit-late");
+      fake.controllers[0]?.emitData(TUI);
+      fake.controllers[0]?.emitData("\x1b[31mstream disconnected\x1b[0m\r\n");
+      fake.controllers[0]?.exit(1, 0);
+      expect(await reasonOf(host, "exit-late")).toBe("Codex exited by itself with code 1");
+    });
+
+    it("a failure before any interface quotes the error the process printed", async () => {
+      const { fake, host } = started("exit-early");
+      fake.controllers[0]?.emitData("error: not logged in\r\n");
+      fake.controllers[0]?.exit(1, 0);
+      expect(await reasonOf(host, "exit-early")).toBe("Codex exited by itself with code 1: error: not logged in");
+    });
+
+    it("names the signal when something else killed it", async () => {
+      const { fake, host } = started("exit-killed");
+      fake.controllers[0]?.emitData(TUI);
+      fake.controllers[0]?.exit(undefined, 9);
+      expect(await reasonOf(host, "exit-killed")).toBe("Codex was killed by SIGKILL");
+    });
+
+    it("says the operator stopped it", async () => {
+      const { fake, host } = started("exit-stopped", "SIGTERM");
+      fake.controllers[0]?.emitData(TUI);
+      host.kill("exit-stopped");
+      expect(await reasonOf(host, "exit-stopped")).toBe("Codex was stopped by the operator");
+    });
+
+    it("says Junto stopped it for an offboard when the seat was sealed by one", async () => {
+      const { fake, host } = started("exit-offboard", "SIGTERM");
+      host.setInputSealed((bindingId) => bindingId === "exit-offboard");
+      fake.controllers[0]?.emitData(TUI);
+      host.kill("exit-offboard");
+      expect(await reasonOf(host, "exit-offboard")).toBe("Codex was stopped by Junto: its seat offboarded");
+    });
+
+    it("an old process ending off its seat writes no reason onto the seat", async () => {
+      const plane = new TerminalObserverPlane();
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(43_200 + index),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake, { observerPlane: plane });
+      const input = { ...seat("exit-drained"), canvasName: "factory", nodeId: "exit-drained-node" };
+      host.createAgentSeat(input);
+      const ended: string[] = [];
+      host.onDrainEnded((drainKey) => ended.push(drainKey));
+      const drained = host.drain(input.bindingId)!;
+      // Resting: nothing on the seat, and the old process dies badly.
+      fake.controllers[0]?.exit(1, 0);
+      await vi.waitFor(() => expect(ended).toEqual([drained.drainKey]));
+      expect(host.get(input.bindingId)).toBeUndefined();
+      // Continuing: the fresh session's summary is its own.
+      const fresh = host.createAgentSeat(input);
+      expect(host.get(input.bindingId)).toMatchObject({ epoch: fresh.epoch, status: "running" });
+      expect(host.get(input.bindingId)?.exitMessage).toBeUndefined();
+    });
   });
 
   it("under JUNTO_HOME does not occupy an already occupied pin generation", () => {
@@ -2352,7 +2444,7 @@ describe("LocalSessionHost", () => {
       await vi.advanceTimersByTimeAsync(5_000);
       expect(host.unconfirmedStops()).toEqual([]);
       expect(host.runningCount()).toBe(0);
-      expect(host.get(input.bindingId)?.exitMessage).toBeUndefined();
+      expect(host.get(input.bindingId)?.exitMessage).toBe("Codex was stopped by the operator");
     });
 
     it("a failed PTY write stops the generation instead of leaving it broken forever", async () => {

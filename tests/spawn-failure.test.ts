@@ -145,18 +145,56 @@ describe("classifySpawnFailure", () => {
 });
 
 describe("seatExitMessage", () => {
-  it("names the harness, how it exited, and the last line it printed", () => {
+  it("says a process exited by itself, with its code when it failed", () => {
+    expect(seatExitMessage({ harness: "hermes", code: 0 })).toBe("Hermes exited by itself");
+    expect(seatExitMessage({ harness: "codex" })).toBe("Codex exited by itself");
+    expect(seatExitMessage({ harness: "codex", code: 2 })).toBe("Codex exited by itself with code 2");
+    expect(seatExitMessage({ code: 1 })).toBe("The seat exited by itself with code 1");
+  });
+
+  it("signal 0 is no signal: it stopped nothing and is never named", () => {
+    // What a PTY reports for an ordinary exit.
+    expect(seatExitMessage({ harness: "codex", code: 0, signal: 0 })).toBe("Codex exited by itself");
+    expect(seatExitMessage({ harness: "codex", code: 1, signal: 0 })).toBe("Codex exited by itself with code 1");
+  });
+
+  it("names the signal that killed it", () => {
+    expect(seatExitMessage({ harness: "codex", signal: 9 })).toBe("Codex was killed by SIGKILL");
+    expect(seatExitMessage({ harness: "codex", signal: 15, code: 0 })).toBe("Codex was killed by SIGTERM");
+    expect(seatExitMessage({ harness: "codex", signal: 11 })).toBe("Codex was killed by SIGSEGV");
+    expect(seatExitMessage({ harness: "codex", signal: 31 })).toBe("Codex was killed by signal 31");
+  });
+
+  it("says who stopped it, whatever signal that took", () => {
+    expect(seatExitMessage({ harness: "claude", stopped: "operator", signal: 15 })).toBe(
+      "Claude Code was stopped by the operator",
+    );
+    expect(seatExitMessage({ harness: "claude", stopped: "offboard", signal: 9 })).toBe(
+      "Claude Code was stopped by Junto: its seat offboarded",
+    );
+    expect(seatExitMessage({ harness: "claude", stopped: "removed", code: 0 })).toBe(
+      "Claude Code was stopped: its seat was removed",
+    );
+    expect(seatExitMessage({ harness: "claude", stopped: "junto" })).toBe("Claude Code was stopped by Junto");
+  });
+
+  it("quotes only the error of a process that failed before its interface came up", () => {
     expect(
       seatExitMessage({
         harness: "claude",
         code: 1,
-        output:
-          "\x1b[?25l\x1b[31mError: Session ID 421f87b3 is already in use.\x1b[0m\r\n\x1b[?25h",
+        startupError: "\x1b[?25l\x1b[31mError: Session ID 421f87b3 is already in use.\x1b[0m\r\n\x1b[?25h",
       }),
-    ).toBe("Claude Code exited with code 1: Error: Session ID 421f87b3 is already in use.");
-    expect(seatExitMessage({ harness: "hermes", code: 0 })).toBe("Hermes exited");
-    expect(seatExitMessage({ harness: "codex", signal: 9, output: "\r\n" })).toBe(
-      "Codex was stopped by signal 9",
+    ).toBe("Claude Code exited by itself with code 1: Error: Session ID 421f87b3 is already in use.");
+    // Never for a clean exit, a signal or a stop: nothing failed to explain.
+    expect(seatExitMessage({ harness: "codex", code: 0, startupError: "Ask Codex to do anything" })).toBe(
+      "Codex exited by itself",
+    );
+    expect(seatExitMessage({ harness: "codex", signal: 9, startupError: "Ask Codex to do anything" })).toBe(
+      "Codex was killed by SIGKILL",
+    );
+    expect(seatExitMessage({ harness: "codex", stopped: "operator", startupError: "anything" })).toBe(
+      "Codex was stopped by the operator",
     );
   });
 

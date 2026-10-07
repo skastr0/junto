@@ -69,7 +69,7 @@ const LOAD_PHASE = 8;
 const OPERATOR_STOPPED = 23;
 
 const REASON = "Codex could not start: the folder ~/gone does not exist";
-const EXIT_REASON = "Claude Code exited with code 1: Error: Session ID 421f87b3 is already in use.";
+const EXIT_REASON = "Claude Code exited by itself with code 1: Error: Session ID 421f87b3 is already in use.";
 const PIN = "421f87b3-5a95-474e-9164-85bb2d7d1ac6";
 
 const agentNode: CanvasNode = {
