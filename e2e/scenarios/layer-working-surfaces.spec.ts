@@ -112,13 +112,18 @@ test("Settings keeps its frame and closes on Escape and on its dim", async ({ ju
         height: Math.round(box.height),
         offCentreX: Math.round(box.left + box.width / 2 - window.innerWidth / 2),
         offCentreY: Math.round(box.top + box.height / 2 - window.innerHeight / 2),
-        window: `${String(window.innerWidth)}x${String(window.innerHeight)}`,
+        roomX: window.innerWidth,
+        roomY: window.innerHeight,
       };
     });
     console.log(`WORKING settings ${theme} frame ${JSON.stringify(frame)}`);
-    if (frame.width !== 760) failures.push(`${theme}: Settings is ${String(frame.width)} wide, expected 760`);
-    if (frame.height > 720) failures.push(`${theme}: Settings is ${String(frame.height)} high, cap is 720`);
-    if (Math.abs(frame.offCentreX) > 1 || Math.abs(frame.offCentreY) > 1) failures.push(`${theme}: Settings is off centre by ${String(frame.offCentreX)}, ${String(frame.offCentreY)}`);
+    // The frame of an agent view with no rail: 1100 wide or the room there
+    // is, nearly as tall as the window, centred across.
+    if (frame.width > 1100) failures.push(`${theme}: Settings is ${String(frame.width)} wide, the frame stops at 1100`);
+    // The panel sits inside the frame's own border, so a few pixels under 1100.
+    if (frame.roomX >= 1200 && frame.width < 1090) failures.push(`${theme}: Settings is ${String(frame.width)} wide with room for 1100`);
+    if (frame.height < frame.roomY * 0.75 || frame.height > frame.roomY) failures.push(`${theme}: Settings is ${String(frame.height)} high in a window ${String(frame.roomY)} high`);
+    if (Math.abs(frame.offCentreX) > 1) failures.push(`${theme}: Settings is off centre across by ${String(frame.offCentreX)}`);
     if (!(await panel.evaluate((el) => el.contains(document.activeElement)))) failures.push(`${theme}: Settings does not hold the keyboard after opening`);
 
     // Every section scrolls inside the frame: the frame never grows or moves.
