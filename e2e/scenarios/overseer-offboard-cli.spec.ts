@@ -1,3 +1,4 @@
+import { modelFixture, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
 import { grantOverseer, readModelSeat } from "../harness/model";
 /**
  * The overseer's offboard commands, typed in an overseer seat [fake-tui].
@@ -35,18 +36,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page, TestInfo } from "@playwright/test";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
+import type { Seat } from "../../src/shared/model";
 import { DEFAULT_OFFBOARD_RULES, OFFBOARD_REFUSAL_REASON } from "../../src/shared/seat-offboard";
 import { composeOffboardAsk } from "../../src/shared/seat-sessions";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
 import {
-  crewDoc,
   crewMessageCount,
-  crewMessagesEdge,
   crewOccupySeat,
   crewPlayFactory,
   crewSeat,
-  crewSeatNode,
   installCrewSeatHarness,
   type CrewCliResult,
   type CrewSeat,
@@ -84,21 +82,19 @@ const MODE_ONLY_WITH_ASK = "mode is only allowed when action is ask";
 // ---------------------------------------------------------------------------
 
 /** A codex seat that names a session, seeded the way seat-sessions.spec.ts does. */
-const sessionSeat = (id: string, label: string, x: number, y: number): TextNode => {
-  const base = crewSeatNode({ id, label, x, y });
-  return { ...base, ether: { ...base.ether, terminal: { ...base.ether!.terminal!, sessionId: `sess-overseercli-${id}` } } };
-};
+const sessionSeat = (id: string, label: string, x: number, y: number): Seat =>
+  modelSeat({ id, label, x, y, sessionId: `sess-overseercli-${id}` });
 
-const O = crewSeatNode({ id: "overseer", label: "Overseer", x: 60, y: 80 });
+const O = modelSeat({ id: "overseer", label: "Overseer", x: 60, y: 80 });
 const W = sessionSeat("working", "Working", 360, 80);
 const I = sessionSeat("idle", "Idle", 660, 80);
 const R = sessionSeat("resting", "Resting", 960, 80);
-const N = crewSeatNode({ id: "nogrant", label: "No grant", x: 60, y: 300 });
-const PEER = crewSeatNode({ id: "peer", label: "Peer", x: 500, y: 300 });
+const N = modelSeat({ id: "nogrant", label: "No grant", x: 60, y: 300 });
+const PEER = modelSeat({ id: "peer", label: "Peer", x: 500, y: 300 });
 const NODES = [O, W, I, R, N, PEER];
-const DOC: CanvasDoc = crewDoc(NODES, [
-  crewMessagesEdge("e-peer-working", PEER.id, W.id, NODES),
-  crewMessagesEdge("e-peer-idle", PEER.id, I.id, NODES),
+const DOC: ModelFixture = modelFixture(NODES, [
+  modelMessagesWire("e-peer-working", PEER.id, W.id, NODES),
+  modelMessagesWire("e-peer-idle", PEER.id, I.id, NODES),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -183,7 +179,7 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
 
   const dir = process.env.OVERSEER_CLI_DIR ?? testInfo.outputPath();
   await mkdir(dir, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: DOC }, afterSeed: installCrewSeatHarness });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: DOC }, afterSeed: installCrewSeatHarness });
   const chunks: string[] = [];
   const keep = (chunk: Buffer): void => {
     chunks.push(String(chunk));
@@ -240,8 +236,8 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     await crewPlayFactory(page);
 
     // ── Staging ────────────────────────────────────────────────────────────
-    const seatOf = (node: TextNode): CrewSeat => crewSeat(sandbox, CANVAS, node.id);
-    const start = async (node: TextNode): Promise<CrewSeat> => {
+    const seatOf = (node: Seat): CrewSeat => crewSeat(sandbox, CANVAS, node.id);
+    const start = async (node: Seat): Promise<CrewSeat> => {
       const seat = seatOf(node);
       await crewOccupySeat(page, CANVAS, node, seat);
       await expectSeatState(page, node.id, "idle");

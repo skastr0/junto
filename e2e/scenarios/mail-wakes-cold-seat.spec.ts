@@ -1,4 +1,4 @@
-import { installFixtureDocument } from "../harness/model";
+import { installModelFixture, modelFixture, modelSeat } from "../harness/model";
 /**
  * Mail wakes a cold seat — the demand-signal contract, end to end.
  *   bun run test:e2e:fast e2e/scenarios/mail-wakes-cold-seat.spec.ts
@@ -31,7 +31,6 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { CanvasDoc } from "../../src/shared/canvas";
 import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
 import { expect, launchJunto, test } from "../harness/launch";
 
@@ -51,7 +50,7 @@ const claudeOnPath = (): boolean => {
 
 // The seat's folder. Main refuses a managed agent seat with no working
 // directory (its cwd would otherwise fall back to the operator home), and the
-// seat is woken while unconnected — it needs the same document launch the
+// seat is woken while unconnected — it needs the same authored launch the
 // authoring path writes, argv included. A fixed folder, the one
 // real-harness-resume uses: Claude's trust grant for it persists across runs,
 // keyed by the resolved path (/private/tmp on macOS).
@@ -67,29 +66,11 @@ const seatLaunch = {
   cwd: SEAT_CWD,
 };
 
-const seatDoc: CanvasDoc = {
-  nodes: [
-    {
-      id: SEAT_ID,
-      type: "text",
-      text: "Wake target",
-      x: 360,
-      y: 40,
-      width: 240,
-      height: 96,
-      ether: {
-        entity: { kind: "agent", name: "local:wake-target" },
-        host: "local",
-        terminal: {
-          bindingId: "wake-target-binding",
-          harness: "claude",
-          launch: seatLaunch,
-        },
-      },
-    },
-  ],
-  edges: [],
-};
+const seatFixture = modelFixture([modelSeat({
+  id: SEAT_ID, key: "local:wake-target", label: "Wake target",
+  bindingId: "wake-target-binding", harness: "claude", launch: seatLaunch,
+  x: 360, y: 40,
+})]);
 
 const stateDb = (appHome: string): string =>
   join(appHome, ".junto", "state", "junto.db");
@@ -176,7 +157,7 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
     // Author into the BOOT canvas — the one the renderer (and its Play
     // button) is actually on. Writing a second canvas and playing the first
     // holds delivery on the pause plane forever, correctly and silently.
-    CANVAS = await installFixtureDocument(page, seatDoc);
+    CANVAS = await installModelFixture(page, seatFixture);
     await expect(page.locator(`.react-flow__node[data-id="${SEAT_ID}"]`)).toBeVisible({
       timeout: 20_000,
     });

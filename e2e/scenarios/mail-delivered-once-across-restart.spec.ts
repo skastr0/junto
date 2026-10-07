@@ -1,3 +1,4 @@
+import { modelFixture, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
 /**
  * Mail is delivered once, across a quit and a reopen [fake-tui].
  *
@@ -34,20 +35,17 @@ import { join } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
+import type { Seat } from "../../src/shared/model";
 import { buildOnboardNudge } from "../../src/shared/managed-terminal-injection";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import {
-  crewDoc,
   crewMessageCount,
-  crewMessagesEdge,
   crewOccupySeat,
   crewPlayFactory,
   crewReceipts,
   CrewSeat,
   crewSeatDir,
-  crewSeatNode,
   crewSeatsDir,
   installCrewSeatHarness,
   type CrewReceiptFacts,
@@ -84,9 +82,9 @@ const soft = expect.configure({ soft: true });
 // Canvas
 // ---------------------------------------------------------------------------
 
-const ADA = crewSeatNode({ id: "ada", label: "Ada", x: 120, y: 200 });
-const BO = crewSeatNode({ id: "bo", label: "Bo", x: 480, y: 200 });
-const DOC: CanvasDoc = crewDoc([ADA, BO], [crewMessagesEdge("e-ada-bo", ADA.id, BO.id, [ADA, BO])]);
+const ADA = modelSeat({ id: "ada", label: "Ada", x: 120, y: 200 });
+const BO = modelSeat({ id: "bo", label: "Bo", x: 480, y: 200 });
+const DOC: ModelFixture = modelFixture([ADA, BO], [modelMessagesWire("e-ada-bo", ADA.id, BO.id, [ADA, BO])]);
 
 // ---------------------------------------------------------------------------
 // Fake seat harness: one folder per process generation
@@ -216,7 +214,7 @@ const receiptOf = async (page: Page, nodeId: string, messageId: string): Promise
   (await crewReceipts(page, CANVAS, nodeId)).find((row) => row.messageId === messageId);
 
 /** Start a seat by hand, the way opening its terminal does. */
-const startByHand = async (page: Page, node: TextNode): Promise<void> => {
+const startByHand = async (page: Page, node: Seat): Promise<void> => {
   await page.evaluate(
     async ([canvasName, seatNode]) => {
       await window.junto!.modelStart({ canvas: canvasName, id: seatNode.id }).catch(() => undefined);
@@ -276,7 +274,7 @@ type Walk = {
 const walk = async (testInfo: TestInfo, id: string, body: (walk: Walk) => Promise<void>): Promise<void> => {
   const dir = process.env.MAIL_RESTART_DIR ?? testInfo.outputPath();
   await mkdir(dir, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: DOC }, afterSeed: installSeatHarness, extraEnv: { JUNTO_PTY_TRACE: "1" } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: DOC }, afterSeed: installSeatHarness, extraEnv: { JUNTO_PTY_TRACE: "1" } });
   const { sandbox } = junto;
   const chunks: string[] = [];
   const reopened: ElectronApplication[] = [];
@@ -392,7 +390,7 @@ const walk = async (testInfo: TestInfo, id: string, body: (walk: Walk) => Promis
 const stage = async (junto: JuntoHandle): Promise<{ readonly ada: CrewSeat; readonly bo: CrewSeat }> => {
   const { page, sandbox } = junto;
   await crewPlayFactory(page);
-  const start = async (node: TextNode): Promise<CrewSeat> => {
+  const start = async (node: Seat): Promise<CrewSeat> => {
     const seat = genSeat(sandbox, node.id, 1);
     await crewOccupySeat(page, CANVAS, node, seat);
     await expectSeatState(page, node.id, "idle");

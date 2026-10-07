@@ -1,3 +1,4 @@
+import { modelFixture, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
 import { readModelSeat } from "../harness/model";
 /**
  * Seat offboard [fake-tui]: what happens to a seat after its agent runs
@@ -44,18 +45,15 @@ import { chmod, mkdir, readdir, readFile, rename, writeFile } from "node:fs/prom
 import { join } from "node:path";
 import type { Page, TestInfo } from "@playwright/test";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
+import type { Seat } from "../../src/shared/model";
 import { buildOnboardNudge } from "../../src/shared/managed-terminal-injection";
 import { CONTINUATION_LINE, type SeatOffboardProgress } from "../../src/shared/seat-sessions";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
 import { seededHarnessBinDir } from "../harness/agent-harness-fixture";
 import {
-  crewDoc,
-  crewMessagesEdge,
   crewOccupySeat,
   crewPlayFactory,
   crewSeatDir,
-  crewSeatNode,
   crewSeatsDir,
   CrewSeat,
   installCrewSeatHarness,
@@ -80,14 +78,10 @@ const NUDGE = buildOnboardNudge();
 
 const soft = expect.configure({ soft: true });
 
-const seatBase = crewSeatNode({ id: SEAT_ID, label: "Closer", x: 120, y: 220 });
-/** A seat with a session to close, seeded the way seat-sessions.spec.ts does (line 36). */
-const SEAT: TextNode = {
-  ...seatBase,
-  ether: { ...seatBase.ether, terminal: { ...seatBase.ether!.terminal!, sessionId: FIRST_SESSION } },
-};
-const PEER = crewSeatNode({ id: PEER_ID, label: "Peer", x: 480, y: 220 });
-const DOC: CanvasDoc = crewDoc([SEAT, PEER], [crewMessagesEdge("e-peer-closer", PEER.id, SEAT.id, [SEAT, PEER])]);
+/** A seat with an explicit session to close. */
+const SEAT = modelSeat({ id: SEAT_ID, label: "Closer", x: 120, y: 220, sessionId: FIRST_SESSION });
+const PEER = modelSeat({ id: PEER_ID, label: "Peer", x: 480, y: 220 });
+const DOC: ModelFixture = modelFixture([SEAT, PEER], [modelMessagesWire("e-peer-closer", PEER.id, SEAT.id, [SEAT, PEER])]);
 
 // ---------------------------------------------------------------------------
 // Launch, evidence
@@ -117,7 +111,7 @@ const offboardLines = (log: string): ReadonlyArray<string> => log.split("\n").fi
  */
 const walk = async (testInfo: TestInfo, id: string, body: (walk: Walk) => Promise<void>): Promise<void> => {
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: DOC },
+    seedModels: { [CANVAS]: DOC },
     afterSeed: installOffboardSeatHarness,
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
@@ -304,7 +298,7 @@ const expectSeatState = async (page: Page, nodeId: string, state: string | RegEx
 };
 
 /** Start the seat's fake and wait until it reads idle. */
-const startSeat = async (junto: JuntoHandle, node: TextNode): Promise<CrewSeat> => {
+const startSeat = async (junto: JuntoHandle, node: Seat): Promise<CrewSeat> => {
   const seat = genSeat(junto.sandbox, node.id, 1);
   await crewOccupySeat(junto.page, CANVAS, node, seat);
   await expectSeatState(junto.page, node.id, "idle");
@@ -322,7 +316,7 @@ const sessionOf = (page: Page, nodeId: string): Promise<TerminalSessionSummary |
 const isLive = (session: TerminalSessionSummary | undefined): boolean =>
   session?.status === "running" || session?.status === "starting";
 
-/** The session id the seat's node names (seat-sessions.spec.ts:36, 69: `ether.terminal.sessionId`). */
+/** The session id the seat's node names (seat-sessions.spec.ts:36, 69: `sessionId`). */
 const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
   return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
 };

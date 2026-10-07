@@ -26,8 +26,8 @@ const decodeCommand = Schema.decodeUnknownSync(Command, { onExcessProperty: "err
 
 export const modelSeat = (input: {
   readonly id: string;
-  readonly key: string;
-  readonly label: string;
+  readonly key?: string;
+  readonly label?: string;
   readonly host?: string;
   readonly bindingId?: string;
   readonly harness?: Seat["harness"];
@@ -41,8 +41,8 @@ export const modelSeat = (input: {
   const harness = input.harness ?? "codex";
   const cwd = input.cwd ?? tmpdir();
   return Schema.decodeUnknownSync(Seat, { onExcessProperty: "error" })({
-    kind: "agent", id: input.id, agentKey: input.key, label: input.label,
-    bindingId: input.bindingId ?? input.key, harness, host: input.host ?? "local",
+    kind: "agent", id: input.id, agentKey: input.key ?? `local:${input.id}`, label: input.label ?? input.id,
+    bindingId: input.bindingId ?? input.key ?? `local:${input.id}`, harness, host: input.host ?? "local",
     overseer: false, onRemove: "detach", x: input.x ?? 0, y: input.y ?? 0,
     width: 240, height: 96, z: input.z ?? 0,
     launch: input.launch ?? { ...resolveManagedLaunch(harness, { cwd }, {}), cwd },
@@ -78,6 +78,13 @@ export const modelWire = (
     id, from, to, verb, fromSide: sides?.fromSide ?? "right", toSide: sides?.toSide ?? "left",
   });
 };
+
+/** A directed mail relationship; a mask keeps only the named ports. */
+export const modelMessagesWire = (
+  id: string, from: string, to: string, nodes: ReadonlyArray<Node>, mask?: Wire["mask"],
+): Wire => Schema.decodeUnknownSync(Wire, { onExcessProperty: "error" })({
+  ...modelWire(id, from, to, "messages", nodes), ...(mask === undefined ? {} : { mask }),
+});
 
 export const modelFixture = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire> = []): ModelFixture => ({
   nodes: nodes.map((node, z) => decodeNode({ ...node, z })), wires,
