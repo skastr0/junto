@@ -120,6 +120,47 @@ if (phase === "change") {
     tally.take = () => { const out = { changed: tally.changed, canvases: tally.canvases, marks: tally.marks, spans: tally.spans }; tally.changed = []; tally.canvases = 0; tally.marks = []; tally.spans = []; return out; };
     window.__verifyCut = tally;
   })()`);
+  // Count the window's reads where they arrive, in main, so the number does
+  // not depend on instrumentation inside the window that a change may remove.
+  const mainPort = process.env.JUNTO_PERF_LAB_MAIN_PORT ?? "9230";
+  const mainTargets = (await (await fetch(`http://127.0.0.1:${mainPort}/json/list`)).json()) as Array<{ webSocketDebuggerUrl: string }>;
+  const mainWs = new WebSocket(mainTargets[0]!.webSocketDebuggerUrl);
+  await new Promise<void>((ok) => (mainWs.onopen = () => ok()));
+  let mainNext = 1;
+  const mainWaiting = new Map<number, (value: any) => void>();
+  mainWs.onmessage = (event) => {
+    const message = JSON.parse(String(event.data));
+    const done = message.id === undefined ? undefined : mainWaiting.get(message.id);
+    if (done) {
+      mainWaiting.delete(message.id);
+      done(message);
+    }
+  };
+  const mainEvaluate = async <T>(expression: string): Promise<T> => {
+    const id = mainNext++;
+    const reply = await new Promise<any>((done) => {
+      mainWaiting.set(id, done);
+      mainWs.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, awaitPromise: true, returnByValue: true } }));
+    });
+    if (reply.error || reply.result.exceptionDetails) throw new Error(JSON.stringify(reply.error ?? reply.result.exceptionDetails).slice(0, 400));
+    return reply.result.result.value as T;
+  };
+  const counted = await mainEvaluate<string[]>(`(() => {
+    const load = typeof require === "function" ? require : process.mainModule.require;
+    const handlers = load("electron").ipcMain._invokeHandlers;
+    globalThis.__verifyInvokes = globalThis.__verifyInvokes ?? {};
+    const wrapped = [];
+    for (const [channel, handler] of handlers) {
+      if (!String(channel).startsWith("junto:") || handler.__verifyCounted) continue;
+      const counting = (...args) => { globalThis.__verifyInvokes[channel] = (globalThis.__verifyInvokes[channel] ?? 0) + 1; return handler(...args); };
+      counting.__verifyCounted = true;
+      handlers.set(channel, counting);
+      wrapped.push(channel);
+    }
+    return wrapped;
+  })()`);
+  const takeInvokes = () => mainEvaluate<Record<string, number>>(`(() => { const out = globalThis.__verifyInvokes; globalThis.__verifyInvokes = {}; return out; })()`);
+  console.log(JSON.stringify({ mainChannelsCounted: counted.length }));
   const wireId = `verify-new-wire-${String(Date.now())}`;
   const commands: Array<[string, object]> = [
     ["move one seat", { _tag: "Move", canvas, moves: [{ id: mover.id, x: mover.x + 137, y: mover.y + 59 }] }],
@@ -130,15 +171,21 @@ if (phase === "change") {
   const results: object[] = [];
   await sleep(1_500);
   await evaluate(`window.__verifyCut.take()`);
+  await takeInvokes();
+  await sleep(2_000);
+  console.log(JSON.stringify({ what: "quiet 2 s, nothing sent", invokesInMain: await takeInvokes() }));
   for (const [what, command] of commands) {
     const reply = await evaluate<{ ok: boolean; seq?: number; error?: string }>(`window.junto.modelCommand(${JSON.stringify(command)}).then((value) => ({ ok: true, seq: value.seq }), (error) => ({ ok: false, error: String(error).slice(0, 300) }))`);
     await sleep(1_200);
     const seen = await evaluate<{ changed: object[]; canvases: number; marks: string[]; spans: string[] }>(`window.__verifyCut.take()`);
     const count = (list: string[], key: string) => list.filter((item) => item === key).length;
-    results.push({ what, reply, events: seen.changed, canvasChanged: count(seen.marks, "canvasChanged"), readCanvas: count(seen.spans, "reload.readCanvas"), rebuilds: count(seen.spans, "canvas.structuralRebuild") });
+    // The command itself is one modelCommand invoke; anything else is the window asking main for more.
+    const invokes = await takeInvokes();
+    results.push({ what, reply, events: seen.changed, canvasChangedMarks: count(seen.marks, "canvasChanged"), readCanvasSpans: count(seen.spans, "reload.readCanvas"), invokesInMain: invokes });
     console.log(JSON.stringify(results.at(-1)));
   }
   await evaluate(`window.__verifyCut.stop()`);
+  mainWs.close();
   const after = await opened();
   writeFileSync(file, JSON.stringify({ expect: { mover: { id: mover.id, x: mover.x + 137, y: mover.y + 59 }, renamed: renamed.id, wire: { id: wireId, from: from.id, to: to.id }, removed: note!.id, seq: after.seq, nodes: after.nodes.length, wires: after.wires.length } }));
   console.log(JSON.stringify({ phase, seqBefore: before.seq, seqAfter: after.seq, nodes: [before.nodes.length, after.nodes.length], wires: [before.wires.length, after.wires.length] }));
