@@ -8,6 +8,7 @@
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import { clearCommitReview, seatGitFolder, useCommitReview } from "../../lib/git-summary";
+import { isOperatorModalOpen } from "../../lib/operator-modal";
 import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
@@ -16,7 +17,13 @@ import { GitReviewBody } from "./GitDetail";
 export function CommitReviewModal() {
   const asked = useCommitReview();
   const doc = use$(state$.doc);
-  useEffect(() => clearCommitReview, []);
+  // Cleared only when the slot has really left: a dev build mounts, cleans up and mounts again.
+  useEffect(
+    () => () => {
+      if (!isOperatorModalOpen("git")) clearCommitReview();
+    },
+    [],
+  );
   const node = asked ? doc.nodes.find((candidate) => candidate.id === asked.nodeId) : undefined;
   const folder = node ? seatGitFolder(doc, node) : undefined;
   return (

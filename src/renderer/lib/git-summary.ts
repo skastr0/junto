@@ -6,7 +6,7 @@ import type { GitSummary } from "@shared/git";
 import { resolveRegionCwd } from "@shared/region-defaults";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { getJuntoApi } from "./junto-api";
-import { openOperatorModalFrom, type OperatorModalPlaces } from "./operator-modal";
+import { isOperatorModalOpen, openOperatorModalFrom, type OperatorModalPlaces } from "./operator-modal";
 import { state$ } from "./state";
 
 /**
@@ -163,6 +163,8 @@ export const openCommitReview = (input: {
   readonly sha: string;
   readonly place: OperatorModalPlaces["feed"];
 }): void => {
+  // Only the feed can be left for a review; from anywhere else nothing opens, so nothing is set.
+  if (!isOperatorModalOpen("feed")) return;
   commitReview$.set({ nodeId: input.nodeId, sha: input.sha });
   openOperatorModalFrom("feed", "git", input.place);
 };
