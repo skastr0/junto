@@ -8,7 +8,6 @@ import {
   SelectionMode,
   useConnection,
   useEdgesState,
-  useNodesInitialized,
   useNodesState,
   useReactFlow,
   useStore,
@@ -17,7 +16,7 @@ import {
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnBeforeDelete, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
-import { executionGraphContextFromActorRefs, UNNAMED_REGION } from "@shared/graph";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, MessageSquare, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
 import {
   clearSelection,
@@ -28,6 +27,7 @@ import {
 } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { dock$ } from "../lib/dock-state";
+import { openingAnchors, openingViewport } from "../lib/camera-placement";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { createFlowIdentityCache, toFlow } from "../lib/convert";
 import {
@@ -147,19 +147,20 @@ const flowNodeLabel = (node: FlowNode, selected: boolean): string => {
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
   readonly fitView: (options?: { readonly nodes?: Array<CanvasNodeRef>; readonly padding?: number; readonly duration?: number; readonly maxZoom?: number }) => Promise<boolean>;
+  readonly setViewport: (viewport: { readonly x: number; readonly y: number; readonly zoom: number }) => Promise<boolean>;
   readonly getNode: (id: string) => CanvasNodeRef | undefined;
   readonly getNodes: () => ReadonlyArray<CanvasNodeRef>;
   readonly screenToFlowPosition: (position: { readonly x: number; readonly y: number }) => { readonly x: number; readonly y: number };
 };
 
+/** A region's name, for choosing what the camera shows. */
+const regionLabelOf = (node: CanvasNodeRef): string =>
+  ((node.data as { readonly node?: { readonly label?: string } } | undefined)?.node?.label ?? "");
+
 const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
   const graphNodes = rf.getNodes();
   const regions = graphNodes.filter((node) => node.type === "group");
-  const meaningfulRegions = regions.filter((node) => {
-    const label = ((node.data as { readonly node?: { readonly label?: string } } | undefined)?.node?.label ?? "").trim().toLowerCase();
-    return Boolean(label) && !["n", "new region", UNNAMED_REGION].includes(label);
-  });
-  const anchors = meaningfulRegions.length > 0 ? meaningfulRegions : regions.length > 0 ? regions : graphNodes.slice(0, 24);
+  const anchors = [...openingAnchors(graphNodes, regionLabelOf)];
   void rf.fitView({
     nodes: anchors,
     padding: 0.18,
@@ -480,32 +481,27 @@ function useCanvasFocus(rf: CanvasFlow) {
   }, [rf]);
 }
 
-function useCanvasViewport(nodeCount: number, rf: CanvasFlow) {
-  const fittedCanvasRef = useRef("");
-  // A fit reads each node's measured size. Asked for before React Flow has
-  // measured the nodes it finds nothing to fit, parks the camera on the
-  // origin at full zoom, and the canvas is never fitted again.
-  const measured = useNodesInitialized();
-  useEffect(() => {
-    let frame = 0;
-    const tryFit = () => {
-      const canvasName = state$.canvasName.peek();
-      if (!canvasName || nodeCount === 0 || !measured || fittedCanvasRef.current === canvasName) return;
-      fittedCanvasRef.current = canvasName;
-      frame = requestAnimationFrame(() => {
-        // A dense corpus spanning thousands of flow pixels becomes unreadable
-        // if the first frame fits every node. Regions are the spatial index;
-        // when none exist, show the first node cluster.
-        fitReadableField(rf);
-      });
-    };
-    tryFit();
-    const off = state$.canvasName.onChange(() => tryFit());
-    return () => {
-      cancelAnimationFrame(frame);
-      off();
-    };
-  }, [nodeCount, measured, rf]);
+function useCanvasViewport(nodes: ReadonlyArray<FlowNode>, rf: CanvasFlow) {
+  const placedRef = useRef("");
+  const canvasName = use$(state$.canvasName);
+  // The pane has a size, and the camera can be set, once React Flow has seen
+  // its element.
+  const paneWidth = useStore((store) => store.width);
+  const paneHeight = useStore((store) => store.height);
+  const minZoom = useStore((store) => store.minZoom);
+  const ready = useStore((store) => store.panZoom !== null);
+  // The camera is placed once for a canvas, the moment it has cards: on what
+  // the canvas opens on, worked out from the size each card is drawn at, with
+  // no glide and before the frame is painted. Nothing waits for a card to be
+  // measured, so the canvas is where it will stay before anyone can touch it,
+  // whether its cards arrive in one step or several.
+  useLayoutEffect(() => {
+    if (!ready || !canvasName || placedRef.current === canvasName) return;
+    const viewport = openingViewport(nodes, regionLabelOf, { width: paneWidth, height: paneHeight }, minZoom);
+    if (viewport === undefined) return;
+    placedRef.current = canvasName;
+    void rf.setViewport(viewport);
+  }, [ready, canvasName, nodes, paneWidth, paneHeight, minZoom, rf]);
 }
 
 function useCanvasInteractions(
@@ -1456,7 +1452,7 @@ function useCanvasGraph() {
       void moved.catch(() => undefined);
     });
   }, [rf]);
-  useCanvasViewport(nodes.length, rf);
+  useCanvasViewport(nodes, rf);
   return {
     nodes,
     edges,
@@ -1848,8 +1844,6 @@ function CanvasGraph() {
       elevateNodesOnSelect={false}
       // A wire never rises over a card, selected or not (convert.ts z bands).
       elevateEdgesOnSelect={false}
-      fitView
-      fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }}
       minZoom={0.15}
       maxZoom={2.5}
       proOptions={{ hideAttribution: true }}
