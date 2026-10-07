@@ -53,13 +53,22 @@ test("interface size scales the whole window and the way back stays in reach", a
     await frame(`settings-${String(percent)}`);
     }
 
-    // Tight window at the largest size: the way back is still reachable.
+    // Tight window at the largest size: the size is held to what the window
+    // can show, so the way into Settings stays inside it, and the way back works.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(960, 680));
+    await expect.poll(zoomFactor).toBeCloseTo(1.5, 2);
+    await expect(size(200)).toHaveAttribute("aria-checked", "true");
+    const settingsEdge = await page.evaluate(() => {
+      const box = document.querySelector('button[aria-label="Open settings"]')?.getBoundingClientRect();
+      return { right: box?.right ?? Number.POSITIVE_INFINITY, inner: window.innerWidth };
+    });
+    expect(settingsEdge.right).toBeLessThanOrEqual(settingsEdge.inner);
     await size(100).scrollIntoViewIfNeeded();
     await expect(size(100)).toBeInViewport();
     await page.waitForTimeout(300);
     await frame("settings-200-small-window");
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 800));
+    await expect.poll(zoomFactor).toBeCloseTo(2, 2);
 
     await size(150).click();
     await expect.poll(zoomFactor).toBeCloseTo(1.5, 2);
