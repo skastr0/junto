@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "./canvas";
-import { canvasFromDocument, nodeFromDocument } from "./model/from-document";
+import type { Node } from "./model";
 import { defaultEffectTasksCreate } from "./node-insert";
 import {
   collectEffectEdgesFrom,
@@ -12,113 +11,61 @@ import {
   schedulerSourceLabel,
   validateEffectTarget,
 } from "./scheduler-effects";
-import { watchReadFromDocument } from "./work-read";
+import type { Task } from "./work-model";
+import type { WatchRead } from "./work-read";
+import {
+  canvasOf,
+  cron,
+  page,
+  relay,
+  seat,
+  taskBoard,
+  wire,
+} from "../../tests/support/model-nodes";
 
-type DocNode = CanvasDoc["nodes"][number];
+/** The work a watched node holds: task rows by node, nothing else. */
+const holding = (rows: Readonly<Record<string, ReadonlyArray<Task>>> = {}): WatchRead => ({
+  itemsOf: (node) => rows[node] ?? [],
+  board: () => undefined,
+  artifacts: () => 0,
+});
 
-/** A watch on a document node: the model's node, and the work the document holds. */
 const watch = (
-  source: DocNode | undefined,
+  source: Node | undefined,
   when: Parameters<typeof evaluateWatchWhen>[1],
   context?: Parameters<typeof evaluateWatchWhen>[3],
-) =>
-  evaluateWatchWhen(
-    source === undefined ? undefined : nodeFromDocument("factory", source, 0),
-    when,
-    watchReadFromDocument({ nodes: source === undefined ? [] : [source] }),
-    context,
-  );
+  work: WatchRead = holding(),
+) => evaluateWatchWhen(source, when, work, context);
 
-const doc = (partial: Partial<CanvasDoc> & Pick<CanvasDoc, "nodes" | "edges">): CanvasDoc =>
-  ({
-    nodes: partial.nodes,
-    edges: partial.edges,
-  }) as CanvasDoc;
+const row = (id: string, state: Task["state"]): Task => ({ id, state, history: [] });
 
 describe("scheduler-effects", () => {
   it("collects only directed scheduler→target effect edges", () => {
-    const canvas = doc({
-      nodes: [
-        {
-          id: "c1",
-          type: "text",
-          text: "morning review",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 40,
-          ether: { entity: { kind: "cron" }, timer: { everyMinutes: 30 } },
-        },
-        {
-          id: "t1",
-          type: "text",
-          text: "tasks",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 40,
-          ether: { entity: { kind: "task" }, tasks: { items: [] } },
-        },
-      ],
-      edges: [
-        { id: "e1", fromNode: "c1", toNode: "t1", ether: { verb: "enqueues" } },
+    const canvas = canvasOf(
+      [cron("c1", { label: "morning review", expression: "*/30 * * * *" }), taskBoard("t1")],
+      [
+        wire("e1", "c1", "t1", "enqueues"),
         // Pointing the other way is the sink announcing, never a fire action.
-        { id: "e2", fromNode: "t1", toNode: "c1", ether: { verb: "announces" } },
+        wire("e2", "t1", "c1", "announces"),
       ],
-    });
-    const bindings = collectEffectEdgesFrom(canvasFromDocument("factory", canvas), "c1");
+    );
+    const bindings = collectEffectEdgesFrom(canvas, "c1");
     expect(bindings).toHaveLength(1);
     expect(bindings[0]!.effect.mode).toBe("enqueue_task");
   });
 
   it("validates enqueue targets a task sink", () => {
-    const task: import("./canvas").CanvasNode = {
-      id: "t1",
-      type: "text",
-      text: "tasks",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "task" } },
+    const effect = {
+      mode: "enqueue_task" as const,
+      data: { brief: "hi", metadata: { title: "hi", details: "hi" } },
     };
-    const agent: import("./canvas").CanvasNode = {
-      id: "a1",
-      type: "text",
-      text: "agent",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "agent" } },
-    };
-    expect(
-      validateEffectTarget(
-        { mode: "enqueue_task", data: { brief: "hi", metadata: { title: "hi", details: "hi" } } },
-        nodeFromDocument("factory", task, 0),
-      ),
-    ).toBeUndefined();
-    expect(
-      validateEffectTarget(
-        { mode: "enqueue_task", data: { brief: "hi", metadata: { title: "hi", details: "hi" } } },
-        nodeFromDocument("factory", agent, 1),
-      ),
-    ).toBe("target_not_task_sink");
+    expect(validateEffectTarget(effect, taskBoard("t1"))).toBeUndefined();
+    expect(validateEffectTarget(effect, seat("a1"))).toBe("target_not_task_sink");
   });
 
   it("OR-evaluates multi-select watch any", () => {
-    const page: import("./canvas").CanvasNode = {
-      id: "p1",
-      type: "link",
-      url: "https://example.com",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "page" } },
-    };
     expect(
-      watch(page, {
+      watch(page("p1"), {
         word: "any",
         any: [
           { word: "completes", equals: "ready" },
@@ -137,24 +84,8 @@ describe("scheduler-effects", () => {
   });
 
   it("keeps page ready and page failed as independent completes equals without sensor", () => {
-    const page: import("./canvas").CanvasNode = {
-      id: "p1",
-      type: "link",
-      url: "https://example.com",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "page" } },
-    };
-    const ready = watch(page, {
-      word: "completes",
-      equals: "ready",
-    });
-    const failed = watch(page, {
-      word: "completes",
-      equals: "failed",
-    });
+    const ready = watch(page("p1"), { word: "completes", equals: "ready" });
+    const failed = watch(page("p1"), { word: "completes", equals: "failed" });
     // Not pending — pending spins the card forever for an unconnected sensor.
     expect(ready.status).toBe("unknown");
     expect(failed.status).toBe("unknown");
@@ -163,70 +94,34 @@ describe("scheduler-effects", () => {
   });
 
   it("satisfies page ready/failed from live browser load map", () => {
-    const page: import("./canvas").CanvasNode = {
-      id: "p1",
-      type: "link",
-      url: "https://example.com",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "page" } },
-    };
     const loads = new Map([["p1", "ready" as const]]);
     expect(
-      watch(
-        page,
-        { word: "completes", equals: "ready" },
-        { pageLoadByNodeId: loads },
-      ).status,
+      watch(page("p1"), { word: "completes", equals: "ready" }, { pageLoadByNodeId: loads }).status,
     ).toBe("satisfied");
     expect(
-      watch(
-        page,
-        { word: "completes", equals: "failed" },
-        { pageLoadByNodeId: loads },
-      ).status,
+      watch(page("p1"), { word: "completes", equals: "failed" }, { pageLoadByNodeId: loads }).status,
     ).toBe("pending");
 
     const failedLoads = new Map([["p1", "failed" as const]]);
     expect(
-      watch(
-        page,
-        { word: "completes", equals: "failed" },
-        { pageLoadByNodeId: failedLoads },
-      ).status,
+      watch(page("p1"), { word: "completes", equals: "failed" }, { pageLoadByNodeId: failedLoads }).status,
     ).toBe("satisfied");
     expect(
-      watch(
-        page,
-        { word: "completes", equals: "ready" },
-        { pageLoadByNodeId: failedLoads },
-      ).status,
+      watch(page("p1"), { word: "completes", equals: "ready" }, { pageLoadByNodeId: failedLoads }).status,
     ).toBe("pending");
   });
 
   it("treats page loading as pending and missing session as unknown", () => {
-    const page: import("./canvas").CanvasNode = {
-      id: "p1",
-      type: "link",
-      url: "https://example.com",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "page" } },
-    };
     expect(
       watch(
-        page,
+        page("p1"),
         { word: "completes", equals: "ready" },
         { pageLoadByNodeId: new Map([["p1", "loading"]]) },
       ).status,
     ).toBe("pending");
     expect(
       watch(
-        page,
+        page("p1"),
         { word: "completes", equals: "ready" },
         { pageLoadByNodeId: new Map() },
       ).status,
@@ -234,16 +129,6 @@ describe("scheduler-effects", () => {
   });
 
   it("OR-evaluates page ready|failed when either load outcome lands", () => {
-    const page: import("./canvas").CanvasNode = {
-      id: "p1",
-      type: "link",
-      url: "https://example.com",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "page" } },
-    };
     const when = {
       word: "any" as const,
       any: [
@@ -252,157 +137,47 @@ describe("scheduler-effects", () => {
       ],
     };
     expect(
-      watch(page, when, {
-        pageLoadByNodeId: new Map([["p1", "ready"]]),
-      }).status,
+      watch(page("p1"), when, { pageLoadByNodeId: new Map([["p1", "ready"]]) }).status,
     ).toBe("satisfied");
     expect(
-      watch(page, when, {
-        pageLoadByNodeId: new Map([["p1", "failed"]]),
-      }).status,
+      watch(page("p1"), when, { pageLoadByNodeId: new Map([["p1", "failed"]]) }).status,
     ).toBe("satisfied");
   });
 
-  it("evaluates watch completes on task wire (no node body)", () => {
-    const source: import("./canvas").CanvasNode = {
-      id: "t1",
-      type: "text",
-      text: "tasks",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: {
-        entity: { kind: "task" },
-        tasks: {
-          items: [
-            {
-              id: "item-1",
-              state: "submitted",
-              history: [],
-            },
-          ],
-        },
-      },
-    };
+  it("evaluates watch completes on the rows a task board holds", () => {
+    const when = { word: "completes" as const, equals: "completed" };
+    expect(watch(taskBoard("t1"), when).detail).toMatch(/has no tasks yet/);
     expect(
-      watch(source, {
-        word: "completes",
-        equals: "completed",
-      }).status,
+      watch(taskBoard("t1"), when, undefined, holding({ t1: [row("item-1", "submitted")] })).status,
     ).toBe("pending");
-    const done = {
-      ...source,
-      ether: {
-        entity: { kind: "task" as const },
-        tasks: {
-          items: [
-            {
-              id: "item-1",
-              state: "completed" as const,
-              history: [],
-            },
-          ],
-        },
-      },
-    };
     expect(
-      watch(done, {
-        word: "completes",
-        equals: "completed",
-      }).status,
+      watch(taskBoard("t1"), when, undefined, holding({ t1: [row("item-1", "completed")] })).status,
     ).toBe("satisfied");
   });
 
   it("collectWatchEdgesInto compiles the sink's headline event off announces", () => {
-    const canvas = doc({
-      nodes: [
-        {
-          id: "t1",
-          type: "text",
-          text: "tasks",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: {
-            entity: { kind: "task" },
-            tasks: {
-              items: [{ id: "item-1", state: "completed", history: [] }],
-            },
-          },
-        },
-        {
-          id: "r1",
-          type: "text",
-          text: "relay",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: {
-            entity: { kind: "relay" },
-          },
-        },
-      ],
-      edges: [{ id: "e1", fromNode: "t1", toNode: "r1", ether: { verb: "announces" } }],
-    });
-    const edges = collectWatchEdgesInto(canvasFromDocument("factory", canvas), "r1");
+    const tasks = taskBoard("t1");
+    const canvas = canvasOf([tasks, relay("r1")], [wire("e1", "t1", "r1", "announces")]);
+    const edges = collectWatchEdgesInto(canvas, "r1");
     expect(edges).toHaveLength(1);
     expect(edges[0]!.when).toEqual({ word: "completes" });
-    expect(watch(canvas.nodes[0], edges[0]!.when).status).toBe(
-      "satisfied",
-    );
+    expect(
+      watch(edges[0]!.source, edges[0]!.when, undefined, holding({ t1: [row("item-1", "completed")] })).status,
+    ).toBe("satisfied");
   });
 
   it("collectWatchEdgesInto keeps announces and skips every other relay wire", () => {
-    const canvas = doc({
-      nodes: [
-        {
-          id: "t1",
-          type: "text",
-          text: "tasks",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "task" }, tasks: { items: [] } },
-        },
-        {
-          id: "a1",
-          type: "text",
-          text: "agent",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: {
-            entity: { kind: "agent", name: "local:a" },
-            terminal: { bindingId: "binding-a", harness: "claude" },
-          },
-        },
-        {
-          id: "r1",
-          type: "text",
-          text: "relay",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "relay" } },
-        },
-      ],
-      edges: [
+    const canvas = canvasOf(
+      [taskBoard("t1"), seat("a1"), relay("r1")],
+      [
         // The agent fires the relay by hand — a trigger, never a watch.
-        { id: "e-fires", fromNode: "a1", toNode: "r1", ether: { verb: "fires" } },
-        // No verb at all: the relationship says nothing to watch.
-        { id: "e-bare", fromNode: "a1", toNode: "r1" },
+        wire("e-fires", "a1", "r1", "fires"),
         // Announcing agents and sinks are the watch inputs.
-        { id: "e-agent", fromNode: "a1", toNode: "r1", ether: { verb: "announces" } },
-        { id: "e-in", fromNode: "t1", toNode: "r1", ether: { verb: "announces" } },
+        wire("e-agent", "a1", "r1", "announces"),
+        wire("e-in", "t1", "r1", "announces"),
       ],
-    });
-    const edges = collectWatchEdgesInto(canvasFromDocument("factory", canvas), "r1");
+    );
+    const edges = collectWatchEdgesInto(canvas, "r1");
     expect(edges.map((e) => e.wire.id).sort()).toEqual(["e-agent", "e-in"]);
     // The agent's headline news is a raised hand, not a completion.
     expect(edges.find((e) => e.wire.id === "e-agent")?.when).toEqual({
@@ -411,16 +186,7 @@ describe("scheduler-effects", () => {
   });
 
   it("an agent announce is satisfied only while that seat has a raised hand", () => {
-    const agent = {
-      id: "a1",
-      type: "text" as const,
-      text: "Planner",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "agent", name: "local:planner" } },
-    };
+    const agent = seat("a1", { label: "Planner" });
     const raised = watch(agent, { word: "signals" }, {
       raisedHandNodeIds: new Set(["a1"]),
     });
@@ -438,45 +204,11 @@ describe("scheduler-effects", () => {
   });
 
   it("collectWatchEdgesInto keeps OR multi-input sinks", () => {
-    const canvas = doc({
-      nodes: [
-        {
-          id: "t1",
-          type: "text",
-          text: "tasks",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "task" }, tasks: { items: [] } },
-        },
-        {
-          id: "p1",
-          type: "text",
-          text: "page",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "page" } },
-        },
-        {
-          id: "r1",
-          type: "text",
-          text: "relay",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "relay" } },
-        },
-      ],
-      edges: [
-        { id: "e1", fromNode: "t1", toNode: "r1", ether: { verb: "announces" } },
-        { id: "e2", fromNode: "p1", toNode: "r1", ether: { verb: "announces" } },
-      ],
-    });
-    const edges = collectWatchEdgesInto(canvasFromDocument("factory", canvas), "r1");
+    const canvas = canvasOf(
+      [taskBoard("t1"), page("p1"), relay("r1")],
+      [wire("e1", "t1", "r1", "announces"), wire("e2", "p1", "r1", "announces")],
+    );
+    const edges = collectWatchEdgesInto(canvas, "r1");
     expect(edges).toHaveLength(2);
     expect(edges.map((e) => e.when)).toEqual([
       { word: "completes" },
@@ -492,17 +224,7 @@ describe("scheduler-effects", () => {
   });
 
   it("default task effect payload uses scheduler label", () => {
-    const source = {
-      id: "c",
-      type: "text" as const,
-      text: "  ",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "cron" as const } },
-    };
-    const label = schedulerSourceLabel(nodeFromDocument("factory", source, 0));
+    const label = schedulerSourceLabel(cron("c"));
     expect(label).toBe("cron");
     const data = defaultEffectTasksCreate(label);
     expect(data.brief).toContain("cron");

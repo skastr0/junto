@@ -41,39 +41,3 @@ export const workReadFromDocument = (doc: {
   held.set(doc, made);
   return made;
 };
-
-const heldWatch = new WeakMap<object, WatchRead>();
-
-/** The same, for what a relay watches. Worked out once per document object. */
-export const watchReadFromDocument = (doc: {
-  readonly nodes: ReadonlyArray<CanvasNode>;
-}): WatchRead => {
-  const known = heldWatch.get(doc);
-  if (known !== undefined) return known;
-  const boards = new Map<string, { readonly topics: number; readonly posts: number }>();
-  const artifacts = new Map<string, number>();
-  for (const node of doc.nodes) {
-    const topics = node.ether?.board?.topics;
-    if (topics !== undefined && !boards.has(node.id)) {
-      boards.set(node.id, {
-        topics: topics.length,
-        posts: topics.reduce(
-          (sum, topic) =>
-            sum + (typeof topic.postCount === "number" ? topic.postCount : 0),
-          0,
-        ),
-      });
-    }
-    const items = node.ether?.artifacts?.items;
-    if (items !== undefined && !artifacts.has(node.id)) {
-      artifacts.set(node.id, items.length);
-    }
-  }
-  const made: WatchRead = {
-    itemsOf: workItemsFromDocument(doc),
-    board: (node) => boards.get(node),
-    artifacts: (node) => artifacts.get(node) ?? 0,
-  };
-  heldWatch.set(doc, made);
-  return made;
-};
