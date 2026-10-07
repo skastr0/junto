@@ -5,7 +5,8 @@ import type {
   JuntoApi,
   JuntoHostsApi,
 } from "../src/shared/ipc";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { Command } from "../src/shared/model";
+import { Schema } from "effect";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { formatNodeRef } from "../src/shared/node-ref";
 
@@ -281,57 +282,32 @@ describe("preload canvas close gate", () => {
 });
 
 describe("preload canvas quiesce gate", () => {
-  it("sends canvas write/create with a fixed wire shape in and out of the flush", async () => {
+  it("sends model commands with a fixed wire shape in and out of the flush", async () => {
     const api = await loadPreload();
-    const doc = { nodes: [], edges: [] } as CanvasDoc;
-
-    // The renderer can pass surplus arguments; preload's fixed arity drops them
-    // so nothing beyond the declared canvas payload ever crosses the boundary.
-    await (api.writeCanvas as unknown as (...args: ReadonlyArray<unknown>) => Promise<unknown>)(
-      "ordinary",
-      doc,
-      "r0",
-      { surplus: true },
-    );
-    await (api.createCanvas as unknown as (...args: ReadonlyArray<unknown>) => Promise<unknown>)(
-      "ordinary-create",
-      { surplus: true },
-    );
-    expect(electron.invoked).toEqual([
-      [IPC_CHANNELS.writeCanvas, "ordinary", doc, "r0"],
-      [IPC_CHANNELS.createCanvas, "ordinary-create"],
-    ]);
+    const edit = Schema.decodeUnknownSync(Command)({
+      _tag: "Edit", canvas: "final", id: "note", change: { kind: "note", text: "saved" },
+    });
+    const create = Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas: "recovery" });
+    await (api.modelCommand as unknown as (...args: ReadonlyArray<unknown>) => Promise<unknown>)(edit, { surplus: true });
+    expect(electron.invoked).toEqual([[IPC_CHANNELS.modelCommand, edit]]);
     electron.invoked.length = 0;
 
     const durable = deferred();
     api.onCanvasQuiesceAndFlushRequested(async (acknowledgeQuiesced) => {
       acknowledgeQuiesced();
-      await api.writeCanvas("final", doc, "r1");
-      await api.createCanvas("final-create");
+      await api.modelCommand(edit);
+      await api.modelCommand(create);
       await durable.promise;
       return { ok: true, quiesced: true };
     });
-
-    const requestId = "00000000-0000-4000-8000-000000000020";
-    emitCanvasQuiesceAndFlush({ requestId });
+    emitCanvasQuiesceAndFlush({ requestId: "00000000-0000-4000-8000-000000000020" });
     await settle();
-
-    // The quit flush rides the ordinary channels: main's one-way authoring gate
-    // is the only thing that admits it, so preload adds nothing to the wire.
-    expect(electron.invoked).toEqual([
-      [IPC_CHANNELS.writeCanvas, "final", doc, "r1"],
-      [IPC_CHANNELS.createCanvas, "final-create"],
-    ]);
-
+    expect(electron.invoked).toEqual([[IPC_CHANNELS.modelCommand, edit], [IPC_CHANNELS.modelCommand, create]]);
     durable.resolve();
     await settle();
     electron.invoked.length = 0;
-    await api.writeCanvas("after-finally", doc, "r2");
-    await api.createCanvas("after-finally-create");
-    expect(electron.invoked).toEqual([
-      [IPC_CHANNELS.writeCanvas, "after-finally", doc, "r2"],
-      [IPC_CHANNELS.createCanvas, "after-finally-create"],
-    ]);
+    await api.modelCommand(edit);
+    expect(electron.invoked).toEqual([[IPC_CHANNELS.modelCommand, edit]]);
   });
 
   it("refuses overlapping and replayed quiesce deliveries without rebinding authority", async () => {

@@ -5,7 +5,6 @@ import {
   it,
   vi,
 } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 
@@ -103,47 +102,27 @@ describe("renderer canvas authoring IPC", () => {
     });
     registerJuntoIpc();
 
-    const write = handlerFor(IPC_CHANNELS.writeCanvas);
-    const create = handlerFor(IPC_CHANNELS.createCanvas);
-    const remove = handlerFor(IPC_CHANNELS.deleteCanvas);
     const command = handlerFor(IPC_CHANNELS.modelCommand);
+    const remove = handlerFor(IPC_CHANNELS.deleteCanvas);
     const sender = { sender: trustedSender } as const;
-    const doc = { nodes: [], edges: [] } as CanvasDoc;
+    const edit = { _tag: "Edit", canvas: "final", id: "note", change: { kind: "note", text: "saved" } };
 
-    await expect(write(sender, "ordinary", doc, "r0")).resolves.toBe("executed");
+    await expect(command(sender, edit)).resolves.toBe("executed");
     const callsAfterOrdinary = runtime.runPromise.mock.calls.length;
 
-    // Quit begins: the operator's open drafts still have a save path.
+    // Quit still admits the same model command path for the open draft.
     mainAuthoringGate.beginFinalFlush();
-    await expect(write(sender, "final", doc, "r1")).resolves.toBe("executed");
-    await expect(create(sender, "recovery")).resolves.toBe("executed");
-    await expect(command(sender, { _tag: "Edit", canvas: "final", id: "note", change: { kind: "note", text: "saved" } })).resolves.toBe("executed");
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 3);
-
-    // Nothing else may author during that window.
+    await expect(command(sender, edit)).resolves.toBe("executed");
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
     await expect(remove(sender, "doomed")).rejects.toBeInstanceOf(MainAuthoringRefused);
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 3);
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
 
-    // Only the trusted renderer reaches these handlers at all.
-    expect(() =>
-      write(
-        {
-          sender: {
-            id: 72,
-            isDestroyed: () => false,
-            getURL: () => "junto-app://renderer/index.html",
-          },
-        },
-        "cross-sender",
-        doc,
-        "r1",
-      ),
-    ).toThrow(TrustedRendererRefused);
+    expect(() => command({ sender: {
+      id: 72, isDestroyed: () => false, getURL: () => "junto-app://renderer/index.html",
+    } }, edit)).toThrow(TrustedRendererRefused);
 
     mainAuthoringGate.close();
-    await expect(write(sender, "after-close", doc, "r1")).rejects.toBeInstanceOf(
-      MainAuthoringRefused,
-    );
-    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 3);
+    await expect(command(sender, edit)).rejects.toBeInstanceOf(MainAuthoringRefused);
+    expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
   });
 });
