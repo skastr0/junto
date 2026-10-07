@@ -182,7 +182,6 @@
     "src/renderer/components/profiles/profiles.css": 1,
     "src/renderer/components/region-environment/region-environment.css": 1,
     "src/renderer/components/rts/AgentReseatControl.tsx": 1,
-    "src/renderer/components/rts/KindSurface.tsx": 3,
     "src/renderer/components/rts/RtsBottomBar.css": 3,
     "src/renderer/components/rts/RtsBottomBar.tsx": 4,
     "src/renderer/components/rts/RtsControls.tsx": 2,
