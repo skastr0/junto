@@ -814,7 +814,7 @@ const makeAddActions = (
     // Create-time stamp from containing region defaults (center-in-region).
     // Escape hatch: place outside the region, or edit url/profile after create.
     const seed = resolvePageSpawnDefaults(
-      state$.doc.peek(),
+      canvasFromDocument(state$.canvasName.peek(), state$.doc.peek()),
       position.x + size.width / 2,
       position.y + size.height / 2,
     );
