@@ -81,7 +81,7 @@ test("the top bar's actions stay in the window with the sometimes-there controls
       const before = await rects();
       const beforeEnd = await settingsEnd();
       await frame(`quiet-${String(percent)}-without`);
-      await style.evaluate((node) => node.remove());
+      await style.evaluate((node) => (node as Element).remove());
       await frame(`quiet-${String(percent)}-with`);
       if (beforeEnd <= width) {
         expect(now, `the bar is laid out as before at ${String(percent)} percent`).toBe(before);
