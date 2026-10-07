@@ -131,13 +131,12 @@ export function OffboardSettingsSection() {
   return (
     <div className="offboard-settings" data-testid="offboard-settings">
       <p className="settings-note">
-        A seat counts as idle only while it is completely still: no output, no typing, no mail in or out. These rules
-        apply to every agent on this installation.
+        For agents that have gone completely still: no output, no typing, no mail.
       </p>
 
       <FieldRow
         label="Cache window"
-        hint="how long a still agent stays cheap to give a turn. Before it ends, asking the agent to offboard is the better call; after it, closing without notes is."
+        hint="How long a still agent stays cheap to resume."
         group
       >
         <MinutesInput
@@ -150,7 +149,7 @@ export function OffboardSettingsSection() {
 
       <FieldRow
         label="Idle nudge"
-        hint="asks a still agent to offboard and continue, once per idle stretch. The agent writes its notes. Must come before the cache window ends."
+        hint="Asks the agent to write its notes and offboard. Before the cache window ends."
         group
       >
         <Switch
@@ -169,7 +168,7 @@ export function OffboardSettingsSection() {
 
       <FieldRow
         label="Auto offboard"
-        hint="ends a still agent's session by itself: no agent turn, no notes. The seat rests on a fresh session. Must come at or after the cache window."
+        hint="Ends a still session with no notes, when the agent is next woken or mailed. At or after the cache window."
         group
       >
         <Switch
@@ -188,7 +187,7 @@ export function OffboardSettingsSection() {
 
       <FieldRow
         label="Worth cutting: work time"
-        hint="the idle nudge and auto offboard leave a session alone until it has done enough. This much time spent working is enough."
+        hint="Both rules leave a session alone until it has worked this long,"
         group
       >
         <MinutesInput
@@ -201,7 +200,7 @@ export function OffboardSettingsSection() {
 
       <FieldRow
         label="Worth cutting: session size"
-        hint="or a transcript grown to about this many tokens, whichever comes first. A session that has not worked at all is never cut. Your own Offboard buttons ignore both."
+        hint="or has grown to about this many tokens. Your own Offboard buttons ignore both."
         group
       >
         <MinutesInput
@@ -221,8 +220,7 @@ export function OffboardSettingsSection() {
 
       <div className="offboard-settings__harnesses" role="group" aria-label="Per harness">
         <p className="settings-note">
-          Per harness: a harness can run on its own window and thresholds, and have each rule on or off and timed
-          by itself. A harness with no row here follows the installation.
+          Per harness: its own values. A harness not listed follows the rules above.
         </p>
         {overrides.map(([harness, over]) => {
           const name = harnessName(harness);

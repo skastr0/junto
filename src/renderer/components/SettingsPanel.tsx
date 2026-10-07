@@ -87,7 +87,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
     blurb: "",
   },
   { key: "feed", group: "Agents", label: "Quick replies", blurb: "" },
-  { key: "offboard", group: "Agents", label: "Offboard", blurb: "when an idle agent's session is ended for it" },
+  { key: "offboard", group: "Agents", label: "Offboard", blurb: "" },
   ...(HARNESS_SETTINGS_ENABLED
     ? [
         {
