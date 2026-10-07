@@ -20,7 +20,7 @@ import {
 } from "./schema";
 
 // Kind → role + offered ports. Exhaustive over WellKnownKind.
-// Roles are derived here — never read from authorial ether.role.
+// Roles are derived here, never read from anything authored on a node.
 
 export type KindSpec = {
   readonly kind: WellKnownKind;

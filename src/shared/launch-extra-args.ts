@@ -4,7 +4,7 @@
  * The picker dials (model, effort, mode, permission) cover what every harness
  * shares. Everything else a harness accepts at start is the operator's to
  * choose: these are the extra argv tokens they typed, stored verbatim on the
- * seat's launch (`ether.terminal.launch.extraArgs`) and appended to every
+ * seat's launch (`launch.extraArgs`) and appended to every
  * spawn and resume of that seat.
  *
  * Junto keeps exactly one thing for itself: the flags a template already owns

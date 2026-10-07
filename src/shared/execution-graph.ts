@@ -1,6 +1,5 @@
 import type {
   Task,
-  CanvasNode,
   EdgePhase,
 } from "./canvas";
 import type { ActorSeatId } from "./actor-seat";
@@ -112,32 +111,6 @@ export type ExecutionGraph = {
   readonly blocked: ReadonlySet<string>;
   readonly blockedEdgeIds: ReadonlySet<string>;
   readonly reasonsByNodeId: ReadonlyMap<string, ReadonlyArray<BlockedReason>>;
-};
-
-const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
-  if (!node) return fallback;
-  switch (node.type) {
-    case "text":
-      return (node.text.split("\n")[0] ?? "").trim() || fallback;
-    case "file":
-      return node.file.split(/[\\/]/).pop() ?? node.file;
-    case "link":
-      return node.url;
-    case "group":
-      return node.label ?? node.id;
-  }
-};
-
-/**
- * Canvas adapter for physics phase membership.
- * Prefer seatMayBeBlocked / roleMayBeBlocked at pure physics call sites.
- */
-export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
-  if (!node) return false;
-  return seatMayBeBlocked({
-    isGroup: node.type === "group",
-    kind: node.ether?.entity?.kind,
-  });
 };
 
 const mayBeBlocked = (node: Node | undefined): boolean =>

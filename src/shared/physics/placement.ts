@@ -34,7 +34,7 @@ export type NodePlacement = {
 // Topology inputs (pure; no live CC reachability)
 
 /**
- * Fleet topology snapshot for resolving placement from ether.host.
+ * Fleet topology snapshot for resolving placement from a node's host.
  * Producers supply enrolled stations; null/default treats only the CC host
  * as known Command Center and every other host id as a Station.
  */
@@ -54,7 +54,7 @@ export const DEFAULT_PLACEMENT_TOPOLOGY: PlacementTopology = {
 };
 
 // ---------------------------------------------------------------------------
-// Pure resolve (ether.host + topology → NodePlacement)
+// Pure resolve (host + topology → NodePlacement)
 
 /** Placement of whatever runs on this host. */
 export const resolveHostPlacement = (

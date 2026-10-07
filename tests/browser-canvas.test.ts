@@ -1,3 +1,4 @@
+import { seatMayBeBlocked } from "../src/shared/physics/phase-membership";
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import {
@@ -7,7 +8,6 @@ import {
   WELL_KNOWN_ENTITY_KINDS,
   type CanvasDoc,
 } from "../src/shared/canvas";
-import { isBlockableNode } from "../src/shared/execution-graph";
 import { makePageNode } from "../src/renderer/lib/node-factories";
 
 describe("browser page document model", () => {
@@ -127,20 +127,8 @@ describe("browser page document model", () => {
   });
 
   it("sink seats (incl. page registry kind) are not phase-blockable", () => {
-    const sinkSeat = {
-      id: "p1",
-      type: "link" as const,
-      url: "https://example.com",
-      x: 0,
-      y: 0,
-      width: 200,
-      height: 80,
-      ether: {
-        entity: { kind: "page" },
-        browser: { profile: "personal" },
-      },
-    };
-    expect(isBlockableNode(sinkSeat)).toBe(false);
+    expect(seatMayBeBlocked({ isGroup: false, kind: "page" })).toBe(false);
+    expect(seatMayBeBlocked({ isGroup: false, kind: "agent" })).toBe(true);
   });
 
   it("makePageNode stamps kind page, profile, and kill-session", () => {
