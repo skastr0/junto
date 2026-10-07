@@ -138,10 +138,9 @@ export const renderCanvasSvg = (
     parts.push(
       `<line x1="${Math.round(a.x)}" y1="${Math.round(a.y)}" x2="${Math.round(b.x)}" y2="${Math.round(b.y)}" stroke="${color}" stroke-width="${strokeW}" opacity="${opacity}"${kind === "blocks" ? ' stroke-dasharray="6 4"' : ""}/>`,
     );
-    const label = edge.label ?? kind;
-    if (label) {
+    if (kind) {
       parts.push(
-        `<text x="${Math.round((a.x + b.x) / 2)}" y="${Math.round((a.y + b.y) / 2)}" fill="${pal.dim}" font-size="10" text-anchor="middle">${esc(label)}</text>`,
+        `<text x="${Math.round((a.x + b.x) / 2)}" y="${Math.round((a.y + b.y) / 2)}" fill="${pal.dim}" font-size="10" text-anchor="middle">${esc(kind)}</text>`,
       );
     }
   }
