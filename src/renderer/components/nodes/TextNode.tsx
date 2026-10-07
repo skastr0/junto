@@ -407,7 +407,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
 
   return (
     <NodeShell
-      node={node}
+      canvas={canvasName}
+      id={node.id}
       selected={selected}
       blocked={data.blocked}
       onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}

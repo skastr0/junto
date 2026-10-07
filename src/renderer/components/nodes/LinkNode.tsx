@@ -60,7 +60,8 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
     };
     return (
       <NodeShell
-        node={node}
+        canvas={canvasName}
+        id={node.id}
         selected={selected}
         blocked={data.blocked}
         toolbarExtras={<PageToolbarActions node={node} />}
@@ -82,7 +83,7 @@ export function LinkNode({ data, selected }: NodeProps<FlowNode>) {
 
   const host = hostOf(url) || "retired link";
   return (
-    <NodeShell node={node} selected={selected} blocked={data.blocked}>
+    <NodeShell canvas={canvasName} id={node.id} selected={selected} blocked={data.blocked}>
       <div className="flex h-full w-full items-start gap-2 opacity-55">
         <Link2 size={15} className="mt-0.5 shrink-0" style={{ color: HUE.cyan }} />
         <div className="min-w-0">

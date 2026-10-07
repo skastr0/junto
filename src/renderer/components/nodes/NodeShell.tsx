@@ -22,23 +22,18 @@ import {
 } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { isBlockableNode } from "@shared/execution-graph";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
 import { deleteNode } from "../../lib/mutations";
 import { state$, toggleConnectionFocus } from "../../lib/state";
-import { attentionOf } from "@shared/attention";
-import { isHarnessId } from "@shared/managed-terminal-templates";
-import { resolveTerminalBinding } from "@shared/terminal";
-import { roleOf, VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
+import { VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
 import { verbHandleId, verbsForDraw } from "../../lib/edge-mutations";
 import { deriveOccupancy } from "@shared/occupancy";
 import {
-  useNodeAttentionReasons,
-  useNodeOccupancyClue,
+  useSeatAttentionReasons,
+  useSeatOccupancyClue,
 } from "../../lib/occupancy-feed";
 import { actorOccupancyAttr } from "../../lib/occupancy-chrome";
-import { specOf } from "../../lib/node-spec";
 import { agentSeat$ } from "../../lib/agent-seat-state";
 import { terminal$ } from "../../lib/terminal-state";
 import {
@@ -55,8 +50,11 @@ import {
   useShiftMultiSelectDominance,
 } from "../../lib/multi-select-gesture";
 import { IconButton, ToolbarPill } from "../ui";
-import { isOverseerSeat } from "../../lib/overseer-set";
-import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
+import type { NodeKind } from "@shared/model";
+import { holdsWork, kindMayBeBlocked, kindWord, nodeAttention, physicsKind, roleOfKind } from "../../lib/model-kind";
+import { canvasOfState } from "../../lib/model-store";
+import { modelStore, useNodeValue } from "../../lib/use-model";
+import { useCanvasWorkItems, useSinkAttention } from "../../lib/use-work-sink";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 
@@ -105,7 +103,7 @@ const verbZoneStyle = (verb: Verb, first: boolean): CSSProperties => {
  * Lives in its own component so the hooks that follow a live connection
  * re-render a drop target, never the whole card.
  */
-function VerbLandingZones({ node }: { readonly node: CanvasNode }) {
+function VerbLandingZones({ id, kind }: { readonly id: string; readonly kind: NodeKind | undefined }) {
   const updateNodeInternals = useUpdateNodeInternals();
   const drag = useConnection((connection) =>
     connection.inProgress && connection.fromNode
@@ -118,16 +116,16 @@ function VerbLandingZones({ node }: { readonly node: CanvasNode }) {
       : NO_CONNECTION_DRAG,
   );
   const offered =
-    drag.fromId === "" || drag.fromId === node.id
+    drag.fromId === "" || drag.fromId === id || kind === undefined
       ? NO_VERBS
-      : verbsForDraw(drag.fromKind, node.ether?.entity?.kind).verbs;
+      : verbsForDraw(drag.fromKind, physicsKind(kind)).verbs;
   const zones = offered.length === 2 ? offered : NO_VERBS;
   // Handles that appear mid-drag are invisible to React Flow until the node's
   // internals are measured again.
   const zoneKey = zones.join(",");
   useEffect(() => {
-    updateNodeInternals(node.id);
-  }, [node.id, updateNodeInternals, zoneKey]);
+    updateNodeInternals(id);
+  }, [id, updateNodeInternals, zoneKey]);
   if (zones.length === 0) return null;
   return (
     <>
@@ -147,8 +145,8 @@ function VerbLandingZones({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-function ConnectionHandles({ node }: { readonly node: CanvasNode }) {
-  return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`junto-handle junto-handle--source junto-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`junto-handle junto-handle--target junto-handle--${name}`} />)}<VerbLandingZones node={node} /></>;
+function ConnectionHandles({ id, kind }: { readonly id: string; readonly kind: NodeKind | undefined }) {
+  return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`junto-handle junto-handle--source junto-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`junto-handle junto-handle--target junto-handle--${name}`} />)}<VerbLandingZones id={id} kind={kind} /></>;
 }
 
 function MinimalNodeToolbar({
@@ -182,41 +180,42 @@ function MinimalNodeToolbar({
 }
 
 function NodeActions({
-  node,
+  canvas,
+  id,
   selected,
   onMaximize,
   toolbarExtras,
   shellBlocked,
 }: {
-  readonly node: CanvasNode;
+  readonly canvas: string;
+  readonly id: string;
   readonly selected: boolean;
   readonly onMaximize?: () => void;
   readonly toolbarExtras?: ReactNode;
   /** Graph blocked or seed chrome — may have a resolvable cause. */
   readonly shellBlocked: boolean;
 }) {
-  const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
+  const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === id);
   // Multi-select: RTS bar owns bulk actions — suppress floating pills.
   const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
+  // The work the blocker walk reads, held only while this card can show a cause.
+  const walking = selected && shellBlocked;
+  const itemsOf = useCanvasWorkItems(walking ? canvas : "");
 
   // Only resolve the waiting-on path while selected + blocked. One selector:
   // Legend State tracks only what a selector actually reads, so an
   // unselected/unblocked card reads no observables and never re-renders on
-  // kernel ticks or doc changes (the old five use$ subscriptions re-rendered
-  // every card per tick; the memo only skipped the cause walk).
+  // kernel ticks or canvas changes.
   const cause = use$(() => {
-    if (!selected || !shellBlocked) return null;
-    const doc = state$.doc.get();
+    if (!walking) return null;
     const execution = kernel$.execution.get();
     kernel$.executionRev.get(); // kernel-tick dep: execution identity can stay stable while blocked/reasons flip
-    const canvasName = state$.canvasName.get();
     const actorRefs = state$.actorRefs.get();
-    const itemsOf = workItemsFromDocument(doc);
-    const canvas = canvasFromDocument(canvasName, doc);
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
-    const graph = executionGraphForImpact(canvas, execution, context);
-    const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === node.id)?.seatId;
-    return resolveBlockerCause(canvas, graph, node.id, { blockedActorSeatId, itemsOf });
+    const model = canvasOfState(canvas, modelStore.canvas$(canvas).get());
+    const context = executionGraphContextFromActorRefs(canvas, actorRefs, itemsOf);
+    const graph = executionGraphForImpact(model, execution, context);
+    const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === id)?.seatId;
+    return resolveBlockerCause(model, graph, id, { blockedActorSeatId, itemsOf });
   });
 
   if (!selected || multiSelect) return null;
@@ -254,7 +253,7 @@ function NodeActions({
           onClick={(event) => {
             if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            toggleConnectionFocus(node.id);
+            toggleConnectionFocus(id);
           }}
         >
           <Crosshair size={14} />
@@ -295,7 +294,7 @@ function NodeActions({
           onPointerDown={(event) => {
             if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
             event.preventDefault();
-            deleteNode(node.id);
+            deleteNode(id);
           }}
         >
           <Trash2 size={14} />
@@ -306,7 +305,8 @@ function NodeActions({
 }
 
 export function NodeShell({
-  node,
+  canvas,
+  id,
   selected,
   blocked,
   onMaximize,
@@ -335,7 +335,8 @@ export function NodeShell({
 
   children,
 }: {
-  readonly node: CanvasNode;
+  readonly canvas: string;
+  readonly id: string;
   readonly selected: boolean;
   readonly blocked: boolean;
   readonly onMaximize?: () => void;
@@ -354,21 +355,27 @@ export function NodeShell({
 
   readonly children: ReactNode;
 }) {
+  // The node, read from the store one field at a time: the shell hears its
+  // kind, colour and who sits in it, and not a move, a resize or a rename.
+  const kind = useNodeValue(canvas, id, (node) => node?.kind);
+  const color = useNodeValue(canvas, id, (node) => node?.color);
+  const bindingId = useNodeValue(canvas, id, (node) =>
+    node?.kind === "agent" || node?.kind === "terminal" ? node.bindingId : undefined,
+  );
+  const agentKey = useNodeValue(canvas, id, (node) => (node?.kind === "agent" ? node.agentKey : undefined));
+  const overseer = useNodeValue(canvas, id, (node) => node?.kind === "agent" && node.overseer);
   // Stoppage chrome is derived, never authored: an actor seat the execution
   // graph blocks (a claimed item waiting on input or auth).
-  const shellBlocked = blocked && isBlockableNode(node);
+  const shellBlocked = blocked && kind !== undefined && kindMayBeBlocked(kind);
   // Occupancy is vacancy (empty/gone/parked) on actor seats. Working /
   // attention wash comes from SeatFacts, not this spectrum.
-  const occupancyClue = useNodeOccupancyClue(node);
+  const occupancyClue = useSeatOccupancyClue(agentKey, bindingId);
   const occupancyState = deriveOccupancy({
     hasOccupant: occupancyClue?.hasOccupant ?? false,
     activity: occupancyClue?.activity,
     lastSeenAtMs: occupancyClue?.lastSeenAtMs,
     nowMs: Date.now(),
   });
-  const nativeBinding = resolveTerminalBinding(node);
-  const bindingId =
-    nativeBinding?.kind === "native" ? nativeBinding.bindingId : undefined;
   const seatEvent = use$(
     agentSeat$.byBindingId[bindingId ?? "__junto-shell-no-binding__"],
   );
@@ -378,13 +385,12 @@ export function NodeShell({
   const session = use$(
     terminal$.sessionByBindingId[bindingId ?? "__junto-shell-no-binding__"],
   );
-  const attentionReasons = useNodeAttentionReasons(node);
-  const harness = node.ether?.terminal?.harness;
-  const managedSeat = typeof harness === "string" && isHarnessId(harness);
-  const isActorSeat = roleOf(specOf(node)) === "actor" || managedSeat;
-  const overseer = isOverseerSeat(node);
+  const attentionReasons = useSeatAttentionReasons(agentKey);
+  // A seat in the model always runs a managed harness.
+  const managedSeat = kind === "agent";
+  const isActorSeat = (kind !== undefined && roleOfKind(kind) === "actor") || managedSeat;
   const seatFacts = seatFactsForNode({
-    nodeId: node.id,
+    nodeId: id,
     seatEvent,
     session,
     graphBlocked: blocked,
@@ -392,28 +398,11 @@ export function NodeShell({
     managedSeat,
     needsLook: needsLook === true,
   });
-  const preamble = use$(() => preambleByNodeId$[node.id].get());
-  // Fire/ice glance: document + blocked prop (phase graph lives upstream).
-  const attention = attentionOf(
-    node,
-    blocked
-      ? {
-          phaseByEdgeId: new Map(),
-          detailByEdgeId: new Map(),
-          edgeEvalById: new Map(),
-          blocked: new Set([node.id]),
-          blockedEdgeIds: new Set(),
-          reasonsByNodeId: new Map(),
-        }
-      : {
-          phaseByEdgeId: new Map(),
-          detailByEdgeId: new Map(),
-          edgeEvalById: new Map(),
-          blocked: new Set(),
-          blockedEdgeIds: new Set(),
-          reasonsByNodeId: new Map(),
-        },
-  );
+  const preamble = use$(() => preambleByNodeId$[id].get());
+  // Fire/ice glance. A card that holds work reads its counts from the work
+  // store by node id; every other card asks for nothing.
+  const glance = useSinkAttention(canvas, id, holdsWork(kind));
+  const attention = kind === undefined ? "idle" : nodeAttention(kind, glance, blocked);
   // Actor / managed seats: SeatFacts owns attention wash. Occupancy is vacancy.
   const liveSeatAttention = isActorSeat
     ? notifyItem(seatFacts) === "attention" ||
@@ -422,7 +411,7 @@ export function NodeShell({
   const occupancyAttr = isActorSeat
     ? actorOccupancyAttr(occupancyState)
     : occupancyState;
-  const accent = accentColor(node.color);
+  const accent = accentColor(color);
   const border = bare
     ? selected
       ? withAlpha(accent, 0.55)
@@ -431,7 +420,7 @@ export function NodeShell({
       ? HUE.crimson
       : liveSeatAttention
         ? withAlpha(HUE.amber, 0.52)
-        : borderColor(node.color, selected);
+        : borderColor(color, selected);
   const background = bare
     ? "transparent"
     : shellBlocked
@@ -451,14 +440,14 @@ export function NodeShell({
           ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px var(--color-shadow-2)`
           : "0 10px 28px var(--color-shadow-2)";
   // Shift+click multi-select dominates all node chrome (labels, open, edit).
-  const multiSelectCapture = useShiftMultiSelectDominance(node.id);
+  const multiSelectCapture = useShiftMultiSelectDominance(id);
   // Pulse wash for derived seat stoppage.
   return (
     <div
       className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "junto-blocker" : ""}`}
       onMouseEnter={onHoverEnter}
       onMouseLeave={onHoverLeave}
-      data-node-kind={node.ether?.entity?.kind ?? node.type}
+      data-node-kind={kind === undefined ? undefined : kindWord(kind)}
       data-bare={bare ? "true" : undefined}
       data-blocked={shellBlocked ? "true" : undefined}
       data-seat-attention={liveSeatAttention ? "true" : undefined}
@@ -473,7 +462,7 @@ export function NodeShell({
         boxShadow: shadow,
       }}
     >
-      {preamble ? <PreambleBubble nodeId={node.id} bubble={preamble} selected={selected} /> : null}
+      {preamble ? <PreambleBubble nodeId={id} bubble={preamble} selected={selected} /> : null}
       {resizable ? (
         <NodeResizer
           isVisible={selected}
@@ -483,7 +472,7 @@ export function NodeShell({
           color={shellBlocked ? HUE.crimson : accent}
           handleClassName="junto-resize-handle"
           lineClassName="junto-resize-line"
-          onResizeEnd={(_event, params) => resizeNode(node.id, params)}
+          onResizeEnd={(_event, params) => resizeNode(id, params)}
         />
       ) : null}
       {onOpen ? (
@@ -501,12 +490,13 @@ export function NodeShell({
           {openIcon ?? <ExternalLink size={12} />}
         </button>
       ) : null}
-      {showHandles ? <ConnectionHandles node={node} /> : null}
+      {showHandles ? <ConnectionHandles id={id} kind={kind} /> : null}
       {toolbar === "minimal" ? (
-        <MinimalNodeToolbar selected={selected} nodeId={node.id} />
+        <MinimalNodeToolbar selected={selected} nodeId={id} />
       ) : (
         <NodeActions
-          node={node}
+          canvas={canvas}
+          id={id}
           selected={selected}
           onMaximize={onMaximize}
           toolbarExtras={toolbarExtras}

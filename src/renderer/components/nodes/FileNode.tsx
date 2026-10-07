@@ -36,7 +36,8 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
     return (
       <>
         <NodeShell
-          node={node}
+          canvas={canvasName}
+          id={node.id}
           selected={selected}
           blocked={data.blocked}
         >
@@ -112,7 +113,7 @@ export function FileNode({ data, selected }: NodeProps<FlowNode>) {
   // Legacy plain path furniture — decode-admits-history only.
   const base = path.split("/").filter(Boolean).pop() ?? (path || "retired file");
   return (
-    <NodeShell node={node} selected={selected} blocked={data.blocked}>
+    <NodeShell canvas={canvasName} id={node.id} selected={selected} blocked={data.blocked}>
       <div className="flex h-full w-full items-start gap-2 opacity-55">
         <FileText size={15} className="mt-0.5 shrink-0" style={{ color: DIM }} />
         <div className="min-w-0">
