@@ -5,7 +5,7 @@
 // every read and never mirrored back into the document, so the cycle has no
 // phase to write.
 
-import type { EdgePhase } from "@shared/canvas";
+import type { WirePhase } from "@shared/model";
 import type { NodeId } from "@shared/model/base";
 import { nodesOf } from "@shared/model/canvas";
 import {
@@ -56,7 +56,7 @@ export interface WatcherRuntimeState {
 
 /** Serializable per-canvas execution graph for renderer projection. */
 export interface ExecutionSnapshot {
-  readonly phaseByEdgeId: Record<string, EdgePhase>;
+  readonly phaseByEdgeId: Record<string, WirePhase>;
   readonly detailByEdgeId: Record<string, string>;
   readonly blocked: ReadonlyArray<string>;
   readonly blockedEdgeIds: ReadonlyArray<string>;
@@ -254,7 +254,7 @@ const snapshotFromGraph = (
     resolveActorRef,
     itemsOf: workOf(world).itemsOf,
   });
-  const phaseByEdgeId: Record<string, EdgePhase> = {};
+  const phaseByEdgeId: Record<string, WirePhase> = {};
   const detailByEdgeId: Record<string, string> = {};
   for (const [id, phase] of graph.phaseByEdgeId) phaseByEdgeId[id] = phase;
   for (const [id, detail] of graph.detailByEdgeId) detailByEdgeId[id] = detail;

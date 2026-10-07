@@ -35,6 +35,10 @@ export const Wire = Schema.Struct({
 );
 export type Wire = typeof Wire.Type;
 
+/** What the kernel says of a wire right now: work is stopped behind it, or it only relates its ends. */
+export const WirePhase = Schema.Literals(["blocks", "relates"]);
+export type WirePhase = typeof WirePhase.Type;
+
 /** Read a wire from outside the process. An unknown field is an error. */
 export const decodeWire = (input: unknown) =>
   Schema.decodeUnknownEffect(Wire)(input, { onExcessProperty: "error" });

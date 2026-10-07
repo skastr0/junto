@@ -9,7 +9,7 @@
 import { Buffer } from "node:buffer";
 import { Effect, Result } from "effect";
 import { ulid } from "ulid";
-import type { Artifact, Part } from "@shared/canvas";
+import type { Artifact, Part } from "@shared/work-model";
 import type { Canvas } from "@shared/model";
 import { resolveMailboxTarget } from "@shared/mailbox-target";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";

@@ -1,4 +1,4 @@
-import type { Task } from "../canvas";
+import type { Task } from "../work-model";
 import { claimedByOf, taskBrief } from "../task";
 import { needsHuman } from "../attention";
 import type { ExecutionGraph, WorkItemsOf } from "../execution-graph";

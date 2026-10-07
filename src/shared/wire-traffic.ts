@@ -10,7 +10,7 @@
  * state; the mailbox receipt stays the delivery record.
  */
 
-import type { Message } from "./canvas";
+import type { Message } from "./work-model";
 import type { ComposerHold } from "./composer-availability";
 import { readMailExtension } from "./crew";
 import { operatorActorRef } from "./work-reference";
