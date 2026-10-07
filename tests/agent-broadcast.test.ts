@@ -1,3 +1,4 @@
+import { note as modelNote, seat as modelSeat } from "./support/model-nodes";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSeatState } from "../src/shared/agent-seat-state";
 import {
@@ -145,5 +146,26 @@ describe("AGENT_BROADCAST_PROMPTS", () => {
 
   it("check names the preamble tool", () => {
     expect(AGENT_BROADCAST_PROMPTS.check.text).toContain("junto preamble '{\"text\":");
+  });
+});
+
+describe("the same plan over model nodes", () => {
+  it("targets the seats with a live terminal, counts the rest as skipped, and a seat selected twice once", () => {
+    const nodes = [
+      modelSeat("idle", { bindingId: "b-idle" as never }),
+      modelSeat("working", { bindingId: "b-working" as never }),
+      modelSeat("gone", { bindingId: "b-gone" as never }),
+      modelSeat("unseen", { bindingId: "b-unseen" as never }),
+      modelNote("n"),
+    ];
+    const plan = planAgentBroadcast([...nodes, nodes[0]!], states({ "b-idle": "idle", "b-working": "working", "b-gone": "gone" }));
+    expect(plan.agents).toBe(4);
+    expect(plan.live).toEqual([
+      { nodeId: "idle", bindingId: "b-idle", agentKey: "local:idle" },
+      { nodeId: "working", bindingId: "b-working", agentKey: "local:working" },
+    ]);
+    expect(plan.skipped).toBe(2);
+    expect(broadcastMenuHint(plan)).toBe("2 of 4 agents live");
+    expect(planAgentBroadcast([modelNote("x")], states({}))).toEqual({ agents: 0, live: [], skipped: 0 });
   });
 });
