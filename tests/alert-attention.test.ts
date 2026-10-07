@@ -3,7 +3,7 @@ import {
   ALERT_URGENCY,
   collectAlertSignals,
   collectReadyWorkingSignals,
-  mergeCycleSignals,
+  mergeAlertSignals,
   observeAlertSignals,
   resetAlertQueue,
 } from "../src/renderer/lib/alert-attention";
@@ -150,7 +150,7 @@ describe("seats anywhere on the canvas", () => {
   });
 
   it("a seat that is both a region member and freestanding keeps its most urgent state", () => {
-    const merged = mergeCycleSignals(
+    const merged = mergeAlertSignals(
       collectAlertSignals([rollup([{ nodeId: "a", label: "a", kind: "agent", severity: "working", reasons: [] }])]),
       [signal("a", "ready"), signal("b", "working")],
     );

@@ -55,14 +55,14 @@ const signalFor = (nodeId: string, kind: AlertKind): AlertSignal => ({
   urgency: ALERT_URGENCY[kind],
 });
 
-const severityToCycleKind = (
+const severityToAlertKind = (
   severity: RegionRollup["members"][number]["severity"],
 ): AlertKind | undefined => {
   if (severity === "blocked") return "blocked";
   if (severity === "attention") return "attention";
   if (severity === "working") return "working";
-  // Region members now carry the same ready tier freestanding seats already
-  // cycled on: finished work still waiting to be read.
+  // Finished work still waiting to be read, for region members as for
+  // freestanding seats.
   if (severity === "ready") return "ready";
   return undefined;
 };
@@ -75,7 +75,7 @@ export const collectAlertSignals = (
   // A node can be a member of overlapping regions: its most urgent state wins.
   for (const rollup of rollups) {
     for (const member of rollup.members) {
-      const kind = severityToCycleKind(member.severity);
+      const kind = severityToAlertKind(member.severity);
       if (kind) keepMoreUrgent(byId, signalFor(member.nodeId, kind));
     }
   }
@@ -104,7 +104,7 @@ export const collectReadyWorkingSignals = (
 };
 
 /** Merge signal groups; the most urgent state wins per node. */
-export const mergeCycleSignals = (
+export const mergeAlertSignals = (
   ...groups: ReadonlyArray<ReadonlyArray<AlertSignal>>
 ): ReadonlyArray<AlertSignal> => {
   const byId = new Map<string, AlertSignal>();
@@ -178,7 +178,7 @@ export const heldSeatSignalIds = (
 
 const observeLive = (rollups: ReadonlyArray<RegionRollup>): void => {
   const seats = agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>;
-  observeAlertSignals(collectLiveCycleSignals(rollups), {
+  observeAlertSignals(collectLiveAlertSignals(rollups), {
     settled: agentSeat$.hydrated.peek(),
     scope: state$.canvasName.peek(),
     held: heldSeatSignalIds(state$.doc.peek().nodes, seats),
@@ -193,7 +193,7 @@ const needsLookKey = (needsLook: Readonly<Record<string, boolean | undefined>>):
     .sort()
     .join("|");
 
-const collectLiveCycleSignals = (
+const collectLiveAlertSignals = (
   rollups: ReadonlyArray<RegionRollup>,
 ): ReadonlyArray<AlertSignal> => {
   const nodes = state$.doc.peek().nodes;
@@ -205,7 +205,7 @@ const collectLiveCycleSignals = (
     string,
     boolean | undefined
   >;
-  return mergeCycleSignals(
+  return mergeAlertSignals(
     collectAlertSignals(rollups),
     collectReadyWorkingSignals(nodes, seats, needsLook),
   );
