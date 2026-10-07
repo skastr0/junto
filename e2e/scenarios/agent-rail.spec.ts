@@ -10,6 +10,9 @@ import {
 } from "../harness/crew-fixture";
 import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
+import { Schema } from "effect";
+import { Node } from "../../src/shared/model";
+import { modelFixture, modelSeat, modelWire } from "../harness/model";
 
 /**
  * The agent modal's rail: the connected agents, each drawn by the canvas's
@@ -315,6 +318,66 @@ test("[fake-tui] every key typed while bubbles come and go reaches the agent", a
 
     // The seat's own process logged what its PTY received: every key, in order.
     await expect.poll(() => seat.stdinLog(), { timeout: 20_000 }).toContain(typed.join(""));
+  } finally {
+    await junto.close();
+  }
+});
+
+test("[fake-tui] the rail lists agents most urgent first under their own names, then its other connections", async () => {
+  test.setTimeout(240_000);
+  // Three peers whose names sort amy, bob, zed, and a board the hub takes part
+  // in. Only zed is started, so zed is the most urgent and must come first:
+  // a rail that sorted by name alone, or named a peer by its id, fails here.
+  const ORDER = "agent-rail-order";
+  const seats = [
+    modelSeat({ id: "hub", key: "local:order-hub", label: "Hub", x: 40, y: 40 }),
+    modelSeat({ id: "amy", key: "local:order-amy", label: "Amy the planner", x: 360, y: 40 }),
+    modelSeat({ id: "bob", key: "local:order-bob", label: "Bob the builder", x: 360, y: 170 }),
+    modelSeat({ id: "zed", key: "local:order-zed", label: "Zed the reviewer", x: 360, y: 300 }),
+  ];
+  const talk = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" })({
+    kind: "board", id: "talk", label: "Standup", x: 40, y: 420, width: 320, height: 220, z: 0,
+  });
+  const all = [...seats, talk];
+  const junto = await launchJunto({
+    seedModels: {
+      [ORDER]: modelFixture(all, [
+        modelWire("w-amy", "hub", "amy", "messages", all),
+        modelWire("w-bob", "hub", "bob", "messages", all),
+        modelWire("w-zed", "hub", "zed", "messages", all),
+        modelWire("w-talk", "hub", "talk", "participates", all),
+      ]),
+    },
+    afterSeed: installCrewSeatHarness,
+  });
+  try {
+    const { page, sandbox } = junto;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await crewPlayFactory(page);
+    await crewOccupySeat(page, ORDER, { id: "zed" }, crewSeat(sandbox, ORDER, "zed"));
+
+    await page.locator('.react-flow__node[data-id="hub"]').dblclick();
+    await expect(front(page)).toBeVisible({ timeout: 20_000 });
+    await expect(rail(page)).toHaveAttribute("data-rail", "expanded");
+
+    // The order as drawn, not sorted here: zed is running, the others never started.
+    await expect.poll(() => seatIds(page), { timeout: 20_000 }).toEqual(["zed", "amy", "bob"]);
+
+    // Each peer under its own name, on the seat and on the button that goes to it.
+    for (const [id, name] of [["zed", "Zed the reviewer"], ["amy", "Amy the planner"], ["bob", "Bob the builder"]] as const) {
+      const peer = rail(page).locator(`[data-testid="actor-rail-seat"][data-peer-node-id="${id}"]`);
+      await expect(peer).toContainText(name);
+      await expect(peer.getByTestId("actor-rail-go")).toHaveAccessibleName(new RegExp(`^Go to ${name}`));
+    }
+
+    // Its other connections follow as rows: the board by its name, its kind
+    // word, and that taking part in it wakes the seat.
+    const others = rail(page).getByTestId("actor-rail-others").locator("li");
+    await expect(others).toHaveCount(1);
+    await expect(others.first()).toHaveAttribute("data-peer-node-id", "talk");
+    await expect(others.first()).toHaveAttribute("data-peer-kind", "board");
+    await expect(others.first()).toContainText("Standup");
+    await expect(others.first()).toContainText("wakes");
   } finally {
     await junto.close();
   }
