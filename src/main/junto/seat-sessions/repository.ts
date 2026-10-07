@@ -2,8 +2,10 @@ import { Cause, Context, Effect, Layer, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import {
   newestSessionsFirst,
+  SEAT_SESSION_DRAIN_ENDS,
   SEAT_SESSION_END_REASONS,
   type SeatSession,
+  type SeatSessionDrainEnd,
   type SeatSessionEndReason,
 } from "@shared/seat-sessions";
 import { StateTransactionOperation } from "../state/service";
@@ -81,6 +83,28 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     readonly list: (seatId: string) => Effect.Effect<ReadonlyArray<SeatSession>, SeatSessionPersistenceError>;
     /** Write the session's notes (and continuation) files, then record it as offboarded. */
     readonly offboard: (input: SeatSessionOffboard) => Effect.Effect<SeatSession, SeatSessionPersistenceError>;
+    /**
+     * The session offboarded and its process was detached from the seat: it
+     * is winding down from `at`. Recording it again starts the wind-down over.
+     * Does nothing for a session the seat has no row for.
+     */
+    readonly beginDrain: (
+      seatId: string,
+      sessionId: string,
+      at: number,
+    ) => Effect.Effect<void, SeatSessionPersistenceError>;
+    /** The detached process ended, and how. The first end recorded stands. */
+    readonly endDrain: (
+      seatId: string,
+      sessionId: string,
+      how: SeatSessionDrainEnd,
+      at: number,
+    ) => Effect.Effect<void, SeatSessionPersistenceError>;
+    /**
+     * Close every wind-down still open, as ended by Junto quitting. Run at
+     * start: a detached process does not outlive Junto. Answers how many.
+     */
+    readonly closeOpenDrains: (at: number) => Effect.Effect<number, SeatSessionPersistenceError>;
     /** Remember where the harness keeps a session once it is found. */
     readonly noteTranscript: (
       seatId: string,
@@ -101,10 +125,21 @@ const SessionRow = Schema.Struct({
   ended_at: Schema.NullOr(Schema.Number),
   end_reason: Schema.NullOr(Schema.String),
   offboarded_at: Schema.NullOr(Schema.Number),
+  drain_detached_at: Schema.NullOr(Schema.Number),
+  drain_ended_at: Schema.NullOr(Schema.Number),
+  drain_ended_how: Schema.NullOr(Schema.String),
 });
 
 const COLUMNS =
-  "seat_id, session_id, harness, cwd, transcript_path, notes_path, gist, started_at, ended_at, end_reason, offboarded_at";
+  "s.seat_id, s.session_id, s.harness, s.cwd, s.transcript_path, s.notes_path, s.gist, s.started_at, s.ended_at, s.end_reason, s.offboarded_at, " +
+  "d.detached_at AS drain_detached_at, d.ended_at AS drain_ended_at, d.ended_how AS drain_ended_how";
+
+/** A session with what became of its process after it offboarded, if it did. */
+const SESSIONS =
+  "seat_sessions s LEFT JOIN seat_session_drains d ON d.seat_id = s.seat_id AND d.session_id = s.session_id";
+
+const isDrainEnd = (value: string | null): value is SeatSessionDrainEnd =>
+  value !== null && (SEAT_SESSION_DRAIN_ENDS as ReadonlyArray<string>).includes(value);
 
 const isEndReason = (value: string | null): value is SeatSessionEndReason =>
   value !== null && (SEAT_SESSION_END_REASONS as ReadonlyArray<string>).includes(value);
@@ -120,6 +155,15 @@ const fromRow = (row: typeof SessionRow.Type): SeatSession => ({
   ...(row.ended_at === null ? {} : { endedAt: Number(row.ended_at) }),
   ...(isEndReason(row.end_reason) ? { endReason: row.end_reason } : {}),
   ...(row.offboarded_at === null ? {} : { offboardedAt: Number(row.offboarded_at) }),
+  ...(row.drain_detached_at === null
+    ? {}
+    : {
+        drain: {
+          detachedAt: Number(row.drain_detached_at),
+          ...(row.drain_ended_at === null ? {} : { endedAt: Number(row.drain_ended_at) }),
+          ...(isDrainEnd(row.drain_ended_how) ? { endedHow: row.drain_ended_how } : {}),
+        },
+      }),
 });
 
 const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | Cause.NoSuchElementError) =>
@@ -145,12 +189,12 @@ export const makeSeatSessionRepositoryLive = (
       const openRow = SqlSchema.findOneOption({
         Request: Schema.String,
         Result: SessionRow,
-        execute: (seatId) => sql.unsafe(`SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ? AND ended_at IS NULL`, [seatId]),
+        execute: (seatId) => sql.unsafe(`SELECT ${COLUMNS} FROM ${SESSIONS} WHERE s.seat_id = ? AND s.ended_at IS NULL`, [seatId]),
       });
       const oneRow = SqlSchema.findOne({
         Request: Schema.Tuple([Schema.String, Schema.String]),
         Result: SessionRow,
-        execute: ([seatId, sessionId]) => sql.unsafe(`SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ? AND session_id = ?`, [seatId, sessionId]),
+        execute: ([seatId, sessionId]) => sql.unsafe(`SELECT ${COLUMNS} FROM ${SESSIONS} WHERE s.seat_id = ? AND s.session_id = ?`, [seatId, sessionId]),
       });
       const knownRow = SqlSchema.findOneOption({
         Request: Schema.Tuple([Schema.String, Schema.String]),
@@ -160,7 +204,7 @@ export const makeSeatSessionRepositoryLive = (
       const seatRows = SqlSchema.findAll({
         Request: Schema.String,
         Result: SessionRow,
-        execute: (seatId) => sql.unsafe(`SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ?`, [seatId]),
+        execute: (seatId) => sql.unsafe(`SELECT ${COLUMNS} FROM ${SESSIONS} WHERE s.seat_id = ?`, [seatId]),
       });
 
       const recordIn = Effect.fn("seat-sessions.record-in")(function* (
@@ -254,7 +298,60 @@ export const makeSeatSessionRepositoryLive = (
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.transcript"),
       Effect.mapError(persistence("transcript")));
 
-      return SeatSessionRepository.of({ notesPathFor, record, end, list, offboard, noteTranscript });
+      const beginDrain = Effect.fn("seat-sessions.drain.begin")(function* (seatId: string, sessionId: string, at: number) {
+        const known = yield* knownRow([seatId, sessionId]);
+        if (known._tag === "None") return;
+        yield* sql`
+          INSERT INTO seat_session_drains(seat_id, session_id, detached_at)
+          VALUES (${seatId}, ${sessionId}, ${at})
+          ON CONFLICT(seat_id, session_id)
+          DO UPDATE SET detached_at = excluded.detached_at, ended_at = NULL, ended_how = NULL
+        `;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.drain.begin"),
+      Effect.mapError(persistence("drain.begin")));
+
+      const endDrain = Effect.fn("seat-sessions.drain.end")(function* (
+        seatId: string,
+        sessionId: string,
+        how: SeatSessionDrainEnd,
+        at: number,
+      ) {
+        // The end cannot precede the detach, whatever the clocks said.
+        yield* sql`
+          UPDATE seat_session_drains SET ended_at = MAX(${at}, detached_at), ended_how = ${how}
+          WHERE seat_id = ${seatId} AND session_id = ${sessionId} AND ended_at IS NULL
+        `;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.drain.end"),
+      Effect.mapError(persistence("drain.end")));
+
+      const openDrains = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({ seat_id: Schema.String, session_id: Schema.String }),
+        execute: () => sql`SELECT seat_id, session_id FROM seat_session_drains WHERE ended_at IS NULL`,
+      });
+
+      const closeOpenDrains = Effect.fn("seat-sessions.drain.close-open")(function* (at: number) {
+        const open = yield* openDrains(undefined);
+        if (open.length === 0) return 0;
+        yield* sql`
+          UPDATE seat_session_drains SET ended_at = MAX(${at}, detached_at), ended_how = 'quit'
+          WHERE ended_at IS NULL
+        `;
+        return open.length;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.drain.close-open"),
+      Effect.mapError(persistence("drain.close-open")));
+
+      return SeatSessionRepository.of({
+        notesPathFor,
+        record,
+        end,
+        list,
+        offboard,
+        noteTranscript,
+        beginDrain,
+        endDrain,
+        closeOpenDrains,
+      });
     }),
   );
 

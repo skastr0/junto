@@ -18,8 +18,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V8_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V8_SQL, STATE_SCHEMA_V9_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url));
 
@@ -61,12 +60,20 @@ const versionEightPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 8),
 };
 
+// 9 -> 10 (seat session drains) lands on top; this suite stops at 9.
+const versionNinePlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 9,
+  currentSchemaSql: STATE_SCHEMA_V9_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 9),
+};
+
 const SHA = "a".repeat(64);
 
 describe("state migration 8 -> 9 (signal attachments)", () => {
   it("freezes the version-eight witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V8_SQL)).toEqual(STATE_SCHEMA_V8_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V9_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V9_SQL)).toEqual(STATE_SCHEMA_V9_IDENTITY);
   });
 
   it("adds the table and leaves every existing row, immutable logs included, untouched", async () => {
@@ -78,7 +85,7 @@ describe("state migration 8 -> 9 (signal attachments)", () => {
       expect((before.work_events as unknown[]).length).toBeGreaterThan(0);
       expect(before).not.toHaveProperty("agent_signal_attachments");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionNinePlan);
       expect(result).toMatchObject({ previousVersion: 8, schemaVersion: 9 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V9_IDENTITY);
 
@@ -94,7 +101,7 @@ describe("state migration 8 -> 9 (signal attachments)", () => {
   it("holds a signal's files in order, refuses anything malformed, and lets them go with the signal", async () => {
     const database = await openCopy();
     try {
-      migrateStateSchema(database);
+      migrateStateSchema(database, versionNinePlan);
       database
         .prepare(
           `INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, created_at, state)

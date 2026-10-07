@@ -217,3 +217,95 @@ describe("gistOfNotes", () => {
     expect(long.endsWith("…")).toBe(true);
   });
 });
+
+describe("what became of an offboarded session's process", () => {
+  const offboarded = (seatId: string, sessionId: string) =>
+    Effect.gen(function* () {
+      const repository = yield* SeatSessionRepository;
+      yield* repository.record({ seatId, sessionId, harness: "claude" });
+      yield* repository.offboard({ seatId, sessionId, harness: "claude", notes: "# Done" });
+      yield* repository.end(seatId, "offboard", sessionId);
+      return repository;
+    });
+  const sessionOf = (seatId: string, sessionId: string) =>
+    Effect.gen(function* () {
+      const repository = yield* SeatSessionRepository;
+      return (yield* repository.list(seatId)).find((session) => session.sessionId === sessionId);
+    });
+
+  it("a session that never offboarded has no drain", async () => {
+    await run(Effect.flatMap(repo, (repository) => repository.record({ seatId: "a", sessionId: "s1", harness: "claude" })));
+    expect(await run(sessionOf("a", "s1"))).not.toHaveProperty("drain");
+  });
+
+  it("shows it winding down from the detach, then ended and how", async () => {
+    const repository = await run(offboarded("a", "s1"));
+    await run(repository.beginDrain("a", "s1", 1_000));
+    expect((await run(sessionOf("a", "s1")))?.drain).toEqual({ detachedAt: 1_000 });
+
+    await run(repository.endDrain("a", "s1", "settled", 61_000));
+    const session = await run(sessionOf("a", "s1"));
+    expect(session?.drain).toEqual({ detachedAt: 1_000, endedAt: 61_000, endedHow: "settled" });
+    // The session itself still ended, as offboard, when the seat moved on.
+    expect(session?.endReason).toBe("offboard");
+    expect(session?.offboardedAt).toBeDefined();
+  });
+
+  it("records each way a drain can end", async () => {
+    for (const how of ["settled", "cap", "crashed", "quit"] as const) {
+      const repository = await run(offboarded("seat", `s-${how}`));
+      await run(repository.beginDrain("seat", `s-${how}`, 10));
+      await run(repository.endDrain("seat", `s-${how}`, how, 20));
+      expect((await run(sessionOf("seat", `s-${how}`)))?.drain?.endedHow).toBe(how);
+    }
+  });
+
+  it("the first end recorded stands, and an end is never before its detach", async () => {
+    const repository = await run(offboarded("a", "s1"));
+    await run(repository.beginDrain("a", "s1", 1_000));
+    await run(repository.endDrain("a", "s1", "cap", 500));
+    await run(repository.endDrain("a", "s1", "settled", 9_000));
+    expect((await run(sessionOf("a", "s1")))?.drain).toEqual({ detachedAt: 1_000, endedAt: 1_000, endedHow: "cap" });
+  });
+
+  it("several sessions of one seat can be winding down at once", async () => {
+    const repository = await run(offboarded("a", "s1"));
+    await run(repository.beginDrain("a", "s1", 1_000));
+    await run(offboarded("a", "s2"));
+    await run(repository.beginDrain("a", "s2", 2_000));
+    await run(repository.endDrain("a", "s2", "settled", 3_000));
+    const sessions = await run(Effect.flatMap(repo, (r) => r.list("a")));
+    expect(Object.fromEntries(sessions.map((session) => [session.sessionId, session.drain?.endedHow ?? "winding down"]))).toEqual({
+      s1: "winding down",
+      s2: "settled",
+    });
+  });
+
+  it("at start, whatever was still winding down is closed as ended when Junto quit", async () => {
+    const repository = await run(offboarded("a", "s1"));
+    await run(repository.beginDrain("a", "s1", 1_000));
+    await run(offboarded("b", "t1"));
+    await run(repository.beginDrain("b", "t1", 1_000));
+    await run(repository.endDrain("b", "t1", "settled", 2_000));
+    expect(await run(repository.closeOpenDrains(50_000))).toBe(1);
+    expect((await run(sessionOf("a", "s1")))?.drain).toEqual({ detachedAt: 1_000, endedAt: 50_000, endedHow: "quit" });
+    // One that had ended keeps its own end.
+    expect((await run(sessionOf("b", "t1")))?.drain?.endedHow).toBe("settled");
+    expect(await run(repository.closeOpenDrains(60_000))).toBe(0);
+  });
+
+  it("a drain for a session the seat never ran is not recorded, and ending one that is not open does nothing", async () => {
+    const repository = await run(repo);
+    await run(repository.beginDrain("a", "ghost", 1_000));
+    await run(repository.endDrain("a", "ghost", "settled", 2_000));
+    expect(await run(repository.list("a"))).toEqual([]);
+  });
+
+  it("a session that offboards again starts a new wind-down", async () => {
+    const repository = await run(offboarded("a", "s1"));
+    await run(repository.beginDrain("a", "s1", 1_000));
+    await run(repository.endDrain("a", "s1", "settled", 2_000));
+    await run(repository.beginDrain("a", "s1", 5_000));
+    expect((await run(sessionOf("a", "s1")))?.drain).toEqual({ detachedAt: 5_000 });
+  });
+});

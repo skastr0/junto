@@ -12,7 +12,10 @@ import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
 import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
 import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
-import { SEAT_SESSIONS_STATE_SCHEMA_SQL } from "../seat-sessions/state-schema";
+import {
+  SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
+  SEAT_SESSIONS_STATE_SCHEMA_SQL,
+} from "../seat-sessions/state-schema";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
@@ -188,7 +191,16 @@ export const STATE_SCHEMA_V9_IDENTITY = {
     "a6a35c88c30b1efe477b4ddf2831c2170b786eae138e01ded00dc656dfc425e6",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 9;
+/**
+ * Version 10 adds seat session drains: when an offboarded session's process
+ * was detached from its seat, when it really ended, and how. Expand only.
+ */
+export const STATE_SCHEMA_V10_IDENTITY = {
+  actualSchemaSha256:
+    "be023cfbff369afd83b5dde6cba7c9b0c61005d9dc228cce31b1506ccced2239",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 10;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -196,7 +208,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 9;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V9_IDENTITY;
+  STATE_SCHEMA_V10_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -291,6 +303,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V8_IDENTITY,
     migrate: (database) => {
       database.exec(AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 9,
+    toVersion: 10,
+    name: "add seat session drains",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V9_IDENTITY,
+    migrate: (database) => {
+      database.exec(SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL);
     },
   },
 ];

@@ -44,6 +44,45 @@ export type SeatSession = {
   readonly endReason?: SeatSessionEndReason;
   /** Last time the agent wrote notes for this session. */
   readonly offboardedAt?: number;
+  /**
+   * What became of the session's process after it offboarded. The seat moved
+   * on at the offboard; the process was detached and left to finish. Absent
+   * for a session that never offboarded (or did before this was recorded).
+   */
+  readonly drain?: SeatSessionDrain;
+};
+
+/** How a detached session's process came to an end. */
+export const SEAT_SESSION_DRAIN_ENDS = ["settled", "cap", "crashed", "quit"] as const;
+/**
+ * settled: it finished its turn and Junto stopped it. cap: it was still
+ * working ten minutes after the offboard and was stopped then, so its
+ * transcript ends mid-turn. crashed: it exited by itself with an error.
+ * quit: Junto quit while it was winding down.
+ */
+export type SeatSessionDrainEnd = (typeof SEAT_SESSION_DRAIN_ENDS)[number];
+
+export type SeatSessionDrain = {
+  /** When the process was detached from its seat (the offboard). */
+  readonly detachedAt: number;
+  /** When the process really ended; absent while it is still winding down. */
+  readonly endedAt?: number;
+  readonly endedHow?: SeatSessionDrainEnd;
+};
+
+/** One line for the session's row in the seat's history. */
+export const describeSessionDrain = (drain: SeatSessionDrain): string => {
+  if (drain.endedHow === undefined) return "Offboarded, winding down";
+  switch (drain.endedHow) {
+    case "settled":
+      return "Offboarded, finished its last turn";
+    case "cap":
+      return "Offboarded, stopped at the 10 minute limit before its last turn finished";
+    case "crashed":
+      return "Offboarded, then its process crashed";
+    case "quit":
+      return "Offboarded, ended when Junto quit";
+  }
 };
 
 /** The notes the seat's agent writes when it offboards, as markdown. */

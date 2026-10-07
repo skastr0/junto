@@ -42,7 +42,10 @@ import { PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL } from "../portraits/state-schema";
 import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
 import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
 import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
-import { SEAT_SESSIONS_STATE_SCHEMA_SQL } from "../seat-sessions/state-schema";
+import {
+  SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
+  SEAT_SESSIONS_STATE_SCHEMA_SQL,
+} from "../seat-sessions/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -112,6 +115,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   AGENT_PROFILES_STATE_SCHEMA_SQL,
   SEAT_SESSIONS_STATE_SCHEMA_SQL,
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
+  SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
 ] as const;
 
 
