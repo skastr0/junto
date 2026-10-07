@@ -65,12 +65,12 @@ describe("region environment edits", () => {
       operation: "env.source-add",
       args: {
         nodeId: "region",
-        source: { kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op" },
+        source: { kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
       },
     });
     expect(regionEnvironmentOf(next)).toEqual({
       sources: [
-        { id: "source-minted", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op" },
+        { id: "source-minted", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
       ],
     });
     expect(next.ether?.region).toMatchObject({ hold: true, instruction: "ship it" });

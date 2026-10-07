@@ -501,7 +501,7 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
   it("prints the doctor report whole and exits non-zero only for a required source that could not be read", async () => {
     const row = (status: string, required: boolean) => ({
       regionId: "box", regionLabel: "Box", sourceId: "token", kind: "keychain",
-      names: ["OP_SERVICE_ACCOUNT_TOKEN"], status, required,
+      names: ["EXAMPLE_AUTH_TOKEN"], status, required,
     });
     const report = (status: string, required: boolean) => ({
       regions: [{ regionId: "box", regionLabel: "Box", sealed: false, sources: [row(status, required)] }],
@@ -535,7 +535,7 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
       observed = request;
       return overseerOk("env.source-add", { nodeId: "box", sourceId: "source-1", environment: {} });
     });
-    const input = { nodeId: "box", source: { kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op" } };
+    const input = { nodeId: "box", source: { kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" } };
     const result = await runCli(["overseer", "env", "source-add", JSON.stringify(input)], { workHome });
     expect(result.code).toBe(0);
     expect(innerOf(observed)).toEqual({ operation: "env.source-add", args: input });
@@ -556,7 +556,7 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
       nodeId: "seat", title: "Seat", regions: ["box"], folders: [], restartToApply: false,
       report: [{
         regionId: "box", regionLabel: "Box", sourceId: "token", kind: "keychain",
-        names: ["OP_SERVICE_ACCOUNT_TOKEN"], status, required: true,
+        names: ["EXAMPLE_AUTH_TOKEN"], status, required: true,
       }],
     });
     let next: unknown = seat("ok");

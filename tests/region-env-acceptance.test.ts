@@ -1,10 +1,10 @@
 /**
  * The acceptance case, end to end on this machine's own code and a FAKE
  * keychain: a region carrying
- *   { kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: ... }
+ *   { kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: ... }
  * puts that variable in the environment of a seat inside it, and of no seat
  * outside it. Then the same token unlocks a 1Password reference in an inner
- * region, passed to that one `op` process and nowhere else.
+ * region, passed to the `op` process through its environment.
  *
  * No real Keychain, 1Password or home directory is read.
  */
@@ -17,8 +17,9 @@ import { makeRegionSecrets } from "../src/main/junto/region-env/secret-store";
 import { MemoryCredentialStore } from "../src/main/junto/credentials/store";
 import type { ToolCall } from "../src/main/junto/region-env/tool";
 
-const TOKEN = "ops_fake-service-account-token-for-the-acceptance-case";
-const SERVICE = "op-service-account-junto";
+const TOKEN = "test-only-region-auth-token";
+const REGION_TOKEN_NAME = "EXAMPLE_AUTH_TOKEN";
+const SERVICE = "test-region-credential";
 
 const region = (
   id: string,
@@ -74,7 +75,7 @@ const doc = (inner: EnvSource[] = [], service = SERVICE): CanvasDoc =>
   ({
     nodes: [
       region("work", [0, 0, 1000, 1000], [
-        { id: "op-token", kind: "keychain", name: OP_TOKEN_NAME, service },
+        { id: "op-token", kind: "keychain", name: REGION_TOKEN_NAME, service },
       ]),
       region("privileged", [100, 100, 400, 400], inner),
       seat("inside", 700, 700),
@@ -88,7 +89,7 @@ describe("region environment, the acceptance case", () => {
   it("a keychain source on a region yields its variable for a seat inside it", async () => {
     const { resolution, calls } = setup();
     const resolved = await resolution.resolve(doc(), { seat: "inside" }, "local");
-    expect(resolved.env).toEqual({ [OP_TOKEN_NAME]: TOKEN });
+    expect(resolved.env).toEqual({ [REGION_TOKEN_NAME]: TOKEN });
     expect(resolved.refusal).toBeUndefined();
     expect(resolved.report).toEqual([
       {
@@ -96,7 +97,7 @@ describe("region environment, the acceptance case", () => {
         regionLabel: "work",
         sourceId: "op-token",
         kind: "keychain",
-        names: [OP_TOKEN_NAME],
+        names: [REGION_TOKEN_NAME],
         status: "ok",
         required: false,
       },
@@ -127,13 +128,13 @@ describe("region environment, the acceptance case", () => {
       { seat: "deep" },
       "local",
     );
-    expect(resolved.env).toEqual({ [OP_TOKEN_NAME]: TOKEN, GITHUB_TOKEN: "ghp_from-one-password" });
+    expect(resolved.env).toEqual({ [REGION_TOKEN_NAME]: TOKEN, GITHUB_TOKEN: "ghp_from-one-password" });
     const op = calls.find((call) => call.command === "op")!;
     expect(op.env?.[OP_TOKEN_NAME]).toBe(TOKEN);
     expect(op.args.join(" ")).not.toContain(TOKEN);
     // The seat outside the inner region gets the token and not the GitHub one.
     const outer = await resolution.resolve(doc([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }]), { seat: "inside" }, "local");
-    expect(Object.keys(outer.env)).toEqual([OP_TOKEN_NAME]);
+    expect(Object.keys(outer.env)).toEqual([REGION_TOKEN_NAME]);
   });
 
   it("a missing Keychain item never stops the launch: the seat starts without it and the report says why", async () => {
@@ -143,7 +144,7 @@ describe("region environment, the acceptance case", () => {
     expect(resolved.refusal).toBeUndefined();
     expect(resolved.report[0]).toMatchObject({
       status: "missing",
-      names: [OP_TOKEN_NAME],
+      names: [REGION_TOKEN_NAME],
       reason: 'No Keychain item with service "no-such-item".',
     });
   });

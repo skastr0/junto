@@ -467,11 +467,11 @@ describe("executeOverseerCanvas", () => {
     expect(await env("env.show", {})).toEqual({ nodeId: "region", environment: {} });
     const before = await runtime!.runPromise(canvases.read("ops"));
     const added = await env("env.source-add", {
-      source: { kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op" },
+      source: { kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
     });
     expect(added.sourceId).toMatch(/^source-/u);
     expect(added.environment.sources).toEqual([
-      { id: added.sourceId, kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op" },
+      { id: added.sourceId, kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
     ]);
     const afterAdd = await runtime!.runPromise(canvases.read("ops"));
     expect(afterAdd.revision).not.toBe(before.revision);

@@ -1253,7 +1253,7 @@ describe("renderer graph mutations", () => {
     setRegionEnvironment("region", {
       sealed: true,
       sources: [
-        { id: "k1", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op-service-account" },
+        { id: "k1", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "test-region-credential" },
         { id: "s1", kind: "secret", name: "GITHUB_TOKEN", secretId: "8f0c1f0e-2f6f-4c7e-9f0a-3b1d2c4e5f60" },
       ],
       folders: ["~/.config/gcloud"],

@@ -91,7 +91,7 @@ describe("document shape", () => {
   const every: EnvSource[] = [
     { id: "a", kind: "value", name: "EDITOR", value: "vim" },
     { id: "b", kind: "secret", name: "API_KEY", secretId: "sec_1", required: true },
-    { id: "c", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op-token", account: "me" },
+    { id: "c", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op-token", account: "me" },
     { id: "d", kind: "keyring", name: "T", attributes: { service: "x" }, host: "linux-box" },
     { id: "e", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "c" },
     { id: "f", kind: "envFile", path: "~/.config/work.env" },
@@ -373,7 +373,7 @@ describe("merge and report", () => {
     expect(merged.report[1]!.reason).toContain("nested session");
     expect(merged.report[3]!.reason).toContain("JUNTO_SEAT");
     expect(reservedEnvNameReason("PATH")).toBeUndefined();
-    expect(reservedEnvNameReason("OP_SERVICE_ACCOUNT_TOKEN")).toBeUndefined();
+    expect(reservedEnvNameReason("EXAMPLE_AUTH_TOKEN")).toBeUndefined();
   });
 
   it("never puts a value in the report", () => {

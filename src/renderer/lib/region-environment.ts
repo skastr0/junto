@@ -77,7 +77,7 @@ export type SourceKindSpec = {
 const NAME_FIELD: SourceField = {
   key: "name",
   label: "Variable name",
-  placeholder: "OP_SERVICE_ACCOUNT_TOKEN",
+  placeholder: "EXAMPLE_API_KEY",
 };
 
 /** Listed in the order the picker offers them: what already exists first. */
@@ -88,7 +88,7 @@ export const SOURCE_KINDS: ReadonlyArray<SourceKindSpec> = [
     summary: "An item already in your Keychain, read in place.",
     fields: [
       NAME_FIELD,
-      { key: "service", label: "Keychain item name", placeholder: "op-service-account" },
+      { key: "service", label: "Keychain item name", placeholder: "example-api" },
       { key: "account", label: "Account", placeholder: "you@example.com", optional: true },
     ],
   },
@@ -101,7 +101,7 @@ export const SOURCE_KINDS: ReadonlyArray<SourceKindSpec> = [
       {
         key: "attributes",
         label: "Attributes",
-        placeholder: "service=op-service-account",
+        placeholder: "service=example-api",
         hint: "One per line, as name=value.",
       },
     ],
@@ -111,8 +111,8 @@ export const SOURCE_KINDS: ReadonlyArray<SourceKindSpec> = [
     label: "1Password reference",
     summary: "A field in 1Password, read with the op CLI you already have.",
     fields: [
-      { ...NAME_FIELD, placeholder: "ANTHROPIC_API_KEY" },
-      { key: "ref", label: "Reference", placeholder: "op://Private/Anthropic/credential" },
+      { ...NAME_FIELD, placeholder: "EXAMPLE_API_KEY" },
+      { key: "ref", label: "Reference", placeholder: "op://Example/API/credential" },
       {
         key: "tokenFrom",
         label: "Service account token from",

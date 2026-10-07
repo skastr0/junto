@@ -717,7 +717,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     args: ["overseer", "env", "source-add"],
     input: {
       nodeId: "region-1",
-      source: { kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op-service-account" },
+      source: { kind: "keychain", name: "EXAMPLE_API_KEY", service: "example-api" },
     },
   },
   {

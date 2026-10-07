@@ -81,12 +81,12 @@ describe("source kinds", () => {
 
 describe("drafts", () => {
   it("the simplest case saves as the contract's keychain source", () => {
-    const source = toSource(draft("keychain", { name: " OP_SERVICE_ACCOUNT_TOKEN ", service: "op-service-account" }));
+    const source = toSource(draft("keychain", { name: " EXAMPLE_AUTH_TOKEN ", service: "test-region-credential" }));
     expect(source).toEqual({
       id: "s1",
       kind: "keychain",
-      name: "OP_SERVICE_ACCOUNT_TOKEN",
-      service: "op-service-account",
+      name: "EXAMPLE_AUTH_TOKEN",
+      service: "test-region-credential",
     });
   });
 
@@ -234,11 +234,11 @@ describe("commands", () => {
 describe("what a keychain or keyring source will look up", () => {
   it("says the item and the account as they are typed", () => {
     expect(lookupHint(draft("keychain", { name: "T" }))).toBeUndefined();
-    expect(lookupHint(draft("keychain", { service: "op-service-account" }))).toBe(
-      'Looks for the Keychain item named "op-service-account", whatever its account.',
+    expect(lookupHint(draft("keychain", { service: "test-region-credential" }))).toBe(
+      'Looks for the Keychain item named "test-region-credential", whatever its account.',
     );
-    expect(lookupHint(draft("keychain", { service: "op-service-account", account: "me@example.com" }))).toBe(
-      'Looks for the Keychain item named "op-service-account" with account "me@example.com".',
+    expect(lookupHint(draft("keychain", { service: "test-region-credential", account: "me@example.com" }))).toBe(
+      'Looks for the Keychain item named "test-region-credential" with account "me@example.com".',
     );
   });
 
@@ -253,7 +253,7 @@ describe("what a keychain or keyring source will look up", () => {
 
 describe("where a 1Password token may come from", () => {
   const own: EnvSource[] = [
-    { id: "k1", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "svc" },
+    { id: "k1", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "svc" },
     { id: "f1", kind: "envFile", path: "/x" },
     { id: "op1", kind: "onepassword", name: "API_KEY", ref: "op://a/b/c" },
   ];
@@ -269,7 +269,7 @@ describe("where a 1Password token may come from", () => {
       ],
     });
     expect(options).toEqual([
-      { value: "k1", label: "OP_SERVICE_ACCOUNT_TOKEN, this region" },
+      { value: "k1", label: "EXAMPLE_AUTH_TOKEN, this region" },
       { value: "o1", label: "OP_TOKEN, from Company" },
     ]);
   });
@@ -278,9 +278,9 @@ describe("where a 1Password token may come from", () => {
     const options = tokenSourceOptions({
       sources: [],
       regionId: "inner",
-      report: [reported({ regionId: "outer", regionLabel: "Company", sourceId: "o1", names: ["OP_SERVICE_ACCOUNT_TOKEN"] })],
+      report: [reported({ regionId: "outer", regionLabel: "Company", sourceId: "o1", names: ["EXAMPLE_AUTH_TOKEN"] })],
     });
-    expect(options).toEqual([{ value: "o1", label: "OP_SERVICE_ACCOUNT_TOKEN, from Company" }]);
+    expect(options).toEqual([{ value: "o1", label: "EXAMPLE_AUTH_TOKEN, from Company" }]);
   });
 
   it("never offers a source as its own token, nor one with no name to give", () => {
@@ -322,7 +322,7 @@ describe("where a 1Password token may come from", () => {
 });
 
 describe("a 1Password source and the order of its token", () => {
-  const token: EnvSource = { id: "tok", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "svc" };
+  const token: EnvSource = { id: "tok", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "svc" };
   const ref: EnvSource = { id: "ref", kind: "onepassword", name: "API_KEY", ref: "op://a/b/c", tokenFrom: "tok" };
   const other: EnvSource = { id: "o", kind: "envFile", path: "/x" };
 
@@ -341,7 +341,7 @@ describe("a 1Password source and the order of its token", () => {
     expect(problem).toEqual({
       kind: "after",
       message:
-        "Its token comes from OP_SERVICE_ACCOUNT_TOKEN, which is listed below it. The token source must come first.",
+        "Its token comes from EXAMPLE_AUTH_TOKEN, which is listed below it. The token source must come first.",
       moveTo: 2,
     });
     // The one-click fix puts the reference just under its token source.
@@ -460,13 +460,13 @@ describe("the resolved view", () => {
 
   it("a variable whose only source failed is not set, and says why in the report's words", () => {
     const view = resolvedView(
-      [reported({ status: "missing", reason: "No Keychain item named op-service-account." })],
+      [reported({ status: "missing", reason: "No Keychain item named test-region-credential." })],
       "inner",
     );
     const token = view.variables[0]!;
     expect(token.effective).toBeUndefined();
     expect(token.failed).toHaveLength(1);
-    expect(statusReason(token.failed[0]!)).toBe("No Keychain item named op-service-account.");
+    expect(statusReason(token.failed[0]!)).toBe("No Keychain item named test-region-credential.");
     expect(view.statusBySourceId.s1).toMatchObject({ status: "missing" });
     expect(view.blocksLaunch).toBe(false);
   });

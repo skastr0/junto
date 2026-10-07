@@ -143,22 +143,22 @@ describe("resolving a plan", () => {
   });
 
   it("tokenFrom may name a source inherited from an outer region", async () => {
-    const fake = fakeResolver({ tok: ok({ OP_SERVICE_ACCOUNT_TOKEN: CANARY }), gh: ok({ GH: "x" }) });
+    const fake = fakeResolver({ tok: ok({ EXAMPLE_AUTH_TOKEN: CANARY }), gh: ok({ GH: "x" }) });
     const d = doc(
-      { sources: [keychain("tok", "OP_SERVICE_ACCOUNT_TOKEN")] },
+      { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       { sources: [{ id: "gh", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "tok" }] },
     );
     await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "local");
-    expect(fake.tokens.gh).toEqual({ OP_SERVICE_ACCOUNT_TOKEN: CANARY });
+    expect(fake.tokens.gh).toEqual({ EXAMPLE_AUTH_TOKEN: CANARY });
   });
 
   it("a sealed region cuts an inherited tokenFrom off like everything else", async () => {
     const fake = fakeResolver({
-      tok: ok({ OP_SERVICE_ACCOUNT_TOKEN: CANARY }),
+      tok: ok({ EXAMPLE_AUTH_TOKEN: CANARY }),
       gh: { status: "missing", names: ["GH"], reason: "No source tok is in scope for this region" },
     });
     const d = doc(
-      { sources: [keychain("tok", "OP_SERVICE_ACCOUNT_TOKEN")] },
+      { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       {
         sealed: true,
         sources: [{ id: "gh", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "tok" }],
@@ -185,16 +185,16 @@ describe("resolving a plan", () => {
   });
 
   it("the report lists every in-scope source with its region label, so a screen can offer tokenFrom candidates", async () => {
-    const fake = fakeResolver({ tok: ok({ OP_SERVICE_ACCOUNT_TOKEN: CANARY }), tok2: ok({ T2: "y" }) });
+    const fake = fakeResolver({ tok: ok({ EXAMPLE_AUTH_TOKEN: CANARY }), tok2: ok({ T2: "y" }) });
     const d = doc(
-      { sources: [keychain("tok", "OP_SERVICE_ACCOUNT_TOKEN")] },
+      { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       { sources: [keychain("tok2", "T2")] },
     );
     const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { region: "inner" }, "local");
     expect(
       resolved.report.map((r) => [r.regionLabel, r.regionId, r.sourceId, r.kind, r.names]),
     ).toEqual([
-      ["Outer", "outer", "tok", "keychain", ["OP_SERVICE_ACCOUNT_TOKEN"]],
+      ["Outer", "outer", "tok", "keychain", ["EXAMPLE_AUTH_TOKEN"]],
       ["Inner", "inner", "tok2", "keychain", ["T2"]],
     ]);
   });
@@ -387,7 +387,7 @@ describe("the launch applies it", () => {
 
   beforeEach(() => {
     // Generic launch tests own this synthetic variable, independent of host credentials.
-    vi.stubEnv("JUNTO_TEST_REGION_VALUE", undefined);
+    vi.stubEnv("REGION_TEST_VALUE", undefined);
     binDir = mkdtempSync(join(tmpdir(), "junto-region-env-bins-"));
     installBin("claude", true);
     installBin("codex", false);
@@ -436,7 +436,7 @@ describe("the launch applies it", () => {
       resolveLaunch(agent("claude"), {
         seatInject: { ...hermetic(), JUNTO_SOCKET: "/real.sock", JUNTO_SEAT: "local:claude" },
         regionEnv: {
-          JUNTO_TEST_REGION_VALUE: CANARY,
+          REGION_TEST_VALUE: CANARY,
           FROM_SEAT: "region",
           JUNTO_SOCKET: "/evil.sock",
           CLAUDECODE: "1",
@@ -444,7 +444,7 @@ describe("the launch applies it", () => {
         },
       }),
     );
-    expect(launch.env.JUNTO_TEST_REGION_VALUE).toBe(CANARY);
+    expect(launch.env.REGION_TEST_VALUE).toBe(CANARY);
     expect(launch.env.FROM_SEAT).toBe("seat");
     expect(launch.env.JUNTO_SOCKET).toBe("/real.sock");
     expect(launch.env.CLAUDECODE).toBeUndefined();
@@ -547,13 +547,13 @@ describe("the launch applies it", () => {
 
   it("every local seat launch asks for its region environment and spawns with it", async () => {
     const asked: unknown[] = [];
-    const record = { fingerprint: "f1", names: { JUNTO_TEST_REGION_VALUE: "sig" }, folders: ["/srv/shared"] };
+    const record = { fingerprint: "f1", names: { REGION_TEST_VALUE: "sig" }, folders: ["/srv/shared"] };
     const { fake, host, occupy } = occupyWith(async (seat) => {
       asked.push(seat);
       // A region PATH is honored (Junto's own directory stays in front), which
       // also keeps this launch on the temp folder's binary.
       return {
-        env: { JUNTO_TEST_REGION_VALUE: CANARY, PATH: binDir },
+        env: { REGION_TEST_VALUE: CANARY, PATH: binDir },
         folders: ["/srv/shared"],
         record,
       };
@@ -566,7 +566,7 @@ describe("the launch applies it", () => {
       { canvasName: "factory", nodeId: "node-b1", seatRect: { x: 1, y: 2, width: 3, height: 4 } },
     ]);
     const spawned = fake.controllers[0]!.spec;
-    expect(spawned.env?.JUNTO_TEST_REGION_VALUE).toBe(CANARY);
+    expect(spawned.env?.REGION_TEST_VALUE).toBe(CANARY);
     // The region's PATH is on the seat's PATH, behind Junto's own CLI
     // directory. Where it sits among the rest is the host's business.
     const pathEntries = (spawned.env?.PATH ?? "").split(delimiter);
@@ -608,17 +608,17 @@ describe("the launch applies it", () => {
     it("gets the region's variables, under what the terminal itself sets", () => {
       const launch = Result.getOrThrow(
         resolveLaunch(shell({ FROM_TERMINAL: "terminal" }), {
-          regionEnv: { JUNTO_TEST_REGION_VALUE: CANARY, FROM_TERMINAL: "region", TERM: "dumb" },
+          regionEnv: { REGION_TEST_VALUE: CANARY, FROM_TERMINAL: "region", TERM: "dumb" },
         }),
       );
-      expect(launch.env.JUNTO_TEST_REGION_VALUE).toBe(CANARY);
+      expect(launch.env.REGION_TEST_VALUE).toBe(CANARY);
       expect(launch.env.FROM_TERMINAL).toBe("terminal");
       // Every terminal is a real terminal, whatever a region says.
       expect(launch.env.TERM).not.toBe("dumb");
       expect(launch.args.join(" ")).not.toContain(CANARY);
       // No region, no change: the shell is the operator's ordinary shell.
       const plain = Result.getOrThrow(resolveLaunch(shell(), {}));
-      expect(Object.hasOwn(plain.env, "JUNTO_TEST_REGION_VALUE")).toBe(false);
+      expect(Object.hasOwn(plain.env, "REGION_TEST_VALUE")).toBe(false);
     });
 
     const routerWith = (seatEnvironment: SeatEnvironmentResolver | undefined) => {
@@ -641,10 +641,10 @@ describe("the launch applies it", () => {
 
     it("is started with it by the router, from where the node sits now", async () => {
       const asked: unknown[] = [];
-      const record = { fingerprint: "f1", names: { JUNTO_TEST_REGION_VALUE: "sig" }, folders: [] };
+      const record = { fingerprint: "f1", names: { REGION_TEST_VALUE: "sig" }, folders: [] };
       const { fake, host, router } = routerWith(async (seat) => {
         asked.push(seat);
-        return { env: { JUNTO_TEST_REGION_VALUE: CANARY }, folders: ["/srv/shared"], record };
+        return { env: { REGION_TEST_VALUE: CANARY }, folders: ["/srv/shared"], record };
       });
       const summary = await router.create({
         bindingId: "t1",
@@ -658,7 +658,7 @@ describe("the launch applies it", () => {
         { canvasName: "factory", nodeId: "node-t1", seatRect: { x: 1, y: 2, width: 3, height: 4 } },
       ]);
       const spawned = fake.controllers[0]!.spec;
-      expect(spawned.env?.JUNTO_TEST_REGION_VALUE).toBe(CANARY);
+      expect(spawned.env?.REGION_TEST_VALUE).toBe(CANARY);
       // A shell has no add-directory option: folders change nothing in its argv.
       expect(spawned.args ?? []).toEqual(["-l"]);
       expect(host.regionEnvironmentRecord("t1")).toEqual(record);
