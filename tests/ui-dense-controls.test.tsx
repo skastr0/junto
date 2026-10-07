@@ -14,7 +14,7 @@ describe("ui IconButton sizes", () => {
 
   it("shows keyboard focus at every size with an inset ring", () => {
     for (const size of ["xs", "sm", "md"] as const) {
-      expect(html(<IconButton size={size} aria-label="x">x</IconButton>)).toContain("focus-visible:ring-inset");
+      expect(html(<IconButton size={size} aria-label="x">x</IconButton>)).toContain("focus-visible:shadow-[inset_0_0_0_2px_var(--color-cyan)]");
     }
   });
 

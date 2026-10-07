@@ -35,8 +35,8 @@ describe("ui ListRow", () => {
 
   it("shows keyboard focus with an inset ring that a clipping list cannot cut off", () => {
     const out = html(<ListRow title="a" onClick={() => {}} />);
-    expect(out).toContain("focus-visible:ring-inset");
-    expect(out).toContain("focus-visible:ring-cyan");
+    expect(out).toContain("focus-visible:shadow-[inset_0_0_0_2px_var(--color-cyan)]");
+    expect(out).not.toContain("ring-inset");
     expect(out).toContain("select-none");
   });
 
