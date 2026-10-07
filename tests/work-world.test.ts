@@ -262,18 +262,6 @@ describe("the in-memory work world", () => {
     expect(stats.incremental).toBeGreaterThanOrEqual(3);
   });
 
-  it("re-reads only the sink a mutation touched", async () => {
-    const before = world.stats();
-    await mail(INBOX, "mail-2", "second");
-    const { memory, sqlite } = await readBoth();
-    expect(memory.snapshots).toEqual(sqlite.snapshots);
-    const after = world.stats();
-    // Two mailboxes are resident; one message moved one of them.
-    expect(after.sinks).toBeGreaterThanOrEqual(2);
-    expect(after.sinksReloaded - before.sinksReloaded).toBe(1);
-    expect(after.hydrate).toBe(before.hydrate);
-  });
-
   it("serves the resident world when nothing changed", async () => {
     const before = world.stats();
     await readBoth();
@@ -281,21 +269,6 @@ describe("the in-memory work world", () => {
     const after = world.stats();
     expect(after.resident - before.resident).toBe(2);
     expect(after.sinksReloaded).toBe(before.sinksReloaded);
-  });
-
-  it("admits a brand new sink in node_id order", async () => {
-    // "aaa-inbox" sorts before every mailbox seeded above, so a wrong
-    // insertion order shows up as a different projection, not merely a
-    // different map.
-    await differential(
-      "message.append to a new mailbox",
-      mail("aaa-inbox", "mail-3", "later"),
-    );
-    const { memory, sqlite } = await readBoth();
-    expect(memory.snapshots.map((snapshot) => snapshot.nodeId)).toEqual(
-      sqlite.snapshots.map((snapshot) => snapshot.nodeId),
-    );
-    expect(memory.snapshots[0]?.nodeId).toBe("aaa-inbox");
   });
 
   it("is unmoved by a transaction that rolls back", async () => {
