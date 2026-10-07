@@ -7,6 +7,8 @@
  * wakes the seat in between can start it on the old parameters.
  */
 import type { TextNode } from "@shared/canvas";
+import type { Seat } from "@shared/model";
+import { nodeToDocument } from "@shared/model/from-document";
 import type { RejectedExtraArg } from "@shared/launch-extra-args";
 import {
   relaunchManagedAgentNode,
@@ -57,6 +59,13 @@ const waitForExit = async (
   }
   return false;
 };
+
+/**
+ * The seat in the document form the terminal actions, the launch planner and
+ * the re-seat writer still take. Callers hand the store's seat; this goes when
+ * those three take it too.
+ */
+const documentSeat = (seat: Seat): TextNode => nodeToDocument(seat) as TextNode;
 
 type RestartOutcome =
   | { readonly ok: true; readonly restarted: boolean }
@@ -132,19 +141,24 @@ const isRunning = async (node: TextNode): Promise<boolean> => {
  * conversation. Nothing about the seat's stored launch changes.
  */
 export const restartSeatOnSameSession = async (
-  node: TextNode,
-): Promise<RestartOutcome> =>
-  restartRunningSeat(
+  // The document form is still accepted for the region environment's host,
+  // until it hands the store's seat.
+  seat: Seat | TextNode,
+): Promise<RestartOutcome> => {
+  const node = "kind" in seat ? documentSeat(seat) : seat;
+  return restartRunningSeat(
     node,
     node,
     await isRunning(node),
     "it starts on the current environment the next time it starts",
   );
+};
 
 export const performSeatRelaunch = async (
-  node: TextNode,
+  seat: Seat,
   params: SeatLaunchParams,
 ): Promise<SeatRelaunchResult> => {
+  const node = documentSeat(seat);
   const changeError = seatLaunchParamsChangeError(node, params);
   if (changeError) return { ok: false, message: changeError };
   const relaunched = relaunchManagedAgentNode(node, params);

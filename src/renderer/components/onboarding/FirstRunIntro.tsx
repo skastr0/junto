@@ -62,15 +62,6 @@ const TOUR_SEAT: AgentEditorSeat = {
   id: "tour-planner",
   name: "planner",
   harness: "claude",
-  node: {
-    id: "tour-planner",
-    type: "text",
-    text: "planner",
-    x: 0,
-    y: 0,
-    ...AGENT_NODE_SIZE,
-    ether: { entity: { kind: "agent", name: "tour:planner" }, terminal: { bindingId: "tour:planner", harness: "claude" } },
-  },
 };
 
 function SeatsDemo() {

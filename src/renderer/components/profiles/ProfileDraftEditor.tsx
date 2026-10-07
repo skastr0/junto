@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { TextNode } from "@shared/canvas";
 import { ensureProfiles } from "../../lib/profiles-state";
 import {
   closeProfileDraft,
@@ -11,7 +10,6 @@ import {
   updateProfileDraft,
   type ProfileDraft,
 } from "../../lib/profile-draft-state";
-import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import { state$ } from "../../lib/state";
 import { withHarnessSettingsDefaults } from "../node-palette/agent-launch-model";
 import { AgentEditor } from "../agent-editor/AgentEditor";
@@ -27,23 +25,8 @@ export function ProfileDraftEditorHost() {
   return <ProfileDraftEditor key={draft.id} draft={draft} />;
 }
 
-/** A seat-shaped stand-in the editor reads; it never reaches the canvas. */
-const draftNode = (draft: ProfileDraft): TextNode => ({
-  id: draft.id,
-  type: "text",
-  text: draft.name,
-  x: 0,
-  y: 0,
-  ...AGENT_NODE_SIZE,
-  ether: {
-    entity: { kind: "agent", name: draft.name },
-    terminal: { bindingId: draft.id, harness: draft.launch.harness, label: draft.name },
-  },
-});
-
 const draftSeat = (draft: ProfileDraft): AgentEditorSeat => ({
   id: draft.id,
-  node: draftNode(draft),
   name: draft.name,
   harness: draft.launch.harness,
   draft: {

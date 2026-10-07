@@ -7,8 +7,8 @@ import {
   closeAgentEditor,
   openAgentEditor,
 } from "../../lib/agent-editor-state";
-import { isAgentSeatNode } from "../../lib/multi-selection";
-import { nodeTitle } from "../../lib/presentation";
+import { titleOf } from "@shared/model/title";
+import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { AgentPortrait } from "../AgentPortrait";
 import { FocusSurface } from "../FocusSurface";
@@ -144,14 +144,13 @@ export function AgentEditor({
 
 /** The seat the editor edits, read live off the canvas. */
 const seatOf = (seatId: string): AgentEditorSeat | undefined => {
-  const node = state$.doc.nodes.get().find((candidate) => candidate.id === seatId);
-  if (!node || !isAgentSeatNode(node)) return undefined;
-  const harness = node.ether?.terminal?.harness;
+  const node = modelStore.node$(state$.canvasName.get(), seatId).get();
+  if (node?.kind !== "agent") return undefined;
   return {
     id: node.id,
     node,
-    name: nodeTitle(node),
-    ...(typeof harness === "string" && isHarnessId(harness) ? { harness } : {}),
+    name: titleOf(node),
+    ...(isHarnessId(node.harness) ? { harness: node.harness } : {}),
   };
 };
 

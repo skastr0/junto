@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { SlidersHorizontal } from "lucide-react";
-import type { TextNode } from "@shared/canvas";
+import type { Seat } from "@shared/model";
+import { nodeToDocument } from "@shared/model/from-document";
 import {
   formatExtraArgs,
   parseExtraArgsText,
@@ -19,7 +20,6 @@ import {
   seatLaunchParamsOf,
   type SeatLaunchParams,
 } from "@shared/seat-launch-params";
-import { resolveTerminalBinding } from "@shared/terminal";
 import { openAgentEditor } from "../../lib/agent-editor-state";
 import { useHarnessLaunchOptions } from "../../lib/harness-launch-options";
 import { performSeatRelaunch } from "../../lib/seat-relaunch";
@@ -48,12 +48,13 @@ const optionsWith = (values: readonly string[], current: string) => [
 
 export function ParamsSection({ seat }: AgentEditorSectionProps) {
   const node = seat.node;
-  const view = useMemo(() => seatLaunchParamsOf(node), [node]);
+  // The launch planner still reads the document form of a seat.
+  const view = useMemo(() => (node ? seatLaunchParamsOf(nodeToDocument(node)) : undefined), [node]);
   if (seat.draft) return <DraftParams draft={seat.draft} />;
-  if (!view || node.type !== "text") {
+  if (!view || !node) {
     return <p className="agent-editor__hint">This seat has no harness to start.</p>;
   }
-  return <SeatParams node={node as TextNode} harness={view.harness} stored={view.params} />;
+  return <SeatParams node={node} harness={view.harness} stored={view.params} />;
 }
 
 type ParamsFormProps = {
@@ -326,15 +327,14 @@ function SeatParams({
   harness,
   stored,
 }: {
-  readonly node: TextNode;
+  readonly node: Seat;
   readonly harness: HarnessId;
   readonly stored: SeatLaunchParams;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const binding = resolveTerminalBinding(node);
-  const bindingId = binding?.kind === "native" ? binding.bindingId : "";
+  const bindingId: string = node.bindingId;
   const running = use$(() => {
     const status = bindingId ? terminal$.sessionByBindingId[bindingId].get()?.status : undefined;
     return status === "running" || status === "starting";
@@ -362,15 +362,15 @@ function SeatParams({
     <ParamsForm
       harness={harness}
       stored={stored}
-      cwd={node.ether?.terminal?.launch?.cwd}
-      sessionId={node.ether?.terminal?.sessionId}
+      cwd={node.launch?.cwd}
+      sessionId={node.sessionId}
       lead={harness === "amp"
-        ? node.ether?.terminal?.sessionId
+        ? node.sessionId
           ? "Client options for this Amp seat. Saving restarts its viewer and resumes the same thread."
           : "Choices for this seat's next Amp thread. Mode and startup features are set when the private thread is created."
         : `What ${templateFor(harness).displayName} is started with on this seat. Saving restarts a running agent on the new parameters and resumes the same session.`}
       footer={({ params, changed, settle }) => {
-        const changeError = seatLaunchParamsChangeError(node, params);
+        const changeError = seatLaunchParamsChangeError(nodeToDocument(node), params);
         return (
           <>
             <div className="customize-params__actions">

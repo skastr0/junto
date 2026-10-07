@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Seat } from "@shared/model";
 import type { PortraitConfig } from "@shared/agent-portrait";
 import type { SeatGuidance } from "@shared/seat-guidance";
 import type { AgentConfigurationChoices } from "../node-palette/agent-launch-model";
@@ -22,7 +22,8 @@ import { SessionsSection } from "../sessions/SessionsSection";
 
 export interface AgentEditorSeat {
   readonly id: string;
-  readonly node: CanvasNode;
+  /** The seat as the store holds it. A draft and the tour's seat have none. */
+  readonly node?: Seat;
   /** The seat's name as the operator reads it. */
   readonly name: string;
   /** Harness id for a managed seat. */

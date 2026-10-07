@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import type { TextNode } from "@shared/canvas";
+import { nodeToDocument } from "@shared/model/from-document";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {
@@ -84,19 +85,19 @@ function DraftLaunch({ draft }: { readonly draft: AgentEditorDraft }) {
 
 function SeatLaunch({ seat }: AgentEditorSectionProps) {
   const node = seat.node;
-  const terminal = node.type === "text" ? node.ether?.terminal : undefined;
-  const harness = terminal?.harness && isHarnessId(terminal.harness) ? terminal.harness : undefined;
-  const choices = harness ? recoverDocumentLaunchChoices(harness, terminal?.launch) : {};
+  const harness = node && isHarnessId(node.harness) ? node.harness : undefined;
+  const choices = harness ? recoverDocumentLaunchChoices(harness, node?.launch) : {};
   const [pending, setPending] = useState<AgentConfigurationChoices | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const reseat = useCallback(
     async (next: AgentConfigurationChoices) => {
-      if (node.type !== "text") return;
+      if (!node) return;
       setBusy(true);
       setError("");
-      const result = await performManagedAgentReseat(node as TextNode, next);
+      // The re-seat writer still takes the document form of a seat.
+      const result = await performManagedAgentReseat(nodeToDocument(node) as TextNode, next);
       setBusy(false);
       setPending(null);
       if (!result.ok) setError(result.message);
@@ -114,14 +115,14 @@ function SeatLaunch({ seat }: AgentEditorSectionProps) {
 
   return (
     <div className="customize-launch">
-      <LaunchFacts harness={terminal?.harness} choices={choices} />
+      <LaunchFacts harness={node?.harness} choices={choices} />
 
       <div className="agent-editor__field">
         <span className="agent-editor__field-label">change</span>
         <AgentHarnessPick
           className="customize-launch__pick"
           listLabel="Harnesses"
-          cwd={terminal?.launch?.cwd}
+          cwd={node?.launch?.cwd}
           onConfigure={onConfigure}
           {...(harness ? { currentHarness: harness } : {})}
         />

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { TextNode } from "../src/shared/canvas";
+import { seat as modelSeat } from "./support/model-nodes";
 import { planSeatLaunch } from "../src/shared/seat-launch-params";
 
 vi.mock("../src/renderer/lib/mutations", () => ({
@@ -19,22 +19,14 @@ import { performSeatRelaunch } from "../src/renderer/lib/seat-relaunch";
 import { ensureTerminalRunning, killTerminal, openTerminal } from "../src/renderer/lib/terminal-actions";
 
 const params = { mode: "low", extraArgs: ["--features", "plaid", "--no-color"] };
-const seat: TextNode = {
-  id: "amp-seat",
-  type: "text",
-  text: "Reviewer",
-  x: 0, y: 0, width: 200, height: 100,
-  ether: {
-    entity: { kind: "agent", name: "local:amp" },
-    host: "local",
-    terminal: {
-      bindingId: "amp-binding",
-      harness: "amp",
-      sessionId: "T-00000000-0000-4000-8000-000000000001",
-      launch: planSeatLaunch({ harness: "amp", params, base: { cwd: "/work" } }).launch,
-    },
-  },
-};
+const seat = modelSeat("amp-seat", {
+  label: "Reviewer" as never,
+  agentKey: "local:amp" as never,
+  bindingId: "amp-binding" as never,
+  harness: "amp",
+  sessionId: "T-00000000-0000-4000-8000-000000000001" as never,
+  launch: planSeatLaunch({ harness: "amp", params, base: { cwd: "/work" } }).launch as never,
+});
 
 beforeEach(() => vi.clearAllMocks());
 

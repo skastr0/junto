@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import { managedAgentEther } from "./helpers/managed-agent-ether";
+import { holdCanvas } from "./support/hold-canvas";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -39,17 +40,29 @@ const seat: CanvasNode = {
 } as CanvasNode;
 
 let host: HTMLDivElement;
+// The editor reads its seat from the node store; the re-seat writer it saves
+// through still reads the document, so the seat is in both.
+let release: () => void = () => undefined;
 let root: Root;
 const patches: unknown[] = [];
+const commands: unknown[] = [];
 
 beforeEach(() => {
   vi.useFakeTimers();
   patches.length = 0;
+  commands.length = 0;
   renames.length = 0;
   portraitOverrides$.set({});
+  state$.canvasName.set("agent-editor-test");
   state$.doc.set({ ...state$.doc.peek(), nodes: [seat] });
+  release = holdCanvas("agent-editor-test", [seat]);
   // The main-process store: normalizes and echoes the stored override.
   (window as unknown as { junto: unknown }).junto = {
+    // Main, as far as a saved edit goes: it takes the command and counts on.
+    modelCommand: async (command: unknown) => {
+      commands.push(command);
+      return { seq: commands.length };
+    },
     portraitOverrideSet: async (seatId: string, override: unknown) => {
       patches.push({ seatId, override });
       return { ok: true, seatId, override: override === null ? null : normalizePortraitOverride(override) };
@@ -74,6 +87,7 @@ afterEach(() => {
   act(() => closeAgentEditor());
   act(() => root.unmount());
   host.remove();
+  release();
   state$.doc.set({ ...state$.doc.peek(), nodes: [] });
   vi.useRealTimers();
 });
@@ -198,7 +212,7 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
 
   it("closes when the seat leaves the canvas", () => {
     open();
-    act(() => state$.doc.set({ ...state$.doc.peek(), nodes: [] }));
+    act(() => release());
     expect(document.querySelector('[data-testid="agent-editor"]')).toBeNull();
   });
 
@@ -234,11 +248,23 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
       await Promise.resolve();
     });
     await settle();
-    const stored = state$.doc.peek().nodes.find((node) => node.id === "seat-1");
-    const terminal = stored?.type === "text" ? stored.ether?.terminal : undefined;
-    expect(terminal?.bindingId).toBe("bind-local-planner");
-    expect(terminal?.launch?.argv).toEqual(["claude", "--model", "opus", "--permission-mode", "default", "--verbose"]);
-    expect(terminal?.launch?.extraArgs).toEqual(["--verbose"]);
+    // One command to main: the same seat, on its new launch.
+    // Only the launch is edited, so the binding and the session stay as they were.
+    expect(commands).toEqual([
+      {
+        _tag: "Edit",
+        canvas: "agent-editor-test",
+        id: "seat-1",
+        change: {
+          kind: "agent",
+          launch: {
+            kind: "harness",
+            argv: ["claude", "--model", "opus", "--permission-mode", "default", "--verbose"],
+            extraArgs: ["--verbose"],
+          },
+        },
+      },
+    ]);
   });
 
   it("lists sections in a stable order with unique ids", () => {
