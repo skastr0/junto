@@ -21,7 +21,7 @@ it("rebases both cursor fields after a burst without skipping a repeated task id
   expect(read.mock.calls[2]?.[0]).toMatchObject({ beforeId: "2", beforeNodeId: "a" });
   head = "9"; changed({ canvasName: "factory", nodeId: "tasks" }); await flush();
   expect(read.mock.calls.at(-1)?.[0]).toMatchObject({ beforeId: "9", beforeNodeId: "a" });
-  expect(store.state(query).page.peek().items.map((row) => row.item.id)).toEqual(["9", "9"]);
+  expect(store.state(query).page.peek().items.map((row) => "id" in row.item ? row.item.id : row.item.artifactId)).toEqual(["9", "9"]);
   changed({ canvasName: "other", nodeId: "tasks" }); await flush();
   expect(read).toHaveBeenCalledTimes(5);
   release();

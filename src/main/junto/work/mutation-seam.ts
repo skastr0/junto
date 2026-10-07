@@ -116,6 +116,10 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
  * list is a debt register with a compiler behind it.
  */
 export const UNJOURNALED_WORK_REASONS = {
+  "work.model.remove": {
+    why: "An authorial model removal reclaims current Work rows in the same transaction, while retaining immutable Work records and review provenance.",
+    retire: "Replace with a Work removal fact only if the Work protocol gains a removal operation. Current model removal must never rewrite historical records.",
+  },
   "work.artifact.set_archived": {
     why:
       "Operator soft-archive / restore rewrites work_artifacts.metadata_json " +
@@ -341,6 +345,7 @@ export const admitWorkStatement = (
   const statement = classifyWorkStatement(sql);
   if (statement === null) return;
   if (statement.role === "derived") {
+    if (statement.verb === "DELETE" && statement.table === "work_canvas_revisions" && scope?.unjournaled === "work.model.remove") return;
     throw new WorkMutationSeamError(
       `"${statement.table}" is maintained by SQL triggers only; no ` +
         `application statement may write it (${statementHead(sql)})`,
