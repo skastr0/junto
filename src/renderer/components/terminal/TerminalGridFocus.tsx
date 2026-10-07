@@ -23,6 +23,7 @@ import {
 import {
   gridOverflowCopy,
   gridPageRange,
+  GRID_CELL_CHROME,
   gridShapeKey,
   layoutGrid,
   pickableGridShapes,
@@ -121,16 +122,13 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
   }
 
   const pageCount = layout?.pageCount ?? 1;
-  const status = [
-    overflow
-      ? `${overflow}, cells would be too small to read with everyone at once`
-      : layout && !layout.readable
-        ? "cells are below readable size, pick a larger shape or widen the window"
-        : null,
-    layout && gridFont !== undefined && gridFont < fontSize ? `grid font ${gridFont}px` : null,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  // Said in the header only when the layout is in trouble.
+  const status = overflow
+    ? `${overflow}, cells would be too small to read with everyone at once`
+    : layout && !layout.readable
+      ? "cells are below readable size, pick a larger shape or widen the window"
+      : null;
+  const shrunk = layout && gridFont !== undefined && gridFont < fontSize ? `, text at ${gridFont}px to fit` : "";
 
   return (
     <FocusSurface
@@ -149,6 +147,7 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
             something is wrong with the layout. */}
         <OverlayHeader
           dense
+          style={{ minHeight: GRID_CELL_CHROME.headerPx }}
           title={
             <span className="flex min-w-0 items-center gap-2">
               <span className="shrink-0 text-body font-normal text-dim">Grid</span>
@@ -191,7 +190,7 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
               ) : null}
               <Dropdown
                 aria-label="Grid shape"
-                title="Grid shape, rows x columns"
+                title={`Grid shape, rows x columns${shrunk}`}
                 value={choice}
                 options={shapeOptions}
                 onChange={(value) => setTerminalGridChoice(value as GridChoice)}
