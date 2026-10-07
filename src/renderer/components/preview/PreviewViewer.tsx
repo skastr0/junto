@@ -30,6 +30,7 @@ import {
   type MediaSize,
 } from "../ui";
 import { isPreviewBlock, PreviewBlock, type PreviewSeat } from "./PreviewBlock";
+import { RemoteVideo } from "./RemoteVideo";
 import { formatPreviewBytes, previewTile, usePreviews, type PreviewLoad, type PreviewTileResult } from "./use-previews";
 
 const SLIDE_MS = 4000;
@@ -294,11 +295,14 @@ export function PreviewViewer({
           <div className="preview-viewer__text" data-testid="preview-text" tabIndex={0}>
             <PreviewBlock item={current} result={result} layout="stage" seat={seat} onReviewCommit={onReviewCommit} />
           </div>
-        ) : result?.ok && result.kind === "link" ? (
-          <div className="preview-viewer__file" data-testid="preview-link">
-            <p className="preview-viewer__file-name">{result.url}</p>
-            <p className="preview-viewer__note">A video at this address. Nothing is fetched until you press play.</p>
-          </div>
+        ) : result?.ok && result.kind === "link" && current.attachment !== undefined ? (
+          <RemoteVideo
+            key={current.path}
+            source={source}
+            index={current.attachment}
+            url={result.url}
+            label={current.caption ?? current.name}
+          />
         ) : result?.ok && result.kind === "video" ? (
           <div key={current.path} className="preview-viewer__video" data-testid="preview-video">
             {/* The app's own stream: main serves the bytes and answers seeks. */}

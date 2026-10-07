@@ -133,11 +133,18 @@ export const CONTENT_PROTOCOL_SCHEME_REGISTRATION = {
  */
 export const createContentProtocolHandler = (
   open: ContentOpenResolver,
+  /**
+   * Another answerer on this scheme, asked first: it returns undefined for
+   * an address that is not its own (a content object's always is not).
+   */
+  other?: (request: Request) => Promise<Response> | undefined,
 ): ((request: Request) => Promise<Response>) => {
   return async (request: Request): Promise<Response> => {
     if (request.method === "OPTIONS") {
       return corsPreflightResponse();
     }
+    const answered = other?.(request);
+    if (answered !== undefined) return answered;
     if (request.method !== "GET" && request.method !== "HEAD") {
       return stateResponse(405, "invalid", "method not allowed", request.method);
     }
@@ -224,11 +231,12 @@ export const createContentProtocolHandler = (
 export const installContentProtocol = (
   target: Protocol,
   open: ContentOpenResolver,
+  other?: (request: Request) => Promise<Response> | undefined,
 ): void => {
   if (target.isProtocolHandled(CONTENT_PROTOCOL_SCHEME)) {
     throw new Error("content protocol already has a handler");
   }
-  const handler = createContentProtocolHandler(open);
+  const handler = createContentProtocolHandler(open, other);
   target.handle(CONTENT_PROTOCOL_SCHEME, handler);
   if (!target.isProtocolHandled(CONTENT_PROTOCOL_SCHEME)) {
     throw new Error("content protocol handler was not installed");

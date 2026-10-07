@@ -64,9 +64,11 @@ import {
   readPreview,
   type PreviewThumbnailer,
 } from "./preview/read";
+import { remoteVideos } from "./preview/remote-video";
 import {
   PREVIEW_THUMB_EDGE,
   previewLinkName,
+  type PreviewPlayResult,
   type PreviewRequest,
   type PreviewResult,
   type PreviewRevealResult,
@@ -849,6 +851,16 @@ export const registerJuntoIpc = (): void => {
       if (real === undefined) return { ok: false };
       shell.showItemInFolder(real);
       return { ok: true };
+    },
+  );
+  // Play on a video at a web address: only an address the signal itself
+  // carries, and only now is anything allowed to fetch it.
+  privilegedIpc.handle(
+    IPC_CHANNELS.previewPlay,
+    async (_event, source: PreviewSource, index: number): Promise<PreviewPlayResult> => {
+      const attachment = Number.isInteger(index) ? (await previewSourceSignal(source))?.attachments?.[index] : undefined;
+      if (!attachment || !("kind" in attachment) || attachment.kind !== "link") return { ok: false };
+      return { ok: true, url: remoteVideos.open(attachment.url) };
     },
   );
 

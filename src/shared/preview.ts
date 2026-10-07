@@ -384,3 +384,6 @@ export type PreviewResult =
     };
 
 export type PreviewRevealResult = { readonly ok: boolean };
+
+/** The app's own address for a remote video the operator asked to play. */
+export type PreviewPlayResult = { readonly ok: true; readonly url: string } | { readonly ok: false };

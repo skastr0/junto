@@ -296,6 +296,21 @@ html[data-surface-motion="paused"] .preview-viewer__slide {
   overflow-wrap: anywhere;
 }
 
+/* A web address, whole: the host is what the eye lands on. */
+.preview-viewer__address {
+  max-width: min(90%, 720px);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  color: var(--color-dim);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.preview-viewer__address-host {
+  color: var(--color-ink);
+}
+
 .preview-viewer__note {
   margin: 0;
   font-size: var(--text-body);

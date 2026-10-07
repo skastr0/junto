@@ -459,6 +459,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   previewRead: (request) => invoke(IPC_CHANNELS.previewRead, IPC_TIMEOUT_MS, request),
   previewReveal: (source, path) =>
     invoke(IPC_CHANNELS.previewReveal, IPC_TIMEOUT_MS, source, path),
+  previewPlay: (source, index) => invoke(IPC_CHANNELS.previewPlay, IPC_TIMEOUT_MS, source, index),
   portraitOverridesList: () => invoke(IPC_CHANNELS.portraitOverridesList, IPC_TIMEOUT_MS),
   portraitOverrideSet: (seatId, override) =>
     invoke(IPC_CHANNELS.portraitOverrideSet, IPC_TIMEOUT_MS, seatId, override),

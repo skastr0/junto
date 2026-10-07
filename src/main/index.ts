@@ -162,6 +162,7 @@ import {
   CONTENT_PROTOCOL_SCHEME_REGISTRATION,
   installContentProtocol,
 } from "./junto/content/protocol";
+import { remoteVideos } from "./junto/preview/remote-video";
 import { ContentService } from "./junto/content/service";
 import {
   resolveTrustedRendererOrigin,
@@ -1689,7 +1690,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           }),
         );
         return result;
-      });
+      }, (request) => remoteVideos.handle(request));
     } catch (error) {
       console.error("[content-protocol] failed to install:", error);
       exitAfterDetach(1, "content-protocol-startup-failure");

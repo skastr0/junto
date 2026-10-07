@@ -76,7 +76,7 @@ import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
 import type { WireTrafficEvent } from "./wire-traffic";
 import type { AgentSignal } from "./agent-signals";
-import type { PreviewRequest, PreviewResult, PreviewRevealResult, PreviewSource } from "./preview";
+import type { PreviewRequest, PreviewResult, PreviewPlayResult, PreviewRevealResult, PreviewSource } from "./preview";
 import type {
   PortraitOverride,
   PortraitOverrideEvent,
@@ -159,6 +159,7 @@ export const IPC_CHANNELS = {
   /** Previews of files an agent names in its text: one guarded read, and reveal. */
   previewRead: "junto:preview-read",
   previewReveal: "junto:preview-reveal",
+  previewPlay: "junto:preview-play",
   /** Portrait overrides: list all seats, set or reset one, live upsert. */
   portraitOverridesList: "junto:portrait-overrides-list",
   portraitOverrideSet: "junto:portrait-override-set",
@@ -811,6 +812,12 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly previewRead: (request: PreviewRequest) => Promise<PreviewResult>;
   /** Show such a file in the system file manager. */
   readonly previewReveal: (source: PreviewSource, path: string) => Promise<PreviewRevealResult>;
+  /**
+   * The operator pressed play on a video at a web address the source carries
+   * (its attachment at `index`). Main answers with an address of the app's
+   * own to play; the real one is fetched by main, and only from then on.
+   */
+  readonly previewPlay: (source: PreviewSource, index: number) => Promise<PreviewPlayResult>;
   /** Every seat's portrait override (character editor), keyed by node id. */
   readonly portraitOverridesList: () => Promise<PortraitOverrides>;
   /** Replace one seat's portrait override; null resets it to identity. */
