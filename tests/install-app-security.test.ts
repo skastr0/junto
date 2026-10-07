@@ -210,23 +210,27 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
         'APP_DST="$2/Applications/Junto.app"',
         'APP_BUNDLE_ID="com.skastr0.junto.absent-in-test"',
         'mkdir -p "$2/decoy" "$APP_DST/Contents/MacOS"',
-        // A copied platform binary is killed at exec; an ad-hoc signature
-        // lets the same-named stand-ins actually run.
-        'cp /bin/sleep "$2/decoy/Junto"',
-        'cp /bin/sleep "$APP_DST/Contents/MacOS/Junto"',
-        'codesign -f -s - "$2/decoy/Junto" "$APP_DST/Contents/MacOS/Junto" 2>/dev/null',
+        // Build an ordinary executable: copying a platform binary carries
+        // macOS-version-dependent execution restrictions into the fixture.
+        'printf "#include <unistd.h>\\nint main(void) { sleep(30); return 0; }\\n" > "$2/sleeper.c"',
+        'cc "$2/sleeper.c" -o "$2/decoy/Junto" || exit 1',
+        'cp "$2/decoy/Junto" "$APP_DST/Contents/MacOS/Junto"',
+        'trap \'kill "${decoy:-}" "${installed:-}" 2>/dev/null || true\' EXIT',
         '"$2/decoy/Junto" 30 & decoy=$!',
         "sleep 0.3",
+        'kill -0 "$decoy" || exit 1',
         "junto_processes_running; echo \"decoy=$?\"",
         'kill "$decoy"',
         '"$APP_DST/Contents/MacOS/Junto" 30 & installed=$!',
         "sleep 0.3",
+        'kill -0 "$installed" || exit 1',
         "junto_processes_running; echo \"installed=$?\"",
         'kill "$installed"',
       ].join("\n"),
     );
-    expect(result.stdout).toContain("decoy=1");
-    expect(result.stdout).toContain("installed=0");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout, result.stderr).toContain("decoy=1");
+    expect(result.stdout, result.stderr).toContain("installed=0");
     expect(paths).not.toContain('pgrep -xq "$PRODUCT_NAME"');
   });
 
