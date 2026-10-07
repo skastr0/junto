@@ -107,7 +107,12 @@ export function OffboardControls({ seatId }: { readonly seatId: string }) {
             ))}
           </ol>
           {progress.stage === "failed" ? (
-            <p className="seat-sessions__problem">{progress.message ?? "Junto could not close this session."}</p>
+            // The agent's notes are saved but the session was not closed. Say
+            // so plainly: nothing else on this panel would look wrong.
+            <p className="seat-sessions__problem" role="alert" data-testid="seat-offboard-failed">
+              Offboard did not finish: {progress.message ?? "Junto could not close this session."} The session is
+              still open; ask the agent to offboard again.
+            </p>
           ) : null}
         </div>
       ) : null}

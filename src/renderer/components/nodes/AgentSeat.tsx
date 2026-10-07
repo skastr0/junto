@@ -7,6 +7,7 @@ import type { ActivitySpec, ActivityTone } from "../../lib/activity";
 import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { openOperatorModal } from "../../lib/operator-modal";
+import { useSeatOffboardFailure } from "../../lib/seat-offboard-state";
 import { useSeatOnboarding } from "../../lib/seat-onboarding";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
@@ -195,6 +196,9 @@ export function AgentSeat({
   const rollup = useSeatSignalRollup(canvasName, node.id);
   const health = useThreadHealthMark(bindingIdForNode(node), rollup?.kind);
   const onboarding = useSeatOnboarding(node);
+  // An offboard whose session never closed is said here, on the seat, where
+  // the operator is looking; a spawn failure, when there is one, comes first.
+  const offboardFailure = useSeatOffboardFailure(node.id);
   // What the ring says, for the regions and the minimap (region-urgency.ts).
   const urgency = seatUrgencyOfRing({
     glyph: resolveActivityGlyph(rest.activity.mode, rest.activity.tone, rest.activity.glyph),
@@ -215,6 +219,7 @@ export function AgentSeat({
       // A signal is answered in the needs-you feed.
       onSignalOpen={() => openOperatorModal("feed")}
       {...rest}
+      context={rest.context ?? offboardFailure}
     />
   );
 }
