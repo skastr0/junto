@@ -1,3 +1,4 @@
+import { recordDeliveryReceiptRefusal } from "./delivery-receipts";
 import { type Context, Effect } from "effect";
 import { actorDeliverySurfaceOf, type ManagedAgentSurface } from "@shared/actor-surface";
 import type { MailSenderStamp } from "@shared/crew";
@@ -5,7 +6,7 @@ import { resolveSpec } from "@shared/physics";
 import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import type { IntentFactBasis } from "@shared/work-protocol";
-import type { ActiveIntentWitness, CanvasesService } from "../canvases";
+import type { CanvasReadWithIntentWitness, CanvasesService } from "../canvases";
 import type { SettingsServiceApi } from "../settings/service";
 import type { LocalSessionHost } from "../term/local-host";
 import {
@@ -30,7 +31,7 @@ export type CheckoutWatchCompositionOptions = {
   readonly crew: Pick<CrewRepositoryShape, "recordCheckoutObservation">;
   readonly workRepository: Pick<WorkRepositoryShape, "publishCheckoutReceipts">;
   readonly messageDelivery: Pick<MessageDeliveryService, "notifyAppended">;
-  readonly basisFor: (witness: ActiveIntentWitness) => IntentFactBasis;
+  readonly basisFor: (witness: CanvasReadWithIntentWitness["intentWitness"]) => IntentFactBasis;
   readonly run: <A>(effect: Effect.Effect<A, never>) => Promise<A>;
   /** Main's closed authoring gate covers durable writes, never Git probes. */
   readonly write: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
@@ -237,7 +238,10 @@ export const makeCheckoutWatchComposition = (
       options.messageDelivery.notifyAppended(receipt.canvas, receipt.nodeId, receipt.message);
     }
     return receipts.length;
-  }).pipe(Effect.mapError((error) => failure("checkout-receipt", error)));
+  }).pipe(
+    Effect.tapError((cause) => Effect.sync(() => recordDeliveryReceiptRefusal(input.canvasName, input.taskNodeId, cause))),
+    Effect.mapError((error) => failure("checkout-receipt", error)),
+  );
 
   const supervisor = makeCheckoutWatchSupervisor({
     probe: options.probe ?? gitProbeOverRunCli(),

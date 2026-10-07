@@ -1,3 +1,4 @@
+import { canvasReceiptBasis, recordDeliveryReceiptRefusal } from "../work/delivery-receipts";
 // KernelService — the Effect Tag + Live layer that runs kernel evaluation
 // continuously over EVERY hydrated canvas, window-optional. This module owns
 // lifecycle (hydration, doc resync, the 30s safety interval) and binds
@@ -52,7 +53,6 @@ import {
   type HostId as HostIdValue,
 } from "@shared/remote-hosts";
 import {
-  IntentFactBasis,
   type ActorRef,
   type SinkRef,
 } from "@shared/work-protocol";
@@ -1198,15 +1198,8 @@ const makeKernelService = (
             // durably suppresses restart replay. The send→receipt crash window
             // remains intentionally at-least-once until that transport accepts
             // an idempotency key; pre-writing would instead risk silent loss.
-            const intentWitness = yield* canvases.activeIntentWitness();
-            const basis = Schema.decodeUnknownSync(IntentFactBasis)({
-              kind:
-                scope.role === "command-center"
-                  ? "authorial-intent"
-                  : "projected-intent",
-              generation: intentWitness.generation,
-              contentSha256: intentWitness.contentSha256,
-            });
+            const { intentWitness } = yield* canvases.readWithIntentWitness(canvasName);
+            const basis = canvasReceiptBasis(intentWitness);
             yield* workRepository.acceptDelivery({
               sink: sinkRef,
               basis,
@@ -1220,7 +1213,9 @@ const makeKernelService = (
                 actor: actorRef,
                 acceptedAt: new Date().toISOString(),
               },
-            });
+            }).pipe(Effect.tapError((cause) => Effect.sync(() =>
+              recordDeliveryReceiptRefusal(canvasName, sink.id, cause),
+            )));
           }
         }
       }
