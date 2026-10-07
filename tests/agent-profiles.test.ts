@@ -9,9 +9,12 @@ import {
 } from "../src/shared/agent-profiles";
 import { SEAT_SOUL_MAX } from "../src/shared/seat-guidance";
 import { portraitCharacter } from "../src/shared/agent-portrait";
+import { nodeFromDocument } from "../src/shared/model/from-document";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { note, terminal } from "./support/model-nodes";
 import {
   profileBodyFromSeat,
+  profileBodyOfSeat,
   resolvedPortrait,
   seatFromProfile,
 } from "../src/renderer/lib/agent-profiles";
@@ -81,6 +84,27 @@ describe("profileBodyFromSeat", () => {
   it("captures nothing from a note or a raw terminal", () => {
     expect(profileBodyFromSeat({ id: "n", type: "text", text: "note", x: 0, y: 0, width: 1, height: 1 })).toBeNull();
     expect(profileBodyFromSeat(undefined)).toBeNull();
+  });
+});
+
+describe("profileBodyOfSeat", () => {
+  const sources = {
+    portraitOf: () => ({ topper: "cat" as const }),
+    guidanceOf: () => ({ soul: "Careful.", instructions: "Test first." }),
+  };
+
+  it("captures from the seat itself what the document capture does", () => {
+    const document = claude("seat-1");
+    const seat = nodeFromDocument("c", document, 0);
+    expect(seat.kind).toBe("agent");
+    expect(profileBodyOfSeat(seat, sources)).toEqual(profileBodyFromSeat(document, sources));
+    expect(profileBodyOfSeat(seat, sources)).toMatchObject({ name: "Ada", harness: "claude", model: "opus", effort: "high" });
+  });
+
+  it("captures nothing from a node that is not a seat, or from no node", () => {
+    expect(profileBodyOfSeat(note("n"))).toBeNull();
+    expect(profileBodyOfSeat(terminal("t"))).toBeNull();
+    expect(profileBodyOfSeat(undefined)).toBeNull();
   });
 });
 

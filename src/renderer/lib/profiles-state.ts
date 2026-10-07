@@ -10,12 +10,12 @@ import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults"
 import { AGENT_NODE_SIZE } from "./node-geometry";
 import { getJuntoApi } from "./junto-api";
 import { addNode } from "./mutations";
-import { profileBodyFromSeat, seatFromProfile } from "./agent-profiles";
+import { profileBodyOfSeat, seatFromProfile } from "./agent-profiles";
 import { saveSeatGuidances, saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
 import { seatGuidanceOf, startSeatGuidance } from "./seat-guidance-state";
 import type { PlaceOutcome } from "./squads-state";
 import type { SquadLaunch } from "./squads";
-import { modelStore } from "./use-model";
+import { modelStore, nodeAt } from "./use-model";
 import { state$ } from "./state";
 
 export const profiles$ = observable({
@@ -66,10 +66,10 @@ const adopt = (profile: AgentProfile): void => {
 
 /** One seat captured as a profile body, from the open canvas and the saved stores. */
 export const captureSeatProfile = (seatId: string): AgentProfileBody | null =>
-  profileBodyFromSeat(
-    state$.doc.peek().nodes.find((node) => node.id === seatId),
-    { portraitOf: squadPortraitOf, guidanceOf: seatGuidanceOf },
-  );
+  profileBodyOfSeat(nodeAt(state$.canvasName.peek(), seatId), {
+    portraitOf: squadPortraitOf,
+    guidanceOf: seatGuidanceOf,
+  });
 
 /**
  * Save a profile body: a new profile, or with `profileId` a replacement of

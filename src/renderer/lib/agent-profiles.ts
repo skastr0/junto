@@ -20,6 +20,7 @@
  *   session id from the ordinary seat factory.
  */
 import type { CanvasNode, TextNode } from "@shared/canvas";
+import type { Node } from "@shared/model";
 import {
   cleanProfileName,
   decodeProfileBody,
@@ -67,9 +68,37 @@ export const profileBodyFromSeat = (
   const terminal = node.ether!.terminal!;
   const harness = terminal.harness!;
   const choices = isHarnessId(harness) ? recoverDocumentLaunchChoices(harness, terminal.launch) : {};
-  const guidance = sources.guidanceOf?.(node.id);
+  return profileBody(node.id, seatName(node), harness, choices, sources);
+};
+
+/**
+ * The same capture from the seat itself, for a caller that reads the node
+ * store; null when the node is not a seat with a managed harness launch.
+ */
+export const profileBodyOfSeat = (
+  node: Node | undefined,
+  sources: ProfileCaptureSources = {},
+): AgentProfileBody | null => {
+  if (node?.kind !== "agent" || node.launch?.kind !== "harness") return null;
+  return profileBody(
+    node.id,
+    cleanProfileName(node.label) ?? "agent",
+    node.harness,
+    recoverDocumentLaunchChoices(node.harness, node.launch),
+    sources,
+  );
+};
+
+const profileBody = (
+  nodeId: string,
+  name: string,
+  harness: string,
+  choices: ReturnType<typeof recoverDocumentLaunchChoices>,
+  sources: ProfileCaptureSources,
+): AgentProfileBody | null => {
+  const guidance = sources.guidanceOf?.(nodeId);
   return decodeProfileBody({
-    name: seatName(node),
+    name,
     harness,
     ...(choices.model ? { model: choices.model } : {}),
     ...(choices.effort ? { effort: choices.effort } : {}),
@@ -77,7 +106,7 @@ export const profileBodyFromSeat = (
     ...(choices.permissionMode ? { permissionMode: choices.permissionMode } : {}),
     ...(choices.extraArgs ? { extraArgs: choices.extraArgs } : {}),
     ...(choices.profile ? { harnessProfile: choices.profile } : {}),
-    portrait: resolvedPortrait(node.id, sources.portraitOf?.(node.id)),
+    portrait: resolvedPortrait(nodeId, sources.portraitOf?.(nodeId)),
     ...(guidance?.soul ? { soul: guidance.soul } : {}),
     ...(guidance?.instructions ? { instructions: guidance.instructions } : {}),
   });
