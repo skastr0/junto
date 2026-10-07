@@ -13,18 +13,14 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
-import { waitForTerminalPaint } from "../harness/term-ready";
+import { terminalRows, waitForTerminalPaint } from "../harness/term-ready";
 
 const LABEL = "e2e wrap divergence";
 const BINDING_ID = "e2e-wrap-1";
 const LAUNCH = { kind: "command" as const, argv: ["/bin/sh", "-i"] };
 
 const rowTexts = async (page: import("@playwright/test").Page): Promise<ReadonlyArray<string>> =>
-  page.evaluate(() =>
-    Array.from(document.querySelectorAll(".native-terminal-surface .xterm-rows > *")).map((el) =>
-      (el.textContent ?? "").replace(/ /g, " ").trimEnd(),
-    ),
-  );
+  (await terminalRows(page)).map((row) => row.trimEnd());
 
 test.use({
   juntoOptions: {

@@ -20,7 +20,7 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
-import { waitForTerminalPaint } from "../harness/term-ready";
+import { terminalRows, waitForTerminalPaint } from "../harness/term-ready";
 
 const LABEL = "e2e geometry truth";
 const BINDING_ID = "e2e-geom-binding-1";
@@ -47,12 +47,7 @@ const renderedGeom = async (
 
 /** All rendered terminal text, whitespace-collapsed for matching. */
 const screenText = async (page: import("@playwright/test").Page): Promise<string> =>
-  page.evaluate(
-    () =>
-      Array.from(document.querySelectorAll(".native-terminal-surface .xterm-rows > *"))
-        .map((el) => el.textContent ?? "")
-        .join("\n"),
-  );
+  (await terminalRows(page)).join("\n");
 
 /**
  * What the CHILD PROCESS sees. Runs `stty size` through a real control lease —
@@ -139,11 +134,7 @@ const integrityViolations = (rows: ReadonlyArray<string>): ReadonlyArray<string>
 };
 
 const rowTexts = async (page: import("@playwright/test").Page): Promise<ReadonlyArray<string>> =>
-  page.evaluate(() =>
-    Array.from(document.querySelectorAll(".native-terminal-surface .xterm-rows > *")).map(
-      (el) => el.textContent ?? "",
-    ),
-  );
+  terminalRows(page);
 
 /**
  * Close and reopen the surface — the path the operator reported having to
