@@ -163,7 +163,6 @@ import {
   reviewsEdgeExists,
   reviewersOfAuthor,
 } from "./reviews";
-import type { CanvasError } from "../canvas/domain";
 import {
   readMailExtension,
   type MailSenderStamp,
@@ -202,7 +201,6 @@ type WorkSqlFailure =
   | WorkReplicationError
   | CrewRepositoryError
   | ContentManifestError
-  | CanvasError
   | ModelError;
 
 const LocalAuthorityRow = Schema.Struct({

@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../src/main/junto/canvas/state-schema";
+import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./fixtures/state-v1/canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "./fixtures/domain-cutover/entities-schema";
 import { migrateCanvasKinds } from "../src/main/junto/model/migrate";
 import { observabilityRing } from "../src/main/junto/observability/ring";
