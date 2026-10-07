@@ -3,10 +3,8 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import type { Entity, SnapshotState } from "../src/shared/entities";
 import {
   buildConnectionIndex,
-  connectionKey,
   identityHints,
   resolveConnections,
-  resolveNodeConnections,
 } from "../src/shared/connections";
 
 const entity = (
@@ -58,16 +56,6 @@ describe("resolveConnections — hermes-only", () => {
     const connections = resolveConnections({ kind: "agent", name: "remote-a:vega" }, index);
     // Key survives offline fleet; entity is absent
     expect(connections).toEqual([{ source: "hermes", key: "remote-a:vega" }]);
-  });
-});
-
-describe("identity is independent of the node's visible label", () => {
-  it("resolution reads entity.name only — retitling the node changes nothing", () => {
-    const snapshots = state([entity("remote-a:vega")]);
-    const before = resolveNodeConnections({ kind: "agent", name: "remote-a:vega" }, snapshots);
-    const after = resolveNodeConnections({ kind: "agent", name: "remote-a:vega" }, snapshots);
-    expect(after).toEqual(before);
-    expect(connectionKey(after, "hermes")).toBe("remote-a:vega");
   });
 });
 

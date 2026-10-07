@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   actorRefResolverFromProjection,
-  childRegions,
   groupMembers,
   regionDisplayName,
   regionStack,
@@ -84,23 +83,6 @@ describe("graph derivations", () => {
     expect(regionStack(doc, "inner").map((g) => g.id)).toEqual(["outer", "mid"]);
     expect(regionStack(doc, "mid").map((g) => g.id)).toEqual(["outer"]);
     expect(regionStack(doc, "outer")).toEqual([]);
-  });
-
-  it("childRegions returns every fully contained group; a straddling group is out", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        { id: "outer", type: "group", x: 0, y: 0, width: 1000, height: 1000 },
-        { id: "mid", type: "group", x: 50, y: 50, width: 500, height: 500 },
-        { id: "inner", type: "group", x: 100, y: 100, width: 200, height: 200 },
-        // extends past outer's right edge — not contained
-        { id: "straddler", type: "group", x: 900, y: 0, width: 300, height: 100 },
-      ],
-      edges: [],
-    };
-    expect(childRegions(doc, "outer").map((g) => g.id)).toEqual(["mid", "inner"]);
-    expect(childRegions(doc, "mid").map((g) => g.id)).toEqual(["inner"]);
-    expect(childRegions(doc, "inner")).toEqual([]);
-    expect(childRegions(doc, "n-not-a-group")).toEqual([]);
   });
 
   it("overlapping regions: a node inside both is a member of both, stack order deterministic", () => {

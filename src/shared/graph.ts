@@ -12,7 +12,7 @@ import { canvasFromDocument } from "./model/from-document";
 // Derived state. Never persisted — recomputed from the document so the
 // authored canvas document cannot go incoherent.
 //
-// blockedClosure / blockedEdgeIds are thin wrappers over deriveExecutionGraph.
+// blockedEdgeIds is a thin wrapper over deriveExecutionGraph.
 
 /**
  * Build the strict canvas-scoped resolver used by pure graph projections.
@@ -62,12 +62,6 @@ export const executionGraphContextFromActorRefs = (
   itemsOf,
   ...trust,
 });
-
-export const blockedClosure = (
-  doc: CanvasDoc,
-  context: ExecutionGraphContext,
-): ReadonlySet<string> =>
-  deriveExecutionGraph(canvasFromDocument(context.canvasName, doc), context).blocked;
 
 export const blockedEdgeIds = (
   doc: CanvasDoc,
@@ -145,7 +139,7 @@ export const regionStack = (
 // Named geography: membership is full-rect containment inside the group rect.
 // Members are non-group nodes only; with nesting, a node inside an inner
 // region is a member of EVERY containing region. Region-in-region structure
-// is exposed via regionStack / childRegions, not via members.
+// is exposed via regionStack, not via members.
 export const groupMembers = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<string>> => {
   const groups = doc.nodes.filter(isGroup);
   const members = new Map<string, string[]>();
@@ -160,14 +154,3 @@ export const groupMembers = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<
   return members;
 };
 
-/** Groups fully contained inside `groupId`'s rect (all descendants, document order). */
-export const childRegions = (
-  doc: CanvasDoc,
-  groupId: string,
-): ReadonlyArray<GroupNode> => {
-  const group = doc.nodes.find((node) => node.id === groupId);
-  if (!group || !isGroup(group)) return [];
-  return doc.nodes
-    .filter(isGroup)
-    .filter((candidate) => candidate.id !== groupId && isFullyContained(group, candidate));
-};

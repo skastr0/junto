@@ -59,24 +59,6 @@ export const resolveConnections = (
   return [];
 };
 
-// Convenience for one-shot call sites; index-building callers (per-frame UI)
-// should build the index once per snapshot and share it.
-export const resolveNodeConnections = (
-  entity: EtherEntity | undefined,
-  snapshots: SnapshotState,
-): ReadonlyArray<Connection> => resolveConnections(entity, buildConnectionIndex(snapshots));
-
-export const connectionKey = (
-  connections: ReadonlyArray<Connection>,
-  source: EntitySource,
-): string | undefined => connections.find((connection) => connection.source === source)?.key;
-
-export const connectionKeys = (
-  connections: ReadonlyArray<Connection>,
-  source: EntitySource,
-): ReadonlyArray<string> =>
-  connections.filter((connection) => connection.source === source).map((connection) => connection.key);
-
 // Adapter enrichment hints, derived from identity resolution over documents.
 // Only hermes agent keys are emitted (live plane).
 export const identityHints = (
