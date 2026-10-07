@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer, Result, Schema } from "effect";
-import type { CanvasDoc } from "../src/shared/canvas";
-import { asCanvasName, type Changed } from "../src/shared/model";
-import { canvasFromDocument, nodeFromDocument } from "../src/shared/model/from-document";
+import { asCanvasName, type Changed, type Node } from "../src/shared/model";
+import { canvasOf, note, page, seat, terminal } from "./support/model-nodes";
 import { InstallationId } from "../src/shared/installation-id";
 import { CommandCenterConfiguration } from "../src/shared/station-api";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
@@ -18,22 +17,21 @@ import {
 const local = Schema.decodeUnknownSync(InstallationId)("cc-test");
 const remote = Schema.decodeUnknownSync(InstallationId)("remote-test");
 const caller = { canvasName: "factory", nodeId: "planner" };
-type DocNode = CanvasDoc["nodes"][number];
-const planner = (ether: DocNode["ether"]): DocNode => ({
-  id: "planner", type: "text", text: "Planner", x: 17, y: -29, width: 300, height: 200, ether,
+const frame = { x: 17, y: -29, width: 300, height: 200 };
+/** The planner as the operator made it: a seat on the remote, granted. */
+const plannerSeat: Node = seat("planner", {
+  ...frame, label: "Planner", agentKey: "remote:planner", host: "remote", overseer: true,
+  bindingId: "planner-binding" as never,
 });
-const seatEther = {
-  entity: { kind: "agent", name: "remote:planner" },
-  host: "remote", overseer: true,
-  terminal: { bindingId: "planner-binding", harness: "claude" },
-} as const;
-/** The canvas as the model reads a document whose one node carries this. */
-const canvasOf = (ether: DocNode["ether"]) =>
-  canvasFromDocument("factory", { nodes: [planner(ether)], edges: [] });
-const fixture = (home = remote, ether: DocNode["ether"] = seatEther): OverseerSeatRead => ({
+/**
+ * One canvas holding this node under the planner's id, with the actor
+ * reference the planner seat compiles to. The reference is the same whatever
+ * the node is, so a case below fails for the node and nothing else.
+ */
+const fixture = (home = remote, node: Node = plannerSeat): OverseerSeatRead => ({
   name: "factory",
   actorRefs: [{ ...caller, seatId: deriveActorSeatId(home, "planner-binding") }],
-  canvas: canvasOf(ether),
+  canvas: canvasOf([node]),
 });
 
 describe("overseer installation admission", () => {
@@ -50,17 +48,30 @@ describe("overseer installation admission", () => {
     });
   });
 
-  it("requires the live human grant, a complete actor, and exact canvas identity", () => {
-    for (const ether of [
-      { ...seatEther, overseer: false },
-      { ...seatEther, overseer: undefined },
-      { ...seatEther, entity: { kind: "terminal", name: "remote:planner" } },
-      { ...seatEther, terminal: undefined },
-    ]) {
-      const changed = fixture(remote, ether as DocNode["ether"]);
-      expect(Result.isFailure(resolveOverseerActor(caller, changed, remote))).toBe(true);
+  it("admits only a seat the operator granted: a matching actor reference alone admits nothing", () => {
+    // Each of these sits under the planner's id with the planner's own
+    // actor reference, so the reference matches and only the node differs.
+    const notASeat: ReadonlyArray<readonly [string, Node]> = [
+      ["a seat with the grant off", { ...plannerSeat, overseer: false } as Node],
+      ["a terminal on the planner's session", terminal("planner", { ...frame, host: "remote", bindingId: "planner-binding" as never })],
+      ["a note", note("planner", "Planner", frame)],
+      ["a page", page("planner", frame)],
+    ];
+    for (const [what, node] of notASeat) {
+      const result = resolveOverseerActor(caller, fixture(remote, node), remote);
+      expect(result, what).toMatchObject({
+        _tag: "Failure",
+        failure: { type: "ScopeError", message: "the caller no longer has human-granted overseer authority" },
+      });
     }
+    // The same seat, read from a canvas of another name.
     expect(Result.isFailure(resolveOverseerActor(caller, { ...fixture(), name: "another" }, remote))).toBe(true);
+    // And a granted seat on another session than the reference names.
+    const moved = { ...plannerSeat, bindingId: "other-binding" } as Node;
+    expect(resolveOverseerActor(caller, fixture(remote, moved), remote)).toMatchObject({
+      _tag: "Failure",
+      failure: { type: "ScopeError", message: "overseer caller does not belong to the authenticated installation" },
+    });
   });
 
   it("rejects missing, ambiguous, or stale compiled execution references", () => {
@@ -101,10 +112,10 @@ describe("overseer installation admission", () => {
     );
     /** One committed change to the canvas that carries the seat as given. */
     let seq = 0;
-    const changed = (ether?: DocNode["ether"]): Changed => ({
+    const changed = (node?: Node): Changed => ({
       canvas: asCanvasName("factory"),
       seq: ++seq,
-      nodes: ether === undefined ? [] : [nodeFromDocument("factory", planner(ether), 0)],
+      nodes: node === undefined ? [] : [node],
       wires: [],
       removedNodes: [],
       removedWires: [],
@@ -124,13 +135,13 @@ describe("overseer installation admission", () => {
       await vi.waitFor(() => expect(reads).toBe(2));
       expect(settled).toBe(false);
       // The seat itself was written again, the same seat.
-      listener!(changed(seatEther));
+      listener!(changed(plannerSeat));
       await vi.waitFor(() => expect(reads).toBe(3));
       expect(settled).toBe(false);
       // The next live read already sees the restored grant. The commit event
       // must still cancel the command that held the old grant.
-      listener!(changed({ ...seatEther, overseer: false }));
-      listener?.(changed(seatEther));
+      listener!(changed({ ...plannerSeat, overseer: false } as Node));
+      listener?.(changed(plannerSeat));
       expect(await watching).toMatchObject({ _tag: "Failure", failure: { type: "ScopeError" } });
       expect(listener).toBeUndefined();
     } finally {
