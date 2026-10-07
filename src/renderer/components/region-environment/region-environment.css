@@ -54,6 +54,34 @@
   display: block;
 }
 
+/* The one screen-level alert: a required source is failing, so no seat in
+   the region starts. First on the screen, a full tinted block, icon first. */
+.region-env__alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in oklab, var(--color-crimson) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--color-crimson) 12%, transparent);
+  color: var(--color-crimson);
+  font-size: var(--text-label);
+  font-weight: 600;
+  line-height: var(--leading-body);
+}
+
+.region-env__alert svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* The alert is not a section: the first section under it takes no rule. */
+.region-env__alert + .region-env__section {
+  border-top: 0;
+  padding-top: 0;
+}
+
 /* Errors are inline and red, next to the thing that failed. */
 .region-env__error {
   display: block;

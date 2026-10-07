@@ -1,0 +1,89 @@
+/* The region strip's keys: icon, word, state. Sized to be read, not hunted. */
+.rts-region-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.rts-region-key {
+  display: grid;
+  grid-template-rows: 18px auto auto;
+  justify-items: center;
+  align-content: center;
+  row-gap: 4px;
+  min-width: 96px;
+  padding: 9px 12px 8px;
+  border: 1px solid var(--color-overlay-4);
+  border-radius: 6px;
+  background: var(--color-overlay-1);
+  color: var(--color-dim);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.rts-region-key:hover {
+  border-color: color-mix(in oklab, var(--color-amber) 45%, transparent);
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}
+
+.rts-region-key:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+.rts-region-key:active {
+  background: var(--color-overlay-3);
+}
+
+.rts-region-key__icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  line-height: 0;
+}
+
+.rts-region-key__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rts-region-key__caption {
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.rts-region-key__state {
+  color: var(--color-faint);
+  font-size: 9.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Set: the icon and the state word take the accent. The key is not pressed. */
+.rts-region-key[data-state="set"] .rts-region-key__icon,
+.rts-region-key[data-state="set"] .rts-region-key__state {
+  color: var(--color-amber);
+}
+
+/* Open: pressed, for as long as the key's screen is open. */
+.rts-region-key[aria-pressed="true"] {
+  border-color: var(--color-amber);
+  background: color-mix(in oklab, var(--color-amber) 14%, transparent);
+  color: var(--color-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rts-region-key {
+    transition: none;
+  }
+}

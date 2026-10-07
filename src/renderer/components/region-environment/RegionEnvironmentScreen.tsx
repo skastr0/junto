@@ -16,7 +16,7 @@
  * everything else is asked of the port. The modal around it does the writing.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, RotateCw, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, GripVertical, Pencil, Plus, RotateCw, Trash2 } from "lucide-react";
 import {
   STATUS_LABEL,
   SOURCE_KINDS,
@@ -410,6 +410,13 @@ export function RegionEnvironmentScreen({
 
   return (
     <div className="region-env" data-testid="region-env">
+      {view.blocksLaunch ? (
+        // The one fact on this screen that stops work: said first, once.
+        <p className="region-env__alert" role="alert" data-testid="region-env-blocks-launch">
+          <AlertTriangle size={14} aria-hidden />
+          <span>A required source is failing, so seats in this region will not start until it is fixed.</span>
+        </p>
+      ) : null}
       <section className="region-env__section" aria-label="Sources">
         <header className="region-env__heading">
           <h3>Sources</h3>
@@ -417,7 +424,8 @@ export function RegionEnvironmentScreen({
         </header>
         {sources.length === 0 && draft === undefined ? (
           <p className="region-env__empty">
-            Nothing yet. Add a source to give the seats in this region a variable you already keep somewhere.
+            No sources yet. A source gives the seats in this region a variable or secret you already keep
+            somewhere: a Keychain item, a 1Password field, an env file.
           </p>
         ) : null}
         <ol className="region-env__sources">
@@ -553,7 +561,9 @@ export function RegionEnvironmentScreen({
           <Button
             type="button"
             size="sm"
-            variant="chrome"
+            // With nothing here yet, adding a source is the one thing to do.
+            variant={sources.length === 0 ? "primary" : "chrome"}
+            data-emphasis={sources.length === 0 ? "primary" : "quiet"}
             data-testid="region-env-add-source"
             onClick={() => {
               setFormProblem(undefined);
@@ -576,11 +586,6 @@ export function RegionEnvironmentScreen({
             {report === undefined ? "Reading your stores." : "Reading your stores again."}
           </p>
         ) : null}
-        {view.blocksLaunch ? (
-          <p className="region-env__error" role="alert" data-testid="region-env-blocks-launch">
-            A required source is failing, so seats in this region will not start until it is fixed.
-          </p>
-        ) : null}
         {reportProblem ? (
           <p className="region-env__error" role="alert">
             {reportProblem}
@@ -595,7 +600,9 @@ export function RegionEnvironmentScreen({
           <p className="region-env__empty">
             {sealed
               ? "Nothing. This region is sealed and has no sources of its own."
-              : "Nothing. No source here or in the regions around this one sets a variable."}
+              : sources.length === 0
+                ? "Nothing yet."
+                : "Nothing. No source here or in the regions around this one sets a variable."}
           </p>
         ) : null}
         <ul className="region-env__resolved">

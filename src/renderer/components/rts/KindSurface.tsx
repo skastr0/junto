@@ -64,6 +64,7 @@ import {
   RegionPageDefaultsControl,
 } from "../InspectorFields";
 import { KindActions, EdgePairStrip, KindKey } from "./RtsControls";
+import { RegionKey } from "./RegionKey";
 import { SeatOffboardKindKey } from "./SeatOffboardKey";
 import "./rts-controls.css";
 
@@ -269,53 +270,53 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
     <div className="rts-kind-surface rts-kind-surface--region">
       <div className="rts-kind-cluster">
         <span className="rts-kind-kind-label">region</span>
-        <div className="rts-kind-strip" role="toolbar" aria-label="Region fields">
-          <KindKey
-            label={form === "briefing" ? "Close briefing" : "Region briefing"}
-            title="Region briefing"
-            active={form === "briefing" || instruction}
-            style={form === "briefing" || instruction ? { color: HUE.amber } : undefined}
+        <div className="rts-region-keys" role="toolbar" aria-label="Region fields">
+          <RegionKey
+            caption="Briefing"
+            name="Region briefing"
+            set={instruction}
+            open={form === "briefing"}
             onClick={() => toggleForm("briefing")}
           >
-            <ScrollText size={ICON} />
-          </KindKey>
-          <KindKey
-            label={pathsOpen ? "Close folder paths" : "Folder paths"}
-            title="Folder paths"
-            active={pathsOpen || hasPaths}
-            style={pathsOpen || hasPaths ? { color: HUE.amber } : undefined}
+            <ScrollText />
+          </RegionKey>
+          <RegionKey
+            caption="Folder paths"
+            name="Folder paths"
+            set={hasPaths}
+            open={pathsOpen}
             onClick={() => {
               setForm(null);
               setEnvironmentOpen(false);
               setPathsOpen((open) => !open);
             }}
           >
-            <FolderOpen size={ICON} />
-          </KindKey>
-          <KindKey
-            label={environmentOpen ? "Close environment and secrets" : "Environment and secrets"}
-            title="Environment and secrets"
+            <FolderOpen />
+          </RegionKey>
+          <RegionKey
+            caption="Environment"
+            name="Environment and secrets"
+            set={hasEnvironment}
+            open={environmentOpen}
             testId="rts-region-environment"
-            active={environmentOpen || hasEnvironment}
-            style={environmentOpen || hasEnvironment ? { color: HUE.amber } : undefined}
             onClick={() => {
               setForm(null);
               setPathsOpen(false);
               setEnvironmentOpen((open) => !open);
             }}
           >
-            <KeyRound size={ICON} />
-          </KindKey>
+            <KeyRound />
+          </RegionKey>
           {BROWSER_ENABLED ? (
-            <KindKey
-              label={form === "page" ? "Close page defaults" : "Page defaults"}
-              title="Defaults for new page nodes in this region"
-              active={form === "page" || hasPage}
-              style={form === "page" || hasPage ? { color: HUE.cyan } : undefined}
+            <RegionKey
+              caption="Page defaults"
+              name="Page defaults"
+              set={hasPage}
+              open={form === "page"}
               onClick={() => toggleForm("page")}
             >
-              <Globe size={ICON} />
-            </KindKey>
+              <Globe />
+            </RegionKey>
           ) : null}
         </div>
       </div>

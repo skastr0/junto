@@ -134,10 +134,36 @@ const reported = (over: Partial<SourceReport>): SourceReport => ({
   ...over,
 });
 
+describe("an empty region", () => {
+  it("says once what a source is for, and makes adding one the primary action", async () => {
+    await mount(undefined);
+    const empty = all(".region-env__empty").map((node) => node.textContent);
+    expect(empty).toEqual([
+      "No sources yet. A source gives the seats in this region a variable or secret you already keep somewhere: a Keychain item, a 1Password field, an env file.",
+      "Nothing yet.",
+    ]);
+    const add = q('[data-testid="region-env-add-source"]')!;
+    expect(add.getAttribute("data-emphasis")).toBe("primary");
+  });
+
+  it("once a source exists, adding another is an ordinary action again", async () => {
+    await mount({ sources: [plain] });
+    expect(q('[data-testid="region-env-add-source"]')!.getAttribute("data-emphasis")).toBe("quiet");
+    expect(host.textContent).not.toContain("No sources yet.");
+  });
+
+  it("a sealed region with nothing of its own says why nothing comes in", async () => {
+    await mount({ sources: [], sealed: true });
+    expect(all(".region-env__empty").at(-1)?.textContent).toBe(
+      "Nothing. This region is sealed and has no sources of its own.",
+    );
+  });
+});
+
 describe("adding a source", () => {
   it("opens on a kind and shows only that kind's fields, with examples", async () => {
     await mount(undefined);
-    expect(host.textContent).toContain("Nothing yet.");
+    expect(host.textContent).toContain("No sources yet.");
     await click(q('[data-testid="region-env-add-source"]'));
     // What the operator already has comes first.
     expect(q('[data-testid="region-env-form"]')?.getAttribute("data-kind")).toBe("keychain");
@@ -521,6 +547,28 @@ describe("the resolved list", () => {
     const fake = makeFakeRegionEnvironmentPort({ report: [reported({ status: "error", required: true })] });
     await mount({ sources: [{ ...keychain, required: true }] }, fake);
     expect(q('[data-testid="region-env-blocks-launch"]')?.textContent).toMatch(/will not start/);
+  });
+
+  it("puts that sentence first on the screen, above the sources, as an alert: it is the one fact that stops work", async () => {
+    const fake = makeFakeRegionEnvironmentPort({ report: [reported({ status: "error", required: true })] });
+    await mount({ sources: [{ ...keychain, required: true }] }, fake);
+    const banner = q('[data-testid="region-env-blocks-launch"]')!;
+    expect(banner.getAttribute("role")).toBe("alert");
+    expect(banner.textContent).toBe(
+      "A required source is failing, so seats in this region will not start until it is fixed.",
+    );
+    // First child of the screen, before the Sources section and outside every section.
+    expect(q('[data-testid="region-env"]')!.firstElementChild).toBe(banner);
+    expect(banner.closest("section")).toBeNull();
+    // Said once: not repeated further down.
+    expect(all('[data-testid="region-env-blocks-launch"]')).toHaveLength(1);
+  });
+
+  it("shows no such alert when nothing required is failing", async () => {
+    const fake = makeFakeRegionEnvironmentPort({ report: [reported({ status: "missing" })] });
+    await mount({ sources: [keychain] }, fake);
+    expect(q('[data-testid="region-env-blocks-launch"]')).toBeNull();
+    expect(q('[data-testid="region-env"]')!.firstElementChild?.tagName).toBe("SECTION");
   });
 
   it("lists a source that failed before it knew its names", async () => {

@@ -51,7 +51,7 @@ export function RegionEnvironmentModal({
       <div className="region-env-modal">
         <OverlayHeader
           eyebrow="region"
-          title="Environment"
+          title="Environment and secrets"
           status={`What seats inside ${label} get when they start`}
           actions={
             <IconButton aria-label="Close environment" title="Close" onClick={onClose}>
