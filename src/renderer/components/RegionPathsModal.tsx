@@ -7,6 +7,7 @@ import { stripEmptyRegionPaths } from "@shared/region-defaults";
 import { trimTrailingSlash } from "../lib/directory-picker";
 import { setRegionDefaults } from "../lib/mutations";
 import { state$ } from "../lib/state";
+import { useNodeOf } from "../lib/use-model";
 import { getJuntoApi } from "../lib/junto-api";
 import { FocusSurface } from "./FocusSurface";
 import { HostDirectoryPicker } from "./node-palette/HostDirectoryPicker";
@@ -38,9 +39,9 @@ export function RegionPathsModal({
   readonly nodeId: string;
   readonly onClose: () => void;
 }) {
-  const node = use$(() => state$.doc.nodes.get().find((n) => n.id === nodeId));
+  const node = useNodeOf(use$(state$.canvasName), nodeId, "region");
   const storedPaths =
-    node?.type === "group" ? node.ether?.region?.defaults?.paths : undefined;
+    node?.defaults?.paths;
   const pathsFingerprint = useMemo(
     () =>
       storedPaths
@@ -123,7 +124,7 @@ export function RegionPathsModal({
       .catch(() => undefined);
   }, [nodeId, pathsFingerprint]);
 
-  if (!node || node.type !== "group") return null;
+  if (!node) return null;
 
   const unusedHosts = enrolled.filter((h) => !hostIds.includes(h.id));
   const selectedPath = pathsByHost[selectedHostId] ?? "";
@@ -161,7 +162,7 @@ export function RegionPathsModal({
       map[hostId] = path;
     }
     const paths = stripEmptyRegionPaths(map);
-    const current = node.ether?.region?.defaults;
+    const current = node.defaults;
     const next = {
       ...(current?.page ? { page: current.page } : {}),
       ...(paths ? { paths } : {}),

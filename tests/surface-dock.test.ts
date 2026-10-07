@@ -41,6 +41,9 @@ import {
   saveNoteSurfaceDraft,
 } from "../src/renderer/components/workbench/NoteSurface";
 import { state$ } from "../src/renderer/lib/state";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { Schema } from "effect";
+import { Node } from "../src/shared/model";
 
 // --- pure registry ---------------------------------------------------------
 
@@ -240,6 +243,7 @@ function installMockJunto(overrides: Partial<MockJunto> = {}): MockJunto {
 }
 
 function resetDock(): void {
+  modelStore.canvas$(state$.canvasName.peek()).nodes.set({});
   state$.doc.set({ nodes: [], edges: [] });
   dock$.registry.set(initialWorkbenchState());
   dock$.browserByRef.set({});
@@ -360,6 +364,10 @@ describe("dock-state", () => {
       text: "Focus-safe note",
     } satisfies CanvasNode;
     state$.doc.set({ nodes: [node], edges: [] });
+    modelStore.node$(state$.canvasName.peek(), node.id).set(Schema.decodeUnknownSync(Node)({
+      kind: "note", id: node.id, text: node.text, x: node.x, y: node.y,
+      width: node.width, height: node.height, z: 0,
+    }));
     openNoteSurface(node);
     const id = noteSurfaceId(node.id);
     dock$.noteById[id].draft.set("Focus-safe note\n\nStill open after canvas flush");

@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Layers, Plus } from "lucide-react";
 import { state$ } from "../../lib/state";
 import { summarizeSlots, type SlotSummary } from "../../lib/command-groups";
 import { modKeyGlyph } from "../../lib/platform";
-import { nodeTitle } from "../../lib/presentation";
+import { titleOf } from "@shared/model/title";
+import { modelStore } from "../../lib/use-model";
 import "./RtsBottomBar.css";
 
 const slotLine = (slot: SlotSummary): string =>
@@ -25,16 +26,14 @@ export function SaveToGroupPicker({
   readonly count: number;
   readonly onPick: (target: number | "new") => void;
 }) {
-  const hotbarSlots = use$(state$.hotbarSlots);
-  const doc = use$(state$.doc);
   const [hovered, setHovered] = useState<number | "new" | null>(null);
-  const summaries = useMemo(() => {
-    const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
-    return summarizeSlots(hotbarSlots, (id) => {
-      const node = byId.get(id);
-      return node ? nodeTitle(node) : id.slice(0, 8);
+  const summaries = use$(() => {
+    const canvas = state$.canvasName.get();
+    return summarizeSlots(state$.hotbarSlots.get(), (id) => {
+      const node = modelStore.node$(canvas, id).get();
+      return node ? titleOf(node) : id.slice(0, 8);
     });
-  }, [hotbarSlots, doc]);
+  });
 
   const nodes = `${count} node${count === 1 ? "" : "s"}`;
   const hoveredSlot = hovered === null || hovered === "new" ? undefined : summaries[hovered];

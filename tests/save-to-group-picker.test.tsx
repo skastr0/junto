@@ -4,36 +4,44 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc } from "@shared/canvas";
+import { Schema } from "effect";
+import { Node } from "@shared/model";
 import { SaveToGroupPicker } from "../src/renderer/components/rts/SaveToGroupPicker";
 import { emptyHotbarSlots, type HotbarSlot } from "../src/renderer/lib/hotbar-slots";
 import { state$ } from "../src/renderer/lib/state";
+import { modelStore } from "../src/renderer/lib/use-model";
 
 const node = (id: string, text: string) => ({
   id,
-  type: "text" as const,
+  kind: "note" as const,
   text,
   x: 0,
   y: 0,
   width: 100,
   height: 60,
+  z: 0,
 });
 
 const previousDoc = state$.doc.peek();
 const previousSlots = state$.hotbarSlots.peek();
+const previousCanvas = state$.canvasName.peek();
+const canvas = "group-picker-native";
 
 afterEach(() => {
   state$.doc.set(previousDoc);
   state$.hotbarSlots.set(previousSlots);
+  state$.canvasName.set(previousCanvas);
+  modelStore.canvas$(canvas).nodes.set({});
 });
 
 describe("SaveToGroupPicker", () => {
   it("offers slots 1 to 9 and a new group, and says what each save replaces", () => {
-    state$.doc.set({
-      ...previousDoc,
-      nodes: [node("a", "Scout"), node("b", "Builder"), node("c", "Critic")],
-      edges: [],
-    } as CanvasDoc);
+    state$.canvasName.set(canvas);
+    state$.doc.set({ nodes: [], edges: [] });
+    for (const input of [node("a", "Scout"), node("b", "Builder"), node("c", "Critic")]) {
+      const native = Schema.decodeUnknownSync(Node)(input);
+      modelStore.node$(canvas, native.id).set(native);
+    }
     const slots: HotbarSlot[] = emptyHotbarSlots();
     slots[0] = { kind: "group", nodeIds: ["a", "b"] };
     slots[3] = { kind: "leased", nodeId: "c" };

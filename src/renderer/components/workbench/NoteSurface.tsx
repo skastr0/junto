@@ -19,6 +19,7 @@ import {
 import { editText } from "../../lib/mutations";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
+import { nodeAt } from "../../lib/use-model";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import { Button, IconButton, Kbd, OverlayHeader } from "../ui";
 import { isMac } from "../../lib/platform";
@@ -29,10 +30,8 @@ import { keyIs } from "../../lib/key-match";
 export const saveNoteSurfaceDraft = (surfaceId: string): void => {
   const payload = dock$.noteById[surfaceId].peek();
   if (!payload || payload.draft === payload.savedText) return;
-  const node = state$.doc.nodes
-    .peek()
-    .find((candidate) => candidate.id === payload.nodeId);
-  if (!node || node.type !== "text" || node.ether?.entity) return;
+  const node = nodeAt(state$.canvasName.peek(), payload.nodeId);
+  if (node?.kind !== "note") return;
   editText(payload.nodeId, payload.draft);
   markNoteSurfaceSaved(surfaceId, payload.draft);
 };
