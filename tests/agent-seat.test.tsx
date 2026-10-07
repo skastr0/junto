@@ -90,25 +90,11 @@ describe("AgentSeatView line", () => {
 });
 
 describe("AgentSeatView onboarding", () => {
-  const tag = (html: string): string | undefined =>
-    /data-testid="agent-seat-onboarding" data-onboarding="([^"]+)">([^<]*)</.exec(html)?.slice(1).join(" ");
-
-  it("says nothing until Junto knows", () => {
-    expect(tag(seat({}))).toBeUndefined();
-  });
-
-  it("shows a seat that has not onboarded", () => {
-    expect(tag(seat({ onboarding: "not-onboarded" }))).toBe("not-onboarded Not onboarded");
-  });
-
-  it("says nothing for a seat that has: that is the normal state", () => {
-    expect(tag(seat({ onboarding: "onboarded" }))).toBeUndefined();
-  });
-
-  it("sits beside the line and never replaces it", () => {
-    const html = seat({ signal: { worst: signal, openCount: 1 }, onboarding: "not-onboarded" });
-    expect(html).toContain("blocked");
-    expect(html).toContain("needs the prod DB password");
-    expect(tag(html)).toBe("not-onboarded Not onboarded");
+  it("is never said on the seat: the seat details hold it", () => {
+    for (const onboarding of ["onboarded", "not-onboarded"] as const) {
+      const html = seat({ onboarding });
+      expect(html).toContain(`data-onboarding="${onboarding}"`);
+      expect(html.toLowerCase()).not.toContain("onboarded<");
+    }
   });
 });

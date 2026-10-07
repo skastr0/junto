@@ -13,8 +13,7 @@ import { expect, launchJunto, test } from "../harness/launch";
 
 /**
  * The agent modal's rail at its edges, found by driving the real app in the
- * operator's dark theme: a press on blank chrome, a seat line beside its
- * onboarding chip, and a bubble beside an agent whose session has ended.
+ * operator's dark theme: a press on blank chrome, a seat's whole state line, and a bubble beside an agent whose session has ended.
  */
 
 const CANVAS = "rail-edges";
@@ -189,7 +188,7 @@ test("[fake-tui] a rail seat that is not onboarded still shows its whole state l
     await expect(line).toHaveText("working", { timeout: 20_000 });
     await peerSeat.control({ screen: { mode: "idle" } });
     await expect(line).toHaveText("done, not read yet", { timeout: 20_000 });
-    await expect(seat).toContainText(/not onboarded/i);
+    await expect(seat.getByTestId("agent-seat")).toHaveAttribute("data-onboarding", "not-onboarded");
     // The words are all on screen: the line is not cut to an ellipsis.
     const cut = await line.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
     expect(cut.scroll, `the state line needs ${String(cut.scroll)}px and has ${String(cut.client)}px`).toBeLessThanOrEqual(cut.client);

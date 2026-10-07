@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentSignal } from "@shared/agent-signals";
-import { SEAT_ONBOARDING_LABEL, type SeatOnboardingStatus } from "@shared/seat-onboarding-status";
+import type { SeatOnboardingStatus } from "@shared/seat-onboarding-status";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import type { ActivitySpec, ActivityTone } from "../../lib/activity";
 import { bindingIdForNode } from "../../lib/agent-seat-state";
@@ -127,7 +127,12 @@ export function AgentSeatView({
   }
 
   return (
-    <div className="junto-seat flex h-full w-full items-center gap-2" data-testid="agent-seat">
+    <div
+      className="junto-seat flex h-full w-full items-center gap-2"
+      data-testid="agent-seat"
+      // Not said on the seat: the seat details hold it. The fact stays on the element.
+      data-onboarding={onboarding}
+    >
       <ActivityMarkFromSpec
         spec={activity}
         size="seat"
@@ -152,26 +157,10 @@ export function AgentSeatView({
       {compact ? null : (
       <div className="junto-seat__text min-w-0 flex-1">
         {title}
-        {/* The line is what the seat is for, so it wins the row: it keeps its
-            full width, and the onboarding mark beside it shows only when it
-            fits whole. A mark that does not fit wraps to a second row, which
-            the one-line box does not show. */}
-        <div className="junto-seat__line flex max-h-[1lh] flex-wrap items-baseline gap-x-1.5 overflow-hidden text-[10.5px] leading-snug">
-          <span className="max-w-full min-w-0 flex-[1_0_auto] truncate" data-testid="agent-seat-line">
+        <div className="junto-seat__line max-h-[1lh] overflow-hidden text-[10.5px] leading-snug">
+          <span className="block truncate" data-testid="agent-seat-line">
             {line}
           </span>
-          {onboarding === "not-onboarded" ? (
-            // A quiet fact beside the line, never the line itself: a seat
-            // nobody has spoken to yet is not onboarded and nothing is wrong.
-            // A seat that has onboarded says nothing: that is the normal state.
-            <span
-              className="shrink-0 font-display text-[9px] tracking-[0.12em] text-dim uppercase"
-              data-testid="agent-seat-onboarding"
-              data-onboarding={onboarding}
-            >
-              {SEAT_ONBOARDING_LABEL[onboarding]}
-            </span>
-          ) : null}
         </div>
         {children}
       </div>

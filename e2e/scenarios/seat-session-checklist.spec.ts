@@ -392,15 +392,14 @@ test("A2 [fake-tui] the onboarding nudge follows a first message, at most twice,
     const { page } = junto;
     await crewPlayFactory(page);
     const seats = { learner: await startSeat(junto, learner), stray: await startSeat(junto, stray) };
-    const mark = (nodeId: string): Locator => seatCard(page, nodeId).getByTestId("agent-seat-onboarding");
+    const mark = (nodeId: string): Locator => seatCard(page, nodeId).getByTestId("agent-seat");
 
     // Type a first message into each seat. Nothing has been typed into
     // either before it: Junto sends nothing at session start.
     for (const node of [learner, stray]) {
       const seat = seats[node.id as "learner" | "stray"];
       const first = `first message for ${node.id}`;
-      await expect(mark(node.id), `${node.id} card before onboarding`).toHaveText("Not onboarded", { timeout: 30_000 });
-      await expect(mark(node.id)).toHaveAttribute("data-onboarding", "not-onboarded");
+      await expect(mark(node.id), `${node.id} card before onboarding`).toHaveAttribute("data-onboarding", "not-onboarded", { timeout: 30_000 });
       expect(await seat.stdinLog(), `${node.id} was nudged before its first message`).not.toContain(NUDGE);
 
       const surface = await openSeatTerminal(page, node.id);
@@ -432,8 +431,8 @@ test("A2 [fake-tui] the onboarding nudge follows a first message, at most twice,
       note(testInfo, "A2-onboard-via", "dist/junto is missing: ran the `onboard` work-control op from the seat instead of the CLI");
       opData(await seats.learner.op("onboard", {}));
     }
-    await expect(mark("learner"), "learner card says nothing after junto onboard").toHaveCount(0, { timeout: 15_000 });
-    await expect(mark("stray"), "stray card, never onboarded").toHaveText("Not onboarded");
+    await expect(mark("learner"), "learner card after junto onboard").toHaveAttribute("data-onboarding", "onboarded", { timeout: 15_000 });
+    await expect(mark("stray"), "stray card, never onboarded").toHaveAttribute("data-onboarding", "not-onboarded");
     await shot(page, testInfo, "A2-cards-onboarded-and-not");
 
     // Seven more turns on both seats. The policy would send a second nudge
@@ -459,7 +458,7 @@ test("A2 [fake-tui] the onboarding nudge follows a first message, at most twice,
     expect(learnerNudges, "the nudge stops once the seat ran junto onboard").toBe(1);
     expect(strayNudges, "a seat that never onboards is nudged at most twice").toBeLessThanOrEqual(2);
     expect(strayNudges).toBeGreaterThanOrEqual(1);
-    await expect(mark("stray")).toHaveText("Not onboarded");
+    await expect(mark("stray")).toHaveAttribute("data-onboarding", "not-onboarded");
     await shot(page, testInfo, "A2-after-seven-turns");
   });
 });
@@ -471,8 +470,8 @@ test("A3 [fake-tui] mail to a seat that never onboarded carries the onboard poin
     await crewPlayFactory(page);
     const ada = await startSeat(junto, ADA);
     const bo = await startSeat(junto, BO);
-    const mark = seatCard(page, BO.id).getByTestId("agent-seat-onboarding");
-    await expect(mark, "Bo has never onboarded").toHaveText("Not onboarded", { timeout: 30_000 });
+    const mark = seatCard(page, BO.id).getByTestId("agent-seat");
+    await expect(mark, "Bo has never onboarded").toHaveAttribute("data-onboarding", "not-onboarded", { timeout: 30_000 });
 
     // Bo's terminal is open so the mail line can be read off its screen.
     await openSeatTerminal(page, BO.id);
@@ -495,7 +494,7 @@ test("A3 [fake-tui] mail to a seat that never onboarded carries the onboard poin
     // The contrast that gives the pointer its meaning: once Bo has
     // onboarded, the next mail line comes without it.
     opData(await bo.op("onboard", {}));
-    await expect(mark).toHaveText("Onboarded", { timeout: 15_000 });
+    await expect(mark).toHaveAttribute("data-onboarding", "onboarded", { timeout: 15_000 });
     const secondText = "walk mail two: checksum 42";
     const again = opData(await ada.op("msg.send", { target: BO.id, text: secondText }));
     await expect
