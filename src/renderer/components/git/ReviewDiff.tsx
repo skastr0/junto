@@ -160,7 +160,7 @@ function Composer({
         dense
         value={draft.text}
         aria-label={`Comment on ${anchor}`}
-        placeholder="Comment on this line, @ to send it to another agent"
+        placeholder={`Comment on ${draft.line === draft.endLine ? "this line" : "these lines"}, @ to send it to another agent`}
         aria-keyshortcuts={keyAria("message.send")}
         aria-autocomplete="list"
         aria-expanded={listOpen}
