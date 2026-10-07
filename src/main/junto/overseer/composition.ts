@@ -6,7 +6,7 @@
  */
 import { Effect, Result } from "effect";
 import { OverseerLiveExecution, type OverseerLiveExecutionConstraint } from "./live/execution";
-import type { CanvasDoc, TextNode } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import type {
@@ -50,7 +50,7 @@ import {
 import type { StationControlServer } from "../station/control-server";
 import type { ManagedTerminalDrive } from "../term/drive";
 import type { ContentService } from "../content/service";
-import { readPortfolio, type OverseerStores } from "./portfolio";
+import { readCanvases, type OverseerStores } from "./portfolio";
 import type { WorkService } from "../work/service";
 
 type OverseerServices =
@@ -108,13 +108,12 @@ const asWorkError = (error: unknown): WorkErrorBody => {
   };
 };
 
-const listCanvasDocuments = (
+const listCanvases = (
   run: OverseerRunPromise,
-): Promise<ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>> =>
+): Promise<ReadonlyMap<string, Canvas>> =>
   run(
     Effect.gen(function* () {
-      const view = yield* readPortfolio;
-      return [...view.documents].map(([name, doc]) => ({ name, doc }));
+      return yield* readCanvases;
     }),
   );
 
@@ -152,52 +151,6 @@ export const captureTrustedWindowPng = (
     }
   };
 
-const harnessFromNode = (node: TextNode): HarnessId | undefined => {
-  const harness = node.ether?.terminal?.harness;
-  return typeof harness === "string" && isHarnessId(harness) ? harness : undefined;
-};
-
-/** Origin caller plus target canvas/node — never treat the target as the caller. */
-export const reseatCanvasArgs = (
-  input: AgentReseatCommitInput,
-): {
-  readonly caller: OverseerCaller;
-  readonly args: OverseerArgsFor<"agent.reseat">;
-  readonly next: TextNode;
-} | { readonly ok: false; readonly message: string } => {
-  const harness = harnessFromNode(input.next);
-  if (harness === undefined) {
-    return { ok: false, message: "reseat commit requires a harness on the next agent node" };
-  }
-  return {
-    caller: input.caller,
-    args: {
-      canvas: input.canvasName,
-      nodeId: input.nodeId,
-      harness,
-    },
-    next: input.next,
-  };
-};
-
-export const schedulerCanvasArgs = (
-  input: SchedulerConfigureApplyInput,
-): {
-  readonly caller: OverseerCaller;
-  readonly args: OverseerArgsFor<"scheduler.configure">;
-} => ({
-  caller: input.caller,
-  args: {
-    canvas: input.canvasName,
-    nodeId: input.nodeId,
-    ...(input.timer !== undefined
-      ? { timer: input.timer as OverseerArgsFor<"scheduler.configure">["timer"] }
-      : {}),
-    ...(input.watch !== undefined
-      ? { watch: input.watch as OverseerArgsFor<"scheduler.configure">["watch"] }
-      : {}),
-  },
-});
 
 export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "interrupt"> => ({
   writePrompt: (bindingId, text, options) => {
@@ -308,11 +261,9 @@ export const composeOverseer = async (input: {
     payload: AgentReseatCommitInput,
     signal: AbortSignal,
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
-    const mapped = reseatCanvasArgs(payload);
-    if ("ok" in mapped) return mapped;
     return runCanvasHook(
       input.run,
-      commitAgentReseat(mapped.caller, mapped.args, mapped.next),
+      commitAgentReseat(payload.caller, { canvas: payload.canvasName, nodeId: payload.nodeId }, payload.parts),
       signal,
     );
   };
@@ -321,10 +272,13 @@ export const composeOverseer = async (input: {
     payload: SchedulerConfigureApplyInput,
     signal: AbortSignal,
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
-    const mapped = schedulerCanvasArgs(payload);
     return runCanvasHook(
       input.run,
-      applySchedulerConfigure(mapped.caller, mapped.args),
+      applySchedulerConfigure(payload.caller, {
+        canvas: payload.canvasName,
+        nodeId: payload.nodeId,
+        change: payload.change,
+      }),
       signal,
     );
   };
@@ -337,7 +291,7 @@ export const composeOverseer = async (input: {
     },
     captureApplicationPage: input.captureApplicationPage,
     liveOverseerGrant: liveGrant,
-    listCanvasDocuments: () => listCanvasDocuments(input.run),
+    listCanvases: () => listCanvases(input.run),
     occupySeat: (spec, signal) =>
       input
         .run(actorSeatOccupy.occupy(spec), { signal })
@@ -425,7 +379,7 @@ export const composeOverseer = async (input: {
               },
               captureApplicationPage: input.captureApplicationPage,
               liveOverseerGrant: dispatchGrant,
-              listCanvasDocuments: () => listCanvasDocuments(input.run),
+              listCanvases: () => listCanvases(input.run),
               occupySeat: async (spec, occupySignal) => {
                 if (!await dispatchGrant(caller)) return false;
                 const effect = actorSeatOccupy.occupy(spec);
@@ -435,15 +389,20 @@ export const composeOverseer = async (input: {
               },
               managedDrive: lateBoundDrive(),
               commitAgentReseat: (payload, commitSignal) => {
-                const mapped = reseatCanvasArgs(payload);
-                if ("ok" in mapped) return Promise.resolve(mapped);
-                const effect = commitAgentReseat(mapped.caller, mapped.args, mapped.next);
+                const effect = commitAgentReseat(
+                  payload.caller,
+                  { canvas: payload.canvasName, nodeId: payload.nodeId },
+                  payload.parts,
+                );
                 return runCanvasHook(input.run, live === undefined ? effect :
                   Effect.provideService(effect, OverseerLiveExecution, live), commitSignal);
               },
               applySchedulerConfigure: (payload, commitSignal) => {
-                const mapped = schedulerCanvasArgs(payload);
-                const effect = applySchedulerConfigure(mapped.caller, mapped.args);
+                const effect = applySchedulerConfigure(payload.caller, {
+                  canvas: payload.canvasName,
+                  nodeId: payload.nodeId,
+                  change: payload.change,
+                });
                 return runCanvasHook(input.run, live === undefined ? effect :
                   Effect.provideService(effect, OverseerLiveExecution, live), commitSignal);
               },

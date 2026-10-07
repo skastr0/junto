@@ -1,3 +1,5 @@
+import type { Node, NodeOf } from "../src/shared/model";
+import { note as noteNode, region as regionNode } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import type { CanvasNode } from "../src/shared/canvas";
@@ -29,31 +31,25 @@ import {
 // A value no assertion may ever find in an output, an error or a result.
 const VALUE = "s3cr3t-never-echoed";
 
-const region = (environment?: object): CanvasNode =>
-  ({
-    id: "region",
-    type: "group",
-    label: "Build",
-    x: 0,
-    y: 0,
-    width: 800,
-    height: 600,
-    ether: {
-      region: {
-        hold: true,
-        instruction: "ship it",
-        ...(environment === undefined ? {} : { environment }),
-      },
-    },
-  }) as CanvasNode;
+type RegionNode = NodeOf<"region">;
 
-const edit = (node: CanvasNode, change: OverseerEnvEdit, minted = "source-minted") =>
+const region = (environment?: object): RegionNode =>
+  regionNode("region", { x: 0, y: 0, width: 800, height: 600 }, {
+    label: "Build",
+    hold: true,
+    instruction: "ship it",
+    ...(environment === undefined ? {} : { environment: environment as RegionNode["environment"] }),
+  });
+
+const edit = (node: Node, change: OverseerEnvEdit, minted = "source-minted") =>
   applyRegionEnvironmentEdit(node, change, () => minted);
 
-const edited = (node: CanvasNode, change: OverseerEnvEdit): CanvasNode => {
+/** The region as it stands once the edit's environment is put on it. */
+const edited = (node: RegionNode, change: OverseerEnvEdit): RegionNode => {
   const result = edit(node, change);
   if (!result.ok) throw new Error(result.error.message);
-  return result.value;
+  const { environment: _was, ...rest } = node;
+  return result.value === undefined ? rest : { ...rest, environment: result.value };
 };
 
 const value = (id: string, name: string) =>
@@ -73,8 +69,7 @@ describe("region environment edits", () => {
         { id: "source-minted", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
       ],
     });
-    expect(next.ether?.region).toMatchObject({ hold: true, instruction: "ship it" });
-    expect(next).toMatchObject({ id: "region", type: "group", label: "Build" });
+    expect(next).toMatchObject({ id: "region", kind: "region", label: "Build", hold: true, instruction: "ship it" });
   });
 
   it("inserts at an index and refuses a duplicate id or an index past the end", () => {
@@ -123,7 +118,8 @@ describe("region environment edits", () => {
       operation: "env.source-remove",
       args: { nodeId: "region", sourceId: "a" },
     });
-    expect(next.ether?.region).toEqual({ hold: true, instruction: "ship it" });
+    expect(next).toMatchObject({ hold: true, instruction: "ship it" });
+    expect(next).not.toHaveProperty("environment");
     expect(
       edit(start, { operation: "env.source-remove", args: { nodeId: "region", sourceId: "ghost" } }),
     ).toMatchObject({ ok: false, error: { type: "NotFound" } });
@@ -153,7 +149,7 @@ describe("region environment edits", () => {
     });
     expect(regionEnvironmentOf(sealed)).toEqual({ sealed: true });
     const open = edited(sealed, { operation: "env.seal", args: { nodeId: "region", sealed: false } });
-    expect(open.ether?.region).not.toHaveProperty("environment");
+    expect(open).not.toHaveProperty("environment");
 
     const folders = (list: string[]): OverseerEnvEdit => ({
       operation: "env.folders",
@@ -175,9 +171,8 @@ describe("region environment edits", () => {
   });
 
   it("refuses a node that is not a region", () => {
-    const note = { id: "n1", type: "text", text: "note", x: 0, y: 0, width: 10, height: 10 } as CanvasNode;
     expect(
-      edit(note, { operation: "env.seal", args: { nodeId: "n1", sealed: true } }),
+      edit(noteNode("n1"), { operation: "env.seal", args: { nodeId: "n1", sealed: true } }),
     ).toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
   });
 });

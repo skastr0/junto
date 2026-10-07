@@ -29,21 +29,21 @@ describe("native Overseer host", () => {
     }
   });
 
-  it("uses a fresh canvas read revision for the follow-up edit", async () => {
+  it("carries the sequence a canvas read answered into the follow-up edit", async () => {
     const events: OverseerHostEvent[] = [];
     const respond = vi.fn()
       .mockResolvedValueOnce(call("canvas__read", {}))
       .mockResolvedValueOnce(call("node__move", { nodeId: "task", x: 10, y: 20 }))
       .mockResolvedValueOnce({ status: "completed", output: [] });
     const tool = vi.fn()
-      .mockResolvedValueOnce({ ok: true, operation: "canvas.read", data: { revision: "fresh-revision" } })
+      .mockResolvedValueOnce({ ok: true, operation: "canvas.read", data: { name: "factory", seq: 41, nodes: [], wires: [] } })
       .mockResolvedValueOnce({ ok: true, operation: "node.move", data: {} });
     const conversation = [{ role: "user", content: "Earlier request" }, { role: "assistant", content: "Earlier answer" }];
     await runOverseerTurn({ ...assignment(), conversation }, {
       respond, tool, event: async (event) => { events.push(event); }, control: vi.fn(),
     }, new AbortController().signal);
     expect(respond.mock.calls[0]?.[0].input.slice(0, 2)).toEqual(conversation);
-    expect(tool.mock.calls[1]?.[0]).toMatchObject({ live: { expectedRevision: "fresh-revision", operationId: "op-main-2" } });
+    expect(tool.mock.calls[1]?.[0]).toMatchObject({ live: { expectedRevision: "41", operationId: "op-main-2" } });
     expect(events.at(-1)?.type).toBe("completed");
   });
 

@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, ManagedRuntime, Result } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import type { CanvasDoc, CanvasNode, TextNode } from "../src/shared/canvas";
+import { asNodeId, type Canvas, type Node, type NodeOf, type Wire } from "../src/shared/model";
+import { canvasOf, page as pageNode, seat, wire } from "./support/model-nodes";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import {
@@ -18,7 +19,7 @@ import {
   overseerPageNodeIds,
 } from "../src/main/junto/overseer/authz";
 import { callerMayAccessPage } from "../src/main/junto/browser/authz";
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import type { SeatParts } from "../src/shared/model/seat-parts";
 import {
   makeOverseerNativeLive,
   type OverseerNativeLiveOptions,
@@ -70,51 +71,25 @@ const unresolvedPrompt = (
 const agent = (
   id: string,
   extra?: { readonly bindingId?: string; readonly harness?: "codex" | "claude" },
-): TextNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    host: "local",
-    terminal: {
-      bindingId: extra?.bindingId ?? `bind-${id}`,
-      harness: extra?.harness ?? "codex",
-      launch: { kind: "harness", argv: ["codex"] },
-    },
-  },
+): NodeOf<"agent"> =>
+  seat(id, {
+    width: 200,
+    height: 80,
+    bindingId: (extra?.bindingId ?? `bind-${id}`) as NodeOf<"agent">["bindingId"],
+    harness: extra?.harness ?? "codex",
+    launch: { kind: "harness", argv: ["codex"] },
+  });
+
+const page = (id: string, url = "https://example.com/"): NodeOf<"page"> =>
+  pageNode(id, { url, x: 200, y: 0, width: 100, height: 40, profile: "personal", host: "local" });
+
+const git = (id: string, cwd: string): NodeOf<"git"> => ({
+  kind: "git", id: asNodeId(id), x: 0, y: 160, z: 0, width: 120, height: 40, cwd,
 });
 
-const page = (id: string, url = "https://example.com/"): CanvasNode => ({
-  id,
-  type: "link",
-  url,
-  x: 200,
-  y: 0,
-  width: 100,
-  height: 40,
-  ether: { entity: { kind: "page" }, browser: { profile: "personal" }, host: "local" },
-});
-
-const git = (id: string, cwd: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 160,
-  width: 120,
-  height: 40,
-  ether: { entity: { kind: "git" }, host: "local", git: { cwd } },
-});
-
-const doc = (nodes: CanvasDoc["nodes"], edges: CanvasDoc["edges"] = []): CanvasDoc => ({
-  nodes,
-  edges,
-});
+/** A canvas of these nodes, stacked in the order given. */
+const doc = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire> = []): Canvas =>
+  canvasOf(nodes, wires);
 
 const makeTermPlane = (overrides: {
   readonly kill?: (bindingId: string, hostId?: string) => Promise<boolean>;
@@ -180,7 +155,7 @@ const occupySeatDefault = async (
 ): Promise<boolean> => !signal.aborted;
 
 const live = (
-  documents: ReadonlyArray<{ name: string; doc: CanvasDoc }>,
+  documents: ReadonlyArray<{ name: string; doc: Canvas }>,
   extra: Partial<OverseerNativeLiveOptions> = {},
 ) => {
   const termPlane = extra.termPlane ?? makeTermPlane();
@@ -193,7 +168,7 @@ const live = (
       png: PNG,
     })),
     liveOverseerGrant: extra.liveOverseerGrant ?? (async () => true),
-    listCanvasDocuments: extra.listCanvasDocuments ?? (async () => documents),
+    listCanvases: extra.listCanvases ?? (async () => new Map(documents.map((held) => [held.name, held.doc]))),
     occupySeat: extra.occupySeat ?? occupySeatDefault,
     ...extra,
   });
@@ -216,22 +191,12 @@ describe("overseer page authz", () => {
     const board = doc([agent("a1"), page("p1")]);
     expect(admitOverseerPage(board, "p1").ok).toBe(true);
     expect(overseerPageNodeIds(board)).toEqual(["p1"]);
-    expect(callerMayAccessPage(canvasFromDocument("factory", board), "a1", "p1")).toBe(false);
+    expect(callerMayAccessPage(board, "a1", "p1")).toBe(false);
   });
 
   it("refuses a missing or unprofiled page", () => {
-    const board = doc([
-      {
-        id: "p-bad",
-        type: "link",
-        url: "https://example.com/",
-        x: 0,
-        y: 0,
-        width: 10,
-        height: 10,
-        ether: { entity: { kind: "page" } },
-      },
-    ]);
+    // A page whose profile is not one a browser can be opened on.
+    const board = doc([pageNode("p-bad", { profile: "not a profile!" })]);
     expect(admitOverseerPage(board, "missing").ok).toBe(false);
     expect(admitOverseerPage(board, "p-bad").ok).toBe(false);
   });
@@ -456,10 +421,7 @@ describe("overseer native adapters", () => {
   });
 
   it("reads remote agent output via router observe attach, not the local observer", async () => {
-    const remoteAgent: TextNode = {
-      ...agent("remote-a", { bindingId: "bind-remote" }),
-      ether: { ...agent("remote-a", { bindingId: "bind-remote" }).ether!, host: "studio" },
-    };
+    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: "studio" };
     const attach = vi.fn(async (input: { hostId?: string; mode: string }) => {
       expect(input.hostId).toBe("studio");
       expect(input.mode).toBe("observe");
@@ -481,10 +443,7 @@ describe("overseer native adapters", () => {
   });
 
   it("starts a Remote-hosted agent via occupy hostId, never CC-derived seat identity", async () => {
-    const remoteAgent: TextNode = {
-      ...agent("remote-a", { bindingId: "bind-remote" }),
-      ether: { ...agent("remote-a", { bindingId: "bind-remote" }).ether!, host: "studio" },
-    };
+    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: "studio" };
     const occupySpy = vi.fn(async (spec: { hostId?: string; bindingId: string }) => {
       expect(spec.hostId).toBe("studio");
       expect(spec.bindingId).toBe("bind-remote");
@@ -560,13 +519,14 @@ describe("overseer native adapters", () => {
       }),
       expect.any(AbortSignal),
     );
-    const committedArg = (commitAgentReseat.mock.calls as unknown as ReadonlyArray<
-      ReadonlyArray<{ next: TextNode }>
-    >)[0]?.[0];
-    const next = committedArg?.next;
-    expect(next?.ether?.terminal?.harness).toBe("claude");
-    expect(next?.ether?.terminal?.bindingId).not.toBe("bind-a1");
-    expect(next?.id).toBe("a1");
+    const parts = (commitAgentReseat.mock.calls as unknown as ReadonlyArray<
+      ReadonlyArray<{ parts: SeatParts }>
+    >)[0]?.[0]?.parts;
+    // The seat's parts are main's: its harness, a fresh session, and a launch main built.
+    expect(parts?.harness).toBe("claude");
+    expect(parts?.bindingId).not.toBe("bind-a1");
+    expect(parts?.label).toBe("a1");
+    expect((parts?.launch.argv ?? []).length).toBeGreaterThan(0);
   });
 
   it("refuses reseat without the canvas commit hook", async () => {
@@ -588,10 +548,7 @@ describe("overseer native adapters", () => {
       lease: { leaseId: "ctl", bindingId: "bind-remote", epoch: "e", mode: "control" as const },
     }));
     const release = vi.fn(async () => undefined);
-    const remoteAgent: TextNode = {
-      ...agent("remote-a", { bindingId: "bind-remote" }),
-      ether: { ...agent("remote-a", { bindingId: "bind-remote" }).ether!, host: "studio" },
-    };
+    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: "studio" };
     const plane = makeTermPlane({ attach, release });
     (plane.router as unknown as { managedPrompt: unknown }).managedPrompt = managedPrompt;
     const native = live([{ name: "factory", doc: doc([remoteAgent]) }], {
@@ -832,7 +789,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       get pages() { return pages; },
       captureApplicationPage: async () => ({ ok: true, png: PNG }),
       liveOverseerGrant: async () => true,
-      listCanvasDocuments: async () => [{ name: "factory", doc: doc([page("p1")]) }],
+      listCanvases: async () => new Map([["factory", doc([page("p1")])]]),
       occupySeat: occupySeatDefault,
     };
     const native = makeOverseerNativeLive(options);

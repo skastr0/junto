@@ -5,7 +5,7 @@
 // every read and never mirrored back into the document, so the cycle has no
 // phase to write.
 
-import type { CanvasDoc, EdgePhase } from "@shared/canvas";
+import type { EdgePhase } from "@shared/canvas";
 import type { NodeId } from "@shared/model/base";
 import { nodesOf } from "@shared/model/canvas";
 import {
@@ -635,18 +635,12 @@ export const overseerSchedulerFire = async (input: {
   readonly sourceNodeId: string;
   readonly kind?: "relay" | "cron" | "gauge";
   readonly liveGrant: () => Promise<boolean>;
-  readonly commitGrantLive: (
-    documents: ReadonlyMap<string, CanvasDoc>,
-  ) => boolean;
 }): Promise<ManualSchedulerFireResult> =>
   runManualSchedulerFire({
     canvasName: input.canvasName,
     sourceNodeId: input.sourceNodeId,
     ...(input.kind !== undefined ? { kind: input.kind } : {}),
-    overseer: {
-      liveGrant: input.liveGrant,
-      commitGrantLive: input.commitGrantLive,
-    },
+    overseer: { liveGrant: input.liveGrant },
   });
 
 /** The kernel service owns this map and changes it in place. */

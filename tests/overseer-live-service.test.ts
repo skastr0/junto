@@ -1,4 +1,3 @@
-import type { CanvasReadResult } from "../src/shared/ipc";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,13 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   grantOverseer,
   ModelStoresLive,
-  readSeeded,
   seedCanvas,
 } from "./support/seed-canvas";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { executeOverseerCanvas } from "../src/main/junto/overseer/canvas";
-import { buildLiveContext } from "../src/main/junto/overseer/live/context";
+import { buildLiveContext, type LiveCanvasRead } from "../src/main/junto/overseer/live/context";
 import { OverseerLiveExecution, type OverseerHostIdentity } from "../src/main/junto/overseer/live/execution";
 import { makeLiveRepository } from "../src/main/junto/overseer/live/repository";
 import { canvasRevisionOf, readLiveCanvas } from "../src/main/junto/overseer/live/composition";
@@ -26,7 +24,8 @@ import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/flee
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { WorkProjectionReader, WorkProjectionReaderLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { runOverseerTurn } from "../src/overseer-host/session";
-import { type CanvasDoc } from "../src/shared/canvas";
+import { asNodeId, type Node } from "../src/shared/model";
+import { note, seat } from "./support/model-nodes";
 import { formatNodeRef } from "../src/shared/node-ref";
 import type { OverseerRequest, OverseerResult } from "../src/shared/overseer-control";
 import type { OverseerHostRun } from "../src/shared/overseer-host-control";
@@ -38,13 +37,12 @@ const identity: OverseerHostIdentity = {
   peerPid: 4242, processGeneration: "4242:started",
 };
 const attention = (nodeId = "first"): LiveAttention => ({ canvasName: "factory", selectedNodeIds: [nodeId] });
-const document = (): CanvasDoc => ({ nodes: [
-  { id: "controller", type: "text", text: "Controller", x: 0, y: 0, width: 260, height: 100,
-    ether: { entity: { kind: "agent", name: "local:junto-overseer" }, host: "local",
-      terminal: { bindingId: identity.bindingId, harness: "junto-overseer" } } },
-  { id: "first", type: "text", text: "First note", x: 300, y: 0, width: 200, height: 100 },
-  { id: "second", type: "text", text: "Second note", x: 600, y: 0, width: 200, height: 100 },
-], edges: [] });
+const nodes = (): ReadonlyArray<Node> => [
+  seat("controller", { width: 260, height: 100, label: "Controller", agentKey: "local:junto-overseer",
+    harness: "junto-overseer", bindingId: identity.bindingId as never }),
+  note("first", "First note", { x: 300, y: 0, width: 200, height: 100 }),
+  note("second", "Second note", { x: 600, y: 0, width: 200, height: 100 }),
+];
 const disposals: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const dispose of disposals.splice(0).reverse()) await dispose(); });
 
@@ -61,8 +59,7 @@ const boot = async () => {
     await runtime.dispose();
     await rm(root, { recursive: true, force: true });
   });
-  await runtime.runPromise(seedCanvas("factory", document()));
-  const initial = await runtime.runPromise(readSeeded("factory"));
+  await runtime.runPromise(seedCanvas("factory", nodes()));
   await runtime.runPromise(grantOverseer(identity.canvasName, identity.nodeId, true));
   const repository = makeLiveRepository(await runtime.runPromise(SqlClient.SqlClient));
   let currentIdentity: OverseerHostIdentity | undefined = identity;
@@ -78,7 +75,7 @@ const boot = async () => {
     resolveOccupant: async () => currentIdentity,
     subscribeAuthorityChanges: (listener) => { authorityListener = listener; return () => { authorityListener = undefined; }; },
     contextProvider: async (currentAttention) => {
-      const read = await runtime.runPromise(readLiveCanvas(currentAttention.canvasName) as never) as CanvasReadResult;
+      const read = await runtime.runPromise(readLiveCanvas(currentAttention.canvasName) as never) as LiveCanvasRead;
       revisions.set(read.name, read.revision);
       return buildLiveContext(read, currentAttention);
     },
@@ -127,7 +124,7 @@ const boot = async () => {
   return {
     runtime, repository, service, feedback, transcript, delegation, next, assigned, enqueue, move, execute,
     sessionId: live.sessionId,
-    graph: () => runtime.runPromise(readLiveCanvas("factory") as never) as Promise<CanvasReadResult>,
+    graph: () => runtime.runPromise(readLiveCanvas("factory") as never) as Promise<LiveCanvasRead>,
     reconnect: async () => { live = await start(); return live; },
     authority: (value: OverseerHostIdentity | undefined) => { currentIdentity = value; authorityListener?.(value); },
   };
@@ -142,9 +139,9 @@ describe("Live POC with the real canvas and durable journal", () => {
     await runOverseerTurn(run, {
       respond: async () => responses++ === 0 ? { status: "completed", output: [{
         type: "function_call", call_id: "batch-call", name: "canvas__batch",
-        arguments: JSON.stringify({ canvas: "factory", operations: [
+        arguments: JSON.stringify({ canvas: "factory", steps: [
           { operation: "node.move", nodeId: "first", x: 900, y: 30 },
-          { operation: "node.create", node: { id: "summary", type: "text", text: "Summary", x: 500, y: 200, width: 220, height: 100 } },
+          { operation: "node.create", node: { id: "summary", kind: "note", text: "Summary", x: 500, y: 200, width: 220, height: 100 } },
         ] }),
       }] } : { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Moved the first note and created Summary." }] }] },
       tool: async (request) => {
@@ -162,8 +159,8 @@ describe("Live POC with the real canvas and durable journal", () => {
     }, new AbortController().signal);
     const after = await test.graph();
     expect(after.revision).not.toBe(before.revision);
-    expect(after.doc.nodes.find((node) => node.id === "first")).toMatchObject({ x: 900, y: 30 });
-    expect(after.doc.nodes.find((node) => node.id === "summary")).toMatchObject({ text: "Summary" });
+    expect(after.canvas.nodes.get(asNodeId("first"))).toMatchObject({ x: 900, y: 30 });
+    expect(after.canvas.nodes.get(asNodeId("summary"))).toMatchObject({ text: "Summary" });
     const operations = await test.runtime.runPromise(test.repository.listOperations(run.requestId));
     expect(operations).toHaveLength(1);
     expect(operations[0]).toMatchObject({ status: "applied", targetRefs: expect.arrayContaining([formatNodeRef({ canvasName: "factory", nodeId: "first" })]) });
@@ -242,7 +239,7 @@ describe("Live POC with the real canvas and durable journal", () => {
     const operatorState = await test.graph();
     await expect(test.execute(request, constraint)).rejects.toThrow("Canvas changed after this request was captured");
     expect((await test.graph()).revision).toBe(operatorState.revision);
-    expect((await test.graph()).doc.nodes.find((node) => node.id === "first")).toMatchObject({ x: 777, y: 88 });
+    expect((await test.graph()).canvas.nodes.get(asNodeId("first"))).toMatchObject({ x: 777, y: 88 });
   });
 
   it("checks durable cancellation even when the in-memory dispatch fence still passes", async () => {

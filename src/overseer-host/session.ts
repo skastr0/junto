@@ -94,8 +94,9 @@ export const runOverseerTurn = async (
           result = decoded.success;
           if (result.ok && isOverseerMutation(tool.operation)) expectedRevision = undefined;
           if (result.ok && tool.operation === "canvas.read") {
-            const revision = record(result.data)?.revision;
-            if (typeof revision === "string") expectedRevision = revision;
+            // The canvas answers its sequence; the live journal keeps it as text.
+            const seq = record(result.data)?.seq;
+            if (typeof seq === "number") expectedRevision = String(seq);
           }
         } catch (error) {
           signal.throwIfAborted();

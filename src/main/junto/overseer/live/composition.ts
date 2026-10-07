@@ -1,8 +1,6 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import type { CanvasNode } from "@shared/canvas";
-import type { CanvasReadResult } from "@shared/ipc";
-import { asNodeId, type Seat } from "@shared/model";
+import { asNodeId, type Canvas, type Seat } from "@shared/model";
 import { ModelActorRefs } from "../../model/actor-refs";
 import { ModelService } from "../../model/service";
 import { getProcessIdentityMap } from "../../process-identity";
@@ -11,14 +9,16 @@ import { StateEngine } from "../../state/service";
 import { StationRepository } from "../../station/repository";
 import { WorkProjectionReader, WorkRepository } from "../../work/repository";
 import { admitOverseer } from "../admission";
-import { documentOfCanvas, revisionOf } from "../portfolio";
 import type { OverseerHostIdentity } from "./execution";
-import { buildLiveContext } from "./context";
+import { buildLiveContext, type LiveCanvasRead } from "./context";
 import { makeLiveRepository } from "./repository";
 import { createLiveSessionService } from "./service";
 
 type Services = ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | WorkProjectionReader | WorkRepository;
 export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
+
+/** A canvas revision as the live journal keeps it: the sequence, as text. */
+export const revisionOf = (canvas: Canvas): string => String(canvas.seq);
 
 /** The revision of one canvas: its sequence, as the model holds it now. */
 export const canvasRevisionOf = (model: ModelService["Service"]) => (canvasName: string) =>
@@ -28,38 +28,31 @@ export const canvasRevisionOf = (model: ModelService["Service"]) => (canvasName:
       : Effect.succeed(undefined)));
 
 /**
- * One canvas as the live context reads it: the model's structure as a
- * document, with the task, request and artifact rows the context summarises
- * put on the nodes that hold them. The context builder still reads a document
- * (context.ts); this is the overseer's document boundary for voice, and it
- * goes with the rest of that boundary (overseer/portfolio.ts).
+ * One canvas as the live context reads it: the model's structure, and beside
+ * it the task, request and artifact rows the context summarises.
  */
 export const readLiveCanvas = Effect.fn("Live.readCanvas")(function* (canvasName: string) {
   const model = yield* ModelService;
-  const actors = yield* ModelActorRefs;
   const work = yield* WorkRepository;
   const revisions = yield* WorkProjectionReader;
   const canvas = yield* model.canvas(canvasName);
   const rows = yield* work.kernelWork(canvasName);
-  const structure = documentOfCanvas(canvas);
-  const nodes: Array<CanvasNode> = [];
-  for (const node of structure.nodes) {
-    const ether = node.ether;
-    if (ether?.tasks !== undefined) {
-      nodes.push({ ...node, ether: { ...ether, tasks: { ...ether.tasks, items: rows.tasks.get(node.id) ?? [] } } });
-    } else if (ether?.requests !== undefined) {
-      nodes.push({ ...node, ether: { ...ether, requests: { ...ether.requests, items: rows.tasks.get(node.id) ?? [] } } });
-    } else if (ether?.entity?.kind === "artifacts") {
-      nodes.push({ ...node, ether: { ...ether, artifacts: { items: yield* work.artifactLane(canvasName, node.id) } } });
-    } else nodes.push(node);
+  const artifacts = new Map<string, ReadonlyArray<string>>();
+  for (const node of canvas.nodes.values()) {
+    if (node.kind !== "artifacts") continue;
+    artifacts.set(
+      node.id,
+      (yield* work.artifactLane(canvasName, node.id)).map((artifact) => artifact.artifactId),
+    );
   }
   return {
     name: canvas.name,
-    doc: { ...structure, nodes },
-    actorRefs: yield* actors.read(canvasName),
+    canvas,
+    tasks: rows.tasks,
+    artifacts,
     revision: revisionOf(canvas),
     workRevision: yield* revisions.revision(canvasName),
-  } satisfies CanvasReadResult;
+  } satisfies LiveCanvasRead;
 });
 
 /** The voice overseer in a seat, or nothing when the seat is not one. */

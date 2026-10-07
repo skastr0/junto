@@ -124,13 +124,11 @@ describe("document shape", () => {
     const decoded = decodeOverseerArgs("node.configure", {
       canvas: "factory",
       nodeId: "outer",
-      changes: { ether: { region: { environment } } },
+      change: { kind: "region", environment },
     });
     expect(Result.isSuccess(decoded)).toBe(true);
     if (!Result.isSuccess(decoded)) return;
-    expect(decoded.success.changes).toMatchObject({
-      ether: { region: { environment } },
-    });
+    expect(decoded.success.change).toMatchObject({ kind: "region", environment });
   });
 
   const rejects = (source: unknown): boolean =>

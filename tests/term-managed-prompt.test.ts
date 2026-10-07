@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
-import type { CanvasDoc, TextNode } from "../src/shared/canvas";
+import type { Canvas, Node } from "../src/shared/model";
+import { canvasOf, seat } from "./support/model-nodes";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import {
   LocalSessionHost,
@@ -169,29 +170,20 @@ describe("term control managedPrompt", () => {
   });
 });
 
-const agent = (id: string, host: string): TextNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
+const agent = (id: string, host: string) =>
+  seat(id, {
+    width: 200,
+    height: 80,
     host,
-    terminal: {
-      bindingId: `bind-${id}`,
-      harness: "codex",
-      launch: { kind: "harness", argv: ["codex"] },
-    },
-  },
-});
+    bindingId: `bind-${id}` as never,
+    harness: "codex",
+    launch: { kind: "harness", argv: ["codex"] },
+  });
 
-const doc = (nodes: CanvasDoc["nodes"]): CanvasDoc => ({ nodes, edges: [] });
+const doc = (nodes: ReadonlyArray<Node>): Canvas => canvasOf(nodes);
 
 const live = (
-  documents: ReadonlyArray<{ name: string; doc: CanvasDoc }>,
+  documents: ReadonlyArray<{ name: string; doc: Canvas }>,
   extra: Partial<OverseerNativeLiveOptions> & {
     readonly managedPrompt?: (...args: Array<never>) => Promise<boolean | "uncertain">;
   } = {},
@@ -234,7 +226,7 @@ const live = (
       chats: {} as never,
       captureApplicationPage: async () => ({ ok: false as const, unavailable: true as const, reason: "test" }),
       liveOverseerGrant: async () => true,
-      listCanvasDocuments: async () => documents,
+      listCanvases: async () => new Map(documents.map((held) => [held.name, held.doc])),
       occupySeat: async (_spec: unknown, signal: AbortSignal) => !signal.aborted,
       managedDrive: { writePrompt: vi.fn(async () => true), interrupt: vi.fn(async () => true) },
       ...rest,

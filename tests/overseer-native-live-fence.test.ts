@@ -1,18 +1,14 @@
 import { Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { canvasOf, seat } from "./support/model-nodes";
 import { makeOverseerNativeLive } from "../src/main/junto/overseer/native";
 import { ManagedTerminalDrive } from "../src/main/junto/term/drive";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import type { ChatService } from "../src/main/junto/chat/service";
 
-const doc: CanvasDoc = { nodes: [{
-  id: "worker", type: "text", text: "Worker", x: 0, y: 0, width: 240, height: 120,
-  ether: {
-    entity: { kind: "agent", name: "local:worker" }, host: "local",
-    terminal: { bindingId: "worker-binding", harness: "codex" },
-  },
-}], edges: [] };
+const factory = canvasOf([
+  seat("worker", { label: "Worker", width: 240, height: 120, harness: "codex", bindingId: "worker-binding" as never }),
+]);
 
 describe("Live native mutation fences", () => {
   it("does not submit a stale prompt after correction during clipboard admission", async () => {
@@ -33,7 +29,7 @@ describe("Live native mutation fences", () => {
       chats: {} as ChatService,
       captureApplicationPage: async () => ({ ok: false, unavailable: true, reason: "not used" }),
       liveOverseerGrant: async () => true,
-      listCanvasDocuments: async () => [{ name: "factory", doc }],
+      listCanvases: async () => new Map([["factory", factory]]),
       occupySeat: async () => false,
       managedDrive: drive,
     });

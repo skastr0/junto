@@ -1,4 +1,3 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
@@ -7,7 +6,8 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { NodeOf } from "../src/shared/model";
+import { canvasOf, requests, seat, taskBoard } from "./support/model-nodes";
 import { OPERATOR_SEAT_ID, operatorActorRef } from "../src/shared/work-reference";
 import type { ActorRef } from "../src/shared/work-protocol";
 import {
@@ -51,59 +51,31 @@ vi.mock("node:os", async (importOriginal) => {
 
 
 
-const mailboxNode = (
-  id: string,
-  canvas = "mailbox",
-): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: id,
-  x: 400,
-  y: 0,
-  width: 200,
-  height: 100,
-  ether: {
-    entity: { kind: "agent", name: `local:${canvas}-${id}` },
-    terminal: {
-      bindingId: `binding-${canvas}-${id}`,
-      launch: { kind: "harness", argv: ["claude"] },
-      harness: "claude",
-    },
-    host: "local",
-  },
-});
+type Seat = NodeOf<"agent">;
 
-const agentNode = (
-  id: string,
-  canvas = "factory",
-  hostId = "local",
-): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 120,
-  width: 200,
-  height: 100,
-  ether: {
-    entity: { kind: "agent", name: `${hostId}:${canvas}-${id}` },
-    terminal: {
-      bindingId: `binding-${canvas}-${id}`,
-      launch: { kind: "harness", argv: ["claude"] },
-      harness: "claude",
-    },
+const seatOn = (id: string, canvas: string, hostId: string, at: { x: number; y: number }): Seat =>
+  seat(id, {
+    ...at,
+    width: 200,
+    height: 100,
     host: hostId,
-  },
-});
+    agentKey: `${hostId}:${canvas}-${id}`,
+    bindingId: `binding-${canvas}-${id}` as Seat["bindingId"],
+    launch: { kind: "harness", argv: ["claude"] },
+  });
 
-const factoryDoc = (
-  canvas: string,
-  edges: CanvasDoc["edges"] = [],
-): CanvasDoc => ({
-  nodes: [agentNode("boss", canvas), agentNode("worker", canvas)],
-  edges,
-});
+const mailboxNode = (id: string, canvas = "mailbox"): Seat =>
+  seatOn(id, canvas, "local", { x: 400, y: 0 });
 
+const agentNode = (id: string, canvas = "factory", hostId = "local"): Seat =>
+  seatOn(id, canvas, hostId, { x: 0, y: 120 });
+
+const factoryNodes = (canvas: string): ReadonlyArray<Seat> =>
+  [agentNode("boss", canvas), agentNode("worker", canvas)];
+
+/** The pure-rule canvas, with the boss an overseer or not. */
+const pureCanvas = (overseer: boolean) =>
+  canvasOf(factoryNodes("pure").map((node) => (node.id === "boss" ? { ...node, overseer } : node)));
 
 const makeRuntime = () => {
   const databasePath = join(mockHome, "state", "junto.db");
@@ -164,11 +136,8 @@ const actorOn = async (canvas: string, nodeId: string) => {
   return { actor };
 };
 
-const writeFactory = async (
-  canvas: string,
-  edges: CanvasDoc["edges"] = [],
-) => {
-  await runtime.runPromise(seedCanvas(canvas, factoryDoc(canvas, edges)) as never);
+const writeFactory = async (canvas: string) => {
+  await runtime.runPromise(seedCanvas(canvas, factoryNodes(canvas)) as never);
 };
 
 const grantOverseer = async (canvas: string, nodeId: string, overseer: boolean) => {
@@ -182,17 +151,10 @@ describe("overseer work authz", () => {
   });
 
   it("admits a live overseer without an edge and denies an ordinary agent", () => {
-    const doc = {
-      ...factoryDoc("pure"),
-      nodes: factoryDoc("pure").nodes.map((node) =>
-        node.id === "boss"
-          ? { ...node, ether: { ...node.ether, overseer: true } }
-          : node,
-      ),
-    };
-    const overseer = admitOverseerWorkTarget(canvasFromDocument("factory", doc), "worker", "msg.send");
+    const canvas = pureCanvas(true);
+    const overseer = admitOverseerWorkTarget(canvas, "worker", "msg.send");
     expect(Result.isSuccess(overseer)).toBe(true);
-    const ordinary = admitWorkTarget(canvasFromDocument("factory", doc), "worker", "boss", "msg.send");
+    const ordinary = admitWorkTarget(canvas, "worker", "boss", "msg.send");
     expect(Result.isFailure(ordinary)).toBe(true);
     if (Result.isFailure(ordinary)) {
       expect(ordinary.failure.type).toBe("ScopeError");
@@ -201,21 +163,12 @@ describe("overseer work authz", () => {
 
 
   it("refuses operator-seat impersonation and a revoked grant", () => {
-    const granted = {
-      ...factoryDoc("pure"),
-      nodes: factoryDoc("pure").nodes.map((node) =>
-        node.id === "boss"
-          ? { ...node, ether: { ...node.ether, overseer: true } }
-          : node,
-      ),
-    };
-    const doc = granted;
     const live = {
       seatId: Schema.decodeUnknownSync(ActorSeatId)("seat_" + "a".repeat(64)),
       canvasName: "floor",
       nodeId: "boss",
     };
-    const forged = admitLiveOverseer(canvasFromDocument("factory", doc),
+    const forged = admitLiveOverseer(pureCanvas(true),
       [live],
       { canvasName: "floor", nodeId: "boss" },
       {
@@ -225,8 +178,7 @@ describe("overseer work authz", () => {
     );
     expect(Result.isFailure(forged)).toBe(true);
 
-    const revokedDoc = factoryDoc("pure");
-    const revoked = admitLiveOverseer(canvasFromDocument("factory", revokedDoc),
+    const revoked = admitLiveOverseer(pureCanvas(false),
       [live],
       { canvasName: "floor", nodeId: "boss" },
       overseerWorkAdmin(live),
@@ -286,10 +238,7 @@ describe("executeOverseerWork", () => {
     await writeFactory("origin-mail");
     await grantOverseer("origin-mail", "boss", true);
     await runtime.runPromise(
-      seedCanvas("target-mail", {
-        nodes: [mailboxNode("peer", "target-mail")],
-        edges: [],
-      }),
+      seedCanvas("target-mail", [mailboxNode("peer", "target-mail")]),
     );
     const { actor } = await actorOn("origin-mail", "boss");
     const sent = await run(
@@ -319,14 +268,11 @@ describe("executeOverseerWork", () => {
     );
     // Seeded once: the model does not put another agent in a seat's session.
     await runtime.runPromise(
-      seedCanvas("remote-admin", {
-        nodes: [
-          mailboxNode("peer", "remote-admin"),
-          agentNode("boss", "remote-admin", remoteHost),
-          agentNode("worker", "remote-admin"),
-        ],
-        edges: [],
-      }),
+      seedCanvas("remote-admin", [
+        mailboxNode("peer", "remote-admin"),
+        agentNode("boss", "remote-admin", remoteHost),
+        agentNode("worker", "remote-admin"),
+      ]),
     );
     await grantOverseer("remote-admin", "boss", true);
     const { actor } = await actorOn("remote-admin", "boss");
@@ -370,21 +316,12 @@ describe("executeOverseerWork", () => {
     );
   });
   it("lists tasks and requests, and reads a task thread, from their rows", async () => {
-    const sink = (id: string, kind: "task" | "requests"): CanvasDoc["nodes"][number] => ({
-      id,
-      type: "text",
-      text: id,
-      x: 300,
-      y: kind === "task" ? 0 : 200,
-      width: 200,
-      height: 100,
-      ether: { entity: { kind }, host: "local", [kind === "task" ? "tasks" : "requests"]: { items: [] } },
-    });
     await runtime.runPromise(
-      seedCanvas("rows", {
-        nodes: [...factoryDoc("rows").nodes, sink("todo", "task"), sink("asks", "requests")],
-        edges: [],
-      }),
+      seedCanvas("rows", [
+        ...factoryNodes("rows"),
+        taskBoard("todo", { x: 300, y: 0, width: 200, height: 100 }),
+        requests("asks", { x: 300, y: 200, width: 200, height: 100 }),
+      ]),
     );
     await grantOverseer("rows", "boss", true);
     const { actor } = await actorOn("rows", "boss");

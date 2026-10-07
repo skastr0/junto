@@ -1,20 +1,16 @@
-import type {
-  CanvasNode,
-  EnvSource,
-  EtherRegionEnvironment,
-} from "./canvas";
+import type { EnvSource, Node, Region, RegionEnvironment } from "./model";
 import type { OverseerArgsFor, OverseerEnvSourceDraft } from "./overseer-control";
 import type { RegionEnvironmentReport } from "./region-environment";
 
 /**
  * Region environment authoring, the pure half.
  *
- * Every `env.*` mutation is a read-modify-write of `ether.region.environment`
- * on one group node. These functions build the next node and say why an edit
- * is refused; the overseer canvas path commits the result under the same
- * transaction, grant and revision rules as `node.configure`.
+ * Every `env.*` mutation is a read-modify-write of one region's environment.
+ * These functions build the next environment and say why an edit is refused;
+ * the overseer canvas path sends it as the region's edit under the same
+ * transaction and grant rules as `node.configure`.
  *
- * The document holds names and references only. Nothing here reads a store,
+ * The canvas holds names and references only. Nothing here reads a store,
  * resolves a reference, or sees a secret value.
  */
 
@@ -43,19 +39,17 @@ const refuse = (
   error: { type, message },
 });
 
-/** A region is a group node. Anything else carries no environment. */
-export const isRegionNode = (
-  node: CanvasNode,
-): node is Extract<CanvasNode, { type: "group" }> => node.type === "group";
+/** Only a region carries an environment. */
+export const isRegionNode = (node: Node): node is Region => node.kind === "region";
 
 export const notARegion = (nodeId: string): OverseerEnvRefusal => ({
   type: "InvalidArguments",
-  message: `node "${nodeId}" is not a region; an environment belongs to a group node`,
+  message: `node "${nodeId}" is not a region; an environment belongs to a region`,
 });
 
 /** The environment as stored. A region that never had one reads as empty. */
-export const regionEnvironmentOf = (node: CanvasNode): EtherRegionEnvironment =>
-  node.ether?.region?.environment ?? {};
+export const regionEnvironmentOf = (region: Region): RegionEnvironment =>
+  region.environment ?? {};
 
 /** A folder a seat can be given: absolute, or under the operator's home. */
 const folderPathNamed = (folder: string): boolean =>
@@ -133,10 +127,10 @@ const editSources = (
 };
 
 const editEnvironment = (
-  current: EtherRegionEnvironment,
+  current: RegionEnvironment,
   edit: OverseerEnvEdit,
   mintSourceId: () => string,
-): Edited<EtherRegionEnvironment> => {
+): Edited<RegionEnvironment> => {
   switch (edit.operation) {
     case "env.seal":
       return { ok: true, value: { ...current, sealed: edit.args.sealed } };
@@ -161,9 +155,9 @@ const editEnvironment = (
 
 /** Leave no empty husk behind: an unset switch or an empty list is absent. */
 const compact = (
-  environment: EtherRegionEnvironment,
-): EtherRegionEnvironment | undefined => {
-  const next: EtherRegionEnvironment = {
+  environment: RegionEnvironment,
+): RegionEnvironment | undefined => {
+  const next: RegionEnvironment = {
     ...(environment.sealed === true ? { sealed: true } : {}),
     ...(environment.sources !== undefined && environment.sources.length > 0
       ? { sources: environment.sources }
@@ -176,30 +170,17 @@ const compact = (
 };
 
 /**
- * The node after one environment edit. Only `ether.region.environment` moves:
- * the region's hold, instruction, defaults and contract are carried as they
- * are, and so is everything else on the node.
+ * The region's environment after one edit, or nothing when the edit leaves it
+ * empty. Nothing else on the region moves.
  */
 export const applyRegionEnvironmentEdit = (
-  node: CanvasNode,
+  node: Node,
   edit: OverseerEnvEdit,
   mintSourceId: () => string,
-): Edited<CanvasNode> => {
+): Edited<RegionEnvironment | undefined> => {
   if (!isRegionNode(node)) return { ok: false, error: notARegion(node.id) };
   const edited = editEnvironment(regionEnvironmentOf(node), edit, mintSourceId);
-  if (!edited.ok) return edited;
-  const environment = compact(edited.value);
-  const { environment: _previous, ...region } = node.ether?.region ?? {};
-  return {
-    ok: true,
-    value: {
-      ...node,
-      ether: {
-        ...(node.ether ?? {}),
-        region: environment === undefined ? region : { ...region, environment },
-      },
-    },
-  };
+  return edited.ok ? { ok: true, value: compact(edited.value) } : edited;
 };
 
 /**

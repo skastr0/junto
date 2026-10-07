@@ -4,7 +4,6 @@ import {
   makeManagedAgentNode,
   reseatManagedAgentNode,
 } from "../src/renderer/lib/node-factories";
-import { reseatManagedAgentNode as overseerReseat } from "../src/main/junto/overseer/reseat";
 import type { TextNode } from "../src/shared/canvas";
 import {
   readSkipReseatConfirm,
@@ -135,11 +134,10 @@ describe("skip reseat confirm preference", () => {
  * The seat's name is the operator's. A re-seat changes what runs in the seat
  * (harness, model, effort, mode, binding) and nothing else: once, re-seating
  * cli-identity from Muse to Grok renamed the card "Grok - grok-4.7 - high".
- * The canvas path and the overseer's own path are held to the same rule.
+ * The overseer's reseat is held to the same rule in tests/overseer-native.test.ts.
  */
 describe.each([
   ["from the canvas", (node: TextNode, harness: "claude" | "grok") => reseatManagedAgentNode(node, { harness, model: "big", effort: "high" })],
-  ["by the overseer", (node: TextNode, harness: "claude" | "grok") => overseerReseat(node, { harness, host: "local", model: "big", effort: "high" })],
 ] as const)("a re-seat %s keeps the seat's name", (_how, reseat) => {
   const named = (name: string, over: Partial<TextNode> = {}): TextNode => {
     const node = makeManagedAgentNode(0, 0, { harness: "codex", host: "local", model: "gpt-5.6" });

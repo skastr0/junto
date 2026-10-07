@@ -10,6 +10,7 @@ import {
   readSeeded,
   seedCanvas,
 } from "./support/seed-canvas";
+import { note, region, seat } from "./support/model-nodes";
 import {
   executeOverseerCanvas,
   setOverseerNativeDeleteHooks,
@@ -25,65 +26,38 @@ import { ModelService } from "../src/main/junto/model/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { type CanvasDoc, type CanvasNode } from "../src/shared/canvas";
+import { asNodeId, type Node, type NodeOf, type Wire } from "../src/shared/model";
 import type { OverseerCaller, OverseerRequest } from "../src/shared/overseer-control";
 import type { WorkErrorBody } from "../src/shared/work-control";
 
-const agent = (
-  id: string,
-  bindingId: string,
-  overseer = false,
-): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 260,
-  height: 96,
-  ether: {
-    entity: { kind: "agent", name: "local:amp" },
-    host: "local",
-    terminal: { bindingId, harness: "amp" },
-    ...(overseer ? { overseer: true } : {}),
-  },
-});
+// The overseer's canvas commands over the real model: what an agent sends and
+// reads is the model's own nodes and wires.
 
-const note = (
-  id: string,
-  geometry: { x: number; y: number; width: number; height: number },
-): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  ...geometry,
-});
-
-const overseerDoc = (): CanvasDoc =>
-  ({
-    nodes: [
-      agent("overseer", "bind-overseer", true),
-      agent("peer", "bind-peer"),
-      note("n1", { x: 300, y: 0, width: 120, height: 40 }),
-      note("wide", { x: 10, y: 400, width: 400, height: 40 }),
-      {
-        id: "region",
-        type: "group",
-        label: "box",
-        x: -10,
-        y: -10,
-        width: 80,
-        height: 80,
-      },
-    ],
-    edges: [],
+/** A seat running amp on a session the test names. */
+const amp = (id: string, bindingId: string): NodeOf<"agent"> =>
+  seat(id, {
+    width: 260,
+    height: 96,
+    agentKey: "local:amp",
+    harness: "amp",
+    bindingId: bindingId as NodeOf<"agent">["bindingId"],
   });
 
-const aliasDoc = (overseer = false): CanvasDoc =>
-  ({
-    nodes: [agent("alias", "bind-overseer", overseer)],
-    edges: [],
-  });
+const opsNodes = (): ReadonlyArray<Node> => [
+  amp("overseer", "bind-overseer"),
+  amp("peer", "bind-peer"),
+  note("n1", "n1", { x: 300, y: 0, width: 120, height: 40 }),
+  note("wide", "wide", { x: 10, y: 400, width: 400, height: 40 }),
+  region("region", { x: -10, y: -10, width: 80, height: 80 }, { label: "box" }),
+];
+
+/** A note as an agent drafts it: no id it must name, no place in the stack. */
+const draft = (id: string | undefined, text: string, at: { x: number; y: number; width: number; height: number }) => ({
+  kind: "note" as const,
+  ...(id === undefined ? {} : { id }),
+  text,
+  ...at,
+});
 
 const CALLER: OverseerCaller = { canvasName: "ops", nodeId: "overseer" };
 
@@ -140,12 +114,9 @@ describe("executeOverseerCanvas", () => {
   const boot = async () => {
     await installEnv();
     runtime = makeRuntime(join(stateDir, "junto.db"));
-    await runtime.runPromise(seedCanvas("ops", overseerDoc()));
-    await runtime.runPromise(seedCanvas("other", aliasDoc()));
-    const ops = await runtime.runPromise(readSeeded("ops"));
-    await runtime.runPromise(
-      grantOverseer("ops", "overseer", true),
-    );
+    await runtime.runPromise(seedCanvas("ops", opsNodes()));
+    await runtime.runPromise(seedCanvas("other", [amp("alias", "bind-overseer")]));
+    await runtime.runPromise(grantOverseer("ops", "overseer", true));
   };
 
   const run = (
@@ -154,9 +125,18 @@ describe("executeOverseerCanvas", () => {
   ): Promise<Result.Result<unknown, WorkErrorBody>> =>
     runtime!.runPromise(Effect.result(executeOverseerCanvas(caller, request)));
 
-  /** The revision an overseer is told, which is what it sends back. */
-  const revisionOf = async (canvas: string): Promise<string> =>
-    ((await expectOk({ operation: "canvas.read", args: { canvas } })) as { revision: string }).revision;
+  /** The sequence an overseer is told, which is what it sends back. */
+  const seqOf = async (canvas: string): Promise<number> =>
+    ((await expectOk({ operation: "canvas.read", args: { canvas } })) as { seq: number }).seq;
+
+  const held = (canvas: string) => runtime!.runPromise(readSeeded(canvas));
+  const nodeAt = async (canvas: string, id: string): Promise<Node | undefined> =>
+    (await held(canvas)).nodes.get(asNodeId(id));
+
+  const NATIVE_OK: OverseerNativeDeleteHooks = {
+    prepareOverseerNodeDelete: async () => ({ ok: true, leaseId: "lease", pageStops: [] }),
+    finishOverseerNodeDelete: () => ({ ok: true }),
+  };
 
   /**
    * The model, with something made to happen just before the write
@@ -201,18 +181,24 @@ describe("executeOverseerCanvas", () => {
     throw new Error("expected failure");
   };
 
-  it("lists, reads, digests, and renders without moving viewport state", async () => {
+  it("lists, reads, digests, and renders", async () => {
     await boot();
-    const listed = (await expectOk({ operation: "canvas.list" })) as ReadonlyArray<{
-      name: string;
-    }>;
-    expect(listed.map((row) => row.name)).toEqual(["ops", "other"]);
-    const read = (await expectOk({
-      operation: "canvas.read",
-      args: { canvas: "ops" },
-    })) as { name: string; doc: CanvasDoc };
+    expect(await expectOk({ operation: "canvas.list" })).toEqual([{ name: "ops" }, { name: "other" }]);
+    const read = (await expectOk({ operation: "canvas.read", args: { canvas: "ops" } })) as {
+      name: string; seq: number; nodes: ReadonlyArray<Node>; wires: ReadonlyArray<Wire>;
+    };
     expect(read.name).toBe("ops");
-    expect(read.doc.nodes.some((node) => node.id === "overseer")).toBe(true);
+    expect(typeof read.seq).toBe("number");
+    expect(read.wires).toEqual([]);
+    // Structure only, in the model's own kinds: nothing named type, text or ether.
+    expect(read.nodes.map((node) => [node.id, node.kind])).toEqual([
+      ["overseer", "agent"], ["peer", "agent"], ["n1", "note"], ["wide", "note"], ["region", "region"],
+    ]);
+    expect(read.nodes[0]).toMatchObject({ kind: "agent", overseer: true, bindingId: "bind-overseer" });
+    expect(JSON.stringify(read)).not.toMatch(/"ether"|"type"|"fromNode"/u);
+    expect(await expectOk({ operation: "node.list" })).toEqual({ nodes: read.nodes });
+    expect(await expectOk({ operation: "node.get", args: { nodeId: "n1" } })).toEqual({ node: read.nodes[2] });
+    await expectErr({ operation: "node.get", args: { nodeId: "ghost" } }, "UnknownTarget");
     const digest = (await expectOk({ operation: "canvas.digest" })) as { digest: string };
     expect(digest.digest).toContain("canvas :: ops");
     const rendered = (await expectOk({ operation: "canvas.render" })) as { svg: string };
@@ -221,76 +207,48 @@ describe("executeOverseerCanvas", () => {
 
   it("creates and deletes a foreign canvas, refusing self-canvas delete", async () => {
     await boot();
-    await expectOk({ operation: "canvas.create", args: { canvas: "fresh" } });
-    const names = await runtime!.runPromise(
-      Effect.flatMap(ModelService, (model) => model.listCanvases()),
-    );
-    expect(names).toContain("fresh");
-    await expectErr(
-      { operation: "canvas.delete", args: { canvas: "ops" } },
-      "AuthError",
-    );
-    setOverseerNativeDeleteHooks({
-      prepareOverseerNodeDelete: async () => ({
-        ok: true,
-        leaseId: "lease-1",
-        pageStops: [],
-      }),
-      finishOverseerNodeDelete: () => ({ ok: true }),
-    });
+    expect(await expectOk({ operation: "canvas.create", args: { canvas: "fresh" } }))
+      .toEqual({ name: "fresh", seq: 0, nodes: [], wires: [] });
+    await expectErr({ operation: "canvas.create", args: { canvas: "fresh" } }, "InputError");
+    expect(await runtime!.runPromise(Effect.flatMap(ModelService, (model) => model.listCanvases())))
+      .toContain("fresh");
+    await expectErr({ operation: "canvas.delete", args: { canvas: "ops" } }, "AuthError");
+    setOverseerNativeDeleteHooks(NATIVE_OK);
     await expectOk({ operation: "canvas.delete", args: { canvas: "fresh" } });
+    await expectErr({ operation: "canvas.read", args: { canvas: "fresh" } }, "UnknownTarget");
   });
 
-  it("creates, moves, resizes, and deletes foreign nodes; refuses self-delete", async () => {
+  it("creates, moves, resizes, recolors and deletes foreign nodes; refuses self-delete", async () => {
     await boot();
     const created = (await expectOk({
       operation: "node.create",
-      args: {
-        node: {
-          type: "text",
-          text: "note",
-          x: 12.4,
-          y: 18.6,
-          width: 140,
-          height: 50,
-        },
-      },
-    })) as { node: CanvasNode };
-    expect(created.node.x).toBe(12.4);
-    await expectOk({
-      operation: "node.move",
-      args: { nodeId: created.node.id, x: 80, y: 90 },
-    });
-    await expectOk({
-      operation: "node.resize",
-      args: { nodeId: "wide", width: 80, height: 200 },
-    });
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    const moved = after.doc.nodes.find((node) => node.id === created.node.id);
-    const resized = after.doc.nodes.find((node) => node.id === "wide");
-    expect(moved).toMatchObject({ x: 80, y: 90 });
-    expect(resized).toMatchObject({ width: 80, height: 200 });
-    await expectErr(
-      { operation: "node.delete", args: { nodeId: "overseer" } },
-      "AuthError",
-    );
-    setOverseerNativeDeleteHooks({
-      prepareOverseerNodeDelete: async () => ({
-        ok: true,
-        leaseId: "lease-node",
-        pageStops: [],
-      }),
-      finishOverseerNodeDelete: () => ({ ok: true }),
-    });
-    await expectOk({ operation: "node.delete", args: { nodeId: created.node.id } });
+      args: { node: draft(undefined, "note", { x: 12.4, y: 18.6, width: 140, height: 50 }) },
+    })) as { node: NodeOf<"note"> };
+    // The answer carries the id main minted and where the node stacks.
+    expect(created.node).toMatchObject({ kind: "note", text: "note", x: 12.4, y: 18.6 });
+    expect(created.node.id).toMatch(/^note-/u);
+    expect(created.node.z).toBeGreaterThan(0);
+    expect(await expectOk({ operation: "node.move", args: { nodeId: created.node.id, x: 80, y: 90 } }))
+      .toMatchObject({ node: { id: created.node.id, x: 80, y: 90 } });
+    await expectOk({ operation: "node.resize", args: { nodeId: "wide", width: 80, height: 200 } });
+    expect(await nodeAt("ops", "wide")).toMatchObject({ width: 80, height: 200, x: 10, y: 400 });
+    expect(await expectOk({ operation: "node.recolor", args: { nodeIds: ["n1", "wide"], color: "#aabbcc" } }))
+      .toEqual({ nodeIds: ["n1", "wide"], color: "#aabbcc" });
+    expect(await nodeAt("ops", "n1")).toMatchObject({ color: "#aabbcc" });
+    await expectOk({ operation: "node.recolor", args: { nodeIds: ["n1"], color: null } });
+    expect((await nodeAt("ops", "n1"))?.color).toBeUndefined();
+    await expectErr({ operation: "node.recolor", args: { nodeIds: ["ghost"], color: null } }, "UnknownTarget");
+    await expectErr({ operation: "node.delete", args: { nodeIds: ["overseer"] } }, "AuthError");
+    await expectErr({ operation: "node.delete", args: { nodeIds: ["n1", "ghost"] } }, "UnknownTarget");
+    setOverseerNativeDeleteHooks(NATIVE_OK);
+    expect(await expectOk({ operation: "node.delete", args: { nodeIds: [created.node.id, "n1"] } }))
+      .toEqual({ nodeIds: [created.node.id, "n1"] });
+    expect(await nodeAt("ops", "n1")).toBeUndefined();
+    expect(await nodeAt("ops", created.node.id)).toBeUndefined();
   });
 
   it("refuses deleting a granted alias of the caller's physical binding without native prepare", async () => {
     await boot();
-    const other = await runtime!.runPromise(readSeeded("other"));
-    await runtime!.runPromise(
-      grantOverseer("other", "alias", true),
-    );
     let prepared = 0;
     setOverseerNativeDeleteHooks({
       prepareOverseerNodeDelete: async () => {
@@ -300,13 +258,12 @@ describe("executeOverseerCanvas", () => {
       finishOverseerNodeDelete: () => ({ ok: true }),
     });
     const error = await expectErr(
-      { operation: "node.delete", args: { canvas: "other", nodeId: "alias" } },
+      { operation: "node.delete", args: { canvas: "other", nodeIds: ["alias"] } },
       "AuthError",
     );
     expect(error.message).toMatch(/physical binding/u);
     expect(prepared).toBe(0);
-    const still = await runtime!.runPromise(readSeeded("other"));
-    expect(still.doc.nodes.some((node) => node.id === "alias")).toBe(true);
+    expect(await nodeAt("other", "alias")).toBeDefined();
   });
 
   it("refuses deleting a foreign canvas whose node shares the caller's binding", async () => {
@@ -319,150 +276,206 @@ describe("executeOverseerCanvas", () => {
       },
       finishOverseerNodeDelete: () => ({ ok: true }),
     });
-    const error = await expectErr(
-      { operation: "canvas.delete", args: { canvas: "other" } },
-      "AuthError",
-    );
+    const error = await expectErr({ operation: "canvas.delete", args: { canvas: "other" } }, "AuthError");
     expect(error.message).toMatch(/physical binding/u);
     expect(prepared).toBe(0);
   });
 
-  it("refuses grant mint, binding alias, and occupant retirement of self", async () => {
+  it("creates a seat from named choices and never from a command line or an authority", async () => {
     await boot();
-    await expectErr(
-      {
-        operation: "node.create",
-        args: {
-          node: {
-            type: "text",
-            text: "clone",
-            x: 0,
-            y: 0,
-            width: 260,
-            height: 96,
-            ether: {
-              entity: { kind: "agent", name: "local:clone" },
-              host: "local",
-              terminal: { bindingId: "bind-overseer", harness: "amp" },
-            },
-          },
-        },
-      },
-      "AuthError",
-    );
-    await expectErr(
-      {
-        operation: "node.configure",
-        args: {
-          nodeId: "overseer",
-          changes: { ether: { entity: { kind: "agent", name: "local:hijack" } } },
-        },
-      },
-      "AuthError",
-    );
-    // An overseer may rename, move and recolor an overseer seat, its own
-    // included; what the seat runs and whether it exists is the operator's.
-    await expectOk({
-      operation: "node.configure",
-      args: { nodeId: "overseer", changes: { text: "still me" } },
+    const made = (await expectOk({
+      operation: "node.create",
+      args: { node: { kind: "agent", x: 600, y: 0, width: 260, height: 96, harness: "claude", model: "opus", label: "Builder" } },
+    })) as { node: NodeOf<"agent"> };
+    // Main worked out everything the agent did not name.
+    expect(made.node).toMatchObject({
+      kind: "agent", label: "Builder", harness: "claude", host: "local", agentKey: "local:claude",
+      overseer: false, onRemove: "detach",
     });
-    await expectOk({ operation: "node.move", args: { nodeId: "overseer", x: 40, y: 60 } });
-    setOverseerNativeDeleteHooks({
-      prepareOverseerNodeDelete: async () => ({
-        ok: true,
-        leaseId: "lease-region",
-        pageStops: [],
-      }),
-      finishOverseerNodeDelete: () => ({ ok: true }),
-    });
-    await expectOk({ operation: "node.delete", args: { nodeId: "region" } });
-  });
+    expect(made.node.bindingId).toMatch(/\S/u);
+    const argv = made.node.launch?.argv ?? [];
+    expect(argv.length).toBeGreaterThan(0);
+    expect(argv.join(" ")).toContain("opus");
 
-  it("connects legal edges and refuses invalid pairs", async () => {
-    await boot();
-    await expectOk({
-      operation: "edge.connect",
-      args: {
-        edge: { fromNode: "overseer", toNode: "peer", verb: "messages" },
-      },
-    });
+    const seatDraft = { kind: "agent", x: 0, y: 0, width: 260, height: 96, harness: "claude" };
+    for (const [field, value] of [
+      ["launch", { kind: "harness", argv: ["sh", "-c", "anything"] }],
+      ["bindingId", "bind-overseer"],
+      ["agentKey", "local:other"],
+      ["overseer", true],
+      ["sessionId", "s-1"],
+    ] as const) {
+      const refused = await expectErr(
+        { operation: "node.create", args: { node: { ...seatDraft, [field]: value } } } as never,
+        "InputError",
+      );
+      // Says what to send instead, and names the field it will not take.
+      expect(refused.message).toMatch(/naming what it runs/u);
+      expect(refused.message).toContain(field);
+    }
+    expect((await expectErr(
+      { operation: "node.create", args: { node: { ...seatDraft, overseer: true } } } as never,
+      "InputError",
+    )).message).toMatch(/Only the operator/u);
+    // An old document draft is not a node.
     await expectErr(
-      {
-        operation: "edge.connect",
-        args: { edge: { fromNode: "n1", toNode: "wide", verb: "messages" } },
-      },
+      { operation: "node.create", args: { node: { type: "text", text: "x", x: 0, y: 0, width: 10, height: 10 } } } as never,
       "InputError",
     );
-    const verbs = (await expectOk({
-      operation: "edge.verbs",
-      args: { fromNode: "overseer", toNode: "peer" },
-    })) as { verbs: ReadonlyArray<string> };
-    expect(verbs.verbs).toContain("messages");
   });
 
-  it("commits a complete structural batch with one canvas notification", async () => {
+  it("refuses a terminal that would share a live overseer's session", async () => {
     await boot();
-    const before = await revisionOf("ops");
-    const foreign = await revisionOf("other");
+    const refused = await expectErr({
+      operation: "node.create",
+      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: "local", onRemove: "detach", bindingId: "bind-overseer" } },
+    } as never, "AuthError");
+    expect(refused.message).toMatch(/share a session/u);
+    const shell = (await expectOk({
+      operation: "node.create",
+      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: "local", onRemove: "detach" } },
+    } as never)) as { node: NodeOf<"terminal"> };
+    expect(shell.node.bindingId).toMatch(/\S/u);
+  });
+
+  it("configures a node by its kind's edit, and says which command does what it will not", async () => {
+    await boot();
+    expect(await expectOk({ operation: "node.configure", args: { nodeId: "n1", change: { kind: "note", text: "renamed" } } }))
+      .toMatchObject({ node: { id: "n1", kind: "note", text: "renamed" } });
+    // A change of another kind names the kind the node is.
+    const mismatch = await expectErr(
+      { operation: "node.configure", args: { nodeId: "n1", change: { kind: "region", label: "x" } } },
+      "InputError",
+    );
+    expect(mismatch.message).toContain('"n1" is a note');
+    // A null clears a field its kind may leave empty.
+    await expectOk({ operation: "node.configure", args: { nodeId: "region", change: { kind: "region", instruction: "Ship it." } } });
+    expect(await nodeAt("ops", "region")).toMatchObject({ instruction: "Ship it.", label: "box" });
+    await expectOk({ operation: "node.configure", args: { nodeId: "region", change: { kind: "region", instruction: null } } });
+    expect((await nodeAt("ops", "region") as NodeOf<"region">).instruction).toBeUndefined();
+    // What a seat runs is not an edit.
+    for (const change of [
+      { kind: "agent", harness: "claude" },
+      { kind: "agent", host: "studio" },
+      { kind: "agent", launch: { kind: "harness", argv: ["sh"] } },
+    ] as const) {
+      const refused = await expectErr(
+        { operation: "node.configure", args: { nodeId: "peer", change } },
+        "AuthError",
+      );
+      expect(refused.message).toMatch(/agent reseat/u);
+    }
+    expect(await nodeAt("ops", "peer")).toMatchObject({ harness: "amp", host: "local" });
+    await expectOk({ operation: "node.configure", args: { nodeId: "peer", change: { kind: "agent", label: "Peer" } } });
+    expect(await nodeAt("ops", "peer")).toMatchObject({ label: "Peer", bindingId: "bind-peer" });
+  });
+
+  it("lets an overseer rename and move its own seat, and nothing more of it", async () => {
+    await boot();
+    await expectOk({ operation: "node.configure", args: { nodeId: "overseer", change: { kind: "agent", label: "still me" } } });
+    await expectOk({ operation: "node.move", args: { nodeId: "overseer", x: 40, y: 60 } });
+    expect(await nodeAt("ops", "overseer")).toMatchObject({ label: "still me", x: 40, y: 60, overseer: true });
+    const refused = await expectErr(
+      { operation: "node.configure", args: { nodeId: "overseer", change: { kind: "agent", onRemove: "kill-session" } } },
+      "AuthError",
+    );
+    expect(refused.message).toMatch(/Only the operator/u);
+    setOverseerNativeDeleteHooks(NATIVE_OK);
+    await expectErr({ operation: "node.delete", args: { nodeIds: ["region"], canvas: "nowhere" } }, "UnknownTarget");
+    await expectOk({ operation: "node.delete", args: { nodeIds: ["region"] } });
+  });
+
+  it("connects legal wires, answers the wire with its id, and refuses pairs no verb joins", async () => {
+    await boot();
+    const made = (await expectOk({
+      operation: "wire.connect",
+      args: { wire: { from: "overseer", to: "peer" } },
+    })) as { wire: Wire };
+    // The verb was main's choice for two seats; the id is main's.
+    expect(made.wire).toMatchObject({ from: "overseer", to: "peer", verb: "messages" });
+    expect(made.wire.id).toMatch(/^wire-/u);
+    expect(await expectOk({ operation: "wire.get", args: { wireId: made.wire.id } })).toEqual({ wire: made.wire });
+    expect(await expectOk({ operation: "wire.list" })).toEqual({ wires: [made.wire] });
+    const none = await expectErr(
+      { operation: "wire.connect", args: { wire: { from: "n1", to: "wide" } } },
+      "InputError",
+    );
+    expect(none.message).toMatch(/no verb joins a note to a note/u);
+    const wrong = await expectErr(
+      { operation: "wire.connect", args: { wire: { from: "overseer", to: "peer", verb: "navigates" } } },
+      "InputError",
+    );
+    expect(wrong.message).toMatch(/wire verbs/u);
+    await expectErr({ operation: "wire.connect", args: { wire: { from: "overseer", to: "ghost" } } }, "UnknownTarget");
+    await expectErr({ operation: "wire.connect", args: { wire: { id: made.wire.id, from: "peer", to: "overseer" } } }, "InputError");
+    expect(await expectOk({ operation: "wire.verbs", args: { from: "overseer", to: "peer" } }))
+      .toMatchObject({ verbs: expect.arrayContaining(["messages"]), default: "messages" });
+    expect(await expectOk({ operation: "wire.verbs", args: { from: "n1", to: "wide" } })).toEqual({ verbs: [] });
+
+    expect(await expectOk({
+      operation: "wire.configure",
+      args: { wireId: made.wire.id, change: { verb: "reviews", fromSide: "left" } },
+    })).toMatchObject({ wire: { id: made.wire.id, verb: "reviews", fromSide: "left" } });
+    await expectOk({ operation: "wire.configure", args: { wireId: made.wire.id, change: { fromSide: null } } });
+    expect(((await expectOk({ operation: "wire.get", args: { wireId: made.wire.id } })) as { wire: Wire }).wire.fromSide)
+      .toBeUndefined();
+    await expectErr(
+      { operation: "wire.configure", args: { wireId: made.wire.id, change: { verb: "navigates" } } },
+      "InputError",
+    );
+    expect(await expectOk({ operation: "wire.disconnect", args: { wireId: made.wire.id } }))
+      .toEqual({ wireId: made.wire.id });
+    await expectErr({ operation: "wire.get", args: { wireId: made.wire.id } }, "UnknownTarget");
+  });
+
+  it("no retired name or shape is answered", async () => {
+    await boot();
+    for (const operation of ["edge.connect", "edge.configure", "edge.disconnect", "edge.list", "edge.get", "edge.verbs"]) {
+      await expectErr({ operation, args: {} } as never, "ProtocolError");
+    }
+    await expectErr({ operation: "canvas.batch", args: { operations: [] } } as never, "InputError");
+    await expectErr(
+      { operation: "canvas.batch", args: { expectedRevision: "1", steps: [{ operation: "node.move", nodeId: "n1", x: 1, y: 1 }] } } as never,
+      "InputError",
+    );
+    await expectErr({ operation: "node.delete", args: { nodeId: "n1" } } as never, "InputError");
+    await expectErr({ operation: "node.configure", args: { nodeId: "n1", changes: { text: "x" } } } as never, "InputError");
+  });
+
+  it("commits a complete structural batch as one change to the canvas", async () => {
+    await boot();
+    const before = await seqOf("ops");
+    const foreign = await seqOf("other");
     const changes: string[] = [];
     const unsubscribe = (await runtime!.runPromise(ModelService)).subscribeChanges((event) => changes.push(event.canvas));
     const result = await expectOk({
       operation: "canvas.batch",
       args: {
-        expectedRevision: before,
-        operations: [
-          { operation: "node.create", node: note("n3", { x: 600, y: 200, width: 240, height: 120 }) },
-          { operation: "node.configure", nodeId: "n1", changes: { text: "batched" } },
+        expectedSeq: before,
+        steps: [
+          { operation: "node.create", node: draft("n3", "n3", { x: 600, y: 200, width: 240, height: 120 }) },
+          { operation: "node.configure", nodeId: "n1", change: { kind: "note", text: "batched" } },
           { operation: "node.move", nodeId: "n3", x: 640, y: 220 },
-          { operation: "edge.connect", edge: { id: "e3", fromNode: "overseer", toNode: "peer", verb: "messages" } },
+          { operation: "node.recolor", nodeIds: ["n1", "n3"], color: "#112233" },
+          { operation: "wire.connect", wire: { id: "w3", from: "overseer", to: "peer", verb: "messages" } },
         ],
       },
     });
     unsubscribe();
     expect(result).toMatchObject({ canvas: "ops", results: [
-      { operation: "node.create", nodeId: "n3" },
+      { operation: "node.create", nodeId: "n3", node: { id: "n3", kind: "note" } },
       { operation: "node.configure", nodeId: "n1" },
       { operation: "node.move", nodeId: "n3" },
-      { operation: "edge.connect", edgeId: "e3" },
+      { operation: "node.recolor", nodeIds: ["n1", "n3"] },
+      { operation: "wire.connect", wireId: "w3", wire: { id: "w3", verb: "messages" } },
     ] });
+    // One change: the canvas moved once, by one.
     expect(changes).toEqual(["ops"]);
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    expect(await revisionOf("ops")).not.toBe(before);
-    expect(after.doc.nodes.find((node) => node.id === "n3")).toMatchObject({ x: 640, y: 220 });
-    expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ text: "batched" });
-    expect(after.doc.edges.find((edge) => edge.id === "e3")).toMatchObject({ ether: { verb: "messages" } });
-    expect(await revisionOf("other")).toBe(foreign);
-  });
-
-  it("batches past a stored edge it never touched, and names its default from its own verb list", async () => {
-    await boot();
-    const page: CanvasNode = {
-      ...note("page", { x: 900, y: 0, width: 320, height: 200 }),
-      ether: { entity: { kind: "page" } },
-    };
-    const seeded = overseerDoc();
-    await runtime!.runPromise(seedCanvas("ops", {
-      nodes: [...seeded.nodes, page],
-      edges: [
-        { id: "stale-page", fromNode: "peer", toNode: "page", ether: { verb: "navigates" } },
-      ],
-    }));
-    const current = await runtime!.runPromise(readSeeded("ops"));
-    await runtime!.runPromise(grantOverseer("ops", "overseer", true));
-
-    await expectOk({ operation: "canvas.batch", args: { operations: [
-      { operation: "node.move", nodeId: "n1", x: 640, y: 220 },
-      { operation: "edge.connect", edge: { id: "e3", fromNode: "overseer", toNode: "peer", verb: "messages" } },
-    ] } });
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    expect(after.doc.edges.map((edge) => edge.id).sort()).toEqual(["e3", "stale-page"]);
-
-    const verbs = (await expectOk({
-      operation: "edge.verbs",
-      args: { fromNode: "peer", toNode: "page" },
-    })) as { verbs: ReadonlyArray<string>; default?: string };
-    if (verbs.verbs.length === 0) expect(verbs.default).toBeUndefined();
-    else expect(verbs.verbs).toContain(verbs.default);
+    expect(await seqOf("ops")).toBe(before + 1);
+    expect(await nodeAt("ops", "n3")).toMatchObject({ x: 640, y: 220, color: "#112233" });
+    expect(await nodeAt("ops", "n1")).toMatchObject({ text: "batched", color: "#112233" });
+    expect([...(await held("ops")).wires.values()]).toMatchObject([{ id: "w3", verb: "messages" }]);
+    expect(await seqOf("other")).toBe(foreign);
   });
 
   it("authors a region's environment through the canvas commit path", async () => {
@@ -477,7 +490,7 @@ describe("executeOverseerCanvas", () => {
       }>;
 
     expect(await env("env.show", {})).toEqual({ nodeId: "region", environment: {} });
-    const before = await runtime!.runPromise(readSeeded("ops"));
+    const before = await seqOf("ops");
     const added = await env("env.source-add", {
       source: { kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
     });
@@ -485,8 +498,7 @@ describe("executeOverseerCanvas", () => {
     expect(added.environment.sources).toEqual([
       { id: added.sourceId, kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "op" },
     ]);
-    const afterAdd = await runtime!.runPromise(readSeeded("ops"));
-    expect(afterAdd.revision).not.toBe(before.revision);
+    expect(await seqOf("ops")).toBe(before + 1);
     expect(changes).toEqual(["ops"]);
 
     await env("env.source-add", {
@@ -502,33 +514,33 @@ describe("executeOverseerCanvas", () => {
     await env("env.folders", { folders: ["~/.config/gh"] });
     unsubscribe();
 
-    const stored = (await runtime!.runPromise(readSeeded("ops"))).doc.nodes.find(
-      (node) => node.id === "region",
-    );
+    const stored = (await nodeAt("ops", "region")) as NodeOf<"region">;
     expect(stored).toMatchObject({
-      type: "group",
+      kind: "region",
       label: "box",
-      ether: { region: { environment: {
+      environment: {
         sealed: true,
         folders: ["~/.config/gh"],
         sources: [
           { id: added.sourceId, kind: "keychain" },
           { id: "first", kind: "envFile", path: "~/.env", required: true },
         ],
-      } } },
+      },
     });
-    expect(await env("env.show", {})).toEqual({
-      nodeId: "region",
-      environment: stored?.ether?.region?.environment,
-    });
+    expect(await env("env.show", {})).toEqual({ nodeId: "region", environment: stored.environment });
 
     await env("env.source-remove", { sourceId: "first" });
     expect((await env("env.show", {})).environment.sources).toHaveLength(1);
+    // Emptied, the region carries no environment at all.
+    await env("env.source-remove", { sourceId: added.sourceId });
+    await env("env.seal", { sealed: false });
+    await env("env.folders", { folders: [] });
+    expect(((await nodeAt("ops", "region")) as NodeOf<"region">).environment).toBeUndefined();
   });
 
   it("refuses environment edits it cannot honor and leaves the canvas as it was", async () => {
     await boot();
-    const before = await runtime!.runPromise(readSeeded("ops"));
+    const before = await held("ops");
     const refused: ReadonlyArray<readonly [OverseerRequest, WorkErrorBody["type"]]> = [
       [{ operation: "env.seal", args: { nodeId: "n1", sealed: true } }, "InputError"],
       [{ operation: "env.show", args: { nodeId: "n1" } }, "InputError"],
@@ -540,159 +552,104 @@ describe("executeOverseerCanvas", () => {
       [{ operation: "env.source-add", args: { nodeId: "region", source: { kind: "value", name: "bad name", value: "x" } } }, "InputError"],
     ];
     for (const [request, type] of refused) await expectErr(request, type);
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    expect(after.revision).toBe(before.revision);
-    expect(after.doc).toEqual(before.doc);
+    expect(await held("ops")).toBe(before);
 
     await runtime!.runPromise(grantOverseer("ops", "overseer", false));
     await expectErr({ operation: "env.seal", args: { nodeId: "region", sealed: true } }, "AuthError");
     await expectErr({ operation: "env.show", args: { nodeId: "region" } }, "AuthError");
   });
 
-  it("leaves every node and revision unchanged when the final batch graph is invalid", async () => {
+  it("leaves every node and the sequence unchanged when a later step is refused", async () => {
     await boot();
-    const before = await runtime!.runPromise(readSeeded("ops"));
-    for (const operations of [
-      [
-        { operation: "node.create", node: note("n3", { x: 600, y: 200, width: 240, height: 120 }) },
-        { operation: "edge.connect", edge: { fromNode: "overseer", toNode: "n3", verb: "messages" } },
-      ],
-      [
+    const before = await held("ops");
+    for (const [steps, type] of [
+      // A wire no verb joins, after a node that would have been made.
+      [[
+        { operation: "node.create", node: draft("n3", "n3", { x: 600, y: 200, width: 240, height: 120 }) },
+        { operation: "wire.connect", wire: { from: "overseer", to: "n3", verb: "messages" } },
+      ], "InputError"],
+      [[
         { operation: "node.move", nodeId: "n1", x: 999, y: 999 },
-        { operation: "edge.connect", edge: { fromNode: "n1", toNode: "wide", verb: "messages" } },
-      ],
-    ]) {
-      await expectErr({ operation: "canvas.batch", args: { operations } }, "InputError");
-      const after = await runtime!.runPromise(readSeeded("ops"));
-      expect(after.revision).toBe(before.revision);
-      expect(after.doc).toEqual(before.doc);
+        { operation: "wire.connect", wire: { from: "n1", to: "wide" } },
+      ], "InputError"],
+      // What a seat runs, after a move.
+      [[
+        { operation: "node.move", nodeId: "n1", x: 999, y: 999 },
+        { operation: "node.configure", nodeId: "peer", change: { kind: "agent", host: "remote" } },
+      ], "AuthError"],
+      // What only the operator changes on an overseer seat: the model refuses the batch whole.
+      [[
+        { operation: "node.move", nodeId: "n1", x: 999, y: 999 },
+        { operation: "node.configure", nodeId: "overseer", change: { kind: "agent", onRemove: "kill-session" } },
+      ], "AuthError"],
+    ] as const) {
+      await expectErr({ operation: "canvas.batch", args: { steps } } as never, type);
+      expect(await held("ops")).toBe(before);
     }
   });
 
-  it("refuses batch native identity changes and new aliases of live overseer bindings", async () => {
+  it("rejects a stale expected sequence and a revoked grant at the write transaction", async () => {
     await boot();
-    const before = await runtime!.runPromise(readSeeded("ops"));
-    for (const operation of [
-      { operation: "node.configure", nodeId: "peer", changes: { ether: { terminal: { bindingId: "replacement", harness: "amp" } } } },
-      { operation: "node.configure", nodeId: "overseer", changes: { ether: { host: "remote" } } },
-      { operation: "node.create", node: agent("clone", "bind-overseer") },
-    ]) {
-      await expectErr({ operation: "canvas.batch", args: { operations: [
-        { operation: "node.move", nodeId: "n1", x: 999, y: 999 }, operation,
-      ] } }, "AuthError");
-      expect((await runtime!.runPromise(readSeeded("ops"))).revision).toBe(before.revision);
-    }
-  });
-
-  it("rejects stale batch revisions and revoked grants at the write transaction", async () => {
-    await boot();
-    const before = await revisionOf("ops");
+    const before = await seqOf("ops");
     await expectOk({ operation: "node.move", args: { nodeId: "n1", x: 450, y: 0 } });
     const request: OverseerRequest = { operation: "canvas.batch", args: {
-      expectedRevision: before,
-      operations: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }],
+      expectedSeq: before,
+      steps: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }],
     } };
-    await expectErr(request, "ClaimConflict");
-    const current = await runtime!.runPromise(readSeeded("ops"));
+    const stale = await expectErr(request, "ClaimConflict");
+    expect(stale.message).toContain(`seq ${before + 1}, not ${before}`);
     await runtime!.runPromise(grantOverseer("ops", "overseer", false));
     await expectErr(request, "AuthError");
-    expect((await runtime!.runPromise(readSeeded("ops"))).doc.nodes.find((node) => node.id === "n1"))
-      .toMatchObject({ x: 450, y: 0 });
+    expect(await nodeAt("ops", "n1")).toMatchObject({ x: 450, y: 0 });
   });
 
   it("rechecks batch authority after preflight and before authoring", async () => {
     await boot();
-    const current = await runtime!.runPromise(readSeeded("ops"));
     // The first read is the preflight grant check; the second opens the write.
-    const wrapped = await beforeTheWrite(
-      grantOverseer("ops", "overseer", false),
-    );
+    const wrapped = await beforeTheWrite(grantOverseer("ops", "overseer", false));
     const result = await runtime!.runPromise(Effect.result(executeOverseerCanvas(CALLER, {
       operation: "canvas.batch",
-      args: { operations: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }] },
+      args: { steps: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }] },
     }).pipe(Effect.provideService(ModelService, wrapped))));
     expect(Result.isFailure(result) && result.failure.type).toBe("AuthError");
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ x: 300, y: 0 });
+    expect(await nodeAt("ops", "n1")).toMatchObject({ x: 300, y: 0 });
   });
 
-  it("revalidates grant in the same transaction as a write after revoke", async () => {
+  it("a non-overseer caller is refused, as is one whose seat is gone", async () => {
     await boot();
-    const ops = await runtime!.runPromise(readSeeded("ops"));
-    await runtime!.runPromise(
-      grantOverseer("ops", "overseer", false),
-    );
     await expectErr(
-      {
-        operation: "node.create",
-        args: {
-          node: { type: "text", text: "late", x: 0, y: 0, width: 100, height: 40 },
-        },
-      },
+      { operation: "node.move", args: { nodeId: "n1", x: 1, y: 1 } },
       "AuthError",
+      { canvasName: "ops", nodeId: "peer" },
     );
+    await expectErr({ operation: "canvas.list" }, "AuthError", { canvasName: "ops", nodeId: "ghost" });
+    await expectErr({ operation: "canvas.list" }, "AuthError", { canvasName: "nowhere", nodeId: "overseer" });
   });
 
-  it("a grant, and taking it away, reaches every alias of the binding", async () => {
+  it("a grant, and taking it away, reaches every seat on the same session", async () => {
     await boot();
-    const aliasGrant = async () =>
-      (await runtime!.runPromise(readSeeded("other"))).doc.nodes[0]?.ether?.overseer;
-    // boot granted the seat on ops; the same binding on another canvas follows.
+    const aliasGrant = async () => ((await nodeAt("other", "alias")) as NodeOf<"agent">).overseer;
+    // boot granted the seat on ops; the same session on another canvas follows.
     expect(await aliasGrant()).toBe(true);
     await runtime!.runPromise(grantOverseer("ops", "overseer", false));
-    expect(await aliasGrant()).toBeUndefined();
+    expect(await aliasGrant()).toBe(false);
   });
 
-  const noteText = (node: CanvasNode | undefined): string | undefined =>
-    node?.type === "text" ? node.text : undefined;
+  const noteNamed = async (text: string): Promise<boolean> =>
+    [...(await held("ops")).nodes.values()].some((node) => node.kind === "note" && node.text === text);
 
   it("create then revoke leaves no grant; a later create cannot restore it", async () => {
     await boot();
-    await expectOk({
-      operation: "node.create",
-      args: {
-        node: { type: "text", text: "racy", x: 0, y: 0, width: 100, height: 40 },
-      },
-    });
-    const ops = await runtime!.runPromise(readSeeded("ops"));
-    await runtime!.runPromise(
-      grantOverseer("ops", "overseer", false),
-    );
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    expect(after.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
-    expect(after.doc.nodes.some((node) => noteText(node) === "racy")).toBe(true);
+    await expectOk({ operation: "node.create", args: { node: draft(undefined, "racy", { x: 0, y: 0, width: 100, height: 40 }) } });
+    await runtime!.runPromise(grantOverseer("ops", "overseer", false));
+    expect(await nodeAt("ops", "overseer")).toMatchObject({ overseer: false });
+    expect(await noteNamed("racy")).toBe(true);
     await expectErr(
-      {
-        operation: "node.create",
-        args: {
-          node: { type: "text", text: "late", x: 0, y: 0, width: 100, height: 40 },
-        },
-      },
+      { operation: "node.create", args: { node: draft(undefined, "late", { x: 0, y: 0, width: 100, height: 40 }) } },
       "AuthError",
     );
-    const late = await runtime!.runPromise(readSeeded("ops"));
-    expect(late.doc.nodes.some((node) => noteText(node) === "late")).toBe(false);
-    expect(late.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
-  });
-
-  it("revoke then create is AuthError and does not restore the grant", async () => {
-    await boot();
-    const ops = await runtime!.runPromise(readSeeded("ops"));
-    await runtime!.runPromise(
-      grantOverseer("ops", "overseer", false),
-    );
-    await expectErr(
-      {
-        operation: "node.create",
-        args: {
-          node: { type: "text", text: "racy", x: 0, y: 0, width: 100, height: 40 },
-        },
-      },
-      "AuthError",
-    );
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    expect(after.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
-    expect(after.doc.nodes.some((node) => noteText(node) === "racy")).toBe(false);
+    expect(await noteNamed("late")).toBe(false);
+    expect(await nodeAt("ops", "overseer")).toMatchObject({ overseer: false });
   });
 
   const deferredNative = () => {
@@ -716,12 +673,7 @@ describe("executeOverseerCanvas", () => {
         return { ok: true };
       },
     };
-    return {
-      hooks,
-      prepared,
-      release: () => releasePrepare?.(),
-      finishes,
-    };
+    return { hooks, prepared, release: () => releasePrepare?.(), finishes };
   };
 
   it("interrupting during native prepare does not leave a lease", async () => {
@@ -729,17 +681,13 @@ describe("executeOverseerCanvas", () => {
     const native = deferredNative();
     setOverseerNativeDeleteHooks(native.hooks);
     const fiber = runtime!.runFork(
-      executeOverseerCanvas(CALLER, {
-        operation: "node.delete",
-        args: { nodeId: "peer" },
-      }),
+      executeOverseerCanvas(CALLER, { operation: "node.delete", args: { nodeIds: ["peer"] } }),
     );
     await native.prepared;
     const interrupted = runtime!.runPromise(Fiber.interrupt(fiber));
     native.release();
     await interrupted;
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    expect(after.doc.nodes.some((node) => node.id === "peer")).toBe(true);
+    expect(await nodeAt("ops", "peer")).toBeDefined();
     expect(native.finishes).toEqual(["aborted"]);
   });
 
@@ -749,11 +697,7 @@ describe("executeOverseerCanvas", () => {
     const gate = await runtime!.runPromise(Deferred.make<void>());
     const finishes: Array<"committed" | "aborted"> = [];
     setOverseerNativeDeleteHooks({
-      prepareOverseerNodeDelete: async () => ({
-        ok: true,
-        leaseId: "lease-body",
-        pageStops: [],
-      }),
+      prepareOverseerNodeDelete: async () => ({ ok: true, leaseId: "lease-body", pageStops: [] }),
       finishOverseerNodeDelete: (_leaseId, outcome) => {
         finishes.push(outcome);
         return { ok: true };
@@ -764,50 +708,47 @@ describe("executeOverseerCanvas", () => {
         yield* Deferred.succeed(entered, undefined);
         yield* Deferred.await(gate);
       }),
-      // node.delete lists the canvases for the grant and for the portfolio
-      // before the write lists them again.
+      // node.delete lists the canvases for the grant and for its own early
+      // check before the write lists them again.
       3,
     );
     const fiber = runtime!.runFork(
-      executeOverseerCanvas(CALLER, {
-        operation: "node.delete",
-        args: { nodeId: "peer" },
-      }).pipe(Effect.provideService(ModelService, wrapped)),
+      executeOverseerCanvas(CALLER, { operation: "node.delete", args: { nodeIds: ["peer"] } })
+        .pipe(Effect.provideService(ModelService, wrapped)),
     );
     await runtime!.runPromise(Deferred.await(entered));
     await runtime!.runPromise(Fiber.interrupt(fiber));
     await runtime!.runPromise(Deferred.succeed(gate, undefined));
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    expect(after.doc.nodes.some((node) => node.id === "peer")).toBe(true);
+    expect(await nodeAt("ops", "peer")).toBeDefined();
     expect(finishes).toEqual(["aborted"]);
   });
 
   it("reports finish failure after a successful commit", async () => {
     await boot();
     setOverseerNativeDeleteHooks({
-      prepareOverseerNodeDelete: async () => ({
-        ok: true,
-        leaseId: "lease-finish-fail",
-        pageStops: [],
-      }),
-      finishOverseerNodeDelete: () => ({ ok: false, error: "fence stuck" }),
+      prepareOverseerNodeDelete: async () => ({ ok: true, leaseId: "lease-finish", pageStops: [] }),
+      finishOverseerNodeDelete: (_leaseId, outcome) =>
+        outcome === "committed" ? { ok: false, error: "terminal still attached" } : { ok: true },
     });
-    const error = await expectErr(
-      { operation: "node.delete", args: { nodeId: "peer" } },
-      "InternalError",
-    );
+    const error = await expectErr({ operation: "node.delete", args: { nodeIds: ["peer"] } }, "InternalError");
     expect(error.message).toContain("finish failed after commit");
+    expect(await nodeAt("ops", "peer")).toBeUndefined();
   });
 
-  it("generic write cannot restore a revoked grant", async () => {
+  it("deleting a seat plans its session and its agent for teardown, and a page by its node", async () => {
     await boot();
-    const before = await runtime!.runPromise(readSeeded("ops"));
-    await runtime!.runPromise(
-      grantOverseer("ops", "overseer", false),
-    );
-    await runtime!.runPromise(seedCanvas("ops", overseerDoc()));
-    const after = await runtime!.runPromise(readSeeded("ops"));
-    const seat = after.doc.nodes.find((node) => node.id === "overseer");
-    expect(seat?.ether?.overseer).toBeUndefined();
+    const planned: Array<ReadonlyArray<unknown>> = [];
+    setOverseerNativeDeleteHooks({
+      prepareOverseerNodeDelete: async (resources) => {
+        planned.push(resources);
+        return { ok: true, leaseId: "lease-plan", pageStops: [] };
+      },
+      finishOverseerNodeDelete: () => ({ ok: true }),
+    });
+    await expectOk({ operation: "node.delete", args: { nodeIds: ["peer"] } });
+    expect(planned).toEqual([[
+      { kind: "agent", agentKey: "local:amp" },
+      { kind: "terminal", bindingId: "bind-peer", hostId: "local" },
+    ]]);
   });
 });

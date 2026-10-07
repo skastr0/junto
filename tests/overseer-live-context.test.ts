@@ -1,8 +1,7 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import type { CanvasReadResult } from "../src/shared/ipc";
-import type { TextNode } from "../src/shared/canvas";
+import type { Node, Wire } from "../src/shared/model";
 import type { Task, TaskState } from "../src/shared/work-model";
 import {
   buildLiveContext,
@@ -10,7 +9,9 @@ import {
   LIVE_CONTEXT_LIMITS,
   meaningfulLiveChanges,
   quietLiveContext,
+  type LiveCanvasRead,
 } from "../src/main/junto/overseer/live/context";
+import { canvasOf, note, page, seat, taskBoard, wire } from "./support/model-nodes";
 
 const actor = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
 const task = (id = "investigation", state: TaskState = "working"): Task => ({
@@ -18,25 +19,41 @@ const task = (id = "investigation", state: TaskState = "working"): Task => ({
   ...(state === "submitted" ? {} : { claimedBy: actor }),
   history: [{ messageId: "brief", role: "user", parts: [{ kind: "text", text: "Investigate authentication failures\nFull history should stay private" }] }],
 });
-const node = (id: string): TextNode => ({ id, type: "text", text: id, x: 10, y: 20, width: 200, height: 100 });
-const fixture = (state: TaskState = "working", workRevision = "1"): CanvasReadResult => ({
-  name: "factory", revision: "authorial-revision", workRevision, actorRefs: [],
-  doc: {
-    nodes: [
-      { ...node("worker"), ether: {
-        entity: { kind: "agent", name: "local:API" },
-        terminal: {
-          bindingId: "binding", harness: "claude", launch: {
-            kind: "command", argv: ["secret-shell-argument"], cwd: "/private/working/path", env: { API_KEY: "private-env-value" },
-          },
-        },
-      } },
-      { ...node("queue"), ether: { entity: { kind: "task", name: "Authentication" }, tasks: { items: [task("investigation", state)] } } },
-      { ...node("page"), type: "link", url: "https://example.test?access_token=private-url-value", ether: { entity: { kind: "page", name: "Docs" } } },
-    ],
-    edges: [{ id: "connection", fromNode: "worker", toNode: "queue", ether: { verb: "contributes" } }],
-  },
+const at = { x: 10, y: 20, width: 200, height: 100 };
+
+/** A canvas and the work beside it, as the context reads them. */
+const reading = (
+  nodes: ReadonlyArray<Node>,
+  wires: ReadonlyArray<Wire> = [],
+  tasks: ReadonlyArray<readonly [string, ReadonlyArray<Task>]> = [],
+  workRevision = "1",
+): LiveCanvasRead => ({
+  name: "factory",
+  canvas: canvasOf(nodes, wires),
+  tasks: new Map(tasks),
+  artifacts: new Map(),
+  revision: "authorial-revision",
+  workRevision,
 });
+
+const fixture = (state: TaskState = "working", workRevision = "1"): LiveCanvasRead =>
+  reading(
+    [
+      seat("worker", {
+        ...at,
+        agentKey: "local:API",
+        label: "worker",
+        launch: {
+          kind: "command", argv: ["secret-shell-argument"], cwd: "/private/working/path", env: { API_KEY: "private-env-value" },
+        },
+      }),
+      taskBoard("queue", { ...at, name: "Authentication" }),
+      page("page", { ...at, url: "https://example.test?access_token=private-url-value" }),
+    ],
+    [wire("connection", "worker", "queue", "contributes")],
+    [["queue", [task("investigation", state)]]],
+    workRevision,
+  );
 const attention = { canvasName: "factory", selectedNodeIds: ["worker"] };
 
 describe("Live semantic context", () => {
@@ -46,7 +63,7 @@ describe("Live semantic context", () => {
     const context = buildLiveContext(read, input);
     expect(context.authoritative).toMatchObject({
       canvasName: "factory", revision: "authorial-revision", workRevision: "1", counts: { blocked: 1 },
-      edges: [{ id: "connection", fromNode: "worker", toNode: "queue", verb: "contributes" }],
+      wires: [{ id: "connection", from: "worker", to: "queue", verb: "contributes" }],
     });
     expect(context.authoritative.nodes[0]?.id).toBe("worker");
     expect(context.authoritative.nodes.find((item) => item.id === "queue")?.tasks[0]).toMatchObject({ state: "input-required", claimedBy: actor });
@@ -70,8 +87,7 @@ describe("Live semantic context", () => {
 
   it("withholds recognizable credentials accidentally pasted into labels and drafts", () => {
     const secret = `sk-proj-${"Q".repeat(32)}`;
-    const read = fixture();
-    const context = buildLiveContext({ ...read, doc: { ...read.doc, nodes: [{ ...node("secret-note"), text: `API key: ${secret}` }] } }, {
+    const context = buildLiveContext(reading([note("secret-note", `API key: ${secret}`, at)]), {
       ...attention, draft: { nodeId: "secret-note", text: 'password="private password"\nBearer private.token.value' },
     });
     const serialized = JSON.stringify(context);
@@ -89,13 +105,13 @@ describe("Live semantic context", () => {
   });
 
   it("bounds large canvas context while retaining selected targets first", () => {
-    const read = fixture();
-    const nodes = Array.from({ length: 200 }, (_, index) => ({
-      ...node(`node-${index}`),
-      text: "測".repeat(500),
-      ether: { tasks: { items: Array.from({ length: 20 }, (_, taskIndex) => task(`${index}-${taskIndex}`)) } },
-    }));
-    const context = buildLiveContext({ ...read, doc: { nodes, edges: [] } }, { ...attention, selectedNodeIds: ["node-199"] });
+    const nodes = Array.from({ length: 200 }, (_, index) =>
+      taskBoard(`node-${index}`, { ...at, name: "測".repeat(500) as never }));
+    const context = buildLiveContext(
+      reading(nodes, [], nodes.map((board, index) =>
+        [board.id, Array.from({ length: 20 }, (_, taskIndex) => task(`${index}-${taskIndex}`))] as const)),
+      { ...attention, selectedNodeIds: ["node-199"] },
+    );
     expect(context.authoritative.nodes[0]?.id).toBe("node-199");
     expect(context.authoritative.omittedNodes).toBeGreaterThan(0);
     expect(context.authoritative.nodes.length).toBeLessThanOrEqual(LIVE_CONTEXT_LIMITS.nodes);
@@ -104,9 +120,8 @@ describe("Live semantic context", () => {
   });
 
   it("keeps quiet context under the provider token ceiling including non-ASCII labels", () => {
-    const read = fixture();
-    const nodes = Array.from({ length: 10 }, (_, index) => ({ ...node(`node-${index}`), text: "界👩🏽‍💻".repeat(100) }));
-    const context = buildLiveContext({ ...read, doc: { nodes, edges: [] } }, {
+    const nodes = Array.from({ length: 10 }, (_, index) => note(`node-${index}`, "界👩🏽‍💻".repeat(100), at));
+    const context = buildLiveContext(reading(nodes), {
       ...attention, selectedNodeIds: nodes.map((item) => item.id), draft: { nodeId: "node-0", text: "A draft" },
     });
     const quiet = quietLiveContext(context);
@@ -125,7 +140,7 @@ describe("Live semantic context", () => {
     }]);
     expect(meaningfulLiveChanges(blocked, completed)[0]?.kind).toBe("task-completed");
     expect(meaningfulLiveChanges(before, before)).toEqual([]);
-    const empty = buildLiveContext({ ...fixture(), doc: { nodes: [], edges: [] } }, attention);
+    const empty = buildLiveContext(reading([]), attention);
     expect(meaningfulLiveChanges(empty, completed)).toEqual([]);
   });
 

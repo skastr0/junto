@@ -1,6 +1,4 @@
-import { wireOfDocument } from "@shared/model/from-document";
-import type { CanvasNode } from "@shared/canvas";
-import type { CanvasReadResult } from "@shared/ipc";
+import { inPaintOrder, titleOf, type Canvas, type Node } from "@shared/model";
 import type { LiveAttention } from "@shared/overseer-live";
 import { taskBrief } from "@shared/task";
 import type { Task, TaskState } from "@shared/work-model";
@@ -9,7 +7,7 @@ export const LIVE_CONTEXT_LIMITS = Object.freeze({
   bytes: 32_768,
   quietBytes: 500,
   nodes: 48,
-  edges: 96,
+  wires: 96,
   tasksPerNode: 12,
 });
 
@@ -33,12 +31,28 @@ interface SemanticNode {
   readonly artifactCount: number;
 }
 
-interface SemanticEdge {
+interface SemanticWire {
   readonly id: string;
-  readonly fromNode: string;
-  readonly toNode: string;
-  readonly verb: string | null;
+  readonly from: string;
+  readonly to: string;
+  readonly verb: string;
 }
+
+/**
+ * One canvas as the context reads it: the model's structure, and beside it
+ * the work the context summarises. A canvas holds no work.
+ */
+export type LiveCanvasRead = {
+  readonly name: string;
+  readonly canvas: Canvas;
+  /** Task and request rows by the node that holds them. */
+  readonly tasks: ReadonlyMap<string, ReadonlyArray<Task>>;
+  /** Artifact ids by the artifacts node that holds them. */
+  readonly artifacts: ReadonlyMap<string, ReadonlyArray<string>>;
+  /** The canvas sequence, as text. */
+  readonly revision: string;
+  readonly workRevision: string;
+};
 
 export interface LiveSemanticContext {
   readonly authoritative: {
@@ -46,16 +60,16 @@ export interface LiveSemanticContext {
     readonly revision: string;
     readonly workRevision: string;
     readonly nodes: ReadonlyArray<SemanticNode>;
-    readonly edges: ReadonlyArray<SemanticEdge>;
+    readonly wires: ReadonlyArray<SemanticWire>;
     readonly counts: {
       readonly nodes: number;
-      readonly edges: number;
+      readonly wires: number;
       readonly working: number;
       readonly blocked: number;
       readonly completed: number;
     };
     readonly omittedNodes: number;
-    readonly omittedEdges: number;
+    readonly omittedWires: number;
   };
   /** Attention is captured renderer input. It grants no authority. */
   readonly attention: {
@@ -95,41 +109,30 @@ const semanticText = (text: string, maxBytes: number): string => clipBytes(text
   .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
   .replace(/\u00b7/g, ","), maxBytes);
 
-const labelOf = (node: CanvasNode): string => {
-  const kind = node.ether?.entity?.kind;
-  const label = kind === "agent" || kind === "terminal"
-    ? node.ether?.terminal?.label ?? node.ether?.entity?.name ?? node.id
-    : node.ether?.tasks?.name ?? node.ether?.requests?.name ?? node.ether?.entity?.name ??
-      (node.type === "group" ? node.label : node.type === "text" ? node.text.split("\n")[0] : undefined) ?? node.id;
-  return semanticText(label, 200);
-};
-
-const tasksOf = (node: CanvasNode): ReadonlyArray<Task> => [
-  ...(node.ether?.tasks?.items ?? []),
-  ...(node.ether?.requests?.items ?? []),
-];
+const NO_TASKS: ReadonlyArray<Task> = [];
+const NO_IDS: ReadonlyArray<string> = [];
 
 const taskPriority = (task: Task): number =>
   task.state === "input-required" || task.state === "auth-required" ? 0 : task.state === "working" ? 1 : 2;
 
-const projectNode = (node: CanvasNode): SemanticNode => {
-  const tasks = tasksOf(node);
+const projectNode = (node: Node, read: LiveCanvasRead): SemanticNode => {
+  const tasks = read.tasks.get(node.id) ?? NO_TASKS;
   const shownTasks = [...tasks].sort((left, right) => taskPriority(left) - taskPriority(right) || left.id.localeCompare(right.id))
     .slice(0, LIVE_CONTEXT_LIMITS.tasksPerNode);
-  const artifacts = node.ether?.artifacts?.items ?? [];
+  const artifacts = read.artifacts.get(node.id) ?? NO_IDS;
   return {
     id: node.id,
-    kind: semanticText(node.ether?.entity?.kind ?? node.type, 80),
-    label: labelOf(node),
+    kind: node.kind,
+    label: semanticText(titleOf(node), 200),
     geometry: { x: node.x, y: node.y, width: node.width, height: node.height },
-    ...(node.ether?.host === undefined ? {} : { host: node.ether.host }),
-    overseer: node.ether?.overseer === true,
+    ...("host" in node ? { host: node.host } : {}),
+    overseer: node.kind === "agent" && node.overseer,
     tasks: shownTasks.map((task) => ({
       id: task.id, brief: semanticText(taskBrief(task), 240), state: task.state,
       ...(task.claimedBy === undefined ? {} : { claimedBy: task.claimedBy }),
     })),
     omittedTasks: tasks.length - shownTasks.length,
-    artifactIds: artifacts.slice(0, 12).map((artifact) => artifact.artifactId),
+    artifactIds: artifacts.slice(0, 12),
     artifactCount: artifacts.length,
   };
 };
@@ -143,31 +146,33 @@ const freezeContext = <Value>(value: Value): Value => {
 };
 
 /** Main-owned canvas/work truth stays distinct from renderer attention/drafts. */
-export const buildLiveContext = (read: CanvasReadResult, attention: LiveAttention): LiveSemanticContext => {
-  const nodeIds = new Set(read.doc.nodes.map((node) => node.id));
+export const buildLiveContext = (read: LiveCanvasRead, attention: LiveAttention): LiveSemanticContext => {
+  const held = inPaintOrder(read.canvas);
+  const wired = [...read.canvas.wires.values()];
+  const nodeIds = new Set<string>(held.map((node) => node.id));
   const selection = attention.canvasName === read.name
     ? [...new Set(attention.selectedNodeIds)].filter((id) => nodeIds.has(id)).slice(0, 100)
     : [];
   const selected = new Set(selection);
-  const adjacent = new Set(read.doc.edges.flatMap((edge) =>
-    selected.has(edge.fromNode) ? [edge.toNode] : selected.has(edge.toNode) ? [edge.fromNode] : []));
-  const nodePriority = (node: CanvasNode): number => selected.has(node.id) ? 0 : adjacent.has(node.id) ? 1 :
-    tasksOf(node).some((task) => taskPriority(task) === 0) ? 2 : 3;
-  const ordered = [...read.doc.nodes].sort((left, right) => nodePriority(left) - nodePriority(right) || left.id.localeCompare(right.id));
-  const allTasks = read.doc.nodes.flatMap(tasksOf);
+  const adjacent = new Set<string>(wired.flatMap((wire) =>
+    selected.has(wire.from) ? [wire.to] : selected.has(wire.to) ? [wire.from] : []));
+  const nodePriority = (node: Node): number => selected.has(node.id) ? 0 : adjacent.has(node.id) ? 1 :
+    (read.tasks.get(node.id) ?? NO_TASKS).some((task) => taskPriority(task) === 0) ? 2 : 3;
+  const ordered = [...held].sort((left, right) => nodePriority(left) - nodePriority(right) || left.id.localeCompare(right.id));
+  const allTasks = held.flatMap((node) => read.tasks.get(node.id) ?? NO_TASKS);
   const nodes: Array<SemanticNode> = [];
-  const edges: Array<SemanticEdge> = [];
+  const wires: Array<SemanticWire> = [];
   const context = {
     authoritative: {
       canvasName: read.name, revision: read.revision, workRevision: read.workRevision,
-      nodes, edges,
+      nodes, wires,
       counts: {
-        nodes: read.doc.nodes.length, edges: read.doc.edges.length,
+        nodes: held.length, wires: wired.length,
         working: allTasks.filter((task) => task.state === "working").length,
         blocked: allTasks.filter((task) => task.state === "input-required" || task.state === "auth-required").length,
         completed: allTasks.filter((task) => task.state === "completed").length,
       },
-      omittedNodes: read.doc.nodes.length, omittedEdges: read.doc.edges.length,
+      omittedNodes: held.length, omittedWires: wired.length,
     },
     attention: {
       source: "renderer" as const,
@@ -186,18 +191,18 @@ export const buildLiveContext = (read: CanvasReadResult, attention: LiveAttentio
   if (!fits()) throw new RangeError("Live attention exceeds the semantic context limit");
   for (const node of ordered) {
     if (nodes.length >= LIVE_CONTEXT_LIMITS.nodes) break;
-    nodes.push(projectNode(node));
+    nodes.push(projectNode(node, read));
     if (!fits()) nodes.pop();
   }
   const included = new Set(nodes.map((node) => node.id));
-  for (const edge of [...read.doc.edges].sort((left, right) => left.id.localeCompare(right.id))) {
-    if (edges.length >= LIVE_CONTEXT_LIMITS.edges) break;
-    if (!included.has(edge.fromNode) || !included.has(edge.toNode)) continue;
-    edges.push({ id: edge.id, fromNode: edge.fromNode, toNode: edge.toNode, verb: wireOfDocument(edge)?.verb ?? null });
-    if (!fits()) edges.pop();
+  for (const wire of [...wired].sort((left, right) => left.id.localeCompare(right.id))) {
+    if (wires.length >= LIVE_CONTEXT_LIMITS.wires) break;
+    if (!included.has(wire.from) || !included.has(wire.to)) continue;
+    wires.push({ id: wire.id, from: wire.from, to: wire.to, verb: wire.verb });
+    if (!fits()) wires.pop();
   }
   context.authoritative.omittedNodes -= nodes.length;
-  context.authoritative.omittedEdges -= edges.length;
+  context.authoritative.omittedWires -= wires.length;
   return freezeContext(context);
 };
 
@@ -210,7 +215,7 @@ export const quietLiveContext = (context: LiveSemanticContext): string => {
     `Canvas ${semanticText(state.canvasName, 80)}: ${state.counts.nodes} nodes, ${state.counts.working} working tasks, ${state.counts.blocked} blocked, ${state.counts.completed} completed.`,
     `Selected: ${labels.length > 0 ? labels.join(", ") : "none resolved"}.`,
     ...(context.attention.draft === undefined ? [] : ["The operator has an unsaved draft; it is not committed state."]),
-    ...(state.omittedNodes > 0 || state.omittedEdges > 0 ? ["Detailed context is partial; retrieve exact targets before acting."] : []),
+    ...(state.omittedNodes > 0 || state.omittedWires > 0 ? ["Detailed context is partial; retrieve exact targets before acting."] : []),
   ];
   return clipBytes(lines.join("\n"), LIVE_CONTEXT_LIMITS.quietBytes);
 };

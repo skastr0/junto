@@ -6,7 +6,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Deferred, Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { type CanvasDoc, type CanvasNode, type TextNode } from "../src/shared/canvas";
+import { asNodeId, type NodeOf } from "../src/shared/model";
+import { seatParts } from "../src/shared/model/seat-parts";
+import { seat } from "./support/model-nodes";
 import type { OverseerCaller } from "../src/shared/overseer-control";
 import { InstallationId } from "../src/shared/station-api";
 import {
@@ -28,7 +30,6 @@ import { commitAgentReseat } from "../src/main/junto/overseer/canvas";
 import {
   createDispatchGrant,
   lateBoundDrive,
-  reseatCanvasArgs,
   runCanvasHook,
 } from "../src/main/junto/overseer/composition";
 
@@ -37,63 +38,8 @@ const origin: OverseerCaller = { canvasName: "ops", nodeId: "overseer" };
 const targetCanvas = "factory";
 const targetAgent = "peer";
 
-const agent = (id: string, bindingId: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 260,
-  height: 96,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    host: "local",
-    terminal: { bindingId, harness: "amp" },
-  },
-});
-
-const overseerDoc = (): CanvasDoc =>
-  ({
-    nodes: [
-      agent("overseer", "bind-overseer"),
-    ],
-    edges: [],
-  });
-
-const nextPeer = (): TextNode => ({
-  id: targetAgent,
-  type: "text",
-  text: "reseated",
-  x: 40,
-  y: 0,
-  width: 260,
-  height: 96,
-  ether: {
-    entity: { kind: "agent", name: "local:amp" },
-    host: "local",
-    terminal: { bindingId: "bind-peer-next", harness: "amp" },
-  },
-});
-
-describe("overseer composition origin vs target", () => {
-  it("maps native payload to origin caller and target canvas args", () => {
-    const mapped = reseatCanvasArgs({
-      caller: origin,
-      canvasName: targetCanvas,
-      nodeId: targetAgent,
-      next: nextPeer(),
-    });
-    expect("ok" in mapped).toBe(false);
-    if ("ok" in mapped) return;
-    expect(mapped.caller).toEqual(origin);
-    expect(mapped.caller.nodeId).not.toBe(targetAgent);
-    expect(mapped.args).toMatchObject({
-      canvas: targetCanvas,
-      nodeId: targetAgent,
-      harness: "amp",
-    });
-  });
-});
+const amp = (id: string, bindingId: string): NodeOf<"agent"> =>
+  seat(id, { width: 260, height: 96, harness: "amp", bindingId: bindingId as NodeOf<"agent">["bindingId"] });
 
 describe("overseer composition absence", () => {
   it("refuses writePrompt without bytes when the managed drive is unbound", async () => {
@@ -155,11 +101,8 @@ describe("overseer composition canvas hook with live grant", () => {
     await runtime.runPromise(settings.setStationTopology({
       role: "command-center", hostId: "local", supervisedPreferred: false,
     }));
-    await runtime.runPromise(seedCanvas("ops", overseerDoc()));
-    await runtime.runPromise(seedCanvas(targetCanvas, {
-      nodes: [agent("peer", "bind-peer")], edges: [],
-    }));
-    const ops = await runtime.runPromise(readSeeded("ops"));
+    await runtime.runPromise(seedCanvas("ops", [amp("overseer", "bind-overseer")]));
+    await runtime.runPromise(seedCanvas(targetCanvas, [amp("peer", "bind-peer")]));
     await runtime.runPromise(grantOverseer(origin.canvasName, origin.nodeId, true));
 
     const run = <A, E>(effect: Effect.Effect<A, E, ModelService | ModelActorRefs | StationRepository>) =>
@@ -169,26 +112,25 @@ describe("overseer composition canvas hook with live grant", () => {
     expect(await Promise.all([localGrant(origin), wrongSourceGrant(origin)]))
       .toEqual([true, false]);
 
-    const mapped = reseatCanvasArgs({
-      caller: origin,
-      canvasName: targetCanvas,
-      nodeId: targetAgent,
-      next: nextPeer(),
-    });
-    expect("ok" in mapped).toBe(false);
-    if ("ok" in mapped) throw new Error(mapped.message);
-    expect(mapped.caller.nodeId).toBe("overseer");
-    expect(mapped.args.nodeId).toBe("peer");
-
+    // The launch is main's: worked out from named choices, never sent by the agent.
+    const parts = seatParts({ harness: "claude", host: "local", model: "opus" });
     const result = await runtime.runPromise(
-      Effect.result(commitAgentReseat(mapped.caller, mapped.args, mapped.next)),
+      Effect.result(commitAgentReseat(origin, { canvas: targetCanvas, nodeId: targetAgent }, parts)),
     );
     expect(result._tag).toBe("Success");
-    const after = await runtime.runPromise(readSeeded(targetCanvas));
-    const peer = after.doc.nodes.find((node) => node.id === "peer");
-    expect(peer).toMatchObject({ text: "reseated", ether: { terminal: { bindingId: "bind-peer-next" } } });
-    const originAfter = await runtime.runPromise(readSeeded(origin.canvasName));
-    expect(originAfter.doc.nodes[0]).toMatchObject({ id: "overseer", ether: { overseer: true, terminal: { bindingId: "bind-overseer" } } });
+    const peer = (await runtime.runPromise(readSeeded(targetCanvas))).nodes.get(asNodeId("peer"));
+    expect(peer).toMatchObject({
+      kind: "agent", label: "peer", harness: "claude", bindingId: parts.bindingId,
+      agentKey: parts.agentKey, launch: parts.launch, overseer: false,
+    });
+    expect(parts.bindingId).not.toBe("bind-peer");
+    // The origin seat is untouched, and it cannot reseat itself.
+    expect((await runtime.runPromise(readSeeded(origin.canvasName))).nodes.get(asNodeId("overseer")))
+      .toMatchObject({ overseer: true, bindingId: "bind-overseer", harness: "amp" });
+    const own = await runtime.runPromise(
+      Effect.result(commitAgentReseat(origin, { nodeId: origin.nodeId }, parts)),
+    );
+    expect(own).toMatchObject({ _tag: "Failure", failure: { type: "AuthError" } });
   });
 
   it("interrupts a waiting canvas hook and drains its cleanup before returning", async () => {

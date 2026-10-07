@@ -1,7 +1,7 @@
 /**
  * Native-runtime overseer adapters.
  *
- * Parent authenticates the live caller and rechecks ether.overseer before
+ * Parent authenticates the live caller and rechecks the overseer grant before
  * routing here. This module executes agent/terminal/page/scheduler/git and
  * application-screenshot operations against existing main-owned services.
  * It never fakes a WebContents trusted sender, never uses a bare PID, and
@@ -9,10 +9,8 @@
  */
 import { randomBytes } from "node:crypto";
 import { Effect, Result } from "effect";
-import type { CanvasDoc, CanvasNode, TextNode } from "@shared/canvas";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidProfileId } from "@shared/browser";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import {
   decodeOverseerArgs,
   type OverseerCaller,
@@ -21,19 +19,17 @@ import {
   type OverseerOperation,
   type OverseerRequest,
   type OverseerResult,
+  type OverseerArgsFor,
 } from "@shared/overseer-control";
 import type { WorkErrorBody } from "@shared/work-control";
-import { resolveTerminalBinding } from "@shared/terminal";
-import { isSchedulerEntityKind } from "@shared/scheduler-effects";
 import { GIT_LOG_LIMIT_DEFAULT } from "@shared/git";
-import { resolveNodeHostId } from "@shared/station";
 import {
-  callerGrantLive,
   type OverseerDeleteResource,
-} from "@shared/overseer-authoring";
+} from "@shared/overseer-rules";
+import { seatParts, type SeatParts } from "@shared/model/seat-parts";
 import { INTERRUPT_BYTE } from "../term/drive";
 import type { ControlLease } from "../term/local-host";
-import { asCanvasName } from "@shared/model";
+import { asNodeId, inPaintOrder, type Canvas, type Node, type NodeOf } from "@shared/model";
 import { canvasFromDocument } from "@shared/model/from-document";
 import { modelError } from "../model/records";
 import type { ModelNodeReader } from "../node-ref-resolver";
@@ -50,12 +46,10 @@ import { readGitLog, readGitShow, readGitStatus } from "../adapters/git";
 import { getNextFire, getWatchers, overseerSchedulerFire } from "../kernel/cycle";
 import {
   admitOverseerPage,
-  findNode,
   overseerPageMessage,
   overseerPageNodeIds,
   overseerPageRefs,
 } from "./authz";
-import { reseatManagedAgentNode } from "./reseat";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { ManagedTerminalDrive } from "../term/drive";
 import { makeManagedSpawnIntent } from "../term/managed-spawn-plan";
@@ -145,7 +139,8 @@ export type AgentReseatCommitInput = {
   readonly canvasName: string;
   /** Target agent node id. */
   readonly nodeId: string;
-  readonly next: TextNode;
+  /** What the seat launch rules worked out from the choices named. */
+  readonly parts: SeatParts;
 };
 
 export type SchedulerConfigureApplyInput = {
@@ -155,8 +150,7 @@ export type SchedulerConfigureApplyInput = {
   readonly canvasName: string;
   /** Target scheduler node id. */
   readonly nodeId: string;
-  readonly timer?: unknown;
-  readonly watch?: unknown;
+  readonly change: OverseerArgsFor<"scheduler.configure">["change"];
 };
 
 export type OverseerNativeLiveOptions = {
@@ -165,9 +159,8 @@ export type OverseerNativeLiveOptions = {
   readonly pages?: BrowserSessionService;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
   readonly liveOverseerGrant: (caller: OverseerCaller) => Promise<boolean>;
-  readonly listCanvasDocuments: () => Promise<
-    ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>
-  >;
+  /** Every canvas as the model holds it now, by name. */
+  readonly listCanvases: () => Promise<ReadonlyMap<string, Canvas>>;
   /**
    * Promise form of ActorSeatOccupy.occupy. Native never calls Effect.runPromise.
    * Occupied seats activate; vacant seats occupy. Host comes from the node.
@@ -244,22 +237,9 @@ const canvasOf = (
   args: { readonly canvas?: string },
 ): string => args.canvas ?? caller.canvasName;
 
-const findDocument = (
-  documents: ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>,
-  name: string,
-): CanvasDoc | undefined => documents.find((entry) => entry.name === name)?.doc;
+type Seat = NodeOf<"agent">;
 
-const entityKind = (node: CanvasNode | undefined): string | undefined =>
-  node?.ether?.entity?.kind;
-
-const isAgentNode = (node: CanvasNode | undefined): node is CanvasNode =>
-  node !== undefined && entityKind(node) === "agent";
-
-const isGitNode = (node: CanvasNode | undefined): node is CanvasNode =>
-  node !== undefined && entityKind(node) === "git";
-
-const asTextNode = (node: CanvasNode): TextNode | undefined =>
-  node.type === "text" ? (node as TextNode) : undefined;
+const isAgentNode = (node: Node | undefined): node is Seat => node?.kind === "agent";
 
 const tailText = (text: string, tailBytes: number | undefined): string => {
   if (tailBytes === undefined) return text;
@@ -312,22 +292,20 @@ type NativeContext = OverseerNativeLiveOptions & {
   readonly signal: AbortSignal;
 };
 
-const documentsReader = (
-  listCanvasDocuments: OverseerNativeLiveOptions["listCanvasDocuments"],
+const modelReader = (
+  listCanvases: OverseerNativeLiveOptions["listCanvases"],
 ): ModelNodeReader => ({
   listCanvases: () =>
     Effect.tryPromise({
-      try: async () =>
-        (await listCanvasDocuments()).map((entry) => asCanvasName(entry.name)),
+      try: async () => [...(await listCanvases()).values()].map((canvas) => canvas.name),
       catch: (error) => modelError("overseer.listCanvases", error),
     }),
   canvas: (name: string) =>
     Effect.tryPromise({
       try: async () => {
-        const documents = await listCanvasDocuments();
-        const found = documents.find((entry) => entry.name === name);
+        const found = (await listCanvases()).get(name);
         if (found === undefined) throw new Error(`canvas not found: ${name}`);
-        return canvasFromDocument(name, found.doc);
+        return found;
       },
       catch: (error) => modelError("overseer.canvas", error),
     }),
@@ -337,34 +315,20 @@ const resolveTargetNode = async (
   ctx: NativeContext,
   caller: OverseerCaller,
   args: { readonly canvas?: string; readonly nodeId: string },
-): Promise<{ readonly canvasName: string; readonly doc: CanvasDoc; readonly node: CanvasNode } | NativeErr> => {
+): Promise<{ readonly canvasName: string; readonly canvas: Canvas; readonly node: Node } | NativeErr> => {
   const canvasName = canvasOf(caller, args);
-  const documents = await ctx.listCanvasDocuments();
-  const doc = findDocument(documents, canvasName);
-  if (doc === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
-  const node = findNode(doc, args.nodeId);
+  const canvas = (await ctx.listCanvases()).get(canvasName);
+  if (canvas === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
+  const node = canvas.nodes.get(asNodeId(args.nodeId));
   if (node === undefined) return fail("NotFound", `node not found: ${args.nodeId}`);
-  return { canvasName, doc, node };
+  return { canvasName, canvas, node };
 };
 
-const bindingOf = (node: CanvasNode): { readonly bindingId: string; readonly hostId: string } | undefined => {
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface?._tag === "managedAgent") {
-    return { bindingId: surface.bindingId, hostId: surface.hostId };
-  }
-  const binding = resolveTerminalBinding(node);
-  if (binding?.kind === "native") {
-    return { bindingId: binding.bindingId, hostId: binding.hostId };
-  }
-  return undefined;
-};
-
-const agentKeyOf = (node: CanvasNode): string | undefined => {
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface?._tag === "managedAgent") return surface.agentKey;
-  const name = node.ether?.entity?.name;
-  return typeof name === "string" && name.trim().length > 0 ? name.trim() : undefined;
-};
+/** The session a seat or a terminal holds. */
+const bindingOf = (node: Node): { readonly bindingId: string; readonly hostId: string } | undefined =>
+  node.kind === "agent" || node.kind === "terminal"
+    ? { bindingId: node.bindingId, hostId: node.host }
+    : undefined;
 
 const sessionSummary = async (
   ctx: NativeContext,
@@ -480,25 +444,24 @@ const promptSeat = async (
 const occupySeat = async (
   ctx: NativeContext,
   canvasName: string,
-  node: CanvasNode,
-  surface: Extract<ReturnType<typeof actorDeliverySurfaceOf>, { readonly _tag: "managedAgent" }>,
+  node: Seat,
 ): Promise<boolean> => {
   if (ctx.signal.aborted) return false;
   try {
     const occupied = await ctx.occupySeat(
       {
-        bindingId: surface.bindingId,
-        hostId: surface.hostId,
+        bindingId: node.bindingId,
+        hostId: node.host,
         canvasName,
         nodeId: node.id,
-        harness: surface.harness,
-        agentKey: surface.agentKey,
+        harness: node.harness,
+        agentKey: node.agentKey,
         spawnIntent: makeManagedSpawnIntent({
           nodeId: node.id,
-          harness: surface.harness,
-          documentLaunch: surface.launch,
-          agentKey: surface.agentKey,
-          cwd: surface.launch?.cwd,
+          harness: node.harness,
+          documentLaunch: node.launch,
+          agentKey: node.agentKey,
+          cwd: node.launch?.cwd,
           resume: true,
         }),
       },
@@ -513,16 +476,15 @@ const occupySeat = async (
 const startOrWakeAgent = async (
   ctx: NativeContext,
   canvasName: string,
-  _doc: CanvasDoc,
-  node: CanvasNode,
+  node: Node,
 ): Promise<NativeOutcome> => {
-  const surface = actorDeliverySurfaceOf(node);
-  if (surface?._tag !== "managedAgent") {
+  if (!isAgentNode(node)) {
     return fail("InvalidArguments", "node is not a managed agent seat");
   }
+  const surface = { bindingId: node.bindingId, hostId: node.host };
   // Operator occupy route: ActorSeatOccupy admits Remote projection then
   // occupies the target host. Never fabricate deriveActorSeatId(CC, remoteBinding).
-  const occupied = await occupySeat(ctx, canvasName, node, surface);
+  const occupied = await occupySeat(ctx, canvasName, node);
   if (!occupied) {
     return ctx.signal.aborted
       ? abortedGrant()
@@ -552,22 +514,18 @@ const handleAgent = async (
 ): Promise<NativeOutcome> => {
   if (operation === "agent.list") {
     const canvasName = canvasOf(caller, args as { canvas?: string });
-    const documents = await ctx.listCanvasDocuments();
-    const doc = findDocument(documents, canvasName);
-    if (doc === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
+    const canvas = (await ctx.listCanvases()).get(canvasName);
+    if (canvas === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
     const agents = [];
-    for (const node of doc.nodes) {
+    for (const node of inPaintOrder(canvas)) {
       if (!isAgentNode(node)) continue;
-      const binding = bindingOf(node);
-      const session = binding === undefined
-        ? undefined
-        : await sessionSummary(ctx, binding.bindingId, binding.hostId);
+      const session = await sessionSummary(ctx, node.bindingId, node.host);
       agents.push({
         nodeId: node.id,
-        agentKey: agentKeyOf(node),
-        bindingId: binding?.bindingId,
-        hostId: binding?.hostId ?? resolveNodeHostId(node),
-        harness: node.ether?.terminal?.harness,
+        agentKey: node.agentKey,
+        bindingId: node.bindingId,
+        hostId: node.host,
+        harness: node.harness,
         live: session?.status === "running" || session?.status === "starting",
         session,
       });
@@ -581,10 +539,10 @@ const handleAgent = async (
     args as { canvas?: string; nodeId: string },
   );
   if ("error" in targeted) return targeted;
-  const { canvasName, doc, node } = targeted;
+  const { canvasName, node } = targeted;
   if (!isAgentNode(node)) return fail("InvalidArguments", "node is not an agent seat");
-  const binding = bindingOf(node);
-  const agentKey = agentKeyOf(node);
+  const binding = { bindingId: node.bindingId, hostId: node.host };
+  const agentKey: string | undefined = node.agentKey;
 
   switch (operation) {
     case "agent.get": {
@@ -595,16 +553,16 @@ const handleAgent = async (
         nodeId: node.id,
         canvas: canvasName,
         agentKey,
-        bindingId: binding?.bindingId,
-        hostId: binding?.hostId,
-        harness: node.ether?.terminal?.harness,
+        bindingId: binding.bindingId,
+        hostId: binding.hostId,
+        harness: node.harness,
         session,
         chatLive: agentKey !== undefined ? ctx.chats.isLive(agentKey) : false,
       });
     }
     case "agent.start":
     case "agent.wake": {
-      const started = await startOrWakeAgent(ctx, canvasName, doc, node);
+      const started = await startOrWakeAgent(ctx, canvasName, node);
       if (!started.ok) return started;
       const still = await requireGrant(ctx, caller);
       if (still) return still;
@@ -666,26 +624,20 @@ const handleAgent = async (
       return ok({ stopped, bindingId: binding.bindingId, hostId: binding.hostId });
     }
     case "agent.reseat": {
-      const textNode = asTextNode(node);
-      if (textNode === undefined) return fail("InvalidArguments", "agent seat must be a text node");
       if (ctx.commitAgentReseat === undefined) {
         return fail(
           "Unsupported",
           "agent.reseat requires canvas-owned commitAgentReseat",
         );
       }
-      const originDoc = findDocument(
-        await ctx.listCanvasDocuments(),
-        caller.canvasName,
-      );
-      const originNode =
-        originDoc === undefined ? undefined : findNode(originDoc, caller.nodeId);
-      const originBinding = originNode === undefined ? undefined : bindingOf(originNode);
+      const origin = (await ctx.listCanvases())
+        .get(caller.canvasName)
+        ?.nodes.get(asNodeId(caller.nodeId));
+      const originBinding = origin === undefined ? undefined : bindingOf(origin);
       const sameSeat =
         caller.canvasName === canvasName && caller.nodeId === node.id;
       const sameBinding =
         originBinding !== undefined &&
-        binding !== undefined &&
         originBinding.bindingId === binding.bindingId &&
         originBinding.hostId === binding.hostId;
       if (sameSeat || sameBinding) {
@@ -693,37 +645,23 @@ const handleAgent = async (
       }
       const beforeBuild = await requireGrant(ctx, caller);
       if (beforeBuild) return beforeBuild;
-      const harness = (args as { harness: HarnessId }).harness;
-      const priorCwd =
-        typeof node.ether?.terminal?.launch?.cwd === "string"
-          ? node.ether.terminal.launch.cwd.trim()
-          : undefined;
-      const host =
-        typeof (args as { host?: string }).host === "string" &&
-        (args as { host: string }).host.trim().length > 0
-          ? (args as { host: string }).host.trim()
-          : resolveNodeHostId(node);
-      let next: TextNode;
+      // The agent names what the seat should run; the launch is worked out
+      // here with the one set of seat launch rules, never sent by the agent.
+      const choices = args as OverseerArgsFor<"agent.reseat">;
+      const priorCwd = node.launch?.cwd?.trim();
+      let parts: SeatParts;
       try {
-        next = reseatManagedAgentNode(textNode, {
-          harness,
-          host,
-          ...((args as { profile?: string }).profile
-            ? { profile: (args as { profile: string }).profile }
-            : {}),
-          ...((args as { model?: string }).model
-            ? { model: (args as { model: string }).model }
-            : {}),
-          ...((args as { effort?: string }).effort
-            ? { effort: (args as { effort: string }).effort }
-            : {}),
-          ...((args as { mode?: string }).mode
-            ? { mode: (args as { mode: string }).mode }
-            : {}),
-          ...((args as { permissionMode?: string }).permissionMode
-            ? { permissionMode: (args as { permissionMode: string }).permissionMode }
-            : {}),
+        parts = seatParts({
+          harness: choices.harness,
+          host: choices.host ?? node.host,
+          ...(choices.profile ? { profile: choices.profile } : {}),
+          ...(choices.model ? { model: choices.model } : {}),
+          ...(choices.effort ? { effort: choices.effort } : {}),
+          ...(choices.mode ? { mode: choices.mode } : {}),
+          ...(choices.permissionMode ? { permissionMode: choices.permissionMode } : {}),
           ...(priorCwd ? { cwd: priorCwd } : {}),
+          // A reseat changes what runs in the seat, never what it is called.
+          label: node.label,
         });
       } catch (error) {
         return fail(
@@ -733,16 +671,14 @@ const handleAgent = async (
       }
       const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
-      if (binding !== undefined) {
-        await ctx.termPlane.router.kill(binding.bindingId, binding.hostId);
-      }
+      await ctx.termPlane.router.kill(binding.bindingId, binding.hostId);
       const stillAfterKill = await requireGrant(ctx, caller);
       if (stillAfterKill) return stillAfterKill;
       const committed = await ctx.commitAgentReseat({
         caller,
         canvasName,
         nodeId: node.id,
-        next,
+        parts,
       }, ctx.signal);
       const still = await requireGrant(ctx, caller);
       if (still) return still;
@@ -752,9 +688,9 @@ const handleAgent = async (
       return ok({
         reseated: true,
         nodeId: node.id,
-        priorBindingId: binding?.bindingId,
-        bindingId: next.ether?.terminal?.bindingId,
-        harness: next.ether?.terminal?.harness,
+        priorBindingId: binding.bindingId,
+        bindingId: parts.bindingId,
+        harness: parts.harness,
       });
     }
     default:
@@ -779,18 +715,16 @@ const handleTerminal = async (
       const session = await sessionSummary(ctx, binding.bindingId, binding.hostId);
       return ok({ canvas: canvasName, terminals: session === undefined ? [] : [session] });
     }
-    const documents = await ctx.listCanvasDocuments();
-    const doc = findDocument(documents, canvasName);
-    if (doc === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
+    const canvas = (await ctx.listCanvases()).get(canvasName);
+    if (canvas === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
     const terminals = [];
-    for (const node of doc.nodes) {
+    for (const node of inPaintOrder(canvas)) {
       const binding = bindingOf(node);
       if (binding === undefined) continue;
-      if (entityKind(node) !== "terminal" && entityKind(node) !== "agent") continue;
       const session = await sessionSummary(ctx, binding.bindingId, binding.hostId);
       terminals.push({
         nodeId: node.id,
-        kind: entityKind(node),
+        kind: node.kind,
         bindingId: binding.bindingId,
         hostId: binding.hostId,
         session,
@@ -816,11 +750,8 @@ const handleTerminal = async (
       return ok(session);
     }
     case "terminal.start": {
-      if (entityKind(node) === "agent") {
-        const documents = await ctx.listCanvasDocuments();
-        const doc = findDocument(documents, canvasName);
-        if (doc === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
-        const started = await startOrWakeAgent(ctx, canvasName, doc, node);
+      if (node.kind === "agent") {
+        const started = await startOrWakeAgent(ctx, canvasName, node);
         if (!started.ok) return started;
         const still = await requireGrant(ctx, caller);
         if (still) return still;
@@ -964,27 +895,23 @@ const handlePage = async (
 ): Promise<NativeOutcome> => {
   if (operation === "page.list") {
     const canvasName = canvasOf(caller, args as { canvas?: string });
-    const documents = await ctx.listCanvasDocuments();
-    const doc = findDocument(documents, canvasName);
-    if (doc === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
+    const canvas = (await ctx.listCanvases()).get(canvasName);
+    if (canvas === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
     const pages = ctx.pages;
     const listed = [];
-    for (const nodeId of overseerPageNodeIds(doc)) {
-      const node = findNode(doc, nodeId);
-      let sessionId: string | undefined;
-      if (pages !== undefined && node !== undefined) {
-        const live = resolveLivePageSession(pages, canvasName, nodeId);
-        sessionId = live?.sessionId;
-      }
+    for (const nodeId of overseerPageNodeIds(canvas)) {
+      const admitted = admitOverseerPage(canvas, nodeId);
+      if (!admitted.ok) continue;
+      const live = pages === undefined ? undefined : resolveLivePageSession(pages, canvasName, nodeId);
       listed.push({
         nodeId,
-        url: node && node.type === "link" ? node.url : undefined,
-        profile: node?.ether?.browser?.profile,
-        hostId: node === undefined ? undefined : resolveNodeHostId(node),
-        sessionId,
+        url: admitted.node.url,
+        profile: admitted.node.profile,
+        hostId: admitted.node.host,
+        sessionId: live?.sessionId,
       });
     }
-    return ok({ canvas: canvasName, pages: listed, refs: overseerPageRefs(doc, canvasName) });
+    return ok({ canvas: canvasName, pages: listed, refs: overseerPageRefs(canvas, canvasName) });
   }
 
   if (operation === "page.get") {
@@ -994,7 +921,7 @@ const handlePage = async (
       args as { canvas?: string; nodeId: string },
     );
     if ("error" in targeted) return targeted;
-    const admitted = admitOverseerPage(targeted.doc, targeted.node.id);
+    const admitted = admitOverseerPage(targeted.canvas, targeted.node.id);
     if (!admitted.ok) return fail("NotFound", overseerPageMessage(admitted.denial));
     const pages = ctx.pages;
     let session = undefined;
@@ -1008,9 +935,9 @@ const handlePage = async (
     return ok({
       nodeId: targeted.node.id,
       canvas: targeted.canvasName,
-      url: targeted.node.type === "link" ? targeted.node.url : undefined,
-      profile: targeted.node.ether?.browser?.profile,
-      hostId: resolveNodeHostId(targeted.node),
+      url: admitted.node.url,
+      profile: admitted.node.profile,
+      hostId: admitted.node.host,
       session,
     });
   }
@@ -1024,9 +951,9 @@ const handlePage = async (
       args as { canvas?: string; nodeId: string },
     );
     if ("error" in targeted) return targeted;
-    const admitted = admitOverseerPage(targeted.doc, targeted.node.id);
+    const admitted = admitOverseerPage(targeted.canvas, targeted.node.id);
     if (!admitted.ok) return fail("NotFound", overseerPageMessage(admitted.denial));
-    const hostAdmission = pages.admitAutomationHost(resolveNodeHostId(targeted.node));
+    const hostAdmission = pages.admitAutomationHost(admitted.node.host);
     if (!hostAdmission.ok) {
       return fail(
         hostAdmission.reason === "browser-not-declared" ||
@@ -1036,7 +963,7 @@ const handlePage = async (
         hostAdmission.message,
       );
     }
-    const resolver = makePageTargetResolver(documentsReader(ctx.listCanvasDocuments));
+    const resolver = makePageTargetResolver(modelReader(ctx.listCanvases));
     let ref: string;
     try {
       ref = formatNodeRef({ canvasName: targeted.canvasName, nodeId: targeted.node.id });
@@ -1055,12 +982,11 @@ const handlePage = async (
       if (ctx.signal.aborted || !stillGranted) {
         return { ok: false, code: "failed", message: "overseer grant is no longer live" };
       }
-      const documents = await ctx.listCanvasDocuments();
-      const doc = findDocument(documents, targeted.canvasName);
-      if (doc === undefined) {
+      const current = (await ctx.listCanvases()).get(targeted.canvasName);
+      if (current === undefined) {
         return { ok: false, code: "not_found", message: "canvas not found" };
       }
-      const still = admitOverseerPage(doc, targeted.node.id);
+      const still = admitOverseerPage(current, targeted.node.id);
       if (!still.ok) {
         return { ok: false, code: "not_found", message: overseerPageMessage(still.denial) };
       }
@@ -1137,8 +1063,8 @@ const handleScheduler = async (
   );
   if ("error" in targeted) return targeted;
   const { canvasName, node } = targeted;
-  if (node.type === "group" || !isSchedulerEntityKind(node.ether?.entity?.kind)) {
-    return fail("InvalidArguments", "node is not a scheduler (cron, relay, or gauge)");
+  if (node.kind !== "cron" && node.kind !== "relay" && node.kind !== "watcher") {
+    return fail("InvalidArguments", "node is not a scheduler (cron, relay, or watcher)");
   }
 
   if (operation === "scheduler.status") {
@@ -1148,9 +1074,13 @@ const handleScheduler = async (
     return ok({
       nodeId: node.id,
       canvas: canvasName,
-      kind: entityKind(node),
-      timer: node.ether?.timer ?? null,
-      watch: node.ether?.watch ?? null,
+      kind: node.kind,
+      // What the scheduler is set to: a cron's expression, a watcher's rule.
+      ...(node.kind === "cron" ? { expression: node.expression ?? null } : {}),
+      ...(node.kind === "watcher"
+        ? { rule: { key: node.key ?? null, stat: node.stat ?? null, op: node.op ?? null, value: node.value ?? null } }
+        : {}),
+      // What it last saw and when it next fires.
       watcher: watcher ?? null,
       nextFire: nextFire ?? null,
     });
@@ -1167,8 +1097,6 @@ const handleScheduler = async (
         const granted = await ctx.liveOverseerGrant(caller);
         return !ctx.signal.aborted && granted;
       },
-      commitGrantLive: (documents: ReadonlyMap<string, CanvasDoc>) =>
-        !ctx.signal.aborted && callerGrantLive(documents, caller),
     };
     const fired = await overseerSchedulerFire(fireInput);
     if (!fired.ok) {
@@ -1194,8 +1122,7 @@ const handleScheduler = async (
       caller,
       canvasName,
       nodeId: node.id,
-      timer: (args as { timer?: unknown }).timer,
-      watch: (args as { watch?: unknown }).watch,
+      change: (args as OverseerArgsFor<"scheduler.configure">).change,
     }, ctx.signal);
     if (!applied.ok) return fail("Conflict", applied.message);
     return ok({ configured: true, nodeId: node.id, canvas: canvasName });
@@ -1216,10 +1143,10 @@ const handleGit = async (
     args as { canvas?: string; nodeId: string },
   );
   if ("error" in targeted) return targeted;
-  if (!isGitNode(targeted.node)) {
+  if (targeted.node.kind !== "git") {
     return fail("InvalidArguments", "node is not a git node");
   }
-  const cwd = targeted.node.ether?.git?.cwd?.trim();
+  const cwd = targeted.node.cwd.trim();
   if (cwd === undefined || cwd.length === 0) {
     return fail("InvalidArguments", "git node has no cwd");
   }

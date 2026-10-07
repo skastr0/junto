@@ -15,7 +15,8 @@ import { narrowEnvironmentReport } from "@shared/overseer-env";
 import type { InstallationId } from "@shared/installation-id";
 import type { WorkErrorBody } from "@shared/work-control";
 import { admitOverseer, watchOverseerRevocation } from "./admission";
-import { readCanvasDocument, type OverseerStores } from "./portfolio";
+import { asNodeId } from "@shared/model";
+import { readCanvas, type OverseerStores } from "./portfolio";
 import { executeOverseerCanvas } from "./canvas";
 import { overseerEnvReport, type OverseerEnvReport } from "./env-report-seam";
 import { executeOverseerOffboard } from "./offboard";
@@ -54,14 +55,14 @@ const runEnvDoctor = (
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const canvasName = args.canvas ?? caller.canvasName;
-    const read = yield* readCanvasDocument(canvasName).pipe(
+    const canvas = yield* readCanvas(canvasName).pipe(
       Effect.mapError((error): WorkErrorBody => ({
         type: "UnknownTarget",
         message: error.message,
       })),
     );
     const nodeId = args.nodeId;
-    if (nodeId !== undefined && !read.doc.nodes.some((node) => node.id === nodeId)) {
+    if (nodeId !== undefined && !canvas.nodes.has(asNodeId(nodeId))) {
       return yield* Effect.fail<WorkErrorBody>({
         type: "UnknownTarget",
         message: `node "${nodeId}" was not found`,

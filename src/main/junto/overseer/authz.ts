@@ -1,8 +1,7 @@
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { isValidProfileId } from "@shared/browser";
+import { asNodeId, type Canvas, type NodeOf } from "@shared/model";
+import { nodesOf } from "@shared/model/canvas";
 import { formatNodeRef, type NodeRefKey } from "@shared/node-ref";
-import { resolveNodeHostId } from "@shared/station";
-import type { BrowserHostCapabilityAdmission } from "../browser/host-capability";
 
 /**
  * Overseer page admission is edge-free: a live overseer may operate every
@@ -11,44 +10,34 @@ import type { BrowserHostCapabilityAdmission } from "../browser/host-capability"
  * Normal agent callers still go through admitBrowserPage / edge-grant.
  */
 
-/** The overseer reads documents until its commands are cut onto the model. */
-export const findNode = (doc: CanvasDoc, nodeId: string): CanvasNode | undefined =>
-  doc.nodes.find((node) => node.id === nodeId);
-
-const isPageNode = (node: CanvasNode | undefined): boolean =>
-  node !== undefined && node.type === "link" && node.ether?.entity?.kind === "page";
-
 export type OverseerPageDenial = "page_missing" | "invalid_profile";
 
 export const admitOverseerPage = (
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "nodes">,
   pageNodeId: string,
-): { readonly ok: true; readonly node: CanvasNode } | { readonly ok: false; readonly denial: OverseerPageDenial } => {
-  const node = findNode(doc, pageNodeId);
-  if (!isPageNode(node) || node === undefined) {
-    return { ok: false, denial: "page_missing" };
-  }
-  const profile = node.ether?.browser?.profile;
-  if (profile === undefined || !isValidProfileId(profile)) {
-    return { ok: false, denial: "invalid_profile" };
-  }
+):
+  | { readonly ok: true; readonly node: NodeOf<"page"> }
+  | { readonly ok: false; readonly denial: OverseerPageDenial } => {
+  const node = canvas.nodes.get(asNodeId(pageNodeId));
+  if (node?.kind !== "page") return { ok: false, denial: "page_missing" };
+  if (!isValidProfileId(node.profile)) return { ok: false, denial: "invalid_profile" };
   return { ok: true, node };
 };
 
-export const overseerPageNodeIds = (doc: CanvasDoc): ReadonlyArray<string> => {
-  const out: string[] = [];
-  for (const node of doc.nodes) {
-    if (admitOverseerPage(doc, node.id).ok) out.push(node.id);
-  }
-  return out.sort((a, b) => a.localeCompare(b));
-};
+export const overseerPageNodeIds = (
+  canvas: Pick<Canvas, "nodes">,
+): ReadonlyArray<string> =>
+  nodesOf(canvas, "page")
+    .filter((page) => admitOverseerPage(canvas, page.id).ok)
+    .map((page) => page.id as string)
+    .sort((a, b) => a.localeCompare(b));
 
 export const overseerPageRefs = (
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "nodes">,
   canvasName: string,
 ): ReadonlyArray<NodeRefKey> => {
   const refs: NodeRefKey[] = [];
-  for (const nodeId of overseerPageNodeIds(doc)) {
+  for (const nodeId of overseerPageNodeIds(canvas)) {
     try {
       refs.push(formatNodeRef({ canvasName, nodeId }));
     } catch {
@@ -66,7 +55,3 @@ export const overseerPageMessage = (denial: OverseerPageDenial): string => {
       return "page node must bind a valid browser profile";
   }
 };
-
-export const overseerPageHostId = (node: CanvasNode): string => resolveNodeHostId(node);
-
-export type OverseerHostAdmit = (hostId: string) => BrowserHostCapabilityAdmission;

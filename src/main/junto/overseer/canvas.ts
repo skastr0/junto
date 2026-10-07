@@ -1,47 +1,27 @@
-import { Effect, Exit, Result } from "effect";
+import { Effect, Exit } from "effect";
 import { ulid } from "ulid";
+import { productVerbEnabled } from "@shared/features";
+import { actorRefResolverFromProjection } from "@shared/graph";
 import {
-  decodeCanvasDoc,
-  type CanvasDoc,
-  type CanvasEdge,
-  type CanvasNode,
-} from "@shared/canvas";
-import { renderCanvasSvg } from "@shared/svg";
+  asCanvasName,
+  asNodeId,
+  inPaintOrder,
+  type Canvas,
+  type Command,
+  type Node,
+  type NodeEdit,
+  type Wire,
+} from "@shared/model";
+import type { SeatParts } from "@shared/model/seat-parts";
 import {
   decodeOverseerArgs,
   type OverseerArgsFor,
   type OverseerCaller,
+  type OverseerCanvasBatchStep,
   type OverseerErrorBody,
-  type OverseerNodeDraft,
   type OverseerOperation,
   type OverseerRequest,
 } from "@shared/overseer-control";
-import {
-  aliasesLiveOverseerBinding,
-  applyCanvasBatch,
-  applyEdgeChanges,
-  applyNodeChanges,
-  callerGrantLive,
-  callerSeatBinding,
-  canvasDeleteRetiresCaller,
-  edgeVerbAdmitted,
-  findEdge,
-  findNode,
-  flowCycleIfInvalid,
-  gatedKindOf,
-  gatedVerbOf,
-  nativeDeleteResourcesOf,
-  nodeGeometry,
-  nodeHasOverseerGrant,
-  nodeKindChanged,
-  nodeSeatBinding,
-  removalIncludesCaller,
-  removalRetiresCallerBinding,
-  retiresOccupant,
-  stripIncidentEdges,
-  verbsForEndpoints,
-  type OverseerDeleteResource,
-} from "@shared/overseer-authoring";
 import {
   applyRegionEnvironmentEdit,
   isRegionNode,
@@ -50,25 +30,41 @@ import {
   type OverseerEnvEdit,
   type OverseerEnvRefusal,
 } from "@shared/overseer-env";
-import type { WorkErrorBody } from "@shared/work-control";
-import { actorRefResolverFromProjection } from "@shared/graph";
-import type { ActorRef } from "@shared/work-protocol";
+import {
+  callerGrantLive,
+  callerSeatBinding,
+  canvasDeleteRetiresCaller,
+  nativeDeleteResourcesOf,
+  planOverseerSteps,
+  removalIncludesCaller,
+  removalRetiresCallerBinding,
+  seatDraftRefusal,
+  verbsForEndpoints,
+  type OverseerDeleteResource,
+  type OverseerStepResult,
+} from "@shared/overseer-rules";
 import { defaultVerbForPair } from "@shared/physics";
-import { productVerbEnabled } from "@shared/features";
-import { wireOfDocument } from "@shared/model/from-document";
+import { renderCanvasSvg } from "@shared/svg";
+import type { WorkErrorBody } from "@shared/work-control";
+import type { ActorRef } from "@shared/work-protocol";
 import { ModelActorRefs } from "../model/actor-refs";
 import { readModelDigest } from "../model/digest";
 import { ModelService } from "../model/service";
 import { WorkRepository } from "../work/repository";
 import {
-  editPortfolio,
+  documentOfCanvas,
+  editCanvases,
   fromModelError,
   isCanvasName,
-  readCanvasDocument,
-  readPortfolio,
-  type OverseerPortfolioView,
+  readCanvas,
+  readCanvases,
   type OverseerStores,
 } from "./portfolio";
+
+// The overseer's canvas commands. Reads answer the model's own nodes and
+// wires; a write is planned by shared/overseer-rules into model commands and
+// sent with source "overseer" in one transaction with the read it was decided
+// on.
 
 const CANVAS_OPS = new Set<OverseerOperation>([
   "canvas.list",
@@ -84,13 +80,14 @@ const CANVAS_OPS = new Set<OverseerOperation>([
   "node.configure",
   "node.move",
   "node.resize",
+  "node.recolor",
   "node.delete",
-  "edge.list",
-  "edge.get",
-  "edge.verbs",
-  "edge.connect",
-  "edge.configure",
-  "edge.disconnect",
+  "wire.list",
+  "wire.get",
+  "wire.verbs",
+  "wire.connect",
+  "wire.configure",
+  "wire.disconnect",
   "sheet.read",
   "sheet.configure",
   "env.show",
@@ -127,17 +124,9 @@ export type OverseerNativeDeleteHooks = {
 
 export type OverseerCanvasHooks = {
   readonly nativeDelete?: OverseerNativeDeleteHooks;
-  readonly commitAgentReseat?: (
-    caller: OverseerCaller,
-    args: OverseerArgsFor<"agent.reseat">,
-  ) => Effect.Effect<unknown, WorkErrorBody, OverseerStores>;
-  readonly applySchedulerConfigure?: (
-    caller: OverseerCaller,
-    args: OverseerArgsFor<"scheduler.configure">,
-  ) => Effect.Effect<unknown, WorkErrorBody, OverseerStores>;
 };
 
-const workError = (
+const fail = (
   type: WorkErrorBody["type"],
   message: string,
   details?: WorkErrorBody["details"],
@@ -159,85 +148,32 @@ const fromOverseerError = (error: OverseerErrorBody): WorkErrorBody => {
               : error.type === "RuntimeDown"
                 ? "RuntimeDown"
                 : "InternalError";
-  return workError(type, error.message);
+  return fail(type, error.message);
 };
-
-const fail = (type: WorkErrorBody["type"], message: string): WorkErrorBody =>
-  workError(type, message);
-
-const schemaFailure = (error: { readonly message: string }): WorkErrorBody =>
-  workError("InputError", error.message);
 
 const targetCanvas = (
   caller: OverseerCaller,
   canvas: string | undefined,
 ): string => canvas ?? caller.canvasName;
 
-const decodeNode = (
-  draft: OverseerNodeDraft,
-  mintedId: string,
-): { readonly ok: true; readonly node: CanvasNode } | { readonly ok: false; readonly error: WorkErrorBody } => {
-  const raw = {
-    ...draft,
-    id: draft.id ?? mintedId,
-  };
-  const decoded = decodeCanvasDoc({ nodes: [raw], edges: [] });
-  if (Result.isFailure(decoded)) {
-    return { ok: false, error: fail("InputError", decoded.failure.message) };
-  }
-  const node = decoded.success.nodes[0];
-  if (node === undefined) {
-    return { ok: false, error: fail("InputError", "node draft did not decode") };
-  }
-  return { ok: true, node };
-};
-
-const isWorkError = (
-  value: CanvasNode | WorkErrorBody,
-): value is WorkErrorBody => !("id" in value) && "message" in value;
+type Canvases = ReadonlyMap<string, Canvas>;
 
 const requireGrant = (
-  view: OverseerPortfolioView,
+  canvases: Canvases,
   caller: OverseerCaller,
-): WorkErrorBody | undefined => {
-  if (callerGrantLive(view.documents, caller)) return undefined;
-  return fail(
-    "AuthError",
-    "overseer grant is not live on the calling seat",
-  );
-};
-
-const refuseSelfRetirement = (): WorkErrorBody =>
-  fail("AuthError", "overseer cannot retire its own physical binding");
+): WorkErrorBody | undefined =>
+  callerGrantLive(canvases, caller)
+    ? undefined
+    : fail("AuthError", "overseer grant is not live on the calling seat");
 
 const refuseIfRetiresCaller = (
-  documents: ReadonlyMap<string, CanvasDoc>,
+  canvases: Canvases,
   caller: OverseerCaller,
   resources: ReadonlyArray<OverseerDeleteResource>,
-): WorkErrorBody | undefined => {
-  if (removalRetiresCallerBinding(callerSeatBinding(documents, caller), resources)) {
-    return refuseSelfRetirement();
-  }
-  return undefined;
-};
-
-const livePortfolioDocuments = (): Effect.Effect<
-  Map<string, CanvasDoc>,
-  WorkErrorBody,
-  OverseerStores
-> => Effect.map(readPortfolio, (view) => new Map(view.documents));
-const cloneDocs = (
-  documents: ReadonlyMap<string, CanvasDoc>,
-): Map<string, CanvasDoc> => new Map(documents);
-
-const putDoc = (
-  documents: Map<string, CanvasDoc>,
-  name: string,
-  doc: CanvasDoc,
-): Map<string, CanvasDoc> => {
-  documents.set(name, doc);
-  return documents;
-};
+): WorkErrorBody | undefined =>
+  removalRetiresCallerBinding(callerSeatBinding(canvases, caller), resources)
+    ? fail("AuthError", "overseer cannot retire its own physical binding")
+    : undefined;
 
 let deleteHooks: OverseerNativeDeleteHooks | undefined;
 
@@ -351,7 +287,46 @@ const withPreparedDelete = <A>(
     return result;
   });
 
-const executeOnPortfolio = editPortfolio;
+const mintId = (kind: string): string => `${kind}-${ulid()}`;
+
+/**
+ * Plan steps on one canvas and send them as one atomic change. Every write of
+ * a single node or wire goes through here as a batch of one, so the rules are
+ * the same in and out of a batch.
+ */
+const sendSteps = (
+  caller: OverseerCaller,
+  canvasName: string,
+  steps: ReadonlyArray<OverseerCanvasBatchStep>,
+  expectedSeq?: number,
+): Effect.Effect<ReadonlyArray<OverseerStepResult>, WorkErrorBody, OverseerStores> =>
+  editCanvases((canvases) => {
+    const revoked = requireGrant(canvases, caller);
+    if (revoked) return { ok: false, error: revoked };
+    const held = canvases.get(canvasName);
+    if (held === undefined) {
+      return { ok: false, error: fail("UnknownTarget", `canvas "${canvasName}" does not exist`) };
+    }
+    if (expectedSeq !== undefined && held.seq !== expectedSeq) {
+      return {
+        ok: false,
+        error: fail(
+          "ClaimConflict",
+          `canvas "${canvasName}" is at seq ${held.seq}, not ${expectedSeq}; read the canvas again before editing`,
+          { retryable: true },
+        ),
+      };
+    }
+    const plan = planOverseerSteps({ canvases, canvas: canvasName, caller, steps, mintId });
+    if (!plan.ok) return { ok: false, error: fromOverseerError(plan.error) };
+    return {
+      ok: true,
+      // One Batch, so the canvas moves once and a later step's refusal leaves
+      // nothing of the earlier ones behind.
+      commands: [{ _tag: "Batch", canvas: asCanvasName(canvasName), steps: plan.commands }],
+      result: plan.results,
+    };
+  });
 
 const actorRefsOf = (
   name: string,
@@ -360,7 +335,14 @@ const actorRefsOf = (
     refs.read(name).pipe(Effect.mapError(fromModelError)),
   );
 
-const readCanvas = readCanvasDocument;
+const nodeIn = (canvas: Canvas, nodeId: string): Effect.Effect<Node, WorkErrorBody> => {
+  const node = canvas.nodes.get(asNodeId(nodeId));
+  return node === undefined
+    ? Effect.fail(fail("UnknownTarget", `node "${nodeId}" was not found`))
+    : Effect.succeed(node);
+};
+
+// ── Canvases ────────────────────────────────────────────────────────────────
 
 const handleList = (): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
@@ -369,65 +351,49 @@ const handleList = (): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
     return names.map((name) => ({ name }));
   });
 
+/** Structure only: what is on the canvas and how it is wired. No work rides along. */
 const handleRead = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.read">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  readCanvas(targetCanvas(caller, args.canvas));
+  Effect.map(readCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
+    name: canvas.name,
+    seq: canvas.seq,
+    nodes: inPaintOrder(canvas),
+    wires: [...canvas.wires.values()],
+  }));
 
 const handleCreateCanvas = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.create">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  executeOnPortfolio((view) => {
-    const revoked = requireGrant(view, caller);
+  editCanvases((canvases) => {
+    const revoked = requireGrant(canvases, caller);
     if (revoked) return { ok: false, error: revoked };
     const name = args.canvas;
     if (!isCanvasName(name)) {
-      return {
-        ok: false,
-        error: fail("InputError", `invalid canvas name ${JSON.stringify(name)}`),
-      };
+      return { ok: false, error: fail("InputError", `invalid canvas name ${JSON.stringify(name)}`) };
     }
-    if (view.documents.has(name)) {
-      return {
-        ok: false,
-        error: fail("InputError", `canvas "${name}" already exists`),
-      };
+    if (canvases.has(name)) {
+      return { ok: false, error: fail("InputError", `canvas "${name}" already exists`) };
     }
-    const doc: CanvasDoc = { nodes: [], edges: [] };
     return {
       ok: true,
-      documents: putDoc(cloneDocs(view.documents), name, doc),
-      result: { name, doc },
+      commands: [{ _tag: "CreateCanvas", canvas: name }],
+      result: { name, seq: 0, nodes: [], wires: [] },
     };
   });
 
 const handleCanvasBatch = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.batch">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  executeOnPortfolio((view) => {
-    const revoked = requireGrant(view, caller);
-    if (revoked) return { ok: false, error: revoked };
-    const name = targetCanvas(caller, args.canvas);
-    if (!view.documents.has(name)) {
-      return { ok: false, error: fail("UnknownTarget", `canvas "${name}" does not exist`) };
-    }
-    if (args.expectedRevision !== undefined && view.revisions.get(name) !== args.expectedRevision) {
-      return {
-        ok: false,
-        error: fail("ClaimConflict", `canvas "${name}" revision conflict; read the current canvas before editing`),
-      };
-    }
-    const batch = applyCanvasBatch(view.documents, name, args.operations, (kind) => `${kind}-${ulid()}`);
-    if (!batch.ok) return { ok: false, error: fromOverseerError(batch.error) };
-    return {
-      ok: true,
-      documents: putDoc(cloneDocs(view.documents), name, batch.doc),
-      result: batch.result,
-    };
-  });
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
+  const canvas = targetCanvas(caller, args.canvas);
+  return Effect.map(sendSteps(caller, canvas, args.steps, args.expectedSeq), (results) => ({
+    canvas,
+    results,
+  }));
+};
 
 const handleDeleteCanvas = (
   caller: OverseerCaller,
@@ -435,51 +401,37 @@ const handleDeleteCanvas = (
   hooks?: OverseerCanvasHooks,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const current = yield* readCanvas(args.canvas);
-    const name = current.name;
-    if (canvasDeleteRetiresCaller(caller, name)) {
-      return yield* Effect.fail(
-        fail("AuthError", "overseer cannot delete its own canvas"),
-      );
-    }
-    const portfolio = yield* livePortfolioDocuments();
-    if (!portfolio.has(name)) portfolio.set(name, current.doc);
-    const nodeIds = new Set(current.doc.nodes.map((node) => node.id));
-    const resources = nativeDeleteResourcesOf(
-      new Map([[name, current.doc]]),
-      [{ canvasName: name, nodeIds }],
-    );
-    const retired = refuseIfRetiresCaller(portfolio, caller, resources);
-    if (retired) return yield* Effect.fail(retired);
+    const name = (yield* readCanvas(args.canvas)).name;
+    const refusal = (canvases: Canvases): WorkErrorBody | undefined => {
+      if (canvasDeleteRetiresCaller(caller, name)) {
+        return fail("AuthError", "overseer cannot delete its own canvas");
+      }
+      const target = canvases.get(name);
+      if (target === undefined) {
+        return fail("UnknownTarget", `canvas "${name}" does not exist`);
+      }
+      return refuseIfRetiresCaller(canvases, caller, resourcesOf(canvases, name));
+    };
+    const resourcesOf = (canvases: Canvases, canvasName: string) =>
+      nativeDeleteResourcesOf(canvases, [{
+        canvasName,
+        nodeIds: new Set([...(canvases.get(canvasName)?.nodes.keys() ?? [])]),
+      }]);
+    const before = yield* readCanvases;
+    const early = refusal(before);
+    if (early) return yield* Effect.fail(early);
     return yield* withPreparedDelete(
-      resources,
+      resourcesOf(before, name),
       () =>
-      executeOnPortfolio((view) => {
-        const revoked = requireGrant(view, caller);
-        if (revoked) return { ok: false, error: revoked };
-        if (canvasDeleteRetiresCaller(caller, name)) {
+        editCanvases((canvases) => {
+          const revoked = requireGrant(canvases, caller) ?? refusal(canvases);
+          if (revoked) return { ok: false, error: revoked };
           return {
-            ok: false,
-            error: fail("AuthError", "overseer cannot delete its own canvas"),
+            ok: true,
+            commands: [{ _tag: "RemoveCanvas", canvas: asCanvasName(name) }],
+            result: { name },
           };
-        }
-        const liveTarget = view.documents.get(name);
-        if (liveTarget === undefined) {
-          return {
-            ok: false,
-            error: fail("UnknownTarget", `canvas "${name}" does not exist`),
-          };
-        }
-        const liveResources = nativeDeleteResourcesOf(
-          new Map([[name, liveTarget]]),
-          [{ canvasName: name, nodeIds: new Set(liveTarget.nodes.map((node) => node.id)) }],
-        );
-        const liveRetired = refuseIfRetiresCaller(view.documents, caller, liveResources);
-        if (liveRetired) return { ok: false, error: liveRetired };
-        const documents = cloneDocs(view.documents);
-        documents.delete(name);
-        return { ok: true, documents, result: { name } };
-      }),
+        }),
       hooks,
     );
   });
@@ -489,11 +441,11 @@ const handleDigest = (
   args: OverseerArgsFor<"canvas.digest">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
     return {
-      digest: yield* readModelDigest(read.name, { bundles: [] }).pipe(
+      digest: yield* readModelDigest(canvas.name, { bundles: [] }).pipe(
         Effect.mapError((error): WorkErrorBody =>
-          fail("InternalError", `canvas "${read.name}" could not be digested: ${String(error)}`),
+          fail("InternalError", `canvas "${canvas.name}" could not be digested: ${String(error)}`),
         ),
       ),
     };
@@ -504,247 +456,86 @@ const handleRender = (
   args: OverseerArgsFor<"canvas.render">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
     // The picture marks boards by their rows; a read, never a work command.
     const work = yield* WorkRepository;
-    const rows = yield* work.kernelWork(read.name).pipe(
+    const rows = yield* work.kernelWork(canvas.name).pipe(
       Effect.mapError((error): WorkErrorBody => fail("InternalError", error.message)),
     );
     return {
-      svg: renderCanvasSvg(read.doc, {
-        canvasName: read.name,
+      svg: renderCanvasSvg(documentOfCanvas(canvas), {
+        canvasName: canvas.name,
         resolveActorRef: actorRefResolverFromProjection(
-          yield* actorRefsOf(read.name),
+          yield* actorRefsOf(canvas.name),
         ),
         itemsOf: (nodeId) => rows.tasks.get(nodeId) ?? [],
       }),
     };
   });
 
+// ── Nodes ───────────────────────────────────────────────────────────────────
+
 const handleNodeList = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.list">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
-    return { nodes: read.doc.nodes };
-  });
+  Effect.map(readCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
+    nodes: inPaintOrder(canvas),
+  }));
 
 const handleNodeGet = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.get">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
-    const node = findNode(read.doc, args.nodeId);
-    if (node === undefined) {
-      return yield* Effect.fail(
-        fail("UnknownTarget", `node "${args.nodeId}" was not found`),
-      );
-    }
-    return { node };
+    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    return { node: yield* nodeIn(canvas, args.nodeId) };
   });
+
+/** The one result of a write that was a batch of one step. */
+const only = (results: ReadonlyArray<OverseerStepResult>): OverseerStepResult => results[0]!;
 
 const handleNodeCreate = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.create">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  executeOnPortfolio((view) => {
-    const revoked = requireGrant(view, caller);
-    if (revoked) return { ok: false, error: revoked };
-    const name = targetCanvas(caller, args.canvas);
-    const current = view.documents.get(name);
-    if (current === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", `canvas "${name}" does not exist`),
-      };
-    }
-    const decodedNode = decodeNode(args.node, `node-${ulid()}`);
-    if (!decodedNode.ok) return decodedNode;
-    const node = decodedNode.node;
-    const gated = gatedKindOf(node);
-    if (gated !== undefined) {
-      return {
-        ok: false,
-        error: fail(
-          "ScopeError",
-          `kind "${gated}" is disabled in this Junto build`,
-        ),
-      };
-    }
-    if (findNode(current, node.id) !== undefined) {
-      return {
-        ok: false,
-        error: fail("InputError", `node "${node.id}" already exists`),
-      };
-    }
-    if (nodeHasOverseerGrant(node) || aliasesLiveOverseerBinding(view.documents, node)) {
-      return {
-        ok: false,
-        error: fail(
-          "AuthError",
-          "overseer cannot mint or inherit overseer authority",
-        ),
-      };
-    }
-    const next: CanvasDoc = { ...current, nodes: [...current.nodes, node] };
-    return {
-      ok: true,
-      documents: putDoc(cloneDocs(view.documents), name, next),
-      result: { node },
-    };
+  Effect.map(
+    sendSteps(caller, targetCanvas(caller, args.canvas), [
+      { operation: "node.create", node: args.node },
+    ]),
+    (results) => {
+      const made = only(results);
+      return made.operation === "node.create" ? { node: made.node } : made;
+    },
+  );
+
+/** The node as it stands after a write to it, read from the model. */
+const nodeAfter = (
+  canvasName: string,
+  nodeId: string,
+): Effect.Effect<{ readonly node: Node }, WorkErrorBody, OverseerStores> =>
+  Effect.gen(function* () {
+    return { node: yield* nodeIn(yield* readCanvas(canvasName), nodeId) };
   });
 
-const mutateExistingNode = (
+const writeNode = (
   caller: OverseerCaller,
   canvas: string | undefined,
-  nodeId: string,
-  transform: (
-    node: CanvasNode,
-    view: OverseerPortfolioView,
-  ) => CanvasNode | WorkErrorBody,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  executeOnPortfolio((view) => {
-    const revoked = requireGrant(view, caller);
-    if (revoked) return { ok: false, error: revoked };
-    const name = targetCanvas(caller, canvas);
-    const current = view.documents.get(name);
-    if (current === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", `canvas "${name}" does not exist`),
-      };
-    }
-    const existing = findNode(current, nodeId);
-    if (existing === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", `node "${nodeId}" was not found`),
-      };
-    }
-    const gated = gatedKindOf(existing);
-    if (gated !== undefined) {
-      return {
-        ok: false,
-        error: fail(
-          "ScopeError",
-          `kind "${gated}" is disabled in this Junto build`,
-        ),
-      };
-    }
-    const nextNode = transform(existing, view);
-    if (isWorkError(nextNode)) {
-      return { ok: false, error: nextNode };
-    }
-    const updated = nextNode;
-    if (nodeHasOverseerGrant(updated) && !nodeHasOverseerGrant(existing)) {
-      return {
-        ok: false,
-        error: fail("AuthError", "overseer cannot mint overseer authority"),
-      };
-    }
-    const isSelf = caller.canvasName === name && caller.nodeId === nodeId;
-    if (isSelf && (nodeKindChanged(existing, updated) || retiresOccupant(existing, updated))) {
-      return {
-        ok: false,
-        error: fail(
-          "AuthError",
-          "overseer cannot change its own kind, binding, host, or occupant identity",
-        ),
-      };
-    }
-    if (
-      aliasesLiveOverseerBinding(view.documents, updated) &&
-      nodeSeatBinding(existing)?.bindingId !== nodeSeatBinding(updated)?.bindingId
-    ) {
-      return {
-        ok: false,
-        error: fail(
-          "AuthError",
-          "copied or reseated nodes cannot alias a live overseer binding",
-        ),
-      };
-    }
-    const nodes = current.nodes.map((node) => (node.id === nodeId ? updated : node));
-    return {
-      ok: true,
-      documents: putDoc(cloneDocs(view.documents), name, { ...current, nodes }),
-      result: { node: updated },
-    };
-  });
-
-const handleNodeConfigure = (
-  caller: OverseerCaller,
-  args: OverseerArgsFor<"node.configure">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  mutateExistingNode(caller, args.canvas, args.nodeId, (node) =>
-    applyNodeChanges(node, args.changes),
-  );
-
-const fromEnvRefusal = (refusal: OverseerEnvRefusal): WorkErrorBody =>
-  fail(refusal.type === "NotFound" ? "UnknownTarget" : "InputError", refusal.message);
-
-const handleEnvShow = (
-  caller: OverseerCaller,
-  args: OverseerArgsFor<"env.show">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
-    const node = findNode(read.doc, args.nodeId);
-    if (node === undefined) {
-      return yield* Effect.fail(
-        fail("UnknownTarget", `node "${args.nodeId}" was not found`),
-      );
-    }
-    if (!isRegionNode(node)) {
-      return yield* Effect.fail(fromEnvRefusal(notARegion(args.nodeId)));
-    }
-    return { nodeId: node.id, environment: regionEnvironmentOf(node) };
-  });
-
-/**
- * Environment edits are canvas authoring: one read-modify-write of
- * `ether.region.environment`, committed through the same transaction, grant
- * and revision rules as `node.configure`.
- */
-const handleEnvEdit = (
-  caller: OverseerCaller,
-  edit: OverseerEnvEdit,
+  step: Extract<OverseerCanvasBatchStep, { readonly nodeId: string }>,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
-  // Minted before the transaction so the caller is told the id it got.
-  const mintedSourceId = `source-${ulid()}`;
-  return mutateExistingNode(caller, edit.args.canvas, edit.args.nodeId, (node) => {
-    const edited = applyRegionEnvironmentEdit(node, edit, () => mintedSourceId);
-    return edited.ok ? edited.value : fromEnvRefusal(edited.error);
-  }).pipe(
-    Effect.map((committed) => {
-      const { node } = committed as { readonly node: CanvasNode };
-      return {
-        nodeId: node.id,
-        ...(edit.operation === "env.source-add"
-          ? { sourceId: edit.args.source.id ?? mintedSourceId }
-          : {}),
-        environment: regionEnvironmentOf(node),
-      };
-    }),
-  );
+  const name = targetCanvas(caller, canvas);
+  return Effect.flatMap(sendSteps(caller, name, [step]), () => nodeAfter(name, step.nodeId));
 };
 
-const handleNodeMove = (
+const handleNodeRecolor = (
   caller: OverseerCaller,
-  args: OverseerArgsFor<"node.move">,
+  args: OverseerArgsFor<"node.recolor">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  mutateExistingNode(caller, args.canvas, args.nodeId, (node) =>
-    nodeGeometry(node, { x: args.x, y: args.y }),
-  );
-
-const handleNodeResize = (
-  caller: OverseerCaller,
-  args: OverseerArgsFor<"node.resize">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  mutateExistingNode(caller, args.canvas, args.nodeId, (node) =>
-    nodeGeometry(node, { width: args.width, height: args.height }),
+  Effect.map(
+    sendSteps(caller, targetCanvas(caller, args.canvas), [
+      { operation: "node.recolor", nodeIds: args.nodeIds, color: args.color },
+    ]),
+    () => ({ nodeIds: args.nodeIds, color: args.color }),
   );
 
 const handleNodeDelete = (
@@ -754,328 +545,211 @@ const handleNodeDelete = (
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
     const name = targetCanvas(caller, args.canvas);
-    const current = yield* readCanvas(name);
-    const existing = findNode(current.doc, args.nodeId);
-    if (existing === undefined) {
-      return yield* Effect.fail(
-        fail("UnknownTarget", `node "${args.nodeId}" was not found`),
-      );
-    }
-    const removed = new Set([args.nodeId]);
-    if (removalIncludesCaller(caller, name, removed)) {
-      return yield* Effect.fail(
-        fail("AuthError", "overseer cannot delete its own seat"),
-      );
-    }
-    const portfolio = yield* livePortfolioDocuments();
-    if (!portfolio.has(name)) portfolio.set(name, current.doc);
-    const resources = nativeDeleteResourcesOf(new Map([[name, current.doc]]), [
-      { canvasName: name, nodeIds: removed },
-    ]);
-    const retired = refuseIfRetiresCaller(portfolio, caller, resources);
-    if (retired) return yield* Effect.fail(retired);
+    const removed = new Set<string>(args.nodeIds);
+    const resourcesOf = (canvases: Canvases) =>
+      nativeDeleteResourcesOf(canvases, [{ canvasName: name, nodeIds: removed }]);
+    const refusal = (canvases: Canvases): WorkErrorBody | undefined => {
+      const canvas = canvases.get(name);
+      if (canvas === undefined) {
+        return fail("UnknownTarget", `canvas "${name}" does not exist`);
+      }
+      for (const nodeId of removed) {
+        if (!canvas.nodes.has(asNodeId(nodeId))) {
+          return fail("UnknownTarget", `node "${nodeId}" was not found`);
+        }
+      }
+      if (removalIncludesCaller(caller, name, removed)) {
+        return fail("AuthError", "overseer cannot delete its own seat");
+      }
+      return refuseIfRetiresCaller(canvases, caller, resourcesOf(canvases));
+    };
+    const before = yield* readCanvases;
+    const early = refusal(before);
+    if (early) return yield* Effect.fail(early);
     return yield* withPreparedDelete(
-      resources,
+      resourcesOf(before),
       () =>
-      executeOnPortfolio((view) => {
-        const revoked = requireGrant(view, caller);
-        if (revoked) return { ok: false, error: revoked };
-        const doc = view.documents.get(name);
-        if (doc === undefined) {
+        editCanvases((canvases) => {
+          const revoked = requireGrant(canvases, caller) ?? refusal(canvases);
+          if (revoked) return { ok: false, error: revoked };
           return {
-            ok: false,
-            error: fail("UnknownTarget", `canvas "${name}" does not exist`),
+            ok: true,
+            commands: [{
+              _tag: "Remove",
+              canvas: asCanvasName(name),
+              nodes: [...removed].map(asNodeId),
+              wires: [],
+            }],
+            result: { nodeIds: [...removed] },
           };
-        }
-        if (findNode(doc, args.nodeId) === undefined) {
-          return {
-            ok: false,
-            error: fail("UnknownTarget", `node "${args.nodeId}" was not found`),
-          };
-        }
-        if (removalIncludesCaller(caller, name, removed)) {
-          return {
-            ok: false,
-            error: fail("AuthError", "overseer cannot delete its own seat"),
-          };
-        }
-        const liveResources = nativeDeleteResourcesOf(new Map([[name, doc]]), [
-          { canvasName: name, nodeIds: removed },
-        ]);
-        const liveRetired = refuseIfRetiresCaller(view.documents, caller, liveResources);
-        if (liveRetired) return { ok: false, error: liveRetired };
-        return {
-          ok: true,
-          documents: putDoc(
-            cloneDocs(view.documents),
-            name,
-            stripIncidentEdges(doc, removed),
-          ),
-          result: { nodeId: args.nodeId },
-        };
-      }),
+        }),
       hooks,
     );
   });
 
-const handleEdgeList = (
+// ── Wires ───────────────────────────────────────────────────────────────────
+
+const handleWireList = (
   caller: OverseerCaller,
-  args: OverseerArgsFor<"edge.list">,
+  args: OverseerArgsFor<"wire.list">,
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
+  Effect.map(readCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
+    wires: [...canvas.wires.values()],
+  }));
+
+const wireIn = (canvas: Canvas, wireId: string): Effect.Effect<Wire, WorkErrorBody> => {
+  const wire = [...canvas.wires.values()].find((held) => held.id === wireId);
+  return wire === undefined
+    ? Effect.fail(fail("UnknownTarget", `wire "${wireId}" was not found`))
+    : Effect.succeed(wire);
+};
+
+const handleWireGet = (
+  caller: OverseerCaller,
+  args: OverseerArgsFor<"wire.get">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
-    return { edges: read.doc.edges };
+    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    return { wire: yield* wireIn(canvas, args.wireId) };
   });
 
-const handleEdgeGet = (
+const handleWireVerbs = (
   caller: OverseerCaller,
-  args: OverseerArgsFor<"edge.get">,
+  args: OverseerArgsFor<"wire.verbs">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
-    const edge = findEdge(read.doc, args.edgeId);
-    if (edge === undefined) {
-      return yield* Effect.fail(
-        fail("UnknownTarget", `edge "${args.edgeId}" was not found`),
-      );
-    }
-    return { edge };
-  });
-
-const handleEdgeVerbs = (
-  caller: OverseerCaller,
-  args: OverseerArgsFor<"edge.verbs">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
-    if (args.fromNode === undefined || args.toNode === undefined) {
-      return { verbs: [] };
-    }
-    const fromNode = findNode(read.doc, args.fromNode);
-    const toNode = findNode(read.doc, args.toNode);
-    const verbs = verbsForEndpoints(fromNode, toNode).filter(productVerbEnabled);
-    const pairDefault = defaultVerbForPair(
-      fromNode === undefined || fromNode.type === "group"
-        ? undefined
-        : fromNode.ether?.entity?.kind,
-      toNode === undefined || toNode.type === "group"
-        ? undefined
-        : toNode.ether?.entity?.kind,
-    );
+    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    if (args.from === undefined || args.to === undefined) return { verbs: [] };
+    const from = canvas.nodes.get(asNodeId(args.from));
+    const to = canvas.nodes.get(asNodeId(args.to));
+    const verbs = verbsForEndpoints(from, to).filter(productVerbEnabled);
+    const pairDefault = defaultVerbForPair(from?.kind, to?.kind);
     return {
       verbs,
       default:
-        pairDefault !== undefined && verbs.includes(pairDefault)
-          ? pairDefault
-          : verbs[0],
+        pairDefault !== undefined && verbs.includes(pairDefault) ? pairDefault : verbs[0],
     };
   });
 
-const handleEdgeConnect = (
+const handleWireConnect = (
   caller: OverseerCaller,
-  args: OverseerArgsFor<"edge.connect">,
+  args: OverseerArgsFor<"wire.connect">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  executeOnPortfolio((view) => {
-    const revoked = requireGrant(view, caller);
-    if (revoked) return { ok: false, error: revoked };
-    const name = targetCanvas(caller, args.canvas);
-    const current = view.documents.get(name);
-    if (current === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", `canvas "${name}" does not exist`),
-      };
+  Effect.map(
+    sendSteps(caller, targetCanvas(caller, args.canvas), [
+      { operation: "wire.connect", wire: args.wire },
+    ]),
+    (results) => {
+      const made = only(results);
+      return made.operation === "wire.connect" ? { wire: made.wire } : made;
+    },
+  );
+
+const handleWireConfigure = (
+  caller: OverseerCaller,
+  args: OverseerArgsFor<"wire.configure">,
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
+  const name = targetCanvas(caller, args.canvas);
+  return Effect.gen(function* () {
+    yield* sendSteps(caller, name, [
+      { operation: "wire.configure", wireId: args.wireId, change: args.change },
+    ]);
+    return { wire: yield* wireIn(yield* readCanvas(name), args.wireId) };
+  });
+};
+
+const handleWireDisconnect = (
+  caller: OverseerCaller,
+  args: OverseerArgsFor<"wire.disconnect">,
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
+  Effect.map(
+    sendSteps(caller, targetCanvas(caller, args.canvas), [
+      { operation: "wire.disconnect", wireId: args.wireId },
+    ]),
+    () => ({ wireId: args.wireId }),
+  );
+
+// ── Region environment ──────────────────────────────────────────────────────
+
+const fromEnvRefusal = (refusal: OverseerEnvRefusal): WorkErrorBody =>
+  fail(refusal.type === "NotFound" ? "UnknownTarget" : "InputError", refusal.message);
+
+const handleEnvShow = (
+  caller: OverseerCaller,
+  args: OverseerArgsFor<"env.show">,
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
+  Effect.gen(function* () {
+    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const node = yield* nodeIn(canvas, args.nodeId);
+    if (!isRegionNode(node)) {
+      return yield* Effect.fail(fromEnvRefusal(notARegion(args.nodeId)));
     }
-    const draft = args.edge;
-    const fromNode = findNode(current, draft.fromNode);
-    const toNode = findNode(current, draft.toNode);
-    if (fromNode === undefined || toNode === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", "edge endpoints were not found"),
-      };
-    }
-    if (gatedKindOf(fromNode) !== undefined || gatedKindOf(toNode) !== undefined) {
-      return {
-        ok: false,
-        error: fail(
-          "ScopeError",
-          "edge touches a kind disabled in this Junto build",
-        ),
-      };
-    }
-    if (gatedVerbOf(draft.verb) !== undefined) {
-      return {
-        ok: false,
-        error: fail(
-          "ScopeError",
-          `verb "${draft.verb}" is disabled in this Junto build`,
-        ),
-      };
-    }
-    if (!edgeVerbAdmitted(fromNode, toNode, draft.verb)) {
-      return {
-        ok: false,
-        error: fail(
-          "InputError",
-          `verb "${draft.verb}" is not legal for these endpoints`,
-        ),
-      };
-    }
-    const edge: CanvasEdge = {
-      id: draft.id ?? `edge-${ulid()}`,
-      fromNode: draft.fromNode,
-      toNode: draft.toNode,
-      ether: { verb: draft.verb },
-      ...(draft.fromSide !== undefined ? { fromSide: draft.fromSide } : {}),
-      ...(draft.fromEnd !== undefined ? { fromEnd: draft.fromEnd } : {}),
-      ...(draft.toSide !== undefined ? { toSide: draft.toSide } : {}),
-      ...(draft.toEnd !== undefined ? { toEnd: draft.toEnd } : {}),
-      ...(draft.color !== undefined ? { color: draft.color } : {}),
-      ...(draft.label !== undefined ? { label: draft.label } : {}),
-    };
-    if (findEdge(current, edge.id) !== undefined) {
-      return {
-        ok: false,
-        error: fail("InputError", `edge "${edge.id}" already exists`),
-      };
-    }
-    const next: CanvasDoc = { ...current, edges: [...current.edges, edge] };
-    const cycle = flowCycleIfInvalid(next);
-    if (cycle !== undefined) {
-      return { ok: false, error: fail("InputError", cycle) };
-    }
-    return {
-      ok: true,
-      documents: putDoc(cloneDocs(view.documents), name, next),
-      result: { edge },
-    };
+    return { nodeId: node.id, environment: regionEnvironmentOf(node) };
   });
 
-const handleEdgeConfigure = (
+/**
+ * An environment edit is canvas authoring: one read-modify-write of a
+ * region's environment, sent as that region's edit under the same
+ * transaction and grant rules as `node.configure`.
+ */
+const handleEnvEdit = (
   caller: OverseerCaller,
-  args: OverseerArgsFor<"edge.configure">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  executeOnPortfolio((view) => {
-    const revoked = requireGrant(view, caller);
+  edit: OverseerEnvEdit,
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
+  // Minted before the transaction so the caller is told the id it got.
+  const mintedSourceId = `source-${ulid()}`;
+  const name = targetCanvas(caller, edit.args.canvas);
+  return editCanvases((canvases) => {
+    const revoked = requireGrant(canvases, caller);
     if (revoked) return { ok: false, error: revoked };
-    const name = targetCanvas(caller, args.canvas);
-    const current = view.documents.get(name);
-    if (current === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", `canvas "${name}" does not exist`),
-      };
+    const canvas = canvases.get(name);
+    if (canvas === undefined) {
+      return { ok: false, error: fail("UnknownTarget", `canvas "${name}" does not exist`) };
     }
-    const existing = findEdge(current, args.edgeId);
-    if (existing === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", `edge "${args.edgeId}" was not found`),
-      };
+    const node = canvas.nodes.get(asNodeId(edit.args.nodeId));
+    if (node === undefined) {
+      return { ok: false, error: fail("UnknownTarget", `node "${edit.args.nodeId}" was not found`) };
     }
-    const changes = args.changes;
-    const endpointFrom = findNode(current, existing.fromNode);
-    const endpointTo = findNode(current, existing.toNode);
-    if (gatedKindOf(endpointFrom) !== undefined || gatedKindOf(endpointTo) !== undefined) {
-      return {
-        ok: false,
-        error: fail(
-          "ScopeError",
-          "edge touches a kind disabled in this Junto build",
-        ),
-      };
-    }
-    if (changes.verb !== wireOfDocument(existing)?.verb && gatedVerbOf(changes.verb) !== undefined) {
-      return {
-        ok: false,
-        error: fail(
-          "ScopeError",
-          `verb "${changes.verb}" is disabled in this Junto build`,
-        ),
-      };
-    }
-    if (changes.verb !== undefined) {
-      const fromNode = endpointFrom;
-      const toNode = endpointTo;
-      if (!edgeVerbAdmitted(fromNode, toNode, changes.verb)) {
-        return {
-          ok: false,
-          error: fail(
-            "InputError",
-            `verb "${changes.verb}" is not legal for these endpoints`,
-          ),
-        };
-      }
-    }
-    const nextEdge = applyEdgeChanges(existing, changes);
-    const edges = current.edges.map((edge) =>
-      edge.id === args.edgeId ? nextEdge : edge,
-    );
-    const next: CanvasDoc = { ...current, edges };
-    const cycle = flowCycleIfInvalid(next);
-    if (cycle !== undefined) {
-      return { ok: false, error: fail("InputError", cycle) };
-    }
+    const edited = applyRegionEnvironmentEdit(node, edit, () => mintedSourceId);
+    if (!edited.ok) return { ok: false, error: fromEnvRefusal(edited.error) };
+    const change: NodeEdit = { kind: "region", environment: edited.value ?? null };
     return {
       ok: true,
-      documents: putDoc(cloneDocs(view.documents), name, next),
-      result: { edge: nextEdge },
+      commands: [{ _tag: "Edit", canvas: asCanvasName(name), id: node.id, change }],
+      result: {
+        nodeId: node.id,
+        ...(edit.operation === "env.source-add"
+          ? { sourceId: edit.args.source.id ?? mintedSourceId }
+          : {}),
+        environment: edited.value ?? {},
+      },
     };
   });
+};
 
-const handleEdgeDisconnect = (
-  caller: OverseerCaller,
-  args: OverseerArgsFor<"edge.disconnect">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  executeOnPortfolio((view) => {
-    const revoked = requireGrant(view, caller);
-    if (revoked) return { ok: false, error: revoked };
-    const name = targetCanvas(caller, args.canvas);
-    const current = view.documents.get(name);
-    if (current === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", `canvas "${name}" does not exist`),
-      };
-    }
-    if (findEdge(current, args.edgeId) === undefined) {
-      return {
-        ok: false,
-        error: fail("UnknownTarget", `edge "${args.edgeId}" was not found`),
-      };
-    }
-    return {
-      ok: true,
-      documents: putDoc(cloneDocs(view.documents), name, {
-        ...current,
-        edges: current.edges.filter((edge) => edge.id !== args.edgeId),
-      }),
-      result: { edgeId: args.edgeId },
-    };
-  });
+// ── Sheets ──────────────────────────────────────────────────────────────────
+
+const sheetIn = (
+  canvas: Canvas,
+  target: string,
+): Effect.Effect<Node, WorkErrorBody> =>
+  Effect.flatMap(nodeIn(canvas, target), (node) =>
+    node.kind === "sheet"
+      ? Effect.succeed(node)
+      : Effect.fail(fail("InputError", `node "${target}" is not a sheet`)),
+  );
 
 const handleSheetRead = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"sheet.read">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
-    const node = findNode(read.doc, args.target);
-    if (node === undefined) {
-      return yield* Effect.fail(
-        fail("UnknownTarget", `node "${args.target}" was not found`),
-      );
-    }
-    if (node.ether?.entity?.kind !== "sheet") {
-      return yield* Effect.fail(
-        fail("InputError", `node "${args.target}" is not a sheet`),
-      );
-    }
+    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    yield* sheetIn(canvas, args.target);
     // A sheet's grid is content of its own; the canvas only says it is there.
     const model = yield* ModelService;
     const sheet = yield* model
-      .readSheet(read.name, args.target)
+      .readSheet(canvas.name, args.target)
       .pipe(Effect.mapError(fromModelError));
     return { sheet: sheet ?? { columns: [], rows: [] } };
   });
@@ -1083,19 +757,27 @@ const handleSheetRead = (
 const handleSheetConfigure = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"sheet.configure">,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  mutateExistingNode(caller, args.canvas, args.target, (node) => {
-    if (node.ether?.entity?.kind !== "sheet") {
-      return fail("InputError", `node "${args.target}" is not a sheet`);
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
+  const name = targetCanvas(caller, args.canvas);
+  return editCanvases((canvases) => {
+    const revoked = requireGrant(canvases, caller);
+    if (revoked) return { ok: false, error: revoked };
+    const node = canvases.get(name)?.nodes.get(asNodeId(args.target));
+    if (node === undefined) {
+      return { ok: false, error: fail("UnknownTarget", `node "${args.target}" was not found`) };
+    }
+    if (node.kind !== "sheet") {
+      return { ok: false, error: fail("InputError", `node "${args.target}" is not a sheet`) };
     }
     return {
-      ...node,
-      ether: {
-        ...node.ether,
-        sheet: args.sheet,
-      },
+      ok: true,
+      commands: [{ _tag: "WriteSheet", canvas: asCanvasName(name), id: node.id, grid: args.sheet }],
+      result: { node, sheet: args.sheet },
     };
   });
+};
+
+// ── Dispatch ────────────────────────────────────────────────────────────────
 
 const dispatch = (
   caller: OverseerCaller,
@@ -1104,98 +786,77 @@ const dispatch = (
   hooks?: OverseerCanvasHooks,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
   const decoded = decodeOverseerArgs(operation, args);
-  if (Result.isFailure(decoded)) {
-    return Effect.fail(schemaFailure(decoded.failure));
+  if (decoded._tag === "Failure") {
+    // A seat draft naming what main works out is told what to send instead.
+    const seat =
+      operation === "node.create" && typeof args === "object" && args !== null
+        ? seatDraftRefusal((args as { readonly node?: unknown }).node)
+        : undefined;
+    return Effect.fail(fail("InputError", seat ?? decoded.failure.message));
   }
+  const input = decoded.success;
   switch (operation) {
     case "canvas.list":
       return handleList();
     case "canvas.read":
-      return handleRead(caller, decoded.success as OverseerArgsFor<"canvas.read">);
+      return handleRead(caller, input as OverseerArgsFor<"canvas.read">);
     case "canvas.create":
-      return handleCreateCanvas(
-        caller,
-        decoded.success as OverseerArgsFor<"canvas.create">,
-      );
+      return handleCreateCanvas(caller, input as OverseerArgsFor<"canvas.create">);
     case "canvas.batch":
-      return handleCanvasBatch(caller, decoded.success as OverseerArgsFor<"canvas.batch">);
+      return handleCanvasBatch(caller, input as OverseerArgsFor<"canvas.batch">);
     case "canvas.delete":
-      return handleDeleteCanvas(
-        caller,
-        decoded.success as OverseerArgsFor<"canvas.delete">,
-        hooks,
-      );
+      return handleDeleteCanvas(caller, input as OverseerArgsFor<"canvas.delete">, hooks);
     case "canvas.digest":
-      return handleDigest(caller, decoded.success as OverseerArgsFor<"canvas.digest">);
+      return handleDigest(caller, input as OverseerArgsFor<"canvas.digest">);
     case "canvas.render":
-      return handleRender(caller, decoded.success as OverseerArgsFor<"canvas.render">);
+      return handleRender(caller, input as OverseerArgsFor<"canvas.render">);
     case "node.list":
-      return handleNodeList(caller, decoded.success as OverseerArgsFor<"node.list">);
+      return handleNodeList(caller, input as OverseerArgsFor<"node.list">);
     case "node.get":
-      return handleNodeGet(caller, decoded.success as OverseerArgsFor<"node.get">);
+      return handleNodeGet(caller, input as OverseerArgsFor<"node.get">);
     case "node.create":
-      return handleNodeCreate(
-        caller,
-        decoded.success as OverseerArgsFor<"node.create">,
-      );
-    case "node.configure":
-      return handleNodeConfigure(
-        caller,
-        decoded.success as OverseerArgsFor<"node.configure">,
-      );
-    case "node.move":
-      return handleNodeMove(caller, decoded.success as OverseerArgsFor<"node.move">);
-    case "node.resize":
-      return handleNodeResize(
-        caller,
-        decoded.success as OverseerArgsFor<"node.resize">,
-      );
+      return handleNodeCreate(caller, input as OverseerArgsFor<"node.create">);
+    case "node.configure": {
+      const { canvas, ...step } = input as OverseerArgsFor<"node.configure">;
+      return writeNode(caller, canvas, { operation, ...step });
+    }
+    case "node.move": {
+      const { canvas, ...step } = input as OverseerArgsFor<"node.move">;
+      return writeNode(caller, canvas, { operation, ...step });
+    }
+    case "node.resize": {
+      const { canvas, ...step } = input as OverseerArgsFor<"node.resize">;
+      return writeNode(caller, canvas, { operation, ...step });
+    }
+    case "node.recolor":
+      return handleNodeRecolor(caller, input as OverseerArgsFor<"node.recolor">);
     case "node.delete":
-      return handleNodeDelete(
-        caller,
-        decoded.success as OverseerArgsFor<"node.delete">,
-        hooks,
-      );
-    case "edge.list":
-      return handleEdgeList(caller, decoded.success as OverseerArgsFor<"edge.list">);
-    case "edge.get":
-      return handleEdgeGet(caller, decoded.success as OverseerArgsFor<"edge.get">);
+      return handleNodeDelete(caller, input as OverseerArgsFor<"node.delete">, hooks);
+    case "wire.list":
+      return handleWireList(caller, input as OverseerArgsFor<"wire.list">);
+    case "wire.get":
+      return handleWireGet(caller, input as OverseerArgsFor<"wire.get">);
+    case "wire.verbs":
+      return handleWireVerbs(caller, input as OverseerArgsFor<"wire.verbs">);
+    case "wire.connect":
+      return handleWireConnect(caller, input as OverseerArgsFor<"wire.connect">);
+    case "wire.configure":
+      return handleWireConfigure(caller, input as OverseerArgsFor<"wire.configure">);
+    case "wire.disconnect":
+      return handleWireDisconnect(caller, input as OverseerArgsFor<"wire.disconnect">);
     case "env.show":
-      return handleEnvShow(caller, decoded.success as OverseerArgsFor<"env.show">);
+      return handleEnvShow(caller, input as OverseerArgsFor<"env.show">);
     case "env.source-add":
     case "env.source-edit":
     case "env.source-remove":
     case "env.source-reorder":
     case "env.seal":
     case "env.folders":
-      return handleEnvEdit(caller, {
-        operation,
-        args: decoded.success,
-      } as OverseerEnvEdit);
-    case "edge.verbs":
-      return handleEdgeVerbs(caller, decoded.success as OverseerArgsFor<"edge.verbs">);
-    case "edge.connect":
-      return handleEdgeConnect(
-        caller,
-        decoded.success as OverseerArgsFor<"edge.connect">,
-      );
-    case "edge.configure":
-      return handleEdgeConfigure(
-        caller,
-        decoded.success as OverseerArgsFor<"edge.configure">,
-      );
-    case "edge.disconnect":
-      return handleEdgeDisconnect(
-        caller,
-        decoded.success as OverseerArgsFor<"edge.disconnect">,
-      );
+      return handleEnvEdit(caller, { operation, args: input } as OverseerEnvEdit);
     case "sheet.read":
-      return handleSheetRead(caller, decoded.success as OverseerArgsFor<"sheet.read">);
+      return handleSheetRead(caller, input as OverseerArgsFor<"sheet.read">);
     case "sheet.configure":
-      return handleSheetConfigure(
-        caller,
-        decoded.success as OverseerArgsFor<"sheet.configure">,
-      );
+      return handleSheetConfigure(caller, input as OverseerArgsFor<"sheet.configure">);
     default:
       return Effect.fail(
         fail("ProtocolError", `canvas dispatcher does not own ${operation}`),
@@ -1207,7 +868,7 @@ const requireLiveGrant = (
   caller: OverseerCaller,
 ): Effect.Effect<void, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const revoked = requireGrant(yield* readPortfolio, caller);
+    const revoked = requireGrant(yield* readCanvases, caller);
     if (revoked) return yield* Effect.fail(revoked);
   });
 
@@ -1229,40 +890,52 @@ export const executeOverseerCanvas = (
   );
 };
 
+/**
+ * Put another agent in a seat. `parts` is what the seat launch rules worked
+ * out from the choices an overseer named; the model ends the old session.
+ */
 export const commitAgentReseat = (
   caller: OverseerCaller,
-  args: OverseerArgsFor<"agent.reseat">,
-  next: CanvasNode,
-): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  mutateExistingNode(caller, args.canvas, args.nodeId, (existing) => {
-    if (existing.ether?.entity?.kind !== "agent") {
-      return fail("InputError", `node "${args.nodeId}" is not an agent`);
+  target: { readonly canvas?: string; readonly nodeId: string },
+  parts: SeatParts,
+): Effect.Effect<unknown, WorkErrorBody, OverseerStores> => {
+  const name = targetCanvas(caller, target.canvas);
+  return editCanvases((canvases) => {
+    const revoked = requireGrant(canvases, caller);
+    if (revoked) return { ok: false, error: revoked };
+    const node = canvases.get(name)?.nodes.get(asNodeId(target.nodeId));
+    if (node === undefined) {
+      return { ok: false, error: fail("UnknownTarget", `node "${target.nodeId}" was not found`) };
     }
-    if (caller.canvasName === targetCanvas(caller, args.canvas) && caller.nodeId === args.nodeId) {
-      return fail("AuthError", "overseer cannot reseat its own occupant");
+    if (node.kind !== "agent") {
+      return { ok: false, error: fail("InputError", `node "${target.nodeId}" is not an agent`) };
     }
-    return next;
+    if (caller.canvasName === name && caller.nodeId === target.nodeId) {
+      return { ok: false, error: fail("AuthError", "overseer cannot reseat its own occupant") };
+    }
+    const command: Command = {
+      _tag: "Reseat",
+      canvas: asCanvasName(name),
+      id: node.id,
+      agentKey: parts.agentKey,
+      bindingId: parts.bindingId,
+      harness: parts.harness,
+      host: parts.host,
+      launch: parts.launch,
+    };
+    return { ok: true, commands: [command], result: { nodeId: node.id } };
   });
+};
 
+/** Change when a cron fires or what a watcher watches. */
 export const applySchedulerConfigure = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"scheduler.configure">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  mutateExistingNode(caller, args.canvas, args.nodeId, (node) => {
-    const kind = node.ether?.entity?.kind;
-    if (kind !== "cron" && kind !== "timer" && kind !== "watcher" && kind !== "relay") {
-      return fail("InputError", `node "${args.nodeId}" is not a scheduler`);
-    }
-    const ether = { ...(node.ether ?? {}) };
-    if (Object.prototype.hasOwnProperty.call(args, "timer")) {
-      if (args.timer === null) delete ether.timer;
-      else if (args.timer !== undefined) ether.timer = args.timer;
-    }
-    if (Object.prototype.hasOwnProperty.call(args, "watch")) {
-      if (args.watch === null) delete ether.watch;
-      else if (args.watch !== undefined) ether.watch = args.watch;
-    }
-    return { ...node, ether };
+  writeNode(caller, args.canvas, {
+    operation: "node.configure",
+    nodeId: args.nodeId,
+    change: args.change,
   });
 
 export { fromOverseerError };

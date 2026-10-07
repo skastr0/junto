@@ -3,7 +3,6 @@
  * Task claiming is never done here — only inventory and prompts.
  */
 
-import type { CanvasDoc } from "@shared/canvas";
 import {
   defaultEffectTasksCreate,
   type EffectTasksCreate,
@@ -26,13 +25,6 @@ export type SchedulerFireKind = "cron" | "gauge" | "relay";
 export type OverseerFireAuthority = {
   /** Rechecked at every async effect and cascade hop. Pause does not admit. */
   readonly liveGrant: () => Promise<boolean>;
-  /**
-   * Required in-transaction commit check. mutatePortfolio's callback is
-   * synchronous and sees current docs after ensureReady/queue wait; this
-   * must refuse without awaiting. Native:
-   * `(documents) => !signal.aborted && callerGrantLive(documents, caller)`.
-   */
-  readonly commitGrantLive: (documents: ReadonlyMap<string, CanvasDoc>) => boolean;
 };
 
 export type SchedulerFireEvent = {

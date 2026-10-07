@@ -1,10 +1,8 @@
 export {
   admitOverseerPage,
-  overseerPageHostId,
   overseerPageMessage,
   overseerPageNodeIds,
   overseerPageRefs,
-  type OverseerHostAdmit,
   type OverseerPageDenial,
 } from "./authz";
 
@@ -23,4 +21,3 @@ export {
   type SchedulerConfigureApplyInput,
 } from "./native";
 
-export { reseatManagedAgentNode, type OverseerReseatOptions } from "./reseat";

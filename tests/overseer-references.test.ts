@@ -35,8 +35,7 @@ import {
   decodeOverseerArgs,
 } from "../src/shared/overseer-control";
 import type { ReferencesChangedEvent } from "../src/shared/references";
-import type { CanvasDoc } from "../src/shared/canvas";
-import { managedAgentEther } from "./helpers/managed-agent-ether";
+import { region as regionNode, seat } from "./support/model-nodes";
 
 const caller = { canvasName: "origin", nodeId: "boss" };
 const layers = (root: string, withStore: boolean) => {
@@ -64,7 +63,7 @@ afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
-const region = (id: string, label: string) => ({ id, type: "group", x: -500, y: -500, width: 2000, height: 2000, label });
+const region = (id: string, label: string) => regionNode(id, { x: -500, y: -500, width: 2000, height: 2000 }, { label });
 
 const boot = async (options: { readonly withStore?: boolean; readonly grant?: boolean } = {}) => {
   root = await mkdtemp(join(tmpdir(), "overseer-references-"));
@@ -73,14 +72,11 @@ const boot = async (options: { readonly withStore?: boolean; readonly grant?: bo
   await runtime.runPromise(settings.setStationTopology({
     role: "command-center", hostId: "local", supervisedPreferred: false,
   }));
-  await runtime.runPromise(seedCanvas("origin", {
-    nodes: [
-      region("region-cli", "CLI"),
-      { id: "boss", type: "text", text: "Boss", x: 17, y: -31, width: 240, height: 120, ether: managedAgentEther("local:boss") },
-    ],
-    edges: [],
-  } as unknown as CanvasDoc));
-  await runtime.runPromise(seedCanvas("target", { nodes: [region("region-far", "Far")], edges: [] } as unknown as CanvasDoc));
+  await runtime.runPromise(seedCanvas("origin", [
+    region("region-cli", "CLI"),
+    seat("boss", { label: "Boss", x: 17, y: -31, width: 240, height: 120 }),
+  ]));
+  await runtime.runPromise(seedCanvas("target", [region("region-far", "Far")]));
   if (options.grant ?? true) {
     const read = await runtime.runPromise(readSeeded("origin"));
     await runtime.runPromise(grantOverseer(caller.canvasName, caller.nodeId, true));
