@@ -105,6 +105,12 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
      * start: a detached process does not outlive Junto. Answers how many.
      */
     readonly closeOpenDrains: (at: number) => Effect.Effect<number, SeatSessionPersistenceError>;
+    /**
+     * The offboard that detached this session did not go through and the
+     * session is the seat's again: it was not offboarded, so it has no
+     * wind-down to show. A wind-down that already ended is history and stays.
+     */
+    readonly cancelDrain: (seatId: string, sessionId: string) => Effect.Effect<void, SeatSessionPersistenceError>;
     /** Remember where the harness keeps a session once it is found. */
     readonly noteTranscript: (
       seatId: string,
@@ -324,6 +330,14 @@ export const makeSeatSessionRepositoryLive = (
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.drain.end"),
       Effect.mapError(persistence("drain.end")));
 
+      const cancelDrain = Effect.fn("seat-sessions.drain.cancel")(function* (seatId: string, sessionId: string) {
+        yield* sql`
+          DELETE FROM seat_session_drains
+          WHERE seat_id = ${seatId} AND session_id = ${sessionId} AND ended_at IS NULL
+        `;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.drain.cancel"),
+      Effect.mapError(persistence("drain.cancel")));
+
       const openDrains = SqlSchema.findAll({
         Request: Schema.Void,
         Result: Schema.Struct({ seat_id: Schema.String, session_id: Schema.String }),
@@ -351,6 +365,7 @@ export const makeSeatSessionRepositoryLive = (
         beginDrain,
         endDrain,
         closeOpenDrains,
+        cancelDrain,
       });
     }),
   );

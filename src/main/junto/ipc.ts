@@ -2151,6 +2151,10 @@ export const registerJuntoIpc = (): void => {
             AppRuntime.runPromise(
               Effect.flatMap(SeatSessionRepository, (sessions) => sessions.endDrain(seatId, sessionId, how, at)),
             ),
+          cancel: (seatId, sessionId) =>
+            AppRuntime.runPromise(
+              Effect.flatMap(SeatSessionRepository, (sessions) => sessions.cancelDrain(seatId, sessionId)),
+            ),
         },
         log: (message) => console.info(`[offboard] ${message}`),
       });

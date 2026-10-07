@@ -40,6 +40,8 @@ export type SessionDrainPorts = {
    */
   readonly stop: (drainKey: string) => void;
   readonly record: {
+    /** The offboard did not go through: this session was not offboarded after all. */
+    readonly cancel?: (draining: DrainingSession) => void;
     readonly begin: (draining: DrainingSession, at: number) => void;
     readonly end: (draining: DrainingSession, how: DrainEnd, at: number) => void;
   };
@@ -115,6 +117,31 @@ export class SessionDrainManager {
     } catch (error) {
       this.ports.log?.(`could not stop the offboarded session ${drain.session.sessionId}: ${String(error)}`);
     }
+  }
+
+  /**
+   * The offboard that detached this process did not go through: its seat
+   * could not be given a fresh session and still names this one. The process
+   * is stopped now, and the session has no wind-down on record: it was not
+   * offboarded, and the seat's next wake resumes it. False when unknown.
+   */
+  abandon(drainKey: string): boolean {
+    const drain = this.drains.get(drainKey);
+    if (drain === undefined) return false;
+    this.clearTimers(drain);
+    this.drains.delete(drainKey);
+    this.ports.log?.(`stopping ${drain.session.sessionId}: its offboard did not go through, and its seat keeps it`);
+    try {
+      this.ports.record.cancel?.(drain.session);
+    } catch (error) {
+      this.ports.log?.(`could not clear the drain of ${drain.session.sessionId}: ${String(error)}`);
+    }
+    try {
+      this.ports.stop(drainKey);
+    } catch (error) {
+      this.ports.log?.(`could not stop ${drain.session.sessionId}: ${String(error)}`);
+    }
+    return true;
   }
 
   /** The detached process is gone. */

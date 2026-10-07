@@ -30,6 +30,8 @@ export type SeatDrainPorts = {
   readonly record: {
     readonly begin: (seatId: string, sessionId: string, at: number) => Promise<unknown>;
     readonly end: (seatId: string, sessionId: string, how: SeatSessionDrainEnd, at: number) => Promise<unknown>;
+    /** The offboard did not go through: the session keeps no wind-down. */
+    readonly cancel: (seatId: string, sessionId: string) => Promise<unknown>;
   };
   /** How long a stop asked for at once waits for the process to be gone. */
   readonly stopWaitMs?: number;
@@ -78,6 +80,10 @@ export const composeSeatDrain = (ports: SeatDrainPorts): SeatDrain => {
         write(session.seatId, session.sessionId, "the drain", () =>
           ports.record.begin(session.seatId, session.sessionId, at),
         ),
+      cancel: (session) =>
+        write(session.seatId, session.sessionId, "the cancelled drain", () =>
+          ports.record.cancel(session.seatId, session.sessionId),
+        ),
       end: (session, how, at) => {
         ports.log?.(`${session.seatId}: its offboarded session ended (${how})`);
         write(session.seatId, session.sessionId, "the end", () =>
@@ -109,7 +115,8 @@ export const composeSeatDrain = (ports: SeatDrainPorts): SeatDrain => {
         resolve();
       }
       waiters.add(done);
-      ports.host.stopDraining(drainKey, "offboard_not_completed");
+      // Not a wind-down that ended: the session is the seat's again.
+      manager.abandon(drainKey);
     });
 
   return {

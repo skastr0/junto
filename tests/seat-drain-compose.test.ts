@@ -55,6 +55,7 @@ const rig = (options: { drainable?: boolean } = {}) => {
     record: {
       begin: async (seatId, sessionId, at) => void acts.push(`record ${seatId} ${sessionId} detached at ${at}`),
       end: async (seatId, sessionId, how, at) => void acts.push(`record ${seatId} ${sessionId} ended ${how} at ${at}`),
+      cancel: async (seatId, sessionId) => void acts.push(`record ${seatId} ${sessionId} was not offboarded`),
     },
     stopWaitMs: 500,
     now: () => clock.now,
@@ -193,9 +194,16 @@ describe("offboard detaches the old process and winds it down", () => {
     const { acts, stops, drain, ports } = rig();
     const result = await rotateSeatSession("a", ports(seatOf("bind-a"), { writeSessionId: async () => false }));
     expect(result).toMatchObject({ ok: false });
-    expect(stops).toEqual([{ drainKey: "drain:bind-a:e1", reason: "offboard_not_completed" }]);
-    expect(acts.at(-1)).toBe("reopen a s1");
+    expect(stops).toEqual([{ drainKey: "drain:bind-a:e1", reason: "offboard" }]);
     expect(drain.drainingSessionIds("a")).toEqual([]);
+    await vi.advanceTimersByTimeAsync(0);
+    // The session is the seat's again: no wind-down stays on its record, and
+    // nothing says it settled, hit the cap or crashed.
+    expect(acts.filter((act) => act.startsWith("record"))).toEqual([
+      "record a s1 detached at 1000",
+      "record a s1 was not offboarded",
+    ]);
+    expect(acts).toContain("reopen a s1");
   });
 
   it("that stop is bounded: a process that will not go does not hold the seat", async () => {

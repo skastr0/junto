@@ -294,6 +294,18 @@ describe("what became of an offboarded session's process", () => {
     expect(await run(repository.closeOpenDrains(60_000))).toBe(0);
   });
 
+  it("an offboard that did not go through leaves no wind-down on the session; one that ended stays", async () => {
+    const repository = await run(offboarded("a", "s1"));
+    await run(repository.beginDrain("a", "s1", 1_000));
+    await run(offboarded("a", "s2"));
+    await run(repository.beginDrain("a", "s2", 1_000));
+    await run(repository.endDrain("a", "s2", "settled", 2_000));
+    await run(repository.cancelDrain("a", "s1"));
+    await run(repository.cancelDrain("a", "s2"));
+    expect((await run(sessionOf("a", "s1")))?.drain).toBeUndefined();
+    expect((await run(sessionOf("a", "s2")))?.drain).toMatchObject({ endedHow: "settled" });
+  });
+
   it("a drain for a session the seat never ran is not recorded, and ending one that is not open does nothing", async () => {
     const repository = await run(repo);
     await run(repository.beginDrain("a", "ghost", 1_000));
