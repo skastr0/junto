@@ -48,6 +48,12 @@ describe("a node draft", () => {
     }
   });
 
+  it("types a draft's id as a node id", () => {
+    const draft: NodeDraft = { kind: "note", ...at, text: "x" };
+    const id: string | undefined = draft.id;
+    expect(id).toBeUndefined();
+  });
+
   it("may name its id, and may not say where it stacks", () => {
     expect(decodes(NodeDraft, { kind: "note", ...at, text: "x", id: "mine" })).toBe(true);
     expect(decodes(NodeDraft, { kind: "note", ...at, text: "x", z: 1 })).toBe(false);

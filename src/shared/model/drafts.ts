@@ -1,4 +1,5 @@
 import { Schema, Struct } from "effect";
+import { NodeId } from "./base";
 import {
   Artifacts,
   Board,
@@ -29,12 +30,13 @@ import { Wire } from "./wire";
  * A node to add. Its id may be left out for main to mint, and it says nothing
  * of where it stacks: a new node goes on top.
  */
-const draft = <Fields extends { readonly id: Schema.Top; readonly z: Schema.Top }>(
+const draft = <Fields extends { readonly id: typeof NodeId; readonly z: Schema.Top }>(
   member: Schema.Struct<Fields>,
 ) =>
   member.mapFields((fields) => ({
     ...Struct.omit(fields, ["id", "z"]),
-    id: Schema.optionalKey(fields.id),
+    // Named by its own schema, so a draft's id keeps the type of a node's.
+    id: Schema.optionalKey(NodeId),
   }));
 
 const Choice = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
