@@ -56,6 +56,10 @@ Input is a JSON object: inline, \`@path\`, or \`-\` / \`@-\` for stdin. Omit inp
 
 \`canvas.batch\` accepts 1–100 structural \`operations\` on one canvas: \`node.create\`, \`node.configure\`, \`node.move\`, \`edge.connect\`, \`edge.configure\`, and \`edge.disconnect\`. Each step has its operation plus the usual fields, without a nested args object or canvas. Assign IDs to new nodes when later steps reference them. The complete graph is validated and committed once. Supply \`expectedRevision\` from \`canvas.read\` to reject stale edits. Native identity/configuration changes, resource deletion, grants, credentials, nested batches, and worker execution are excluded.
 
+Reads answer structure, not work. \`canvas read\`, \`node list\` and \`node get\` return what is on the canvas and how it is wired: nodes and edges. No tasks, requests, artifacts, mail or board topics ride on a node. Read work with its own command: \`tasks list\`, \`request list\`, \`artifact list\` and \`artifact get\`, \`msg list\`, \`board list\`, \`sheet read\` (each where this build has that family). \`canvas list\` answers one \`{name}\` per canvas and nothing else. \`canvas digest\` is the digest text main also writes for the window and the CLI, with the work on each node and without live adapter snapshot data.
+
+A write is one atomic change per canvas: a batch all lands or none of it does.
+
 Success (stdout): \`{ok:true, command, data}\` — \`data\` is the inner operation payload.
 Failure (stderr, exit 1): \`{ok:false, command, error:{type,message,details?}}\`.
 
@@ -134,7 +138,8 @@ This CLI does **not** claim that a running daemon has a handler for every verb. 
 | Capability | Why |
 |---|---|
 | Grant or revoke overseer | Human-only toggle (\`canvasOverseerSet\`). Overseers cannot propagate. |
-| Delete own seat | Direct, indirect, canvas delete, alias, or binding replacement that removes this seat. Ordinary self move/rename/configure/interrupt/stop are allowed. |
+| Delete own seat | Direct, indirect, canvas delete, alias, or binding replacement that removes this seat. Ordinary self move/rename/interrupt/stop are allowed. |
+| Change what an overseer seat runs, remove it, or reseat it | Operator only, for any overseer seat, your own included: its agent, session, harness, host and launch. Refused as \`Forbidden\` with "Only the operator can change what an overseer seat runs or remove it." Renaming, moving, resizing and recoloring an overseer seat are allowed. |
 | Operator viewport | No pan, zoom, focus, resize, or switch. Screenshots observe only. |
 | Mint \`ether.overseer\` | Create, copy, configure, reseat, and generic writes cannot mint or restore the grant. Reseat does not inherit. |
 | Pause/play as authority | Pause/play gates automated work only. It has no bearing on overseer command. |

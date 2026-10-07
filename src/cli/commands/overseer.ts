@@ -71,6 +71,11 @@ export const OVERSEER_UNAVAILABLE: ReadonlyArray<{
       "Direct, indirect, canvas delete, alias, or binding replacement that removes this seat is refused.",
   },
   {
+    capability: "change what an overseer seat runs, remove it, or reseat it",
+    reason:
+      "Operator only, for any overseer seat, this one included: agent, session, harness, host and launch. Renaming, moving, resizing and recoloring an overseer seat are allowed.",
+  },
+  {
     capability: "operator viewport mutation",
     reason: "No pan, zoom, focus, resize, or switch. Screenshots observe only.",
   },
@@ -602,7 +607,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("canvas.batch"),
     command: "overseer canvas batch",
     name: "create and connect in one commit",
-    description: "Single-canvas structural edits, validated and committed together. Read the canvas first for expectedRevision.",
+    description: "Single-canvas structural edits, validated and committed together: the whole batch lands or none of it does. Read the canvas first for expectedRevision.",
     args: ["overseer", "canvas", "batch"],
     input: { operations: [
       { operation: "node.create", node: { id: "backlog", type: "text", text: "Backlog", x: 400, y: 0, width: 260, height: 120, ether: { entity: { kind: "task" } } } },
@@ -621,6 +626,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("canvas.list"),
     command: "overseer canvas list",
     name: "list canvases",
+    description: "Answers one {name} per canvas, nothing else.",
     args: ["overseer", "canvas", "list"],
     input: {},
   },
@@ -635,7 +641,32 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("canvas.read"),
     command: "overseer canvas read",
     name: "read caller canvas",
+    description: "Returns structure only: nodes and edges. Work is read with its own command (tasks list, request list, artifact list, msg list, board list, sheet read).",
     args: ["overseer", "canvas", "read"],
+    input: {},
+  },
+  {
+    command_id: commandIdFor("node.list"),
+    command: "overseer node list",
+    name: "list the nodes of the caller canvas",
+    description: "Returns structure only: the nodes, with no work on them. Work is read with its own command (tasks list, request list, artifact list, msg list, board list, sheet read).",
+    args: ["overseer", "node", "list"],
+    input: {},
+  },
+  {
+    command_id: commandIdFor("node.get"),
+    command: "overseer node get",
+    name: "read one node",
+    description: "Returns structure only: the node, with no work on it. Work is read with its own command (tasks list, request list, artifact list, msg list, board list, sheet read).",
+    args: ["overseer", "node", "get"],
+    input: { nodeId: "backlog" },
+  },
+  {
+    command_id: commandIdFor("canvas.digest"),
+    command: "overseer canvas digest",
+    name: "read the caller canvas as text",
+    description: "The digest main also writes for the window and the CLI, with the work on each node, and without live adapter snapshot data.",
+    args: ["overseer", "canvas", "digest"],
     input: {},
   },
   {

@@ -63,7 +63,7 @@ replay.
 | Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Stale save / grant strip | `tests/authorial-canvas-merge.test.ts`, `tests/canvas-save-durability.test.ts` |
 
-## Wire operations (113)
+## Wire operations (119)
 
 | operation | catalog | owning service | coverage | suite |
 | --- | --- | --- | --- | --- |
@@ -186,6 +186,17 @@ replay.
 | `references.delete` | mutation | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
 | `briefing.read` | read | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
 | `briefing.write` | mutation | main `executeOverseerReferences` over the references store | exercised | tests/overseer-references.test.ts; tests/overseer-cli.test.ts |
+
+## Canvas reads and overseer seats
+
+| item | contract |
+| --- | --- |
+| `canvas.read`, `node.list`, `node.get` | structure only: nodes and edges as the model holds them; no tasks, requests, artifacts, mail or board topics ride on a node; work is read with its own command |
+| `canvas.list` | one `{name}` per canvas, nothing else |
+| `canvas.digest` | the model digest main also writes for the window and the canvas CLI (`readModelDigest`), read without adapter snapshot data |
+| `canvas.render` | an SVG drawn by `renderCanvasSvg` from the same structure and task rows; no other surface draws with it |
+| Writes | one transaction: a batch all lands or none of it does |
+| Overseer seats | an overseer may rename, move, resize and recolor an overseer seat, its own included; changing what it runs (agent, session, harness, host, launch), removing it or reseating it is refused by the model as `Forbidden`: "Only the operator can change what an overseer seat runs or remove it." |
 
 ## Human toggle (not a wire operation)
 
