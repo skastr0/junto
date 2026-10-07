@@ -1,65 +1,56 @@
 import { describe, expect, it } from "vitest";
-import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { asNodeId, type Node, type Wire } from "../src/shared/model";
+import { canvasOf, note, region, seat, terminal } from "./support/model-nodes";
 import {
   deriveRegionRollups as deriveRegionRollupsWithContext,
   type AgentActivity,
   type RegionRollupInput,
 } from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
-import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
+import { actorRefFixture } from "./helpers/actor-ref-fixtures";
+
+/** A canvas as a test writes it: its nodes in paint order, and its wires. */
+type Fixture = { readonly nodes: ReadonlyArray<Node>; readonly edges: ReadonlyArray<Wire> };
 
 type RegionRollupFixtureInput = Omit<
   RegionRollupInput,
   "canvasName" | "resolveActorRef" | "canvas" | "itemsOf"
-> & { readonly doc: CanvasDoc };
+> & { readonly doc: Fixture };
 
 const deriveRegionRollups = (input: RegionRollupFixtureInput) => {
-  const context = executionContextForDoc(input.doc);
+  const { doc, ...rest } = input;
+  const refs = new Map(
+    doc.nodes.filter((held) => held.kind === "agent").map((held) => [held.id as string, actorRefFixture(held.id, "factory")]),
+  );
   return deriveRegionRollupsWithContext({
-    ...input,
-    canvas: canvasFromDocument(context.canvasName, input.doc),
-    itemsOf: workItemsFromDocument(input.doc),
-    canvasName: context.canvasName,
-    resolveActorRef: context.resolveActorRef,
+    ...rest,
+    canvas: canvasOf(doc.nodes, doc.edges),
+    // No canvas here holds work.
+    itemsOf: () => [],
+    canvasName: "factory",
+    resolveActorRef: (ref) => refs.get(ref.nodeId),
   });
 };
 
-type Node = CanvasDoc["nodes"][number];
-type Edge = CanvasDoc["edges"][number];
-
 // Membership is center-containment, so fixtures place whole nodes inside the
 // region rect (nodes are 100x40 unless overridden).
-const node = (id: string, x: number, y: number, text: string, ether?: Node["ether"]): Node => ({
-  id,
-  type: "text",
-  text,
-  x,
-  y,
-  width: 100,
-  height: 40,
-  ...(ether ? { ether } : {}),
-});
+const at = (x: number, y: number) => ({ x, y, width: 100, height: 40 });
 
-const group = (id: string, x: number, y: number, width: number, height: number, label?: string): Node => ({
-  id,
-  type: "group",
-  x,
-  y,
-  width,
-  height,
-  ...(label !== undefined ? { label } : {}),
-});
+const node = (id: string, x: number, y: number, text: string): Node => note(id, text, at(x, y));
 
-const projectNode = (id: string, x: number, y: number, label: string, projectKey: string): Node =>
-  node(id, x, y, label, { entity: { kind: "project", name: projectKey } });
+const group = (id: string, x: number, y: number, width: number, height: number, label?: string): Node =>
+  region(id, { x, y, width, height }, label !== undefined ? { label } : {});
+
+/** Furniture that carries a name an agent also has: activity never reaches it. */
+const projectNode = (id: string, x: number, y: number, label: string, _name: string): Node =>
+  node(id, x, y, label);
 
 const agentNode = (id: string, x: number, y: number, label: string, agentKey: string): Node =>
-  node(id, x, y, label, { entity: { kind: "agent", name: agentKey }, terminal: { bindingId: `binding-${id}`, harness: "hermes" } });
+  seat(id, { ...at(x, y), label, agentKey, harness: "hermes" });
 
 /** A terminal work surface whose live harness state the rollup reads. */
 const liveSurface = (id: string, x: number, y: number, label: string): Node =>
-  node(id, x, y, label, { entity: { kind: "terminal" }, terminal: { bindingId: `b-${id}` } });
+  terminal(id, { ...at(x, y), label });
 
 const harnessOf = (
   ...entries: Array<[string, WorkSurfaceActivity["harness"]]>
@@ -71,7 +62,7 @@ const activityOf = (...entries: Array<[string, AgentActivity]>): ReadonlyMap<str
 
 describe("deriveRegionRollups — member severity ladder", () => {
   it("attention via a pending permission on a live agent", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
         agentNode("a", 10, 100, "PROFILE-13", "remote-a:profile-13"),
@@ -89,7 +80,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 
   it("session liveness alone does not imply harness work", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "PROFILE-13", "remote-a:profile-13")],
       edges: [],
     };
@@ -102,16 +93,14 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 
   it("maps backend-neutral harness activity without knowing terminal backend", () => {
-    const terminal = node("term", 10, 10, "shell", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
-    const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), terminal], edges: [] };
+    const doc: Fixture = { nodes: [group("r", 0, 0, 500, 500, "ops"), liveSurface("term", 10, 10, "shell")], edges: [] };
     const activity: WorkSurfaceActivity = { session: "running", harness: "working", source: "native" };
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["term", activity]]) });
     expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["activity:working"] });
   });
 
   it("ready: finished turn nobody has read yet, below working, above idle", () => {
-    const seat = node("seat", 10, 10, "profile-13", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
-    const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), seat], edges: [] };
+    const doc: Fixture = { nodes: [group("r", 0, 0, 500, 500, "ops"), liveSurface("seat", 10, 10, "profile-13")], edges: [] };
     const activity: WorkSurfaceActivity = { session: "running", harness: "idle", ready: true, source: "native" };
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", activity]]) });
     expect(rollup?.severity).toBe("ready");
@@ -120,8 +109,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 
   it("ready never outranks a live harness state on the same seat", () => {
-    const seat = node("seat", 10, 10, "profile-13", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
-    const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), seat], edges: [] };
+    const doc: Fixture = { nodes: [group("r", 0, 0, 500, 500, "ops"), liveSurface("seat", 10, 10, "profile-13")], edges: [] };
     const working: WorkSurfaceActivity = { session: "running", harness: "working", ready: true };
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", working]]) });
     expect(rollup?.members[0]).toMatchObject({ severity: "working" });
@@ -129,7 +117,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 
   it("idle by default: unbound node with no live data", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [group("r", 0, 0, 500, 500, "ops"), node("n", 10, 10, "plain note")],
       edges: [],
     };
@@ -139,7 +127,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 
   it("worst tier wins; reasons collect every match in ladder order; counts bucket the worst only", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
         agentNode("a", 10, 100, "PROFILE-13", "remote-a:profile-13"),
@@ -161,17 +149,17 @@ describe("deriveRegionRollups — member severity ladder", () => {
 });
 
 describe("deriveRegionRollups — absent activity inputs", () => {
-  const doc: CanvasDoc = {
+  const doc: Fixture = {
     nodes: [
       group("r", 0, 0, 500, 500, "ops"),
       projectNode("p", 10, 10, "prism", "prism"),
       agentNode("a", 10, 100, "PROFILE-13", "remote-a:profile-13"),
       projectNode("q", 10, 200, "quasar", "quasar"),
     ],
-    edges: [{ id: "e1", fromNode: "p", toNode: "q" }],
+    edges: [],
   };
 
-  it("missing activity invents nothing: every member idle, edge stays relates", () => {
+  it("missing activity invents nothing: every member idle", () => {
     const [rollup] = deriveRegionRollups({ doc });
     expect(rollup?.severity).toBe("idle");
     expect(rollup?.counts).toEqual({ total: 3, blocked: 0, attention: 0, working: 0 , ready: 0 });
@@ -189,7 +177,7 @@ describe("deriveRegionRollups — absent activity inputs", () => {
 
 describe("deriveRegionRollups — region shape", () => {
   it("empty region: idle, zero counts, no members", () => {
-    const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops")], edges: [] };
+    const doc: Fixture = { nodes: [group("r", 0, 0, 500, 500, "ops")], edges: [] };
     const [rollup] = deriveRegionRollups({ doc });
     expect(rollup).toMatchObject({
       regionId: "r",
@@ -201,12 +189,12 @@ describe("deriveRegionRollups — region shape", () => {
   });
 
   it("no groups, no rollups", () => {
-    const doc: CanvasDoc = { nodes: [node("n", 0, 0, "solo")], edges: [] };
+    const doc: Fixture = { nodes: [node("n", 0, 0, "solo")], edges: [] };
     expect(deriveRegionRollups({ doc })).toEqual([]);
   });
 
   it("region label is trimmed; blank or absent label falls back to 'unnamed region'", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [group("a", 0, 0, 100, 100, "  forge  "), group("b", 200, 0, 100, 100), group("c", 400, 0, 100, 100, "   ")],
       edges: [],
     };
@@ -215,7 +203,7 @@ describe("deriveRegionRollups — region shape", () => {
   });
 
   it("one rollup per group, in document order", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("b", 300, 0, 200, 200, "second"),
         node("n", 10, 10, "x"),
@@ -228,7 +216,7 @@ describe("deriveRegionRollups — region shape", () => {
   });
 
   it("nodes outside every region are ignored", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("r", 0, 0, 200, 200, "ops"),
         node("inside", 10, 10, "in"),
@@ -242,7 +230,7 @@ describe("deriveRegionRollups — region shape", () => {
   });
 
   it("a node whose center leaves the rect is not a member, even if it overlaps", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("r", 0, 0, 200, 200, "ops"),
         // 100x40 node at (180, 10): center x = 230 > 200 -> outside
@@ -255,7 +243,7 @@ describe("deriveRegionRollups — region shape", () => {
   });
 
   it("groups never contain groups: a group rect inside a region is not a member and rolls up on its own", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("outer", 0, 0, 500, 500, "outer"),
         group("inner", 20, 20, 200, 200, "inner"),
@@ -272,12 +260,12 @@ describe("deriveRegionRollups — region shape", () => {
   });
 
   it("member labels follow the titleOf convention: text first line, file basename, link url", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
         node("t", 10, 10, "First line\nsecond line"),
-        { id: "f", type: "file", file: "docs/deep/plan.md", x: 10, y: 100, width: 100, height: 40 },
-        { id: "l", type: "link", url: "https://example.com/spec", x: 10, y: 200, width: 100, height: 40 },
+        { kind: "file", id: asNodeId("f"), path: "docs/deep/plan.md", ...at(10, 100), z: 0 },
+        { kind: "link", id: asNodeId("l"), url: "https://example.com/spec", ...at(10, 200), z: 0 },
       ],
       edges: [],
     };
@@ -288,7 +276,7 @@ describe("deriveRegionRollups — region shape", () => {
 
 describe("deriveRegionRollups — region nesting", () => {
   it("three-deep nesting: a blocked seat in the innermost region bubbles into every ancestor rollup", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("outer", 0, 0, 1000, 1000, "outer"),
         group("mid", 50, 50, 500, 500, "mid"),
@@ -307,7 +295,7 @@ describe("deriveRegionRollups — region nesting", () => {
   });
 
   it("nesting aggregation: an inner member and an outer-only member both roll up to the outer region", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("outer", 0, 0, 1000, 1000, "outer"),
         group("inner", 100, 100, 300, 300, "inner"),
@@ -326,7 +314,7 @@ describe("deriveRegionRollups — region nesting", () => {
   });
 
   it("overlapping regions: a node inside both counts in both rollups", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("gA", 0, 0, 400, 300, "left"),
         group("gB", 100, 0, 400, 300, "right"),
@@ -345,7 +333,7 @@ describe("deriveRegionRollups — region nesting", () => {
 
 describe("deriveRegionRollups — member ordering", () => {
   it("sorts by severity, then kind (agents first), then document order", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
         node("idle1", 10, 10, "idle one"),
@@ -373,7 +361,7 @@ describe("deriveRegionRollups — member ordering", () => {
 
 describe("deriveRegionRollups — derivation edges", () => {
   it("an agent with a pending permission and a live session is attention, reasons in ladder order", () => {
-    const doc: CanvasDoc = {
+    const doc: Fixture = {
       nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "PROFILE-13", "remote-a:profile-13")],
       edges: [],
     };
@@ -387,11 +375,11 @@ describe("deriveRegionRollups — derivation edges", () => {
     expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 , ready: 0 });
   });
 
-  it("unknown entity kinds remain inert without explicit activity", () => {
-    const doc: CanvasDoc = {
+  it("a note and an agent stay idle with no activity reported", () => {
+    const doc: Fixture = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        node("o", 10, 10, "forge", { entity: { kind: "orbit", name: "prism" } }),
+        node("o", 10, 10, "forge"),
         agentNode("a", 10, 110, "twin", "prism"),
       ],
       edges: [],
