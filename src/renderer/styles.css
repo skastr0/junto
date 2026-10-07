@@ -509,6 +509,21 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   padding: 0 18px;
 }
 
+/* Everything left of the actions. It lays its children out as the bar did
+   (same gap), fills what the actions leave, and is cut on the right when its
+   children need more: the actions never give way. The 4px each side keeps a
+   focus ring at either end from being cut. */
+.station-left {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+  gap: inherit;
+  margin: 0 -4px;
+  padding: 0 4px;
+  overflow-x: clip;
+}
+
 html[data-junto-platform="darwin"] .station-bar {
   padding-left: 84px;
   -webkit-app-region: drag;

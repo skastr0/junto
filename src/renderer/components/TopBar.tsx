@@ -282,11 +282,16 @@ export function TopBar({
   return (
     <header className="station-bar">
       {USAGE_ENABLED ? <UsageHud /> : null}
-      <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} authoring={authoring} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
-      <CommandBarTrigger canvasName={canvasName} />
-      <SaveStatus />
-      <CommandGroupBar />
-      <div className="station-actions relative ml-auto flex items-center gap-3">
+      {/* The left of the bar takes the room the actions leave and is cut at
+          its own edge when that is not enough, so the actions (the inbox,
+          pause, Settings) are never pushed out of the window. */}
+      <div className="station-left">
+        <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} authoring={authoring} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
+        <CommandBarTrigger canvasName={canvasName} />
+        <SaveStatus />
+        <CommandGroupBar />
+      </div>
+      <div className="station-actions relative ml-auto flex shrink-0 items-center gap-3">
         <UpdateChip />
         <NeedsYouButton />
         <FactoryPauseControl canvasName={canvasName} />
