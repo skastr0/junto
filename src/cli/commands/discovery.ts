@@ -215,9 +215,9 @@ export const offboardCommand = Command.make(
 ).pipe(
   Command.withDescription(
     [
-      "End this session with notes on what happened, what is relevant, and why it matters. You choose the stopping point. The session ends the moment this returns: run it last.",
-      "At a stopping point: junto offboard \"<notes>\". The session closes at once and the seat rests; its next wake starts a fresh session that reads your notes.",
-      "Mid-work: junto offboard \"<notes>\" --continue \"<note>\". The session closes at once and Junto starts a fresh one right away, which reads your note first and carries on.",
+      "End this session with notes on what happened, what is relevant, and why it matters. You choose the stopping point. Run it last: the moment it returns, your seat has moved on to a fresh session. This session may finish what it is saying, but it receives nothing more and its junto commands are refused.",
+      "At a stopping point: junto offboard \"<notes>\". The seat rests; its next wake starts a fresh session that reads your notes.",
+      "Mid-work: junto offboard \"<notes>\" --continue \"<note>\". Junto starts the fresh session right away, and it reads your note first and carries on.",
     ].join(" "),
   ),
 );

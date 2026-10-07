@@ -1331,8 +1331,8 @@ const dispatchOp = (
         disposition: "applied" as const,
         next_step:
           mode === "continue"
-            ? "your notes and continuation are saved and this session ends now; Junto is starting a fresh session of this seat, and it reads your continuation first"
-            : "your notes are saved and this session ends now; the seat rests until its next wake, which starts a fresh session that reads your notes",
+            ? "your notes and continuation are saved and your seat has moved on to a fresh session, which reads your continuation first; this session may finish what it is saying, but it receives nothing more and its junto commands are refused"
+            : "your notes are saved and your seat has moved on: it rests until its next wake, which starts a fresh session that reads your notes; this session may finish what it is saying, but it receives nothing more and its junto commands are refused",
       };
     }
 

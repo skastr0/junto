@@ -210,7 +210,8 @@ describe("junto offboard", () => {
       }
       expect(sealedAtAnnounce).toEqual([true]);
       // The reply no longer tells the agent to finish its turn: there is no turn left.
-      expect(result.data.next_step).toContain("this session ends now");
+      expect(result.data.next_step).toContain("your seat has moved on");
+      expect(result.data.next_step).toContain("its junto commands are refused");
       expect(result.data.next_step).not.toMatch(/idle|finish this turn/);
     } finally {
       unsubscribe();

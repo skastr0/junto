@@ -303,7 +303,7 @@ export const ONBOARD_GUIDANCE: ReadonlyArray<string> = [
   "Report through `junto feedback \"...\"` (ready for review), `junto blocked \"...\"` (cannot continue; stop and wait) and `junto escalate \"...\"` (needs attention; keep working). The operator reads that feed, not your terminal.",
   "When findings are ready but work remains, post `junto feedback` and keep working.",
   "Errors are ground truth: read `type` and `next_step`, and retry only when `retryable` is true.",
-  "End a session with `junto offboard \"<notes>\"`. Reference for everything else: `junto docs`, `junto schema show <command>`, `junto examples show <command>`.",
+  "End a session with `junto offboard \"<notes>\"`, run last: the moment it returns your seat has moved on to a fresh session, and this one receives nothing more. Reference for everything else: `junto docs`, `junto schema show <command>`, `junto examples show <command>`.",
 ];
 
 /** Present only when the operator wrote a soul or standing instructions. */
