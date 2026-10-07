@@ -152,8 +152,10 @@ test("Settings keeps its frame and closes on Escape and on its dim", async ({ ju
     await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
     await page.screenshot({ path: join(SHOTS, `${theme}-settings.png`) });
 
-    // A select or popover inside Settings opens above it.
-    const trigger = panel.locator('[aria-haspopup], [role="combobox"]').first();
+    // A select or popover inside Settings opens above it. A page's own control,
+    // not the search field, which is a combobox that opens no popup.
+    await page.locator(".settings-nav__item", { hasText: "Terminal" }).click();
+    const trigger = panel.locator('.settings-content [aria-haspopup], .settings-content [role="combobox"]').first();
     if ((await trigger.count()) > 0) {
       await trigger.click();
       const floating = page.locator('[data-layer="popover"], [data-layer="flyout"], [role="listbox"]:visible, [role="menu"]:visible').last();
