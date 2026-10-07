@@ -312,6 +312,45 @@ export function edgesTouchedByMove(
 }
 
 /**
+ * The wires a settled plan has to route, given the plan before it. A wire is
+ * owed a route when a moved card can have changed it, when the wire itself is
+ * not what it was (new, or other ends, sides or stoppage), when a drag took
+ * its route away, when it joined or left a cable, or when it is blocked and
+ * the cables' corridors moved. Wires are compared one at a time on purpose: a
+ * wire's sides follow where its cards sit, so dropping a card changes the
+ * sides of the wires it carries and must not send every other wire back
+ * through the router.
+ */
+export function routesOwed(input: {
+  readonly edges: ReadonlyArray<LoomEdgeInput>;
+  /** Each wire as it stood at the last plan, by id. */
+  readonly specsBefore: ReadonlyMap<string, string>;
+  readonly specsNow: ReadonlyMap<string, string>;
+  readonly obstaclesBefore: ReadonlyArray<LoomObstacle>;
+  readonly obstaclesNow: ReadonlyArray<LoomObstacle>;
+  /** Nodes that moved and are no obstacle, such as a region. */
+  readonly movedNodeIds: ReadonlySet<string>;
+  /** Wires a drag took the planned route from. */
+  readonly dropped: ReadonlySet<string>;
+  readonly strandsBefore: ReadonlySet<string>;
+  readonly strandsNow: ReadonlySet<string>;
+  readonly corridorsChanged: boolean;
+}): Set<string> {
+  const owed = edgesTouchedByMove(
+    input.edges,
+    movedObstacles(input.obstaclesBefore, input.obstaclesNow),
+  );
+  for (const id of incidentEdgeIds(input.edges, input.movedNodeIds)) owed.add(id);
+  for (const id of input.dropped) owed.add(id);
+  for (const edge of input.edges) {
+    if (input.specsBefore.get(edge.id) !== input.specsNow.get(edge.id)) owed.add(edge.id);
+    if (input.strandsNow.has(edge.id) !== input.strandsBefore.has(edge.id)) owed.add(edge.id);
+    if (input.corridorsChanged && edge.blocked) owed.add(edge.id);
+  }
+  return owed;
+}
+
+/**
  * The standalone routes one geometry tick asks for.
  *
  * While a node is dragging nothing is routed: the wires touching it give up

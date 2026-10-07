@@ -17,8 +17,7 @@ import {
   loomObstacles$,
   loomRoutes$,
   loomStrands$,
-  edgesTouchedByMove,
-  movedObstacles,
+  routesOwed,
   routesForTick,
   pruneKeyedLoomEntries,
   publishKeyedLanes,
@@ -165,13 +164,12 @@ function specsOf(edges: ReadonlyArray<FlowEdge>): EdgeSpec[] {
   return out;
 }
 
+function specKeyOf(spec: EdgeSpec): string {
+  return `${spec.id}|${spec.sourceNodeId}|${spec.sourceSide}|${spec.targetNodeId}|${spec.targetSide}|${spec.blocked ? 1 : 0}`;
+}
+
 function specsKeyOf(specs: ReadonlyArray<EdgeSpec>): string {
-  return specs
-    .map(
-      (spec) =>
-        `${spec.id}|${spec.sourceNodeId}|${spec.sourceSide}|${spec.targetNodeId}|${spec.targetSide}|${spec.blocked ? 1 : 0}`,
-    )
-    .join(";");
+  return specs.map(specKeyOf).join(";");
 }
 
 /** Handle centre, node-derived. Stitching corrects to the DOM-measured point. */
@@ -366,6 +364,27 @@ function buildInputs(
   };
 }
 
+/** Every node that is new, gone, or not the rectangle it was. */
+function movedNodeIds(before: ReadonlyArray<LoomNode>, after: ReadonlyArray<LoomNode>): Set<string> {
+  const was = new Map(before.map((node) => [node.nodeId, node] as const));
+  const out = new Set<string>();
+  for (const node of after) {
+    const prior = was.get(node.nodeId);
+    was.delete(node.nodeId);
+    if (
+      !prior ||
+      prior.x !== node.x ||
+      prior.y !== node.y ||
+      prior.width !== node.width ||
+      prior.height !== node.height
+    ) {
+      out.add(node.nodeId);
+    }
+  }
+  for (const nodeId of was.keys()) out.add(nodeId);
+  return out;
+}
+
 function collectObstacles(geometry: ReadonlyArray<LoomNode>): LoomObstacle[] {
   const obstacles: LoomObstacle[] = [];
   for (const node of geometry) {
@@ -477,10 +496,16 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
   const freezeRef = useRef<string | null>(null);
   // Geometry and topology the standing plan was built from.
   const plannedRef = useRef<{ geometry: LoomNode[]; specsKey: string } | null>(null);
-  // The cards and topology the standing standalone routes were worked out
-  // against. Kept through a drag, so the plan on drop can tell which wires a
-  // moved card can have changed.
-  const routedRef = useRef<{ obstacles: LoomObstacle[]; specsKey: string } | null>(null);
+  // The cards the standing standalone routes were worked out against, and
+  // each wire as it was then. Kept through a drag, so the plan on drop can
+  // tell which wires a moved card can have changed. Wires are compared one by
+  // one: a wire's sides follow where its cards sit, so a drop changes the
+  // sides of the wires it moved and of no other.
+  const routedRef = useRef<{
+    geometry: LoomNode[];
+    obstacles: LoomObstacle[];
+    specs: ReadonlyMap<string, string>;
+  } | null>(null);
   // Wires a drag took the planned route from, owed a route at the next plan.
   const freshlyDropped = useRef<Set<string>>(new Set());
 
@@ -558,24 +583,28 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
 
     const strandIds = new Set(plan.strands.keys());
     const routed = routedRef.current;
-    if (routed && routed.specsKey === specsKey) {
-      // Same wires as last time: only a wire a moved card can have changed is
-      // routed again. Every other wire keeps the route it has.
-      const scope = edgesTouchedByMove(inputs, movedObstacles(routed.obstacles, obstacles));
-      // A wire the drag took its route from is owed one, moved or not.
-      for (const id of freshlyDropped.current) scope.add(id);
-      for (const edge of inputs) {
-        // In or out of a cable since the last plan.
-        if (strandIds.has(edge.id) !== wasStrand.has(edge.id)) scope.add(edge.id);
-        // Blocked wires route around the cables' corridors as well.
-        if (corridorsChanged && edge.blocked) scope.add(edge.id);
-      }
+    const specsById = new Map(specsNow.map((spec) => [spec.id, specKeyOf(spec)] as const));
+    if (routed) {
+      // Only the wires this plan owes a route are routed. Every other wire
+      // keeps the route it has.
+      const scope = routesOwed({
+        edges: inputs,
+        specsBefore: routed.specs,
+        specsNow: specsById,
+        obstaclesBefore: routed.obstacles,
+        obstaclesNow: obstacles,
+        movedNodeIds: movedNodeIds(routed.geometry, geometry),
+        dropped: freshlyDropped.current,
+        strandsBefore: wasStrand,
+        strandsNow: strandIds,
+        corridorsChanged,
+      });
       publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds, scope);
     } else {
       publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds);
     }
     freshlyDropped.current = new Set();
-    routedRef.current = { obstacles, specsKey };
+    routedRef.current = { geometry, obstacles, specs: specsById };
 
     plannedRef.current = { geometry, specsKey };
   }, [geometry, specsKey]);

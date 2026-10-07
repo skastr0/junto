@@ -10,6 +10,7 @@ import {
   movedObstacles,
   planStandaloneRoutes,
   routesForTick,
+  routesOwed,
 } from "../src/renderer/lib/loom-view";
 import type { LoomEdgeInput, LoomObstacle } from "../src/renderer/lib/wire-loom";
 import { routeWire } from "../src/renderer/lib/wire-route";
@@ -145,6 +146,66 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
       expect(now.get(edge.id), edge.id).toEqual(was.get(edge.id));
     }
     expect(kept).toBeGreaterThan(90);
+  });
+
+  it("a drop that changes the moved wires' sides still routes only those wires", () => {
+    // In the window a wire's sides follow where its cards sit, so after a drop
+    // the wires on the moved cards are different wires to the planner. That
+    // once sent every wire on the canvas back through the router.
+    const before = cards();
+    const after = cards(dragOffsets(MOVES));
+    const edges = wires(after);
+    const moved = incidentEdgeIds(edges, new Set(DRAGGED));
+    const keyOf = (edge: LoomEdgeInput, flipped: boolean): string =>
+      `${edge.id}|${flipped ? "top" : edge.sourceSide}|${edge.targetSide}`;
+    const owed = routesOwed({
+      edges,
+      specsBefore: new Map(edges.map((edge) => [edge.id, keyOf(edge, false)] as const)),
+      specsNow: new Map(edges.map((edge) => [edge.id, keyOf(edge, moved.has(edge.id))] as const)),
+      obstaclesBefore: before,
+      obstaclesNow: after,
+      movedNodeIds: new Set(DRAGGED),
+      dropped: moved,
+      strandsBefore: NO_STRANDS,
+      strandsNow: NO_STRANDS,
+      corridorsChanged: false,
+    });
+    expect(owed).toEqual(edgesTouchedByMove(edges, movedObstacles(before, after)));
+    expect(owed.size).toBeLessThan(edges.length / 3);
+  });
+
+  it("owes a route to a wire that is new, changed, left a cable, or ends on a moved region", () => {
+    const held = cards();
+    const edges = wires(held);
+    const same = new Map(edges.map((edge) => [edge.id, edge.id] as const));
+    const base = {
+      edges,
+      specsBefore: same,
+      specsNow: same,
+      obstaclesBefore: held,
+      obstaclesNow: held,
+      movedNodeIds: new Set<string>(),
+      dropped: new Set<string>(),
+      strandsBefore: NO_STRANDS,
+      strandsNow: NO_STRANDS,
+      corridorsChanged: false,
+    };
+    const [first, second, third] = edges;
+    expect(routesOwed(base).size).toBe(0);
+    const withoutFirst = new Map(same);
+    withoutFirst.delete(first!.id);
+    expect(routesOwed({ ...base, specsBefore: withoutFirst })).toEqual(new Set([first!.id]));
+    expect(routesOwed({ ...base, specsNow: new Map([...same, [second!.id, "other sides"]]) }))
+      .toEqual(new Set([second!.id]));
+    expect(routesOwed({ ...base, strandsBefore: new Set([third!.id]) })).toEqual(new Set([third!.id]));
+    expect(routesOwed({ ...base, dropped: new Set([first!.id]) })).toEqual(new Set([first!.id]));
+    // A region is not in the obstacle list; its wires still move with it.
+    expect(routesOwed({ ...base, movedNodeIds: new Set([first!.sourceNodeId]) }))
+      .toEqual(incidentEdgeIds(edges, new Set([first!.sourceNodeId])));
+    // Corridors only matter to a blocked wire.
+    expect(routesOwed({ ...base, corridorsChanged: true }).size).toBe(0);
+    expect(routesOwed({ ...base, corridorsChanged: true, edges: [{ ...first!, blocked: true }] }))
+      .toEqual(new Set([first!.id]));
   });
 
   it("a card that did not move touches nothing", () => {
