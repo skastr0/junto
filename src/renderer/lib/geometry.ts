@@ -1,17 +1,17 @@
-import type { CanvasNode } from "@shared/canvas";
+type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 import { moved, resized } from "./model-edits";
 import { commitCommands } from "./mutations";
 
 type Point = { readonly x: number; readonly y: number };
 type Size = { readonly width: number; readonly height: number };
 
-const overlaps = (a: { readonly x: number; readonly y: number } & Size, b: CanvasNode): boolean =>
+const overlaps = (a: { readonly x: number; readonly y: number } & Size, b: Rect): boolean =>
   a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 
 // Find the nearest visible slot around the viewport center. The first few
 // items on an empty canvas still use the deterministic grid in Canvas; this
 // helper covers subsequent additions and avoids stacking on existing nodes.
-export const findOpenPosition = (nodes: ReadonlyArray<CanvasNode>, center: Point, size: Size): Point => {
+export const findOpenPosition = (nodes: ReadonlyArray<Rect>, center: Point, size: Size): Point => {
   const gap = 28;
   const step = Math.max(size.width, size.height) + gap;
   for (let radius = 0; radius < 18; radius += 1) {

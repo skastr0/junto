@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode, GroupNode } from "../src/shared/canvas";
-import { createFlowIdentityCache, toFlow } from "../src/renderer/lib/convert";
+import type { Node, NodeOf } from "../src/shared/model";
+import { canvasOf } from "./support/model-nodes";
+import { createFlowIdentityCache, toFlowOfCanvas } from "../src/renderer/lib/convert";
 
 // Region nesting depth is projected once per toFlow and carried on node data,
 // so GroupNode reads its MAX_REGION_DEPTH warning off props instead of the doc.
@@ -17,11 +18,12 @@ const region = (
   y: number,
   width: number,
   height: number,
-): GroupNode => ({ id, type: "group", label: id, x, y, width, height });
+): NodeOf<"region"> => ({ id: id as never, kind: "region", hold: false, z: 0, label: id, x, y, width, height });
 
-const card = (id: string, x: number, y: number): CanvasNode => ({
-  id,
-  type: "text",
+const card = (id: string, x: number, y: number): Node => ({
+  id: id as never,
+  kind: "note",
+  z: 0,
   text: id,
   x,
   y,
@@ -29,19 +31,18 @@ const card = (id: string, x: number, y: number): CanvasNode => ({
   height: 40,
 });
 
-const depthOf = (doc: CanvasDoc, id: string): number | undefined =>
-  toFlow(doc, emptyContext).nodes.find((n) => n.id === id)?.data.regionDepth;
+const depthOf = (doc: { nodes: Node[] }, id: string): number | undefined =>
+  toFlowOfCanvas(canvasOf(doc.nodes), emptyContext).nodes.find((n) => n.id === id)?.data.regionDepth;
 
 describe("region depth projection", () => {
   it("stacks nested regions by containment and leaves furniture undepthed", () => {
-    const doc: CanvasDoc = {
+    const doc: { nodes: Node[] } = {
       nodes: [
         region("outer", 0, 0, 600, 600),
         region("mid", 50, 50, 400, 400),
         region("inner", 100, 100, 200, 200),
         card("n", 120, 120),
       ],
-      edges: [],
     };
 
     expect(depthOf(doc, "outer")).toBe(0);
@@ -51,13 +52,12 @@ describe("region depth projection", () => {
   });
 
   it("counts every container, overlapping regions included", () => {
-    const doc: CanvasDoc = {
+    const doc: { nodes: Node[] } = {
       nodes: [
         region("a", 0, 0, 600, 600),
         region("b", 0, 0, 500, 700),
         region("inner", 100, 100, 200, 200),
       ],
-      edges: [],
     };
 
     expect(depthOf(doc, "inner")).toBe(2);
@@ -66,15 +66,14 @@ describe("region depth projection", () => {
   });
 
   it("paints deeper regions above shallower ones, all below edges and furniture", () => {
-    const doc: CanvasDoc = {
+    const doc: { nodes: Node[] } = {
       nodes: [
         region("outer", 0, 0, 600, 600),
         region("inner", 100, 100, 200, 200),
         card("n", 700, 700),
       ],
-      edges: [],
     };
-    const byId = new Map(toFlow(doc, emptyContext).nodes.map((n) => [n.id, n]));
+    const byId = new Map(toFlowOfCanvas(canvasOf(doc.nodes), emptyContext).nodes.map((n) => [n.id, n]));
 
     const outer = byId.get("outer")?.zIndex ?? -1;
     const inner = byId.get("inner")?.zIndex ?? -1;
@@ -88,12 +87,12 @@ describe("region depth projection", () => {
     const sibling = region("sibling", 400, 400, 200, 200);
     const cache = createFlowIdentityCache();
 
-    const before = toFlow({ nodes: [outer, sibling], edges: [] }, emptyContext, null, cache);
+    const before = toFlowOfCanvas(canvasOf([outer, sibling]), emptyContext, null, cache);
     expect(before.nodes.find((n) => n.id === "sibling")?.data.regionDepth).toBe(0);
 
     // Only `outer` is resized — `sibling` is the very same object, now nested.
     const grown = { ...outer, width: 800, height: 800 };
-    const after = toFlow({ nodes: [grown, sibling], edges: [] }, emptyContext, null, cache);
+    const after = toFlowOfCanvas(canvasOf([grown, sibling]), emptyContext, null, cache);
     const projected = after.nodes.find((n) => n.id === "sibling");
 
     expect(projected?.data.id).toBe("sibling");
@@ -106,7 +105,7 @@ describe("region depth projection", () => {
     const inner = region("inner", 40, 60, 700, 600);
     const seat = card("c", 900, 60);
     const cache = createFlowIdentityCache();
-    const before = toFlow({ nodes: [outer, inner, seat], edges: [] }, emptyContext, null, cache);
+    const before = toFlowOfCanvas(canvasOf([outer, inner, seat]), emptyContext, null, cache);
     const slot = before.nodes.find((n) => n.id === "outer")?.data.nameSlot;
     expect(slot).toBeDefined();
     // Clear of the nested region, which starts at 40,60 and is 700 wide.
@@ -114,7 +113,7 @@ describe("region depth projection", () => {
     expect(before.nodes.find((n) => n.id === "inner")?.data.nameSlot).toBeDefined();
 
     const moved = { ...seat, x: 900, y: 700 };
-    const after = toFlow({ nodes: [outer, inner, moved], edges: [] }, emptyContext, null, cache);
+    const after = toFlowOfCanvas(canvasOf([outer, inner, moved]), emptyContext, null, cache);
     const reprojected = after.nodes.find((n) => n.id === "outer");
     expect(reprojected?.data.id).toBe("outer");
     expect(reprojected).not.toBe(before.nodes.find((n) => n.id === "outer"));

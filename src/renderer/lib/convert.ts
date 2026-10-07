@@ -1,11 +1,10 @@
-import type { CanvasDoc, EdgePhase } from "@shared/canvas";
+import type { EdgePhase } from "@shared/canvas";
 import {
   deriveExecutionGraph,
   type ExecutionGraphContext,
 } from "@shared/execution-graph";
 import type { ExecutionSnapshot } from "@shared/ipc";
 import type { Canvas } from "@shared/model/canvas";
-import { canvasFromDocument } from "@shared/model/from-document";
 import {
   flowEdgesFromModel,
   type ModelEdgeData,
@@ -89,11 +88,3 @@ export const toFlowOfCanvas = (
   };
 };
 
-/** The same, for a caller that still holds a document. */
-export const toFlow = (
-  doc: CanvasDoc,
-  context: ExecutionGraphContext,
-  execution?: ExecutionOverlay | null,
-  cache?: FlowIdentityCache,
-): { nodes: FlowNode[]; edges: FlowEdge[] } =>
-  toFlowOfCanvas(canvasFromDocument(context.canvasName, doc), context, execution, cache);
