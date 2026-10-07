@@ -8,6 +8,7 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { holdCanvas } from "./support/hold-canvas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 
@@ -48,8 +49,15 @@ const region = (id: string, environment?: unknown): CanvasNode =>
 let host: HTMLDivElement;
 let root: Root;
 
+let release: (() => void) | undefined;
+
+// The canvas as the app holds it: the region in the node store, which the
+// strip reads, and in the document for the parts that still take one.
 const select = async (node: CanvasNode) => {
   await act(async () => {
+    release?.();
+    state$.canvasName.set("factory");
+    release = holdCanvas("factory", [node]);
     state$.doc.set({ nodes: [node], edges: [] });
     state$.selectedNodeIds.set([node.id]);
     state$.selectedNodeId.set(node.id);
@@ -68,6 +76,8 @@ beforeEach(async () => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  release?.();
+  release = undefined;
 });
 
 const strip = () => host.querySelector('[role="toolbar"][aria-label="Region fields"]')!;
