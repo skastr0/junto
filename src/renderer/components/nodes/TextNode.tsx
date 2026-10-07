@@ -43,7 +43,12 @@ import {
   shouldRefreshSessionFromTerminalEvent,
 } from "../../lib/terminal-session-refresh";
 import { terminal$ } from "../../lib/terminal-state";
-import { openNoteSurface } from "../../lib/dock-state";
+import {
+  markNoteSurfaceSaved,
+  noteSurfaceId,
+  openNoteSurface,
+  updateNoteSurfaceDraft,
+} from "../../lib/dock-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { HarnessMark } from "../HarnessMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
@@ -521,9 +526,20 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     setEditing(true);
   };
 
+  // Expand takes the press without blurring the in-place field, so nothing
+  // else commits what was typed there: save it, and open the editor on it.
   const openMaximized = () => {
+    const typed = editing ? draft : text;
     setEditing(false);
-    openNoteSurface(node);
+    if (typed === text) {
+      openNoteSurface(node);
+      return;
+    }
+    editText(node.id, typed);
+    openNoteSurface(node.type === "text" ? { ...node, text: typed } : node);
+    const surfaceId = noteSurfaceId(node.id);
+    updateNoteSurfaceDraft(surfaceId, typed);
+    markNoteSurfaceSaved(surfaceId, typed);
   };
 
   const labelHue = node.color ? accentColor(node.color) : INK;
