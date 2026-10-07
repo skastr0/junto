@@ -46,8 +46,8 @@ const fakeOffboard = (known: ReadonlyArray<string> = ["idle", "busy", "boss"]) =
   const status = vi.fn<OverseerOffboard["status"]>(async (_canvasName, seatIds) =>
     seatIds.map((seatId): SeatOffboardStatus =>
       seatId === "idle"
-        ? { seatId, now: { allowed: true }, idleMinutes: 75, pastWindow: true, preferred: "now" }
-        : { seatId, now: { allowed: false, code: "working", reason: OFFBOARD_REFUSAL_REASON.working }, idleMinutes: null, pastWindow: false, preferred: "ask" }),
+        ? { seatId, now: { allowed: true }, idleMinutes: 75, pastWindow: true, preferred: "now", workMinutes: 95, sessionTokens: 240_000, worthCutting: true }
+        : { seatId, now: { allowed: false, code: "working", reason: OFFBOARD_REFUSAL_REASON.working }, idleMinutes: null, pastWindow: false, preferred: "ask", workMinutes: 4, worthCutting: false }),
   );
   // As main does it: apply, check, save only what passes.
   const patchRules = vi.fn<OverseerOffboard["patchRules"]>((patch) => {
@@ -98,6 +98,15 @@ describe("offboard arg schemas", () => {
     }
     expect(ok("agent.offboard-configure", { auto: { minutes: 60 }, other: true })).toBe(false);
     expect(ok("agent.offboard-configure", { harness: { claude: { instruction: "x" } } })).toBe(false);
+  });
+
+  it("takes the worth-cutting thresholds, for the installation and for one harness", () => {
+    expect(ok("agent.offboard-configure", { worth: { workMinutes: 45 } })).toBe(true);
+    expect(ok("agent.offboard-configure", { worth: { tokens: 300_000 } })).toBe(true);
+    expect(ok("agent.offboard-configure", { harness: { claude: { worth: { workMinutes: 10, tokens: 500_000 } } } })).toBe(true);
+    for (const worth of [{ workMinutes: 0 }, { workMinutes: 1.5 }, { tokens: 999 }, { tokens: 100_000_001 }, { hours: 1 }]) {
+      expect(ok("agent.offboard-configure", { worth })).toBe(false);
+    }
   });
 
   it("classifies the reads and the mutations", () => {
@@ -176,8 +185,8 @@ describe("agent.offboard", () => {
     expect(outcome).toEqual({
       ok: true,
       data: [
-        { seatId: "idle", now: { allowed: true }, idleMinutes: 75, pastWindow: true, preferred: "now" },
-        { seatId: "busy", now: { allowed: false, code: "working", reason: OFFBOARD_REFUSAL_REASON.working }, idleMinutes: null, pastWindow: false, preferred: "ask" },
+        { seatId: "idle", now: { allowed: true }, idleMinutes: 75, pastWindow: true, preferred: "now", workMinutes: 95, sessionTokens: 240_000, worthCutting: true },
+        { seatId: "busy", now: { allowed: false, code: "working", reason: OFFBOARD_REFUSAL_REASON.working }, idleMinutes: null, pastWindow: false, preferred: "ask", workMinutes: 4, worthCutting: false },
       ],
     });
   });
@@ -223,6 +232,23 @@ describe("offboard rules", () => {
     // null removes the override.
     await executeOverseerOffboard(caller, { operation: "agent.offboard-configure", args: { harness: { claude: null } } }, offboard);
     expect(rules()).not.toHaveProperty("harness");
+  });
+
+  it("saves a worth-cutting threshold and answers with it for every harness", async () => {
+    const { offboard, rules } = fakeOffboard();
+    const outcome = await executeOverseerOffboard(
+      caller,
+      { operation: "agent.offboard-configure", args: { worth: { workMinutes: 45 }, harness: { claude: { worth: { tokens: 500_000 } } } } },
+      offboard,
+    );
+    expect(rules().worth).toEqual({ workMinutes: 45, tokens: DEFAULT_OFFBOARD_RULES.worth.tokens });
+    expect(outcome).toMatchObject({
+      ok: true,
+      data: {
+        rules: { worth: { workMinutes: 45, tokens: DEFAULT_OFFBOARD_RULES.worth.tokens } },
+        effective: { claude: { worth: { workMinutes: 45, tokens: 500_000 } } },
+      },
+    });
   });
 
   it("refuses a combination the rules forbid, in the rules' own words, and saves nothing", async () => {

@@ -78,15 +78,16 @@ A seat is permanent and its session grows. A harness keeps a session cheap to co
 
 The answer is one row per seat, in the order asked: \`{seatId, title?, ok: true, action, outcome, pastWindow}\` with outcome \`asked\` or \`closed\`, or \`{seatId, title?, ok: false, code, reason, pastWindow?}\`, plus the counts \`closed\`, \`asked\` and \`refused\`. \`seatId\` is the canvas node id. Codes: \`working\`, \`attention\`, \`closing\`, \`not-a-seat\`, \`not-local\`, \`undelivered\`, \`failed\`; \`reason\` is the sentence to show. A refused seat does not fail the command: the result prints whole on stdout and the exit code is non-zero when \`refused\` is above zero.
 
-\`agent offboard-status {nodeIds}\` answers before you act: whether \`now\` is allowed for each seat, how many minutes it has sat still, whether it is past its cache window, and the \`preferred\` action (\`now\` once past the window, else \`ask\`). Read it, then offboard the seats by their preferred action.
+\`agent offboard-status {nodeIds}\` answers before you act: whether \`now\` is allowed for each seat, how many minutes it has sat still, whether it is past its cache window, and the \`preferred\` action (\`now\` once past the window, else \`ask\`). Read it, then offboard the seats by their preferred action. Each row also carries \`workMinutes\` (time worked in this session), \`sessionTokens\` (the transcript as a token estimate, absent when it cannot be located) and \`worthCutting\` (what the automatic rules would say). \`agent offboard\` itself is not held to \`worthCutting\`.
 
-Three settings per installation do the same without anyone asking, each optionally overridden per harness:
+Four settings per installation do the same without anyone asking, each optionally overridden per harness:
 
 - \`cacheWindowMinutes\`: how long a still seat stays cheap to give a turn.
 - \`nudge {enabled, minutes}\`: ask a motionless seat's agent to offboard. Must come before the cache window.
-- \`auto {enabled, minutes}\`: end a motionless seat's session. Must come at or after the cache window.
+- \`auto {enabled, minutes}\`: end a session that has sat still this long, at the moment its resting seat is about to be woken, so the seat wakes into a fresh one. Never on a timer and never in a batch. Must come at or after the cache window.
+- \`worth {workMinutes, tokens}\`: the automatic rules act only on a session that worked at all and either worked this long or has a transcript of about this many tokens.
 
-\`agent offboard-rules\` reads \`{rules, effective}\`: the installation's rules with any \`harness\` overrides, and what they come to for each harness. \`agent offboard-configure\` takes a partial of the rules, changes only the fields given, and answers in the same form. \`harness: {<id>: {...}}\` sets an override for one harness; \`harness: {<id>: null}\` removes it. Minutes are whole numbers. A combination the rules forbid is refused with the reason and nothing is saved.
+\`agent offboard-rules\` reads \`{rules, effective}\`: the installation's rules with any \`harness\` overrides, and what they come to for each harness. \`agent offboard-configure\` takes a partial of the rules, changes only the fields given, and answers in the same form. \`harness: {<id>: {...}}\` sets an override for one harness; \`harness: {<id>: null}\` removes it. Minutes and tokens are whole numbers. A combination the rules forbid is refused with the reason and nothing is saved.
 
 ## Region environment and secrets
 

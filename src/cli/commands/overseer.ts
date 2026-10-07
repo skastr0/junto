@@ -665,7 +665,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("agent.offboard-status"),
     command: "overseer agent offboard-status",
     name: "see which action fits each seat before offboarding",
-    description: "Whether ending now is allowed, how long the seat has sat still, whether it is past its cache window, and the preferred action.",
+    description: "Whether ending now is allowed, how long the seat has sat still, whether it is past its cache window, the preferred action, and the session's work time and size.",
     args: ["overseer", "agent", "offboard-status"],
     input: { nodeIds: ["agent-1", "agent-2"] },
   },
@@ -692,6 +692,14 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     description: "An override names only what differs from the installation. null removes it.",
     args: ["overseer", "agent", "offboard-configure"],
     input: { harness: { claude: { cacheWindowMinutes: 300, auto: { minutes: 300 } }, codex: null } },
+  },
+  {
+    command_id: commandIdFor("agent.offboard-configure"),
+    command: "overseer agent offboard-configure",
+    name: "let the automatic rules act on smaller sessions",
+    description: "A session is worth cutting once it worked this long or its transcript reached about this many tokens. The automatic rules leave anything smaller alone.",
+    args: ["overseer", "agent", "offboard-configure"],
+    input: { worth: { workMinutes: 20, tokens: 150000 } },
   },
   {
     command_id: commandIdFor("env.show"),
