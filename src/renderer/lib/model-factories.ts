@@ -11,8 +11,7 @@ import {
 import { sanitizeExtraArgs } from "@shared/launch-extra-args";
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
-import { asNodeId, type Node, type NodeOf } from "@shared/model";
-import type { Canvas } from "@shared/model/canvas";
+import { asNodeId, type NodeOf } from "@shared/model";
 import type { Region } from "@shared/model/region";
 import { isValidStationHostId } from "@shared/station";
 import { AGENT_NODE_SIZE, INSTRUMENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-geometry";
@@ -20,7 +19,9 @@ import { AGENT_NODE_SIZE, INSTRUMENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-ge
 // Each kind of thing the operator can put on a canvas, as it is when new: its
 // id, its size, and the values it starts with. Nothing here adds it; `added`
 // in model-edits.ts turns nodes into the command. A new node stacks at the `z`
-// its caller gives, which is `topZ(canvas)` for anything dropped on top.
+// its caller gives, which is `topZ(canvas)` for anything dropped on top. What
+// a region gives to what is made inside it (a working directory, a page's
+// starting address) is read by shared/region-defaults.ts, from the canvas.
 
 /** Where a new node goes and how it stacks. */
 export type Spot = { readonly x: number; readonly y: number; readonly z: number };
@@ -268,65 +269,4 @@ export const newRelay = (spot: Spot, host: string): NodeOf<"relay"> => ({
   kind: "relay",
   ...placed("relay", spot, SCHEDULER_SIZE),
   host: requireHostId(host),
-});
-
-// ── What a region gives to what is made inside it ───────────────────────────
-//
-// Read once, when the thing is made, and never again. A point is inside a
-// region when it lies in the region's rectangle, edges included; where regions
-// nest, the smallest that has the value wins.
-
-const innermost = (
-  canvas: Canvas,
-  x: number,
-  y: number,
-  has: (region: Region) => boolean,
-): Region | undefined => {
-  let best: Region | undefined;
-  for (const node of canvas.nodes.values()) {
-    if (node.kind !== "region") continue;
-    if (x < node.x || x > node.x + node.width || y < node.y || y > node.y + node.height) continue;
-    if (!has(node)) continue;
-    const smaller = best === undefined || node.width * node.height < best.width * best.height;
-    const tie = best !== undefined && node.width * node.height === best.width * best.height && node.id < best.id;
-    if (smaller || tie) best = node;
-  }
-  return best;
-};
-
-/**
- * The directory a seat or terminal made at this point starts in on `host`:
- * the innermost region that names one for that host. A region with paths for
- * other hosts only is looked past.
- */
-export const regionCwdAt = (canvas: Canvas, x: number, y: number, host: string): string | undefined => {
-  const key = host.trim();
-  if (!key) return undefined;
-  const pathOf = (region: Region): string => region.defaults?.paths?.[key]?.trim() ?? "";
-  const region = innermost(canvas, x, y, (candidate) => pathOf(candidate).length > 0);
-  return region === undefined ? undefined : pathOf(region);
-};
-
-export type PageStart = { readonly url?: string; readonly profile?: string; readonly host?: string };
-
-/**
- * What a page made at this point starts with: the whole of the innermost
- * region's page defaults, never a mix of two regions'.
- */
-export const regionPageStartAt = (canvas: Canvas, x: number, y: number): PageStart | undefined => {
-  const startOf = (region: Region): PageStart => {
-    const page = region.defaults?.page;
-    const url = page?.url?.trim();
-    const profile = page?.profile?.trim();
-    const host = page?.host?.trim();
-    return { ...(url ? { url } : {}), ...(profile ? { profile } : {}), ...(host ? { host } : {}) };
-  };
-  const region = innermost(canvas, x, y, (candidate) => Object.keys(startOf(candidate)).length > 0);
-  return region === undefined ? undefined : startOf(region);
-};
-
-/** The centre of a new node, which is the point its region is read at. */
-export const centreOf = (node: Pick<Node, "x" | "y" | "width" | "height">): { readonly x: number; readonly y: number } => ({
-  x: node.x + node.width / 2,
-  y: node.y + node.height / 2,
 });
