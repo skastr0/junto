@@ -1,6 +1,6 @@
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
-import type { CanvasesChanged, Changed } from "@shared/model";
+import type { CanvasesChanged, Changed, SheetChanged } from "@shared/model";
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import {
@@ -26,6 +26,7 @@ import {
   type JuntoTerminalApi,
   type JuntoUsageApi,
   type KernelSnapshot,
+  type ModelActorRefsChanged,
   type NodeRefOpenedDelivery,
   type NodeRefOpenedEvent,
   type ObservabilityLogEntry,
@@ -454,6 +455,11 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onModelChanged: (listener) => subscribe<Changed>(IPC_CHANNELS.modelChanged, listener),
   onModelCanvasesChanged: (listener) =>
     subscribe<CanvasesChanged>(IPC_CHANNELS.modelCanvasesChanged, listener),
+  modelActorRefs: (input) => invoke(IPC_CHANNELS.modelActorRefs, IPC_TIMEOUT_MS, input),
+  onModelActorRefsChanged: (listener) =>
+    subscribe<ModelActorRefsChanged>(IPC_CHANNELS.modelActorRefsChanged, listener),
+  modelSheetRead: (input) => invoke(IPC_CHANNELS.modelSheetRead, IPC_TIMEOUT_MS, input),
+  onModelSheetChanged: (listener) => subscribe<SheetChanged>(IPC_CHANNELS.modelSheetChanged, listener),
   getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   factoryPauseState: (canvas) =>

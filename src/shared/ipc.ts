@@ -1,5 +1,5 @@
 import type { WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
-import type { CanvasesChanged, Changed, Command, Opened } from "./model";
+import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
 import type { WorkMailQuery, WorkMailPage, WorkMailChanged } from "./work-mail";
 import type {
   SeatOffboardRunInput,
@@ -149,6 +149,10 @@ export const IPC_CHANNELS = {
   modelCommand: "junto:model-command",
   modelChanged: "junto:model-changed",
   modelCanvasesChanged: "junto:model-canvases-changed",
+  modelActorRefs: "junto:model-actor-refs",
+  modelActorRefsChanged: "junto:model-actor-refs-changed",
+  modelSheetRead: "junto:model-sheet-read",
+  modelSheetChanged: "junto:model-sheet-changed",
   generatePortfolio: "junto:generate-portfolio",
   getSnapshots: "junto:get-snapshots",
   refreshSnapshots: "junto:refresh-snapshots",
@@ -770,6 +774,12 @@ export type RegionEnvStaleSeatsResult =
 
 export type MenuYield = "none" | "switcher" | "all";
 
+/** A canvas's actor refs, sent whole whenever they change. */
+export type ModelActorRefsChanged = {
+  readonly canvas: string;
+  readonly refs: ReadonlyArray<ActorRef>;
+};
+
 export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
@@ -807,6 +817,14 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** The rows that changed on a canvas, after every commit, to every window. */
   readonly onModelChanged: (listener: (event: Changed) => void) => () => void;
   readonly onModelCanvasesChanged: (listener: (event: CanvasesChanged) => void) => () => void;
+  /** Which seat acts for which node on a canvas. Read apart from `modelOpen`. */
+  readonly modelActorRefs: (input: { readonly canvas: string }) => Promise<ReadonlyArray<ActorRef>>;
+  /** The whole list again, whenever it changes. */
+  readonly onModelActorRefsChanged: (listener: (event: ModelActorRefsChanged) => void) => () => void;
+  /** One sheet's grid. The sheet node itself carries only its label. */
+  readonly modelSheetRead: (input: { readonly canvas: string; readonly id: string }) => Promise<SheetGrid>;
+  /** A sheet's grid was written; whoever shows it reads it again. */
+  readonly onModelSheetChanged: (listener: (event: SheetChanged) => void) => () => void;
   readonly getSnapshots: () => Promise<SnapshotState>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;
