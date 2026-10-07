@@ -497,9 +497,14 @@ describe("machine-safety architecture", () => {
           return [];
         }
         const specifier = statement.moduleSpecifier.text;
-        return specifier.startsWith(".") || approvedSshExternalImports.has(specifier)
-          ? []
-          : [`${file}:${specifier}`];
+        if (specifier.startsWith(".") || approvedSshExternalImports.has(specifier)) return [];
+        // remote-plan embeds one data constant. No spawn, socket, or admission API.
+        const named = statement.importClause?.namedBindings;
+        const probeTokenOnly = specifier === "@shared/work-control" &&
+          named !== undefined && ts.isNamedImports(named) && named.elements.length === 1 &&
+          named.elements[0]?.propertyName === undefined &&
+          named.elements[0]?.name.text === "WORK_LIVENESS_PROBE_TOKEN";
+        return probeTokenOnly ? [] : [`${file}:${specifier}`];
       });
     });
     expect(unapprovedSshImports).toEqual([]);
