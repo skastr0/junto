@@ -12,6 +12,7 @@ import type { Task } from "@shared/work-model";
 import { Chip } from "../ui/Chip";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
 import { state$ } from "../../lib/state";
+import { useCanvas } from "../../lib/use-model";
 import {
   buildTaskVisits,
   layerExitLabel,
@@ -215,14 +216,14 @@ export function TaskVisits({
   readonly task: Task;
   readonly nodeId: string;
 }) {
-  const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
+  const canvas = useCanvas(canvasName);
   const rows = useWorkItems([...new Set((task.visits ?? []).flatMap((visit) => [visit.board, ...(visit.next === undefined ? [] : [visit.next])]))]
     .filter((board) => board !== nodeId)
     .map((board) => ({ canvasName, nodeId: board, kind: "task", itemId: task.id })));
   const visits = useMemo(
-    () => buildTaskVisits(doc, task, nodeId, (board, id) => rows.find((row) => row.query.nodeId === board && row.query.itemId === id)?.item),
-    [doc, task, nodeId, rows],
+    () => buildTaskVisits(canvas, task, nodeId, (board, id) => rows.find((row) => row.query.nodeId === board && row.query.itemId === id)?.item),
+    [canvas, task, nodeId, rows],
   );
   if (visits.layers.length === 0) return null;
 

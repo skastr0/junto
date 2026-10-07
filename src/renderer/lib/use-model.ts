@@ -1,6 +1,7 @@
 import { use$ } from "@legendapp/state/react";
 import { useEffect } from "react";
 import type { Node, NodeKind, NodeOf, Wire } from "@shared/model";
+import type { Canvas } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
 import { getJuntoApi } from "./junto-api";
 import { createModelStore, type ModelCanvasStatus } from "./model-store";
@@ -58,6 +59,15 @@ export const useNodeFieldOf = <K extends NodeKind, T>(
 /** Node ids in paint order. Changes when a node is added, removed or restacked. */
 export const useNodeIds = (canvas: string): ReadonlyArray<string> =>
   use$(modelStore.canvas$(canvas).nodeIds);
+
+/** A whole canvas, followed: its nodes and wires as the store has them now. */
+export const useCanvas = (canvas: string): Canvas =>
+  use$(() => {
+    const open$ = modelStore.canvas$(canvas);
+    open$.nodes.get();
+    open$.wires.get();
+    return modelStore.canvasOf(canvas);
+  });
 
 export const useWire = (canvas: string, id: string): Wire | undefined =>
   use$(modelStore.wire$(canvas, id));

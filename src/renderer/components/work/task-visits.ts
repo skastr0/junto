@@ -7,7 +7,9 @@
  * operator sees every board; seats never receive this composition.
  */
 
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import { nodeOf, type Placed } from "@shared/model/canvas";
+import { asNodeId } from "@shared/model";
+import { taskBoardTitle } from "@shared/model/title";
 import type {
   CheckResult,
   Task,
@@ -23,8 +25,6 @@ import {
   waiverIsLive,
   type RuleInForce,
 } from "@shared/rules";
-import { nodesFromDocument } from "@shared/model/from-document";
-import { tasksNodeName } from "@shared/tasks-node-identity";
 
 export type VisitReceipt = {
   readonly ruleId: string;
@@ -104,13 +104,13 @@ export type TaskVisitsView = {
   readonly boardCount: number;
 };
 
-const nodeById = (doc: CanvasDoc, nodeId: string): CanvasNode | undefined =>
-  doc.nodes.find((node) => node.id === nodeId);
+/** The task board with this id, when the canvas still has it. */
+const boardAt = (canvas: Placed, nodeId: string) => nodeOf(canvas, asNodeId(nodeId), "task");
 
 export type TaskAt = (nodeId: string, taskId: string) => Task | undefined;
 
-export const boardLabel = (doc: CanvasDoc, nodeId: string): string =>
-  tasksNodeName(nodeById(doc, nodeId), nodeId);
+export const boardLabel = (canvas: Placed, nodeId: string): string =>
+  taskBoardTitle(boardAt(canvas, nodeId), nodeId).name;
 
 const provenanceText = (rule: RuleInForce): string => {
   switch (rule.provenance.kind) {
@@ -132,7 +132,7 @@ const cleanRefs = (refs: ReadonlyArray<string> | undefined): ReadonlyArray<strin
  * refs are parsed back out of that one message.
  */
 const defectOf = (
-  doc: CanvasDoc,
+  canvas: Placed,
   task: Task,
   visit: Visit,
   currentNodeId: string,
@@ -160,19 +160,19 @@ const defectOf = (
         .map((line) => line.slice("ref: ".length).trim())
         .filter((ref) => ref.length > 0),
       target: visit.next,
-      targetBoard: boardLabel(doc, visit.next),
+      targetBoard: boardLabel(canvas, visit.next),
     };
   }
   return {
     summary: "",
     refs: [],
     target: visit.next,
-    targetBoard: boardLabel(doc, visit.next),
+    targetBoard: boardLabel(canvas, visit.next),
   };
 };
 
 const receiptsAt = (
-  doc: CanvasDoc,
+  canvas: Placed,
   task: Task,
   visit: Visit,
   row: Task | undefined,
@@ -181,7 +181,7 @@ const receiptsAt = (
   if (!isLatestCompleted) return [];
   const evidence = row?.completionEvidence;
   const known = new Map(
-    rulesInForce(nodesFromDocument(doc), visit.board, task).map((entry) => [entry.rule.id, entry]),
+    rulesInForce(canvas, visit.board, task).map((entry) => [entry.rule.id, entry]),
   );
   const decorate = (ruleId: string) => {
     const entry = known.get(ruleId);
@@ -212,11 +212,11 @@ const receiptsAt = (
 };
 
 const checksAt = (
-  doc: CanvasDoc,
+  canvas: Placed,
   visit: Visit,
   row: Task | undefined,
 ): ReadonlyArray<VisitCheck> => {
-  const contract = nodeById(doc, visit.board)?.ether?.tasks?.contract;
+  const contract = boardAt(canvas, visit.board)?.contract;
   const authored = [
     ...(contract?.incoming?.checks ?? []),
     ...(contract?.outgoing?.checks ?? []),
@@ -237,13 +237,13 @@ const checksAt = (
 };
 
 const openRulesAt = (
-  doc: CanvasDoc,
+  canvas: Placed,
   task: Task,
   visit: Visit,
   receipts: ReadonlyArray<VisitReceipt>,
 ): ReadonlyArray<VisitOpenRule> => {
   const answered = new Set(receipts.map((receipt) => receipt.ruleId));
-  return rulesInForce(nodesFromDocument(doc), visit.board, task)
+  return rulesInForce(canvas, visit.board, task)
     .filter((entry) => !answered.has(entry.rule.id))
     .map((entry) => ({
       ruleId: entry.rule.id,
@@ -257,9 +257,9 @@ const openRulesAt = (
  * the live visit is the last entry that has not exited.
  */
 export const buildTaskVisits = (
-  doc: CanvasDoc,
+  canvas: Placed,
   task: Task,
-  /** Tasks node the open row lives at — its visit reads the live task, not the doc copy. */
+  /** Tasks node the open row lives at — its visit reads the live task. */
   currentNodeId: string,
   rowAt: TaskAt,
 ): TaskVisitsView => {
@@ -272,8 +272,8 @@ export const buildTaskVisits = (
       visit.board === currentNodeId ? task : rowAt(visit.board, task.id);
     const isCompleted = visit.exit === "sent-on" || visit.exit === "completed";
     const isLatestCompleted = latestCompleted.get(visit.board) === visit;
-    const receipts = receiptsAt(doc, task, visit, row, isLatestCompleted);
-    const defect = defectOf(doc, task, visit, currentNodeId, rowAt);
+    const receipts = receiptsAt(canvas, task, visit, row, isLatestCompleted);
+    const defect = defectOf(canvas, task, visit, currentNodeId, rowAt);
     const live = visit.exit === undefined && index === visits.length - 1;
     const responseIsLive = isCompleted
       ? claimIsLive(task, visits, visit)
@@ -293,7 +293,7 @@ export const buildTaskVisits = (
       key: `${visit.board}-${visit.epoch}-${visit.enteredAt}-${index}`,
       ordinal: index + 1,
       boardId: visit.board,
-      board: boardLabel(doc, visit.board),
+      board: boardLabel(canvas, visit.board),
       epoch: visit.epoch,
       ...(receiptState !== undefined ? { receiptState } : {}),
       needsRedo: isCompleted && !responseIsLive,
@@ -302,7 +302,7 @@ export const buildTaskVisits = (
       ...(visit.exitedAt !== undefined ? { exitedAt: visit.exitedAt } : {}),
       ...(visit.exit !== undefined ? { exit: visit.exit } : {}),
       ...(visit.next !== undefined
-        ? { next: visit.next, nextBoard: boardLabel(doc, visit.next) }
+        ? { next: visit.next, nextBoard: boardLabel(canvas, visit.next) }
         : {}),
       ...(visit.claimedBy !== undefined ? { claimedBy: visit.claimedBy } : {}),
       ...(visit.handoffNote !== undefined
@@ -315,15 +315,15 @@ export const buildTaskVisits = (
         ]),
       ],
       receipts,
-      checks: checksAt(doc, visit, row),
-      openRules: live ? openRulesAt(doc, task, visit, receipts) : [],
+      checks: checksAt(canvas, visit, row),
+      openRules: live ? openRulesAt(canvas, task, visit, receipts) : [],
       ...(defect !== undefined ? { defect } : {}),
       epochStart,
       ...(epochDefect !== undefined
         ? {
             epochDefect: {
               target: epochDefect.target,
-              targetBoard: boardLabel(doc, epochDefect.target),
+              targetBoard: boardLabel(canvas, epochDefect.target),
             },
           }
         : {}),
