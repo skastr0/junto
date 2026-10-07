@@ -50,21 +50,29 @@ export function stopNodeGestureUnlessMultiSelect(
  */
 export function toggleInSelection(store: ReturnType<typeof useStoreApi>, nodeId: string): void {
   const state = store.getState();
-  // Key-tracking lag: force multi mode from the event itself.
-  if (!state.multiSelectionActive) {
-    store.setState({ multiSelectionActive: true });
-  }
   const node = state.nodeLookup.get(nodeId);
   if (!node) return;
-  if (!node.selected) {
-    state.addSelectedNodes([nodeId]);
-    return;
+  // React Flow adds to a selection only while it believes the multi-select
+  // key is down, and it may not have seen the key yet. So it is told so for
+  // this one act, and told the truth again straight after: left on, React
+  // Flow goes on treating every later click on a selected card as taking it
+  // out, and a release at the end of a drag is such a click, so the card the
+  // operator dragged a group by would drop out of the group.
+  const wasMulti = state.multiSelectionActive;
+  if (!wasMulti) store.setState({ multiSelectionActive: true });
+  try {
+    if (!node.selected) {
+      state.addSelectedNodes([nodeId]);
+      return;
+    }
+    state.unselectNodesAndEdges({ nodes: [node], edges: [] });
+    const others =
+      [...state.nodeLookup.values()].some((other) => other.id !== nodeId && other.selected) ||
+      state.edges.some((edge) => edge.selected);
+    if (!others) clearSelection();
+  } finally {
+    if (!wasMulti) store.setState({ multiSelectionActive: false });
   }
-  state.unselectNodesAndEdges({ nodes: [node], edges: [] });
-  const others =
-    [...state.nodeLookup.values()].some((other) => other.id !== nodeId && other.selected) ||
-    state.edges.some((edge) => edge.selected);
-  if (!others) clearSelection();
 }
 
 /**
