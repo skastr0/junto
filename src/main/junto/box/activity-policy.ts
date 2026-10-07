@@ -112,7 +112,7 @@ export const mergeBoxHostActivity = (
 export interface BoxActivitySource {
   readonly stationRole: Effect.Effect<string, unknown>;
   readonly listCanvasNames: Effect.Effect<ReadonlyArray<string>, unknown>;
-  readonly readCanvas: (
+  readonly readModel: (
     name: string,
   ) => Effect.Effect<BoxActivityRead, unknown>;
   readonly listBoxes: Effect.Effect<ReadonlyArray<BoxResource>, unknown>;
@@ -202,7 +202,7 @@ export const makeBoxActivityReconciler = (
         yield* Effect.forEach(
           targets,
           (name) =>
-            Effect.result(source.readCanvas(name)).pipe(
+            Effect.result(source.readModel(name)).pipe(
               Effect.map((result) => {
                 if (result._tag === "Success") {
                   contributions.set(
@@ -313,7 +313,7 @@ export const BoxActivityPolicyLive = Layer.effect(
         (configuration) => configuration.station.role,
       ),
       listCanvasNames: model.listCanvases(),
-      readCanvas: Effect.fn("BoxActivity.read")(function* (name: string) {
+      readModel: Effect.fn("BoxActivity.read")(function* (name: string) {
         return yield* withSqlRead(sql, Effect.gen(function* () {
           return {
             canvas: yield* model.canvas(name),

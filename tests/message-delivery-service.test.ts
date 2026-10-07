@@ -71,7 +71,7 @@ const rig = (
   const wakes: Array<{ bindingId: string; canvas: string; nodeId: string }> = [];
   const store: MessageDeliveryStore = {
     listCanvasNames: async () => [canvas],
-    readCanvas: async () => {
+    readModel: async () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
       return canvasFromDocument("crew", doc);
     },

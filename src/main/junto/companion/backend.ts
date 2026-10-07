@@ -79,7 +79,7 @@ type CanvasView = {
   readonly signals: ReadonlyArray<AgentSignal>;
 };
 
-const readCanvas = async (canvasName: string, includeWork = true): Promise<CanvasView | undefined> => {
+const readView = async (canvasName: string, includeWork = true): Promise<CanvasView | undefined> => {
   const read = await AppRuntime.runPromise(Effect.gen(function* () {
     const model = yield* ModelService;
     const work = yield* WorkRepository;
@@ -320,7 +320,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     const active = desktopActiveCanvas();
     const out: CompanionCanvas[] = [];
     for (const name of names) {
-      const view = await readCanvas(name);
+      const view = await readView(name);
       out.push({
         canvasName: name,
         title: name,
@@ -337,7 +337,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
     const names = canvasName === undefined ? await canvasNames() : [canvasName];
     const feeds: OperatorFeed[] = [];
     for (const name of names) {
-      const view = await readCanvas(name);
+      const view = await readView(name);
       if (!view) {
         if (canvasName !== undefined) return outcomeFail("not-found", "No such canvas.");
         continue;
@@ -348,12 +348,12 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   },
 
   seats: async (canvasName) => {
-    const view = await readCanvas(canvasName, false);
+    const view = await readView(canvasName, false);
     return view ? outcomeOk(seatsFor(canvasName, view, Date.now())) : outcomeFail("not-found", "No such canvas.");
   },
 
   seatDetail: async (canvasName, nodeId) => {
-    const view = await readCanvas(canvasName, false);
+    const view = await readView(canvasName, false);
     if (!view) return outcomeFail("not-found", "No such canvas.");
     const seat = seatsFor(canvasName, view, Date.now()).find((candidate) => candidate.nodeId === nodeId);
     if (!seat) return outcomeFail("not-found", "No such seat.");
@@ -376,7 +376,7 @@ export const makeMainCompanionBackend = (deps: MainBackendDeps): CompanionBacken
   dismissSignal: async (signalId) => fromAction(await dismissSignalAsOperator(signalId), (signal) => signal),
 
   mailList: async (canvasName, nodeId, limit) => {
-    const view = await readCanvas(canvasName, false);
+    const view = await readView(canvasName, false);
     if (!view) return outcomeFail("not-found", "No such canvas.");
     if (view.canvas.nodes.get(asNodeId(nodeId))?.kind !== "agent") return outcomeFail("not-found", "No such seat.");
     const mailboxes = await AppRuntime.runPromise(Effect.gen(function* () {

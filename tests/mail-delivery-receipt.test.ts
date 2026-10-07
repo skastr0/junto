@@ -74,7 +74,7 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
       transport: { seatLive: () => true, writeMail: async (_binding, text) => { writes.push(text); return "written"; } },
       store: {
         listCanvasNames: async () => ["factory"],
-        readCanvas: (canvas) => runtime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(canvas))),
+        readModel: (canvas) => runtime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas(canvas))),
         readMessage: (canvas, node, messageId) => runtime.runPromise(repo.mailMessage(canvas, node, messageId)),
         listMail: (canvas, node) => runtime.runPromise(repo.mailbox(canvas, node)),
         acceptMessageDelivery: stamp,

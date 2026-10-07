@@ -210,7 +210,7 @@ describe("mail that arrives between the offboard and the exit", () => {
     const wakes: string[] = [];
     const store: MessageDeliveryStore = {
       listCanvasNames: async () => [CANVAS],
-      readCanvas: async () => canvasFromDocument("crew", doc),
+      readModel: async () => canvasFromDocument("crew", doc),
       readMessage: async (_canvas, _node, messageId) => messages.find((message) => message.messageId === messageId),
       listMail: async () => messages,
       acceptMessageDelivery: async (_canvas, _node, messageId) => {

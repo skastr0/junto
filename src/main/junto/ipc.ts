@@ -2542,7 +2542,7 @@ export const registerJuntoIpc = (): void => {
           listCanvasNames: () => AppRuntime.runPromise(
             Effect.flatMap(ModelService, (model) => model.listCanvases()),
           ),
-          readCanvas: (name) => AppRuntime.runPromise(
+          readModel: (name) => AppRuntime.runPromise(
             Effect.flatMap(ModelService, (model) => model.canvas(name)).pipe(
               Effect.catch(() => Effect.succeed(undefined)),
             ),

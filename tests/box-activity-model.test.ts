@@ -30,7 +30,7 @@ it("a named change rereads only that canvas and a missing read cannot authorize 
   let active = false;
   const reconciler = await Effect.runPromise(makeBoxActivityReconciler({
     stationRole: Effect.succeed("command-center"), listCanvasNames: Effect.succeed(["a", "b"]),
-    readCanvas: (name) => Effect.sync(() => { reads.push(name); return read(name, name === "a" && active); }),
+    readModel: (name) => Effect.sync(() => { reads.push(name); return read(name, name === "a" && active); }),
     listBoxes: Effect.succeed([box]), setActivityDemand: (_id, requested) => Effect.sync(() => { demand.push(requested); }),
   }));
   await Effect.runPromise(reconciler.reconcile);
@@ -45,7 +45,7 @@ it("a named change rereads only that canvas and a missing read cannot authorize 
   const unresolvedDemand: boolean[] = [];
   const missing = await Effect.runPromise(makeBoxActivityReconciler({
     stationRole: Effect.succeed("command-center"), listCanvasNames: Effect.succeed(["missing"]),
-    readCanvas: () => Effect.fail(new Error("cannot read claims")), listBoxes: Effect.succeed([box]),
+    readModel: () => Effect.fail(new Error("cannot read claims")), listBoxes: Effect.succeed([box]),
     setActivityDemand: (_id, requested) => Effect.sync(() => { unresolvedDemand.push(requested); }),
   }));
   await Effect.runPromise(missing.reconcile);
