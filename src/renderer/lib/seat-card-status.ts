@@ -10,9 +10,8 @@
  * depends on the advisory sidecar.
  */
 
-import type { CanvasNode } from "@shared/canvas";
 import { isHarnessId } from "@shared/managed-terminal-templates";
-import { resolveTerminalBinding, type TerminalSessionSummary } from "@shared/terminal";
+import type { TerminalSessionSummary } from "@shared/terminal";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import { presentationForSeat, type AgentSeatPresentation } from "./agent-seat-state";
 import { isActiveProcessLabel } from "./activity";
@@ -46,8 +45,8 @@ export type SeatCardStatus = {
 };
 
 /**
- * What a seat or terminal card needs to know of its node, whoever holds the
- * node: the document today, the node store once a card reads from it.
+ * What a seat or terminal card needs to know of its node, as its caller
+ * reads it from the node store.
  */
 export type SeatFace = {
   readonly id: string;
@@ -58,20 +57,6 @@ export type SeatFace = {
   readonly launch?: { readonly kind: string; readonly argv?: readonly string[] } | undefined;
   /** The label it was spawned under, shown when it has no name. */
   readonly spawnLabel?: string | undefined;
-};
-
-/** The face of a document node, or undefined when it holds no terminal. */
-export const seatFaceOfNode = (node: CanvasNode): SeatFace | undefined => {
-  const binding = resolveTerminalBinding(node);
-  if (binding?.kind !== "native") return undefined;
-  return {
-    id: node.id,
-    name: node.type === "text" ? (node.text.split("\n")[0] ?? "").trim() : "",
-    bindingId: binding.bindingId,
-    harness: typeof node.ether?.terminal?.harness === "string" ? node.ether.terminal.harness : undefined,
-    launch: binding.launch,
-    spawnLabel: binding.label,
-  };
 };
 
 export const seatCardStatus = (input: {

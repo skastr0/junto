@@ -644,7 +644,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             />
           ) : entityKind === "terminal" ? (
             <TerminalCard
-              node={node}
+              canvas={canvasName}
+              id={node.id}
               graphBlocked={data.blocked}
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}

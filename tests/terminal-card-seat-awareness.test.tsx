@@ -99,7 +99,7 @@ afterEach(() => {
 
 /**
  * The card body and the hover for one node, as the node shell renders them.
- * The hover reads the node store, so the node is put on the open canvas.
+ * Both read the node store, so the node is put on the open canvas.
  */
 const renderSeat = (node: CanvasNode): string => {
   stopFollowing?.();
@@ -108,7 +108,7 @@ const renderSeat = (node: CanvasNode): string => {
   stopFollowing = followDocument();
   return renderToStaticMarkup(
     <>
-      <TerminalCard node={node} />
+      <TerminalCard canvas="factory" id={node.id} />
       <SeatAwarenessHoverForNode canvas="factory" id={node.id} />
     </>,
   );

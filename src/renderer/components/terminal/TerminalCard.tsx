@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { SquareTerminal } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
 import { TASKS_ENABLED } from "@shared/features";
 import type { TerminalSessionSummary } from "@shared/terminal";
-import { resolveTerminalBinding } from "@shared/terminal";
 import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
 import { subscribeSeatAwareness } from "../../lib/seat-awareness";
-import { seatCardStatus, seatFaceOfNode } from "../../lib/seat-card-status";
-import { useNodeAttentionReasons } from "../../lib/occupancy-feed";
+import { seatCardStatus } from "../../lib/seat-card-status";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { registerTerminalSessionPoll } from "../../lib/terminal-session-poll";
@@ -18,6 +15,7 @@ import {
 } from "../../lib/terminal-session-refresh";
 import { getJuntoApi } from "../../lib/junto-api";
 import { renameTerminalNode } from "../../lib/mutations";
+import { useNodeFieldOf } from "../../lib/use-model";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { InstrumentSeat } from "../nodes/InstrumentSeat";
@@ -34,21 +32,30 @@ import { InstrumentSeat } from "../nodes/InstrumentSeat";
  * not show. The hover itself renders into the node shell's overlay slot: this
  * body is clipped, so a hover mounted here is painted away.
  */
+const NO_REASONS: ReadonlyArray<string> = [];
+
 export function TerminalCard({
-  node,
+  canvas,
+  id,
   graphBlocked = false,
   renaming = false,
   onRenameDone,
 }: {
-  readonly node: CanvasNode;
+  readonly canvas: string;
+  readonly id: string;
   /** Execution-graph blocked — crimson spinner even when seat is idle. */
   readonly graphBlocked?: boolean;
   readonly renaming?: boolean;
   /** Rename only via RTS pencil (editNodeId) — not card double-click. */
   readonly onRenameDone?: () => void;
 }) {
-  const binding = resolveTerminalBinding(node);
-  const native = binding?.kind === "native" ? binding : undefined;
+  // The terminal, read from the node store one field at a time: a move or a
+  // resize of the card does not re-render it.
+  const bindingId = useNodeFieldOf(canvas, id, "terminal", (terminal) => terminal.bindingId);
+  const hostId = useNodeFieldOf(canvas, id, "terminal", (terminal) => terminal.host);
+  const name = useNodeFieldOf(canvas, id, "terminal", (terminal) => terminal.label ?? "") ?? "";
+  const launch = useNodeFieldOf(canvas, id, "terminal", (terminal) => terminal.launch);
+  const native = bindingId !== undefined && hostId !== undefined ? { bindingId, hostId } : undefined;
   const [session, setSession] = useState<TerminalSessionSummary>();
   const seatEvent = use$(
     agentSeat$.byBindingId[
@@ -60,7 +67,6 @@ export function TerminalCard({
       native?.bindingId ?? "__junto-terminal-no-binding__"
     ],
   );
-  const attentionReasons = useNodeAttentionReasons(node);
 
   const applySession = (next: TerminalSessionSummary | undefined) => {
     if (!native) return;
@@ -123,12 +129,13 @@ export function TerminalCard({
   }, [native?.bindingId, native?.hostId, running]);
 
   const status = seatCardStatus({
-    face: seatFaceOfNode(node),
+    face: bindingId === undefined ? undefined : { id, name, bindingId, launch },
     seatEvent,
     needsLook: needsLook === true,
     session,
     graphBlocked,
-    attentionReasons,
+    // A plain terminal holds no agent and no work, so nothing asks for it.
+    attentionReasons: NO_REASONS,
   });
   if (status === undefined)
     return <div className="text-body text-dim">unbound terminal</div>;
@@ -139,7 +146,7 @@ export function TerminalCard({
   // One line: what it runs or why it stopped, and where when it is not here.
   const line = native.hostId === "local" ? subtitle : `${subtitle} on ${native.hostId}`;
   const commitRename = (nextFirst: string) => {
-    renameTerminalNode(node.id, nextFirst);
+    renameTerminalNode(id, nextFirst);
   };
 
   return (
@@ -176,7 +183,7 @@ export function TerminalCard({
         line={line}
         lineTitle={line}
       >
-        {TASKS_ENABLED ? <ClaimedTaskStrip nodeId={node.id} /> : null}
+        {TASKS_ENABLED ? <ClaimedTaskStrip nodeId={id} /> : null}
       </InstrumentSeat>
     </div>
   );
