@@ -1,4 +1,6 @@
 import type { CanvasNode } from "@shared/canvas";
+import { activateSelectedNodeSurface } from "./activate-node-surface";
+import { actorRailExpanded, setActorRailExpanded } from "./actor-rail";
 import { cycleActorMirror } from "./actor-mirrors";
 import { resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "./canvas-zoom";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
@@ -24,6 +26,13 @@ const frontNode = (): CanvasNode | undefined => {
   const registry = dock$.registry.peek();
   const nodeId = focusMruNodeIds(registry.surfaces, registry.focusMru)[0];
   return nodeId === undefined ? undefined : state$.doc.peek().nodes.find((node) => node.id === nodeId);
+};
+
+// An agent's terminal is the surface in front.
+const agentTerminalInFront = (): boolean => {
+  const registry = dock$.registry.peek();
+  const front = registry.surfaces.find((surface) => surface.id === registry.focusMru[0]);
+  return front?.kind === "terminal" && front.zone === "focus";
 };
 
 // The first tap brings the switcher up one step along; later taps move it.
@@ -75,6 +84,14 @@ export const KEY_ACTIONS: KeyActions = {
   "canvas.zoomIn": () => zoomCanvasIn(),
   "canvas.zoomOut": () => zoomCanvasOut(),
   "canvas.zoomReset": () => resetCanvasZoom(),
+  // With no agent in front there is no rail: the key passes.
+  "rail.toggle": () => {
+    if (!agentTerminalInFront()) return false;
+    setActorRailExpanded(!actorRailExpanded());
+    return true;
+  },
+  // Nothing selected, or nothing it can open: the key passes.
+  "canvas.open": () => activateSelectedNodeSurface().opened,
   // Always ours: a press held back by the overshoot guard must not fall
   // through to anything else.
   "front.close": () => {

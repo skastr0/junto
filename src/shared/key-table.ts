@@ -103,6 +103,8 @@ export type ShortcutId =
   | "canvas.zoomOut"
   | "canvas.zoomReset"
   | "front.close"
+  | "rail.toggle"
+  | "canvas.open"
   | SurfaceKeyId;
 
 /**
@@ -373,6 +375,24 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     does: "Show the canvas at 100 percent",
     mac: ["Cmd+0"],
     other: [],
+    where: ["canvas"],
+  },
+  {
+    id: "rail.toggle",
+    area: "Agent and terminal",
+    name: "Show or hide the agent's connections",
+    does: "Widen or narrow the list of connected agents beside the agent in front",
+    mac: ["Cmd+B"],
+    other: [],
+    where: ["terminal", "working"],
+  },
+  {
+    id: "canvas.open",
+    area: "Canvas",
+    name: "Open the selected agent",
+    does: "Open what is selected on the canvas, as a double-click does",
+    mac: ["Cmd+Enter"],
+    other: ["Ctrl+Enter"],
     where: ["canvas"],
   },
   {

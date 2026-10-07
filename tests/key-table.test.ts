@@ -361,6 +361,25 @@ describe("rebinding", () => {
   });
 });
 
+describe("the agent view and the canvas", () => {
+  it("widens or narrows the connections list with Cmd+B where an agent is in front", () => {
+    expect(resolveKey(key({ key: "b", metaKey: true }), at("terminal"))).toEqual({ id: "rail.toggle" });
+    expect(resolveKey(key({ key: "b", metaKey: true }), at("working"))).toEqual({ id: "rail.toggle" });
+    // In a field Cmd+B belongs to the text.
+    expect(resolveKey(key({ key: "b", metaKey: true }), at("field"))).toBeNull();
+    expect(resolveKey(key({ key: "b", metaKey: true }), at("canvas"))).toBeNull();
+    expect(resolveKey(key({ key: "b", ctrlKey: true }), at("terminal"))).toBeNull();
+  });
+
+  it("opens the selected agent from the canvas with Cmd+Enter, and nowhere else", () => {
+    expect(resolveKey(key({ key: "Enter", metaKey: true }), at("canvas"))).toEqual({ id: "canvas.open" });
+    for (const context of ["terminal", "field", "working", "operator", "dialog"] as const) {
+      expect(resolveKey(key({ key: "Enter", metaKey: true }), at(context))).toBeNull();
+    }
+    expect(resolveKey(key({ key: "Enter" }), at("canvas"))).toBeNull();
+  });
+});
+
 describe("under a dialog", () => {
   it("answers only search, the feed and closing what is in front", () => {
     const live = new Set<string>();
