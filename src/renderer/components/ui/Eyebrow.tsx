@@ -19,7 +19,7 @@ export function Eyebrow({
   const tones = {
     steel: "text-steel",
     cyan: "text-cyan-fg",
-    amber: "text-amber",
+    amber: "text-amber-fg",
     faint: "text-faint",
   } as const;
   const sizes = {

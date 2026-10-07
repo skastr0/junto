@@ -290,7 +290,7 @@ export function Dropdown({
                       caseClass,
                       option.disabled ? "cursor-not-allowed opacity-40" : "",
                       isActive && !option.disabled ? "bg-amber/[0.12] text-amber-hi" : "",
-                      isSelected && !isActive ? "text-amber" : "",
+                      isSelected && !isActive ? "text-amber-fg" : "",
                       !isActive && !isSelected && !option.disabled ? "hover:bg-ink/[0.05]" : "",
                     ]
                       .filter(Boolean)

@@ -67,7 +67,7 @@ function CueChip({
       aria-pressed={playing}
       title={CUES[cue].meaning}
       // aria-pressed variants sort after the button's own colours, so they win.
-      className="aria-pressed:border-amber/50 aria-pressed:bg-amber/[0.12] aria-pressed:text-amber"
+      className="aria-pressed:border-amber/50 aria-pressed:bg-amber/[0.12] aria-pressed:text-amber-fg"
       onClick={onPlay}
     >
       <Play size={9} aria-hidden className={playing ? "fill-current" : undefined} />

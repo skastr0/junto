@@ -19,7 +19,7 @@
 .companion-error {
   margin: 8px 0 0;
   font-size: var(--text-body-lg);
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
 }
 
 .companion-checks {

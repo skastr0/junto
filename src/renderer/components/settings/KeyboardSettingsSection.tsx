@@ -183,7 +183,7 @@ function ShortcutRow({
       {problem ? (
         <div
           id={problemId}
-          className="flex flex-wrap items-center justify-end gap-2 text-label text-amber"
+          className="flex flex-wrap items-center justify-end gap-2 text-label text-amber-fg"
           role="status"
         >
           {problem.kind === "taken" ? (
