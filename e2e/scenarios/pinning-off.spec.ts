@@ -63,9 +63,9 @@ test("with pinning off no surface offers a pin and no dock appears", async () =>
     await expect(front(page)).toHaveCount(0);
 
     // A note: done and nothing else to move it.
-    await page.locator('.react-flow__node[data-id="note"]').dblclick();
-    const note = page.getByTestId("note-workbench-surface");
-    await expect(note).toBeVisible({ timeout: 10_000 });
+    await page.locator('.react-flow__node[data-id="note"]').click();
+    await page.getByRole("button", { name: "Expand note editor" }).click();
+    await expect(page.getByRole("dialog", { name: "Edit note" })).toBeVisible({ timeout: 10_000 });
     await expectNoPinAnywhere(page, "note editor");
     await page.waitForTimeout(300);
     await page.screenshot({ path: join(SHOTS, "note-editor.png") });
