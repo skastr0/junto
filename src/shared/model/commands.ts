@@ -5,7 +5,6 @@ import { Verb } from "../physics/verbs";
 import { TasksContract } from "../work-model";
 import { CanvasName, Color, Frame, HostId, NodeId, Side } from "./base";
 import {
-  Cron,
   FileCard,
   GitCard,
   Launch,
@@ -36,6 +35,7 @@ const setOrClear = <S extends Schema.Top>(field: S) =>
   Schema.optionalKey(Schema.NullOr(field));
 
 const label = setOrClear(OneLine);
+const NonEmptyLine = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 const edit = <const K extends NodeKind, Fields extends Schema.Struct.Fields>(
   kind: K,
   fields: Fields,
@@ -76,10 +76,11 @@ export const NodeEdit = Schema.Union([
   edit("board", { label }),
   edit("pad", { label }),
   edit("sheet", { label }),
-  edit("cron", { label, expression: set(Cron.fields.expression) }),
-  edit("relay", { label }),
+  edit("cron", { label, host: set(HostId), expression: setOrClear(NonEmptyLine) }),
+  edit("relay", { label, host: set(HostId) }),
   edit("watcher", {
     label,
+    host: set(HostId),
     key: setOrClear(Schema.String),
     stat: setOrClear(Schema.String),
     op: setOrClear(Schema.Literals(["gt", "lt", "eq"])),

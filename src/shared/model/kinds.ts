@@ -160,13 +160,19 @@ export const Sheet = Schema.Struct({
 export type Sheet = typeof Sheet.Type;
 
 // ── Things that fire on their own ───────────────────────────────────────────
+//
+// Each fires on one machine, its `host`, the same as a seat runs on one.
 
 export const Cron = Schema.Struct({
   kind: Schema.Literal("cron"),
   ...placement,
   label: Schema.optionalKey(OneLine),
-  /** Five fields: minute, hour, day of month, month, day of week. */
-  expression: NonEmpty,
+  host: HostId,
+  /**
+   * Five fields: minute, hour, day of month, month, day of week. Absent on a
+   * cron that has not been given a schedule yet; it does not fire.
+   */
+  expression: Schema.optionalKey(NonEmpty),
 });
 export type Cron = typeof Cron.Type;
 
@@ -174,6 +180,7 @@ export const Relay = Schema.Struct({
   kind: Schema.Literal("relay"),
   ...placement,
   label: Schema.optionalKey(OneLine),
+  host: HostId,
 });
 export type Relay = typeof Relay.Type;
 
@@ -182,6 +189,7 @@ export const Watcher = Schema.Struct({
   kind: Schema.Literal("watcher"),
   ...placement,
   label: Schema.optionalKey(OneLine),
+  host: HostId,
   key: Schema.optionalKey(Schema.String),
   stat: Schema.optionalKey(Schema.String),
   op: Schema.optionalKey(Schema.Literals(["gt", "lt", "eq"])),

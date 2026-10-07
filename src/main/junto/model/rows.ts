@@ -88,19 +88,22 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
     case "artifacts":
     case "board":
     case "pad":
-    case "relay":
     case "sheet":
       return { ...base, label: node.label ?? null };
+    case "relay":
+      return { ...base, label: node.label ?? null, host: node.host };
     case "cron":
       return {
         ...base,
         label: node.label ?? null,
-        expression: node.expression,
+        host: node.host,
+        expression: node.expression ?? null,
       };
     case "watcher":
       return {
         ...base,
         label: node.label ?? null,
+        host: node.host,
         watch_key: node.key ?? null,
         stat: node.stat ?? null,
         op: node.op ?? null,
@@ -191,16 +194,19 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
     case "artifacts":
     case "board":
     case "pad":
-    case "relay":
     case "sheet":
       fields = label;
       break;
+    case "relay":
+      fields = { ...label, host: row.host };
+      break;
     case "cron":
-      fields = { ...label, expression: row.expression };
+      fields = { ...label, host: row.host, ...optional(row, "expression") };
       break;
     case "watcher":
       fields = {
         ...label,
+        host: row.host,
         ...optional(row, "watch_key", "key"),
         ...optional(row, "stat"),
         ...optional(row, "op"),

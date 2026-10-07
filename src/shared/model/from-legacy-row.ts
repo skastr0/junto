@@ -118,8 +118,9 @@ const decodeStoredKind = (row: LegacyNodeRow): Node => {
     case "artifacts":
     case "board":
     case "pad":
-    case "relay":
       return decodeNode({ ...labelled, kind: old.entity.kind });
+    case "relay":
+      return decodeNode({ ...labelled, kind: "relay", host });
     case "sheet":
       return decodeNode({ ...labelled, kind: "sheet" });
     case "cron":
@@ -139,12 +140,18 @@ const decodeStoredKind = (row: LegacyNodeRow): Node => {
               minutes / 60 <= 23
             ? `0 */${minutes / 60} * * *`
             : undefined);
-      return decodeNode({ ...labelled, kind: "cron", expression });
+      return decodeNode({
+        ...labelled,
+        kind: "cron",
+        host,
+        ...present("expression", expression),
+      });
     }
     case "watcher":
       return decodeNode({
         ...labelled,
         kind: "watcher",
+        host,
         ...present("key", old.watch?.key),
         ...present("stat", old.watch?.stat),
         ...present("op", old.watch?.op),

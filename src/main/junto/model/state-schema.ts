@@ -135,13 +135,15 @@ export const MODEL_STATE_SCHEMA_SQL = `
     "crons",
     `
     label TEXT,
-    expression TEXT NOT NULL CHECK (length(expression) > 0)`,
+    host TEXT NOT NULL DEFAULT 'local',
+    expression TEXT CHECK (expression IS NULL OR length(expression) > 0)`,
   )}
-  ${table("relays", "label TEXT")}
+  ${table("relays", "label TEXT, host TEXT NOT NULL DEFAULT 'local'")}
   ${table(
     "watchers",
     `
     label TEXT,
+    host TEXT NOT NULL DEFAULT 'local',
     watch_key TEXT,
     stat TEXT,
     op TEXT CHECK (op IN ('gt', 'lt', 'eq')),
