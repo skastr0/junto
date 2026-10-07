@@ -101,7 +101,6 @@ function FamilyRow({
         <label htmlFor={id} className={`cursor-pointer text-title font-semibold ${off ? "text-dim" : "text-ink"}`}>
           {CATEGORY_LABEL[category].title}
         </label>
-        <p className="m-0 text-body-lg leading-body text-dim">{CATEGORY_LABEL[category].hint}</p>
       </div>
       <div className="flex items-center gap-3 pt-[2px]">
         <div className="w-[132px]">
@@ -160,9 +159,6 @@ export function SoundSettingsSection() {
             <label htmlFor="sound-master" className="cursor-pointer text-title font-semibold text-ink">
               All sounds
             </label>
-            <p className="m-0 text-body-lg leading-body text-dim">
-              {on ? "Every kind below." : "Off."}
-            </p>
           </div>
           <div className="flex items-center gap-3">
             <div className="w-[132px]">
