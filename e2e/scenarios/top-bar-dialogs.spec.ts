@@ -1,4 +1,4 @@
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelNote } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 /**
@@ -7,8 +7,8 @@ import { expect, test } from "../harness/launch";
  * working dialogs that trap Tab and close on Escape.
  */
 
-test.use({ juntoOptions: { seedCanvases: { probe: canvasDoc([
-  { id: "n", type: "text", x: 0, y: 0, width: 240, height: 90, text: "note" },
+test.use({ juntoOptions: { seedModels: { probe: modelFixture([
+  { ...modelNote("n", "note"), height: 90 },
 ]) } } });
 
 test("top bar help popover and canvas dialogs open, hold focus, and close", async ({ junto }) => {

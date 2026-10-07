@@ -1,4 +1,4 @@
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelNote, modelRegion } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 /**
@@ -10,15 +10,15 @@ import { expect, test } from "../harness/launch";
  * canvas-filtering station search field behavior.
  */
 
-const probeCanvas = canvasDoc([
-  { id: "n-alpha", type: "text", x: 0, y: 0, width: 240, height: 90, text: "Alpha release\nsecond line detail" },
-  { id: "n-beta", type: "text", x: 300, y: 0, width: 240, height: 90, text: "Beta task plan" },
-  { id: "n-region", type: "group", x: -200, y: -200, width: 900, height: 600, label: "Probe region" },
+const probeCanvas = modelFixture([
+  { ...modelNote("n-alpha", "Alpha release\nsecond line detail"), height: 90 },
+  { ...modelNote("n-beta", "Beta task plan", 300, 0), height: 90 },
+  modelRegion({ id: "n-region", x: -200, y: -200, width: 900, height: 600, label: "Probe region" }),
 ]);
 
 test.use({
   juntoOptions: {
-    seedCanvases: { probe: probeCanvas },
+    seedModels: { probe: probeCanvas },
   },
 });
 

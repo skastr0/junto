@@ -2,7 +2,7 @@
  * Canvas fixtures for process-bound, edge-scoped browser authorization e2e
  * scenarios.
  */
-import type { CanvasNode, TextNode } from "../../src/shared/canvas";
+import { modelNode } from "./model";
 
 /** Eligible agent seat whose live ACP child can be process-bound. */
 export const browserAgentNode = (input: {
@@ -11,20 +11,10 @@ export const browserAgentNode = (input: {
   readonly label: string;
   readonly x?: number;
   readonly y?: number;
-}): TextNode => ({
-  id: input.id,
-  type: "text",
-  text: input.label,
-  x: input.x ?? 0,
-  y: input.y ?? 0,
-  width: 240,
-  height: 96,
-  ether: {
-    entity: { kind: "agent", name: input.agentKey },
-    // Actor-seat law: kind "agent" is a managed terminal seat; the portfolio
-    // compiler rejects a bare agent node, so the seat carries a full surface.
-    terminal: { bindingId: input.agentKey, harness: "codex" },
-  },
+}) => modelNode({
+  kind: "agent", id: input.id, agentKey: input.agentKey, label: input.label,
+  bindingId: input.agentKey, harness: "codex", host: "local", overseer: false, onRemove: "detach",
+  x: input.x ?? 0, y: input.y ?? 0, width: 240, height: 96, z: 0,
 });
 
 /** A "page" link node — the browser-automation target scope. `url` must
@@ -37,13 +27,8 @@ export const browserPageNode = (input: {
   readonly profile: string;
   readonly x?: number;
   readonly y?: number;
-}): CanvasNode => ({
-  id: input.id,
-  type: "link",
-  url: input.url,
-  x: input.x ?? 300,
-  y: input.y ?? 0,
-  width: 240,
-  height: 80,
-  ether: { entity: { kind: "page" }, browser: { profile: input.profile } },
+}) => modelNode({
+  kind: "page", id: input.id, url: input.url, profile: input.profile,
+  host: "local", onRemove: "kill-session",
+  x: input.x ?? 300, y: input.y ?? 0, width: 240, height: 80, z: 0,
 });

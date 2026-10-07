@@ -8,7 +8,7 @@ import {
   sandboxControlSocketPath,
   waitForControlDoctor,
 } from "../harness/browser-control-client";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelWire } from "../harness/model";
 import { launchJunto } from "../harness/launch";
 import { expect, test } from "@playwright/test";
 
@@ -22,15 +22,12 @@ const PAGE_URL = "https://example.com/";
 const PROFILE = "personal";
 
 test("browser access UI is process-bind + edges; no enable grant ceremony", async () => {
+  const nodes = [
+    browserAgentNode({ id: "a1", agentKey: "local:default", label: AGENT_LABEL }),
+    browserPageNode({ id: "p1", url: PAGE_URL, profile: PROFILE }),
+  ];
   const junto = await launchJunto({
-    seedCanvases: {
-      "browser-authorization-granted": canvasDoc([
-        browserAgentNode({ id: "a1", agentKey: "local:default", label: AGENT_LABEL }),
-        browserPageNode({ id: "p1", url: PAGE_URL, profile: PROFILE }),
-      ], [
-        { id: "e1", fromNode: "a1", toNode: "p1" },
-      ]),
-    },
+    seedModels: { "browser-authorization-granted": modelFixture(nodes, [modelWire("e1", "a1", "p1", "navigates", nodes)]) },
   });
 
   try {

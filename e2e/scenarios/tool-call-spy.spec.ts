@@ -8,7 +8,7 @@ import {
   sandboxControlSocketPath,
   waitForControlDoctor,
 } from "../harness/browser-control-client";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelWire } from "../harness/model";
 import { launchJunto } from "../harness/launch";
 import { expect, test } from "@playwright/test";
 import { isValidControlRequestId } from "../../src/shared/browser-control";
@@ -23,16 +23,12 @@ const PAGE_URL = "https://example.org/";
 const PROFILE = "work";
 
 test("protected control routes deny without process-bind; request-id contract holds", async () => {
+  const nodes = [
+    browserAgentNode({ id: "a1", agentKey: AGENT_KEY, label: AGENT_LABEL }),
+    browserPageNode({ id: "p1", url: PAGE_URL, profile: PROFILE }),
+  ];
   const junto = await launchJunto({
-    seedCanvases: {
-      "tool-call-spy": canvasDoc(
-        [
-          browserAgentNode({ id: "a1", agentKey: AGENT_KEY, label: AGENT_LABEL }),
-          browserPageNode({ id: "p1", url: PAGE_URL, profile: PROFILE }),
-        ],
-        [{ id: "e1", fromNode: "a1", toNode: "p1" }],
-      ),
-    },
+    seedModels: { "tool-call-spy": modelFixture(nodes, [modelWire("e1", "a1", "p1", "navigates", nodes)]) },
   });
 
   try {

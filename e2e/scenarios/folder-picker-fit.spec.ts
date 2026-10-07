@@ -12,7 +12,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator } from "@playwright/test";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "folder-picker-fit");
@@ -27,7 +27,7 @@ const inside = async (control: Locator, frame: Locator): Promise<void> => {
 
 test("the folder picker shows every control and the end of a long path", async () => {
   const junto = await launchJunto({
-    seedCanvases: { "folder-picker": canvasDoc([]) },
+    seedModels: { "folder-picker": modelFixture([]) },
     // The add-item palette lists only installed harnesses.
     seedHarnessInstalls: ["claude"],
   });

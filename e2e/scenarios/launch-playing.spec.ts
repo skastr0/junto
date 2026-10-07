@@ -11,7 +11,7 @@ import {
   FactoryPauseRepository,
   FactoryPauseRepositoryLive,
 } from "../../src/main/junto/pause/repository";
-import { canvasDoc } from "../harness/sandbox";
+import { modelFixture } from "../harness/model";
 import { expect, test } from "../harness/launch";
 
 const CANVAS = "held";
@@ -19,7 +19,7 @@ const CANVAS = "held";
 test.use({
   juntoOptions: {
     offline: true,
-    seedCanvases: { [CANVAS]: canvasDoc([]) },
+    seedModels: { [CANVAS]: modelFixture([]) },
     afterSeed: async (sandbox) => {
       const runtime = ManagedRuntime.make(
         Layer.provide(
