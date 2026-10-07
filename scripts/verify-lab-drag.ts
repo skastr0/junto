@@ -150,10 +150,32 @@ await sleep(2_000);
 rows.push(summarize("quiet 2 s, selection held", await take()));
 console.log(JSON.stringify(rows.at(-1)));
 
-const grip = chosen[0]!;
+// Each repeat is a real drag of the same selection, alternating direction, so
+// the cards go out and come back. Before every press the grip card is found
+// again and the selection is counted, and after every drop the cards are
+// checked to have moved: a press that misses the card drags nothing, and
+// would read as a fast drag.
 let movedOnFirstDrag = -1;
+const gripNow = () =>
+  evaluate<{ x: number; y: number; selected: number } | null>(`(() => {
+    const card = document.querySelector('.react-flow__node[data-id="${chosen[0]!.id}"]');
+    if (!card) return null;
+    const box = card.getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2, selected: document.querySelectorAll(".react-flow__node.selected").length };
+  })()`);
+const routed = () =>
+  evaluate<{ total: number; byTrigger: Record<string, number> } | null>(`(() => {
+    const snap = typeof juntoPerf === "object" ? juntoPerf.snapshot() : null;
+    return snap ? { total: snap.routeWireInvocations, byTrigger: snap.routeWireByTrigger } : null;
+  })()`);
+const less = (after: Record<string, number> | undefined, before: Record<string, number> | undefined) =>
+  Object.fromEntries(Object.entries(after ?? {}).map(([key, value]) => [key, value - (before?.[key] ?? 0)]).filter(([, value]) => value !== 0));
 for (let repeat = 0; repeat < repeats; repeat += 1) {
   const direction = repeat % 2 === 0 ? 1 : -1;
+  const grip = await gripNow();
+  if (!grip) break;
+  const before = await world();
+  const routedBefore = await routed();
   await take();
   if (profileFirst && repeat === 0) {
     await send("Profiler.enable", {});
@@ -167,6 +189,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   }
   const dragMs = Date.now() - started;
   const during = await take();
+  const routedDrag = await routed();
   if (profileFirst && repeat === 0) {
     // Where the window's main thread spent the first drag, by function.
     const { profile } = await send("Profiler.stop", {});
@@ -185,21 +208,22 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
     writeFileSync(join(outDir, "first-drag.cpuprofile"), JSON.stringify(profile));
     console.log(JSON.stringify({ firstDragSelfMsByFunction: top }));
   }
+  // The drop, timed on its own: from the release until the page next answers,
+  // then the frames of the three seconds after.
+  const released = Date.now();
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
-  await sleep(1_200);
+  await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
+  const dropMs = Date.now() - released;
+  await sleep(3_000);
   const after = await take();
-  if (repeat === 0) {
-    const dropped = await world();
-    movedOnFirstDrag = Object.keys(before.positions).filter((id) => before.positions[id] !== dropped.positions[id]).length;
-  }
-  // Back where it started, unmeasured, so every repeat drags the same way.
-  await mouse("mousePressed", grip.x + direction * steps * 2, grip.y + direction * steps);
-  await mouse("mouseMoved", grip.x, grip.y, { buttons: 1 });
-  await mouse("mouseReleased", grip.x, grip.y);
-  await sleep(1_200);
-  rows.push(summarize("drag", during, { repeat, moves: steps, dragMs }));
+  const routedDrop = await routed();
+  const dropped = await world();
+  const moved = Object.keys(before.positions).filter((id) => before.positions[id] !== dropped.positions[id]).length;
+  if (repeat === 0) movedOnFirstDrag = moved;
+  const facts = { repeat, direction: direction === 1 ? "down-right" : "up-left", selectedBeforePress: grip.selected, cardsMoved: moved };
+  rows.push(summarize("drag", during, { ...facts, moves: steps, dragMs, routeWire: routedBefore && routedDrag ? routedDrag.total - routedBefore.total : null, routeWireByTrigger: less(routedDrag?.byTrigger, routedBefore?.byTrigger) }));
   console.log(JSON.stringify(rows.at(-1)));
-  rows.push(summarize("1.2 s after the drop", after, { repeat }));
+  rows.push(summarize("3 s after the drop", after, { ...facts, dropMs, routeWire: routedDrag && routedDrop ? routedDrop.total - routedDrag.total : null, routeWireByTrigger: less(routedDrop?.byTrigger, routedDrag?.byTrigger) }));
   console.log(JSON.stringify(rows.at(-1)));
 }
 const atEnd = await world();
