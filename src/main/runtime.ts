@@ -57,6 +57,7 @@ import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
 import { SquadRepositoryLive } from "./junto/squads/repository";
 import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
 import { ReferencesRepositoryLive } from "./junto/references/repository";
+import { ReferencesFollowCanvasLive } from "./junto/references/follow-canvas";
 import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
 import { ProfileRepositoryLive } from "./junto/profiles/repository";
 import { WorkLive } from "./junto/work/service";
@@ -143,7 +144,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     CrewRepositoryLive,
     SquadRepositoryLive,
     SeatGuidanceRepositoryLive,
-    ReferencesRepositoryLive,
+    Layer.provideMerge(ReferencesFollowCanvasLive, ReferencesRepositoryLive),
     SeatSessionRepositoryLive,
     ProfileRepositoryLive,
     // The usage plane reads operator provider credentials from settings, so

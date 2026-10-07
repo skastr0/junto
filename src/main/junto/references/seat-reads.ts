@@ -1,8 +1,6 @@
 import { Effect, Option, Result, Schema } from "effect";
-import type { CanvasDoc } from "@shared/canvas";
 import { asNodeId } from "@shared/model/base";
 import { regionName, regionStack } from "@shared/model/canvas";
-import { canvasFromDocument } from "@shared/model/from-document";
 import {
   APP_REFERENCE_PLACE,
   referencesInScope,
@@ -13,6 +11,7 @@ import {
   type ScopedReference,
 } from "@shared/references";
 import { ReferencesListArgs, ReferencesReadArgs, type WorkErrorBody } from "@shared/work-control";
+import { ModelService } from "../model/service";
 import { ReferencesRepository, type ReferencesRepositoryError } from "./repository";
 
 /**
@@ -21,21 +20,30 @@ import { ReferencesRepository, type ReferencesRepositoryError } from "./reposito
  *
  * Seat-local like `env.report`: no edge, no port, and the seat is the
  * process-bound caller, never an argument. A seat's scope is the app plus
- * every region that contains it, by the one membership rule (`regionStack`).
+ * every region that contains it, by the one membership rule (`regionStack`)
+ * over the canvas the model service holds.
  */
 export type ReferenceSeat = {
-  readonly doc: CanvasDoc;
   readonly canvasName: string;
   readonly nodeId: string;
 };
 
+/** The seat's canvas could not be read from the model. */
+export class SeatCanvasUnread {
+  readonly _tag = "SeatCanvasUnread";
+}
+type SeatReferencesError = ReferencesRepositoryError | SeatCanvasUnread;
+
 /** Everything this seat can read, outer to inner, the inner name winning. */
 export const seatReferences = (
   seat: ReferenceSeat,
-): Effect.Effect<ReadonlyArray<ScopedReference>, ReferencesRepositoryError, ReferencesRepository> =>
+): Effect.Effect<ReadonlyArray<ScopedReference>, SeatReferencesError, ReferencesRepository | ModelService> =>
   Effect.gen(function* () {
     const store = yield* ReferencesRepository;
-    const regions = regionStack(canvasFromDocument(seat.canvasName, seat.doc), asNodeId(seat.nodeId)).map(
+    const canvas = yield* (yield* ModelService).canvas(seat.canvasName).pipe(
+      Effect.mapError(() => new SeatCanvasUnread()),
+    );
+    const regions = regionStack(canvas, asNodeId(seat.nodeId)).map(
       (region) => ({ id: region.id as string, label: regionName(region) }),
     );
     const app = yield* store.list(APP_REFERENCE_PLACE);
@@ -54,11 +62,15 @@ export const onboardReferenceFields = (
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(ReferencesRepository);
     if (Option.isNone(store)) return {};
+    const model = yield* Effect.serviceOption(ModelService);
     const briefing = yield* store.value.briefingRead().pipe(Effect.orElseSucceed(() => null));
-    const references = yield* seatReferences(seat).pipe(
-      Effect.provideService(ReferencesRepository, store.value),
-      Effect.orElseSucceed((): ReadonlyArray<ScopedReference> => []),
-    );
+    const references = Option.isNone(model)
+      ? []
+      : yield* seatReferences(seat).pipe(
+          Effect.provideService(ReferencesRepository, store.value),
+          Effect.provideService(ModelService, model.value),
+          Effect.orElseSucceed((): ReadonlyArray<ScopedReference> => []),
+        );
     return {
       ...(briefing !== null ? { briefing: briefing.body } : {}),
       ...(references.length > 0 ? { references: references.map(toReferenceListing) } : {}),
@@ -67,7 +79,7 @@ export const onboardReferenceFields = (
 
 const LIST_STEP = "run junto references list to see the references this seat can read";
 
-const refusal = (error: ReferencesRepositoryError): WorkErrorBody =>
+const refusal = (error: SeatReferencesError): WorkErrorBody =>
   error._tag === "ReferenceRefused"
     ? { type: "InputError", message: error.message, details: { path: "args.name", retryable: false, next_step: LIST_STEP } }
     : { type: "RuntimeDown", message: "the references could not be read", details: { retryable: true } };
@@ -86,7 +98,8 @@ export const handleSeatReferences = (
 ): Effect.Effect<unknown, WorkErrorBody> =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(ReferencesRepository);
-    if (Option.isNone(store)) {
+    const model = yield* Effect.serviceOption(ModelService);
+    if (Option.isNone(store) || Option.isNone(model)) {
       return yield* Effect.fail<WorkErrorBody>({
         type: "RuntimeDown",
         message: "references are not available in this runtime",
@@ -95,6 +108,7 @@ export const handleSeatReferences = (
     }
     const inScope = seatReferences(seat).pipe(
       Effect.provideService(ReferencesRepository, store.value),
+      Effect.provideService(ModelService, model.value),
       Effect.mapError(refusal),
     );
     if (op === "references.list") {

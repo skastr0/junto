@@ -30,6 +30,8 @@ import { PausePlane } from "../src/main/junto/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
+import { ReferencesFollowCanvasLive } from "../src/main/junto/references/follow-canvas";
+import { ModelService } from "../src/main/junto/model/service";
 import { APP_REFERENCE_PLACE, type ReferencePlace } from "../src/shared/references";
 import type { CanvasDoc } from "../src/shared/canvas";
 
@@ -59,7 +61,9 @@ const makeRuntime = (root: string, withStore: boolean) => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesOnly = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  // The app composes the follower beside the store; here it sits above the model the same way.
+  const canvasesLive = withStore ? Layer.provideMerge(ReferencesFollowCanvasLive, canvasesOnly) : canvasesOnly;
   const workLive = Layer.provideMerge(WorkLive, Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive));
   return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneSwitchable));
 };
@@ -259,6 +263,40 @@ describe("what a seat reads of the operator's texts", () => {
     expect((await call("references.read", { name: "style" })).data.body).toBe("Inner style.");
     const onboard = await call("onboard");
     expect(onboard.data).toMatchObject({ paused: true, briefing: expect.stringContaining("House rules") });
+  });
+
+  it("follows the real model: a removed region, a renamed canvas and a removed canvas", async () => {
+    await start();
+    await seed();
+    const model = <A, E>(use: (service: ModelService["Service"]) => Effect.Effect<A, E>) =>
+      (runtime as unknown as ManagedRuntime.ManagedRuntime<ModelService, unknown>).runPromise(Effect.flatMap(ModelService, use));
+    const names = async (place: ReferencePlace) => (await store((r) => r.list(place))).map((reference) => reference.name);
+    const until = async (check: () => Promise<boolean>) => {
+      for (let attempt = 0; attempt < 400 && !(await check()); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(await check()).toBe(true);
+    };
+
+    await model((service) => service.command({ _tag: "Remove", canvas: CANVAS, nodes: ["inner"], wires: [] } as never, "operator"));
+    await until(async () => (await names(region("inner"))).length === 0);
+    expect(await names(region("outer"))).toEqual(["runbook", "style"]);
+    // The seat now gets the outer region's style, and the rows of other canvases are untouched.
+    expect((await call("references.read", { name: "style" })).data).toMatchObject({ region: { id: "outer" }, body: "Outer style." });
+    expect(await names(region("inner", "other"))).toEqual(["other-canvas"]);
+
+    await model((service) => service.command({ _tag: "RenameCanvas", canvas: CANVAS, to: "plant" } as never, "operator"));
+    await until(async () => (await names(region("outer", "plant"))).length === 2);
+    expect(await names(region("outer"))).toEqual([]);
+    expect(await names(region("elsewhere", "plant"))).toEqual(["plans"]);
+    // A row for a region the canvas no longer has is kept and moves with its canvas: nothing sweeps it.
+    expect(await names(region("deleted-region", "plant"))).toEqual(["ghost"]);
+
+    await model((service) => service.command({ _tag: "RemoveCanvas", canvas: "plant" } as never, "operator"));
+    await until(async () => (await names(region("outer", "plant"))).length === 0);
+    expect(await names(region("elsewhere", "plant"))).toEqual([]);
+    expect(await names(region("deleted-region", "plant"))).toEqual([]);
+    expect(await names(region("inner", "other"))).toEqual(["other-canvas"]);
+    expect(await names(APP_REFERENCE_PLACE)).toEqual(["release", "style"]);
+    expect((await store((r) => r.briefingRead()))?.body).toContain("House rules");
   });
 
   it("a runtime without the store still onboards, and the reads say they are not available", async () => {

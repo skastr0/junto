@@ -7,7 +7,6 @@ import type {
 } from "@shared/overseer-control";
 import { asNodeId } from "@shared/model/base";
 import { regionName } from "@shared/model/canvas";
-import { canvasFromDocument } from "@shared/model/from-document";
 import {
   APP_REFERENCE_PLACE,
   referenceBytes,
@@ -16,7 +15,7 @@ import {
   type ReferenceRegion,
   type StoredReference,
 } from "@shared/references";
-import { CanvasesService } from "../canvases";
+import { ModelService } from "../model/service";
 import { ReferencesRepository, type ReferencesRepositoryError } from "../references/repository";
 
 /**
@@ -66,10 +65,11 @@ const placeOf = (caller: OverseerCaller, args: PlaceArgs) =>
       return { place: APP_REFERENCE_PLACE, where: { scope: "app" } } satisfies Placed;
     }
     const canvasName = args.canvas ?? caller.canvasName;
-    const canvases = yield* CanvasesService;
-    const read = yield* canvases.read(canvasName, "overseer.canvas").pipe(Effect.option);
-    if (Option.isNone(read)) return refused("NotFound", `canvas "${canvasName}" was not found`);
-    const node = canvasFromDocument(canvasName, read.value.doc).nodes.get(asNodeId(args.regionId));
+    const model = yield* Effect.serviceOption(ModelService);
+    if (Option.isNone(model)) return refused("Unsupported", REFERENCES_STORE_MISSING);
+    const canvas = yield* model.value.canvas(canvasName).pipe(Effect.option);
+    if (Option.isNone(canvas)) return refused("NotFound", `canvas "${canvasName}" was not found`);
+    const node = canvas.value.nodes.get(asNodeId(args.regionId));
     if (node === undefined || node.kind !== "region") {
       return refused("NotFound", `region "${args.regionId}" was not found on canvas "${canvasName}"`);
     }
@@ -86,7 +86,7 @@ const summary = ({ body, ...reference }: StoredReference) => ({ ...reference, by
 export const executeOverseerReferences = (
   caller: OverseerCaller,
   request: OverseerRequest,
-): Effect.Effect<OverseerReferencesOutcome, never, CanvasesService> =>
+): Effect.Effect<OverseerReferencesOutcome> =>
   Effect.gen(function* () {
     const storeOption = yield* Effect.serviceOption(ReferencesRepository);
     if (Option.isNone(storeOption)) return refused("Unsupported", REFERENCES_STORE_MISSING);

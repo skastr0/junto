@@ -57,12 +57,32 @@ export class ReferencesRepository extends Context.Service<ReferencesRepository,
     ) => Effect.Effect<StoredReference, ReferencesRepositoryError>;
     /** False when there was no such reference. */
     readonly remove: (place: ReferencePlace, name: unknown) => Effect.Effect<boolean, ReferencesRepositoryError>;
+    /**
+     * The canvas moved on: drop the rows of regions that were removed. Ids
+     * that are not regions, or have no rows, cost nothing. Answers what went.
+     */
+    readonly removeRegions: (
+      canvasName: string,
+      regionIds: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyArray<RegionReferenceKey>, ReferencesRepositoryError>;
+    /** The canvas was removed: drop every region row of it. */
+    readonly removeCanvas: (
+      canvasName: string,
+    ) => Effect.Effect<ReadonlyArray<RegionReferenceKey>, ReferencesRepositoryError>;
+    /** The canvas was renamed: its region rows take the new name, all or none. */
+    readonly renameCanvas: (
+      from: string,
+      to: string,
+    ) => Effect.Effect<ReadonlyArray<RegionReferenceKey>, ReferencesRepositoryError>;
     /** The references of the named regions of one canvas, each tagged with its region. */
     readonly regionTexts: (
       canvasName: string,
       regionIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<RegionReference>, ReferencesRepositoryError>;
   }>()("@junto/ReferencesRepository") {}
+
+/** One region reference by its key, as it stood before it went or moved. */
+export type RegionReferenceKey = { readonly regionId: string; readonly name: string };
 
 const ReferenceRow = Schema.Struct({
   region_id: Schema.String,
@@ -221,6 +241,59 @@ export const ReferencesRepositoryLive: Layer.Layer<ReferencesRepository, never, 
           Effect.tap((removed) => (removed ? changed(place, String(name).trim().toLowerCase()) : Effect.void)),
         );
 
+      // Following the canvas. Each reads what it will touch and changes it in
+      // the same transaction, so what is announced is what happened.
+      const keysOf = (rows: ReadonlyArray<typeof ReferenceRow.Type>): ReadonlyArray<RegionReferenceKey> =>
+        rows.map((row) => ({ regionId: row.region_id, name: row.name }));
+      const announce = (canvasName: string) => (keys: ReadonlyArray<RegionReferenceKey>) =>
+        Effect.sync(() => {
+          for (const { regionId, name } of keys) emitReferencesChanged({ kind: "reference", name, canvasName, regionId });
+        });
+
+      const dropRegions = Effect.fn("references.removeRegions")(function* (
+        canvasName: string,
+        regionIds: ReadonlyArray<string>,
+      ) {
+        const gone = new Set(regionIds);
+        const rows = (yield* rowsOfCanvas(canvasName)).filter((row) => gone.has(row.region_id));
+        for (const regionId of new Set(rows.map((row) => row.region_id))) {
+          yield* sql`
+            DELETE FROM app_texts
+            WHERE scope_kind = 'region' AND canvas_name = ${canvasName} AND region_id = ${regionId}
+          `;
+        }
+        return keysOf(rows);
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "references.removeRegions"), Effect.mapError(persistence("removeRegions")));
+      const removeRegions = (canvasName: string, regionIds: ReadonlyArray<string>) =>
+        regionIds.length === 0
+          ? Effect.succeed<ReadonlyArray<RegionReferenceKey>>([])
+          : dropRegions(canvasName, regionIds).pipe(Effect.tap(announce(canvasName)));
+
+      const dropCanvas = Effect.fn("references.removeCanvas")(function* (canvasName: string) {
+        const rows = yield* rowsOfCanvas(canvasName);
+        if (rows.length > 0) {
+          yield* sql`DELETE FROM app_texts WHERE scope_kind = 'region' AND canvas_name = ${canvasName}`;
+        }
+        return keysOf(rows);
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "references.removeCanvas"), Effect.mapError(persistence("removeCanvas")));
+      const removeCanvas = (canvasName: string) => dropCanvas(canvasName).pipe(Effect.tap(announce(canvasName)));
+
+      const moveCanvas = Effect.fn("references.renameCanvas")(function* (from: string, to: string) {
+        if (from === to || to.length === 0) return [];
+        const rows = yield* rowsOfCanvas(from);
+        if (rows.length > 0) {
+          // A row left under the new name by a canvas long gone gives way to
+          // the one that belongs to the canvas being renamed.
+          yield* sql`
+            UPDATE OR REPLACE app_texts SET canvas_name = ${to}
+            WHERE scope_kind = 'region' AND canvas_name = ${from}
+          `;
+        }
+        return keysOf(rows);
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "references.renameCanvas"), Effect.mapError(persistence("renameCanvas")));
+      const renameCanvas = (from: string, to: string) =>
+        moveCanvas(from, to).pipe(Effect.tap(announce(from)), Effect.tap(announce(to)));
+
       const regionTexts = Effect.fn("references.regionTexts")(function* (
         canvasName: string,
         regionIds: ReadonlyArray<string>,
@@ -232,6 +305,17 @@ export const ReferencesRepositoryLive: Layer.Layer<ReferencesRepository, never, 
           .map((row): RegionReference => ({ ...fromRow(row), regionId: row.region_id }));
       }, Effect.mapError(persistence("regionTexts")));
 
-      return ReferencesRepository.of({ briefingRead, briefingWrite, list, read, write, remove, regionTexts });
+      return ReferencesRepository.of({
+        briefingRead,
+        briefingWrite,
+        list,
+        read,
+        write,
+        remove,
+        removeRegions,
+        removeCanvas,
+        renameCanvas,
+        regionTexts,
+      });
     }),
   );

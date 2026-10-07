@@ -1236,7 +1236,7 @@ const dispatchOp = (
         tools,
         overseer: { enabled: overseer, affectedByPause: false },
         protocol_version: WORK_PROTOCOL_VERSION,
-        ...(yield* onboardReferenceFields({ doc: board, canvasName: caller.canvasName, nodeId: caller.nodeId })),
+        ...(yield* onboardReferenceFields({ canvasName: caller.canvasName, nodeId: caller.nodeId })),
         region: region ?? null,
         connected: connected.map((c) => ({
           id: c.id,
@@ -2160,7 +2160,7 @@ const dispatchOp = (
     }
 
     if (op === "references.list" || op === "references.read") {
-      return yield* handleSeatReferences(op, args, { doc: board, canvasName: caller.canvasName, nodeId: caller.nodeId });
+      return yield* handleSeatReferences(op, args, { canvasName: caller.canvasName, nodeId: caller.nodeId });
     }
 
     if (op === "env.report") {
