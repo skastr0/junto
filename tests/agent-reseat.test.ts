@@ -1,3 +1,8 @@
+import { nodeOfDocument } from "../src/shared/model/from-document";
+import { reseatCommand, reseatSeat } from "../src/renderer/lib/agent-reseat";
+import { state$ } from "../src/renderer/lib/state";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { holdCanvas } from "./support/hold-canvas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildManagedAgentSeat,
@@ -212,5 +217,68 @@ describe.each([
     const next = reseat(before, "grok");
     expect(next.ether?.overseer).toBe(true);
     expect(next.ether).not.toHaveProperty("messages");
+  });
+});
+
+/**
+ * The re-seat that reads the seat from the node store and says one command.
+ * It is what the bottom bar and the agent editor call; no document node goes
+ * in or comes out.
+ */
+describe("reseatSeat: a re-seat said as one command", () => {
+  const seatRow = () => {
+    const fresh = makeManagedAgentNode(120, 240, { harness: "claude", host: "local", cwd: "/Users/me/Projects/junto", label: "cli-identity" });
+    const row = nodeOfDocument("factory", fresh, 3);
+    if (row?.kind !== "agent") throw new Error("not a seat");
+    return { fresh, row };
+  };
+
+  it("the command names the new agent, a fresh binding and how it launches, and nothing else", () => {
+    const { row } = seatRow();
+    const command = reseatCommand("factory", row, { harness: "grok", model: "big", effort: "high" });
+    expect(command._tag).toBe("Reseat");
+    expect(command.id).toBe(row.id);
+    expect(command.harness).toBe("grok");
+    expect(command.agentKey).toBe("local:grok");
+    expect(command.host).toBe(row.host);
+    expect(command.bindingId).not.toBe(row.bindingId);
+    // The working directory the seat was launched in is kept.
+    expect(command.launch?.cwd).toBe("/Users/me/Projects/junto");
+    // The session is main's to mint and record: none rides in the launch.
+    expect(command.launch?.argv).not.toContain("--session-id");
+    // A Reseat has no field for a name, a place or an overseer mark.
+    expect(Object.keys(command).sort()).toEqual(["_tag", "agentKey", "bindingId", "canvas", "harness", "host", "id", "launch"]);
+  });
+
+  it("re-seats the seat the store holds: another agent in the same seat, name and place kept", async () => {
+    const { fresh, row } = seatRow();
+    state$.canvasName.set("factory");
+    const release = holdCanvas("factory", [fresh]);
+    try {
+      const before = modelStore.canvasOf("factory").nodes.get(row.id);
+      const result = await reseatSeat("factory", row.id, { harness: "grok" });
+      expect(result).toEqual({ ok: true });
+      const after = modelStore.canvasOf("factory").nodes.get(row.id);
+      expect(after).toMatchObject({
+        kind: "agent", harness: "grok", agentKey: "local:grok", label: "cli-identity",
+        x: before?.x, y: before?.y, width: before?.width, height: before?.height,
+      });
+      expect(after?.kind === "agent" ? after.bindingId : undefined).not.toBe(row.bindingId);
+      expect(after?.kind === "agent" ? after.sessionId : "none").toBeUndefined();
+    } finally {
+      release();
+    }
+  });
+
+  it("refuses a node that is not a seat, and one that is not there", async () => {
+    state$.canvasName.set("factory");
+    const note = { id: "n", type: "text", text: "note", x: 0, y: 0, width: 200, height: 80 } as TextNode;
+    const release = holdCanvas("factory", [note]);
+    try {
+      expect(await reseatSeat("factory", "n", { harness: "grok" })).toEqual({ ok: false, message: "not an agent seat" });
+      expect(await reseatSeat("factory", "gone", { harness: "grok" })).toEqual({ ok: false, message: "not an agent seat" });
+    } finally {
+      release();
+    }
   });
 });

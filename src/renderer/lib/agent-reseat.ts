@@ -4,16 +4,17 @@
  * not durable browser storage — see settings-state architecture).
  */
 import type { TextNode } from "@shared/canvas";
-import { resolveTerminalBinding } from "@shared/terminal";
+import { asCanvasName, type Command, type NodeOf } from "@shared/model";
+import { seatParts } from "@shared/model/seat-parts";
 import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import type { AgentConfigurationChoices } from "../components/node-palette/agent-launch-model";
-import {
-  reseatManagedAgentNode,
-  type ManagedAgentSeatOptions,
-} from "./node-factories";
-import { applyManagedAgentReseat } from "./mutations";
-import { killTerminal, openTerminal } from "./terminal-actions";
+import { getJuntoApi } from "./junto-api";
+import { type ManagedAgentSeatOptions } from "./node-factories";
+import { commitCommands } from "./mutations";
+import { state$ } from "./state";
+import { openTerminal } from "./terminal-actions";
 import { terminal$ } from "./terminal-state";
+import { nodeAt } from "./use-model";
 import {
   closeTerminalView,
 } from "./dock-state";
@@ -50,57 +51,87 @@ export const reseatChoicesFromConfiguration = (
   ...(cwd ? { cwd } : {}),
 });
 
+type ReseatResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
+
 /**
- * Stop the old process, commit the reseated node, reopen if the surface was open.
- * Preserves the prior launch cwd (and host) so the new harness lands in the
- * same workspace path.
+ * The command that puts another agent in a seat: a new agent key, a fresh
+ * binding so the old process can be stopped without colliding with the new
+ * one, the harness, and how it is launched. The seat keeps its host and the
+ * working directory it was launched in. Its name, its place, its wires and
+ * its mailbox are not in the command and so are not touched; its session is
+ * main's to mint and record when the seat starts.
  */
-export const performManagedAgentReseat = async (
-  node: TextNode,
+export const reseatCommand = (
+  canvas: string,
+  seat: NodeOf<"agent">,
   choices: AgentConfigurationChoices,
-): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
-  if (node.ether?.entity?.kind !== "agent") {
-    return { ok: false, message: "not an agent seat" };
-  }
-  const priorBinding = resolveTerminalBinding(node);
-  const surfaceWasOpen = Boolean(terminal$.openByNodeId[node.id].peek());
-  const priorCwd = seatLaunchCwd(node);
+): Extract<Command, { readonly _tag: "Reseat" }> => {
+  const cwd = seat.launch?.cwd?.trim();
+  const parts = seatParts({
+    ...reseatChoicesFromConfiguration(choices, cwd ? cwd : undefined),
+    host: seat.host,
+    sessionFromMain: true,
+  });
+  return {
+    _tag: "Reseat",
+    canvas: asCanvasName(canvas),
+    id: seat.id,
+    agentKey: parts.agentKey,
+    bindingId: parts.bindingId,
+    harness: parts.harness,
+    host: seat.host,
+    launch: parts.launch,
+  };
+};
+
+/**
+ * Re-seat a seat onto another harness: stop the old process, say the Reseat,
+ * and open the terminal again if it was open. The seat is read from the node
+ * store by canvas and id, as it stands when the operator confirms.
+ */
+export const reseatSeat = async (
+  canvas: string,
+  id: string,
+  choices: AgentConfigurationChoices,
+): Promise<ReseatResult> => {
+  const seat = nodeAt(canvas, id);
+  if (seat?.kind !== "agent") return { ok: false, message: "not an agent seat" };
+  const surfaceWasOpen = Boolean(terminal$.openByNodeId[id].peek());
 
   try {
-    if (priorBinding?.kind === "native") {
-      await killTerminal(node);
+    await getJuntoApi()?.terminalKill?.(seat.bindingId, seat.host);
+    try {
+      terminal$.sessionByBindingId[seat.bindingId].set(await getJuntoApi()?.terminalGet?.(seat.bindingId, seat.host));
+    } catch {
+      terminal$.sessionByBindingId[seat.bindingId].set(undefined);
     }
   } catch (error: unknown) {
-    // Still reseat — stale process may already be gone.
-    console.warn(
-      "[agent-reseat] kill prior seat failed",
-      error instanceof Error ? error.message : error,
-    );
+    // Still reseat: the stale process may already be gone.
+    console.warn("[agent-reseat] kill prior seat failed", error instanceof Error ? error.message : error);
   }
 
-  // Drop open surface before binding id changes so attach cannot race.
-  if (surfaceWasOpen) {
-    closeTerminalView(node.id);
-  }
+  // Drop the open surface before the binding changes, so attach cannot race.
+  if (surfaceWasOpen) closeTerminalView(id);
 
-  let next: TextNode;
+  let command: Command;
   try {
-    next = reseatManagedAgentNode(
-      node,
-      reseatChoicesFromConfiguration(choices, priorCwd),
-    );
+    command = reseatCommand(canvas, seat, choices);
   } catch (error: unknown) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : String(error),
-    };
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
-
-  applyManagedAgentReseat(next);
+  commitCommands(() => [command]);
 
   if (surfaceWasOpen) {
-    await openTerminal(next, "focus", { resume: false });
+    // The terminal still opens on a document node; this one is the document's
+    // own, as it follows the store. It goes when openTerminal takes an id.
+    const next = state$.doc.peek().nodes.find((node) => node.id === id);
+    if (next !== undefined) await openTerminal(next, "focus", { resume: false });
   }
-
   return { ok: true };
 };
+
+/** The same, for a caller that still holds a document node. Goes with its last caller. */
+export const performManagedAgentReseat = (
+  node: TextNode,
+  choices: AgentConfigurationChoices,
+): Promise<ReseatResult> => reseatSeat(state$.canvasName.peek(), node.id, choices);
