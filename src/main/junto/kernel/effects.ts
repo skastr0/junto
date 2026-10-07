@@ -3,14 +3,14 @@
  * Task claiming is never done here — only inventory and prompts.
  */
 
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import type { CanvasDoc } from "@shared/canvas";
 import {
   defaultEffectTasksCreate,
   type EffectTasksCreate,
 } from "@shared/node-insert";
 import type { NodeId } from "@shared/model/base";
 import type { Canvas } from "@shared/model/canvas";
-import { canvasFromDocument } from "@shared/model/from-document";
+import type { Node } from "@shared/model/kinds";
 import { wireGrant, wireKinds } from "@shared/model/wire";
 import {
   collectEffectEdgesFrom,
@@ -191,18 +191,16 @@ export type ApplySchedulerFireResult = {
 /** Max trigger hops after the root fire (root is depth 0). */
 export const SCHEDULER_TRIGGER_CASCADE_MAX_DEPTH = 3;
 
-const schedulerKindForNode = (
-  node: CanvasNode | undefined,
+/** What a scheduler node fires as; nothing for any other node. */
+export const schedulerKindOf = (
+  node: Node | undefined,
 ): SchedulerFireKind | undefined => {
-  const kind = node?.ether?.entity?.kind;
-  if (kind === "cron" || kind === "timer") return "cron";
-  if (kind === "relay") return "relay";
-  if (kind === "watcher" || kind === "gauge") return "gauge";
-  return undefined;
+  if (node?.kind === "cron" || node?.kind === "relay") return node.kind;
+  return node?.kind === "watcher" ? "gauge" : undefined;
 };
 
-const schedulerNodeEnabled = (node: CanvasNode | undefined): boolean => {
-  const kind = schedulerKindForNode(node);
+const schedulerNodeEnabled = (node: Node | undefined): boolean => {
+  const kind = schedulerKindOf(node);
   return kind !== undefined && schedulerFeatureEnabled(kind);
 };
 
@@ -217,11 +215,8 @@ export const collectTriggerCascadeTargets = (
   canvas: Pick<Canvas, "nodes" | "wires">,
   sourceNodeId: string,
 ): ReadonlyArray<string> => {
-  const enabled = (id: string): boolean => {
-    const kind = canvas.nodes.get(id as NodeId)?.kind;
-    if (kind === "cron" || kind === "relay") return schedulerFeatureEnabled(kind);
-    return kind === "watcher" && schedulerFeatureEnabled("gauge");
-  };
+  const enabled = (id: string): boolean =>
+    schedulerNodeEnabled(canvas.nodes.get(id as NodeId));
   if (!enabled(sourceNodeId)) return [];
 
   const kinds = wireKinds(canvas.nodes.values());
@@ -236,7 +231,7 @@ export const collectTriggerCascadeTargets = (
 };
 
 export const applySchedulerFire = async (
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "nodes" | "wires">,
   fire: SchedulerFireEvent,
   opts?: {
     readonly depth?: number;
@@ -250,7 +245,7 @@ export const applySchedulerFire = async (
   },
 ): Promise<ApplySchedulerFireResult> => {
   if (!effectDeps) return { applied: 0, skipped: "no_deps" };
-  const source = doc.nodes.find((node) => node.id === fire.sourceNodeId);
+  const source = canvas.nodes.get(fire.sourceNodeId as NodeId);
   if (!schedulerFeatureEnabled(fire.kind) || !schedulerNodeEnabled(source)) {
     return { applied: 0, skipped: "disabled" };
   }
@@ -268,10 +263,7 @@ export const applySchedulerFire = async (
   visited.add(fire.sourceNodeId);
 
   // Scope law: only edges leaving this scheduler whose verb is a fire action.
-  const bindings = collectEffectEdgesFrom(
-    canvasFromDocument(fire.canvasName, doc),
-    fire.sourceNodeId,
-  );
+  const bindings = collectEffectEdgesFrom(canvas, fire.sourceNodeId);
   let applied = 0;
   let failed = 0;
   for (const binding of bindings) {
@@ -297,12 +289,12 @@ export const applySchedulerFire = async (
   let cascaded = 0;
   if (depth < SCHEDULER_TRIGGER_CASCADE_MAX_DEPTH) {
     for (const targetId of collectTriggerCascadeTargets(
-      canvasFromDocument(fire.canvasName, doc),
+      canvas,
       fire.sourceNodeId,
     )) {
       if (visited.has(targetId)) continue;
       const child = await applySchedulerFire(
-        doc,
+        canvas,
         {
           ...fire,
           sourceNodeId: targetId,
@@ -329,10 +321,3 @@ export const applySchedulerFire = async (
   }
   return { applied, cascaded };
 };
-
-/** True when a node is a schedule carrier (timer body on cron/timer kinds). */
-export const nodeHasCronBody = (node: CanvasNode): boolean =>
-  node.type === "text" && node.ether?.timer !== undefined;
-
-export const nodeIsRelay = (node: CanvasNode): boolean =>
-  node.type === "text" && node.ether?.entity?.kind === "relay";

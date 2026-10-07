@@ -25,10 +25,11 @@ import { createHash } from "node:crypto";
 import { cutBeforeWake } from "../seat-sessions/operator-offboard";
 import { Cause, Context, Effect, Layer, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import type { Node } from "@shared/model";
-import { nodeFromDocument, nodesFromDocument } from "@shared/model/from-document";
+import { asNodeId } from "@shared/model/base";
+import { nodeOf, nodesOf } from "@shared/model/canvas";
+import { nodeFromDocument } from "@shared/model/from-document";
+import type { Seat } from "@shared/model/kinds";
 import { effectTasksCreateToWorkArgs } from "@shared/node-insert";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
 import { identityHints } from "@shared/connections";
@@ -43,7 +44,7 @@ import {
   makeUserMessage,
   taskReleaseBoundary,
 } from "@shared/task";
-import { boardContractOf, taskAdmissionState } from "@shared/rules";
+import { taskAdmissionState } from "@shared/rules";
 import { ulid } from "ulid";
 import type { Task } from "@shared/work-model";
 import type { InstallationId } from "@shared/installation-id";
@@ -70,7 +71,6 @@ import { StationRepository } from "../station/repository";
 import { StationLivePeerRegistry } from "../station/session-registry";
 import {
   actorsNeedingWake,
-  isClaimableTaskSink,
   selectFactoryClaims,
 } from "@shared/factory-tick";
 import { WorkService } from "../work/service";
@@ -97,7 +97,7 @@ import {
   reconcileLiveCanvasMemory,
   runEvaluationCycle,
   setActorRefResolver,
-  setDocs,
+  setWorlds,
   setStationScope,
   __setAutomationGateForTest,
   __setSnapshotsForTest,
@@ -105,6 +105,7 @@ import {
   setPageLoadDeps,
   setRaisedHandDeps,
 } from "./cycle";
+import { withTaskRow, workOf, worldFromDocument, type World } from "./world";
 import {
   admitSchedulerEffectAutomation,
   setSchedulerEffectDeps,
@@ -234,33 +235,15 @@ export const subscribeKernelPauseWake = (
  * cycle instead of waiting for the repository notification/resync repair cycle.
  */
 export const retainClaimedTask = (
-  documents: Map<string, CanvasDoc>,
+  held: Map<string, World>,
   canvasName: string,
   boardId: string,
   task: Task,
 ): boolean => {
-  const doc = documents.get(canvasName);
-  if (doc === undefined) return false;
-  let retained = false;
-  const nodes = doc.nodes.map((node) => {
-    const tasks = node.id === boardId ? node.ether?.tasks : undefined;
-    if (tasks === undefined || !tasks.items.some((item) => item.id === task.id)) {
-      return node;
-    }
-    retained = true;
-    return {
-      ...node,
-      ether: {
-        ...node.ether,
-        tasks: {
-          ...tasks,
-          items: tasks.items.map((item) => (item.id === task.id ? task : item)),
-        },
-      },
-    };
-  });
-  if (!retained) return false;
-  documents.set(canvasName, { ...doc, nodes });
+  const world = held.get(canvasName);
+  const next = world === undefined ? undefined : withTaskRow(world, boardId, task);
+  if (next === undefined) return false;
+  held.set(canvasName, next);
   return true;
 };
 
@@ -533,7 +516,7 @@ const runtimeAuthority = (
   scope: ActiveStationScope,
   registry: ActiveActorRegistry,
   canvasName: string,
-  node: CanvasNode,
+  node: { readonly id: string },
 ): ManagedSeatRuntimeAuthority | undefined => {
   if (scope.role === "") return undefined;
   const actor = registry.resolve({ canvasName, nodeId: node.id });
@@ -546,22 +529,17 @@ const runtimeAuthority = (
       };
 };
 
-const heldSeatNodes = new WeakMap<CanvasNode, Node | undefined>();
-
 /**
- * The model's reading of a document node, for the seat calls that take one.
- * Worked out once per node object; nothing when the model refuses the node.
+ * The seat a freshly read document node describes, for the wake path, which
+ * reads its one node from the canvas service and not from the held world.
  */
-const seatNodeOf = (canvasName: string, node: CanvasNode): Node | undefined => {
-  if (heldSeatNodes.has(node)) return heldSeatNodes.get(node);
-  let seat: Node | undefined;
+const seatOfDocument = (canvasName: string, node: CanvasNode): Seat | undefined => {
   try {
-    seat = nodeFromDocument(canvasName, node, 0);
+    const seat = nodeFromDocument(canvasName, node, 0);
+    return seat.kind === "agent" ? seat : undefined;
   } catch {
-    // Not a kind the model knows.
+    return undefined;
   }
-  heldSeatNodes.set(node, seat);
-  return seat;
 };
 
 type ActorAvailability = {
@@ -583,7 +561,7 @@ type ActorAvailability = {
  */
 export const actorSeatSelectableNow = (
   canvasName: string,
-  node: CanvasNode,
+  seat: Seat,
   actor: ActorRef,
   scope: Exclude<ActiveStationScope, { readonly role: "" }>,
   availability: ActorAvailability,
@@ -594,22 +572,12 @@ export const actorSeatSelectableNow = (
       installationId: scope.installationId,
       hostId: scope.hostId,
     } satisfies ManagedSeatRuntimeAuthority;
-    const seat = seatNodeOf(canvasName, node);
-    if (
-      seat !== undefined &&
-      isManagedSeatRuntimeLocal(canvasName, seat, localAuthority)
-    ) {
-      const surface = actorDeliverySurfaceOf(node);
-      return (
-        surface?._tag === "managedAgent" &&
-        availability.isLocalSeatReady(surface.bindingId)
-      );
+    if (isManagedSeatRuntimeLocal(canvasName, seat, localAuthority)) {
+      return availability.isLocalSeatReady(seat.bindingId);
     }
     if (scope.role !== "command-center") return false;
 
-    const surface = actorDeliverySurfaceOf(node);
-    if (surface?._tag !== "managedAgent") return false;
-    const decodedHost = Schema.decodeUnknownResult(HostId)(surface.hostId);
+    const decodedHost = Schema.decodeUnknownResult(HostId)(seat.host);
     if (decodedHost._tag === "Failure") return false;
     const installationResult = yield* Effect.result(
       availability.installationForHost(decodedHost.success),
@@ -618,7 +586,7 @@ export const actorSeatSelectableNow = (
     const installationId = installationResult.success;
     if (
       installationId === undefined ||
-      deriveActorSeatId(installationId, surface.bindingId) !== actor.seatId
+      deriveActorSeatId(installationId, seat.bindingId) !== actor.seatId
     ) {
       return false;
     }
@@ -665,7 +633,19 @@ const makeKernelService = (
   workRepository: WorkRepositoryShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
 ): KernelServiceShape => {
+  // What the cycle reads. `docs` holds the documents those worlds were made
+  // from, only for the two readers that still take a document: identity hints
+  // and the claim briefing.
+  const worlds = new Map<string, World>();
   const docs = new Map<string, CanvasDoc>();
+  const hold = (name: string, doc: CanvasDoc): void => {
+    docs.set(name, doc);
+    worlds.set(name, worldFromDocument(name, doc));
+  };
+  const drop = (name: string): void => {
+    docs.delete(name);
+    worlds.delete(name);
+  };
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
 
   // Host runners bound on first start() from AppRuntime / RemoteRuntime.
@@ -791,7 +771,7 @@ const makeKernelService = (
         watchers: {},
         nextFire: {},
       });
-    for (const name of docs.keys()) {
+    for (const name of worlds.keys()) {
       const entry = entryFor(name);
       const execution = getExecutionByCanvas().get(name);
       if (execution) entry.execution = execution;
@@ -823,16 +803,12 @@ const makeKernelService = (
   // Cron durable due + nextFire. Factory claims use managedPulseDeliver
   // separately — not region-pulse delivery deps.
   __setTimerSchedulerForTest({
-    claimInterval: (input) =>
-      run(scheduler.claimInterval(input)),
     claimExpression: (input) =>
       run(scheduler.claimExpression(input)),
     reconcileHome: (homeStation, activeTimerKeys) =>
       run(
         scheduler.reconcileHome(homeStation, activeTimerKeys),
       ),
-    readIntervalState: (homeStation, timerKey) =>
-      run(scheduler.readIntervalState(homeStation, timerKey)),
   });
 
   // Process-local effect receipts (at-most-once within this runtime).
@@ -875,56 +851,52 @@ const makeKernelService = (
     generation: number,
   ): Effect.Effect<void> =>
     Effect.gen(function* () {
-      for (const [canvasName, doc] of docs) {
+      for (const [canvasName, world] of worlds) {
         if (!generationIsActive(generation)) return;
         const state = pause.stateFor(canvasName);
         if (!state.playing) continue;
+        const { canvas } = world;
 
-        const wanted = actorsNeedingWake(doc, canvasName, registry.resolve, {
-          claimEligible: (task, actor, sink) =>
-            taskAdmissionState(
-              task,
-              boardContractOf(nodesFromDocument(doc), sink.id),
-              Date.now(),
-            ) === "claimable" &&
-            claimEligibleAfterRelease(
-              canvasName,
-              sink.id,
-              task,
-              actor.seatId,
-            ),
-          // Awake covers both "already live here" and "not this station's seat
-          // to start" — a Remote's actor is started by its own installation.
-          isAwake: (node) => {
-            const authority = runtimeAuthority(scope, registry, canvasName, node);
-            if (authority === undefined) return true;
-            const seat = seatNodeOf(canvasName, node);
-            if (
-              seat === undefined ||
-              !isManagedSeatRuntimeLocal(canvasName, seat, authority)
-            ) {
-              return true;
-            }
-            const surface = actorDeliverySurfaceOf(node);
-            return (
-              surface?._tag === "managedAgent" &&
-              localManagedSeatReadyForClaim(surface.bindingId)
-            );
+        const wanted = actorsNeedingWake(
+          canvas,
+          workOf(world),
+          canvasName,
+          registry.resolve,
+          {
+            claimEligible: (task, actor, sink) =>
+              taskAdmissionState(task, sink.contract, Date.now()) ===
+                "claimable" &&
+              claimEligibleAfterRelease(
+                canvasName,
+                sink.id,
+                task,
+                actor.seatId,
+              ),
+            // Awake covers both "already live here" and "not this station's
+            // seat to start" — a Remote's actor is started by its own
+            // installation.
+            isAwake: (seat) => {
+              const authority = runtimeAuthority(scope, registry, canvasName, seat);
+              if (authority === undefined) return true;
+              if (!isManagedSeatRuntimeLocal(canvasName, seat, authority)) {
+                return true;
+              }
+              return localManagedSeatReadyForClaim(seat.bindingId);
+            },
           },
-        });
+        );
         if (wanted.size === 0) continue;
 
-        for (const node of doc.nodes) {
+        for (const seat of nodesOf(canvas, "agent")) {
           if (!generationIsActive(generation)) return;
-          if (!wanted.has(node.id)) continue;
+          if (!wanted.has(seat.id)) continue;
           const authority = runtimeAuthority(
             scope,
             registry,
             canvasName,
-            node,
+            seat,
           );
-          const seat = seatNodeOf(canvasName, node);
-          if (authority === undefined || seat === undefined) continue;
+          if (authority === undefined) continue;
           yield* ensureManagedSeatRunning(
             canvasName,
             seat,
@@ -947,12 +919,12 @@ const makeKernelService = (
         ActorSeatId,
         {
           readonly canvasName: string;
-          readonly node: CanvasNode;
+          readonly node: Seat;
           readonly actor: ActorRef;
         }
       >();
-      for (const [canvasName, doc] of docs) {
-        for (const node of doc.nodes) {
+      for (const [canvasName, { canvas }] of worlds) {
+        for (const node of nodesOf(canvas, "agent")) {
           const actor = registry.resolve({ canvasName, nodeId: node.id });
           if (actor !== undefined && !uniqueActors.has(actor.seatId)) {
             uniqueActors.set(actor.seatId, { canvasName, node, actor });
@@ -1004,10 +976,9 @@ const makeKernelService = (
           busyActorSeatIds.add(pending.command.body.actor.seatId);
         }
       }
-      for (const doc of docs.values()) {
-        for (const node of doc.nodes) {
-          if (!isClaimableTaskSink(node)) continue;
-          for (const task of node.ether?.tasks?.items ?? []) {
+      for (const world of worlds.values()) {
+        for (const board of nodesOf(world.canvas, "task")) {
+          for (const task of workOf(world).itemsOf(board.id)) {
             if (
               task.state !== "working" &&
               task.state !== "input-required" &&
@@ -1021,12 +992,13 @@ const makeKernelService = (
         }
       }
 
-      for (const [canvasName, doc] of docs) {
+      for (const [canvasName, world] of worlds) {
         if (!generationIsActive(generation)) return;
         const state = pause.stateFor(canvasName);
         if (!state.playing) continue;
         const selections = selectFactoryClaims(
-          doc,
+          world.canvas,
+          workOf(world),
           canvasName,
           registry.resolve,
           {
@@ -1043,11 +1015,8 @@ const makeKernelService = (
             claimEligible: (task, actor, sink) =>
               // The auto-claim loop skips tasks still waiting, tasks awaiting
               // approval, and every task on a board set to Me.
-              taskAdmissionState(
-                task,
-                boardContractOf(nodesFromDocument(doc), sink.id),
-                Date.now(),
-              ) === "claimable" &&
+              taskAdmissionState(task, sink.contract, Date.now()) ===
+                "claimable" &&
               claimEligibleAfterRelease(
                 canvasName,
                 sink.id,
@@ -1079,7 +1048,7 @@ const makeKernelService = (
           }
           if (result.ok) {
             retainClaimedTask(
-              docs,
+              worlds,
               selection.sink.canvasName,
               selection.sink.nodeId,
               result.data,
@@ -1100,42 +1069,36 @@ const makeKernelService = (
   ): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
       if (scope.role === "" || !generationIsActive(generation)) return;
-      for (const [canvasName, doc] of docs) {
+      for (const [canvasName, world] of worlds) {
         if (!generationIsActive(generation)) return;
         const state = pause.stateFor(canvasName);
         if (!state.playing) continue;
-        for (const sink of doc.nodes) {
+        const { canvas } = world;
+        for (const sink of nodesOf(canvas, "task")) {
           if (!generationIsActive(generation)) return;
-          if (!isClaimableTaskSink(sink)) continue;
-          for (const task of sink.ether?.tasks?.items ?? []) {
+          for (const task of workOf(world).itemsOf(sink.id)) {
             if (!generationIsActive(generation)) return;
             if (task.state !== "working") continue;
             const actorSeatId = claimedByOf(task);
             if (actorSeatId === undefined) continue;
             const actorRef = registry.actorOnCanvas(actorSeatId, canvasName);
             if (actorRef === undefined) continue;
-            const actor = doc.nodes.find(
-              (node) => node.id === actorRef.nodeId,
-            );
-            if (actor === undefined) {
+            const seat = nodeOf(canvas, asNodeId(actorRef.nodeId), "agent");
+            if (seat === undefined) {
               continue;
             }
             const authority = runtimeAuthority(
               scope,
               registry,
               canvasName,
-              actor,
+              seat,
             );
-            const seat = seatNodeOf(canvasName, actor);
             if (
               authority === undefined ||
-              seat === undefined ||
               !isManagedSeatRuntimeLocal(canvasName, seat, authority)
             ) {
               continue;
             }
-            const surface = actorDeliverySurfaceOf(actor);
-            if (surface?._tag !== "managedAgent") continue;
             const sinkRef = { canvasName, nodeId: sink.id } satisfies SinkRef;
             const claim = yield* workRepository.currentTaskClaim(
               sinkRef, task.id, actorSeatId,
@@ -1185,11 +1148,11 @@ const makeKernelService = (
             if (!running || !generationIsActive(generation)) continue;
             const accepted = yield* Effect.promise(() =>
               managedPulseDeliver(
-                surface.bindingId,
+                seat.bindingId,
                 buildFactoryClaimPrompt({
                   boardId: sink.id,
                   task,
-                  doc,
+                  doc: docs.get(canvasName),
                 }),
               ),
             );
@@ -1332,7 +1295,7 @@ const makeKernelService = (
       if (authority === undefined) {
         return refuse("actor reference is not in the compiled portfolio");
       }
-      const seat = seatNodeOf(canvasName, node);
+      const seat = seatOfDocument(canvasName, node);
       if (
         seat === undefined ||
         !isManagedSeatRuntimeLocal(canvasName, seat, authority)
@@ -1375,7 +1338,7 @@ const makeKernelService = (
         canvases.read(name, "kernel.hydrateDoc"),
       );
       if (result._tag === "Success" && generationIsActive(generation)) {
-        docs.set(name, result.success.doc);
+        hold(name, result.success.doc);
       }
       // else: a broken/mid-write canvas is skipped this pass — one bad doc
       // never stalls hydration of the rest.
@@ -1401,7 +1364,7 @@ const makeKernelService = (
           { concurrency: MAX_CONCURRENT_HYDRATIONS },
         );
       }
-      if (generationIsActive(generation)) setDocs(docs);
+      if (generationIsActive(generation)) setWorlds(worlds);
     });
 
   // App-owned create/write/mutate -> reread into the map; delete -> drop +
@@ -1415,7 +1378,7 @@ const makeKernelService = (
       const summaries = yield* canvases.list;
       if (!generationIsActive(generation)) return;
       if (!summaries.some((summary) => summary.name === name)) {
-        docs.delete(name);
+        drop(name);
         purgeCanvasMemory(name);
         scheduleCycle();
         return;
@@ -1425,7 +1388,7 @@ const makeKernelService = (
         canvases.read(name, "kernel.resyncDoc"),
       );
       if (result._tag === "Success" && generationIsActive(generation)) {
-        docs.set(name, result.success.doc);
+        hold(name, result.success.doc);
         fork(refreshWithIdentityHints());
         scheduleCycle();
       }
@@ -1495,14 +1458,14 @@ const makeKernelService = (
     });
 
   return KernelService.of({
-    // Effect.sync, not Effect.succeed: the report reads docs.size at CALL
+    // Effect.sync, not Effect.succeed: the report reads worlds.size at CALL
     // time, not at layer-build time (when it is always 0, before any
     // hydration) — a live count, not a frozen one.
     doctor: Effect.sync(() => ({
       id: "kernel",
       label: "Kernel",
       status: "ok" as const,
-      detail: `${docs.size} canvas(es) hydrated`,
+      detail: `${worlds.size} canvas(es) hydrated`,
     })),
 
     wakeManagedSeat,

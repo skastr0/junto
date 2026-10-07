@@ -1,23 +1,17 @@
-import { Result, HashSet } from "effect";
-import type { CanvasDoc, CanvasNode } from "./canvas";
-import type { Task } from "./work-model";
-import { nodesFromDocument } from "./model/from-document";
+import { Result } from "effect";
 import type { ActorSeatId } from "./actor-seat";
+import { resolveActorRefAt, type ActorRefResolver } from "./attention";
+import type { Canvas, Placed } from "./model/canvas";
+import { nodesOf } from "./model/canvas";
+import type { Seat, TaskBoard } from "./model/kinds";
+import { admitPure, pairIsClaimable } from "./physics";
+import { canvasToCapabilityView } from "./physics/view";
 import { claimedByOf } from "./task";
 import { dependencyScopeIndex } from "./task-dep-scope";
-import { workReadFromDocument } from "./work-read";
 import { taskIsClaimReady } from "./task-deps";
-import { resolveCompiledActorRef, type ActorRefResolver } from "./attention";
-import {
-  admitPure,
-  asNodeId,
-  canvasDocToCapabilityView,
-  offersOf,
-  pairIsClaimable,
-  resolveSpec,
-  roleOf,
-} from "./physics";
+import type { Task } from "./work-model";
 import type { ActorRef, SinkRef, TaskRef } from "./work-protocol";
+import type { WorkRead } from "./work-read";
 
 /**
  * Pure factory selection over the current SQLite-backed work projection.
@@ -26,31 +20,20 @@ import type { ActorRef, SinkRef, TaskRef } from "./work-protocol";
  * identities for the kernel to submit once through WorkService.
  */
 
-const isActor = (node: CanvasNode): boolean =>
-  roleOf(
-    resolveSpec({
-      isGroup: node.type === "group",
-      kind: node.ether?.entity?.kind,
-    }),
-  ) === "actor";
+const holdsClaim = (task: Task): boolean =>
+  task.state === "working" ||
+  task.state === "input-required" ||
+  task.state === "auth-required";
 
-export const isClaimableTaskSink = (node: CanvasNode): boolean => {
-  const spec = resolveSpec({
-    isGroup: node.type === "group",
-    kind: node.ether?.entity?.kind,
-  });
-  return roleOf(spec) === "sink" && HashSet.has(offersOf(spec), "tasks.claim");
-};
-
-/** Actors already holding a non-terminal claim on any task node. */
-const busyActorSeatIds = (doc: CanvasDoc): ReadonlySet<ActorSeatId> => {
+/** Actors already holding a non-terminal claim on any task board. */
+const busyActorSeatIds = (
+  canvas: Placed,
+  work: WorkRead,
+): ReadonlySet<ActorSeatId> => {
   const busy = new Set<ActorSeatId>();
-  for (const node of doc.nodes) {
-    if (!isClaimableTaskSink(node)) continue;
-    for (const task of node.ether?.tasks?.items ?? []) {
-      if (task.state !== "working" && task.state !== "input-required" && task.state !== "auth-required") {
-        continue;
-      }
+  for (const board of nodesOf(canvas, "task")) {
+    for (const task of work.itemsOf(board.id)) {
+      if (!holdsClaim(task)) continue;
       const who = claimedByOf(task);
       if (who) busy.add(who);
     }
@@ -65,7 +48,7 @@ export type FactoryClaimSelection = {
 };
 
 /**
- * Select one deterministic claim batch over the current projection.
+ * Select one deterministic claim batch over the canvas and the work it holds.
  *
  * For each tasks sink, for each submitted unclaimed item, find a free actor
  * the factory may select. Two separate facts have to hold, and they are
@@ -88,41 +71,43 @@ export type FactoryClaimSelection = {
  * exact TaskRef.
  */
 export const selectFactoryClaims = (
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "nodes" | "wires">,
+  work: WorkRead,
   canvasName: string,
   resolveActorRef: ActorRefResolver,
   opts?: {
-    readonly actorEligible?: (actor: CanvasNode) => boolean;
+    readonly actorEligible?: (actor: Seat) => boolean;
     /** Per-task actor admission, e.g. a recent operator-release grace. */
     readonly claimEligible?: (
       task: Task,
       actor: ActorRef,
-      sink: CanvasNode,
+      sink: TaskBoard,
     ) => boolean;
-    /** Occupancy already observed outside this document. */
+    /** Occupancy already observed outside this canvas. */
     readonly busyActorSeatIds?: ReadonlySet<ActorSeatId>;
   },
 ): ReadonlyArray<FactoryClaimSelection> => {
   const selections: FactoryClaimSelection[] = [];
   const busy = new Set<ActorSeatId>([
-    ...busyActorSeatIds(doc),
+    ...busyActorSeatIds(canvas, work),
     ...(opts?.busyActorSeatIds ?? []),
   ]);
   const actorEligible = opts?.actorEligible ?? (() => true);
   const claimEligible = opts?.claimEligible ?? (() => true);
-  const capabilityView = canvasDocToCapabilityView(doc);
+  const capabilityView = canvasToCapabilityView(canvas);
 
-  const sinks = doc.nodes
-    .filter(isClaimableTaskSink)
-    .sort((left, right) => left.id.localeCompare(right.id));
+  const byNodeId = <N extends { readonly id: string }>(left: N, right: N) =>
+    left.id.localeCompare(right.id);
+  const sinks = [...nodesOf(canvas, "task")].sort(byNodeId);
+  const seats = [...nodesOf(canvas, "agent")].sort(byNodeId);
 
   for (const node of sinks) {
-    const items = node.ether?.tasks?.items ?? [];
+    const items = work.itemsOf(node.id);
     const counts = new Map<string, number>();
     for (const task of items) {
       counts.set(task.id, (counts.get(task.id) ?? 0) + 1);
     }
-    const byId = dependencyScopeIndex(nodesFromDocument(doc), workReadFromDocument(doc), node.id);
+    const byId = dependencyScopeIndex(canvas, work, node.id);
     const open = items
       .filter(
         (task) =>
@@ -134,30 +119,19 @@ export const selectFactoryClaims = (
       .sort((left, right) => left.id.localeCompare(right.id));
     if (open.length === 0) continue;
 
-    const freeActors = doc.nodes
-      .filter(isActor)
+    const freeActors = seats
       .filter(actorEligible)
       .filter((actor) => pairIsClaimable(capabilityView, actor.id, node.id))
       .filter((actor) =>
         Result.isSuccess(
-          admitPure(
-            capabilityView,
-            asNodeId(actor.id),
-            asNodeId(node.id),
-            "tasks.claim",
-          ),
-        )
+          admitPure(capabilityView, actor.id, node.id, "tasks.claim"),
+        ),
       )
-      .flatMap((node) => {
-        const actor = resolveCompiledActorRef(
-          resolveActorRef,
-          canvasName,
-          node,
-        );
-        return actor === undefined ? [] : [{ node, actor }];
+      .flatMap((seat) => {
+        const actor = resolveActorRefAt(resolveActorRef, canvasName, seat.id);
+        return actor === undefined ? [] : [{ node: seat, actor }];
       })
-      .filter(({ actor }) => !busy.has(actor.seatId))
-      .sort((a, b) => a.node.id.localeCompare(b.node.id));
+      .filter(({ actor }) => !busy.has(actor.seatId));
 
     for (const task of open) {
       const selected = freeActors.find(
@@ -194,31 +168,32 @@ const claimKey = (selection: FactoryClaimSelection): string =>
  * seat can absorb. Only the actors those tasks fall to are worth waking.
  *
  * Returns node ids rather than seat ids because the caller starts a process
- * from the canvas node's managed surface.
+ * from the seat's node.
  */
 export const actorsNeedingWake = (
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "nodes" | "wires">,
+  work: WorkRead,
   canvasName: string,
   resolveActorRef: ActorRefResolver,
   opts: {
     /** True when the actor needs no start — already live, or not ours. */
-    readonly isAwake: (actor: CanvasNode) => boolean;
+    readonly isAwake: (actor: Seat) => boolean;
     readonly claimEligible?: (
       task: Task,
       actor: ActorRef,
-      sink: CanvasNode,
+      sink: TaskBoard,
     ) => boolean;
   },
 ): ReadonlySet<string> => {
   const claimEligible = opts.claimEligible;
   const covered = new Set(
-    selectFactoryClaims(doc, canvasName, resolveActorRef, {
+    selectFactoryClaims(canvas, work, canvasName, resolveActorRef, {
       ...(claimEligible ? { claimEligible } : {}),
       actorEligible: opts.isAwake,
     }).map(claimKey),
   );
   return new Set(
-    selectFactoryClaims(doc, canvasName, resolveActorRef, {
+    selectFactoryClaims(canvas, work, canvasName, resolveActorRef, {
       ...(claimEligible ? { claimEligible } : {}),
     })
       .filter((selection) => !covered.has(claimKey(selection)))

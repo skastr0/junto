@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { Task } from "../src/shared/work-model";
 import { retainClaimedTask } from "../src/main/junto/kernel/service";
+import { worldFromDocument, type World } from "../src/main/junto/kernel/world";
 
 const task = (id: string, state: string): Task => ({ id, state }) as unknown as Task;
 
@@ -17,21 +18,21 @@ const board = (id: string, items: ReadonlyArray<Task>) => ({
 });
 
 const world = () =>
-  new Map<string, CanvasDoc>([
+  new Map<string, World>([
     [
       "factory",
-      {
+      worldFromDocument("factory", {
         nodes: [board("a", [task("t1", "submitted"), task("t2", "submitted")]), board("b", [task("t1", "submitted")])],
         edges: [],
-      } as unknown as CanvasDoc,
+      } as unknown as CanvasDoc),
     ],
   ]);
 
-const stateAt = (docs: Map<string, CanvasDoc>, boardId: string, taskId: string) =>
-  docs
+const stateAt = (held: Map<string, World>, boardId: string, taskId: string) =>
+  held
     .get("factory")
-    ?.nodes.find((node) => node.id === boardId)
-    ?.ether?.tasks?.items.find((item) => item.id === taskId)?.state;
+    ?.work.tasks.get(boardId)
+    ?.find((item) => item.id === taskId)?.state;
 
 describe("the kernel keeps a claimed row", () => {
   it("replaces that board's row and no other", () => {

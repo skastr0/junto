@@ -1,17 +1,19 @@
-// Pure gauge evaluation. Nothing in this module touches the document,
+// Pure gauge evaluation. Nothing in this module touches the canvas store,
 // IPC, or delivery — it takes already-fetched snapshots and returns a
 // derived verdict. cycle.ts owns the loop and applies edge effects on fire.
 //
-// LAW: watcher/gauge runtime state is DERIVED, never written to the document;
+// LAW: watcher/gauge runtime state is DERIVED, never written to the canvas;
 // edge-detection memory lives only in app memory; first observation is always
 // a baseline that can never fire. Rising edge into `satisfied` only.
 
-import type { CanvasDoc, EtherWatch } from "@shared/canvas";
+import type { Placed } from "@shared/model/canvas";
+import type { Watcher } from "@shared/model/kinds";
 // Value import: vitest here has no alias resolver for runtime imports (only
 // tsc resolves "@shared/*", via tsconfig paths) — a relative path is what
 // actually lets this module load under `bun run test`. Type-only imports stay
 // on the alias since those are erased before any resolver sees them.
 import { findFreshEntity, type Entity, type SnapshotState } from "../../../shared/entities";
+import { nodesOf } from "../../../shared/model/canvas";
 
 export type WatcherStatus = "satisfied" | "pending" | "unknown";
 
@@ -55,19 +57,23 @@ const readNumericStat = (entity: Entity, key: string): number | undefined => {
   return Number.isFinite(value) ? value : undefined;
 };
 
+/** The rule a watcher node carries. A watcher reads a Hermes agent's stat. */
+export type StatRule = Pick<Watcher, "key" | "stat" | "op" | "value">;
+const STAT_SOURCE = "hermes";
+
 /** Pure status only — no rising-edge memory (for paused / non-automating canvases). */
 export const evaluateStatThreshold = (
-  watch: EtherWatch,
+  watch: StatRule,
   snapshots: SnapshotState,
 ): WatcherEvaluation => {
-  if (!watch.source || !watch.key || !watch.stat || !watch.op || watch.value === undefined) {
+  if (!watch.key || !watch.stat || !watch.op || watch.value === undefined) {
     return { status: "unknown", detail: "incomplete stat rule" };
   }
-  const entity = findFreshEntity(snapshots, watch.source, watch.key);
+  const entity = findFreshEntity(snapshots, STAT_SOURCE, watch.key);
   if (!entity) {
     return {
       status: "unknown",
-      detail: `${watch.source}:${watch.key} unavailable or stale`,
+      detail: `${STAT_SOURCE}:${watch.key} unavailable or stale`,
     };
   }
   const value = readNumericStat(entity, watch.stat);
@@ -84,7 +90,7 @@ export const evaluateStatThreshold = (
 export function evaluateWatcher(
   canvasName: string,
   watcherId: string,
-  watch: EtherWatch,
+  watch: StatRule,
   snapshots: SnapshotState,
 ): WatcherEvalResult {
   const evaluation = evaluateStatThreshold(watch, snapshots);
@@ -108,32 +114,29 @@ export function evaluateWatcher(
   return { state: evaluation, fired };
 }
 
-// Evaluates every watcher TEXT node in `doc` exactly once and returns the
+// Evaluates every watcher node on the canvas exactly once and returns the
 // full per-node result (not just the ones that fired) — callers must not
 // separately call evaluateWatcher for the same pass, since doing so would
 // double-advance the edge-detection memory above. Filter on `.result.fired`
 // for "which watcher nodes fired this pass".
 export interface DetectedWatcher {
   readonly nodeId: string;
-  readonly watch: EtherWatch;
+  readonly watch: Watcher;
   readonly result: WatcherEvalResult;
 }
 
 export function detectPulses(
   canvasName: string,
-  doc: CanvasDoc,
+  canvas: Placed,
   snapshots: SnapshotState,
   opts?: { readonly consumeEdge?: boolean },
 ): ReadonlyArray<DetectedWatcher> {
   const consumeEdge = opts?.consumeEdge !== false;
   const out: DetectedWatcher[] = [];
-  for (const node of doc.nodes) {
-    if (node.type !== "text") continue;
-    const watch = node.ether?.watch;
-    if (!watch) continue;
+  for (const watch of nodesOf(canvas, "watcher")) {
     if (!consumeEdge) {
       out.push({
-        nodeId: node.id,
+        nodeId: watch.id,
         watch,
         result: {
           state: evaluateStatThreshold(watch, snapshots),
@@ -142,11 +145,11 @@ export function detectPulses(
       });
       // Hold rising edges across pause: track pending/baseline without
       // consuming a satisfied transition until automation may fire.
-      holdWatcherLevel(canvasName, node.id, out[out.length - 1]!.result.state.status);
+      holdWatcherLevel(canvasName, watch.id, out[out.length - 1]!.result.state.status);
       continue;
     }
-    const result = evaluateWatcher(canvasName, node.id, watch, snapshots);
-    out.push({ nodeId: node.id, watch, result });
+    const result = evaluateWatcher(canvasName, watch.id, watch, snapshots);
+    out.push({ nodeId: watch.id, watch, result });
   }
   return out;
 }

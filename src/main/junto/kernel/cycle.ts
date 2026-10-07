@@ -6,22 +6,17 @@
 // phase to write.
 
 import type { CanvasDoc, EdgePhase } from "@shared/canvas";
+import type { NodeId } from "@shared/model/base";
+import { nodesOf } from "@shared/model/canvas";
 import {
   deriveExecutionGraph,
   type BlockedReason,
 } from "@shared/execution-graph";
 import {
   DEFAULT_STATION_HOST_ID,
-  isNodeEligibleOnStation,
   isStationRole,
-  resolveNodeHostId,
   type StationRole,
 } from "@shared/station";
-import type {
-  SchedulerClaimInput,
-  SchedulerClaimResult,
-} from "../scheduler/repository";
-import type { IntervalTimerState } from "@shared/scheduler-policy";
 import type { ActorRefResolver } from "@shared/attention";
 import {
   detectPulses,
@@ -38,15 +33,18 @@ import {
   type PageLoadStatus,
 } from "@shared/scheduler-effects";
 import { isValidCronExpression, nextCronOccurrence } from "@shared/cron-expression";
-import { applySchedulerFire, type OverseerFireAuthority } from "./effects";
+import {
+  applySchedulerFire,
+  schedulerKindOf,
+  type OverseerFireAuthority,
+} from "./effects";
+import { workOf, worldFromDocument, type World } from "./world";
 import type { SnapshotState } from "../../../shared/entities";
 import {
   CRON_ENABLED,
   RELAY_ENABLED,
   schedulerFeatureEnabled,
 } from "@shared/features";
-import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
-import { watchReadFromDocument } from "@shared/work-read";
 
 // --- frozen interface --------------------------------------------------------
 
@@ -80,9 +78,6 @@ export interface KernelSnapshot {
 // --- injectable seams --------------------------------------------------------
 
 export interface TimerSchedulerDeps {
-  readonly claimInterval: (
-    input: SchedulerClaimInput,
-  ) => Promise<SchedulerClaimResult>;
   readonly claimExpression: (input: {
     readonly homeStation: string;
     readonly timerKey: string;
@@ -99,11 +94,6 @@ export interface TimerSchedulerDeps {
     homeStation: string,
     activeTimerKeys: ReadonlyArray<string>,
   ) => Promise<number>;
-  /** Read-only cursor for paused / non-automating canvases (no fire claim). */
-  readonly readIntervalState: (
-    homeStation: string,
-    timerKey: string,
-  ) => Promise<IntervalTimerState | undefined>;
 }
 
 /**
@@ -134,7 +124,7 @@ export interface RaisedHandDeps {
 
 // --- module-level state ------------------------------------------------------
 
-let docs: Map<string, CanvasDoc> = new Map();
+let worlds: Map<string, World> = new Map();
 let snapshots: SnapshotState = { bundles: [] };
 let timerSchedulerDeps: TimerSchedulerDeps | undefined = undefined;
 let automationGateDeps: AutomationGateDeps | undefined = undefined;
@@ -145,8 +135,11 @@ let resolveActorRef: ActorRefResolver = () => undefined;
 const canAutomateCanvas = (canvasName: string): boolean =>
   automationGateDeps?.canAutomateCanvas(canvasName) ?? false;
 
+/** Tests describe a canvas and its work as a document. */
 export const __setDocsForTest = (docsMap: Map<string, CanvasDoc>): void => {
-  docs = docsMap;
+  worlds = new Map(
+    [...docsMap].map(([name, doc]) => [name, worldFromDocument(name, doc)]),
+  );
 };
 
 export const __setSnapshotsForTest = (state: SnapshotState): void => {
@@ -184,7 +177,7 @@ export const setRaisedHandDeps = (deps: RaisedHandDeps | undefined): void => {
 };
 
 export const __resetKernelMemoryForTest = (): void => {
-  docs = new Map();
+  worlds = new Map();
   snapshots = { bundles: [] };
   timerSchedulerDeps = undefined;
   automationGateDeps = undefined;
@@ -257,12 +250,12 @@ export const getExecutionByCanvas = (): ReadonlyMap<string, ExecutionSnapshot> =
 
 const snapshotFromGraph = (
   canvasName: string,
-  doc: CanvasDoc,
+  world: World,
 ): ExecutionSnapshot => {
-  const graph = deriveExecutionGraph(canvasFromDocument(canvasName, doc), {
+  const graph = deriveExecutionGraph(world.canvas, {
     canvasName,
     resolveActorRef,
-    itemsOf: workItemsFromDocument(doc),
+    itemsOf: workOf(world).itemsOf,
   });
   const phaseByEdgeId: Record<string, EdgePhase> = {};
   const detailByEdgeId: Record<string, string> = {};
@@ -290,20 +283,18 @@ const nextFire = new Map<string, number>();
 export const runEvaluationCycle = async (): Promise<void> => {
   // Evaluate each canvas with per-canvas isolation. Watchers read hermes
   // snapshots already held in module state (setSnapshots / adapter poll).
-  for (const [canvasName, doc] of docs.entries()) {
+  for (const [canvasName, world] of worlds.entries()) {
+    const { canvas } = world;
     try {
-      const execution = snapshotFromGraph(canvasName, doc);
+      const execution = snapshotFromGraph(canvasName, world);
       executionByCanvas.set(canvasName, execution);
 
       const automate = canAutomateCanvas(canvasName);
-      if (RELAY_ENABLED) for (const { nodeId, result } of detectPulses(canvasName, doc, snapshots, {
+      if (RELAY_ENABLED) for (const { nodeId, watch, result } of detectPulses(canvasName, canvas, snapshots, {
         consumeEdge: automate,
       })) {
-        const source = doc.nodes.find((node) => node.id === nodeId);
-        // Host-scoped: this station only runs executable nodes assigned to it.
-        if (source !== undefined && !isNodeEligibleOnStation(source, stationHostId)) {
-          continue;
-        }
+        // Host-scoped: this station only runs the schedulers assigned to it.
+        if (watch.host !== stationHostId) continue;
         const watcherKey = `${canvasName}::${nodeId}`;
         const previous = watchers.get(watcherKey);
         const nextRuntime: WatcherRuntimeState = {
@@ -318,7 +309,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
         watchers.set(watcherKey, nextRuntime);
 
         if (result.fired) {
-          await applySchedulerFire(doc, {
+          await applySchedulerFire(canvas, {
             canvasName,
             sourceNodeId: nodeId,
             kind: "gauge",
@@ -349,13 +340,9 @@ export const runEvaluationCycle = async (): Promise<void> => {
       };
 
       // Relay: watch is sink → relay wires only (`when` / default completes).
-      for (const node of doc.nodes) {
-        if (node.type !== "text" || node.ether?.entity?.kind !== "relay") continue;
-        if (!isNodeEligibleOnStation(node, stationHostId)) continue;
-        const watchEdges = collectWatchEdgesInto(
-          canvasFromDocument(canvasName, doc),
-          node.id,
-        );
+      for (const node of nodesOf(canvas, "relay")) {
+        if (node.host !== stationHostId) continue;
+        const watchEdges = collectWatchEdgesInto(canvas, node.id);
         const evaluation =
           watchEdges.length > 0
             ? combineWatchEvaluations(
@@ -363,7 +350,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
                   evaluateWatchWhen(
                     w.source,
                     w.when,
-                    watchReadFromDocument(doc),
+                    workOf(world),
                     watchContext,
                   ),
                 ),
@@ -388,7 +375,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
         };
         watchers.set(watcherKey, nextRuntime);
         if (result.fired) {
-          await applySchedulerFire(doc, {
+          await applySchedulerFire(canvas, {
             canvasName,
             sourceNodeId: node.id,
             kind: "relay",
@@ -398,20 +385,15 @@ export const runEvaluationCycle = async (): Promise<void> => {
         }
       }
     } catch (err) {
-      // One bad doc never stalls the rest — swallow, mark degraded, continue
+      // One bad canvas never stalls the rest — swallow, mark degraded, continue
       console.error(`Kernel evaluation failed for canvas "${canvasName}":`, err);
     }
   }
 };
 
 // --- timer scheduling ----------------------------------------------------------
-// Crontab expression (preferred) or legacy everyMinutes → expression.
-// Durable at-most-once via scheduler_interval_firings claim slots.
-export const isValidTimerInterval = (everyMinutes: number): boolean =>
-  Number.isFinite(everyMinutes) &&
-  everyMinutes > 0 &&
-  Number.isSafeInteger(everyMinutes * 60_000);
-
+// A cron fires on its five-field expression. Durable at-most-once via claim
+// slots; a cron with no expression yet does not fire.
 export const checkTimers = async (
   nowEpochMs = Date.now(),
 ): Promise<void> => {
@@ -419,18 +401,12 @@ export const checkTimers = async (
     nextFire.clear();
     return;
   }
-  const activeTimerKeys: string[] = [];
-  for (const [canvasName, doc] of docs.entries()) {
-    for (const node of doc.nodes) {
-      if (
-        node.type === "text" &&
-        node.ether?.timer !== undefined &&
-        isNodeEligibleOnStation(node, stationHostId)
-      ) {
-        activeTimerKeys.push(`${canvasName}::${node.id}`);
-      }
-    }
-  }
+  const crons = [...worlds.entries()].flatMap(([canvasName, { canvas }]) =>
+    nodesOf(canvas, "cron")
+      .filter((node) => node.host === stationHostId)
+      .map((node) => ({ canvasName, canvas, node, timerKey: `${canvasName}::${node.id}` })),
+  );
+  const activeTimerKeys = crons.map(({ timerKey }) => timerKey);
 
   if (timerSchedulerDeps === undefined) {
     for (const key of activeTimerKeys) nextFire.delete(key);
@@ -455,149 +431,81 @@ export const checkTimers = async (
     return;
   }
 
-  for (const [canvasName, doc] of docs.entries()) {
-    for (const node of doc.nodes) {
-      if (node.type !== "text") continue;
-      const timer = node.ether?.timer;
-      if (!timer) continue;
-      if (!isNodeEligibleOnStation(node, stationHostId)) continue;
-      const timerKey = `${canvasName}::${node.id}`;
-
-      const home = resolveNodeHostId(node);
-
-      const cronExpression = timer.expression?.trim();
-      if (
-        typeof cronExpression === "string" &&
-        cronExpression.length > 0 &&
-        isValidCronExpression(cronExpression)
-      ) {
-        try {
-          // Coalesce: walk to the latest due occurrence ≤ now (at most a few steps).
-          let due = nextCronOccurrence(cronExpression, nowEpochMs - 60_000 * 24 * 7);
-          if (due === undefined) {
-            nextFire.delete(timerKey);
-            continue;
-          }
-          // Advance while the following occurrence is still in the past.
-          for (let i = 0; i < 500; i += 1) {
-            const following = nextCronOccurrence(cronExpression, due);
-            if (following === undefined || following > nowEpochMs) break;
-            due = following;
-          }
-          const nextAfterDue = nextCronOccurrence(cronExpression, due);
-          if (due > nowEpochMs) {
-            nextFire.set(timerKey, due);
-            continue;
-          }
-          // Due now.
-          nextFire.set(timerKey, due);
-          if (!canAutomateCanvas(canvasName)) continue;
-          if (nextAfterDue === undefined) continue;
-          const claimed = await timerSchedulerDeps.claimExpression({
-            homeStation: home,
-            timerKey,
-            scheduleId: `cron:${cronExpression}`.slice(0, 256),
-            dueAtEpochMs: due,
-            nextDueAtEpochMs: nextAfterDue,
-            nowEpochMs,
-          });
-          if (claimed._tag === "Claimed") {
-            nextFire.set(timerKey, claimed.nextDueAtEpochMs);
-            await applySchedulerFire(doc, {
-              canvasName,
-              sourceNodeId: node.id,
-              kind: "cron",
-              fireKey: `cron:${home}:${timerKey}:${claimed.dueAtEpochMs}`,
-              status: "satisfied",
-            });
-            // Project lastFiredAt so the renderer can spark cron→target edges
-            // (same channel as relay/gauge watchers).
-            const previous = watchers.get(timerKey);
-            watchers.set(timerKey, {
-              status: "satisfied",
-              detail: previous?.detail ?? "cron fired",
-              lastFiredAt: Date.now(),
-            });
-          } else if (claimed._tag === "Duplicate") {
-            nextFire.set(timerKey, nextAfterDue);
-          } else {
-            nextFire.delete(timerKey);
-            console.error(
-              `[kernel] expression timer ${timerKey} ineligible (${claimed.reason})`,
-            );
-          }
-        } catch (error) {
-          nextFire.delete(timerKey);
-          console.error(
-            `[kernel] expression timer claim failed for ${timerKey}:`,
-            error,
-          );
-        }
-        continue;
-      }
-
-      if (typeof timer.everyMinutes === "number" && isValidTimerInterval(timer.everyMinutes)) {
-        try {
-          const requestedInterval = timer.everyMinutes * 60_000;
-          const existing = await timerSchedulerDeps.readIntervalState(home, timerKey);
-          const shouldClaim =
-            existing === undefined ||
-            existing.intervalMilliseconds !== requestedInterval ||
-            (existing.nextDueAtEpochMs <= nowEpochMs &&
-              canAutomateCanvas(canvasName));
-          if (!shouldClaim) {
-            nextFire.set(timerKey, existing.nextDueAtEpochMs);
-            continue;
-          }
-          const claimed = await timerSchedulerDeps.claimInterval({
-            timerKey,
-            localStationId: stationHostId,
-            homeStationIds: [home],
-            nowEpochMs,
-            everyMinutes: timer.everyMinutes,
-          });
-          if (claimed._tag === "Ineligible") {
-            nextFire.delete(timerKey);
-            console.error(
-              `[kernel] interval timer ${timerKey} ineligible (${claimed.reason})`,
-            );
-          } else if (
-            claimed._tag === "Initialized" ||
-            claimed._tag === "NotDue"
-          ) {
-            nextFire.set(timerKey, claimed.state.nextDueAtEpochMs);
-          } else if (claimed._tag === "Firing") {
-            nextFire.set(timerKey, claimed.nextState.nextDueAtEpochMs);
-            await applySchedulerFire(doc, {
-              canvasName,
-              sourceNodeId: node.id,
-              kind: "cron",
-              fireKey: `cron:${home}:${timerKey}:${claimed.scheduledForEpochMs}`,
-              status: "satisfied",
-            });
-            // Project lastFiredAt so the renderer can spark cron→target edges
-            // (same channel as relay/gauge watchers).
-            const previous = watchers.get(timerKey);
-            watchers.set(timerKey, {
-              status: "satisfied",
-              detail: previous?.detail ?? "cron fired",
-              lastFiredAt: Date.now(),
-            });
-          }
-        } catch (error) {
-          nextFire.delete(timerKey);
-          console.error(
-            `[kernel] interval timer claim failed for ${timerKey}:`,
-            error,
-          );
-        }
-        continue;
-      }
-
-      // No valid schedule.
-      if (nextFire.has(timerKey)) nextFire.delete(timerKey);
+  for (const { canvasName, canvas, node, timerKey } of crons) {
+    const home = node.host;
+    const cronExpression = node.expression?.trim();
+    if (cronExpression === undefined || cronExpression.length === 0) {
+      // Not given a schedule yet.
+      nextFire.delete(timerKey);
+      continue;
+    }
+    if (!isValidCronExpression(cronExpression)) {
+      nextFire.delete(timerKey);
       console.error(
         `[kernel] invalid timer schedule on ${timerKey} — disabled until fixed`,
+      );
+      continue;
+    }
+    try {
+      // Coalesce: walk to the latest due occurrence ≤ now (at most a few steps).
+      let due = nextCronOccurrence(cronExpression, nowEpochMs - 60_000 * 24 * 7);
+      if (due === undefined) {
+        nextFire.delete(timerKey);
+        continue;
+      }
+      // Advance while the following occurrence is still in the past.
+      for (let i = 0; i < 500; i += 1) {
+        const following = nextCronOccurrence(cronExpression, due);
+        if (following === undefined || following > nowEpochMs) break;
+        due = following;
+      }
+      const nextAfterDue = nextCronOccurrence(cronExpression, due);
+      if (due > nowEpochMs) {
+        nextFire.set(timerKey, due);
+        continue;
+      }
+      // Due now.
+      nextFire.set(timerKey, due);
+      if (!canAutomateCanvas(canvasName)) continue;
+      if (nextAfterDue === undefined) continue;
+      const claimed = await timerSchedulerDeps.claimExpression({
+        homeStation: home,
+        timerKey,
+        scheduleId: `cron:${cronExpression}`.slice(0, 256),
+        dueAtEpochMs: due,
+        nextDueAtEpochMs: nextAfterDue,
+        nowEpochMs,
+      });
+      if (claimed._tag === "Claimed") {
+        nextFire.set(timerKey, claimed.nextDueAtEpochMs);
+        await applySchedulerFire(canvas, {
+          canvasName,
+          sourceNodeId: node.id,
+          kind: "cron",
+          fireKey: `cron:${home}:${timerKey}:${claimed.dueAtEpochMs}`,
+          status: "satisfied",
+        });
+        // Project lastFiredAt so the renderer can spark cron→target edges
+        // (same channel as relay/gauge watchers).
+        const previous = watchers.get(timerKey);
+        watchers.set(timerKey, {
+          status: "satisfied",
+          detail: previous?.detail ?? "cron fired",
+          lastFiredAt: Date.now(),
+        });
+      } else if (claimed._tag === "Duplicate") {
+        nextFire.set(timerKey, nextAfterDue);
+      } else {
+        nextFire.delete(timerKey);
+        console.error(
+          `[kernel] expression timer ${timerKey} ineligible (${claimed.reason})`,
+        );
+      }
+    } catch (error) {
+      nextFire.delete(timerKey);
+      console.error(
+        `[kernel] expression timer claim failed for ${timerKey}:`,
+        error,
       );
     }
   }
@@ -621,33 +529,21 @@ export type ManualSchedulerFireResult =
     }
   | { readonly ok: false; readonly message: string };
 
-const resolveManualFireKind = (
-  node: { readonly ether?: { readonly entity?: { readonly kind?: string } } },
-  preferred?: "relay" | "cron" | "gauge",
-): "relay" | "cron" | "gauge" | undefined => {
-  if (preferred) return preferred;
-  const entityKind = node.ether?.entity?.kind;
-  if (entityKind === "cron" || entityKind === "timer") return "cron";
-  if (entityKind === "watcher" || entityKind === "gauge") return "gauge";
-  if (entityKind === "relay") return "relay";
-  return undefined;
-};
-
 const runManualSchedulerFire = async (input: {
   readonly canvasName: string;
   readonly sourceNodeId: string;
   readonly kind?: "relay" | "cron" | "gauge";
   readonly overseer?: OverseerFireAuthority;
 }): Promise<ManualSchedulerFireResult> => {
-  const doc = docs.get(input.canvasName);
-  if (!doc) {
+  const canvas = worlds.get(input.canvasName)?.canvas;
+  if (!canvas) {
     return { ok: false, message: "canvas is not hydrated in the kernel" };
   }
-  const node = doc.nodes.find((n) => n.id === input.sourceNodeId);
+  const node = canvas.nodes.get(input.sourceNodeId as NodeId);
   if (!node) {
     return { ok: false, message: `node "${input.sourceNodeId}" not found` };
   }
-  const kind = resolveManualFireKind(node, input.kind);
+  const kind = input.kind ?? schedulerKindOf(node);
   if (!kind) {
     return {
       ok: false,
@@ -662,7 +558,7 @@ const runManualSchedulerFire = async (input: {
   }
   const fireKey = `${input.overseer !== undefined ? "overseer" : "manual"}:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;
   const result = await applySchedulerFire(
-    doc,
+    canvas,
     {
       canvasName: input.canvasName,
       sourceNodeId: input.sourceNodeId,
@@ -756,8 +652,9 @@ export const overseerSchedulerFire = async (input: {
     },
   });
 
-export const setDocs = (docsMap: Map<string, CanvasDoc>): void => {
-  docs = docsMap;
+/** The kernel service owns this map and changes it in place. */
+export const setWorlds = (held: Map<string, World>): void => {
+  worlds = held;
 };
 
 export const getWatchers = (): Map<string, WatcherRuntimeState> => {
@@ -793,35 +690,22 @@ const splitNamespacedKey = (key: string): readonly [canvasName: string, id: stri
 // Per-cycle reconcile for canvases that STILL exist but whose gauge/cron/relay
 // nodes changed underneath us. Drops stale `${canvasName}::${nodeId}` entries.
 export const reconcileLiveCanvasMemory = (): void => {
+  const kindAt = (canvasName: string, nodeId: string) =>
+    worlds.get(canvasName)?.canvas.nodes.get(nodeId as NodeId)?.kind;
   const hasSensor = (canvasName: string, nodeId: string): boolean => {
-    const doc = docs.get(canvasName);
-    if (!doc) return false;
-    return doc.nodes.some((node) => {
-      if (node.id !== nodeId || node.type !== "text") return false;
-      const kind = node.ether?.entity?.kind;
-      return (
-        kind === "relay" ||
-        kind === "watcher" ||
-        node.ether?.watch !== undefined
-      );
-    });
+    const kind = kindAt(canvasName, nodeId);
+    return kind === "relay" || kind === "watcher";
   };
-  const hasTimer = (canvasName: string, nodeId: string): boolean => {
-    const doc = docs.get(canvasName);
-    if (!doc) return false;
-    return doc.nodes.some(
-      (node) =>
-        node.id === nodeId && node.type === "text" && node.ether?.timer !== undefined,
-    );
-  };
+  const hasTimer = (canvasName: string, nodeId: string): boolean =>
+    kindAt(canvasName, nodeId) === "cron";
   for (const key of [...watchers.keys()]) {
     const split = splitNamespacedKey(key);
-    if (!split || !docs.has(split[0])) continue;
+    if (!split || !worlds.has(split[0])) continue;
     if (!hasSensor(split[0], split[1])) watchers.delete(key);
   }
   for (const key of [...nextFire.keys()]) {
     const split = splitNamespacedKey(key);
-    if (!split || !docs.has(split[0])) continue;
+    if (!split || !worlds.has(split[0])) continue;
     if (!hasTimer(split[0], split[1])) nextFire.delete(key);
   }
 };
