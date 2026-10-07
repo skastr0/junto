@@ -81,13 +81,13 @@ function LiveProviderCard() {
         </span>
       </div>
       <p className="settings-provider-access">
-        A call starts only when you start one. Voice costs ${LIVE_VOICE_USD_PER_MINUTE.toFixed(2)} per minute,
-        plus backend usage.
+        A call starts only when you choose Start live conversation. Voice costs $
+        {LIVE_VOICE_USD_PER_MINUTE.toFixed(2)} per minute, plus backend usage.
       </p>
       <label className="settings-provider-field">
         <span className="settings-provider-field__text">
           <span className="settings-provider-field__label">OpenAI API key</span>
-          <span className="settings-field__hint">Kept in this installation's vault. It cannot be shown again.</span>
+          <span className="settings-field__hint">Kept in this installation's credential vault. It cannot be shown again.</span>
         </span>
         <span className="settings-provider-field__control">
           <Input
@@ -139,7 +139,7 @@ function LiveProviderCard() {
       <label className="settings-provider-field">
         <span className="settings-provider-field__text">
           <span className="settings-provider-field__label">Voice limit per call (USD)</span>
-          <span className="settings-field__hint">The call ends at this voice cost. Backend usage is extra.</span>
+          <span className="settings-field__hint">The call ends at this voice cost. Backend token charges are separate.</span>
         </span>
         <span className="settings-provider-field__control">
           <Input type="number" aria-label="Voice limit per call in USD" required step="0.01"
@@ -446,8 +446,9 @@ export function ProvidersSettingsSection() {
       {USAGE_ENABLED ? (
         <>
           <p className="settings-note" role="note">
-            Provider access is off by default. Each card says what it may read and contact. Stored values
-            stay in this installation's vault, masked and never logged.
+            Provider access is off by default. Usage sources refresh every five minutes. Each card says what
+            it may read and contact. Stored values stay in this installation's credential vault, masked and
+            never logged.
           </p>
           {PROVIDER_SPECS.map((spec) => {
             const section = spec.credentials === undefined
