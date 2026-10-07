@@ -47,7 +47,6 @@ import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { SettingsService } from "./settings/service";
 import { registerObservabilityIpc } from "./observability";
-import { startLiveFleetUpdateExecutor } from "./update/fleet-executor-live";
 import { registerUpdateIpc } from "./update/ipc";
 import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
@@ -202,7 +201,6 @@ import {
   type MainAuthoringLabel,
 } from "./main-authoring-gate";
 import { StationStatusService } from "./station-status-store";
-import { StationFleetPropagation } from "./station/fleet-propagation";
 
 /**
  * Wake excerpt for a notify-all on one topic: the latest post's text, else the
@@ -1739,7 +1737,6 @@ export const registerJuntoIpc = (): void => {
       const kernel = yield* KernelService;
       const pause = yield* PausePlane;
       const settingsForSeed = yield* SettingsService;
-      const fleetPropagation = yield* StationFleetPropagation;
       const stationStatus = yield* StationStatusService;
       const stationForSeed = yield* settingsForSeed.get;
       // Fresh Command Center (or unset) may seed. Remote never authors a seed.
@@ -1759,9 +1756,6 @@ export const registerJuntoIpc = (): void => {
         if (kind === "mail") broadcast(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
       });
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
-      canvases.subscribeChanges(() => {
-        Effect.runFork(fleetPropagation.request());
-      });
       // ONE edge-notification theory: canvas edge changes produce exactly one
       // compact map-change notice per seat (added contracts inline, removals
       // as a re-orient hint). The former msg.send-enable link notice was a
@@ -2669,19 +2663,10 @@ export const registerJuntoIpc = (): void => {
         },
       });
 
-      if (FLEET_UI_ENABLED && stationForSeed.station.role === "command-center") {
-        yield* fleetPropagation.start();
-        // Managed fleet updates walk only from Command Center. The executor
-        // re-reads the remoteManagedInstalls kill-switch on every pass, so
-        // turning the setting off disables it cleanly.
-        startLiveFleetUpdateExecutor();
-      }
+      // Remote stations are switched off: the fleet supervisor is never
+      // started, so nothing compiles or sends a projection.
       settingsForSeed.subscribe((settings) => {
         syncCheckoutWatch(settings.station.role);
-        if (FLEET_UI_ENABLED && settings.station.role === "command-center") {
-          Effect.runFork(fleetPropagation.start());
-          startLiveFleetUpdateExecutor();
-        }
       });
     }),
   );

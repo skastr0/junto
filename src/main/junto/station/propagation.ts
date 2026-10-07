@@ -23,6 +23,7 @@ import {
   type CanvasError,
 } from "../canvases";
 import {
+  STATION_PROJECTION_SWITCHED_OFF,
   StationApiService,
   type StationApiError,
 } from "./api";
@@ -75,7 +76,8 @@ export class StationPropagationInvariantError extends Schema.TaggedError<Station
     "projection-stale",
     "projection-conflict",
     "projection-result-mismatch",
-    "report-round-limit",]),
+    "report-round-limit",
+    "projection-switched-off",]),
     message: Schema.String,
   },
 ) {}
@@ -519,8 +521,17 @@ export const StationPropagationLive = Layer.effect(
           StationPropagationTarget["stationInstallationId"],
         targetHostId: string,
       ) {
+        // Remote stations are switched off: nothing here reads the canvases.
+        const refused: Effect.Effect<
+          CanvasAuthoritySnapshot,
+          StationPropagationInvariantError
+        > = Effect.fail(invariant(
+          "compile-desired",
+          "projection-switched-off",
+          STATION_PROJECTION_SWITCHED_OFF,
+        ));
         const [snapshot, enrolledTargets] = yield* Effect.all([
-          canvases.authoritySnapshot(),
+          refused,
           fleetTargets.list,
         ]);
         const installationByHostId = new Map<

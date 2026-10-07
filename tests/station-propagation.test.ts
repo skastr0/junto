@@ -403,7 +403,8 @@ describe("StationPropagation", () => {
     });
   });
 
-  it("runs status, projection, and report on the supplied persistent session", async () => {
+  // Remote stations are switched off: this path refuses before it compiles.
+  it.skip("runs status, projection, and report on the supplied persistent session", async () => {
     const operations: StationApiRequest["op"][] = [];
     let projected: ProjectRequest | undefined;
     let statusRequests = 0;
@@ -514,7 +515,8 @@ describe("StationPropagation", () => {
     }
   });
 
-  it("does not reinstall an identical active projection", async () => {
+  // Remote stations are switched off: this path refuses before it compiles.
+  it.skip("does not reinstall an identical active projection", async () => {
     let desired:
       | {
           readonly generation: ProjectRequest["projection"]["generation"];
@@ -608,7 +610,8 @@ describe("StationPropagation", () => {
     }
   });
 
-  it("pages reports until both directions declare convergence", async () => {
+  // Remote stations are switched off: this path refuses before it compiles.
+  it.skip("pages reports until both directions declare convergence", async () => {
     const stationApi = api({
       prepare: (round) =>
         ReportRequest.make({
@@ -728,7 +731,8 @@ describe("StationPropagation", () => {
     }
   });
 
-  it("compiles and archives one stable desired projection identity per committed authority", async () => {
+  // Remote stations are switched off: this path refuses before it compiles.
+  it.skip("compiles and archives one stable desired projection identity per committed authority", async () => {
     const stationRuntime = runtime(api(), repository(), canvases(undefined, "41"));
 
     try {
@@ -753,6 +757,24 @@ describe("StationPropagation", () => {
       // barrier and the next synchronize name the same acknowledgement.
       expect(second.generation).toBe(first.generation);
       expect(second.contentSha256).toBe(first.contentSha256);
+    } finally {
+      await stationRuntime.dispose();
+    }
+  });
+
+  it("refuses to compile a desired projection while Remote stations are switched off", async () => {
+    const stationRuntime = runtime(api(), repository(), canvases(undefined, "41"));
+
+    try {
+      const propagation = await stationRuntime.runPromise(StationPropagation);
+      const refused = await stationRuntime.runPromise(
+        Effect.flip(propagation.desiredProjectionForHost(REMOTE_HOST)),
+      );
+
+      expect(refused).toMatchObject({
+        _tag: "StationPropagationInvariantError",
+        reason: "projection-switched-off",
+      });
     } finally {
       await stationRuntime.dispose();
     }

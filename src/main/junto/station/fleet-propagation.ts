@@ -1013,9 +1013,6 @@ export const StationFleetPropagationLive = Layer.effect(
       }
       Queue.offerUnsafe(invalidations, undefined);
     };
-    const unsubscribeCanvases = canvases.subscribeChanges(() =>
-      invalidate()
-    );
     const unsubscribeWork = work.subscribeChanges(() => invalidate());
     const unsubscribeHosts = subscribeHostsSnapshot(() => invalidate());
     const unsubscribeFleetTargets = targets.subscribeChanges((hostId) =>
@@ -1023,7 +1020,6 @@ export const StationFleetPropagationLive = Layer.effect(
     );
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
-        unsubscribeCanvases();
         unsubscribeWork();
         unsubscribeHosts();
         unsubscribeFleetTargets();

@@ -133,7 +133,8 @@ export class StationApiInvariantError extends Schema.TaggedError<StationApiInvar
     "report-direction-mismatch",
     "report-response-mismatch",
     "report-response-command",
-    "topology-invalid",]),
+    "topology-invalid",
+    "projection-switched-off",]),
     message: Schema.String,
   },
 ) {}
@@ -199,6 +200,9 @@ type StationWorkAdmission = {
     fact: WorkFact,
   ) => WorkFactAuthorization;
 };
+
+export const STATION_PROJECTION_SWITCHED_OFF =
+  "Remote stations are switched off in this build; no projection is compiled, sent or installed";
 
 const invariant = (
   operation: string,
@@ -1861,8 +1865,15 @@ const captureTopology = (
       };
     }
 
+    // Remote stations are switched off: nothing here reads the canvases.
+    const refused: Effect.Effect<
+      CanvasAuthorityMaterialSnapshot,
+      StationApiInvariantError
+    > = Effect.fail(
+      invariant("report", "projection-switched-off", STATION_PROJECTION_SWITCHED_OFF),
+    );
     const [authority, targets] = yield* Effect.all([
-      canvases.authorityMaterialSnapshot(),
+      refused,
       fleetTargets.list,
     ]);
     const installationByHostId =
@@ -2297,11 +2308,13 @@ const handleProject = (
         "projection install requires a paired Command Center",
       );
     }
-    return yield* installProjectionAndNotify(request, {
-      currentDocuments: canvases.liveDocuments,
-      install: repository.installProjection,
-      announce: canvases.announceInstalledProjection,
-    });
+    // Remote stations are switched off: a projection is never installed, so
+    // nothing here reads or announces canvases.
+    return yield* invariant(
+      "project",
+      "projection-switched-off",
+      STATION_PROJECTION_SWITCHED_OFF,
+    );
   }).pipe(Effect.withSpan("station-api.project"));
 
 const handleStatus = (
