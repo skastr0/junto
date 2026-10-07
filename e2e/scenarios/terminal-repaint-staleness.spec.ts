@@ -20,7 +20,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { waitForTerminalPaint, waitForTerminalText } from "../harness/term-ready";
 
@@ -119,9 +119,9 @@ const scrollMetrics = async (
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      repaint: canvasDoc([
-        terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
+    seedModels: {
+      repaint: modelFixture([
+        modelTerminal({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
       ]),
     },
   },

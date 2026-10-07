@@ -14,7 +14,7 @@
  * The content is strictly increasing numbered lines, so correctness is a
  * property: one marker per row, in order, no repeats.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { terminalRows, waitForTerminalPaint } from "../harness/term-ready";
 
@@ -52,9 +52,9 @@ const violations = (rows: ReadonlyArray<string>): ReadonlyArray<string> => {
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      churn: canvasDoc([
-        terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
+    seedModels: {
+      churn: modelFixture([
+        modelTerminal({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
       ]),
     },
   },

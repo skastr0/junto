@@ -13,7 +13,7 @@
  * The probe emits STATUS at the row the PTY reports, and fills the rest with
  * numbered content. Correct behaviour: STATUS is on the last rendered row.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { terminalRows, waitForTerminalPaint, waitForTerminalText } from "../harness/term-ready";
 
@@ -26,9 +26,9 @@ const rowTexts = async (page: import("@playwright/test").Page): Promise<Readonly
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      absrow: canvasDoc([
-        terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
+    seedModels: {
+      absrow: modelFixture([
+        modelTerminal({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
       ]),
     },
   },

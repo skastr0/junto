@@ -11,7 +11,7 @@
  * Correctness here is a property, not a picture: every row element must sit on
  * an exact multiple of the row height.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { waitForTerminalPaint } from "../harness/term-ready";
 
@@ -24,9 +24,9 @@ const LAUNCH = {
 test.use({
   juntoOptions: {
     electronArgs: ["--force-device-scale-factor=1.5"],
-    seedCanvases: {
-      dpr: canvasDoc([
-        terminalTextNode({ id: "t1", bindingId: "e2e-dpr-1", label: LABEL, launch: LAUNCH }),
+    seedModels: {
+      dpr: modelFixture([
+        modelTerminal({ id: "t1", bindingId: "e2e-dpr-1", label: LABEL, launch: LAUNCH }),
       ]),
     },
   },

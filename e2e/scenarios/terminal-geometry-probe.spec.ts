@@ -15,7 +15,7 @@
  * Both are read from the app's own instrumentation, so this needs no human to
  * reproduce anything.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { waitForTerminalPaint } from "../harness/term-ready";
 
@@ -30,9 +30,9 @@ type GeomLog = { readonly event: string; readonly data: Record<string, number | 
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      geomprobe: canvasDoc([
-        terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
+    seedModels: {
+      geomprobe: modelFixture([
+        modelTerminal({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
       ]),
     },
   },

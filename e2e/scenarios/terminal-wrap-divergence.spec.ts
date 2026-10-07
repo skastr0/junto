@@ -11,7 +11,7 @@
  * occupy exactly one rendered row when the terminal is wider than N. If it
  * spills onto a second row, it was wrapped at a width nobody is painting.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+import { modelFixture, modelTerminal } from "../harness/model";
 import { expect, test } from "../harness/launch";
 import { terminalRows, waitForTerminalPaint } from "../harness/term-ready";
 
@@ -24,9 +24,9 @@ const rowTexts = async (page: import("@playwright/test").Page): Promise<Readonly
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      wrap: canvasDoc([
-        terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
+    seedModels: {
+      wrap: modelFixture([
+        modelTerminal({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
       ]),
     },
   },
