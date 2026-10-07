@@ -48,7 +48,7 @@ export interface NavigationRead {
 
 export interface NodeRefNavigationDependencies {
   readonly clock: NavigationClock;
-  readonly readCanvas: (name: string) => Promise<NavigationRead>;
+  readonly openModelCanvas: (name: string) => Promise<NavigationRead>;
   /** Re-check process-local authoring admission immediately before apply. */
   readonly assertCanApply?: () => void;
   readonly apply: (event: NodeRefOpenedEvent, result: NavigationRead) => void;
@@ -103,7 +103,7 @@ export const makeNodeRefNavigationCoordinator = (
 
     let result: NavigationRead;
     try {
-      result = await dependencies.readCanvas(event.canvasName);
+      result = await dependencies.openModelCanvas(event.canvasName);
     } catch (cause) {
       if (!dependencies.clock.isCurrent(request)) return;
       throw report(

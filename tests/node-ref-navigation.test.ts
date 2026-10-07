@@ -45,7 +45,7 @@ describe("renderer Junto node-reference navigation", () => {
     const apply = vi.fn();
     const coordinator = makeNodeRefNavigationCoordinator({
       clock: makeNavigationClock(),
-      readCanvas: async (name) => canvas(name, ["page"]),
+      openModelCanvas: async (name) => canvas(name, ["page"]),
       apply,
     });
     const target = event("portfolio", "page");
@@ -65,7 +65,7 @@ describe("renderer Junto node-reference navigation", () => {
     const onFailure = vi.fn();
     const coordinator = makeNodeRefNavigationCoordinator({
       clock: makeNavigationClock(),
-      readCanvas: async () => canvas("portfolio", nodeIds),
+      openModelCanvas: async () => canvas("portfolio", nodeIds),
       apply,
       onFailure,
     });
@@ -80,7 +80,7 @@ describe("renderer Junto node-reference navigation", () => {
     const failures: NodeRefNavigationError[] = [];
     const coordinator = makeNodeRefNavigationCoordinator({
       clock: makeNavigationClock(),
-      readCanvas: async () => {
+      openModelCanvas: async () => {
         throw new Error("unreadable");
       },
       apply,
@@ -103,7 +103,7 @@ describe("renderer Junto node-reference navigation", () => {
     let admitted = true;
     const coordinator = makeNodeRefNavigationCoordinator({
       clock: makeNavigationClock(),
-      readCanvas: () => read.promise,
+      openModelCanvas: () => read.promise,
       assertCanApply: () => {
         if (!admitted) throw new Error("renderer quiesced");
       },
@@ -123,7 +123,7 @@ describe("renderer Junto node-reference navigation", () => {
     const applied: string[] = [];
     const coordinator = makeNodeRefNavigationCoordinator({
       clock: makeNavigationClock(),
-      readCanvas: (name) =>
+      openModelCanvas: (name) =>
         name === "alpha" ? alpha.promise : Promise.resolve(canvas("beta", ["newer"])),
       apply: (target) => applied.push(target.ref),
     });
@@ -142,7 +142,7 @@ describe("renderer Junto node-reference navigation", () => {
     const apply = vi.fn();
     const coordinator = makeNodeRefNavigationCoordinator({
       clock: makeNavigationClock(),
-      readCanvas: () => slow.promise,
+      openModelCanvas: () => slow.promise,
       apply,
     });
 
@@ -161,7 +161,7 @@ describe("renderer Junto node-reference navigation", () => {
     const apply = vi.fn();
     const coordinator = makeNodeRefNavigationCoordinator({
       clock,
-      readCanvas: () => slow.promise,
+      openModelCanvas: () => slow.promise,
       apply,
     });
 

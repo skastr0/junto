@@ -235,7 +235,7 @@ const assertCanvasNavigationAdmitted = (): void => {
 
 const nodeRefNavigation = makeNodeRefNavigationCoordinator({
   clock: canvasNavigationClock,
-  readCanvas: async (name) => {
+  openModelCanvas: async (name) => {
     // Held until `apply` shows it. A read that is never applied is let go by
     // the next read of the same canvas.
     heldForNavigation.get(name)?.release();
@@ -515,7 +515,7 @@ export function App() {
   );
 
   // Command bar "Open canvas" action — one-shot request consumed here so the
-  // readCanvas + loadDoc flow keeps its single owner in App.
+  // opening a canvas keeps its single owner in App.
   useEffect(() => {
     return state$.canvasOpenRequest.onChange(() => {
       const name = state$.canvasOpenRequest.peek();

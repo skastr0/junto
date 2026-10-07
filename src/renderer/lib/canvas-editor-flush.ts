@@ -17,8 +17,9 @@ type ActiveElement = Pick<HTMLElement, "blur"> & {
 
 /**
  * Why the canvas is flushing.
- * - background: a canvasChanged echo (agent activity, work facts, our own
- *   save). The operator may be mid-keystroke; focus is never touched.
+ * - background: the canvas changed under the window (agent activity, work
+ *   facts, our own edit). The operator may be mid-keystroke; focus is never
+ *   touched.
  * - navigation: the document is about to be swapped or the app is quitting,
  *   so a commit-on-blur draft must land now.
  */
