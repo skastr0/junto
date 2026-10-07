@@ -614,6 +614,51 @@ describe("work control transport", () => {
     });
   });
 
+  it("serves more than 32 ordinary clients at once", async () => {
+    const server = servers[0]!;
+    const credential = token(server);
+    const peers = Array.from({ length: 33 }, () => {
+      const socket = createConnection(server.socketPath);
+      let ended = false;
+      socket.on("close", () => {
+        ended = true;
+      });
+      socket.on("error", () => undefined);
+      return { socket, ended: () => ended };
+    });
+    try {
+      await Promise.all(peers.map(({ socket }) => new Promise<void>((resolve, reject) => {
+        socket.once("connect", () => resolve());
+        socket.once("error", reject);
+      })));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(peers.every((peer) => peer.ended() === false)).toBe(true);
+
+      const responses = await Promise.all(peers.map(({ socket }) => new Promise<unknown>((resolve, reject) => {
+        let buf = Buffer.alloc(0);
+        const timer = setTimeout(() => {
+          socket.destroy();
+          reject(new Error("timeout"));
+        }, 5_000);
+        socket.on("data", (chunk: Buffer | string) => {
+          const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          buf = Buffer.concat([buf, part]);
+          const nl = buf.indexOf(0x0a);
+          if (nl < 0) return;
+          clearTimeout(timer);
+          resolve(JSON.parse(buf.subarray(0, nl).toString("utf8")) as unknown);
+        });
+        socket.write(encodeWorkFrame({ token: credential, op: "ping" }));
+      })));
+      expect(responses).toHaveLength(33);
+      for (const response of responses) {
+        expect(response).toMatchObject({ ok: true, op: "ping" });
+      }
+    } finally {
+      for (const peer of peers) peer.socket.destroy();
+    }
+  });
+
   it("caps accepted peers before frame parsing and recovers after close", async () => {
     const { server } = await startTestServer({ runtime: { maxActiveClients: 1 } });
     const first = createConnection(server.socketPath);

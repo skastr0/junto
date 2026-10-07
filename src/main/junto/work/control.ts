@@ -2732,7 +2732,10 @@ export interface WorkControlRuntime {
   readonly shutdownGraceMs?: number;
   /** Tests may lower, never raise, the complete transport drain deadline. */
   readonly shutdownDeadlineMs?: number;
-  /** Tests may lower, never raise, the accepted peer ceiling. */
+  /**
+   * Explicit accepted-peer ceiling. Unset means no application quota.
+   * Frame, time, and shutdown limits still apply.
+   */
   readonly maxActiveClients?: number;
 }
 
@@ -2766,7 +2769,12 @@ export const workControlReadiness: WorkControlReadinessPort = Object.freeze({
 
 const WORK_CONTROL_SHUTDOWN_GRACE_MS = 100;
 const WORK_CONTROL_SHUTDOWN_DEADLINE_MS = 2_000;
-const WORK_CONTROL_MAX_CLIENTS = 32;
+
+/** A positive finite override, or no application client quota. */
+const explicitClientCeiling = (value: number | undefined): number | undefined => {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined;
+  return Math.floor(value);
+};
 
 type WorkControlFlightKind =
   | "line-handler"
@@ -3070,7 +3078,7 @@ export const startWorkControlServer = async (
     runtime.shutdownDeadlineMs,
     WORK_CONTROL_SHUTDOWN_DEADLINE_MS,
   );
-  const maxActiveClients = boundedRuntimeValue(runtime.maxActiveClients, WORK_CONTROL_MAX_CLIENTS);
+  const maxActiveClients = explicitClientCeiling(runtime.maxActiveClients);
   const readinessAuthority = Symbol("work-control-listener");
   let shuttingDown = false;
   let nextFlightId = 0;
@@ -3158,7 +3166,10 @@ export const startWorkControlServer = async (
   };
 
   const server: Server = createServer((socket) => {
-    if (shuttingDown || admittedClients.size >= maxActiveClients) {
+    if (
+      shuttingDown ||
+      (maxActiveClients !== undefined && admittedClients.size >= maxActiveClients)
+    ) {
       socket.end();
       return;
     }
