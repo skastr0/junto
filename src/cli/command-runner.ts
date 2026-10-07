@@ -50,6 +50,12 @@ export const loadRootCommand = async (args: ReadonlyArray<string>) => {
 
 export const runCli = (args: ReadonlyArray<string>): Effect.Effect<void, never, never> =>
   Effect.gen(function* () {
+    // A retired overseer family is answered in one line, before any parsing.
+    if (args[0] === "overseer" && args[1] === "edge") {
+      const { retiredOverseerInvocation } = yield* Effect.promise(() => import("./commands/overseer-retired"));
+      const retired = retiredOverseerInvocation(args);
+      if (retired !== undefined) return yield* Effect.fail(retired);
+    }
     const root = yield* Effect.promise(() => loadRootCommand(args));
     const BunServices = yield* Effect.promise(() => import("@effect/platform-bun/BunServices"));
     const known = commands.some((entry) => entry.name === args[0] && entry.enabled !== false);

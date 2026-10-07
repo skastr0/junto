@@ -5,7 +5,7 @@ import type { OverseerOperation } from "./overseer-control";
 export const OVERSEER_HOST_OPERATIONS = [
   "canvas.list", "canvas.read", "canvas.digest", "canvas.batch",
   "node.get", "node.create", "node.configure", "node.move", "node.resize",
-  "edge.verbs", "edge.connect", "edge.configure", "edge.disconnect",
+  "wire.verbs", "wire.connect", "wire.configure", "wire.disconnect",
   "tasks.list", "tasks.show",
   "agent.list", "agent.get", "agent.output",
   "board.list", "board.tags", "pad.digest", "artifact.list", "artifact.get",

@@ -16,6 +16,7 @@ import {
   type OverseerCatalogEntry,
   type OverseerOperation,
 } from "../../shared/overseer-control";
+import { SEAT_FIELDS_MAIN_WORKS_OUT } from "../../shared/model/drafts";
 import type { WorkOpName } from "../../shared/work-control";
 import { overseerOperationEnabled } from "../../shared/features";
 import type {
@@ -31,6 +32,7 @@ import { loadJsonInput } from "../core/json";
 import { executeJsonCommand, executeJsonCommandWithVerdict } from "../core/output";
 import { decodeSecretPutInput, readSecretValue } from "../core/secret-input";
 import { WorkSocket } from "../core/socket";
+import { retiredOverseerError, retiredOverseerOperation } from "./overseer-retired";
 import { OVERSEER_SKILL_MARKDOWN } from "./overseer-skill";
 
 const toUndefined = <A>(value: Option.Option<A>) =>
@@ -80,8 +82,8 @@ export const OVERSEER_UNAVAILABLE: ReadonlyArray<{
     reason: "No pan, zoom, focus, resize, or switch. Screenshots observe only.",
   },
   {
-    capability: "mint ether.overseer",
-    reason: "Create, copy, configure, and reseat cannot mint or restore the grant.",
+    capability: "set a seat's overseer field",
+    reason: "Create, copy, configure, and reseat cannot mint or restore the grant: no draft or change carries it.",
   },
   {
     capability: "pause/play as authority",
@@ -188,8 +190,8 @@ const loadOverseerArgs = (operation: OverseerOperation, input: Option.Option<str
 const FAMILY_HELP: Readonly<Record<string, string>> = {
   overseer: "Live grant and daemon surface for this process-bound overseer seat",
   canvas: "List, read, create, delete, digest, render, or screenshot canvases",
-  node: "List, get, create, configure, move, resize, or delete nodes",
-  edge: "List, get, verb-table, connect, configure, or disconnect edges",
+  node: "List, get, create, configure, move, resize, recolor, or delete nodes, each told by its kind",
+  wire: "List, get, verb-table, connect, configure, or disconnect wires",
   tasks: "Task work-plane ops without requiring a connecting edge",
   request: "Request list, get, create, resolve, comment",
   artifact: "Artifact list, get, publish, archive, delete",
@@ -424,6 +426,8 @@ const schemaShowCommand = Command.make("show", { target: targetArg }, ({ target 
         matchesOverseerTarget(target, name),
       );
       if (operation === undefined) {
+        const retired = retiredOverseerOperation(target);
+        if (retired !== undefined) return yield* Effect.fail(retiredOverseerError(retired));
         return yield* Effect.fail(
           new InputError({
             message: `No overseer schema found for ${target}`,
@@ -607,11 +611,11 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("canvas.batch"),
     command: "overseer canvas batch",
     name: "create and connect in one commit",
-    description: "Single-canvas structural edits, validated and committed together: the whole batch lands or none of it does. Read the canvas first for expectedRevision.",
+    description: "Single-canvas structural edits, validated and committed together: the whole batch lands or none of it does. Each step is a write of the same name without its canvas. Give a new node an id when a later step names it. expectedSeq is the seq canvas read answered; a canvas that moved since is refused as Conflict.",
     args: ["overseer", "canvas", "batch"],
-    input: { operations: [
-      { operation: "node.create", node: { id: "backlog", type: "text", text: "Backlog", x: 400, y: 0, width: 260, height: 120, ether: { entity: { kind: "task" } } } },
-      { operation: "edge.connect", edge: { fromNode: "worker", toNode: "backlog", verb: "contributes" } },
+    input: { expectedSeq: 42, steps: [
+      { operation: "node.create", node: { kind: "task", id: "backlog", name: "Backlog", x: 400, y: 0, width: 260, height: 120 } },
+      { operation: "wire.connect", wire: { from: "worker", to: "backlog", verb: "contributes" } },
     ] },
   },
   {
@@ -641,7 +645,7 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     command_id: commandIdFor("canvas.read"),
     command: "overseer canvas read",
     name: "read caller canvas",
-    description: "Returns structure only: nodes and edges. Work is read with its own command (tasks list, request list, artifact list, msg list, board list, sheet read).",
+    description: "Answers {name, seq, nodes, wires}, nodes in paint order. Structure only: each node is told by its kind with that kind's own fields, and a wire by from, to and verb. Work is read with its own command (tasks list, request list, artifact list, msg list, board list, sheet read).",
     args: ["overseer", "canvas", "read"],
     input: {},
   },
@@ -672,12 +676,46 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: commandIdFor("node.create"),
     command: "overseer node create",
-    name: "create a text node",
-    description: "Strict JSON Canvas draft. No overseer grant field.",
+    name: "create a note",
+    description: "A node is told by its kind (agent, terminal, page, task, requests, artifacts, board, pad, sheet, cron, relay, watcher, note, label, file, link, git, region) with that kind's own fields; a seat is drafted by harness and choices instead (see the seat example). Leave id out for main to mint it; the answer carries the node with its id. A new node goes on top.",
     args: ["overseer", "node", "create"],
     input: {
-      node: { type: "text", text: "note", x: 0, y: 0, width: 220, height: 84 },
+      node: { kind: "note", text: "Ship on green.", x: 0, y: 0, width: 220, height: 84 },
     },
+  },
+  {
+    command_id: commandIdFor("node.create"),
+    command: "overseer node create",
+    name: "create a seat",
+    description: "Create a seat by naming what it runs: harness is the only required choice; profile, model, effort, mode, permissionMode, cwd, host, label and onRemove are optional. Never a command line: main builds the launch, the agent key and the session. A seat draft that carries any of these is refused: " + SEAT_FIELDS_MAIN_WORKS_OUT.join(", ") + ".",
+    args: ["overseer", "node", "create"],
+    input: {
+      node: { kind: "agent", harness: "claude", model: "opus", effort: "high", label: "Reviewer", x: 0, y: 200, width: 260, height: 120 },
+    },
+  },
+  {
+    command_id: commandIdFor("node.configure"),
+    command: "overseer node configure",
+    name: "rename a region and clear its instruction",
+    description: "change is the edit for the node's kind: say the kind, name a field to set it, give null to clear it. A kind that is not the node's is refused with the node's actual kind. It cannot change which agent a seat runs (agent reseat does) or the overseer grant (only the operator does).",
+    args: ["overseer", "node", "configure"],
+    input: { nodeId: "region-1", change: { kind: "region", label: "CLI", instruction: null } },
+  },
+  {
+    command_id: commandIdFor("node.recolor"),
+    command: "overseer node recolor",
+    name: "give several nodes one color",
+    description: "One color for many nodes; null clears it.",
+    args: ["overseer", "node", "recolor"],
+    input: { nodeIds: ["n1", "n2"], color: "4" },
+  },
+  {
+    command_id: commandIdFor("node.delete"),
+    command: "overseer node delete",
+    name: "delete nodes",
+    description: "Takes nodeIds, one or many. Wires at either end go with them. For mixed steps use canvas batch.",
+    args: ["overseer", "node", "delete"],
+    input: { nodeIds: ["n1"] },
   },
   {
     command_id: commandIdFor("node.move"),
@@ -687,11 +725,35 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     input: { nodeId: "n1", x: 40, y: 80 },
   },
   {
-    command_id: commandIdFor("edge.connect"),
-    command: "overseer edge connect",
+    command_id: commandIdFor("wire.connect"),
+    command: "overseer wire connect",
     name: "connect two agents",
-    args: ["overseer", "edge", "connect"],
-    input: { edge: { fromNode: "a", toNode: "b", verb: "messages" } },
+    description: "from is the end that acts. Leave verb out for the default the two kinds allow (wire verbs lists them). The answer carries the wire with the id main minted.",
+    args: ["overseer", "wire", "connect"],
+    input: { wire: { from: "a", to: "b", verb: "messages" } },
+  },
+  {
+    command_id: commandIdFor("wire.configure"),
+    command: "overseer wire configure",
+    name: "change a wire's verb and clear its mask",
+    description: "change may set verb, and set or clear (null) mask, fromSide and toSide. A wire's two ends are fixed: disconnect and connect to move one.",
+    args: ["overseer", "wire", "configure"],
+    input: { wireId: "wire-1", change: { verb: "reviews", mask: null } },
+  },
+  {
+    command_id: commandIdFor("wire.verbs"),
+    command: "overseer wire verbs",
+    name: "which verbs two nodes allow",
+    args: ["overseer", "wire", "verbs"],
+    input: { from: "a", to: "b" },
+  },
+  {
+    command_id: commandIdFor("scheduler.configure"),
+    command: "overseer scheduler configure",
+    name: "give a cron its schedule",
+    description: "change is the cron or watcher edit: say the kind, name a field to set it, null to clear it.",
+    args: ["overseer", "scheduler", "configure"],
+    input: { nodeId: "cron-1", change: { kind: "cron", expression: "0 9 * * 1-5" } },
   },
   {
     command_id: commandIdFor("tasks.list"),
@@ -711,10 +773,10 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: commandIdFor("agent.reseat"),
     command: "overseer agent reseat",
-    name: "reseat an agent harness",
-    description: "Reseat does not inherit the overseer grant.",
+    name: "put another agent on a seat",
+    description: "Name what the seat now runs: harness, and optionally profile, model, effort, mode, permissionMode and host. Never a command line: main builds the launch. The seat keeps its wires, its mailbox and the directory it starts in, and gets a new session. Reseat does not inherit the overseer grant.",
     args: ["overseer", "agent", "reseat"],
-    input: { nodeId: "agent-1", harness: "amp" },
+    input: { nodeId: "agent-1", harness: "codex", model: "gpt-5", effort: "high" },
   },
   {
     command_id: commandIdFor("page.screenshot"),

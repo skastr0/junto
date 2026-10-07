@@ -349,7 +349,7 @@ describe("overseer source CLI work socket", () => {
     }));
 
     const result = await runCli(
-      ["overseer", "node", "delete", JSON.stringify({ nodeId: "self" })],
+      ["overseer", "node", "delete", JSON.stringify({ nodeIds: ["self"] })],
       { workHome },
     );
     expect(result.code).toBe(1);
@@ -529,6 +529,124 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
       expect(parseStdout(result.stdout)).toEqual({ ok: true, command: "overseer env doctor", data: next });
     }
     expect(innerOf(observed)).toEqual({ operation: "env.doctor", args: { nodeId: "box" } });
+  });
+
+  it("sends nodes and wires in model kinds, and refuses a document shape before the socket", async () => {
+    const observed: Array<Record<string, unknown>> = [];
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed.push(request);
+      return overseerOk((request.args as { operation: string }).operation, {});
+    });
+    const sent: ReadonlyArray<readonly [ReadonlyArray<string>, string, unknown]> = [
+      [["overseer", "node", "create", '{"node":{"kind":"note","text":"hi","x":0,"y":0,"width":200,"height":80}}'], "node.create",
+        { node: { kind: "note", text: "hi", x: 0, y: 0, width: 200, height: 80 } }],
+      [["overseer", "node", "configure", '{"nodeId":"r1","change":{"kind":"region","label":"CLI","instruction":null}}'], "node.configure",
+        { nodeId: "r1", change: { kind: "region", label: "CLI", instruction: null } }],
+      [["overseer", "node", "recolor", '{"nodeIds":["n1","n2"],"color":null}'], "node.recolor", { nodeIds: ["n1", "n2"], color: null }],
+      [["overseer", "node", "delete", '{"nodeIds":["n1"]}'], "node.delete", { nodeIds: ["n1"] }],
+      [["overseer", "wire", "connect", '{"wire":{"from":"a","to":"b"}}'], "wire.connect", { wire: { from: "a", to: "b" } }],
+      [["overseer", "wire", "configure", '{"wireId":"w1","change":{"verb":"reviews","mask":null}}'], "wire.configure",
+        { wireId: "w1", change: { verb: "reviews", mask: null } }],
+      [["overseer", "wire", "list"], "wire.list", {}],
+      [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","model":"opus","x":0,"y":0,"width":260,"height":120}}'], "node.create",
+        { node: { kind: "agent", harness: "claude", model: "opus", x: 0, y: 0, width: 260, height: 120 } }],
+      [["overseer", "agent", "reseat", '{"nodeId":"a1","harness":"codex","effort":"high"}'], "agent.reseat",
+        { nodeId: "a1", harness: "codex", effort: "high" }],
+      [["overseer", "canvas", "batch", '{"expectedSeq":7,"steps":[{"operation":"wire.disconnect","wireId":"w1"}]}'], "canvas.batch",
+        { expectedSeq: 7, steps: [{ operation: "wire.disconnect", wireId: "w1" }] }],
+    ];
+    for (const [args, operation, expected] of sent) {
+      const result = await runCli(args, { workHome });
+      expect(result.code).toBe(0);
+      expect(innerOf(observed.at(-1))).toEqual({ operation, args: expected });
+    }
+    const count = observed.length;
+    for (const [args, operation] of [
+      [["overseer", "node", "create", '{"node":{"type":"text","text":"hi","x":0,"y":0,"width":200,"height":80}}'], "node.create"],
+      [["overseer", "node", "create", '{"node":{"kind":"note","text":"hi","x":0,"y":0,"width":200,"height":80,"ether":{}}}'], "node.create"],
+      [["overseer", "node", "configure", '{"nodeId":"n1","changes":{"text":"old"}}'], "node.configure"],
+      [["overseer", "node", "delete", '{"nodeId":"n1"}'], "node.delete"],
+      // A seat is never given a command line, an identity or the grant.
+      [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","launch":{"kind":"harness","argv":["claude"]},"x":0,"y":0,"width":260,"height":120}}'], "node.create"],
+      [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","agentKey":"local:claude","x":0,"y":0,"width":260,"height":120}}'], "node.create"],
+      [["overseer", "node", "create", '{"node":{"kind":"agent","harness":"claude","overseer":true,"x":0,"y":0,"width":260,"height":120}}'], "node.create"],
+      [["overseer", "agent", "reseat", '{"nodeId":"a1","harness":"codex","launch":{"kind":"harness","argv":["codex"]}}'], "agent.reseat"],
+      [["overseer", "agent", "reseat", '{"nodeId":"a1","agentKey":"local:codex","harness":"codex","host":"local"}'], "agent.reseat"],
+      [["overseer", "wire", "connect", '{"edge":{"fromNode":"a","toNode":"b","verb":"messages"}}'], "wire.connect"],
+      [["overseer", "wire", "connect", '{"wire":{"fromNode":"a","toNode":"b"}}'], "wire.connect"],
+      [["overseer", "canvas", "batch", '{"expectedRevision":"7","operations":[{"operation":"node.move","nodeId":"n1","x":1,"y":2}]}'], "canvas.batch"],
+      [["overseer", "canvas", "batch", '{"expectedSeq":"7","steps":[{"operation":"node.move","nodeId":"n1","x":1,"y":2}]}'], "canvas.batch"],
+    ] as const) {
+      const refused = await runCli(args, { workHome });
+      expect(refused.code).toBe(1);
+      const error = (JSON.parse(refused.stderr.trim()) as { error: { type: string; details?: { hint?: string } } }).error;
+      expect(error.type).toBe("InputError");
+      // The hint is the command that prints the shape now taken.
+      expect(error.details?.hint).toBe(`junto overseer schema show ${operation}`);
+    }
+    expect(observed).toHaveLength(count);
+  });
+
+  it("says in one line that the edge family is now wire, and runs nothing", async () => {
+    const observed: unknown[] = [];
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed.push(request);
+      return overseerOk("status", {});
+    });
+    for (const verb of ["list", "get", "verbs", "connect", "configure", "disconnect"]) {
+      const result = await runCli(["overseer", "edge", verb, '{"edge":{"fromNode":"a","toNode":"b"}}'], { workHome });
+      expect(result.code).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr.trim().includes("\n")).toBe(false);
+      expect((JSON.parse(result.stderr.trim()) as { error: unknown }).error).toMatchObject({
+        type: "InputError",
+        message: `edge.${verb} is now wire.${verb}: the edge family is now wire`,
+        details: { hint: `junto overseer schema show wire.${verb}` },
+      });
+    }
+    const bare = await runCli(["overseer", "edge"], { workHome });
+    expect(bare.code).toBe(1);
+    expect(bare.stderr).toContain("the edge family is now wire");
+    for (const target of ["edge.connect", "overseer.edge.connect", "overseer edge connect"]) {
+      const shown = await runCli(["overseer", "schema", "show", target]);
+      expect(shown.code).toBe(1);
+      expect(shown.stderr).toContain("edge.connect is now wire.connect");
+    }
+    // The retired names are nowhere an agent lists or copies from.
+    const listed = [
+      ...allSchemas.map((schema) => schema.command_id),
+      ...allExamples.map((example) => example.command_id),
+      ...commandCapabilities.map((capability) => capability.command_id),
+    ];
+    expect(listed.filter((id) => id.startsWith("overseer.edge."))).toEqual([]);
+    expect(JSON.stringify(overseerExamples)).not.toMatch(/fromNode|toNode|edgeId|"ether"|expectedRevision|"type":"text"/u);
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("The family once called `edge` is `wire`");
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("A seat is created by naming what it runs, never by a command line");
+    // No example sends a seat a command line, an identity or the grant.
+    const seatInputs = overseerExamples
+      .filter((example) => /agent\.reseat|node\.create/u.test(example.command_id))
+      .map((example) => example.input);
+    expect(JSON.stringify(seatInputs)).not.toMatch(/argv|agentKey|bindingId|sessionId|overseer|launch/u);
+    for (const field of ["agentKey", "bindingId", "launch", "sessionId", "overseer"]) {
+      expect(OVERSEER_SKILL_MARKDOWN).toContain(`\`${field}\``);
+    }
+    expect(OVERSEER_SKILL_MARKDOWN).not.toMatch(/ether\.|edge connect|expectedRevision` from/u);
+    const help = await runCli(["overseer", "--help"]);
+    expect(`${help.stdout}${help.stderr}`).toMatch(/\bwire\b/u);
+    expect(`${help.stdout}${help.stderr}`).not.toMatch(/^\s*edge\b/mu);
+    expect(observed).toEqual([]);
+  });
+
+  it("prints for node create exactly the kinds main decodes", async () => {
+    const shown = await runCli(["overseer", "schema", "show", "node.create"]);
+    expect(shown.code).toBe(0);
+    for (const kind of ["agent", "terminal", "page", "task", "requests", "artifacts", "board", "pad", "sheet", "cron", "relay", "watcher", "note", "label", "file", "link", "git", "region"]) {
+      expect(shown.stdout).toContain(`"${kind}"`);
+    }
+    expect(shown.stdout).not.toContain("ether");
+    const batch = await runCli(["overseer", "schema", "show", "canvas.batch"]);
+    expect(batch.stdout).toContain("expectedSeq");
+    expect(batch.stdout).not.toContain("expectedRevision");
   });
 
   it("sends an environment edit as its own operation", async () => {

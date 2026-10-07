@@ -53,7 +53,7 @@ replay.
 | Contract / CLI catalog | `tests/overseer-control.test.ts`, `tests/overseer-cli.test.ts` |
 | Admission / socket / gate | `tests/overseer-admission.test.ts`, `tests/work-socket-overseer.test.ts`, `tests/work-control-transport.test.ts`, `tests/main-authoring-gate.test.ts` |
 | Dispatch | `tests/overseer-dispatch.test.ts` |
-| Canvas / node / edge | `tests/overseer-canvas-commands.test.ts`, `tests/overseer-authoring.test.ts` |
+| Canvas / node / wire | `tests/overseer-canvas-commands.test.ts`, `tests/overseer-authoring.test.ts` |
 | Work | `tests/overseer-work.test.ts` |
 | Operator offboard | `tests/overseer-offboard.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Region environment / secrets | `tests/overseer-env-secret.test.ts`, `tests/overseer-canvas-commands.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
@@ -63,7 +63,7 @@ replay.
 | Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Stale save / grant strip | `tests/authorial-canvas-merge.test.ts`, `tests/canvas-save-durability.test.ts` |
 
-## Wire operations (119)
+## Wire operations (120)
 
 | operation | catalog | owning service | coverage | suite |
 | --- | --- | --- | --- | --- |
@@ -82,13 +82,14 @@ replay.
 | `node.configure` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `node.move` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `node.resize` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
+| `node.recolor` | mutation | canvas `executeOverseerCanvas` | catalog | contract tests/overseer-control.test.ts; handler lands with the model-kinds main change |
 | `node.delete` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts; tests/overseer-dispatch.test.ts |
-| `edge.list` | read | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
-| `edge.get` | read | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
-| `edge.verbs` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
-| `edge.connect` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
-| `edge.configure` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
-| `edge.disconnect` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
+| `wire.list` | read | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
+| `wire.get` | read | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
+| `wire.verbs` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
+| `wire.connect` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
+| `wire.configure` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
+| `wire.disconnect` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
 | `tasks.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `tasks.create` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `tasks.claim` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
@@ -191,10 +192,18 @@ replay.
 
 | item | contract |
 | --- | --- |
-| `canvas.read`, `node.list`, `node.get` | structure only: nodes and edges as the model holds them; no tasks, requests, artifacts, mail or board topics ride on a node; work is read with its own command |
+| Vocabulary | the wire carries the model's own types from `src/shared/model`: a node told by `kind` with that kind's flat fields, a wire by `from`, `to`, `verb`; args schemas in `src/shared/overseer-control.ts` are built from the model's exported schemas (`NodeDraft`, `SeatDraft`, `NodeEdit`, `WireDraft`, `WireEdit`, `Seq`) |
+| `canvas.read` | `{name, seq, nodes, wires}`, nodes in paint order; `seq` is a number |
+| `canvas.read`, `node.list`, `node.get`, `wire.list`, `wire.get` | structure only; no tasks, requests, artifacts, mail or board topics ride on a node; work is read with its own command |
+| `node.create`, `wire.connect` | a draft: `id` optional and minted by main, no `z`; the answer carries the node or wire with its id |
+| Seats | created and reseated by naming what they run: `harness` required, `profile`, `model`, `effort`, `mode`, `permissionMode`, `host` optional (and `cwd`, `label`, `onRemove` on create); main builds the launch, agent key and session; a seat draft carrying `launch`, `agentKey`, `bindingId`, `sessionId` or `overseer` is `InvalidArguments`; a terminal draft keeps `launch` |
+| `node.configure`, `scheduler.configure` | `change` is the model edit for the node's kind; a kind that is not the node's is `InvalidArguments` naming the actual kind |
+| `node.recolor`, `node.delete` | take `nodeIds`, one or many |
+| `canvas.batch` | `{canvas?, expectedSeq?, steps}`; a canvas that moved since `expectedSeq` is `Conflict` |
+| Retired names | the six `edge.*` operations are `wire.*`; no alias and no old shape is accepted; the CLI answers an `edge` invocation in one line naming `wire`; a stored receipt of an old name still reads, since `overseer_live_operations.operation` is text |
 | `canvas.list` | one `{name}` per canvas, nothing else |
 | `canvas.digest` | the model digest main also writes for the window and the canvas CLI (`readModelDigest`), read without adapter snapshot data |
-| `canvas.render` | an SVG drawn by `renderCanvasSvg` from the same structure and task rows; no other surface draws with it |
+| `canvas.render` | an SVG of the canvas, with task rows marked on their boards |
 | Writes | one transaction: a batch all lands or none of it does |
 | Overseer seats | an overseer may rename, move, resize and recolor an overseer seat, its own included; changing what it runs (agent, session, harness, host, launch), removing it or reseating it is refused by the model as `Forbidden`: "Only the operator can change what an overseer seat runs or remove it." |
 

@@ -1,5 +1,6 @@
 /** Product-embedded overseer skill text. Not a global Amp skill install. */
 import { BOARD_ENABLED, PAD_ENABLED } from "@shared/features";
+import { SEAT_FIELDS_MAIN_WORKS_OUT } from "@shared/model/drafts";
 import { OVERSEER_CATALOG } from "@shared/overseer-control";
 
 export const OVERSEER_SKILL_NAME = "overseer";
@@ -22,12 +23,12 @@ const FAMILY_VERB_NOTES = [
 
 export const OVERSEER_SKILL_MARKDOWN = `---
 name: overseer
-description: "Runs Junto overseer operations from a process-bound granted seat. Use for canvas, node, edge, and work-plane command as an overseer agent; also for offline schema, examples, and authority boundaries."
+description: "Runs Junto overseer operations from a process-bound granted seat. Use for canvas, node, wire, and work-plane command as an overseer agent; also for offline schema, examples, and authority boundaries."
 ---
 
 # Junto overseer
 
-JSON-only CLI for a managed agent seat whose operator set \`ether.overseer\` with the human-only toggle. Ordinary agents stay edge-scoped. Overseers do not need edges.
+JSON-only CLI for a managed agent seat whose operator turned on overseer with the human-only toggle. Ordinary agents stay edge-scoped. Overseers do not need edges.
 
 Identity is process-bind (Unix peer PID). Never send a nodeRef, actor claim, or operator seat id.
 
@@ -54,11 +55,32 @@ junto overseer status
 
 Input is a JSON object: inline, \`@path\`, or \`-\` / \`@-\` for stdin. Omit input for empty-arg operations (\`{}\`). Canvas may be omitted when the caller's canvas is unambiguous; main fills it.
 
-\`canvas.batch\` accepts 1–100 structural \`operations\` on one canvas: \`node.create\`, \`node.configure\`, \`node.move\`, \`edge.connect\`, \`edge.configure\`, and \`edge.disconnect\`. Each step has its operation plus the usual fields, without a nested args object or canvas. Assign IDs to new nodes when later steps reference them. The complete graph is validated and committed once. Supply \`expectedRevision\` from \`canvas.read\` to reject stale edits. Native identity/configuration changes, resource deletion, grants, credentials, nested batches, and worker execution are excluded.
+## Nodes and wires
 
-Reads answer structure, not work. \`canvas read\`, \`node list\` and \`node get\` return what is on the canvas and how it is wired: nodes and edges. No tasks, requests, artifacts, mail or board topics ride on a node. Read work with its own command: \`tasks list\`, \`request list\`, \`artifact list\` and \`artifact get\`, \`msg list\`, \`board list\`, \`sheet read\` (each where this build has that family). \`canvas list\` answers one \`{name}\` per canvas and nothing else. \`canvas digest\` is the digest text main also writes for the window and the CLI, with the work on each node and without live adapter snapshot data.
+The canvas speaks the model's own types. Nothing is a document node, and nothing is named \`ether\`.
 
-A write is one atomic change per canvas: a batch all lands or none of it does.
+- A **node** is told by its \`kind\`: \`agent\` (a seat), \`terminal\`, \`page\`, \`task\`, \`requests\`, \`artifacts\`, \`board\`, \`pad\`, \`sheet\`, \`cron\`, \`relay\`, \`watcher\`, \`note\`, \`label\`, \`file\`, \`link\`, \`git\`, \`region\`. Each kind has its own flat fields beside \`id\`, \`x\`, \`y\`, \`width\`, \`height\`, \`z\` and an optional \`color\`. A seat has \`agentKey\`, \`label\`, \`host\`, \`overseer\`, \`bindingId\`, \`harness\`, \`launch\`, \`onRemove\`; a cron has \`expression\`; a region has \`label\`, \`hold\`, \`instruction\`, \`defaults\`, \`contract\`, \`environment\`. \`junto overseer schema show node.create\` prints every kind.
+- A **wire** is \`{id, from, to, verb, mask?, fromSide?, toSide?}\`. \`from\` is the end that acts.
+
+Reads: \`canvas read\` answers \`{name, seq, nodes, wires}\`, nodes in paint order. \`node list\` answers \`{nodes}\`, \`node get\` \`{node}\`, \`wire list\` \`{wires}\`, \`wire get\` \`{wire}\`, \`canvas list\` one \`{name}\` per canvas. \`seq\` is a number that counts committed changes to that canvas.
+
+Reads answer structure, not work. No tasks, requests, artifacts, mail or board topics ride on a node. Read work with its own command: \`tasks list\`, \`request list\`, \`artifact list\` and \`artifact get\`, \`msg list\`, \`board list\`, \`sheet read\` (each where this build has that family). \`canvas digest\` is the digest text main also writes for the window and the CLI, with the work on each node and without live adapter snapshot data.
+
+Writes:
+
+- \`node create {canvas?, node}\`: the node with its kind's fields. Leave \`id\` out for main to mint it and do not send \`z\`: a new node goes on top. The answer is the node with its id.
+- **A seat is created by naming what it runs, never by a command line**: \`{kind: "agent", harness, x, y, width, height}\` plus any of \`profile\`, \`model\`, \`effort\`, \`mode\`, \`permissionMode\`, \`cwd\`, \`host\`, \`label\`, \`onRemove\`, \`color\`, \`id\`. \`harness\` is the only required choice; \`host\` defaults to this machine, \`label\` to the harness and its choices, \`onRemove\` to \`detach\`. Main builds the launch, the agent key and the session. A seat draft that carries any of ${SEAT_FIELDS_MAIN_WORKS_OUT.map((field) => `\`${field}\``).join(", ")} is refused, never ignored. A plain \`terminal\` is the kind that takes a \`launch\` with a command.
+- \`node configure {canvas?, nodeId, change}\`: \`change\` is the edit for the node's kind, \`{kind, field: value}\`. Name a field to set it; give \`null\` to clear one that may be absent. A \`kind\` that is not the node's kind is refused with the node's actual kind. It cannot carry which agent a seat runs (\`agentKey\`, \`bindingId\`: use \`agent reseat\`) or \`overseer\` (only the operator grants it).
+- \`node move {nodeId, x, y}\`, \`node resize {nodeId, width, height}\`.
+- \`node recolor {nodeIds, color}\`: one color for many nodes, \`null\` clears it. Color is not part of \`change\`.
+- \`node delete {nodeIds}\`: one or many. Wires at either end go with them.
+- \`wire connect {canvas?, wire: {id?, from, to, verb?, mask?, fromSide?, toSide?}}\`: leave \`verb\` out for the default the two kinds allow. The answer is the wire with the id main minted. \`wire verbs {from, to}\` lists what a pair allows.
+- \`wire configure {canvas?, wireId, change: {verb?, mask?, fromSide?, toSide?}}\`, \`null\` clearing \`mask\` or a side. \`wire disconnect {wireId}\`.
+- \`scheduler configure {nodeId, change}\` with the cron or watcher edit. \`agent reseat {nodeId, harness, host?, profile?, model?, effort?, mode?, permissionMode?}\` puts another agent on the same seat by naming what it runs, the same choices as creating one: no command line, no \`agentKey\`. The seat keeps its wires, its mailbox and the directory it starts in.
+
+\`canvas batch {canvas?, expectedSeq?, steps}\` takes 1–100 \`steps\` on one canvas, for mixed edits: \`node.create\`, \`node.configure\`, \`node.move\`, \`node.resize\`, \`node.recolor\`, \`wire.connect\`, \`wire.configure\` and \`wire.disconnect\`. Each step is \`{operation, ...}\` with the fields of the write of that name, without a nested args object or canvas. Give a new node an \`id\` when a later step names it. The whole batch is validated and committed once: it all lands or none of it does. Pass \`expectedSeq\`, the \`seq\` that \`canvas read\` answered, to refuse a stale edit: a canvas that has moved since answers \`Conflict\`. Deleting nodes, reseating, grants, credentials, nested batches and worker execution are not batch steps.
+
+The family once called \`edge\` is \`wire\`. No old shape is accepted: a document node (\`type\`, \`text\`, \`ether\`), \`fromNode\` / \`toNode\`, \`edgeId\`, \`changes\`, \`operations\` or \`expectedRevision\` is \`InvalidArguments\`. When an argument is refused, read its shape: \`junto overseer schema show <operation>\`.
 
 Success (stdout): \`{ok:true, command, data}\` — \`data\` is the inner operation payload.
 Failure (stderr, exit 1): \`{ok:false, command, error:{type,message,details?}}\`.
@@ -141,7 +163,7 @@ This CLI does **not** claim that a running daemon has a handler for every verb. 
 | Delete own seat | Direct, indirect, canvas delete, alias, or binding replacement that removes this seat. Ordinary self move/rename/interrupt/stop are allowed. |
 | Change what an overseer seat runs, remove it, or reseat it | Operator only, for any overseer seat, your own included: its agent, session, harness, host and launch. Refused as \`Forbidden\` with "Only the operator can change what an overseer seat runs or remove it." Renaming, moving, resizing and recoloring an overseer seat are allowed. |
 | Operator viewport | No pan, zoom, focus, resize, or switch. Screenshots observe only. |
-| Mint \`ether.overseer\` | Create, copy, configure, reseat, and generic writes cannot mint or restore the grant. Reseat does not inherit. |
+| Set a seat's \`overseer\` field | No draft or change carries it: create, copy, configure, reseat, and generic writes cannot mint or restore the grant. Reseat does not inherit. |
 | Pause/play as authority | Pause/play gates automated work only. It has no bearing on overseer command. |
 | Direct DB / operator socket / arbitrary IPC | Closed operations over the work envelope only. |
 | Caller-supplied principal | Process-bind only. |

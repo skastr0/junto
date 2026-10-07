@@ -1,23 +1,12 @@
 import { Result, Schema, Struct } from "effect";
 import { overseerOperationEnabled } from "./features";
-import {
-  CanvasColor,
-  EdgeEnd,
-  EnvSource,
-  EtherBrowser,
-  EtherEntity,
-  EtherGit,
-  EtherHostId,
-  EtherRegion,
-  EtherTerminal,
-  EtherTimer,
-  EtherWatch,
-  NodeSide,
-} from "./canvas";
+import { EnvSource } from "./canvas";
 import { ContentIdentity, ContentRef } from "./content";
-import { HarnessId } from "./managed-terminal-templates";
+import { Color } from "./model/base";
+import { NodeEdit, WireEdit } from "./model/commands";
+import { NodeDraft, SeatDraft, WireDraft } from "./model/drafts";
+import { Seq } from "./model/events";
 import { PadPatch } from "./pad";
-import { Verb } from "./physics/verbs";
 import { OverseerLiveCorrelation } from "./overseer-host-control";
 import { SECRET_ID_PATTERN, secretValueProblem } from "./region-secrets";
 import {
@@ -34,7 +23,6 @@ import {
   TaskAdmission,
   TaskRule,
   TaskState,
-  TasksContract,
   WorkMetadata,
 } from "./work-model";
 
@@ -73,13 +61,14 @@ export const OVERSEER_OPERATION_NAMES = [
   "node.configure",
   "node.move",
   "node.resize",
+  "node.recolor",
   "node.delete",
-  "edge.list",
-  "edge.get",
-  "edge.verbs",
-  "edge.connect",
-  "edge.configure",
-  "edge.disconnect",
+  "wire.list",
+  "wire.get",
+  "wire.verbs",
+  "wire.connect",
+  "wire.configure",
+  "wire.disconnect",
   "tasks.list",
   "tasks.create",
   "tasks.claim",
@@ -179,6 +168,21 @@ export const OVERSEER_OPERATION_NAMES = [
   "briefing.write",
 ] as const;
 
+/**
+ * Names this contract once had and no longer takes. Kept for one purpose: so
+ * the CLI can say in one line what replaced a name an agent still types.
+ * Never dispatched, listed, or given a schema or an example. A stored receipt
+ * of one still reads: `overseer_live_operations.operation` is kept as text.
+ */
+export const OVERSEER_RETIRED_OPERATIONS: Readonly<Record<string, OverseerOperation>> = {
+  "edge.list": "wire.list",
+  "edge.get": "wire.get",
+  "edge.verbs": "wire.verbs",
+  "edge.connect": "wire.connect",
+  "edge.configure": "wire.configure",
+  "edge.disconnect": "wire.disconnect",
+};
+
 export const OverseerOperation = Schema.Literals(OVERSEER_OPERATION_NAMES);
 export type OverseerOperation = typeof OverseerOperation.Type;
 
@@ -265,140 +269,64 @@ const SinkTarget = {
   target: Id,
 } as const;
 
-// Canvas/node/edge authoring -------------------------------------------------
+// Canvas, node and wire authoring -------------------------------------------
+//
+// The wire carries the model's own types (`src/shared/model`): a node is told
+// by its kind with that kind's flat fields, and a wire by `from`, `to` and
+// `verb`. Every schema here is built from the model's exported schemas, so
+// `junto overseer schema show` prints exactly what main decodes.
 
-const AuthorialTasks = Schema.Struct({
-  name: Schema.optionalKey(Schema.String),
-  contract: Schema.optionalKey(TasksContract),
-});
+const NodeIds = Schema.Array(Id).pipe(
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(OVERSEER_MAX_BATCH_OPERATIONS)),
+);
 
-/** Deliberately enumerated: no overseer grant field can enter create/configure. */
-export const OverseerNodeEther = Schema.Struct({
-  entity: Schema.optionalKey(EtherEntity),
-  region: Schema.optionalKey(EtherRegion),
-  watch: Schema.optionalKey(EtherWatch),
-  timer: Schema.optionalKey(EtherTimer),
-  tasks: Schema.optionalKey(AuthorialTasks),
-  sheet: Schema.optionalKey(EtherSheet),
-  terminal: Schema.optionalKey(EtherTerminal),
-  browser: Schema.optionalKey(EtherBrowser),
-  git: Schema.optionalKey(EtherGit),
-  host: Schema.optionalKey(EtherHostId),
-});
-export type OverseerNodeEther = typeof OverseerNodeEther.Type;
+/**
+ * A node to add: the model node with `id` optional and no `z`; main mints and
+ * stacks. A seat is the exception: it is drafted by naming what it runs
+ * (harness and its choices), and main works out the rest.
+ */
+const NodeCreate = { node: NodeDraft } as const;
+/** The model edit for the node's kind: a field is set by naming it, cleared with null. */
+const NodeConfigure = { nodeId: Id, change: NodeEdit } as const;
+const NodeMove = { nodeId: Id, x: Finite, y: Finite } as const;
+const NodeResize = { nodeId: Id, width: Positive, height: Positive } as const;
+/** One color for many nodes; null clears it. Color is not an edit in the model. */
+const NodeRecolor = { nodeIds: NodeIds, color: Schema.NullOr(Color) } as const;
+const NodeDelete = { nodeIds: NodeIds } as const;
 
-/** Safe extension patch. The dispatcher merges these fields and preserves grants. */
-export const OverseerNodeEtherChanges = Schema.Struct({
-  entity: Schema.optionalKey(Schema.NullOr(EtherEntity)),
-  region: Schema.optionalKey(Schema.NullOr(EtherRegion)),
-  watch: Schema.optionalKey(Schema.NullOr(EtherWatch)),
-  timer: Schema.optionalKey(Schema.NullOr(EtherTimer)),
-  tasks: Schema.optionalKey(Schema.NullOr(AuthorialTasks)),
-  sheet: Schema.optionalKey(Schema.NullOr(EtherSheet)),
-  terminal: Schema.optionalKey(Schema.NullOr(EtherTerminal)),
-  browser: Schema.optionalKey(Schema.NullOr(EtherBrowser)),
-  git: Schema.optionalKey(Schema.NullOr(EtherGit)),
-  host: Schema.optionalKey(Schema.NullOr(EtherHostId)),
-});
-export type OverseerNodeEtherChanges = typeof OverseerNodeEtherChanges.Type;
+/** A wire to add: `id` optional, `verb` optional (main picks the default for the two ends). */
+const WireConnect = { wire: WireDraft } as const;
+/** The model's edit of a wire: what it grants or where it attaches. Its two ends are fixed. */
+const WireConfigure = { wireId: Id, change: WireEdit } as const;
+const WireDisconnect = { wireId: Id } as const;
 
-const NodeDraftBase = {
-  id: Schema.optionalKey(Id),
-  x: Finite,
-  y: Finite,
-  width: Positive,
-  height: Positive,
-  color: Schema.optionalKey(CanvasColor),
-  ether: Schema.optionalKey(OverseerNodeEther),
-} as const;
+const step = <const Operation extends OverseerOperation, Fields extends Schema.Struct.Fields>(
+  operation: Operation,
+  fields: Fields,
+) => Schema.Struct({ operation: Schema.Literal(operation), ...fields });
 
-/** Strict JSON Canvas node input; main may mint the omitted id. */
-export const OverseerNodeDraft = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("text"), text: Schema.String, ...NodeDraftBase }),
-  Schema.Struct({
-    type: Schema.Literal("file"),
-    file: Schema.String,
-    subpath: Schema.optionalKey(Schema.String),
-    ...NodeDraftBase,
-  }),
-  Schema.Struct({ type: Schema.Literal("link"), url: Schema.String, ...NodeDraftBase }),
-  Schema.Struct({
-    type: Schema.Literal("group"),
-    label: Schema.optionalKey(Schema.String),
-    background: Schema.optionalKey(Schema.String),
-    backgroundStyle: Schema.optionalKey(Schema.Literals(["cover", "ratio", "repeat"])),
-    ...NodeDraftBase,
-  }),
-]);
-export type OverseerNodeDraft = typeof OverseerNodeDraft.Type;
-
-export const OverseerNodeChanges = Schema.Struct({
-  text: Schema.optionalKey(Schema.String),
-  file: Schema.optionalKey(Schema.String),
-  subpath: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  url: Schema.optionalKey(Schema.String),
-  label: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  background: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  backgroundStyle: Schema.optionalKey(
-    Schema.NullOr(Schema.Literals(["cover", "ratio", "repeat"])),
-  ),
-  color: Schema.optionalKey(Schema.NullOr(CanvasColor)),
-  ether: Schema.optionalKey(OverseerNodeEtherChanges),
-});
-export type OverseerNodeChanges = typeof OverseerNodeChanges.Type;
-
-const EdgePresentation = {
-  fromSide: Schema.optionalKey(NodeSide),
-  fromEnd: Schema.optionalKey(EdgeEnd),
-  toSide: Schema.optionalKey(NodeSide),
-  toEnd: Schema.optionalKey(EdgeEnd),
-  color: Schema.optionalKey(CanvasColor),
-  label: Schema.optionalKey(Schema.String),
-} as const;
-
-export const OverseerEdgeDraft = Schema.Struct({
-  id: Schema.optionalKey(Id),
-  fromNode: Id,
-  toNode: Id,
-  verb: Verb,
-  ...EdgePresentation,
-});
-export type OverseerEdgeDraft = typeof OverseerEdgeDraft.Type;
-
-export const OverseerEdgeChanges = Schema.Struct({
-  verb: Schema.optionalKey(Verb),
-  fromSide: Schema.optionalKey(Schema.NullOr(NodeSide)),
-  fromEnd: Schema.optionalKey(Schema.NullOr(EdgeEnd)),
-  toSide: Schema.optionalKey(Schema.NullOr(NodeSide)),
-  toEnd: Schema.optionalKey(Schema.NullOr(EdgeEnd)),
-  color: Schema.optionalKey(Schema.NullOr(CanvasColor)),
-  label: Schema.optionalKey(Schema.NullOr(Schema.String)),
-});
-export type OverseerEdgeChanges = typeof OverseerEdgeChanges.Type;
-
-/** Closed structural edits only: no native actions, grants, deletes, or nested RPC. */
+/**
+ * Closed structural edits only, each the write of the same name without its
+ * canvas: no native actions, grants, deletes, or nested batches.
+ */
 export const OverseerCanvasBatchStep = Schema.Union([
-  Schema.Struct({ operation: Schema.Literal("node.create"), node: OverseerNodeDraft }),
-  Schema.Struct({
-    operation: Schema.Literal("node.configure"),
-    nodeId: Id,
-    changes: OverseerNodeChanges,
-  }),
-  Schema.Struct({ operation: Schema.Literal("node.move"), nodeId: Id, x: Finite, y: Finite }),
-  Schema.Struct({ operation: Schema.Literal("edge.connect"), edge: OverseerEdgeDraft }),
-  Schema.Struct({
-    operation: Schema.Literal("edge.configure"),
-    edgeId: Id,
-    changes: OverseerEdgeChanges,
-  }),
-  Schema.Struct({ operation: Schema.Literal("edge.disconnect"), edgeId: Id }),
+  step("node.create", NodeCreate),
+  step("node.configure", NodeConfigure),
+  step("node.move", NodeMove),
+  step("node.resize", NodeResize),
+  step("node.recolor", NodeRecolor),
+  step("wire.connect", WireConnect),
+  step("wire.configure", WireConfigure),
+  step("wire.disconnect", WireDisconnect),
 ]);
 export type OverseerCanvasBatchStep = typeof OverseerCanvasBatchStep.Type;
 
 export const OverseerCanvasBatch = Schema.Struct({
   ...CanvasOptional,
-  expectedRevision: Schema.optionalKey(Id),
-  operations: Schema.Array(OverseerCanvasBatchStep).pipe(
+  /** The `seq` that `canvas.read` answered. A canvas that moved since is a Conflict. */
+  expectedSeq: Schema.optionalKey(Seq),
+  steps: Schema.Array(OverseerCanvasBatchStep).pipe(
     Schema.check(Schema.isMinLength(1)),
     Schema.check(Schema.isMaxLength(OVERSEER_MAX_BATCH_OPERATIONS)),
   ),
@@ -639,15 +567,23 @@ const AgentPrompt = Schema.Struct({
   ...NodeTarget,
   text: NonEmpty,
 });
+/**
+ * Put another agent on the same seat, keeping its wires and mailbox, by
+ * naming what it runs: the same choices a seat draft names. Main works out
+ * the agent key, the launch and the new session; an agent never writes a
+ * command line for a seat. The seat keeps the directory it starts in.
+ */
 const AgentReseat = Schema.Struct({
   ...NodeTarget,
-  harness: HarnessId,
-  profile: Schema.optionalKey(Schema.String),
-  model: Schema.optionalKey(Schema.String),
-  effort: Schema.optionalKey(Schema.String),
-  mode: Schema.optionalKey(Schema.String),
-  permissionMode: Schema.optionalKey(Schema.String),
-  host: Schema.optionalKey(EtherHostId),
+  ...Struct.pick(SeatDraft.fields, [
+    "harness",
+    "host",
+    "profile",
+    "model",
+    "effort",
+    "mode",
+    "permissionMode",
+  ]),
 });
 const TerminalInput = Schema.Struct({
   ...NodeTarget,
@@ -662,11 +598,13 @@ const TerminalResize = Schema.Struct({
 const PageSession = Schema.Struct({ sessionId: Id });
 const PageGoto = Schema.Struct({ sessionId: Id, url: NonEmpty });
 const PageEval = Schema.Struct({ sessionId: Id, code: NonEmpty });
-const SchedulerConfigure = Schema.Struct({
-  ...NodeTarget,
-  timer: Schema.optionalKey(Schema.NullOr(EtherTimer)),
-  watch: Schema.optionalKey(Schema.NullOr(EtherWatch)),
-});
+/** The model edit of the two kinds that fire on their own: a cron or a watcher. */
+const SchedulerEdit = Schema.Union(
+  NodeEdit.members.filter((member) =>
+    ["cron", "watcher"].includes(member.fields.kind.literal),
+  ),
+);
+const SchedulerConfigure = Schema.Struct({ ...NodeTarget, change: SchedulerEdit });
 const GitTarget = Schema.Struct({ ...NodeTarget });
 const GitLog = Schema.Struct({
   ...NodeTarget,
@@ -811,25 +749,22 @@ export const OverseerArgsSchemas = {
   "canvas.screenshot": Schema.Struct({ ...CanvasOptional, nodeId: Schema.optionalKey(Id) }),
   "node.list": Schema.Struct(CanvasOptional),
   "node.get": Schema.Struct(NodeTarget),
-  "node.create": Schema.Struct({ ...CanvasOptional, node: OverseerNodeDraft }),
-  "node.configure": Schema.Struct({ ...NodeTarget, changes: OverseerNodeChanges }),
-  "node.move": Schema.Struct({ ...NodeTarget, x: Finite, y: Finite }),
-  "node.resize": Schema.Struct({ ...NodeTarget, width: Positive, height: Positive }),
-  "node.delete": Schema.Struct(NodeTarget),
-  "edge.list": Schema.Struct(CanvasOptional),
-  "edge.get": Schema.Struct({ ...CanvasOptional, edgeId: Id }),
-  "edge.verbs": Schema.Struct({
+  "node.create": Schema.Struct({ ...CanvasOptional, ...NodeCreate }),
+  "node.configure": Schema.Struct({ ...CanvasOptional, ...NodeConfigure }),
+  "node.move": Schema.Struct({ ...CanvasOptional, ...NodeMove }),
+  "node.resize": Schema.Struct({ ...CanvasOptional, ...NodeResize }),
+  "node.recolor": Schema.Struct({ ...CanvasOptional, ...NodeRecolor }),
+  "node.delete": Schema.Struct({ ...CanvasOptional, ...NodeDelete }),
+  "wire.list": Schema.Struct(CanvasOptional),
+  "wire.get": Schema.Struct({ ...CanvasOptional, wireId: Id }),
+  "wire.verbs": Schema.Struct({
     ...CanvasOptional,
-    fromNode: Schema.optionalKey(Id),
-    toNode: Schema.optionalKey(Id),
+    from: Schema.optionalKey(Id),
+    to: Schema.optionalKey(Id),
   }),
-  "edge.connect": Schema.Struct({ ...CanvasOptional, edge: OverseerEdgeDraft }),
-  "edge.configure": Schema.Struct({
-    ...CanvasOptional,
-    edgeId: Id,
-    changes: OverseerEdgeChanges,
-  }),
-  "edge.disconnect": Schema.Struct({ ...CanvasOptional, edgeId: Id }),
+  "wire.connect": Schema.Struct({ ...CanvasOptional, ...WireConnect }),
+  "wire.configure": Schema.Struct({ ...CanvasOptional, ...WireConfigure }),
+  "wire.disconnect": Schema.Struct({ ...CanvasOptional, ...WireDisconnect }),
   "tasks.list": Schema.Struct(SinkTarget),
   "tasks.create": TaskCreate,
   "tasks.claim": TaskClaim,
@@ -986,9 +921,9 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "canvas.render",
   "node.list",
   "node.get",
-  "edge.list",
-  "edge.get",
-  "edge.verbs",
+  "wire.list",
+  "wire.get",
+  "wire.verbs",
   "tasks.list",
   "tasks.show",
   "tasks.rules",
@@ -1039,8 +974,8 @@ export const isOverseerMutation = (
 /**
  * The operations this build actually exposes. A feature-gated family leaves
  * the catalog — and with it the CLI families, the offline schema/example
- * lists, and the live `overseer status` command list — while the full
- * vocabulary above stays as the decode/type surface for historical rows.
+ * lists, and the live `overseer status` command list. The full vocabulary
+ * above stays as the type surface, so a gated name still has its schema.
  */
 export const OVERSEER_CATALOG: ReadonlyArray<OverseerCatalogEntry> =
   OVERSEER_OPERATION_NAMES.map((operation) => {

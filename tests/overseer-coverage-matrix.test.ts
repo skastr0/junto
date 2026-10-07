@@ -24,13 +24,14 @@ const FROZEN_OPERATIONS = [
   "node.configure",
   "node.move",
   "node.resize",
+  "node.recolor",
   "node.delete",
-  "edge.list",
-  "edge.get",
-  "edge.verbs",
-  "edge.connect",
-  "edge.configure",
-  "edge.disconnect",
+  "wire.list",
+  "wire.get",
+  "wire.verbs",
+  "wire.connect",
+  "wire.configure",
+  "wire.disconnect",
   "tasks.list",
   "tasks.create",
   "tasks.claim",
@@ -138,9 +139,9 @@ const FROZEN_READ_ONLY = [
   "canvas.render",
   "node.list",
   "node.get",
-  "edge.list",
-  "edge.get",
-  "edge.verbs",
+  "wire.list",
+  "wire.get",
+  "wire.verbs",
   "tasks.list",
   "tasks.show",
   "tasks.rules",
@@ -191,7 +192,7 @@ describe("overseer coverage matrix", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
     expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
-    expect(FROZEN_OPERATIONS).toHaveLength(119);
+    expect(FROZEN_OPERATIONS).toHaveLength(120);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
     expect(matrix).toContain("canvasOverseerSet");
     expect(matrix).toContain("tests/overseer-admission.test.ts");
