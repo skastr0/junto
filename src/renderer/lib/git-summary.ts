@@ -2,7 +2,7 @@ import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { useEffect } from "react";
 import type { Canvas, Node } from "@shared/model";
-import { modelStore, nodeAt } from "./use-model";
+import { modelStore } from "./use-model";
 import type { GitSummary } from "@shared/git";
 import { resolveRegionCwd } from "@shared/region-defaults";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
@@ -113,7 +113,7 @@ export const toggleSeatGitDetail = (node: { readonly id: string }): boolean => {
     detailSeat$.set(null);
     return true;
   }
-  const folder = seatGitFolder(modelStore.canvasOf(state$.canvasName.peek()), nodeAt(state$.canvasName.peek(), node.id));
+  const folder = seatGitFolder(modelStore.canvasOf(state$.canvasName.peek()), modelStore.node$(state$.canvasName.peek(), node.id).peek());
   if (!folder || !summaries$[folder].peek()) return false;
   detailSeat$.set(node.id);
   return true;
@@ -152,7 +152,7 @@ const commitReview$ = observable<{ readonly nodeId: string; readonly sha: string
 export const canReviewCommit = (canvasName: string, nodeId: string): boolean => {
   if (state$.canvasName.peek() !== canvasName) return false;
   const doc = modelStore.canvasOf(canvasName);
-  const node = nodeAt(canvasName, nodeId);
+  const node = modelStore.node$(canvasName, nodeId).peek();
   return node !== undefined && seatGitFolder(doc, node) !== undefined;
 };
 
