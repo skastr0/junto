@@ -32,6 +32,7 @@ import {
   type PeerPidReader,
   type ProcessIdentityMap,
   type ProcessPrincipal,
+  OFFBOARDED_SESSION_MESSAGE,
 } from "../src/main/junto/process-identity";
 import type {
   PageTargetResolver,
@@ -600,6 +601,19 @@ describe("browser edge-grant process-bind dual admit", () => {
       ok: false,
       denial: "process_unbound",
     });
+
+    // A process whose seat moved on to a fresh session (an offboard drain) is
+    // refused here in the same words as on the work socket.
+    const generation = processMap.bindGeneration(process.pid, terminalPrincipal);
+    expect(generation).toBeDefined();
+    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({ ok: true });
+    expect(processMap.offboardGeneration(generation!)).toBe(true);
+    await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
+      ok: false,
+      denial: "process_unbound",
+      message: OFFBOARDED_SESSION_MESSAGE,
+    });
+    expect(capabilities.stats()).toMatchObject({ activeCapabilities: 0 });
   });
 
   it("denies a live stale process when its agent anchor conflicts with a reused node id", async () => {
