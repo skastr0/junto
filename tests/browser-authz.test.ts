@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -91,7 +92,7 @@ describe("browser edge authz", () => {
   );
 
   it("resolves the agent seat via physics actors; raw terminals are geography", () => {
-    const agent = resolveBrowserCaller(board, "work", "agent");
+    const agent = resolveBrowserCaller(canvasFromDocument("work", board), "work", "agent");
     expect(agent.ok).toBe(true);
     if (agent.ok) {
       expect(agent.principal.kind).toBe("agent");
@@ -99,7 +100,7 @@ describe("browser edge authz", () => {
     }
 
 
-    const term = resolveBrowserCaller(board, "work", "term");
+    const term = resolveBrowserCaller(canvasFromDocument("work", board), "work", "term");
     expect(term.ok).toBe(true);
     if (term.ok) {
       expect(term.principal.kind).toBe("agent");
@@ -107,8 +108,8 @@ describe("browser edge authz", () => {
     }
 
     // page and task are sinks — not browser callers
-    expect(resolveBrowserCaller(board, "work", "p1").ok).toBe(false);
-    expect(resolveBrowserCaller(board, "work", "tasks").ok).toBe(false);
+    expect(resolveBrowserCaller(canvasFromDocument("work", board), "work", "p1").ok).toBe(false);
+    expect(resolveBrowserCaller(canvasFromDocument("work", board), "work", "tasks").ok).toBe(false);
   });
 
   it("classifies caller kinds via physics role, not an ACL set", () => {
@@ -121,23 +122,23 @@ describe("browser edge authz", () => {
 
     const agentNode = board.nodes.find((n) => n.id === "agent")!;
     const pageNode = board.nodes.find((n) => n.id === "p1")!;
-    expect(isBrowserCallerNode(agentNode)).toBe(true);
-    expect(isBrowserCallerNode(pageNode)).toBe(false);
+    expect(isBrowserCallerNode(modelNode(agentNode))).toBe(true);
+    expect(isBrowserCallerNode(modelNode(pageNode))).toBe(false);
   });
 
   it("lists only edge-connected page nodes admitted for browser.automate", () => {
-    expect(areConnected(board, "agent", "p1")).toBe(true);
-    expect(connectedPageNodeIds(board, "agent")).toEqual(["p1"]);
-    expect(connectedPageRefs(board, "work", "agent")).toEqual([
+    expect(areConnected(canvasFromDocument("work", board), "agent", "p1")).toBe(true);
+    expect(connectedPageNodeIds(canvasFromDocument("work", board), "agent")).toEqual(["p1"]);
+    expect(connectedPageRefs(canvasFromDocument("work", board), "work", "agent")).toEqual([
       "junto://canvas/work?node=p1",
     ]);
-    expect(callerMayAccessPage(board, "agent", "p2")).toBe(false);
+    expect(callerMayAccessPage(canvasFromDocument("work", board), "agent", "p2")).toBe(false);
   });
 
   it("admits the agent seat as browser caller when edged to a page", () => {
-    expect(callerMayAccessPage(board, "term", "p1")).toBe(true);
-    expect(connectedPageNodeIds(board, "term")).toEqual(["p1"]);
-    expect(callerMayAccessPage(board, "term", "p2")).toBe(false);
+    expect(callerMayAccessPage(canvasFromDocument("work", board), "term", "p1")).toBe(true);
+    expect(connectedPageNodeIds(canvasFromDocument("work", board), "term")).toEqual(["p1"]);
+    expect(callerMayAccessPage(canvasFromDocument("work", board), "term", "p2")).toBe(false);
   });
 
   it("denies region-only co-membership for browser (no edge)", () => {
@@ -150,8 +151,8 @@ describe("browser edge authz", () => {
       [],
     );
     // Centers (50,20) and (250,20) sit inside the group — region peers only.
-    expect(callerMayAccessPage(regional, "agent", "p1")).toBe(false);
-    expect(connectedPageNodeIds(regional, "agent")).toEqual([]);
+    expect(callerMayAccessPage(canvasFromDocument("work", regional), "agent", "p1")).toBe(false);
+    expect(connectedPageNodeIds(canvasFromDocument("work", regional), "agent")).toEqual([]);
   });
 });
 
@@ -162,7 +163,7 @@ describe("process-bind (browser canvas resolution)", () => {
   );
 
   it("maps a process principal to edge-reachable pages", () => {
-    const resolved = resolveBrowserCallerFromProcess(board, "work", {
+    const resolved = resolveBrowserCallerFromProcess(canvasFromDocument("work", board), "work", {
       agentKey: "local:default",
     });
     expect(resolved.ok).toBe(true);
@@ -173,21 +174,21 @@ describe("process-bind (browser canvas resolution)", () => {
   });
 
   it("requires every supplied process anchor to match the current actor seat", () => {
-    const exact = resolveBrowserCallerFromProcess(board, "work", {
+    const exact = resolveBrowserCallerFromProcess(canvasFromDocument("work", board), "work", {
       nodeId: "agent",
       agentKey: "local:default",
       bindingId: "term-bind-1",
     });
     expect(exact.ok).toBe(true);
 
-    const staleAgent = resolveBrowserCallerFromProcess(board, "work", {
+    const staleAgent = resolveBrowserCallerFromProcess(canvasFromDocument("work", board), "work", {
       nodeId: "agent",
       agentKey: "local:retired",
       bindingId: "term-bind-1",
     });
     expect(staleAgent).toMatchObject({ ok: false, denial: "not_found" });
 
-    const staleBinding = resolveBrowserCallerFromProcess(board, "work", {
+    const staleBinding = resolveBrowserCallerFromProcess(canvasFromDocument("work", board), "work", {
       nodeId: "agent",
       agentKey: "local:default",
       bindingId: "retired-binding",
@@ -197,7 +198,7 @@ describe("process-bind (browser canvas resolution)", () => {
 
   it("denies when no edge to a page", () => {
     const isolated = doc([text("agent", "agent", "local:default"), page("p1")], []);
-    const resolved = resolveBrowserCallerFromProcess(isolated, "work", {
+    const resolved = resolveBrowserCallerFromProcess(canvasFromDocument("work", isolated), "work", {
       agentKey: "local:default",
     });
     expect(resolved.ok).toBe(false);
@@ -209,7 +210,7 @@ describe("process-bind (browser canvas resolution)", () => {
       [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
       [{ id: "e1", fromNode: "term", toNode: "p1", ether: { verb: "navigates" } }],
     );
-    const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
+    const resolved = resolveBrowserCallerFromProcess(canvasFromDocument("work", terminalBoard), "work", {
       bindingId: "bind-xyz",
       canvasName: "work",
       nodeId: "term",
@@ -227,7 +228,7 @@ describe("process-bind (browser canvas resolution)", () => {
       [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
       [{ id: "e1", fromNode: "term", toNode: "p1", ether: { verb: "navigates" } }],
     );
-    const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
+    const resolved = resolveBrowserCallerFromProcess(canvasFromDocument("work", terminalBoard), "work", {
       bindingId: "bind-xyz",
     });
     expect(resolved.ok).toBe(true);
@@ -239,7 +240,7 @@ describe("process-bind (browser canvas resolution)", () => {
       [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
       [{ id: "e1", fromNode: "term", toNode: "p1", ether: { verb: "navigates" } }],
     );
-    const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
+    const resolved = resolveBrowserCallerFromProcess(canvasFromDocument("work", terminalBoard), "work", {
       bindingId: "some-other-binding",
     });
     expect(resolved.ok).toBe(false);
@@ -262,3 +263,5 @@ describe("process identity map", () => {
     map.clear();
   });
 });
+
+const modelNode = (node: CanvasDoc["nodes"][number]) => canvasFromDocument("work", {nodes:[node], edges:[]}).nodes.values().next().value!;

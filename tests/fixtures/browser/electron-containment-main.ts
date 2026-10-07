@@ -1,3 +1,4 @@
+import { ModelService } from "../../../src/main/junto/model/service";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -660,11 +661,12 @@ void app.whenReady().then(async () => {
   await activeCanvasRuntime.runPromise(
     canvases.write(canvasName, fixtureCanvas.success),
   );
-  const listCanvasDocuments = async () =>
-    (await activeCanvasRuntime.runPromise(canvases.liveDocuments())).map(
-      ({ canvasName: name, doc }) => ({ name, doc }),
-    );
-  const resolvePageTarget = makePageTargetResolver(canvases);
+  const model = await activeCanvasRuntime.runPromise(ModelService);
+  const listCanvasModels = async () => activeCanvasRuntime.runPromise(Effect.gen(function* () {
+    const names = yield* model.listCanvases();
+    return yield* Effect.forEach(names, (name) => Effect.map(model.canvas(name), (doc) => ({ name, doc })));
+  }));
+  const resolvePageTarget = makePageTargetResolver(model);
   capabilities = makeBrowserCapabilityRegistry({
     onTerminate: (notice) => {
       const destroyedSessions =
@@ -744,7 +746,7 @@ void app.whenReady().then(async () => {
   const processBoundEdgeGrant = makeEdgeGrantService({
     capabilities,
     resolvePageTarget,
-    listCanvasDocuments,
+    listCanvasModels,
     processMap,
     station: LOCAL_BROWSER_TEST_AUTHORITY.station,
     admitBrowserHost: (hostId) =>
@@ -814,7 +816,7 @@ void app.whenReady().then(async () => {
     resolvePageTarget,
     version: app.getVersion(),
     home: controlHome,
-    listCanvasDocuments,
+    listCanvasModels,
     edgeGrant: admittingEdgeGrant(
       admissionTuples,
       processBoundEdgeGrant,

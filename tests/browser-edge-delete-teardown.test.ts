@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * S4 - Edge-delete session teardown (I10 / I20)
  *
@@ -171,8 +172,8 @@ describe("edge-revocation pure helpers", () => {
     ]);
     const next = twoPageDoc([{ id: "e2", from: "agent", to: "p2" }]);
     const lost = lostPageTargetsForCaller(
-      previous,
-      next,
+      canvasFromDocument("work", previous),
+      canvasFromDocument("work", next),
       "work",
       "agent",
       [
@@ -265,7 +266,7 @@ describe("browser edge-delete session teardown", () => {
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       resolvePageTarget,
-      listCanvasDocuments: async () => [{ name: "work", doc: liveDoc }],
+      listCanvasModels: async () => [{ name: "work", doc: canvasFromDocument("work", liveDoc) }],
       station: () => sessions.stationIdentity(),
       admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       sessions: {
@@ -341,8 +342,8 @@ describe("browser edge-delete session teardown", () => {
     const next = twoPageDoc([{ id: "e2", from: "agent", to: "p2" }]);
     setDoc(next);
     const receipts = edgeGrant.invalidateCanvas("work", {
-      previous,
-      next,
+      previous: canvasFromDocument("work", previous),
+      next: canvasFromDocument("work", next),
     });
 
     expect(receipts).toHaveLength(1);
@@ -399,7 +400,7 @@ describe("browser edge-delete session teardown", () => {
 
     const next = twoPageDoc([]);
     setDoc(next);
-    const receipts = edgeGrant.invalidateCanvas("work", { previous, next });
+    const receipts = edgeGrant.invalidateCanvas("work", { previous: canvasFromDocument("work", previous), next: canvasFromDocument("work", next) });
     expect(receipts.some((r) => r.pageRef === REF_P1 && r.status === "confirmed")).toBe(
       true,
     );
@@ -447,7 +448,7 @@ describe("browser edge-delete session teardown", () => {
         n.id === "agent" ? { ...n, x: 50 } : n,
       ),
     };
-    const receipts = edgeGrant.invalidateCanvas("work", { previous, next });
+    const receipts = edgeGrant.invalidateCanvas("work", { previous: canvasFromDocument("work", previous), next: canvasFromDocument("work", next) });
     expect(receipts).toEqual([]);
     expect(sessions.sessionIdForRefForOwner(lease.auditId, REF_P1)).toBe(
       opened.data.sessionId,

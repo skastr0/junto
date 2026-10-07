@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import type { CanvasSummary } from "../src/shared/ipc";
 import {
   formatNodeRef,
   nodeRefKey,
@@ -10,9 +9,11 @@ import {
 } from "../src/shared/node-ref";
 import {
   resolveNodeRef,
-  type CanvasNodeReader,
+  type ModelNodeReader,
 } from "../src/main/junto/node-ref-resolver";
-import { CanvasError } from "../src/main/junto/canvases";
+import { ModelStorageError } from "../src/main/junto/model/records";
+import { asCanvasName } from "../src/shared/model";
+import { canvasFromDocument } from "../src/shared/model/from-document";
 
 const parsed = (input: string): NodeRef => {
   const result = parseNodeRef(input);
@@ -34,28 +35,12 @@ const textNode = (id: string, kind?: string) => ({
 const reader = (
   docs: Readonly<Record<string, CanvasDoc>>,
   unreadable: ReadonlySet<string> = new Set(),
-): CanvasNodeReader => {
-  const summaries: ReadonlyArray<CanvasSummary> = Object.keys(docs).map((name) => ({
-    name,
-    modifiedAt: "2026-07-17T00:00:00.000Z",
-  }));
+): ModelNodeReader => {
   return {
-    list: Effect.succeed(summaries),
-    read: (name) => {
-      if (unreadable.has(name)) {
-        return Effect.fail(new CanvasError({ message: `canvas ${name} is corrupt` }));
-      }
-      const doc = docs[name];
-      return doc === undefined
-        ? Effect.fail(new CanvasError({ message: `canvas ${name} does not exist` }))
-        : Effect.succeed({
-          name,
-          doc,
-          actorRefs: [],
-          revision: `${name}-r1`,
-          workRevision: "0",
-        });
-    },
+    listCanvases: () => Effect.succeed(Object.keys(docs).map(asCanvasName)),
+    canvas: (name) => unreadable.has(name) || docs[name] === undefined
+      ? Effect.fail(new ModelStorageError({ cause: `canvas ${name} cannot be read` }))
+      : Effect.succeed(canvasFromDocument(name, docs[name])),
   };
 };
 
@@ -143,7 +128,6 @@ describe("Junto node reference resolver", () => {
       resolveNodeRef(canvases, { canvasName: "missing", nodeId: "n1" }),
       resolveNodeRef(canvases, { canvasName: "corrupt", nodeId: "n1" }),
       resolveNodeRef(canvases, { canvasName: "alpha", nodeId: "missing" }),
-      resolveNodeRef(canvases, { canvasName: "duplicate", nodeId: "same" }),
       resolveNodeRef(
         canvases,
         { canvasName: "alpha", nodeId: "only" },
@@ -156,7 +140,6 @@ describe("Junto node reference resolver", () => {
       "CanvasNotFound",
       "CanvasReadError",
       "NodeNotFound",
-      "DuplicateNodeId",
       "NodeKindMismatch",
     ]);
   });

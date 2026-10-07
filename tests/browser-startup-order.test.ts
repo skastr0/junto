@@ -65,7 +65,7 @@ describe("browser startup recovery gate", () => {
     const composition = activation.slice(control, bind);
     expect(composition).toContain("sessions: composition.sessions");
     expect(composition).toContain("edgeGrant");
-    expect(composition).toContain("listCanvasDocuments");
+    expect(composition).toContain("listCanvasModels");
   });
 
   it("creates the headless native parent before composition and injects the attachment target", () => {

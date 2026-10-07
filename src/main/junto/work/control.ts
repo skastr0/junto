@@ -3271,8 +3271,8 @@ export const startWorkControlServer = async (
           WorkService | CanvasesService | PausePlane
         > = Effect.gen(function* () {
           const liveDocsResult = yield* Effect.flatMap(
-            CanvasesService,
-            (canvases) => canvases.liveDocuments(),
+            WorkService,
+            (work) => work.readCanvases(admission.principal.canvasName),
           ).pipe(Effect.result);
           if (Result.isFailure(liveDocsResult)) {
             return Result.fail({
@@ -3286,7 +3286,7 @@ export const startWorkControlServer = async (
           }
 
           const callerResolved = resolveCallerAcrossCanvases(
-            liveDocsResult.success,
+            liveDocsResult.success.map((canvas) => ({ canvasName: canvas.name, doc: canvas })),
             admission.principal,
           );
           if (!callerResolved.ok) {
@@ -3310,8 +3310,8 @@ export const startWorkControlServer = async (
           const callerNode = callerResolved.caller.node;
           admittedBindingId =
             admission.principal.bindingId ??
-            (isManagedAgentNode(callerNode)
-              ? callerNode.ether.terminal.bindingId
+            (callerNode.kind === "agent"
+              ? callerNode.bindingId
               : undefined);
           // The offboard has arrived, from the seat's own process: from this
           // instant nothing more is typed into the session, the second half
@@ -3335,8 +3335,7 @@ export const startWorkControlServer = async (
             generation: admission.generationId,
           };
           admittedSeat = { canvasName: caller.canvasName, nodeId: caller.nodeId };
-          const nativeController = isManagedAgentNode(callerResolved.caller.node) &&
-            callerResolved.caller.node.ether.terminal.harness === "junto-overseer";
+          const nativeController = callerNode.kind === "agent" && callerNode.harness === "junto-overseer";
           if (!LIVE_OVERSEER_ENABLED && (nativeController || req.op === "overseer.live")) {
             return Result.fail<WorkErrorBody>({
               type: "ScopeError", message: "Live conversation is disabled in this Junto build",
@@ -3344,7 +3343,7 @@ export const startWorkControlServer = async (
           }
           const controllerIdentity = (): OverseerHostIdentity | undefined => {
             const node = callerResolved.caller.node;
-            if (!nativeController || !isManagedAgentNode(node)) return undefined;
+            if (!nativeController || node.kind !== "agent") return undefined;
             // This protocol belongs to the actual managed host, not arbitrary
             // descendants which happen to inherit its ordinary Work identity.
             // The peer read runs only here, once per connection: descendants
@@ -3357,7 +3356,7 @@ export const startWorkControlServer = async (
             if (binding === undefined) return undefined;
             return {
               canvasName: caller.canvasName, nodeId: caller.nodeId,
-              bindingId: node.ether.terminal.bindingId, peerPid,
+              bindingId: node.bindingId, peerPid,
               processGeneration: `${binding.pid}:${binding.startKey}`,
             };
           };
@@ -3385,7 +3384,7 @@ export const startWorkControlServer = async (
           // remain mandatory, including on a configured Remote projection.
           if (req.op === "overseer") {
             const node = callerResolved.caller.node;
-            if (!isManagedAgentNode(node) || node.ether.overseer !== true) {
+            if (node.kind !== "agent" || node.overseer !== true) {
               return Result.fail<WorkErrorBody>({
                 type: "ScopeError",
                 message: "only a human-enabled overseer seat may administer the canvas",

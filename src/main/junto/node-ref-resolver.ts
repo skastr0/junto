@@ -1,15 +1,11 @@
 import { Effect } from "effect";
-import type { CanvasNode } from "@shared/canvas";
-import type { CanvasReadResult, CanvasSummary } from "@shared/ipc";
+import { asNodeId, type Canvas, type CanvasName, type Node } from "@shared/model";
 import { nodeRefKey, type NodeRef, type NodeRefKey } from "@shared/node-ref";
-import type { CanvasError, CanvasReadTag } from "./canvases";
+import type { ModelError } from "./model/records";
 
-export interface CanvasNodeReader {
-  readonly list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError>;
-  readonly read: (
-    name: string,
-    tag?: CanvasReadTag,
-  ) => Effect.Effect<CanvasReadResult, CanvasError>;
+export interface ModelNodeReader {
+  readonly listCanvases: () => Effect.Effect<ReadonlyArray<CanvasName>, ModelError>;
+  readonly canvas: (name: string) => Effect.Effect<Canvas, ModelError>;
 }
 
 export type NodeRefResolutionError =
@@ -32,11 +28,6 @@ export type NodeRefResolutionError =
       readonly ref: NodeRef;
     }
   | {
-      readonly _tag: "DuplicateNodeId";
-      readonly ref: NodeRef;
-      readonly count: number;
-    }
-  | {
       readonly _tag: "NodeKindMismatch";
       readonly ref: NodeRef;
       readonly expected: string;
@@ -47,7 +38,7 @@ export interface ResolvedNodeRef {
   readonly ref: NodeRef;
   readonly key: NodeRefKey;
   readonly canvasName: string;
-  readonly node: CanvasNode;
+  readonly node: Node;
 }
 
 export interface ResolveNodeRefOptions {
@@ -55,7 +46,7 @@ export interface ResolveNodeRefOptions {
 }
 
 export const resolveNodeRef = (
-  canvases: CanvasNodeReader,
+  canvases: ModelNodeReader,
   ref: NodeRef,
   options: ResolveNodeRefOptions = {},
 ): Effect.Effect<ResolvedNodeRef, NodeRefResolutionError> =>
@@ -71,7 +62,7 @@ export const resolveNodeRef = (
       });
     }
 
-    const summaries = yield* canvases.list.pipe(
+    const summaries = yield* canvases.listCanvases().pipe(
       Effect.mapError(
         (error): NodeRefResolutionError => ({
           _tag: "CanvasReadError",
@@ -80,11 +71,11 @@ export const resolveNodeRef = (
         }),
       ),
     );
-    if (!summaries.some((summary) => summary.name === ref.canvasName)) {
+    if (!summaries.some((name) => name === ref.canvasName)) {
       return yield* Effect.fail({ _tag: "CanvasNotFound" as const, ref });
     }
 
-    const canvas = yield* canvases.read(ref.canvasName, "nodeRef.resolve").pipe(
+    const canvas = yield* canvases.canvas(ref.canvasName).pipe(
       Effect.mapError(
         (error): NodeRefResolutionError => ({
           _tag: "CanvasReadError",
@@ -93,24 +84,10 @@ export const resolveNodeRef = (
         }),
       ),
     );
-    const matches = canvas.doc.nodes.filter((node) => node.id === ref.nodeId);
-    if (matches.length === 0) {
-      return yield* Effect.fail({ _tag: "NodeNotFound" as const, ref });
-    }
-    if (matches.length !== 1) {
-      return yield* Effect.fail({
-        _tag: "DuplicateNodeId" as const,
-        ref,
-        count: matches.length,
-      });
-    }
-
-    const node = matches[0];
-    if (node === undefined) {
-      return yield* Effect.fail({ _tag: "NodeNotFound" as const, ref });
-    }
+    const node = canvas.nodes.get(asNodeId(ref.nodeId));
+    if (node === undefined) return yield* Effect.fail({ _tag: "NodeNotFound" as const, ref });
     const expected = options.expectedEntityKind;
-    const actual = node.ether?.entity?.kind;
+    const actual = node.kind;
     if (expected !== undefined && actual !== expected) {
       return yield* Effect.fail({
         _tag: "NodeKindMismatch" as const,

@@ -19,13 +19,13 @@ import {
 } from "@shared/browser-limits";
 import type { BrowserSessionService } from "./sessions";
 import { AppRuntime } from "../../runtime";
-import { CanvasesService } from "../canvases";
+import { ModelService } from "../model/service";
 import { SettingsService } from "../settings/service";
 import { makePageTargetResolver, type PageTargetResolver } from "./page-target";
 
 export const resolveBrowserPageTarget: PageTargetResolver = (ref) =>
   AppRuntime.runPromise(
-    Effect.flatMap(CanvasesService, (canvases) =>
+    Effect.flatMap(ModelService, (canvases) =>
       Effect.promise(() => makePageTargetResolver(canvases)(ref)),
     ),
   );

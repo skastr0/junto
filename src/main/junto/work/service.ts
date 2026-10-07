@@ -578,6 +578,7 @@ export interface WorkServiceShape {
       message: Message,
       admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Message>>;
+    readonly readCanvases: (canvasName?: string) => Effect.Effect<ReadonlyArray<Canvas>, WorkServiceError>;
     readonly readTopology: (canvas: string) => Effect.Effect<{ readonly canvas: Canvas; readonly actorRefs: ReadonlyArray<ActorRef> }, WorkServiceError>;
     readonly readTask: (canvas: string, nodeId: string, id: string, kind?: "task" | "requests") => Effect.Effect<Task | undefined, WorkServiceError>;
     readonly readTasks: (canvas: string, nodeId: string, kind?: "task" | "requests") => Effect.Effect<ReadonlyArray<Task>, WorkServiceError>;
@@ -1571,6 +1572,10 @@ export const WorkLive = Layer.effect(
     );
 
     return WorkService.of({
+      readCanvases: (canvasName) => withSqlRead(sql, Effect.gen(function* () {
+        const names = canvasName === undefined ? yield* model.listCanvases() : [canvasName];
+        return yield* Effect.forEach(names, (name) => model.canvas(name));
+      })).pipe(Effect.mapError(toWorkServiceError)),
       readTopology: (canvas) => readCanvas(canvas).pipe(Effect.map((read) => ({ canvas: read.topology, actorRefs: read.actorRefs }))),
       readTask: readItem,
       readTasks: (canvas, nodeId, kind = "task") => repository.taskLane(canvas, nodeId, kind).pipe(Effect.mapError(toWorkServiceError)),

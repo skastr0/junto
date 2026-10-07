@@ -1,5 +1,4 @@
-import type { CanvasNode } from "@shared/canvas";
-import { isGroup } from "@shared/graph";
+import type { Node } from "@shared/model";
 import { resolveSpec, roleOf } from "@shared/physics";
 import type { ProcessPrincipal } from "./process-identity";
 
@@ -11,11 +10,11 @@ import type { ProcessPrincipal } from "./process-identity";
  * reused. At least one anchor is required.
  */
 export const matchesProcessPrincipal = (
-  node: CanvasNode,
+  node: Node,
   principal: ProcessPrincipal,
 ): boolean => {
-  const kind = node.ether?.entity?.kind;
-  if (roleOf(resolveSpec({ kind, isGroup: isGroup(node) })) !== "actor") {
+  const kind = node.kind;
+  if (roleOf(resolveSpec({ kind, isGroup: node.kind === "region" })) !== "actor") {
     return false;
   }
   if (principal.nodeId !== undefined && node.id !== principal.nodeId) {
@@ -23,13 +22,13 @@ export const matchesProcessPrincipal = (
   }
   if (
     principal.agentKey !== undefined &&
-    node.ether?.entity?.name !== principal.agentKey
+    (node.kind !== "agent" || node.agentKey !== principal.agentKey)
   ) {
     return false;
   }
   if (
     principal.bindingId !== undefined &&
-    node.ether?.terminal?.bindingId !== principal.bindingId
+    ((node.kind !== "agent" && node.kind !== "terminal") || node.bindingId !== principal.bindingId)
   ) {
     return false;
   }

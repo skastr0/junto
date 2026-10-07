@@ -33,8 +33,10 @@ import {
 } from "@shared/overseer-authoring";
 import { INTERRUPT_BYTE } from "../term/drive";
 import type { ControlLease } from "../term/local-host";
-import { CanvasError } from "../canvases";
-import type { CanvasNodeReader } from "../node-ref-resolver";
+import { asCanvasName } from "@shared/model";
+import { canvasFromDocument } from "@shared/model/from-document";
+import { modelError } from "../model/records";
+import type { ModelNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
 import type { ChatService } from "../chat/service";
 import type { ActorSeatOccupyApi } from "../term/actor-seat-occupy";
@@ -44,11 +46,11 @@ import {
   type BrowserSessionService,
 } from "../browser/sessions";
 import { makePageTargetResolver } from "../browser/page-target";
-import { findNode } from "../browser/authz";
 import { readGitLog, readGitShow, readGitStatus } from "../adapters/git";
 import { getNextFire, getWatchers, overseerSchedulerFire } from "../kernel/cycle";
 import {
   admitOverseerPage,
+  findNode,
   overseerPageMessage,
   overseerPageNodeIds,
   overseerPageRefs,
@@ -310,34 +312,24 @@ type NativeContext = OverseerNativeLiveOptions & {
   readonly signal: AbortSignal;
 };
 
-const canvasFail = (message: string): CanvasError => new CanvasError({ message });
-
 const documentsReader = (
   listCanvasDocuments: OverseerNativeLiveOptions["listCanvasDocuments"],
-): CanvasNodeReader => ({
-  list: Effect.tryPromise({
-    try: async () =>
-      (await listCanvasDocuments()).map((entry) => ({
-        name: entry.name,
-        modifiedAt: "",
-      })),
-    catch: (error) => canvasFail(error instanceof Error ? error.message : String(error)),
-  }),
-  read: (name: string) =>
+): ModelNodeReader => ({
+  listCanvases: () =>
+    Effect.tryPromise({
+      try: async () =>
+        (await listCanvasDocuments()).map((entry) => asCanvasName(entry.name)),
+      catch: (error) => modelError("overseer.listCanvases", error),
+    }),
+  canvas: (name: string) =>
     Effect.tryPromise({
       try: async () => {
         const documents = await listCanvasDocuments();
         const found = documents.find((entry) => entry.name === name);
         if (found === undefined) throw new Error(`canvas not found: ${name}`);
-        return {
-          name,
-          doc: found.doc,
-          actorRefs: [],
-          revision: "live",
-          workRevision: "live",
-        };
+        return canvasFromDocument(name, found.doc);
       },
-      catch: (error) => canvasFail(error instanceof Error ? error.message : String(error)),
+      catch: (error) => modelError("overseer.canvas", error),
     }),
 });
 

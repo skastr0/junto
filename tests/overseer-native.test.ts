@@ -18,6 +18,7 @@ import {
   overseerPageNodeIds,
 } from "../src/main/junto/overseer/authz";
 import { callerMayAccessPage } from "../src/main/junto/browser/authz";
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import {
   makeOverseerNativeLive,
   type OverseerNativeLiveOptions,
@@ -215,7 +216,7 @@ describe("overseer page authz", () => {
     const board = doc([agent("a1"), page("p1")]);
     expect(admitOverseerPage(board, "p1").ok).toBe(true);
     expect(overseerPageNodeIds(board)).toEqual(["p1"]);
-    expect(callerMayAccessPage(board, "a1", "p1")).toBe(false);
+    expect(callerMayAccessPage(canvasFromDocument("factory", board), "a1", "p1")).toBe(false);
   });
 
   it("refuses a missing or unprofiled page", () => {

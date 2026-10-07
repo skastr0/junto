@@ -54,7 +54,7 @@ import {
 } from "./junto/observability";
 import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
-import { CanvasesService } from "./junto/canvases";
+import { ModelService } from "./junto/model/service";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
 import { registerNotificationIpc } from "./junto/notifications/ipc";
@@ -277,7 +277,7 @@ installBrowserEgressProxyAuth(app);
 
 const nodeRefIngress = makeNodeRefIngress((ref) =>
   AppRuntime.runPromise(
-    Effect.flatMap(CanvasesService, (canvases) => resolveNodeRef(canvases, ref)),
+    Effect.flatMap(ModelService, (model) => resolveNodeRef(model, ref)),
   ),
 );
 
@@ -1884,25 +1884,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       if (headless) await browserCompositionHost.ensureHeadlessHost();
       browserComposition = await startBrowserComposition(
         async (composition) => {
-          const readCanvasFromCanvases = async (name: string) => {
+          const listCanvasModels = async () => {
             try {
               return await AppRuntime.runPromise(
-                Effect.flatMap(CanvasesService, (canvases) =>
-                  Effect.map(canvases.read(name, "browser.readCanvas"), (result) => result.doc),
-                ),
-              );
-            } catch {
-              return undefined;
-            }
-          };
-          const listCanvasDocuments = async () => {
-            try {
-              return await AppRuntime.runPromise(
-                Effect.flatMap(CanvasesService, (canvases) =>
-                  Effect.map(canvases.liveDocuments(), (rows) =>
-                    rows.map((r) => ({ name: r.canvasName, doc: r.doc })),
-                  ),
-                ),
+                Effect.flatMap(ModelService, (model) => Effect.gen(function* () {
+                  const names = yield* model.listCanvases();
+                  return yield* Effect.forEach(names, (name) => Effect.map(model.canvas(name), (doc) => ({ name, doc })));
+                })),
               );
             } catch {
               return [];
@@ -1913,7 +1901,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           const edgeGrant = makeEdgeGrantService({
             capabilities: composition.registry,
             resolvePageTarget: resolveBrowserPageTarget,
-            listCanvasDocuments,
+            listCanvasModels,
             station: () => composition.sessions.stationIdentity(),
             admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
             admitStation: stationAdmission.admit,
@@ -1938,13 +1926,15 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             edgeGrant.clear();
           };
           const acquiredCanvasUnsubscribe = await AppRuntime.runPromise(
-            Effect.flatMap(CanvasesService, (canvases) =>
-              Effect.sync(() =>
-                canvases.subscribeChanges((name, detail) => {
-                  edgeGrant.invalidateCanvas(name, detail);
-                }),
-              ),
-            ),
+            Effect.flatMap(ModelService, (model) => Effect.sync(() => {
+              const changes = model.subscribeChanges((event, next) => {
+                edgeGrant.invalidateCanvas(event.canvas, { next });
+              });
+              const canvases = model.subscribeCanvasesChanges((event) => {
+                if (event._tag === "Removed") edgeGrant.invalidateCanvas(event.canvas, { next: undefined });
+              });
+              return () => { changes(); canvases(); };
+            })),
           );
           if (admissionCleanupRan) acquiredCanvasUnsubscribe();
           else canvasUnsubscribe = acquiredCanvasUnsubscribe;
@@ -1956,7 +1946,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             version: app.getVersion(),
             home: browserControlHome,
             edgeGrant,
-            listCanvasDocuments,
+            listCanvasModels,
           });
           const productPath = makeElectronBrowserReadinessProductPath({
             compositionHost: browserCompositionHost,

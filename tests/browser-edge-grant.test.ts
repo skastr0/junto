@@ -1,9 +1,11 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { mkdtemp, rm } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ManagedRuntime } from "effect";
+import { ManagedRuntime, Schema } from "effect";
+import { BindingId } from "../src/shared/model/kinds";
 import { SqlClient } from "effect/unstable/sql";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -223,11 +225,11 @@ describe("browser edge-grant process-bind dual admit", () => {
         if (candidate === REF_PAGE) return { ok: true, data: TARGET };
         return { ok: false, code: "not_found", message: "missing" };
       });
-    const listCanvasDocuments = async () => [{ name: "work", doc }];
+    const listCanvasModels = async () => [{ name: "work", doc: canvasFromDocument("work", doc) }];
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       resolvePageTarget,
-      listCanvasDocuments,
+      listCanvasModels,
       station: () => sessions.stationIdentity(),
       admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       ...(identity ?? {}),
@@ -237,7 +239,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       capabilities,
       resolvePageTarget,
       version: "0.0.0-test",
-      listDocuments: listCanvasDocuments,
+      listDocuments: listCanvasModels,
       shotsDir: join(root, "shots"),
       edgeGrant,
     });
@@ -386,7 +388,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const authority = stationAuthority("local");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      listCanvasDocuments: async () => {
+      listCanvasModels: async () => {
         throw new Error("database unavailable");
       },
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
@@ -430,7 +432,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      listCanvasDocuments: async () => [{ name: "work", doc }],
+      listCanvasModels: async () => [{ name: "work", doc: canvasFromDocument("work", doc) }],
       resolvePageTarget: async (candidate) =>
         candidate === REF_PAGE
           ? { ok: true, data: { ...TARGET, hostId: "render" } }
@@ -476,7 +478,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      listCanvasDocuments: async () => [{ name: "work", doc }],
+      listCanvasModels: async () => [{ name: "work", doc: canvasFromDocument("work", doc) }],
       resolvePageTarget: async (candidate) =>
         candidate === REF_PAGE
           ? { ok: true, data: { ...TARGET, hostId: "studio" } }
@@ -516,7 +518,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const authority = stationAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
-      listCanvasDocuments: async () => [{ name: "work", doc }],
+      listCanvasModels: async () => [{ name: "work", doc: canvasFromDocument("work", doc) }],
       resolvePageTarget: async () => ({ ok: true, data: { ...TARGET, hostId: "render" } }),
       station: authority.station,
       admitBrowserHost: (hostId) => {
@@ -767,6 +769,32 @@ describe("browser edge-grant process-bind dual admit", () => {
         admission.expectedPrincipal,
       ),
     ).toEqual({ ok: false, denial: "unauthorized" });
+    lease.release();
+  });
+
+  it.each(["binding", "host"] as const)("revokes a cached process lease when the seat %s changes", async (field) => {
+    const doc = canvasDoc(true);
+    const { edgeGrant, capabilities } = makeStack(doc);
+    const admission = await edgeGrant.admitPrincipal({
+      agentKey: "local:default", bindingId: "bind-local-default",
+    });
+    expect(admission.ok).toBe(true);
+    if (!admission.ok) return;
+    const lease = capabilities.authorize(admission.secret, { action: "pages" }, {
+      requestId: "00000000-0000-4000-8000-000000000001",
+      expectedPrincipal: admission.expectedPrincipal,
+    });
+    const next = canvasFromDocument("work", doc);
+    const nodes = new Map(next.nodes);
+    for (const node of nodes.values()) {
+      if (node.kind === "agent") nodes.set(node.id, {
+        ...node, ...(field === "binding" ? { bindingId: Schema.decodeUnknownSync(BindingId)("fresh-binding") } : { host: "another-host" }),
+      });
+    }
+    edgeGrant.invalidateCanvas("work", { next: { ...next, nodes } });
+    expect(lease.signal.aborted).toBe(true);
+    expect(capabilities.preflight(admission.secret, "pages", admission.expectedPrincipal))
+      .toEqual({ ok: false, denial: "unauthorized" });
     lease.release();
   });
 

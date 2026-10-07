@@ -1,4 +1,4 @@
-import type { CanvasDoc } from "@shared/canvas";
+import { asNodeId, type Canvas } from "@shared/model";
 import type { Socket } from "node:net";
 import { createHash } from "node:crypto";
 import {
@@ -18,17 +18,21 @@ import {
   type ProcessPrincipal,
   readUnixPeerPid,
 } from "../process-identity";
-import { resolveNodeHostId, type StationRole } from "@shared/station";
+import type { StationRole } from "@shared/station";
 import { parseNodeRef } from "@shared/node-ref";
 import type { BrowserHostCapabilityAdmission } from "./host-capability";
 import type { BrowserStationAdmissionResult } from "./station-admission";
-import type { CanvasChangeDetail } from "../canvases";
 import {
   allTargetsLost,
   lostPageTargetsForCaller,
   receiptForHostTeardown,
   type EdgeRevocationReceipt,
 } from "./edge-revocation";
+
+export interface CanvasChangeDetail {
+  readonly previous?: Canvas;
+  readonly next?: Canvas;
+}
 
 // Edge-grant admission for process-bound callers:
 //   peer PID → registered principal → canvas actor node → edges → pages
@@ -150,9 +154,9 @@ export interface EdgeGrantDependencies {
    * Command Center; a Remote can never fall through to ambient local state.
    */
   readonly admitStation?: () => Promise<BrowserStationAdmissionResult>;
-  /** Canonical SQLite-backed document source. */
-  readonly listCanvasDocuments: () => Promise<
-    ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>
+  /** Current model rows from the main-owned service. */
+  readonly listCanvasModels: () => Promise<
+    ReadonlyArray<{ readonly name: string; readonly doc: Canvas }>
   >;
 }
 
@@ -319,8 +323,13 @@ export const makeEdgeGrantService = (
       const entry = cache.get(cacheKey);
       if (entry === undefined) continue;
 
+      const nextCaller = detail.next === undefined ? undefined
+        : resolveBrowserCallerFromProcess(detail.next, canvasName, entry.processPrincipal);
+      const callerAdmitted = nextCaller?.ok === true
+        && nextCaller.principal.nodeId === entry.callerNodeId
+        && admitsPhysicalStation(detail.next!, entry.callerNodeId, nextCaller.pageRefs) === undefined;
       const lost =
-        detail.next === undefined
+        !callerAdmitted
           ? allTargetsLost(entry.targets, canvasName, entry.callerNodeId)
           : lostPageTargetsForCaller(
               detail.previous,
@@ -337,9 +346,9 @@ export const makeEdgeGrantService = (
     return lastReceipts;
   };
 
-  const loadDocs = async (): Promise<ReadonlyArray<{ name: string; doc: CanvasDoc }>> => {
+  const loadDocs = async (): Promise<ReadonlyArray<{ name: string; doc: Canvas }>> => {
     try {
-      const rows = await dependencies.listCanvasDocuments();
+      const rows = await dependencies.listCanvasModels();
       return [...rows]
         .map((r) => ({ name: r.name, doc: r.doc }))
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -372,13 +381,13 @@ export const makeEdgeGrantService = (
   };
 
   const admitsPhysicalStation = (
-    doc: CanvasDoc,
+    doc: Canvas,
     callerNodeId: string,
     pageRefs: ReadonlyArray<string>,
   ): EdgeGrantResult | undefined => {
     const station = dependencies.station();
-    const caller = doc.nodes.find((node) => node.id === callerNodeId);
-    if (station === undefined || caller === undefined || resolveNodeHostId(caller) !== station.hostId) {
+    const caller = doc.nodes.get(asNodeId(callerNodeId));
+    if (station === undefined || caller === undefined || ("host" in caller ? caller.host : "local") !== station.hostId) {
       return fail(
         "physical_host_mismatch",
         "caller node is not assigned to this physical station",
@@ -394,9 +403,9 @@ export const makeEdgeGrantService = (
     for (const ref of pageRefs) {
       const parsed = parseNodeRef(ref);
       const page = parsed.ok
-        ? doc.nodes.find((node) => node.id === parsed.value.nodeId)
+        ? doc.nodes.get(asNodeId(parsed.value.nodeId))
         : undefined;
-      if (page === undefined || resolveNodeHostId(page) !== station.hostId) {
+      if (page === undefined || ("host" in page ? page.host : "local") !== station.hostId) {
         return fail(
           "physical_host_mismatch",
           "connected page is not assigned to this physical station",
@@ -455,7 +464,7 @@ export const makeEdgeGrantService = (
     const matches: Array<{
       canvasName: string;
       callerNodeId: string;
-      doc: CanvasDoc;
+      doc: Canvas;
       pageRefs: ReadonlyArray<string>;
     }> = [];
 

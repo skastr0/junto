@@ -1,4 +1,4 @@
-import type { CanvasDoc } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
 import type { CapabilityViewOptions } from "@shared/physics";
@@ -36,12 +36,12 @@ export type BrowserProcessBindResult =
   | { readonly ok: false; readonly denial: BrowserProcessBindDenial; readonly message: string };
 
 /**
- * Resolve a process principal against one canvas document into a browser
+ * Resolve a process principal against one canvas into a browser
  * caller + edge-reachable page refs.
  * `viewOptions` carries placement topology when the origin knows its CC host.
  */
 export const resolveBrowserCallerFromProcess = (
-  doc: CanvasDoc,
+  doc: Canvas,
   canvasName: string,
   principal: ProcessPrincipal,
   viewOptions?: CapabilityViewOptions,
@@ -54,7 +54,7 @@ export const resolveBrowserCallerFromProcess = (
     };
   }
 
-  const hits = doc.nodes.filter((n) => matchesProcessPrincipal(n, principal));
+  const hits = [...doc.nodes.values()].filter((n) => matchesProcessPrincipal(n, principal));
   if (hits.length === 0) {
     return {
       ok: false,

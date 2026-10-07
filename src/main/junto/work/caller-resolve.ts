@@ -1,7 +1,6 @@
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import { asNodeId, type Canvas, type Node } from "@shared/model";
 import type { ProcessPrincipal } from "../process-identity";
 import { matchesProcessPrincipal } from "../process-principal-match";
-import { findNode } from "./authz";
 
 // Resolve a process-bound principal to a concrete canvas caller node. Caller
 // identity comes only from the main-owned process registration.
@@ -12,8 +11,8 @@ import { findNode } from "./authz";
 export interface ResolvedWorkCaller {
   readonly canvasName: string;
   readonly nodeId: string;
-  readonly node: CanvasNode;
-  readonly doc: CanvasDoc;
+  readonly node: Node;
+  readonly doc: Canvas;
 }
 
 export type CallerResolveFailure =
@@ -24,9 +23,9 @@ export type CallerResolveResult =
   | { readonly ok: true; readonly caller: ResolvedWorkCaller }
   | CallerResolveFailure;
 
-/** Resolve against one already-loaded document (tests / hot path). */
+/** Resolve against one already-loaded canvas (tests / hot path). */
 export const resolveCallerOnDoc = (
-  doc: CanvasDoc,
+  doc: Canvas,
   canvasName: string,
   principal: ProcessPrincipal,
 ): CallerResolveResult => {
@@ -38,12 +37,12 @@ export const resolveCallerOnDoc = (
     };
   }
   if (principal.nodeId !== undefined && principal.canvasName === canvasName) {
-    const node = findNode(doc, principal.nodeId);
+    const node = doc.nodes.get(asNodeId(principal.nodeId));
     if (node && matchesProcessPrincipal(node, principal)) {
       return { ok: true, caller: { canvasName, nodeId: node.id, node, doc } };
     }
   }
-  const hits = doc.nodes.filter((n) => matchesProcessPrincipal(n, principal));
+  const hits = [...doc.nodes.values()].filter((n) => matchesProcessPrincipal(n, principal));
   if (hits.length === 0) {
     return {
       ok: false,
@@ -63,11 +62,11 @@ export const resolveCallerOnDoc = (
 };
 
 /**
- * Resolve against the live authority document set (not raw disk).
+ * Resolve against the live authority canvas set (not raw disk).
  * Used when the process was bound by agentKey/paneId without a canvas anchor.
  */
 export const resolveCallerAcrossCanvases = (
-  documents: ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
+  documents: ReadonlyArray<{ readonly canvasName: string; readonly doc: Canvas }>,
   principal: ProcessPrincipal,
 ): CallerResolveResult => {
   if (principal.canvasName !== undefined) {

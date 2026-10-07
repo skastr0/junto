@@ -1,10 +1,9 @@
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { isGroup } from "@shared/graph";
+import { canvasToCapabilityView } from "@shared/physics/view";
+import { asNodeId as modelNodeId, type Canvas, type Node } from "@shared/model";
 import { formatNodeRef, type NodeRefKey } from "@shared/node-ref";
 import {
   admitPure,
   asNodeId,
-  canvasDocToCapabilityView,
   isWellKnownKind,
   resolveSpec,
   roleOf,
@@ -44,18 +43,18 @@ export interface BrowserCallerPrincipal {
   readonly bindingId?: string;
 }
 
-export const nodeKind = (node: CanvasNode | undefined): string | undefined =>
-  node?.ether?.entity?.kind;
+export const nodeKind = (node: Node | undefined): string | undefined =>
+  node?.kind;
 
-export const findNode = (doc: CanvasDoc, nodeId: string): CanvasNode | undefined =>
-  doc.nodes.find((n) => n.id === nodeId);
+export const findNode = (doc: Canvas, nodeId: string): Node | undefined =>
+  doc.nodes.get(modelNodeId(nodeId));
 
 /** Undirected: any edge between a and b counts as connected. */
-export const areConnected = (doc: CanvasDoc, a: string, b: string): boolean => {
+export const areConnected = (doc: Canvas, a: string, b: string): boolean => {
   if (a === b) return true;
-  return doc.edges.some(
+  return [...doc.wires.values()].some(
     (e) =>
-      (e.fromNode === a && e.toNode === b) || (e.fromNode === b && e.toNode === a),
+      (e.from === a && e.to === b) || (e.from === b && e.to === a),
   );
 };
 
@@ -64,9 +63,9 @@ export const areConnected = (doc: CanvasDoc, a: string, b: string): boolean => {
  * BROWSER_CALLER_KINDS ACL table. Geography (regions, notes) is not an
  * actor, so it is refused here with no edit to this file.
  */
-export const isBrowserCallerNode = (node: CanvasNode | undefined): boolean => {
+export const isBrowserCallerNode = (node: Node | undefined): boolean => {
   if (!node) return false;
-  const spec = resolveSpec({ kind: nodeKind(node), isGroup: isGroup(node) });
+  const spec = resolveSpec({ kind: nodeKind(node), isGroup: node.kind === "region" });
   return roleOf(spec) === "actor";
 };
 
@@ -77,8 +76,8 @@ export const isBrowserCallerKind = (kind: string | undefined): kind is ActorKind
   return roleOf(resolveSpec({ kind, isGroup: false })) === "actor";
 };
 
-export const isPageNode = (node: CanvasNode | undefined): boolean =>
-  node !== undefined && node.type === "link" && nodeKind(node) === "page";
+export const isPageNode = (node: Node | undefined): boolean =>
+  node?.kind === "page";
 
 /**
  * Resolve a canvas actor against the browser port. Graph physics decides, and
@@ -86,7 +85,7 @@ export const isPageNode = (node: CanvasNode | undefined): boolean =>
  * narrower kind set. Region membership alone is never enough.
  */
 export const resolveBrowserCaller = (
-  doc: CanvasDoc,
+  doc: Canvas,
   canvasName: string,
   nodeId: string,
 ):
@@ -101,12 +100,8 @@ export const resolveBrowserCaller = (
 
   // One actor kind, and it carries both: the agent seat *is* a managed terminal,
   // so name and binding come off the same node rather than one per kind.
-  const agentKey =
-    typeof node.ether?.entity?.name === "string" ? node.ether.entity.name : undefined;
-  const bindingId =
-    typeof node.ether?.terminal?.bindingId === "string"
-      ? node.ether.terminal.bindingId
-      : undefined;
+  const agentKey = node.kind === "agent" ? node.agentKey : undefined;
+  const bindingId = node.kind === "agent" || node.kind === "terminal" ? node.bindingId : undefined;
 
   return {
     ok: true,
@@ -129,12 +124,12 @@ export const resolveBrowserCaller = (
  * knows the Command Center host id.
  */
 export const admitBrowserPage = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   pageNodeId: string,
   viewOptions?: CapabilityViewOptions,
 ): boolean => {
-  const view = canvasDocToCapabilityView(doc, viewOptions);
+  const view = canvasToCapabilityView(doc, viewOptions);
   const result = admitPure(
     view,
     asNodeId(callerId),
@@ -146,18 +141,18 @@ export const admitBrowserPage = (
 
 /** Page node ids the caller may automate (edge + physics port admit). */
 export const connectedPageNodeIds = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   viewOptions?: CapabilityViewOptions,
 ): ReadonlyArray<string> => {
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const edge of doc.edges) {
+  for (const edge of doc.wires.values()) {
     const other =
-      edge.fromNode === callerId
-        ? edge.toNode
-        : edge.toNode === callerId
-          ? edge.fromNode
+      edge.from === callerId
+        ? edge.to
+        : edge.to === callerId
+          ? edge.from
           : undefined;
     if (other === undefined || seen.has(other)) continue;
     const node = findNode(doc, other);
@@ -171,7 +166,7 @@ export const connectedPageNodeIds = (
 
 /** Canonical page refs the caller may act on via edge authority. */
 export const connectedPageRefs = (
-  doc: CanvasDoc,
+  doc: Canvas,
   canvasName: string,
   callerId: string,
   viewOptions?: CapabilityViewOptions,
@@ -189,7 +184,7 @@ export const connectedPageRefs = (
 
 /** True when the caller is admitted to browser.automate on the page node. */
 export const callerMayAccessPage = (
-  doc: CanvasDoc,
+  doc: Canvas,
   callerId: string,
   pageNodeId: string,
 ): boolean => {

@@ -2,10 +2,9 @@ import { Effect, Result } from "effect";
 import { isValidProfileId } from "@shared/browser";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
-import { resolveNodeHostId } from "@shared/station";
 import {
   resolveNodeRef,
-  type CanvasNodeReader,
+  type ModelNodeReader,
   type NodeRefResolutionError,
 } from "../node-ref-resolver";
 import { runClosedBrowserEffect } from "./run-closed";
@@ -40,8 +39,6 @@ const resolutionFailure = (error: NodeRefResolutionError): PageTargetResult => {
       return fail("not_found", `page node not found for ${error.ref.nodeId}`);
     case "CanvasReadError":
       return fail("failed", "canvas could not be read");
-    case "DuplicateNodeId":
-      return fail("invalid", `page ref resolves to ${error.count} nodes`);
     case "NodeKindMismatch":
       return fail("invalid", "node ref does not identify a page");
     case "InvalidNodeRef":
@@ -50,11 +47,11 @@ const resolutionFailure = (error: NodeRefResolutionError): PageTargetResult => {
 };
 
 /**
- * Resolve a locator against the current canvas document. The caller supplies
+ * Resolve a locator against the current canvas. The caller supplies
  * only the canonical ref; URL, profile, and display node id always come from
- * the uniquely resolved page link.
+ * the resolved page row.
  */
-export const makePageTargetResolver = (canvases: CanvasNodeReader): PageTargetResolver =>
+export const makePageTargetResolver = (canvases: ModelNodeReader): PageTargetResolver =>
   async (candidate) => {
     if (typeof candidate !== "string") return fail("invalid", "canonical page ref required");
     const parsed = parseNodeRef(candidate);
@@ -67,8 +64,8 @@ export const makePageTargetResolver = (canvases: CanvasNodeReader): PageTargetRe
       if (Result.isFailure(resolved)) return resolutionFailure(resolved.failure);
 
       const node = resolved.success.node;
-      if (node.type !== "link") return fail("invalid", "page node must be a link node");
-      const profile = node.ether?.browser?.profile;
+      if (node.kind !== "page") return fail("invalid", "node ref does not identify a page");
+      const profile = node.profile;
       if (profile === undefined || !isValidProfileId(profile)) {
         return fail("invalid", "page node must bind a valid browser profile");
       }
@@ -77,7 +74,7 @@ export const makePageTargetResolver = (canvases: CanvasNodeReader): PageTargetRe
         data: {
           ref: resolved.success.key,
           nodeId: node.id,
-          hostId: resolveNodeHostId(node),
+          hostId: node.host,
           url: node.url,
           profile,
         },

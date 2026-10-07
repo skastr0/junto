@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
@@ -75,9 +76,9 @@ const resolvePageTarget: PageTargetResolver = async (ref) =>
         },
       }
     : { ok: false, code: "not_found", message: "page not found" };
-const listCanvasDocuments = async () => [{
+const listCanvasModels = async () => [{
   name: "work",
-  doc: {
+  doc: canvasFromDocument("work", {
     nodes: [{
       id: "cli-node",
       type: "link" as const,
@@ -92,7 +93,7 @@ const listCanvasDocuments = async () => [{
       },
     }],
     edges: [],
-  },
+  }),
 }];
 
 /** Transport tests: admit every socket with a pre-minted internal lease. */
@@ -227,7 +228,7 @@ const startStack = async (
       version: "transport-test",
       home: root,
       edgeGrant,
-      listCanvasDocuments,
+      listCanvasModels,
     },
     runtime,
   );
@@ -480,7 +481,7 @@ describe("browser control Unix transport", () => {
         version: "transport-test",
         home: root,
         edgeGrant,
-        listCanvasDocuments,
+        listCanvasModels,
       },
       {
         chmodSocket: chmodSync,
@@ -698,7 +699,7 @@ describe("browser control Unix transport", () => {
         version: "transport-test",
         home: root,
         edgeGrant,
-        listCanvasDocuments,
+        listCanvasModels,
       },
       {
         chmodSocket: chmodSync,
@@ -787,7 +788,7 @@ describe("browser control Unix transport", () => {
           resolvePageTarget,
           version: "transport-test",
           home: root,
-          listCanvasDocuments,
+          listCanvasModels,
         },
         runtime,
       ),
@@ -817,7 +818,7 @@ describe("browser control Unix transport", () => {
           resolvePageTarget,
           version: "transport-test",
           home: root,
-          listCanvasDocuments,
+          listCanvasModels,
         },
         runtime,
       ),

@@ -2,7 +2,6 @@ import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { isValidProfileId } from "@shared/browser";
 import { formatNodeRef, type NodeRefKey } from "@shared/node-ref";
 import { resolveNodeHostId } from "@shared/station";
-import { findNode, isPageNode } from "../browser/authz";
 import type { BrowserHostCapabilityAdmission } from "../browser/host-capability";
 
 /**
@@ -11,6 +10,13 @@ import type { BrowserHostCapabilityAdmission } from "../browser/host-capability"
  * constraints stay with BrowserSessionService + admitBrowserHostCapability.
  * Normal agent callers still go through admitBrowserPage / edge-grant.
  */
+
+/** The overseer reads documents until its commands are cut onto the model. */
+export const findNode = (doc: CanvasDoc, nodeId: string): CanvasNode | undefined =>
+  doc.nodes.find((node) => node.id === nodeId);
+
+const isPageNode = (node: CanvasNode | undefined): boolean =>
+  node !== undefined && node.type === "link" && node.ether?.entity?.kind === "page";
 
 export type OverseerPageDenial = "page_missing" | "invalid_profile";
 

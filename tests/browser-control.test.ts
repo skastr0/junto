@@ -1,3 +1,5 @@
+import type { Canvas } from "../src/shared/model";
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -338,7 +340,7 @@ describe("control route handlers", () => {
       version: "0.0.0-test",
       listDocuments: async () => [{
         name: "work",
-        doc: {
+        doc: canvasFromDocument("work", {
           nodes: [{
             id: "n1",
             type: "link",
@@ -353,7 +355,7 @@ describe("control route handlers", () => {
             },
           }],
           edges: [],
-        },
+        }),
       }],
       shotsDir: join(root, "shots"),
       ...(screenshotFiles === undefined ? {} : { screenshotFiles }),
@@ -1113,7 +1115,7 @@ describe("listPageNodes", () => {
     expect(
       await listPageNodes(async () => [{
         name: "work",
-        doc: {
+        doc: canvasFromDocument("work", {
           nodes: [
             {
               id: "p1",
@@ -1128,7 +1130,7 @@ describe("listPageNodes", () => {
             { id: "l1", type: "link", url: "https://plain.example.com", x: 0, y: 0, width: 1, height: 1 },
           ],
           edges: [],
-        },
+        }),
       }]),
     ).toEqual([
       {
@@ -1157,10 +1159,11 @@ describe("listPageNodes", () => {
       }],
       edges: [],
     };
-    const sourceBytes = utf8ByteLength(JSON.stringify(doc));
+    const model = canvasFromDocument("work", doc);
+    const sourceBytes = utf8ByteLength(JSON.stringify({nodes:[...model.nodes.values()],wires:[...model.wires.values()]}));
     const documents = async () => [
-      { name: "a", doc },
-      { name: "b", doc },
+      { name: "a", doc: canvasFromDocument("work", doc) },
+      { name: "b", doc: canvasFromDocument("work", doc) },
     ];
 
     expect(await listPageNodes(documents, undefined, { maxCanvasQueryBytes: sourceBytes - 1 }))
@@ -1205,8 +1208,8 @@ describe("listPageNodes", () => {
       edges: [],
     };
     const boundedRows = await listPageNodes(async () => [
-      { name: "oversized", doc: oversized },
-      { name: "bounded", doc: bounded },
+      { name: "oversized", doc: canvasFromDocument("work", oversized) },
+      { name: "bounded", doc: canvasFromDocument("work", bounded) },
     ]);
     expect(boundedRows).toEqual([{
       ref: "junto://canvas/bounded?node=good",
@@ -1218,10 +1221,10 @@ describe("listPageNodes", () => {
       profile: "personal",
     }]);
 
-    const documents: ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }> =
+    const documents: ReadonlyArray<{ readonly name: string; readonly doc: Canvas }> =
       Array.from({ length: 8 }, (_, fileIndex) => ({
         name: `pages-${fileIndex}`,
-        doc: {
+        doc: canvasFromDocument("work", {
           nodes: Array.from({ length: 400 }, (_, rowIndex) => ({
             id: `p-${fileIndex}-${rowIndex}`,
             type: "link",
@@ -1230,7 +1233,7 @@ describe("listPageNodes", () => {
             ether: { entity: { kind: "page" } },
           })),
           edges: [],
-        },
+        }),
       }));
     const rows = await listPageNodes(async () => documents);
     expect(rows.length).toBeGreaterThan(0);
@@ -1273,7 +1276,7 @@ describe("listPageNodes", () => {
       edges: [],
     };
     const rows = await listPageNodes(
-      async () => [{ name: "work", doc }],
+      async () => [{ name: "work", doc: canvasFromDocument("work", doc) }],
       undefined,
       {},
       "junto-ui",

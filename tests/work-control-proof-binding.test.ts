@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import {
@@ -101,7 +102,10 @@ const canvasesService = CanvasesService.of({
   activeActorRefs: () => Effect.succeed([]),
 });
 
+const canvas = canvasFromDocument("proof", doc);
 const workService = {
+  readCanvases: () => Effect.succeed([canvas]),
+  readTopology: () => Effect.succeed({ canvas, actorRefs: [] }),
   commandStatus: Effect.succeed({
     counts: { pending: 0, applied: 0, rejected: 0 },
     pending: [],

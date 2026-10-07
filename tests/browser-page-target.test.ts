@@ -1,8 +1,10 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import type { CanvasNodeReader } from "../src/main/junto/node-ref-resolver";
-import { CanvasError } from "../src/main/junto/canvases";
+import type { ModelNodeReader } from "../src/main/junto/node-ref-resolver";
+import { ModelStorageError } from "../src/main/junto/model/records";
+import { asCanvasName } from "../src/shared/model";
+import { canvasFromDocument } from "../src/shared/model/from-document";
 import { makePageTargetResolver } from "../src/main/junto/browser/page-target";
 
 const page = (
@@ -25,25 +27,11 @@ const page = (
   },
 });
 
-const reader = (docs: Readonly<Record<string, CanvasDoc>>): CanvasNodeReader => ({
-  list: Effect.succeed(
-    Object.keys(docs).map((name) => ({
-      name,
-      modifiedAt: "2026-07-17T00:00:00.000Z",
-    })),
-  ),
-  read: (name) => {
-    const doc = docs[name];
-    return doc === undefined
-      ? Effect.fail(new CanvasError({ message: "missing" }))
-      : Effect.succeed({
-          name,
-          doc,
-          actorRefs: [],
-          revision: `${name}-r1`,
-          workRevision: "0",
-        });
-  },
+const reader = (docs: Readonly<Record<string, CanvasDoc>>): ModelNodeReader => ({
+  listCanvases: () => Effect.succeed(Object.keys(docs).map(asCanvasName)),
+  canvas: (name) => docs[name] === undefined
+    ? Effect.fail(new ModelStorageError({ cause: "missing" }))
+    : Effect.succeed(canvasFromDocument(name, docs[name])),
 });
 
 describe("canonical browser page target resolution", () => {
@@ -113,7 +101,7 @@ describe("canonical browser page target resolution", () => {
     });
   });
 
-  it("rejects non-page, non-link, unbound, invalid-profile, and duplicate targets", async () => {
+  it("rejects non-page nodes and invalid browser profiles", async () => {
     const resolve = makePageTargetResolver(
       reader({
         work: {
@@ -138,7 +126,7 @@ describe("canonical browser page target resolution", () => {
         },
       }),
     );
-    for (const id of ["plain", "text-page", "unbound", "bad-profile", "duplicate"]) {
+    for (const id of ["plain", "bad-profile"]) {
       expect(await resolve(`junto://canvas/work?node=${id}`)).toMatchObject({
         ok: false,
         code: "invalid",
@@ -147,11 +135,9 @@ describe("canonical browser page target resolution", () => {
   });
 
   it("maps canvas read failures to a typed failed result without leaking details", async () => {
-    const failing: CanvasNodeReader = {
-      list: Effect.succeed([
-        { name: "work", modifiedAt: "2026-07-17T00:00:00.000Z" },
-      ]),
-      read: () => Effect.fail(new CanvasError({ message: "secret filesystem detail" })),
+    const failing: ModelNodeReader = {
+      listCanvases: () => Effect.succeed([asCanvasName("work")]),
+      canvas: () => Effect.fail(new ModelStorageError({ cause: "secret filesystem detail" })),
     };
     expect(await makePageTargetResolver(failing)("junto://canvas/work?node=n1")).toEqual({
       ok: false,

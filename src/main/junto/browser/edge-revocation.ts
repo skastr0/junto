@@ -2,13 +2,13 @@
  * Edge-delete session teardown (factory physics I10 / I20).
  *
  * Pure helpers + receipt types. Live teardown is driven from edge-grant
- * invalidateCanvas on the same document-commit tick as canvas write/mutate.
+ * invalidateCanvas on the same model-change event.
  *
  * Law: teardown is keyed by (caller, target) pair — never by caller alone.
  * Honesty: an unreachable host never gets a success receipt Junto cannot prove.
  */
 
-import type { CanvasDoc } from "@shared/canvas";
+import type { Canvas } from "@shared/model";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
 import {
@@ -43,8 +43,8 @@ export type LostPageTarget = {
  * the given caller node. Undirected edges; page kind only.
  */
 export const lostPageTargetsForCaller = (
-  _previous: CanvasDoc | undefined,
-  next: CanvasDoc | undefined,
+  _previous: Canvas | undefined,
+  next: Canvas | undefined,
   canvasName: string,
   callerNodeId: string,
   previousTargets: ReadonlyArray<{
@@ -133,8 +133,8 @@ export const receiptForHostTeardown = (input: {
   };
 };
 
-/** True when a node id is still a page on the document. */
-export const stillPageNode = (doc: CanvasDoc | undefined, nodeId: string): boolean =>
+/** True when a node id is still a page on the canvas. */
+export const stillPageNode = (doc: Canvas | undefined, nodeId: string): boolean =>
   doc !== undefined && isPageNode(findNode(doc, nodeId));
 
 /**
@@ -142,5 +142,5 @@ export const stillPageNode = (doc: CanvasDoc | undefined, nodeId: string): boole
  * Asks the one caller predicate, exactly as {@link stillPageNode} asks the one
  * page predicate — the actor kinds are not re-listed here.
  */
-export const stillCallerNode = (doc: CanvasDoc | undefined, nodeId: string): boolean =>
+export const stillCallerNode = (doc: Canvas | undefined, nodeId: string): boolean =>
   doc !== undefined && isBrowserCallerNode(findNode(doc, nodeId));
