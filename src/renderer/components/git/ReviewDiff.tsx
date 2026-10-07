@@ -24,7 +24,7 @@ import {
   type ReviewSide,
 } from "@shared/git-review";
 import { noteReviewComposer, removeReviewComment, saveReviewComment, usePendingReview } from "../../lib/git-review";
-import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { claimFocus } from "../../lib/focus-ownership";
 import { keyAria, keyIs } from "../../lib/key-match";
 import { modKeyGlyph } from "../../lib/platform";
 import { AgentPortrait } from "../AgentPortrait";
@@ -69,6 +69,11 @@ function Composer({
   const [active, setActive] = useState(0);
   // Escape closes the list for the @word it was open on; typing on reopens it.
   const [closedFor, setClosedFor] = useState<string | null>(null);
+  // The press on the plus (or on Edit) asked for this field: it takes the
+  // keyboard once, as the answer to that gesture, even from the note field.
+  useEffect(() => {
+    claimFocus(field.current, "gesture", { preventScroll: true });
+  }, []);
   const typing = mentionQueryAt(draft.text, caret);
   const offered = typing && closedFor !== `${typing.start}:${typing.query}` ? filterMentionCandidates(candidates, typing.query) : [];
   const listOpen = typing !== undefined && offered.length > 0;
@@ -121,10 +126,7 @@ function Composer({
     <div className="git-review__row" data-testid="git-review-composer">
       <div className="git-review__anchor">{anchor}</div>
       <Textarea
-        ref={(element) => {
-          field.current = element;
-          claimFocusOnMount(element);
-        }}
+        ref={field}
         dense
         value={draft.text}
         aria-label={`Comment on ${anchor}`}
