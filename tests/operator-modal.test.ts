@@ -5,7 +5,7 @@ import {
   openOperatorModal,
   openOperatorModalFrom,
   operatorModal$,
-  takeOperatorModalPlace,
+  operatorModalPlace,
   toggleOperatorModal,
 } from "../src/renderer/lib/operator-modal";
 
@@ -42,21 +42,23 @@ describe("the operator slot", () => {
   describe("a modal opened from another, and the way back", () => {
     const place = { itemId: "signal:one", expanded: ["signal:one"], scrollTop: 480 };
 
-    it("swaps, and closing it comes back to the first modal at its place, once", () => {
+    it("swaps, and closing it comes back to the first modal at its place", () => {
       openOperatorModal("feed");
       openOperatorModalFrom("feed", "search", place);
       expect(operatorModal$.open.peek()).toBe("search");
       // Not back yet: nothing to take.
-      expect(takeOperatorModalPlace("feed")).toBeUndefined();
+      expect(operatorModalPlace("feed")).toBeUndefined();
 
       closeOperatorModal("search");
       expect(operatorModal$.open.peek()).toBe("feed");
-      expect(takeOperatorModalPlace("feed")).toEqual(place);
-      expect(takeOperatorModalPlace("feed")).toBeUndefined();
+      // A plain read: asking twice (a dev build renders twice) gives the same place.
+      expect(operatorModalPlace("feed")).toEqual(place);
+      expect(operatorModalPlace("feed")).toEqual(place);
 
-      // From here the feed closes as it always does.
+      // From here the feed closes as it always does, and the place goes with it.
       closeOperatorModal("feed");
       expect(isOperatorModalOpen()).toBe(false);
+      expect(operatorModalPlace("feed")).toBeUndefined();
     });
 
     it("does nothing unless the modal it is opened from is the one open", () => {
@@ -73,17 +75,16 @@ describe("the operator slot", () => {
       openOperatorModalFrom("feed", "search", place);
       toggleOperatorModal("feed");
       expect(operatorModal$.open.peek()).toBe("feed");
-      expect(takeOperatorModalPlace("feed")).toEqual(place);
+      expect(operatorModalPlace("feed")).toEqual(place);
     });
 
     it("an ordinary open never carries an old place", () => {
       openOperatorModal("feed");
       openOperatorModalFrom("feed", "search", place);
       closeOperatorModal("search");
-      // Back at the feed, which did not take its place before it was closed.
       closeOperatorModal("feed");
       openOperatorModal("feed");
-      expect(takeOperatorModalPlace("feed")).toBeUndefined();
+      expect(operatorModalPlace("feed")).toBeUndefined();
     });
   });
 });

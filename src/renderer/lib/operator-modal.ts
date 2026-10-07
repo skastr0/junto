@@ -43,7 +43,7 @@ type Detour = {
 
 // The modal that was left for another, while that other one is open.
 let detour: Detour | null = null;
-// The place a modal is coming back to, until that modal takes it.
+// The place the open modal came back to, until the slot next changes.
 let returning: Omit<Detour, "to"> | null = null;
 
 // Where the keyboard was when the first operator modal opened. A swap keeps
@@ -86,7 +86,7 @@ export const openOperatorModal = (id: OperatorModalId): void => {
  * Open `to` in place of the modal that is open now, and remember where that
  * one was left. When `to` closes, by Escape, its close button or the close
  * shortcut, the first modal opens again and takes its place back
- * (takeOperatorModalPlace). One modal at a time: this swaps, it never stacks.
+ * (operatorModalPlace). One modal at a time: this swaps, it never stacks.
  * Does nothing unless `from` is the modal that is open.
  */
 export const openOperatorModalFrom = <From extends ReturnableModalId>(
@@ -102,17 +102,15 @@ export const openOperatorModalFrom = <From extends ReturnableModalId>(
 };
 
 /**
- * The place this modal is coming back to, once: call it as the modal mounts.
- * Undefined on an ordinary open, where the modal starts as it always does.
+ * The place this modal has come back to, or undefined on an ordinary open,
+ * where the modal starts as it always does. A plain read, safe to make while
+ * rendering (a dev build renders a mounting component twice): it holds until
+ * the slot next changes.
  */
-export const takeOperatorModalPlace = <Id extends ReturnableModalId>(
+export const operatorModalPlace = <Id extends ReturnableModalId>(
   id: Id,
-): OperatorModalPlaces[Id] | undefined => {
-  if (returning === null || returning.from !== id) return undefined;
-  const place = returning.place as OperatorModalPlaces[Id];
-  returning = null;
-  return place;
-};
+): OperatorModalPlaces[Id] | undefined =>
+  returning !== null && returning.from === id ? (returning.place as OperatorModalPlaces[Id]) : undefined;
 
 /**
  * Close the layer, or only `id` if it is the one that is open. A modal that
