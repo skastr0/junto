@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { stageFile } from "../src/cli/core/content-stage";
+import { stageBytes, stageFile } from "../src/cli/core/content-stage";
 import { allSchemas, commandCapabilities, renderSchemaContract } from "../src/cli/core/discovery";
 import { WireError } from "../src/cli/core/errors";
 import { WorkSocket } from "../src/cli/core/socket";
@@ -168,6 +168,34 @@ describe("stageFile", () => {
     expect(Result.isFailure(result) && result.failure._tag).toBe("InputError");
     expect(frames).toEqual([]);
   });
+});
+
+describe("stageBytes", () => {
+  it("sends text held in memory in one call, the way a small file goes", async () => {
+    const { content, frames, socket } = await boot();
+    const text = "const limit = 10;\n";
+    const ref = await Effect.runPromise(
+      stageBytes(text, { mediaType: "text/plain", displayName: "snippet.ts" }).pipe(Effect.provide(socket())),
+    );
+    const bytes = Buffer.from(text);
+    expect(ref).toEqual({ sha256: sha(bytes), byteLength: bytes.length, mediaType: "text/plain", displayName: "snippet.ts" });
+    expect(frames).toHaveLength(1);
+    expect(await stored(content, ref)).toEqual(bytes);
+    expect(frames[0]!.args).toEqual({
+      bytesBase64: bytes.toString("base64"),
+      done: { mediaType: "text/plain", displayName: "snippet.ts", expected: { sha256: sha(bytes), byteLength: bytes.length } },
+    });
+  });
+
+  it("sends bytes larger than the frame in pieces, and closes on a piece boundary", async () => {
+    const { content, frames, socket } = await boot();
+    const bytes = randomBytes(2 * CONTENT_STAGE_PIECE_BYTES);
+    const ref = await Effect.runPromise(stageBytes(bytes, { mediaType: "application/octet-stream" }).pipe(Effect.provide(socket())));
+    expect(ref).toEqual({ sha256: sha(bytes), byteLength: bytes.length, mediaType: "application/octet-stream" });
+    for (const frame of frames) expect(frame.bytes).toBeLessThan(WORK_MAX_FRAME_BYTES);
+    expect(await stored(content, ref)).toEqual(bytes);
+    expect(readdirSync(contentStagingDir(content.root))).toEqual([]);
+  }, 60_000);
 });
 
 describe("work op content.stage", () => {
