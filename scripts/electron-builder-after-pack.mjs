@@ -685,6 +685,17 @@ export default async function afterPack(context) {
   ) {
     throw new Error("Linux package executable identity is not junto");
   }
+  // All packaged apps are production, even when a caller reuses preview out/
+  // through electron-builder directly. Inspect the actual archive before signing.
+  const resources = platform === "darwin"
+    ? path.join(context.appOutDir, `${productFilename}.app`, "Contents", "Resources")
+    : path.join(context.appOutDir, "resources");
+  await execFileAsync("bun", [
+    fileURLToPath(new URL("./lint-overlay.ts", import.meta.url)),
+    "--bundle",
+    "--asar",
+    path.join(resources, "app.asar"),
+  ]);
   const linuxArtifact =
     platform === "linux"
       ? await admitLinuxArtifact(context.appOutDir)

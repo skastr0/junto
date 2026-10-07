@@ -6,68 +6,71 @@ import {
   featureViteDefines,
   resolveBuildFeatures,
 } from "./scripts/build-features";
-import { overlayAlias, overlayDepsPlugin, resolveOverlay } from "./scripts/overlay";
+import { OVERLAY_PREVIEW_MODE, overlayAlias, overlayDepsPlugin, resolveOverlay } from "./scripts/overlay";
 
-// Premium content joins at build time only: JUNTO_OVERLAY picks the overlay
-// checkout, unset builds the open-source app (docs/overlay.md).
-const overlay = resolveOverlay(process.env);
+export default defineConfig(({ command, mode }) => {
+  // Plus is preview-only until checkout and entitlement delivery are released.
+  // Vite's build command/mode, not NODE_ENV or an ambient override, owns intent.
+  const preview = command === "serve" || mode === OVERLAY_PREVIEW_MODE;
+  const overlay = resolveOverlay(process.env, undefined, preview ? "preview" : "production");
 
-const alias = {
-  "@main": resolve("src/main"),
-  "@preload": resolve("src/preload"),
-  "@renderer": resolve("src/renderer"),
-  "@shared": resolve("src/shared"),
-  ...overlayAlias(overlay),
-};
+  const alias = {
+    "@main": resolve("src/main"),
+    "@preload": resolve("src/preload"),
+    "@renderer": resolve("src/renderer"),
+    "@shared": resolve("src/shared"),
+    ...overlayAlias(overlay),
+  };
 
-// Build-time update feed only — never honored as a runtime env override.
-// Empty → macArm64UpdateFeed() uses the interim/public default in compiled-config.
-const updateFeedUrl = (process.env.JUNTO_MAC_UPDATE_FEED_URL ?? "").trim();
-const updateDefines = {
-  __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
-};
+  // Build-time update feed only — never honored as a runtime env override.
+  // Empty → macArm64UpdateFeed() uses the interim/public default in compiled-config.
+  const updateFeedUrl = (process.env.JUNTO_MAC_UPDATE_FEED_URL ?? "").trim();
+  const updateDefines = {
+    __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
+  };
 
-const resolvedBuildFeatures = resolveBuildFeatures(process.env);
+  const resolvedBuildFeatures = resolveBuildFeatures(process.env);
 
-const productDefines = {
-  ...updateDefines,
-  __JUNTO_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.JUNTO_MAC_SIGNING_IDENTITY ?? ""),
-  __JUNTO_MAC_TEAM_ID__: JSON.stringify(process.env.JUNTO_MAC_TEAM_ID ?? ""),
-  // The open-source build folds every premium branch away (docs/overlay.md).
-  __JUNTO_PREMIUM__: JSON.stringify(overlay.kind === "official"),
-  ...featureViteDefines(resolvedBuildFeatures),
-};
+  const productDefines = {
+    ...updateDefines,
+    __JUNTO_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.JUNTO_MAC_SIGNING_IDENTITY ?? ""),
+    __JUNTO_MAC_TEAM_ID__: JSON.stringify(process.env.JUNTO_MAC_TEAM_ID ?? ""),
+    // The open-source build folds every premium branch away (docs/overlay.md).
+    __JUNTO_PREMIUM__: JSON.stringify(overlay.kind === "official"),
+    ...featureViteDefines(resolvedBuildFeatures),
+  };
 
-export default defineConfig({
-  main: {
-    plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
-    resolve: { alias },
-    define: productDefines,
-  },
-  preload: {
-    plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
-    resolve: { alias },
-    define: productDefines,
-    build: {
-      rollupOptions: {
-        output: {
-          format: "cjs",
-          entryFileNames: "[name].cjs",
+  return {
+    main: {
+      plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
+      resolve: { alias },
+      define: productDefines,
+    },
+    preload: {
+      plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
+      resolve: { alias },
+      define: productDefines,
+      build: {
+        rollupOptions: {
+          output: {
+            format: "cjs",
+            entryFileNames: "[name].cjs",
+          },
         },
       },
     },
-  },
-  renderer: {
-    root: ".",
-    resolve: { alias },
-    define: productDefines,
-    plugins: [overlayDepsPlugin(overlay), react(), tailwindcss()],
-    // The dev server may serve overlay files from outside this repository.
-    ...(overlay.kind === "official" ? { server: { fs: { allow: [".", overlay.dir] } } } : {}),
-    build: {
-      rollupOptions: {
-        input: resolve("index.html"),
+    renderer: {
+      root: ".",
+      resolve: { alias },
+      define: productDefines,
+      plugins: [overlayDepsPlugin(overlay), react(), tailwindcss()],
+      // The dev server may serve overlay files from outside this repository.
+      ...(overlay.kind === "official" ? { server: { fs: { allow: [".", overlay.dir] } } } : {}),
+      build: {
+        rollupOptions: {
+          input: resolve("index.html"),
+        },
       },
     },
-  },
+  };
 });

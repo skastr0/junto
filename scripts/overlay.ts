@@ -1,7 +1,8 @@
 // Build-time overlay resolution (docs/overlay.md). JUNTO_OVERLAY names a
 // checkout of the private overlay repository; the `@junto/overlay` alias then
 // points at its overlay/ directory. Unset, the alias points at the in-repo
-// stub, and the build is the open-source app. Nothing is resolved at run time.
+// stub, and the build is the open-source app. Plus is unreleased: only an
+// explicit preview may include it. Nothing is resolved at run time.
 //
 //   bun scripts/overlay.ts --receipt   one line naming the overlay a build uses
 import { spawnSync } from "node:child_process";
@@ -11,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 
 export const OVERLAY_ALIAS = "@junto/overlay";
+export const OVERLAY_PREVIEW_MODE = "overlay-preview";
 
 export interface ResolvedOverlay {
   readonly kind: "oss" | "official";
@@ -20,9 +22,18 @@ export interface ResolvedOverlay {
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-export function resolveOverlay(env: NodeJS.ProcessEnv = process.env, repoRoot = REPO_ROOT): ResolvedOverlay {
+export function resolveOverlay(
+  env: NodeJS.ProcessEnv = process.env,
+  repoRoot = REPO_ROOT,
+  purpose: "production" | "preview" = "production",
+): ResolvedOverlay {
   const raw = (env.JUNTO_OVERLAY ?? "").trim();
   if (raw === "") return { kind: "oss", dir: join(repoRoot, "src", "overlay-oss") };
+  if (purpose !== "preview") {
+    throw new Error(
+      "Junto Plus is unreleased and cannot be bundled in production; unset JUNTO_OVERLAY or use electron-vite dev / --mode overlay-preview for a local preview",
+    );
+  }
   const dir = join(isAbsolute(raw) ? raw : resolve(repoRoot, raw), "overlay");
   if (!existsSync(join(dir, "index.ts"))) {
     throw new Error(`JUNTO_OVERLAY=${raw}: expected an overlay checkout with overlay/index.ts`);
@@ -62,6 +73,7 @@ function overlayRevision(dir: string): string {
 
 if (import.meta.main && process.argv.includes("--receipt")) {
   // Package provenance pins this app's commit; the overlay's commit rides here.
-  const overlay = resolveOverlay();
-  console.log(overlay.kind === "oss" ? "oss (src/overlay-oss)" : `official ${overlayRevision(overlay.dir)} (${overlay.dir})`);
+  const preview = process.argv.includes("--preview");
+  const overlay = resolveOverlay(process.env, REPO_ROOT, preview ? "preview" : "production");
+  console.log(overlay.kind === "oss" ? "oss (src/overlay-oss)" : `preview ${overlayRevision(overlay.dir)} (${overlay.dir})`);
 }

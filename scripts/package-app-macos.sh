@@ -31,6 +31,8 @@ if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
   err "an executable Bun runtime is required"
   exit 1
 fi
+# Packaging never admits Plus, including previously compiled preview output.
+"$BUN_EXECUTABLE" "$SCRIPT_DIR/lint-overlay.ts" --bundle
 if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then
   err "release must be a non-symlink directory"
   exit 1

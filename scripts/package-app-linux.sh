@@ -24,6 +24,8 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 cd "$REPO_ROOT"
+# Packaging never admits Plus, including previously compiled preview output.
+bun "$SCRIPT_DIR/lint-overlay.ts" --bundle
 RELEASE_DIR="$REPO_ROOT/release"
 if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then
   printf 'junto: error: release must be a non-symlink directory\n' >&2

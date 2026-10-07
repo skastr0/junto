@@ -12,6 +12,9 @@
 //                                          item from the overlay checkout
 //                                          (--premium DIR, JUNTO_PREMIUM, or a
 //                                          sibling ../junto-premium)
+//   --preview                              explicit local preview only
+//   --bundle --asar FILE                   packaged app, always production
+import { extractFile, listPackage } from "@electron/asar";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
@@ -127,13 +130,26 @@ const PREMIUM_UI_NEEDLES: ReadonlyArray<readonly [needle: string, label: string]
 export const premiumUiHits = (text: string): string[] =>
   PREMIUM_UI_NEEDLES.filter(([needle]) => text.includes(needle)).map(([, label]) => label);
 
-async function checkBundle(outDir: string): Promise<string[]> {
-  const overlay = resolveOverlay();
+export async function checkBundle(
+  outDir: string,
+  options: { readonly preview?: boolean; readonly asar?: boolean } = {},
+): Promise<string[]> {
+  if (options.asar && options.preview) {
+    throw new Error("packaged archive checks cannot allow preview overlays");
+  }
+  const overlay = resolveOverlay(process.env, undefined, options.preview ? "preview" : "production");
   const markers = new Set<string>();
   const texts: string[] = [];
-  for await (const path of files(outDir, /\.(?:js|cjs|mjs|html|css|json)$/)) {
-    const text = await readFile(path, "utf8");
-    texts.push(text);
+  const extensions = /\.(?:js|cjs|mjs|html|css|json)$/;
+  if (options.asar) {
+    for (const entry of listPackage(outDir, { isPack: false })) {
+      if (entry.startsWith("/node_modules/") || !extensions.test(entry)) continue;
+      texts.push(extractFile(outDir, entry.replace(/^\//, "")).toString("utf8"));
+    }
+  } else {
+    for await (const path of files(outDir, extensions)) texts.push(await readFile(path, "utf8"));
+  }
+  for (const text of texts) {
     for (const match of text.matchAll(OVERLAY_MARKER_PATTERN)) markers.add(match[0]);
   }
   if (texts.length === 0) return [`${outDir} is empty; run electron-vite build first`];
@@ -158,11 +174,15 @@ async function checkBundle(outDir: string): Promise<string[]> {
 if (import.meta.main) {
   const bundle = process.argv.includes("--bundle");
   const outFlag = process.argv.indexOf("--out");
-  const outDir = outFlag > 0 ? resolve(process.argv[outFlag + 1] ?? "") : join(ROOT, "out");
-  const problems = bundle ? await checkBundle(outDir) : await lintImports();
+  const asarFlag = process.argv.indexOf("--asar");
+  const preview = process.argv.includes("--preview");
+  const outDir = asarFlag > 0
+    ? resolve(process.argv[asarFlag + 1] ?? "")
+    : outFlag > 0 ? resolve(process.argv[outFlag + 1] ?? "") : join(ROOT, "out");
+  const problems = bundle ? await checkBundle(outDir, { preview, asar: asarFlag > 0 }) : await lintImports();
   if (problems.length > 0) {
     for (const problem of problems) console.error(problem);
     process.exit(1);
   }
-  console.log(bundle ? `lint:overlay --bundle — ${resolveOverlay().kind} build is clean` : "lint:overlay — clean");
+  console.log(bundle ? `lint:overlay --bundle — ${preview ? "preview" : "production (OSS-only)"} build is clean` : "lint:overlay — clean");
 }
