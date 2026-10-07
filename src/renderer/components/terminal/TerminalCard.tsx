@@ -176,7 +176,7 @@ export function TerminalCard({
         line={line}
         lineTitle={line}
       >
-        {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
+        {TASKS_ENABLED ? <ClaimedTaskStrip nodeId={node.id} /> : null}
       </InstrumentSeat>
     </div>
   );

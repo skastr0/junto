@@ -81,10 +81,14 @@ export const subscribeSeatOnboarding = (): (() => void) => {
 export const useSeatOnboarding = (
   node: Pick<CanvasNode, "id" | "ether">,
 ): SeatOnboardingStatus | undefined => {
+  return useSeatOnboardingOf(bindingIdForNode(node));
+};
+
+/** The same status, for a caller that already holds the seat's binding. */
+export const useSeatOnboardingOf = (bindingId: string | undefined): SeatOnboardingStatus | undefined => {
   useEffect(() => {
     subscribeSeatOnboarding();
   }, []);
-  const bindingId = bindingIdForNode(node);
   return use$(() => (bindingId ? seatOnboarding$.byBindingId[bindingId].get()?.status : undefined));
 };
 

@@ -22,36 +22,19 @@ import { NoteMarkdown } from "../../lib/note-markdown";
 import { isGitNode, isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { timerActivity, watcherActivity } from "../../lib/activity";
-import {
-  cardMark,
-  seatFactsForNode,
-} from "../../lib/seat-projections";
-import { useNodeAttentionReasons } from "../../lib/occupancy-feed";
-import { accentColor, HUE, INK, DIM } from "../../lib/theme";
+import { accentColor, INK } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
-import { isHarnessId } from "@shared/managed-terminal-templates";
-import { resolveTerminalBinding } from "@shared/terminal";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { productNodeKindEnabled, TASKS_ENABLED } from "@shared/features";
-import { agentSeat$ } from "../../lib/agent-seat-state";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
-import { onTerminalEvent } from "../../lib/terminal-events";
-import {
-  sessionChromeUnchanged,
-  shouldRefreshSessionFromTerminalEvent,
-} from "../../lib/terminal-session-refresh";
-import { terminal$ } from "../../lib/terminal-state";
 import {
   markNoteSurfaceSaved,
   noteSurfaceId,
   openNoteSurface,
   updateNoteSurfaceDraft,
 } from "../../lib/dock-state";
-import { getJuntoApi } from "../../lib/junto-api";
-import { HarnessMark } from "../HarnessMark";
-import { isOverseerSeat } from "../../lib/overseer-set";
 import { SeatAwarenessHoverForNode } from "../terminal/SeatAwarenessHoverForNode";
 import { SeatCollaborationBlock } from "../terminal/SeatCollaborationBlock";
 import { TerminalCard } from "../terminal/TerminalCard";
@@ -66,10 +49,9 @@ import { SeatOffboardToolbarAction } from "./SeatOffboard";
 import { CustomizeAgentToolbarAction } from "../agent-editor/AgentEditor";
 import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
-import { FirstLineRenameInput } from "./FirstLineRenameInput";
 import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
-import { AgentSeat, SeatName } from "./AgentSeat";
+import { SeatCard } from "./SeatCard";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
   ArtifactsCard,
@@ -89,7 +71,6 @@ import { GitCard } from "../git/GitCard";
 import { INSTRUMENT_KINDS } from "../../lib/node-geometry";
 import { GitDetail } from "../git/GitDetail";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
-import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 
 import { NodeShell } from "./NodeShell";
 import { keyIs } from "../../lib/key-match";
@@ -254,170 +235,6 @@ function TimerCard({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-// Actor seat card — document label + harness mark + terminal seat activity.
-// No hermes corpus join, matrix identity, or profile avatar IPC.
-function EntityCard({
-  node,
-  kind,
-  graphBlocked = false,
-  renaming = false,
-  onRenameDone,
-}: {
-  readonly node: CanvasNode;
-  readonly kind: string;
-  /** Execution-graph blocked — crimson spinner even when seat is idle. */
-  readonly graphBlocked?: boolean;
-  readonly renaming?: boolean;
-  readonly onRenameDone?: () => void;
-}) {
-  const rawName = (node.type === "text" ? node.text : "").split("\n")[0] ?? "";
-  const nameHue = node.color ? accentColor(node.color) : INK;
-  const managedHarness =
-    kind === "agent" && typeof node.ether?.terminal?.harness === "string"
-      ? node.ether.terminal.harness
-      : undefined;
-  const terminalBinding = resolveTerminalBinding(node);
-  const bindingId =
-    terminalBinding?.kind === "native" ? terminalBinding.bindingId : undefined;
-  const hostId =
-    terminalBinding?.kind === "native" ? terminalBinding.hostId : undefined;
-  const seatEvent = use$(
-    agentSeat$.byBindingId[bindingId ?? "__junto-entity-card-no-binding__"],
-  );
-  const needsLook = use$(
-    agentSeat$.needsLookByBindingId[
-      bindingId ?? "__junto-entity-card-no-binding__"
-    ],
-  );
-  const session = use$(
-    terminal$.sessionByBindingId[
-      bindingId ?? "__junto-entity-card-no-binding__"
-    ],
-  );
-  // Hydrate session cache so pre-ownership failures (cli-missing) paint on the card.
-  useEffect(() => {
-    if (!bindingId) return;
-    const refresh = () =>
-      getJuntoApi()
-        ?.terminalGet?.(bindingId, hostId)
-        .then((next) => {
-          const prev = terminal$.sessionByBindingId[bindingId].peek();
-          if (sessionChromeUnchanged(prev, next)) return;
-          terminal$.sessionByBindingId[bindingId].set(next);
-        })
-        .catch(() => undefined);
-    void refresh();
-    // Routed by binding — the manual bindingId compare is what made every
-    // agent card pay for every other terminal's output. The session/exit cut
-    // below is a separate predicate and stays.
-    const off = onTerminalEvent(
-      (raw) => {
-        if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
-        void refresh();
-      },
-      { bindingId },
-    );
-    return off;
-  }, [bindingId, hostId]);
-  const managed = managedHarness !== undefined && isHarnessId(managedHarness);
-  const exitReason = session?.exitReason;
-  const exitMessage = session?.exitMessage;
-  const attentionReasons = useNodeAttentionReasons(node);
-  const activity = cardMark(
-    seatFactsForNode({
-      nodeId: node.id,
-      seatEvent,
-      session,
-      needsLook: needsLook === true,
-      graphBlocked,
-      attentionReasons,
-      managedSeat: managed,
-    }),
-  );
-  // Host is deliberately absent: which machine a seat sits on is not what the
-  // operator reads an agent node for, and it crowded out the claimed task.
-  // Spawn failures surface as a context line so the mark + copy both land.
-  const context = managed && exitReason && exitMessage ? exitMessage : undefined;
-  const commitRename = (firstLine: string) => {
-    if (node.type !== "text") return;
-    const rest = node.text.split("\n").slice(1).join("\n");
-    editText(node.id, rest ? `${firstLine}\n${rest}` : firstLine);
-  };
-
-  const complete = activity.mode === "pulse" && activity.tone === "green";
-  const overseer = kind === "agent" && isOverseerSeat(node);
-  const nameTitle =
-    renaming && onRenameDone ? (
-      <FirstLineRenameInput
-        initial={rawName}
-        ariaLabel="Rename agent node"
-        onCommit={commitRename}
-        onDone={onRenameDone}
-      />
-    ) : kind === "agent" ? (
-      <SeatName name={rawName} color={nameHue} />
-    ) : (
-      <div
-        className="truncate font-mono text-[14px] font-semibold leading-snug"
-        style={{ color: nameHue }}
-        title={rawName}
-      >
-        {rawName}
-      </div>
-    );
-  const seatActivity =
-    seatEvent?.state === "attention" && seatEvent.reason
-      ? { ...activity, label: seatEvent.reason }
-      : activity;
-  // An agent is a seat, not a card: its ring is the status instrument.
-  if (kind === "agent") {
-    return (
-      <div
-        className="factory-agent-card relative flex h-full w-full flex-col justify-center overflow-hidden"
-        data-exit-reason={managed ? exitReason : undefined}
-        data-seat-complete={complete ? "true" : undefined}
-        data-overseer={overseer ? "true" : undefined}
-      >
-        <AgentSeat
-          node={node}
-          activity={seatActivity}
-          title={nameTitle}
-          harness={managed ? managedHarness : undefined}
-          context={context}
-          overseer={overseer}
-        >
-          {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
-        </AgentSeat>
-      </div>
-    );
-  }
-  return (
-    <div
-      className="factory-agent-card relative flex h-full w-full flex-col justify-between overflow-hidden"
-      data-exit-reason={managed ? exitReason : undefined}
-      data-seat-complete={complete ? "true" : undefined}
-      data-overseer={overseer ? "true" : undefined}
-    >
-      <ExecutionCardHeader
-        decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
-        title={nameTitle}
-        activity={seatActivity}
-      />
-      {context !== undefined && context.length > 0 ? (
-        <div
-          className="mt-1 truncate text-[10px] tabular-nums"
-          style={{
-            color: managed && exitReason ? HUE.amber : DIM,
-          }}
-          title={context}
-        >
-          {context}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 // Freeform note body: instrument mono for body; condensed display for heads
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
@@ -432,6 +249,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     Boolean(node.ether?.terminal?.bindingId) && (isTerminal || isAgent);
   // Boolean selector: only this node re-renders when edit intent targets it.
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
+  const canvasName = use$(state$.canvasName);
 
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -826,9 +644,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "agent" ? (
-            <EntityCard
-              node={node}
-              kind="agent"
+            <SeatCard
+              canvas={canvasName}
+              id={node.id}
               graphBlocked={data.blocked}
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}

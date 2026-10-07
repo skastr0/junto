@@ -32,6 +32,7 @@ import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
 import { KEY_ACTIONS } from "./lib/key-actions";
 import { installKeyDispatcher } from "./lib/key-dispatcher";
+import { followDocument } from "./lib/model-from-document";
 import { installRemovedNodeViews } from "./lib/removed-node-views";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
@@ -470,6 +471,9 @@ export function App() {
 
   // A view never outlives its node, however the node left the canvas.
   useEffect(() => installRemovedNodeViews(), []);
+
+  // Until main serves the model, the node store is filled from the document.
+  useEffect(() => followDocument(), []);
 
   // Command bar "Open canvas" action — one-shot request consumed here so the
   // readCanvas + loadDoc flow keeps its single owner in App.

@@ -1,19 +1,15 @@
 import type { ReactNode } from "react";
-import type { CanvasNode } from "@shared/canvas";
 import type { AgentSignal } from "@shared/agent-signals";
 import type { SeatOnboardingStatus } from "@shared/seat-onboarding-status";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import type { ActivitySpec, ActivityTone } from "../../lib/activity";
-import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { openOperatorModal } from "../../lib/operator-modal";
 import { useSeatOffboardFailure } from "../../lib/seat-offboard-state";
-import { useSeatOnboarding } from "../../lib/seat-onboarding";
+import { useSeatOnboardingOf } from "../../lib/seat-onboarding";
 import { seatSaying } from "../../lib/seat-line";
-import { state$ } from "../../lib/state";
 import { useThreadHealthMark } from "../../lib/thread-health";
 import { seatPortraitMood } from "../../lib/portrait-mood";
-import { use$ } from "@legendapp/state/react";
 import { useEffect } from "react";
 import { resolveActivityGlyph } from "../../lib/activity";
 import { publishSeatUrgency, seatUrgencyOfRing } from "../../lib/region-urgency";
@@ -173,10 +169,15 @@ export function AgentSeatView({
 
 /** The live seat: signals and the thread-health reading from their stores. */
 export function AgentSeat({
-  node,
+  canvas,
+  id,
+  bindingId,
   ...rest
 }: {
-  readonly node: CanvasNode;
+  readonly canvas: string;
+  /** The seat's node id. */
+  readonly id: string;
+  readonly bindingId: string | undefined;
   readonly activity: ActivitySpec;
   readonly title: ReactNode;
   readonly harness?: string;
@@ -184,13 +185,12 @@ export function AgentSeat({
   readonly overseer?: boolean;
   readonly children?: ReactNode;
 }) {
-  const canvasName = use$(state$.canvasName);
-  const rollup = useSeatSignalRollup(canvasName, node.id);
-  const health = useThreadHealthMark(bindingIdForNode(node), rollup?.kind);
-  const onboarding = useSeatOnboarding(node);
+  const rollup = useSeatSignalRollup(canvas, id);
+  const health = useThreadHealthMark(bindingId, rollup?.kind);
+  const onboarding = useSeatOnboardingOf(bindingId);
   // An offboard whose session never closed is said here, on the seat, where
   // the operator is looking; a spawn failure, when there is one, comes first.
-  const offboardFailure = useSeatOffboardFailure(node.id);
+  const offboardFailure = useSeatOffboardFailure(id);
   // What the ring says, for the regions and the minimap (region-urgency.ts).
   const urgency = seatUrgencyOfRing({
     glyph: resolveActivityGlyph(rest.activity.mode, rest.activity.tone, rest.activity.glyph),
@@ -199,12 +199,12 @@ export function AgentSeat({
     healthStale: health.healthStale,
   });
   useEffect(() => {
-    publishSeatUrgency(node.id, urgency);
-  }, [node.id, urgency]);
-  useEffect(() => () => publishSeatUrgency(node.id, undefined), [node.id]);
+    publishSeatUrgency(id, urgency);
+  }, [id, urgency]);
+  useEffect(() => () => publishSeatUrgency(id, undefined), [id]);
   return (
     <AgentSeatView
-      identity={node.id}
+      identity={id}
       health={health}
       signal={{ worst: rollup?.signal, openCount: rollup?.openCount ?? 0 }}
       onboarding={onboarding}

@@ -105,6 +105,19 @@ export function useNodeAttentionReasons(node: AttentionNode): ReadonlyArray<stri
 }
 
 /**
+ * A seat's attention reasons from its agent key alone: the slice
+ * `useNodeAttentionReasons` reads for an agent node, for a caller that holds
+ * the seat and not a document node.
+ */
+export function useSeatAttentionReasons(agentKey: string | undefined): ReadonlyArray<string> {
+  const coarse = use$(chatCoarse$[agentKey ?? NO_AGENT_KEY]) as AgentChatCoarse | undefined;
+  return useMemo(
+    () => attentionReasonsForNode({ ether: { entity: { kind: "agent", name: agentKey } } }, coarse),
+    [agentKey, coarse],
+  );
+}
+
+/**
  * Node-scoped seam for card chrome: subscribes only to this node's own
  * agent-key slice of `chatCoarse$` and/or managed-terminal seat event,
  * never the whole document or the whole chat map. Cards are many; a

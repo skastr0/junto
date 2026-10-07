@@ -1,5 +1,4 @@
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
 import { taskBrief } from "@shared/task";
 import type { ClaimedTask } from "../../lib/claimed-task";
 import { claimedTask$ } from "../../lib/claimed-task-index";
@@ -17,8 +16,8 @@ import { stateHue } from "../work/WorkSurfaces";
  * per seat, so subscribing to the whole document here made every unrelated
  * document write cost a full nodes x tasks scan per strip.
  */
-export function ClaimedTaskStrip({ node }: { readonly node: CanvasNode }) {
-  const claimed = use$(() => claimedTask$.byNodeId[node.id].get()) as
+export function ClaimedTaskStrip({ nodeId }: { readonly nodeId: string }) {
+  const claimed = use$(() => claimedTask$.byNodeId[nodeId].get()) as
     | ClaimedTask
     | undefined;
 

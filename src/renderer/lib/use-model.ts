@@ -32,6 +32,19 @@ export const useNodeOf = <K extends NodeKind>(canvas: string, id: string, kind: 
 export const useNodeValue = <T>(canvas: string, id: string, read: (node: Node | undefined) => T): T =>
   use$(() => read(modelStore.node$(canvas, id).get()));
 
+/**
+ * One thing read off one node of a known kind. Undefined when the node is
+ * absent or of another kind. `read` should return a plain value, so the
+ * caller hears that field and nothing else.
+ */
+export const useNodeFieldOf = <K extends NodeKind, T>(
+  canvas: string,
+  id: string,
+  kind: K,
+  read: (node: NodeOf<K>) => T,
+): T | undefined =>
+  useNodeValue(canvas, id, (node) => (node?.kind === kind ? read(node as NodeOf<K>) : undefined));
+
 /** Node ids in paint order. Changes when a node is added, removed or restacked. */
 export const useNodeIds = (canvas: string): ReadonlyArray<string> =>
   use$(modelStore.canvas$(canvas).nodeIds);
