@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
-import { nodeFromDocument } from "../src/shared/model/from-document";
+import type { NodeOf } from "../src/shared/model";
+import { seat } from "./support/model-nodes";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -14,23 +14,16 @@ const actorNode = (
   hostId: string,
   bindingId = "binding-alpha",
   nodeId = "actor",
-): CanvasNode => ({
-  id: nodeId,
-  type: "text",
-  x: 0,
-  y: 0,
-  width: 240,
-  height: 100,
-  text: "actor",
-  ether: {
-    entity: { kind: "agent", name: `${hostId}:codex` },
+): NodeOf<"agent"> =>
+  seat(nodeId, {
+    width: 240,
+    height: 100,
+    label: "actor",
+    agentKey: `${hostId}:codex`,
     host: hostId,
-    terminal: {
-      bindingId,
-      harness: "codex",
-    },
-  },
-});
+    bindingId: bindingId as never,
+    harness: "codex",
+  });
 
 const authority = (
   installationId: InstallationIdValue,
@@ -40,7 +33,7 @@ const authority = (
   actor: {
     seatId: deriveActorSeatId(
       installationId,
-      node.ether?.terminal?.bindingId ?? "",
+      node.bindingId,
     ),
     canvasName: "factory",
     nodeId: node.id,
@@ -59,7 +52,7 @@ describe("managed actor runtime locality", () => {
     expect(
       isManagedSeatRuntimeLocal(
         "factory",
-        nodeFromDocument("factory", node, 0),
+        node,
         authority(installation("remote-a"), "box-a", node),
       ),
     ).toBe(true);
@@ -74,7 +67,7 @@ describe("managed actor runtime locality", () => {
     );
 
     expect(
-      isManagedSeatRuntimeLocal("factory", nodeFromDocument("factory", node, 0), {
+      isManagedSeatRuntimeLocal("factory", node, {
         ...local,
         actor: { ...local.actor, seatId: foreignSeat },
       }),
@@ -89,12 +82,12 @@ describe("managed actor runtime locality", () => {
       actorNode("box-a"),
     );
 
-    expect(isManagedSeatRuntimeLocal("factory", nodeFromDocument("factory", node, 0), local)).toBe(false);
+    expect(isManagedSeatRuntimeLocal("factory", node, local)).toBe(false);
     expect(
-      isManagedSeatRuntimeLocal("another-canvas", nodeFromDocument("factory", actorNode("box-a"), 0), local),
+      isManagedSeatRuntimeLocal("another-canvas", actorNode("box-a"), local),
     ).toBe(false);
     expect(
-      isManagedSeatRuntimeLocal("factory", nodeFromDocument("factory", { ...actorNode("box-a"), id: "other" }, 0), local),
+      isManagedSeatRuntimeLocal("factory", actorNode("box-a", "binding-alpha", "other"), local),
     ).toBe(false);
   });
 });
