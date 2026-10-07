@@ -1,18 +1,3 @@
-// The read path builds already-typed values instead of decoding them.
-//
-// `loadSnapshot` used to end in `Schema.decodeUnknownSync(WorkSnapshot)`, so
-// the schema was re-decided on every read of the world — 24 MB/s of Effect
-// Schema decode on the operator's live factory. Validation now lives at
-// ingress (every mutation decodes before it commits) and in the SQLite CHECK
-// domains, and the read path constructs.
-//
-// That trade is only honest if the constructed value still satisfies the
-// schema exactly. This test is where that is decided now: seed a seat's
-// mailbox through the real write path, read it back, and
-// require the projection to decode against `WorkSnapshot` with
-// `onExcessProperty: "error"`. A construction that drifts from the schema —
-// a missing field, a stray key, a wrong literal — fails here instead of
-// reaching the renderer.
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,19 +9,19 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
 import {
-  readCanvasWorkProjection,
+  readCanvasWorkRevision,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { WorkSnapshot } from "../src/shared/work-model";
+import { Message } from "../src/shared/work-model";
 import { ContentRef } from "../src/shared/content";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 import { authorialMaterialForTest } from "./helpers/authorial-material";
 
-const root = join(tmpdir(), `junto-projection-shape-${randomUUID()}`);
+const root = join(tmpdir(), `junto-mail-read-schema-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,
@@ -48,7 +33,7 @@ let repository: Context.Service.Shape<typeof WorkRepository>;
 let sql: SqlClient.SqlClient;
 
 const observedAt = "2026-08-18T09:00:00.000Z";
-const cc = Schema.decodeUnknownSync(InstallationId)("cc-projection-shape");
+const cc = Schema.decodeUnknownSync(InstallationId)("cc-mail-read-schema");
 const authorityTopology: CanvasDoc = {
   nodes: [
     {
@@ -130,8 +115,8 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("work projection shape", () => {
-  it("constructs a snapshot that satisfies WorkSnapshot exactly", async () => {
+describe("work mail read schema", () => {
+  it("reads schema-valid mail values and content references", async () => {
     const mailbox = { canvasName: "factory", nodeId: "agent-1" };
     await runtime.runPromise(
       repository.appendMessage({
@@ -155,27 +140,10 @@ describe("work projection shape", () => {
       }),
     );
 
-    const projection = await runtime.runPromise(
-      withSqlRead(sql, readCanvasWorkProjection(sql, "factory")),
-    );
-
-    const seen = projection.snapshots.map((snapshot) => snapshot.nodeId).sort();
-    expect(seen).toEqual([]);
-    const snapshot = await runtime.runPromise(repository.readSnapshot("factory", "agent-1"));
-    expect(snapshot).not.toHaveProperty("messages");
-    expect(() => Schema.decodeUnknownSync(WorkSnapshot, strict)(snapshot)).not.toThrow();
-
-    // The gate. Every constructed snapshot must satisfy the schema the read
-    // path no longer decodes against.
-    for (const snapshot of projection.snapshots) {
-      expect(() =>
-        Schema.decodeUnknownSync(WorkSnapshot, strict)(snapshot),
-      ).not.toThrow();
-    }
-
     // Content refs are carried by value, whatever key order the durable JSON
     // column happens to use.
     const inbox = await runtime.runPromise(repository.mailPage({ canvasName: "factory", nodeId: "agent-1" }));
+    for (const item of inbox.items) expect(() => Schema.decodeUnknownSync(Message, strict)(item.message)).not.toThrow();
     const part = inbox.items[0]?.message.parts[1];
     expect(part).toEqual({
       kind: "content",
@@ -186,10 +154,10 @@ describe("work projection shape", () => {
   it("moves the work revision on every mutation and never backwards", async () => {
     const read = () =>
       runtime.runPromise(
-        withSqlRead(sql, readCanvasWorkProjection(sql, "factory")),
+        withSqlRead(sql, readCanvasWorkRevision(sql, "factory")),
       );
 
-    const before = BigInt((await read()).workRevision);
+    const before = BigInt(await read());
     expect(before).toBeGreaterThan(0n);
 
     await runtime.runPromise(
@@ -209,10 +177,10 @@ describe("work projection shape", () => {
       }),
     );
 
-    const after = BigInt((await read()).workRevision);
+    const after = BigInt(await read());
     expect(after).toBeGreaterThan(before);
 
     // A pure read never moves it.
-    expect(BigInt((await read()).workRevision)).toBe(after);
+    expect(BigInt(await read())).toBe(after);
   });
 });

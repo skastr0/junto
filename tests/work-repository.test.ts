@@ -308,9 +308,6 @@ describe("WorkRepository v2 local authority", () => {
         receivedAt: observedAt,
       }),
     );
-    const snapshot = await runtime.runPromise(
-      repository.readSnapshot(mailbox.canvasName, mailbox.nodeId),
-    );
     expect((await runtime.runPromise(repository.mailMessage("factory", "content-mailbox", contentMessage.messageId)))?.parts).toEqual(contentMessage.parts);
     const storedMessageParts = await runtime.runPromise(
       sql

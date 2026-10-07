@@ -239,7 +239,7 @@ describe("WorkRepository stateSince projection", () => {
       authoringSink: board,
     });
     const taskSince = async (): Promise<string | undefined> =>
-      (await runtime.runPromise(repository.readSnapshot(canvasName, "board"))).tasks?.items[0]?.stateSince;
+      (await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "board", itemId: "t1", kind: "task" })))?.stateSince;
 
     await runtime.runPromise(
       repository.createTask({
@@ -275,10 +275,10 @@ describe("WorkRepository stateSince projection", () => {
     await runtime.runPromise(
       repository.describeTask({ sink: board, basis, taskId: "t1", message: note("m2", "Still waiting."), originAt: atMinute(30), receivedAt: atMinute(30) }),
     );
-    const snapshot = await runtime.runPromise(repository.readSnapshot(canvasName, "board"));
-    expect(snapshot.tasks?.items[0]).toMatchObject({ state: "input-required", stateSince: atMinute(9) });
+    const task = await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "board", itemId: "t1", kind: "task" }));
+    expect(task).toMatchObject({ state: "input-required", stateSince: atMinute(9) });
     // Row bookkeeping only: it is not task metadata.
-    expect(snapshot.tasks?.items[0]?.metadata).toBeUndefined();
+    expect(task?.metadata).toBeUndefined();
   });
 
   it("stamps a request with the time it was raised", async () => {
@@ -294,8 +294,8 @@ describe("WorkRepository stateSince projection", () => {
         receivedAt: atMinute(3),
       }),
     );
-    const snapshot = await runtime.runPromise(repository.readSnapshot(canvasName, "asks"));
-    expect(snapshot.requests?.items[0]).toMatchObject({ id: "r1", stateSince: atMinute(3) });
+    const request = await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "asks", itemId: "r1", kind: "requests" }));
+    expect(request).toMatchObject({ id: "r1", stateSince: atMinute(3) });
   });
 
   it("keeps the time through a full close and reopen of the database", async () => {
@@ -319,8 +319,8 @@ describe("WorkRepository stateSince projection", () => {
     );
     opened.push({ root, dispose: () => reopened.dispose() });
     const again = await reopened.runPromise(WorkRepository);
-    const snapshot = await reopened.runPromise(again.readSnapshot(canvasName, "asks"));
-    expect(snapshot.requests?.items[0]).toMatchObject({ id: "r1", stateSince: atMinute(3) });
+    const request = await reopened.runPromise(again.taskItem({ canvasName, nodeId: "asks", itemId: "r1", kind: "requests" }));
+    expect(request).toMatchObject({ id: "r1", stateSince: atMinute(3) });
   });
 
   it("reads a row written before the stamp existed as since its last fact", async () => {
@@ -345,7 +345,7 @@ describe("WorkRepository stateSince projection", () => {
         ),
       ),
     );
-    const snapshot = await runtime.runPromise(repository.readSnapshot(canvasName, "asks"));
-    expect(snapshot.requests?.items[0]?.stateSince).toBe(atMinute(3));
+    const request = await runtime.runPromise(repository.taskItem({ canvasName, nodeId: "asks", itemId: "r1", kind: "requests" }));
+    expect(request?.stateSince).toBe(atMinute(3));
   });
 });
