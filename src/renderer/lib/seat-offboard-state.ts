@@ -61,6 +61,28 @@ export const offboardFailureLine = (progress: SeatOffboardProgress | undefined):
   return `Offboard did not finish: ${reason}`;
 };
 
+/**
+ * What an open terminal says of a session that ended because its seat
+ * offboarded, in place of a guess at why the process is gone. Undefined when
+ * the seat's latest offboard does not explain it.
+ */
+export const offboardEndedLine = (progress: SeatOffboardProgress | undefined): string | undefined => {
+  switch (progress?.stage) {
+    case "saved":
+    case "resting":
+      return "offboarded, resting";
+    case "started":
+    case "waiting":
+      return "offboarded, starting a fresh session";
+    default:
+      return undefined;
+  }
+};
+
+/** A seat's latest offboard progress, read once (no subscription). */
+export const seatOffboardProgressOf = (canvasName: string, seatId: string): SeatOffboardProgress | undefined =>
+  seatOffboard$.byKey[keyOf(canvasName, seatId)].peek();
+
 /** The failure line for one seat on the open canvas, while its latest offboard stands failed. */
 export const useSeatOffboardFailure = (seatId: string): string | undefined => {
   useEffect(() => {

@@ -56,6 +56,8 @@ vi.mock("../src/renderer/lib/terminal-events", () => ({
 
 import { fallbackCell, TerminalSurface } from "../src/renderer/components/terminal/TerminalSurface";
 import { ensureTerminalRunning } from "../src/renderer/lib/terminal-actions";
+import { applySeatOffboardProgress } from "../src/renderer/lib/seat-offboard-state";
+import { state$ } from "../src/renderer/lib/state";
 
 // useState order in TerminalSurface: status, geomLabel, releasePending,
 // releaseError, attachKey, killPhase, reopenPending, deadInfo, loadPhase.
@@ -122,6 +124,7 @@ const seatRig = (input: {
     terminalAttach: vi.fn(async () => {
       attaches += 1;
       const generation = input.attach();
+      leasedEpoch = generation.epoch;
       return {
         ok: true,
         status: generation.status,
@@ -132,7 +135,13 @@ const seatRig = (input: {
     terminalRelease: vi.fn(async () => true),
     terminalWrite: vi.fn(async () => true),
     terminalResize: vi.fn(async () => true),
+    onAgentSeatStateChanged: (listener: (event: unknown) => void) => {
+      seatStateListeners.add(listener);
+      return () => seatStateListeners.delete(listener);
+    },
   };
+  const seatStateListeners = new Set<(event: unknown) => void>();
+  let leasedEpoch: string | undefined;
   hooks.api = api;
   const cell = fallbackCell(defaultTerminal());
   const host = {
@@ -153,11 +162,24 @@ const seatRig = (input: {
     expect(effect, "production attachment effect").toBeDefined();
     detach = effect!.run() || undefined;
   };
+  /**
+   * A terminal event, delivered as the app delivers it: only to a view whose
+   * lease is on that same generation (term/ipc.ts sends per binding and
+   * epoch). A view sitting on an ended generation never hears the next one.
+   */
   const emit = (event: unknown): void => {
+    const { bindingId, epoch } = event as { bindingId?: string; epoch?: string };
+    if (bindingId === "seat" && epoch !== leasedEpoch) return;
     for (const listener of [...hooks.listeners]) listener(event);
   };
+  /** A seat-state change, broadcast to every view whatever it is leased on. */
+  const seatState = (epoch: string, state: string, bindingId = "seat"): void => {
+    for (const listener of [...seatStateListeners]) {
+      listener({ bindingId, epoch, state, reason: "test", confidence: "high", at: Date.now() });
+    }
+  };
   cleanups.push(() => { detach?.(); term.dispose(); });
-  return { api, render, emit };
+  return { api, render, emit, seatState };
 };
 
 const ensureMock = vi.mocked(ensureTerminalRunning);
@@ -295,9 +317,11 @@ describe("TerminalSurface when Junto replaces the seat's process", () => {
         head = { status: "exited", epoch: "gen-1" };
         surface.emit({ type: "exit", bindingId: "seat", epoch: "gen-1", seq: 9n, code: 0 });
       },
+      /** Junto starts a fresh process on the seat; it comes up and says so. */
       start: (epoch: string) => {
         head = { status: "running", epoch };
         surface.emit({ type: "session", bindingId: "seat", epoch, status: "running" });
+        surface.seatState(epoch, "unknown");
       },
     };
   };
@@ -360,9 +384,61 @@ describe("TerminalSurface when Junto replaces the seat's process", () => {
     const key = hooks.states[ATTACH_KEY];
     exit();
     await vi.advanceTimersByTimeAsync(0);
-    surface.emit({ type: "session", bindingId: "seat", epoch: "gen-2", status: "exited" });
+    surface.seatState("gen-2", "unknown");
+    surface.seatState("gen-1", "gone");
+    surface.seatState("gen-2", "gone");
     await vi.advanceTimersByTimeAsync(0);
     expect(hooks.states[KILL_PHASE]).toBe("stopped");
+    expect(hooks.states[ATTACH_KEY]).toBe(key);
+  });
+
+  it("follows a fresh process that started while it was still asking about the old one", async () => {
+    const { surface, exit, start } = rotation();
+    surface.render();
+    await vi.advanceTimersByTimeAsync(50);
+    const key = hooks.states[ATTACH_KEY] as number;
+    // The host is slow to answer: its answer describes the moment before the
+    // fresh process, which starts, and says all it will say, meanwhile.
+    let answer: ((value: unknown) => void) | undefined;
+    surface.api.terminalGet.mockImplementationOnce(
+      () => new Promise((resolve) => { answer = resolve as never; }) as never,
+    );
+    exit();
+    start("gen-2");
+    answer?.({ bindingId: "seat", status: "exited", epoch: "gen-1" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hooks.states[KILL_PHASE]).toBe("idle");
+    expect(hooks.states[ATTACH_KEY]).toBe(key + 1);
+  });
+
+  it("a seat that offboarded to rest reads as offboarded, not as a failed start", async () => {
+    const { surface, exit } = rotation();
+    surface.render();
+    await vi.advanceTimersByTimeAsync(50);
+    applySeatOffboardProgress({
+      seatId: pinnedNode.id,
+      canvasName: state$.canvasName.peek(),
+      mode: "rest",
+      stage: "resting",
+      at: Date.now(),
+    });
+    exit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hooks.states[STATUS]).toBe("offboarded, resting");
+    expect(hooks.states[KILL_PHASE]).toBe("stopped");
+  });
+
+  it("is not moved by another seat's fresh process", async () => {
+    const { surface, exit } = rotation();
+    surface.render();
+    await vi.advanceTimersByTimeAsync(50);
+    const key = hooks.states[ATTACH_KEY];
+    exit();
+    await vi.advanceTimersByTimeAsync(0);
+    const reads = surface.api.terminalGet.mock.calls.length;
+    surface.seatState("gen-9", "idle", "other-seat");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(surface.api.terminalGet.mock.calls.length).toBe(reads);
     expect(hooks.states[ATTACH_KEY]).toBe(key);
   });
 });

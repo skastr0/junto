@@ -49,6 +49,8 @@ import {
 } from "../../lib/terminal-kill-ux";
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
 import { seatDeadReason } from "../../lib/seat-recovery";
+import { decodeAgentSeatStateEvent } from "../../lib/agent-seat-state";
+import { offboardEndedLine, seatOffboardProgressOf } from "../../lib/seat-offboard-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { terminal$ } from "../../lib/terminal-state";
 import {
@@ -1524,12 +1526,24 @@ export function TerminalSurface({
      */
     let settledOn: { readonly epoch: string | undefined } | undefined;
     let following = false;
+    // A fresh process was announced while the host was still being asked
+    // about the old one: that answer may predate it, so ask once more.
+    let askAgain = false;
     const followOrSettle = async (deadEpoch: string | undefined): Promise<void> => {
-      if (following) return;
+      if (following) {
+        askAgain = true;
+        return;
+      }
       following = true;
-      const live = await api
+      let live = await api
         .terminalGet?.(bindingId, hostId)
         .catch(() => undefined);
+      while (askAgain && alive) {
+        askAgain = false;
+        live = await api
+          .terminalGet?.(bindingId, hostId)
+          .catch(() => undefined);
+      }
       following = false;
       if (!alive) return;
       const replaced =
@@ -1543,10 +1557,33 @@ export function TerminalSurface({
         return;
       }
       settledOn = { epoch: deadEpoch };
-      setStatus(live?.exitMessage?.trim() || "could not start");
+      setStatus(
+        live?.exitMessage?.trim() ||
+          // The seat offboarded: the session ended on purpose, and says so.
+          offboardEndedLine(seatOffboardProgressOf(state$.canvasName.peek(), node.id)) ||
+          "could not start",
+      );
       setKillPhase("stopped");
       setLoadPhase(null);
     };
+
+    // The fresh process is learned from the seat-state broadcast, which every
+    // view gets. Terminal events cannot say it: main sends each one only to
+    // the views leased on that same generation, and this view's lease is on
+    // the one that ended. Starting nothing: a stop the operator asked for
+    // stays stopped, and Reopen stays their retry.
+    const offSeatState = api.onAgentSeatStateChanged?.((raw) => {
+      const event = decodeAgentSeatStateEvent(raw);
+      if (!event || event.bindingId !== bindingId || event.state === "gone") return;
+      if (!agentSeat || operatorStopped.current) return;
+      if (following && event.epoch !== epochRef.current) {
+        askAgain = true;
+        return;
+      }
+      if (settledOn !== undefined && event.epoch !== settledOn.epoch) {
+        void followOrSettle(settledOn.epoch);
+      }
+    });
 
     const offEvent = onTerminalEvent((raw) => {
       const event = raw as LiveEvent;
@@ -1826,6 +1863,7 @@ export function TerminalSurface({
       }
       offData.dispose();
       offEvent();
+      offSeatState?.();
       for (const t of settleTimers) clearTimeout(t);
       discardPending();
       const lease = leaseRef.current;
