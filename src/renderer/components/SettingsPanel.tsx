@@ -94,7 +94,7 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
           key: "harnesses",
           group: "Agents",
           label: "Agents",
-          blurb: "scan CLIs and set spawn defaults per harness",
+          blurb: "",
         } as const,
       ]
     : []),

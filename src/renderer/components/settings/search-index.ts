@@ -87,7 +87,7 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
 
   entry("browser", "Max warm sessions", "concurrent warm browser pages"),
 
-  entry("harnesses", "Offer in palette", "off hides this harness even when the CLI is installed"),
+  entry("harnesses", "Offer in palette", "Whether this agent can be picked when you add one"),
   entry("harnesses", "Default model", "the model a new seat of this harness starts with"),
   entry("harnesses", "Default effort", "the effort a new seat of this harness starts with"),
   entry("harnesses", "Default permission mode", "the permission mode a new seat of this harness starts with"),

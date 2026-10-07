@@ -23,9 +23,9 @@ import type {
 import { harnessPrefsFor } from "@shared/settings";
 import { HUE_TEXT, INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
-import { patchSettings, resetSettings } from "../../lib/settings-state";
+import { patchSettings } from "../../lib/settings-state";
 import { getJuntoApi } from "../../lib/junto-api";
-import { Button, Input, Select } from "../ui";
+import { Button, Input, Select, Switch } from "../ui";
 import { FieldRow } from "./FieldRow";
 
 type HarnessScan = ManagedTerminalHarnessOption & {
@@ -113,16 +113,7 @@ export function HarnessesSettingsSection() {
 
   return (
     <div className="settings-section" aria-label="Agent harness configuration">
-      <div className="settings-profile-list__head">
-        <span>Agent harnesses</span>
-        <span>
-          Scan this machine for installed agent CLIs, then set the default
-          model, effort, and permission mode used when you place a seat. Leave
-          fields on product default to keep cascade picker behaviour.
-        </span>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2" style={{ marginBottom: 12 }}>
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="chrome"
           size="sm"
@@ -132,14 +123,7 @@ export function HarnessesSettingsSection() {
         >
           {busy ? "Scanning…" : "Rescan"}
         </Button>
-        <Button
-          variant="subtle"
-          size="sm"
-          disabled={busy}
-          onClick={() => void resetSettings("harnesses")}
-        >
-          Reset agent defaults
-        </Button>
+        <span className="settings-field__hint">Looks for agent CLIs installed on this machine.</span>
       </div>
 
       {error ? (
@@ -152,8 +136,7 @@ export function HarnessesSettingsSection() {
         <p className="settings-note">scanning installed agents…</p>
       ) : scan.length === 0 ? (
         <p className="settings-note">
-          No feature-enabled harnesses in this build. Enable harness flags or
-          use an all-on profile to configure seats.
+          This build has no agents to set up.
         </p>
       ) : (
         <ul className="settings-harness-list" role="list">
@@ -194,23 +177,16 @@ export function HarnessesSettingsSection() {
                 <div className="settings-harness-card__head">
                   <strong style={{ color: INK }}>{row.displayName}</strong>
                   <span className="settings-field__hint">
-                    {row.installed
-                      ? `CLI ${row.binary} — installed`
-                      : `CLI ${row.binary} — not found on PATH`}
+                    {row.installed ? `${row.binary}, installed` : `${row.binary}, not installed`}
                   </span>
                 </div>
 
-                <FieldRow label="Offer in palette" hint="off hides this harness even when the CLI is installed">
-                  <input
-                    type="checkbox"
+                <FieldRow label="Offer in palette">
+                  <Switch
                     checked={prefs.enabled !== false}
                     disabled={!row.installed}
                     aria-label={`Offer ${row.displayName} in palette`}
-                    onChange={(event) =>
-                      patchHarness(row.harness, {
-                        enabled: event.target.checked,
-                      })
-                    }
+                    onCheckedChange={(enabled) => patchHarness(row.harness, { enabled })}
                   />
                 </FieldRow>
 

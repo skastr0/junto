@@ -102,7 +102,7 @@ test("reset section asks first, and Escape closes only the confirm", async () =>
   }
 });
 
-test("the Agents section rows: a checkbox row is a label, a menu row is a group", async () => {
+test("the Agents section rows: a switch row is a label, a menu row is a group", async () => {
   const junto = await launchJunto({ seedHarnessInstalls: ["claude"] });
   try {
     const { page } = junto;
@@ -110,11 +110,11 @@ test("the Agents section rows: a checkbox row is a label, a menu row is a group"
     await page.getByRole("button", { name: "Open settings" }).click();
     await page.locator(".settings-nav__label", { hasText: /^Agents$/ }).click();
 
-    // The checkbox row is still a label: its text toggles the checkbox.
-    const offer = page.getByRole("checkbox", { name: /^Offer .+ in palette$/ }).first();
+    // The switch row is still a label: its text toggles the switch.
+    const offer = page.getByRole("switch", { name: /^Offer .+ in palette$/ }).first();
     await expect(offer).toBeVisible({ timeout: 20_000 });
     const before = await offer.isChecked();
-    await page.getByText("off hides this harness even when the CLI is installed").first().click();
+    await page.getByText("Offer in palette", { exact: true }).first().click();
     await expect.poll(() => offer.isChecked()).toBe(!before);
 
     // A menu row is a named group: its text opens nothing, its button does.
