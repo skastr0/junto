@@ -130,7 +130,7 @@ export function ReviewFooter({
         onChange={(event) => setReviewNote(root, event.target.value)}
       />
       <div className="git-review__send">
-        <span className="git-review__status" role="status" data-problem={problem ? "true" : undefined}>
+        <span className="git-review__status" role={problem ? "alert" : "status"} data-problem={problem ? "true" : undefined}>
           {status}
         </span>
         <span className="git-review__to">to</span>
