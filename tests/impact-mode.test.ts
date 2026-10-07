@@ -5,6 +5,7 @@ import {
   edgeImpactClass,
   nodeImpactClass,
 } from "../src/renderer/lib/impact-mode";
+import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 
 const agent = (id: string, label: string): CanvasDoc["nodes"][number] => ({
   id,
@@ -43,7 +44,7 @@ const mailDoc = (): CanvasDoc => ({
 describe("connectionFocusSelection — direct neighborhood focus", () => {
   it("keeps the root, incident edges, and their neighboring nodes only", () => {
     const doc = mailDoc();
-    const focus = connectionFocusSelection(doc, "a1");
+    const focus = connectionFocusSelection(canvasFromDocument("factory", doc), "a1");
 
     expect(focus.active).toBe(true);
     expect(focus.cone.nodeIds).toEqual(new Set(["a1", "hub"]));
@@ -58,7 +59,7 @@ describe("connectionFocusSelection — direct neighborhood focus", () => {
 
   it("still focuses an isolated node so the operator can dismiss the noise", () => {
     const doc = mailDoc();
-    const focus = connectionFocusSelection(doc, "outsider");
+    const focus = connectionFocusSelection(canvasFromDocument("factory", doc), "outsider");
 
     expect(focus.active).toBe(true);
     expect(focus.cone.nodeIds).toEqual(new Set(["outsider"]));
@@ -67,7 +68,7 @@ describe("connectionFocusSelection — direct neighborhood focus", () => {
   });
 
   it("stays inactive when the requested node no longer exists", () => {
-    const focus = connectionFocusSelection(mailDoc(), "missing");
+    const focus = connectionFocusSelection(canvasFromDocument("factory", mailDoc()), "missing");
     expect(focus.active).toBe(false);
     expect(focus.cone.nodeIds.size).toBe(0);
   });

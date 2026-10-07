@@ -56,6 +56,7 @@ import {
 } from "../../lib/multi-select-gesture";
 import { IconButton, ToolbarPill } from "../ui";
 import { isOverseerSeat } from "../../lib/overseer-set";
+import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 
@@ -210,10 +211,12 @@ function NodeActions({
     kernel$.executionRev.get(); // kernel-tick dep: execution identity can stay stable while blocked/reasons flip
     const canvasName = state$.canvasName.get();
     const actorRefs = state$.actorRefs.get();
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
-    const graph = executionGraphForImpact(doc, execution, context);
+    const itemsOf = workItemsFromDocument(doc);
+    const canvas = canvasFromDocument(canvasName, doc);
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
+    const graph = executionGraphForImpact(canvas, execution, context);
     const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === node.id)?.seatId;
-    return resolveBlockerCause(doc, graph, node.id, { blockedActorSeatId });
+    return resolveBlockerCause(canvas, graph, node.id, { blockedActorSeatId, itemsOf });
   });
 
   if (!selected || multiSelect) return null;

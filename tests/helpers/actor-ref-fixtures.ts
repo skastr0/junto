@@ -11,6 +11,7 @@ import {
   ActorRef,
   type ActorRef as ActorRefValue,
 } from "../../src/shared/work-protocol";
+import { workItemsFromDocument } from "../../src/shared/model/from-document";
 
 export const TEST_CANVAS_NAME = "c";
 
@@ -52,5 +53,6 @@ export const executionContextForDoc = (
   executionGraphContextFromActorRefs(
     canvasName,
     actorRefsForDoc(doc, canvasName),
+    workItemsFromDocument(doc),
     trust,
   );

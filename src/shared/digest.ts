@@ -21,6 +21,7 @@ import { isAttentionTaskState } from "./task";
 import { deriveRegionRollups } from "./region-rollup";
 import { readReviewVerdict, type ReviewVerdict } from "./crew";
 import { rulesInForce, taskEpoch } from "./rules";
+import { canvasFromDocument, workItemsFromDocument } from "./model/from-document";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
 // Contract: same doc + same actor projection + same snapshots/live views ->
@@ -131,9 +132,12 @@ export const digestCanvas = (
     ...(live.stamps ? { stamps: live.stamps } : {}),
     ...(live.approvals ? { approvals: live.approvals } : {}),
   };
-  const graph = deriveExecutionGraph(doc, {
+  const canvas = canvasFromDocument(name, doc);
+  const itemsOf = workItemsFromDocument(doc);
+  const graph = deriveExecutionGraph(canvas, {
     canvasName: name,
     resolveActorRef: live.resolveActorRef,
+    itemsOf,
     ...trust,
   });
 
@@ -393,7 +397,7 @@ export const digestCanvas = (
   // impact — stoppage seeds ranked by blast-radius cone size (S7).
   // seed - stops - leads - clear-action. No occupancy in headless digest
   // (live plane); empty lead seats are not marked unstaffed here.
-  const rankedStoppages = rankStoppageSeeds(doc, graph);
+  const rankedStoppages = rankStoppageSeeds(canvas, graph, itemsOf);
   if (rankedStoppages.length > 0) {
     const impactLines = ["impact"];
     for (const ranked of rankedStoppages) {

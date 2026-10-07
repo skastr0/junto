@@ -64,6 +64,7 @@ import { WorkService } from "../work/service";
 import { desktopActiveCanvas, desktopDoneUnread } from "./desktop-report";
 import { answerSignalAsOperator, dismissSignalAsOperator, sendOperatorMail, type OperatorActionResult } from "./operator-actions";
 import { livePreambles } from "./preambles";
+import { wiresFromDocument } from "@shared/model/from-document";
 
 // Portraits wear the packs this build bundles, as the renderer's do.
 installCosmeticPacks(decodeCosmeticPacks(overlayManifest.cosmetics));
@@ -148,7 +149,12 @@ const feedSeats = (doc: CanvasDoc, now: number): ReadonlyArray<FeedSeatInput> =>
 const canvasNeedsFor = (canvasName: string, doc: CanvasDoc): ReadonlyArray<FeedCanvasNeed> => {
   const execution = getExecutionByCanvas().get(canvasName);
   if (execution === undefined) return [];
-  return feedCanvasNeeds({ doc, graph: executionGraphFromSnapshot(doc, execution), nameOf: nodeTitle });
+  return feedCanvasNeeds({
+    canvasName,
+    doc,
+    graph: executionGraphFromSnapshot(wiresFromDocument(doc), execution),
+    nameOf: nodeTitle,
+  });
 };
 
 const feedFor = (canvasName: string, view: CanvasView, now: number): OperatorFeed =>

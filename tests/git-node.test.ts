@@ -12,6 +12,7 @@ import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-pa
 const emptyContext = {
   canvasName: "test",
   resolveActorRef: () => undefined,
+  itemsOf: () => [],
 };
 
 describe("git geography node", () => {

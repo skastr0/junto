@@ -159,12 +159,24 @@ export const resolveCompiledActorRef = (
   node: CanvasNode | undefined,
 ): ActorRefValue | undefined => {
   if (node === undefined || roleOfNode(node) !== "actor") return undefined;
-  const actor = resolver({ canvasName, nodeId: node.id });
+  return resolveActorRefAt(resolver, canvasName, node.id);
+};
+
+/**
+ * The same resolution for a caller that holds the seat's id and already knows
+ * the node is a seat.
+ */
+export const resolveActorRefAt = (
+  resolver: ActorRefResolver,
+  canvasName: string,
+  nodeId: string,
+): ActorRefValue | undefined => {
+  const actor = resolver({ canvasName, nodeId });
   if (
     actor === undefined ||
     !Schema.is(ActorRef)(actor) ||
     actor.canvasName !== canvasName ||
-    actor.nodeId !== node.id
+    actor.nodeId !== nodeId
   ) {
     return undefined;
   }

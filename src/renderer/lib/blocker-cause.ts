@@ -7,11 +7,14 @@
  * the request/task that is holding the seat — preferably the exact item.
  */
 
-import type { CanvasDoc, CanvasNode, Task } from "@shared/canvas";
-import type { ExecutionGraph } from "@shared/execution-graph";
+import type { Task } from "@shared/canvas";
+import type { ExecutionGraph, WorkItemsOf } from "@shared/execution-graph";
 import { formatWaitingOnLines, waitingOnPath } from "@shared/impact";
+import type { NodeId } from "@shared/model/base";
+import type { Canvas } from "@shared/model/canvas";
+import type { Node } from "@shared/model/kinds";
+import { titleOf } from "@shared/model/title";
 import { claimedByOf, taskBrief } from "@shared/task";
-import { nodeTitle } from "./presentation";
 import { openWorkDetail } from "./work-detail-open";
 import { selectNode, state$ } from "./state";
 
@@ -37,29 +40,22 @@ export type BlockerCause = {
 export type ResolveBlockerCauseOptions = {
   /** Compiled seat id for the blocked actor (matches Task.claimedBy). */
   readonly blockedActorSeatId?: string;
+  /** The items on a task or requests node; a canvas holds no work. */
+  readonly itemsOf: WorkItemsOf;
 };
 
-const isWorkSink = (node: CanvasNode | undefined): boolean => {
-  const kind = node?.ether?.entity?.kind;
-  return typeof kind === "string" && WORK_SINK_KINDS.has(kind);
-};
+const isWorkSink = (node: Node | undefined): boolean =>
+  node !== undefined && WORK_SINK_KINDS.has(node.kind);
 
 const isAttentionItem = (item: Task): boolean =>
   item.state === "input-required" || item.state === "auth-required";
-
-const workItemsOn = (node: CanvasNode | undefined): ReadonlyArray<Task> => {
-  const kind = node?.ether?.entity?.kind;
-  if (kind === "requests") return node?.ether?.requests?.items ?? [];
-  if (kind === "task") return node?.ether?.tasks?.items ?? [];
-  return [];
-};
 
 /**
  * Prefer the attention item claimed by the blocked actor on the cause sink.
  * Falls back to work-reason requestId, then sole attention item on the sink.
  */
 export const holdingWorkItemId = (
-  causeNode: CanvasNode | undefined,
+  causeItems: ReadonlyArray<Task>,
   blockedNodeId: string,
   graph: ExecutionGraph,
   blockedActorSeatId?: string,
@@ -69,7 +65,7 @@ export const holdingWorkItemId = (
     if (reason.kind === "work" && reason.requestId) return reason.requestId;
   }
 
-  const attention = workItemsOn(causeNode).filter(isAttentionItem);
+  const attention = causeItems.filter(isAttentionItem);
   if (attention.length === 0) return undefined;
 
   if (blockedActorSeatId) {
@@ -84,16 +80,16 @@ export const holdingWorkItemId = (
 };
 
 const titleForItem = (
-  causeNode: CanvasNode | undefined,
+  causeNode: Node | undefined,
+  causeItems: ReadonlyArray<Task>,
   workItemId: string | undefined,
   fallbackLine: string,
 ): string => {
   if (!workItemId || !causeNode) return fallbackLine;
-  const item = workItemsOn(causeNode).find((entry) => entry.id === workItemId);
+  const item = causeItems.find((entry) => entry.id === workItemId);
   if (!item) return fallbackLine;
   const brief = taskBrief(item).trim();
-  const sink = nodeTitle(causeNode);
-  return brief ? `${sink} - ${brief}` : fallbackLine;
+  return brief ? `${titleOf(causeNode)} - ${brief}` : fallbackLine;
 };
 
 /**
@@ -102,52 +98,53 @@ const titleForItem = (
  * targetNodeId when the cone walk is empty.
  */
 export const resolveBlockerCause = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   graph: ExecutionGraph,
   nodeId: string,
-  options?: ResolveBlockerCauseOptions,
+  options: ResolveBlockerCauseOptions,
 ): BlockerCause | null => {
-  if (!doc.nodes.some((n) => n.id === nodeId)) return null;
+  const byId = canvas.nodes;
+  if (!byId.has(nodeId as NodeId)) return null;
 
-  const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
-  const seatId = options?.blockedActorSeatId;
-  const path = waitingOnPath(doc, graph, nodeId);
+  const seatId = options.blockedActorSeatId;
+  const itemsOn = (node: Node | undefined): ReadonlyArray<Task> =>
+    node !== undefined && (node.kind === "task" || node.kind === "requests")
+      ? options.itemsOf(node.id)
+      : [];
+  const path = waitingOnPath(canvas, graph, nodeId);
 
   if (path.hops.length > 0) {
     const terminal = path.hops[path.hops.length - 1]!;
-    const causeNode = byId.get(terminal.nodeId);
-    const lines = formatWaitingOnLines(path, doc);
-    const line = lines[lines.length - 1] ?? (causeNode ? nodeTitle(causeNode) : terminal.nodeId);
+    const causeNode = byId.get(terminal.nodeId as NodeId);
+    const lines = formatWaitingOnLines(path, canvas);
+    const line = lines[lines.length - 1] ?? (causeNode ? titleOf(causeNode) : terminal.nodeId);
     const workItemId = isWorkSink(causeNode)
-      ? holdingWorkItemId(causeNode, nodeId, graph, seatId)
+      ? holdingWorkItemId(itemsOn(causeNode), nodeId, graph, seatId)
       : undefined;
     return {
       causeNodeId: terminal.nodeId,
       isSelf: terminal.nodeId === nodeId,
       openWorkDetail: isWorkSink(causeNode),
-      title: titleForItem(causeNode, workItemId, line),
+      title: titleForItem(causeNode, itemsOn(causeNode), workItemId, line),
       role: terminal.role,
       ...(workItemId ? { workItemId } : {}),
     };
   }
 
-  // Seat work block without an edge cone: jump to the request/task target.
+  // Seat work block without a wire cone: jump to the request/task target.
   const reasons = graph.reasonsByNodeId.get(nodeId) ?? [];
   for (const reason of reasons) {
     if (reason.kind !== "work") continue;
     const targetId = reason.targetNodeId;
-    if (!targetId || !byId.has(targetId)) continue;
-    const target = byId.get(targetId);
-    const workItemId = reason.requestId || holdingWorkItemId(target, nodeId, graph, seatId);
+    const target = targetId ? byId.get(targetId as NodeId) : undefined;
+    if (!targetId || target === undefined) continue;
+    const workItemId =
+      reason.requestId || holdingWorkItemId(itemsOn(target), nodeId, graph, seatId);
     return {
       causeNodeId: targetId,
       isSelf: targetId === nodeId,
       openWorkDetail: isWorkSink(target),
-      title: titleForItem(
-        target,
-        workItemId,
-        target ? nodeTitle(target) : targetId,
-      ),
+      title: titleForItem(target, itemsOn(target), workItemId, titleOf(target)),
       role: "work",
       ...(workItemId ? { workItemId } : {}),
     };

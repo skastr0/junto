@@ -14,6 +14,7 @@ import {
   setActorRefResolver,
 } from "../src/main/junto/kernel/cycle";
 import { actorRefFixture, executionContextForDoc } from "./helpers/actor-ref-fixtures";
+import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 
 const CANVAS = "stops";
 const FIRST = "2026-08-12T12:03:00.000Z";
@@ -39,7 +40,7 @@ const docWith = (items: ReadonlyArray<unknown>): CanvasDoc =>
         y: 0,
         width: 200,
         height: 100,
-        ether: { entity: { kind: "agent", name: "local:atlas" }, terminal: { harness: "claude" } },
+        ether: { entity: { kind: "agent", name: "local:atlas" }, terminal: { bindingId: "bind-atlas", harness: "claude" } },
       },
       {
         id: "board",
@@ -73,7 +74,7 @@ describe("stop reasons carry when the stop began", () => {
 
   it("a document whose items are not the work projection yields a reason with no time", () => {
     const doc = docWith([waiting("t-unstamped")]);
-    const graph = deriveExecutionGraph(doc, executionContextForDoc(doc, CANVAS));
+    const graph = deriveExecutionGraph(canvasFromDocument(CANVAS, doc), executionContextForDoc(doc, CANVAS));
     const [reason] = graph.reasonsByNodeId.get("atlas") ?? [];
     expect(reason).toMatchObject({ kind: "edge", edgeId: "e1" });
     expect(reason && "since" in reason).toBe(false);

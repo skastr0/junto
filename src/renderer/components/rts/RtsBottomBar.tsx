@@ -61,6 +61,7 @@ import { RollCall } from "./RollCall";
 import { claimFocus } from "../../lib/focus-ownership";
 import { AccentColorSwatches } from "./AccentColorPicker";
 import "./RtsBottomBar.css";
+import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
 
 /** Compact square RTS key — fixed size, never stretches. */
 function CmdKey({
@@ -339,11 +340,13 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
 
   const blockerCause = useMemo(() => {
     if (!node) return null;
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
-    const graph = executionGraphForImpact(doc, execution, context);
+    const itemsOf = workItemsFromDocument(doc);
+    const canvas = canvasFromDocument(canvasName, doc);
+    const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
+    const graph = executionGraphForImpact(canvas, execution, context);
     if (!graph.blocked.has(node.id)) return null;
     const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === node.id)?.seatId;
-    return resolveBlockerCause(doc, graph, node.id, { blockedActorSeatId });
+    return resolveBlockerCause(canvas, graph, node.id, { blockedActorSeatId, itemsOf });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev is the kernel tick
   }, [actorRefs, canvasName, doc, execution, executionRev, node]);
 

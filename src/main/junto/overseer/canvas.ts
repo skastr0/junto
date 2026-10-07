@@ -62,6 +62,7 @@ import {
   canvasNameFrom,
   type CanvasPortfolioView,
 } from "../canvases";
+import { workItemsFromDocument } from "@shared/model/from-document";
 
 const CANVAS_OPS = new Set<OverseerOperation>([
   "canvas.list",
@@ -573,6 +574,7 @@ const handleRender = (
       svg: renderCanvasSvg(read.doc, {
         canvasName: read.name,
         resolveActorRef: actorRefResolverFromProjection(read.actorRefs),
+        itemsOf: workItemsFromDocument(read.doc),
       }),
     };
   });

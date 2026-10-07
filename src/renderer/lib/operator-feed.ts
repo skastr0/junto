@@ -24,6 +24,7 @@ import { seatAwareness$ } from "./seat-awareness";
 import { attentionAgentKey } from "./seat-projections";
 import { state$ } from "./state";
 import { threadHealthView, useHealthClock } from "./thread-health";
+import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
 
 /**
  * The desktop's reading of the operator feed: joins the live planes (declared
@@ -97,10 +98,15 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
       .join("|"),
   );
   return useMemo(() => {
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
+    const context = executionGraphContextFromActorRefs(
+      canvasName,
+      actorRefs,
+      workItemsFromDocument(doc),
+    );
     return feedCanvasNeeds({
+      canvasName,
       doc,
-      graph: executionGraphForImpact(doc, execution, context),
+      graph: executionGraphForImpact(canvasFromDocument(canvasName, doc), execution, context),
       nameOf: nodeTitle,
       wantsInput: liveWantsInput(doc.nodes),
     });

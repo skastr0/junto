@@ -1,9 +1,11 @@
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "../canvas";
+import type { Canvas } from "../model/canvas";
+import type { Node } from "../model/kinds";
+import type { Wire } from "../model/wire";
 import type { BlockedReason, ExecutionGraph } from "../execution-graph";
 import { stoppageActorOf } from "../execution-graph";
 import { seatMayBeBlocked } from "../physics/phase-membership";
 
-// Pure stoppage impact cone: derived from (document + ExecutionGraph).
+// Pure stoppage impact cone: derived from (canvas + ExecutionGraph).
 // Phase membership (who may be blocked) is physics: actors only today.
 
 export type ImpactCone = {
@@ -38,12 +40,9 @@ const emptyCone = (rootId: string): ImpactCone => ({
 });
 
 /** Physics seat that may enter the blocked set (actors under current law). */
-const isPhaseMemberSeat = (node: CanvasNode | undefined): boolean => {
+const isPhaseMemberSeat = (node: Node | undefined): boolean => {
   if (!node) return false;
-  return seatMayBeBlocked({
-    isGroup: node.type === "group",
-    kind: node.ether?.entity?.kind,
-  });
+  return seatMayBeBlocked({ isGroup: node.kind === "region", kind: node.kind });
 };
 
 const reasonRank = (reason: BlockedReason): number => {
@@ -66,19 +65,19 @@ const sortReasons = (reasons: ReadonlyArray<BlockedReason>): BlockedReason[] =>
   });
 
 /**
- * Causal ends of an edge for stoppage: which node generates the stop and which
- * seat takes it. An edge is stored in its verb's own order — agent-first for
- * agent→sink access — so raw `fromNode`/`toNode` is not the causal direction.
+ * Causal ends of a wire for stoppage: which node generates the stop and which
+ * seat takes it. A wire runs in its verb's own order — agent-first for
+ * agent→sink access — so raw `from`/`to` is not the causal direction.
  * This mirrors how `deriveExecutionGraph` attributes a block.
  */
 export const stoppageEnds = (
-  byId: ReadonlyMap<string, CanvasNode>,
-  edge: CanvasEdge,
+  byId: Canvas["nodes"],
+  wire: Pick<Wire, "from" | "to">,
 ): { readonly causeId: string; readonly actorId: string } => {
-  const actor = stoppageActorOf(byId.get(edge.fromNode), byId.get(edge.toNode));
-  const actorId = actor?.id ?? edge.toNode;
+  const actor = stoppageActorOf(byId.get(wire.from), byId.get(wire.to));
+  const actorId = actor?.id ?? wire.to;
   return {
-    causeId: actorId === edge.toNode ? edge.fromNode : edge.toNode,
+    causeId: actorId === wire.to ? wire.from : wire.to,
     actorId,
   };
 };
@@ -98,18 +97,18 @@ const reasonKey = (reason: BlockedReason): string => {
  * - Attention leads are optional soft overlays (actor seats on undirected edges).
  */
 export const impactCone = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   graph: ExecutionGraph,
   rootNodeId: string,
 ): ImpactCone => {
-  const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
-  if (!byId.has(rootNodeId)) return emptyCone(rootNodeId);
+  const byId = canvas.nodes;
+  if (!byId.has(rootNodeId as Node["id"])) return emptyCone(rootNodeId);
 
   const forward = new Map<string, Hop[]>();
   const reverse = new Map<string, Hop[]>();
   const generatesFrom = new Map<string, Hop[]>();
 
-  for (const edge of doc.edges) {
+  for (const edge of canvas.wires.values()) {
     const evaluation = graph.edgeEvalById.get(edge.id);
     const { causeId, actorId } = stoppageEnds(byId, edge);
     if (evaluation?.generates) {
@@ -293,11 +292,11 @@ export const impactCone = (
 
   // Soft attention leads: undirected edge from actor seat into cone node.
   const attentionLeadIds = new Set<string>();
-  for (const edge of doc.edges) {
-    const aIn = nodeIds.has(edge.fromNode);
-    const bIn = nodeIds.has(edge.toNode);
+  for (const edge of canvas.wires.values()) {
+    const aIn = nodeIds.has(edge.from);
+    const bIn = nodeIds.has(edge.to);
     if (aIn === bIn) continue;
-    const outsiderId = aIn ? edge.toNode : edge.fromNode;
+    const outsiderId = aIn ? edge.to : edge.from;
     if (nodeIds.has(outsiderId)) continue;
     if (isPhaseMemberSeat(byId.get(outsiderId))) {
       attentionLeadIds.add(outsiderId);

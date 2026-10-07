@@ -1,12 +1,15 @@
-import type { CanvasDoc, CanvasNode, Task } from "../canvas";
+import type { Task } from "../canvas";
 import { claimedByOf, taskBrief } from "../task";
 import { needsHuman } from "../attention";
-import type { ExecutionGraph } from "../execution-graph";
+import type { ExecutionGraph, WorkItemsOf } from "../execution-graph";
+import type { Canvas } from "../model/canvas";
+import type { Node } from "../model/kinds";
+import { titleOf } from "../model/title";
 import type { OccupancySpectrumName } from "../occupancy";
 import { impactCone, stoppageEnds, type ImpactCone } from "./cone";
 
 // Rank stoppage seeds (apex generators + manual blockers) by blast-radius
-// cone size. Pure: document + ExecutionGraph (+ optional occupancy for lead
+// cone size. Pure: canvas + ExecutionGraph + work items (+ optional occupancy for lead
 // staffing). UI / digest format the RankedStoppage rows.
 
 export type LeadStaffing = "staffed" | "unstaffed" | "unknown";
@@ -24,70 +27,50 @@ export type RankedStoppage = {
   readonly cone: ImpactCone;
 };
 
-const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
-  if (!node) return fallback;
-  switch (node.type) {
-    case "text":
-      return (node.text.split("\n")[0] ?? "").trim() || fallback;
-    case "file":
-      return node.file.split(/[\\/]/).pop() ?? node.file;
-    case "link":
-      return node.url;
-    case "group":
-      return node.label ?? node.id;
-  }
-};
-
-/** Seed candidates: nodes that emit generating edges. */
+/** Seed candidates: nodes that emit generating wires, in canvas order. */
 export const collectStoppageSeedIds = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   graph: ExecutionGraph,
 ): ReadonlyArray<string> => {
   const ids = new Set<string>();
-  const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
-  for (const edge of doc.edges) {
-    const evaluation = graph.edgeEvalById.get(edge.id);
-    if (evaluation?.generates) ids.add(stoppageEnds(byId, edge).causeId);
+  for (const wire of canvas.wires.values()) {
+    const evaluation = graph.edgeEvalById.get(wire.id);
+    if (evaluation?.generates) ids.add(stoppageEnds(canvas.nodes, wire).causeId);
   }
-  // Deterministic document order.
-  return doc.nodes.map((n) => n.id).filter((id) => ids.has(id));
+  return [...canvas.nodes.keys()].filter((id) => ids.has(id));
 };
 
 /** Items on a task seed that actually generate stoppage: claimed attention. */
-const stallingItemsOf = (node: CanvasNode | undefined): ReadonlyArray<Task> =>
-  (node?.ether?.tasks?.items ?? []).filter(
-    (item) => needsHuman(item) && claimedByOf(item) !== undefined,
-  );
+const stallingItems = (items: ReadonlyArray<Task>): ReadonlyArray<Task> =>
+  items.filter((item) => needsHuman(item) && claimedByOf(item) !== undefined);
 
-const seedBriefOf = (node: CanvasNode | undefined): string => {
+const pendingRequests = (items: ReadonlyArray<Task>): ReadonlyArray<Task> =>
+  items.filter((item) => item.state === "input-required");
+
+const seedBriefOf = (node: Node | undefined, items: ReadonlyArray<Task>): string => {
   if (!node) return "stoppage";
-  const kind = node.ether?.entity?.kind;
-  if (kind === "requests") {
-    const items = node.ether?.requests?.items ?? [];
-    const pending = items.filter((item) => item.state === "input-required");
-    const n = pending.length;
+  if (node.kind === "requests") {
+    const n = pendingRequests(items).length;
     return n === 1 ? "1 request" : `${n} requests`;
   }
-  if (kind === "task") {
-    const n = stallingItemsOf(node).length;
+  if (node.kind === "task") {
+    const n = stallingItems(items).length;
     return n === 1 ? "1 task" : `${n} tasks`;
   }
-  return titleOf(node, node.id);
+  return titleOf(node);
 };
 
 const clearActionOf = (
-  node: CanvasNode | undefined,
+  node: Node | undefined,
+  items: ReadonlyArray<Task>,
   cone: ImpactCone,
 ): string => {
-  const kind = node?.ether?.entity?.kind;
-  if (kind === "requests") {
-    const pending = (node?.ether?.requests?.items ?? []).filter(
-      (item) => item.state === "input-required",
-    );
+  if (node?.kind === "requests") {
+    const pending = pendingRequests(items);
     if (pending[0]) return `resolve: ${taskBrief(pending[0])}`;
   }
-  if (kind === "task") {
-    const stalling = stallingItemsOf(node);
+  if (node?.kind === "task") {
+    const stalling = stallingItems(items);
     if (stalling[0]) return `settle: ${taskBrief(stalling[0])}`;
   }
   const first = cone.seedReasons[0];
@@ -100,24 +83,23 @@ const clearActionOf = (
  * Empty cones (no blast) are dropped.
  */
 export const rankStoppageSeeds = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   graph: ExecutionGraph,
+  itemsOf: WorkItemsOf,
 ): ReadonlyArray<RankedStoppage> => {
-  const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
   const ranked: RankedStoppage[] = [];
 
-  for (const seedNodeId of collectStoppageSeedIds(doc, graph)) {
-    const cone = impactCone(doc, graph, seedNodeId);
+  for (const seedNodeId of collectStoppageSeedIds(canvas, graph)) {
+    const cone = impactCone(canvas, graph, seedNodeId);
     if (cone.nodeIds.size === 0) continue;
-    // Prefer apex-rooted cones: if this seed is not in its own cone apex set
-    // (nodeIds always includes apexes; generators/seeds are always present).
-    const node = byId.get(seedNodeId);
+    const node = canvas.nodes.get(seedNodeId as Node["id"]);
+    const items = itemsOf(seedNodeId);
     ranked.push({
       seedNodeId,
-      seedBrief: seedBriefOf(node),
+      seedBrief: seedBriefOf(node, items),
       stops: cone.nodeIds.size,
       attentionLeadIds: [...cone.attentionLeadIds].sort(),
-      clearAction: clearActionOf(node, cone),
+      clearAction: clearActionOf(node, items, cone),
       cone,
     });
   }

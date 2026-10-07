@@ -3,6 +3,7 @@ import { needsHuman } from "./attention";
 import { earliestStateSince, type ExecutionGraph } from "./execution-graph";
 import { rankStoppageSeeds } from "./impact";
 import { attentionText, feedRegionFor, type FeedCanvasNeed } from "./operator-feed";
+import { canvasFromDocument, workItemsFromDocument } from "./model/from-document";
 
 /**
  * What the canvas knows that no seat said, as needs for the operator feed:
@@ -29,6 +30,7 @@ const earlier = (a: number | undefined, b: number | undefined): number | undefin
   a === undefined ? b : b === undefined ? a : Math.min(a, b);
 
 export const feedCanvasNeeds = (input: {
+  readonly canvasName: string;
   readonly doc: CanvasDoc;
   readonly graph: ExecutionGraph;
   readonly nameOf: (node: CanvasNode) => string;
@@ -71,7 +73,11 @@ export const feedCanvasNeeds = (input: {
     });
   };
 
-  for (const stoppage of rankStoppageSeeds(doc, graph)) {
+  for (const stoppage of rankStoppageSeeds(
+    canvasFromDocument(input.canvasName, doc),
+    graph,
+    workItemsFromDocument(doc),
+  )) {
     add(stoppage.seedNodeId, "stoppage", "blocked", holdsUp(Math.max(0, stoppage.stops - 1)), causeSince.get(stoppage.seedNodeId));
   }
   for (const node of doc.nodes) {

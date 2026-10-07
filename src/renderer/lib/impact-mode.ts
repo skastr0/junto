@@ -3,7 +3,8 @@
 // edgeEval so impactCone can run without a second graph pass.
 
 import { observable } from "@legendapp/state";
-import type { CanvasDoc } from "@shared/canvas";
+import { wiresAt, type Canvas } from "@shared/model/canvas";
+import type { NodeId } from "@shared/model/base";
 import type { ExecutionSnapshot } from "@shared/ipc";
 import {
   deriveExecutionGraph,
@@ -26,26 +27,26 @@ export type ImpactSelection = {
   readonly seedLabel: string;
 };
 
-const emptySelection = (
-  rootId: string,
-  context: ExecutionGraphContext,
-): ImpactSelection => ({
+const emptySelection = (rootId: string): ImpactSelection => ({
   active: false,
-  cone: impactCone(
-    { nodes: [], edges: [] },
-    deriveExecutionGraph({ nodes: [], edges: [] }, context),
+  cone: {
     rootId,
-  ),
+    seedReasons: [],
+    nodeIds: new Set(),
+    edgeIds: new Set(),
+    attentionLeadIds: new Set(),
+    pathToSeed: () => [],
+  },
   seedLabel: "",
 });
 
 /** Build an ExecutionGraph suitable for impactCone from live kernel data. */
 export const executionGraphForImpact = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   execution: ExecutionSnapshot | null | undefined,
   context: ExecutionGraphContext,
 ): ExecutionGraph =>
-  execution ? executionGraphFromSnapshot(doc, execution) : deriveExecutionGraph(doc, context);
+  execution ? executionGraphFromSnapshot(canvas, execution) : deriveExecutionGraph(canvas, context);
 
 const reasonBrief = (reason: BlockedReason): string => {
   if (reason.kind === "edge") return reason.detail || "generating edge";
@@ -54,15 +55,15 @@ const reasonBrief = (reason: BlockedReason): string => {
 
 /** Derive the stoppage cone for the selected node (empty when outside cone). */
 export const selectionImpact = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   rootNodeId: string,
   execution: ExecutionSnapshot | null | undefined,
   context: ExecutionGraphContext,
 ): ImpactSelection => {
-  if (!rootNodeId) return emptySelection("", context);
+  if (!rootNodeId) return emptySelection("");
 
-  const graph = executionGraphForImpact(doc, execution, context);
-  const cone = impactCone(doc, graph, rootNodeId);
+  const graph = executionGraphForImpact(canvas, execution, context);
+  const cone = impactCone(canvas, graph, rootNodeId);
   if (cone.nodeIds.size === 0) {
     return { active: false, cone, seedLabel: "" };
   }
@@ -79,15 +80,15 @@ export const selectionImpact = (
  * Derive a presentational focus cone for a node's immediate neighborhood.
  *
  * This deliberately ignores execution phase: the operator is asking which
- * authored edges touch this node, not which work is currently blocked. The
+ * wires touch this node, not which work is currently blocked. The
  * same shell classes and opacity treatment as stoppage impact are reused by
  * the canvas so the two views read as one focus mechanism.
  */
 export const connectionFocusSelection = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   rootNodeId: string,
 ): ImpactSelection => {
-  if (!rootNodeId || !doc.nodes.some((node) => node.id === rootNodeId)) {
+  if (!rootNodeId || !canvas.nodes.has(rootNodeId as NodeId)) {
     return {
       active: false,
       cone: {
@@ -104,10 +105,9 @@ export const connectionFocusSelection = (
 
   const nodeIds = new Set<string>([rootNodeId]);
   const edgeIds = new Set<string>();
-  for (const edge of doc.edges) {
-    if (edge.fromNode !== rootNodeId && edge.toNode !== rootNodeId) continue;
-    edgeIds.add(edge.id);
-    nodeIds.add(edge.fromNode === rootNodeId ? edge.toNode : edge.fromNode);
+  for (const wire of wiresAt(canvas, rootNodeId as NodeId)) {
+    edgeIds.add(wire.id);
+    nodeIds.add(wire.from === rootNodeId ? wire.to : wire.from);
   }
 
   const connectedCount = nodeIds.size - 1;

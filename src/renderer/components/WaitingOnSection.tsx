@@ -6,6 +6,7 @@ import { selectNode, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { executionGraphForImpact } from "../lib/impact-mode";
 import { HUE, HUE_TEXT } from "../lib/theme";
+import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
 
 /**
  * Inspector "Waiting on…" — reverse-walks reasonsByNodeId from the selected
@@ -17,25 +18,30 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
   const executionRev = use$(kernel$.executionRev);
   const canvasName = use$(state$.canvasName);
   const actorRefs = use$(state$.actorRefs);
+  const canvas = useMemo(() => canvasFromDocument(canvasName, doc), [canvasName, doc]);
 
   const path = useMemo(() => {
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
-    const graph = executionGraphForImpact(doc, execution, context);
+    const context = executionGraphContextFromActorRefs(
+      canvasName,
+      actorRefs,
+      workItemsFromDocument(doc),
+    );
+    const graph = executionGraphForImpact(canvas, execution, context);
     // Only show for blocked nodes or nodes inside a stoppage cone.
     if (!graph.blocked.has(nodeId)) {
       // Generators still surface a short path (themselves).
-      const evalHasGenerate = doc.edges.some(
-        (e) => e.fromNode === nodeId && graph.edgeEvalById.get(e.id)?.generates,
+      const evalHasGenerate = [...canvas.wires.values()].some(
+        (wire) => wire.from === nodeId && graph.edgeEvalById.get(wire.id)?.generates,
       );
       if (!evalHasGenerate) return null;
     }
-    return waitingOnPath(doc, graph, nodeId);
+    return waitingOnPath(canvas, graph, nodeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRefs, canvasName, doc, execution, executionRev, nodeId]);
 
   if (!path || path.hops.length === 0) return null;
 
-  const lines = formatWaitingOnLines(path, doc);
+  const lines = formatWaitingOnLines(path, canvas);
   if (lines.length === 0) return null;
 
   return (

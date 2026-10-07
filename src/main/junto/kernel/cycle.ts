@@ -45,6 +45,7 @@ import {
   RELAY_ENABLED,
   schedulerFeatureEnabled,
 } from "@shared/features";
+import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
 
 // --- frozen interface --------------------------------------------------------
 
@@ -257,9 +258,10 @@ const snapshotFromGraph = (
   canvasName: string,
   doc: CanvasDoc,
 ): ExecutionSnapshot => {
-  const graph = deriveExecutionGraph(doc, {
+  const graph = deriveExecutionGraph(canvasFromDocument(canvasName, doc), {
     canvasName,
     resolveActorRef,
+    itemsOf: workItemsFromDocument(doc),
   });
   const phaseByEdgeId: Record<string, EdgePhase> = {};
   const detailByEdgeId: Record<string, string> = {};

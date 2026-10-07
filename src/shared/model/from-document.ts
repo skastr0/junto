@@ -1,5 +1,5 @@
 /** Temporary window bootstrap; removed with the final document reader. */
-import type { CanvasEdge, CanvasNode } from "../canvas";
+import type { CanvasEdge, CanvasNode, Task } from "../canvas";
 import { asCanvasName } from "./base";
 import type { Canvas } from "./canvas";
 import { nodeFromLegacyRow, wireFromLegacyRow } from "./from-legacy-row";
@@ -82,4 +82,34 @@ export const canvasFromDocument = (name: string, doc: Document): Canvas => {
   };
   held.set(doc, canvas);
   return canvas;
+};
+
+const NO_ITEMS: ReadonlyArray<Task> = [];
+const heldItems = new WeakMap<
+  object,
+  (nodeId: string) => ReadonlyArray<Task>
+>();
+
+/**
+ * The task and request items a document carries, by node id, for a caller
+ * that still reads work out of the document. A canvas holds no work.
+ */
+export const workItemsFromDocument = (
+  doc: Pick<Document, "nodes">,
+): ((nodeId: string) => ReadonlyArray<Task>) => {
+  const known = heldItems.get(doc);
+  if (known !== undefined) return known;
+  const byId = new Map<string, ReadonlyArray<Task>>();
+  for (const node of doc.nodes) {
+    if (byId.has(node.id)) continue;
+    const kind = node.ether?.entity?.kind;
+    if (kind === "requests")
+      byId.set(node.id, node.ether?.requests?.items ?? NO_ITEMS);
+    else if (kind === "task")
+      byId.set(node.id, node.ether?.tasks?.items ?? NO_ITEMS);
+  }
+  const itemsOf = (nodeId: string): ReadonlyArray<Task> =>
+    byId.get(nodeId) ?? NO_ITEMS;
+  heldItems.set(doc, itemsOf);
+  return itemsOf;
 };

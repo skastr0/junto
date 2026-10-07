@@ -1,7 +1,6 @@
 import type {
   Task,
   CanvasDoc,
-  CanvasEdge,
   CanvasNode,
   EdgePhase,
 } from "./canvas";
@@ -10,9 +9,11 @@ import { claimedByOf, isTerminalTaskState, taskBrief } from "./task";
 import { dependencyScopeIndex } from "./task-dep-scope";
 import { taskDepStatus } from "./task-deps";
 import {
-  resolveCompiledActorRef,
+  resolveActorRefAt,
   type ActorRefResolver,
 } from "./attention";
+import type { Canvas } from "./model/canvas";
+import type { Node } from "./model/kinds";
 import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
   type ApprovalView,
@@ -20,8 +21,8 @@ import {
   type StampView,
 } from "./proof-stamps";
 
-// Live execution graph: pure function of (document + live views).
-// Derived state is never stored in the authored canvas document.
+// Live execution graph: pure function of (canvas + live views).
+// Derived state is never stored on the canvas.
 //
 // Stoppage model (derived, never authored — the edge states a relationship,
 // not a gate):
@@ -47,9 +48,17 @@ export type LiveTrustViews = {
 export type ExecutionGraphContext = LiveTrustViews & {
   readonly canvasName: string;
   readonly resolveActorRef: ActorRefResolver;
+  /**
+   * The items on a task or requests node. A canvas holds no work, so the
+   * caller supplies it. It must return at least every item that needs input
+   * or authorization, with its claimant and the time it began waiting.
+   */
+  readonly itemsOf: WorkItemsOf;
   /** Live work-plane stoppage keyed by the blocked actor node. */
   readonly workBlockedSeats?: ReadonlyMap<string, WorkBlockedSeat>;
 };
+
+export type WorkItemsOf = (nodeId: string) => ReadonlyArray<Task>;
 
 export type WorkBlockedSeat = {
   readonly requestId: string;
@@ -135,13 +144,12 @@ export const isBlockableNode = (node: CanvasNode | undefined): boolean => {
   });
 };
 
-/** Kind-strict: only task/requests sinks hold work items. No tolerance reads. */
-const workItemsOn = (node: CanvasNode | undefined): ReadonlyArray<Task> => {
-  const kind = node?.ether?.entity?.kind;
-  if (kind === "requests") return node?.ether?.requests?.items ?? [];
-  if (kind === "task") return node?.ether?.tasks?.items ?? [];
-  return [];
-};
+const mayBeBlocked = (node: Node | undefined): boolean =>
+  node !== undefined &&
+  seatMayBeBlocked({ isGroup: node.kind === "region", kind: node.kind });
+
+const isWorkSink = (node: Node | undefined): boolean =>
+  node?.kind === "task" || node?.kind === "requests";
 
 /** Attention states only — open queue (submitted/working) does not stop actors. */
 const isAttentionTaskItem = (item: Task): boolean =>
@@ -154,17 +162,17 @@ const softRelates = (detail = "relates"): EdgeEval => ({
 });
 
 const evalTasksStoppage = (
-  fromNode: CanvasNode | undefined,
+  sink: Node | undefined,
+  scoped: ReadonlyArray<Task>,
   toActorSeatId: ActorSeatId | undefined,
 ): EdgeEval => {
-  const fromKind = fromNode?.ether?.entity?.kind;
-  const scoped = workItemsOn(fromNode);
+  const fromKind = sink?.kind;
   if (scoped.length === 0) {
     return softRelates(fromKind === "requests" ? "no pending requests" : "no open tasks");
   }
   const open = scoped.filter((item) => isAttentionTaskItem(item));
   // Blocking is actor-state for tasks AND requests: only an attention item
-  // claimed by this edge's compiled actor seat stops it.
+  // claimed by this wire's compiled actor seat stops it.
   const held =
     toActorSeatId === undefined
       ? []
@@ -197,51 +205,41 @@ const evalTasksStoppage = (
   };
 };
 
-/** Work sink endpoint for tasks stops — either end may hold the sink. */
-const workSinkOf = (
-  fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
-): CanvasNode | undefined => {
-  if (workItemsOn(fromNode).length > 0 || isWorkSinkKind(fromNode)) return fromNode;
-  if (workItemsOn(toNode).length > 0 || isWorkSinkKind(toNode)) return toNode;
-  return fromNode;
-};
-
-const isWorkSinkKind = (node: CanvasNode | undefined): boolean => {
-  const kind = node?.ether?.entity?.kind;
-  return kind === "task" || kind === "requests";
+/** The end of a wire that holds work, when either does. */
+const workSinkOf = (from: Node | undefined, to: Node | undefined): Node | undefined => {
+  if (isWorkSink(from)) return from;
+  if (isWorkSink(to)) return to;
+  return from;
 };
 
 /** Actor seat endpoint for stoppage — either end may be the seat. */
 export const stoppageActorOf = (
-  fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
-): CanvasNode | undefined => {
-  if (isBlockableNode(toNode)) return toNode;
-  if (isBlockableNode(fromNode)) return fromNode;
-  return toNode;
+  from: Node | undefined,
+  to: Node | undefined,
+): Node | undefined => {
+  if (mayBeBlocked(to)) return to;
+  if (mayBeBlocked(from)) return from;
+  return to;
 };
 
 export const evaluateEdge = (
-  _edge: CanvasEdge,
-  fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
+  from: Node | undefined,
+  to: Node | undefined,
   context: ExecutionGraphContext,
 ): EdgeEval => {
-  // Work-lane stoppage is derived from the endpoints (task|requests) and live
-  // work state. The edge itself carries nothing to read.
-  if (!isWorkSinkKind(fromNode) && !isWorkSinkKind(toNode)) {
+  // Work-lane stoppage is derived from the ends (task|requests) and live work
+  // state. The wire itself carries nothing to read.
+  if (!isWorkSink(from) && !isWorkSink(to)) {
     return softRelates();
   }
-  const sink = workSinkOf(fromNode, toNode);
-  const actor = stoppageActorOf(fromNode, toNode);
+  const sink = workSinkOf(from, to);
+  const actor = stoppageActorOf(from, to);
   return evalTasksStoppage(
     sink,
-    resolveCompiledActorRef(
-      context.resolveActorRef,
-      context.canvasName,
-      actor,
-    )?.seatId,
+    sink === undefined ? [] : context.itemsOf(sink.id),
+    actor === undefined || !mayBeBlocked(actor)
+      ? undefined
+      : resolveActorRefAt(context.resolveActorRef, context.canvasName, actor.id)?.seatId,
   );
 };
 
@@ -254,25 +252,20 @@ export const clearingStampsForDoc = (
 ): ReadonlyArray<{ readonly edgeId: string; readonly stamp: ProofStamp }> => [];
 
 export const deriveExecutionGraph = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   context: ExecutionGraphContext,
 ): ExecutionGraph => {
-  const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
+  const byId = canvas.nodes;
 
   const phaseByEdgeId = new Map<string, EdgePhase>();
   const detailByEdgeId = new Map<string, string>();
   const edgeEvalById = new Map<string, EdgeEval>();
 
-  for (const edge of doc.edges) {
-    const evaluation = evaluateEdge(
-      edge,
-      byId.get(edge.fromNode),
-      byId.get(edge.toNode),
-      context,
-    );
-    edgeEvalById.set(edge.id, evaluation);
-    phaseByEdgeId.set(edge.id, evaluation.phase);
-    detailByEdgeId.set(edge.id, evaluation.detail);
+  for (const wire of canvas.wires.values()) {
+    const evaluation = evaluateEdge(byId.get(wire.from), byId.get(wire.to), context);
+    edgeEvalById.set(wire.id, evaluation);
+    phaseByEdgeId.set(wire.id, evaluation.phase);
+    detailByEdgeId.set(wire.id, evaluation.detail);
   }
 
   const blocked = new Set<string>();
@@ -286,16 +279,15 @@ export const deriveExecutionGraph = (
   };
 
   const markBlocked = (nodeId: string, reason: BlockedReason, viaEdgeId?: string): void => {
-    const node = byId.get(nodeId);
-    if (!isBlockableNode(node)) return;
+    if (!mayBeBlocked(byId.get(nodeId as Node["id"]))) return;
     blocked.add(nodeId);
     addReason(nodeId, reason);
     if (viaEdgeId) blockedEdgeIds.add(viaEdgeId);
   };
 
   // Escalation is runtime stoppage on its exact raiser. The actor→requests
-  // edge grants the operation; visual stoppage does not synthesize a reverse
-  // authorial edge.
+  // wire grants the operation; visual stoppage does not synthesize a reverse
+  // authorial wire.
   for (const [nodeId, block] of context.workBlockedSeats ?? []) {
     markBlocked(nodeId, {
       kind: "work",
@@ -306,28 +298,28 @@ export const deriveExecutionGraph = (
     });
   }
 
-  // Generating edges only — no automatic relay through other edges.
-  // Stoppage lands on the actor seat (either end), not always toNode.
-  for (const edge of doc.edges) {
-    const evaluation = edgeEvalById.get(edge.id)!;
+  // Generating wires only — no automatic relay through other wires.
+  // Stoppage lands on the actor seat (either end), not always the `to` end.
+  for (const wire of canvas.wires.values()) {
+    const evaluation = edgeEvalById.get(wire.id)!;
     if (!evaluation.generates) continue;
-    const from = byId.get(edge.fromNode);
-    const to = byId.get(edge.toNode);
+    const from = byId.get(wire.from);
+    const to = byId.get(wire.to);
     const actor = stoppageActorOf(from, to);
-    const actorId = actor?.id ?? edge.toNode;
+    const actorId = actor?.id ?? wire.to;
     markBlocked(
       actorId,
       {
         kind: "edge",
-        edgeId: edge.id,
-        // The generator is the work sink, whichever end holds it: an edge is
-        // stored in its verb's own order (agent-first for agent→sink access),
-        // so `fromNode` is not the cause.
-        fromNodeId: workSinkOf(from, to)?.id ?? edge.fromNode,
+        edgeId: wire.id,
+        // The generator is the work sink, whichever end holds it: a wire runs
+        // in its verb's own order (agent-first for agent→sink access), so
+        // `from` is not the cause.
+        fromNodeId: workSinkOf(from, to)?.id ?? wire.from,
         detail: evaluation.detail,
         ...(evaluation.since === undefined ? {} : { since: evaluation.since }),
       },
-      edge.id,
+      wire.id,
     );
   }
 
@@ -460,13 +452,13 @@ export type ExecutionGraphSnapshot = {
  * impact cones and canvas needs can read it in the renderer and in main.
  */
 export const executionGraphFromSnapshot = (
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "wires">,
   execution: ExecutionGraphSnapshot,
 ): ExecutionGraph => {
   const phaseByEdgeId = new Map<string, EdgePhase>();
   const detailByEdgeId = new Map<string, string>();
   const edgeEvalById = new Map<string, EdgeEval>();
-  for (const edge of doc.edges) {
+  for (const edge of canvas.wires.values()) {
     const phase = execution.phaseByEdgeId[edge.id] ?? "relates";
     const detail = execution.detailByEdgeId[edge.id] ?? "";
     phaseByEdgeId.set(edge.id, phase);

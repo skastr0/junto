@@ -10,6 +10,7 @@ import { TASKS_ENABLED } from "../src/shared/features";
 import { formatWaitingOnLines } from "../src/shared/impact";
 import { regionAddress, rulesInForce } from "../src/shared/rules";
 import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
+import { canvasFromDocument } from "../src/shared/model/from-document";
 
 const doc = {
   nodes: [
@@ -60,7 +61,7 @@ describe("an unnamed region on the operator's screen", () => {
           { nodeId: "g-named", role: "apex", reasons: [] },
         ],
       },
-      doc,
+      canvasFromDocument("factory", doc),
     );
     expect(lines).toEqual(["unnamed region", "Build"]);
   });

@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { digestCanvas } from "../src/shared/digest";
 import { executionGraphContextFromActorRefs } from "../src/shared/graph";
 import { readCanvasThroughControl } from "../src/main/junto/canvas-control/client";
+import { workItemsFromDocument } from "../src/shared/model/from-document";
 
 // The running app supplies one compiled canvas plus its current Hermes snapshot.
 // This process prints the deterministic digest and writes nothing.
@@ -27,7 +28,7 @@ const main = async () => {
     throw new DigestExit(errorMessage(result.failure));
   }
   const { actorRefs, doc, name, snapshots } = result.success;
-  const context = executionGraphContextFromActorRefs(name, actorRefs);
+  const context = executionGraphContextFromActorRefs(name, actorRefs, workItemsFromDocument(doc));
 
   const digest = digestCanvas(name, doc, snapshots, {
     resolveActorRef: context.resolveActorRef,

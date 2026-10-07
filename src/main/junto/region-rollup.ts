@@ -5,6 +5,7 @@ import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@sha
 import { CanvasesService, type CanvasError } from "./canvases";
 import { ChatServiceContext, type ChatService } from "./chat/service";
 import { SnapshotsService } from "./snapshots";
+import { workItemsFromDocument } from "@shared/model/from-document";
 
 // Region severity rollups for the RTS bottom bar. Derived per request from
 // the document + snapshots + ACP chat plane.
@@ -48,7 +49,7 @@ export const makeRegionRollupLive = (
 
             return deriveRegionRollups({
               doc,
-              ...executionGraphContextFromActorRefs(canvasName, actorRefs),
+              ...executionGraphContextFromActorRefs(canvasName, actorRefs, workItemsFromDocument(doc)),
               snapshots: state,
               agentActivity,
             });

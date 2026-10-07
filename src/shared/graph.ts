@@ -3,9 +3,11 @@ import type { ActorRefResolver } from "./attention";
 import {
   deriveExecutionGraph,
   type ExecutionGraphContext,
+  type WorkItemsOf,
   type LiveTrustViews,
 } from "./execution-graph";
 import type { ActorRef } from "./work-protocol";
+import { canvasFromDocument } from "./model/from-document";
 
 // Derived state. Never persisted — recomputed from the document so the
 // authored canvas document cannot go incoherent.
@@ -52,22 +54,26 @@ export const actorRefResolverFromProjection = (
 export const executionGraphContextFromActorRefs = (
   canvasName: string,
   actorRefs: ReadonlyArray<ActorRef>,
+  itemsOf: WorkItemsOf,
   trust: LiveTrustViews = {},
 ): ExecutionGraphContext => ({
   canvasName,
   resolveActorRef: actorRefResolverFromProjection(actorRefs),
+  itemsOf,
   ...trust,
 });
 
 export const blockedClosure = (
   doc: CanvasDoc,
   context: ExecutionGraphContext,
-): ReadonlySet<string> => deriveExecutionGraph(doc, context).blocked;
+): ReadonlySet<string> =>
+  deriveExecutionGraph(canvasFromDocument(context.canvasName, doc), context).blocked;
 
 export const blockedEdgeIds = (
   doc: CanvasDoc,
   context: ExecutionGraphContext,
-): ReadonlySet<string> => deriveExecutionGraph(doc, context).blockedEdgeIds;
+): ReadonlySet<string> =>
+  deriveExecutionGraph(canvasFromDocument(context.canvasName, doc), context).blockedEdgeIds;
 
 export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "group";
 

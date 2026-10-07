@@ -1,6 +1,7 @@
-import type { CanvasDoc, CanvasNode } from "../canvas";
 import type { BlockedReason, ExecutionGraph } from "../execution-graph";
-import { regionDisplayName } from "../graph";
+import type { Canvas } from "../model/canvas";
+import type { Node } from "../model/kinds";
+import { titleOf } from "../model/title";
 import { impactCone, stoppageEnds } from "./cone";
 
 // Reverse path from a blocked node to its stoppage seed/apex, listing each
@@ -26,20 +27,6 @@ export type WaitingOnPath = {
   readonly seedNodeId: string | undefined;
 };
 
-const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
-  if (!node) return fallback;
-  switch (node.type) {
-    case "text":
-      return (node.text.split("\n")[0] ?? "").trim() || fallback;
-    case "file":
-      return node.file.split(/[\\/]/).pop() ?? node.file;
-    case "link":
-      return node.url;
-    case "group":
-      return regionDisplayName(node);
-  }
-};
-
 const hopRole = (
   nodeId: string,
   isTerminal: boolean,
@@ -56,22 +43,22 @@ const hopRole = (
  * Empty when the node is outside any stoppage cone.
  */
 export const waitingOnPath = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   graph: ExecutionGraph,
   nodeId: string,
 ): WaitingOnPath => {
-  if (!doc.nodes.some((n) => n.id === nodeId)) {
+  const byId = canvas.nodes;
+  if (!byId.has(nodeId as Node["id"])) {
     return { nodeId, hops: [], seedNodeId: undefined };
   }
 
-  const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
   const generatesFrom = new Set<string>();
-  for (const edge of doc.edges) {
+  for (const edge of canvas.wires.values()) {
     if (!graph.edgeEvalById.get(edge.id)?.generates) continue;
     generatesFrom.add(stoppageEnds(byId, edge).causeId);
   }
 
-  const cone = impactCone(doc, graph, nodeId);
+  const cone = impactCone(canvas, graph, nodeId);
   const path = cone.pathToSeed(nodeId);
   if (path.length === 0) {
     return { nodeId, hops: [], seedNodeId: undefined };
@@ -107,12 +94,12 @@ const reasonPhrase = (reason: BlockedReason): string => {
  */
 export const formatWaitingOnLines = (
   path: WaitingOnPath,
-  doc: CanvasDoc,
+  canvas: Canvas,
 ): ReadonlyArray<string> => {
   if (path.hops.length === 0) return [];
-  const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
   return path.hops.map((hop) => {
-    const title = titleOf(byId.get(hop.nodeId), hop.nodeId);
+    const node = canvas.nodes.get(hop.nodeId as Node["id"]);
+    const title = node === undefined ? hop.nodeId : titleOf(node);
     if (hop.role === "generator") {
       const detail = hop.reasons[0] ? reasonPhrase(hop.reasons[0]) : undefined;
       return detail ? `${title} — ${detail}` : title;

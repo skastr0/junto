@@ -12,6 +12,7 @@ import { resolveSpec } from "./physics";
 import { requestsNodeName } from "./requests-node-identity";
 import { boardNodeName } from "./board-node-identity";
 import type { WorkSurfaceActivity } from "./terminal";
+import { canvasFromDocument, workItemsFromDocument } from "./model/from-document";
 
 // Region severity rollups: the operational tier of the bottom-bar information
 // ladder (minimap strategic / region bar operational / selection tactical).
@@ -279,9 +280,10 @@ export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<Reg
     agentActivity,
     terminalStatusByNodeId,
   } = input;
-  const graph = deriveExecutionGraph(doc, {
+  const graph = deriveExecutionGraph(canvasFromDocument(canvasName, doc), {
     canvasName,
     resolveActorRef,
+    itemsOf: workItemsFromDocument(doc),
     ...(workBlockedSeats ? { workBlockedSeats } : {}),
     ...(stamps ? { stamps } : {}),
     ...(approvals ? { approvals } : {}),

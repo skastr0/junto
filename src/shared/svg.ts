@@ -9,6 +9,7 @@ import { requestsNodeName } from "./requests-node-identity";
 import { boardNodeName } from "./board-node-identity";
 import { themeRuntime, type ThemeMode } from "./theme";
 import { hexAtAlpha } from "./theme/oklch";
+import { canvasFromDocument } from "./model/from-document";
 
 // Headless render of a canvas to SVG — the "screenshot for agents" half of
 // the agent surface (the text half is digest.ts). Pure and deterministic:
@@ -81,7 +82,7 @@ export const renderCanvasSvg = (
 ): string => {
   const pal = svgPalette(mode);
   const nodesById = new Map(doc.nodes.map((n) => [n.id, n] as const));
-  const graph = deriveExecutionGraph(doc, context);
+  const graph = deriveExecutionGraph(canvasFromDocument(context.canvasName, doc), context);
   const blocked = graph.blocked;
   const activeEdges = graph.blockedEdgeIds;
 

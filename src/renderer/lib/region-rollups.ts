@@ -8,6 +8,7 @@ import { agentSeat$, terminalStatusByNodeIdFromSeats } from "./agent-seat-state"
 import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
 import { chatCoarse$ } from "./chat-state";
+import { workItemsFromDocument } from "@shared/model/from-document";
 
 // Coarse poll of window.junto.regionRollups for main-process graph enrichment.
 // Client always re-derives with the live seat + chat planes so chips match the
@@ -195,7 +196,7 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     () =>
       deriveRegionRollups({
         doc,
-        ...executionGraphContextFromActorRefs(canvasName, actorRefs),
+        ...executionGraphContextFromActorRefs(canvasName, actorRefs, workItemsFromDocument(doc)),
         agentActivity,
         terminalStatusByNodeId,
       }),

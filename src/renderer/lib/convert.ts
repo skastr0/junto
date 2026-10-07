@@ -14,6 +14,7 @@ import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name
 import { evenRingCaps, seatRingCaps, type RoomNode } from "./seat-ring-room";
 import { isGitNode, isLabelNode, nodeTitle, searchText } from "./presentation";
 import { wireSides, type WireSideRect } from "./wire-sides";
+import { canvasFromDocument } from "@shared/model/from-document";
 
 // Z bands. Groups render at GROUP_Z_BASE + nesting depth so a nested region
 // paints above the region containing it (depth is authoring-warned at
@@ -246,7 +247,7 @@ export const toFlow = (
   // kernel tick that already supplies phase/blocked.
   let fallback: ReturnType<typeof deriveExecutionGraph> | null = null;
   const getFallback = () => {
-    if (!fallback) fallback = deriveExecutionGraph(doc, context);
+    if (!fallback) fallback = deriveExecutionGraph(canvasFromDocument(context.canvasName, doc), context);
     return fallback;
   };
 

@@ -8,6 +8,7 @@ import { createFlowIdentityCache, toFlow } from "../src/renderer/lib/convert";
 const emptyContext = {
   canvasName: "test",
   resolveActorRef: () => undefined,
+  itemsOf: () => [],
 };
 
 const region = (

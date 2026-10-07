@@ -125,6 +125,7 @@ import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePa
 import { FocusSurface } from "./FocusSurface";
 import { useCanvasGroupFocus } from "./useCanvasGroupFocus";
 import { IconButton, OverlayHeader } from "./ui";
+import { canvasFromDocument, workItemsFromDocument } from "@shared/model/from-document";
 
 /**
  * A node's class: agents carry junto-flow-agent (convert.ts), which keeps them
@@ -183,6 +184,7 @@ const currentExecutionGraphContext = () =>
   executionGraphContextFromActorRefs(
     state$.canvasName.peek(),
     state$.actorRefs.peek(),
+    workItemsFromDocument(state$.doc.peek()),
   );
 
 const selectionForCanvas = (
@@ -190,17 +192,13 @@ const selectionForCanvas = (
   context: ReturnType<typeof currentExecutionGraphContext>,
 ): ImpactSelection => {
   const connectionFocusNodeId = state$.connectionFocusNodeId.peek();
+  const canvas = canvasFromDocument(context.canvasName, state$.doc.peek());
   if (connectionFocusNodeId) {
-    return connectionFocusSelection(state$.doc.peek(), connectionFocusNodeId);
+    return connectionFocusSelection(canvas, connectionFocusNodeId);
   }
   return selectedNodeId
-    ? selectionImpact(
-        state$.doc.peek(),
-        selectedNodeId,
-        kernel$.execution.peek(),
-        context,
-      )
-    : selectionImpact(state$.doc.peek(), "", null, context);
+    ? selectionImpact(canvas, selectedNodeId, kernel$.execution.peek(), context)
+    : selectionImpact(canvas, "", null, context);
 };
 
 /**
@@ -1481,6 +1479,7 @@ function ImpactSeedChip() {
     const context = executionGraphContextFromActorRefs(
       canvasName,
       actorRefs,
+      workItemsFromDocument(state$.doc.peek()),
     );
     return selectionForCanvas(selectedNodeId, context);
   }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, docVersion, executionRev]);
