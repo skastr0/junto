@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_SIGNAL_MAX_ATTACHMENT_BYTES } from "@shared/agent-signals";
 import {
   admitSignalAttachments,
   attachmentName,
@@ -46,9 +45,13 @@ describe("admitSignalAttachments", () => {
     expect(refusal([{ name: "a.png", bytesBase64: "not base64!" }])?.message).toContain("Base64");
     expect(refusal([file("", PNG)])?.message).toContain("file name");
     expect(refusal([file("a.png", PNG, "x".repeat(121))])?.message).toContain("caption");
-    expect(refusal(Array.from({ length: 13 }, (_, n) => file(`${n}.png`, PNG)))).toMatchObject({ path: "attach" });
-    const big = Buffer.concat([PNG, Buffer.alloc(AGENT_SIGNAL_MAX_ATTACHMENT_BYTES / 2)]);
-    expect(refusal([file("a.png", big), file("b.png", big)])).toMatchObject({ path: "attach[1]" });
+  });
+
+  it("admits any number of files, of any size", () => {
+    const many = admitSignalAttachments(Array.from({ length: 200 }, (_, n) => file(`${n}.png`, PNG)));
+    expect(many.ok && many.attachments.length).toBe(200);
+    const big = Buffer.concat([PNG, Buffer.alloc(4 * 1024 * 1024)]);
+    expect(admitSignalAttachments([file("a.png", big), file("b.png", big)]).ok).toBe(true);
   });
 
   it("holds a signal's files under the signal in the content store", () => {

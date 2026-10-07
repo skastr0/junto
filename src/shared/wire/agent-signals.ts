@@ -38,14 +38,6 @@ export const AgentSignalText = boundedText(AGENT_SIGNAL_MAX_TEXT_LENGTH);
 export const AgentSignalDetail = boundedText(AGENT_SIGNAL_MAX_DETAIL_LENGTH);
 export const AgentSignalResponseText = boundedText(AGENT_SIGNAL_MAX_RESPONSE_LENGTH);
 
-/** How many files one signal carries. */
-export const AGENT_SIGNAL_MAX_ATTACHMENTS = 12;
-/**
- * All of a signal's files together, in bytes. They ride in the one request
- * frame that raises the signal (8 MB, Base64 inside JSON), so this is what
- * fits with room to spare.
- */
-export const AGENT_SIGNAL_MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 /** The agent's words beside a file ("Before"). */
 export const AGENT_SIGNAL_MAX_CAPTION_LENGTH = 120;
 

@@ -73,23 +73,27 @@ describe("--attach on the needs-you commands", () => {
     expect(await load("ready")).toEqual({ kind: "feedback", text: "ready" });
   });
 
-  it("refuses, naming the file: a missing one, a folder, a type no preview shows, too many, given twice", async () => {
+  it("refuses, naming the file: a missing one, a folder, a type no preview shows, given twice", async () => {
     await expect(load("x", [at("gone.png")])).rejects.toThrow(/gone\.png/);
     await expect(load("x", [at("folder.png")])).rejects.toThrow(/folder\.png: not a regular file/);
     await expect(load("x", [at("build.zip")])).rejects.toThrow(/build\.zip: only images/);
-    await expect(load("x", Array.from({ length: 13 }, () => at("before.png")))).rejects.toThrow(/at most 12 files/);
     await expect(
       load(JSON.stringify({ text: "x", attach: [{ path: at("before.png") }] }), [at("after.png")]),
     ).rejects.toThrow(/attachments given twice/);
     await expect(load(JSON.stringify({ text: "x", attach: [{ path: at("before.png"), bytes: "x" }] }))).rejects.toThrow();
   });
 
-  it("refuses a file on its size alone, before reading it", async () => {
+  it("sets no count of its own: fifty files go as fifty", async () => {
+    const args = await load("x", Array.from({ length: 50 }, () => at("before.png")));
+    expect(args.attach).toHaveLength(50);
+  });
+
+  it("refuses what one message cannot carry on size alone, before reading it", async () => {
     const huge = at("huge.png");
-    // Sparse: six megabytes on paper, nothing to read.
+    // Sparse: sixteen megabytes on paper, nothing to read.
     writeFileSync(huge, "");
-    truncateSync(huge, 6 * 1024 * 1024);
-    await expect(load("x", [huge])).rejects.toThrow(/huge\.png: the attached files together are over 5 MB/);
+    truncateSync(huge, 16 * 1024 * 1024);
+    await expect(load("x", [huge])).rejects.toThrow(/huge\.png: the attached files do not fit in one message/);
   });
 
   it("decodes with the schema it shows: every example input is accepted as written", async () => {

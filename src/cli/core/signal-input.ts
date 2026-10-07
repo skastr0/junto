@@ -2,17 +2,14 @@ import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { Effect, Schema } from "effect";
-import {
-  AGENT_SIGNAL_MAX_ATTACHMENT_BYTES,
-  AGENT_SIGNAL_MAX_ATTACHMENTS,
-  type AgentSignalKind,
-} from "../../shared/agent-signals";
+import type { AgentSignalKind } from "../../shared/agent-signals";
 import { classifyAttachment } from "../../shared/preview-bytes";
 import {
   type SignalAttachCliInput,
   SignalRaiseCliArgs,
   type SignalAttachmentInput,
   type SignalRaiseArgs,
+  WORK_MAX_FRAME_BYTES,
 } from "../../shared/work-control";
 import { InputError } from "./errors";
 import { decodeJsonText } from "./json";
@@ -107,7 +104,12 @@ export const parseAttachFlag = (
   return caption ? { path, caption } : { path };
 };
 
-const OVER_TOTAL = `the attached files together are over ${AGENT_SIGNAL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`;
+/**
+ * The files ride as Base64 in the one request frame that raises the signal.
+ * Nothing else bounds them: no count, no size of their own.
+ */
+const base64Length = (byteLength: number): number => Math.ceil(byteLength / 3) * 4;
+const OVER_FRAME = `the attached files do not fit in one message (about ${Math.floor((WORK_MAX_FRAME_BYTES * 3) / 4 / (1024 * 1024))} MB in all)`;
 
 const attachError = (path: string, message: string) =>
   new InputError({
@@ -119,15 +121,7 @@ const attachError = (path: string, message: string) =>
 /** Read each attached file and refuse early what main would refuse anyway. */
 const readAttachments = (attach: ReadonlyArray<SignalAttachCliInput>) =>
   Effect.gen(function* () {
-    if (attach.length > AGENT_SIGNAL_MAX_ATTACHMENTS) {
-      return yield* Effect.fail(
-        new InputError({
-          message: `a signal carries at most ${AGENT_SIGNAL_MAX_ATTACHMENTS} files, got ${attach.length}`,
-          path: "--attach",
-        }),
-      );
-    }
-    let total = 0;
+    let encoded = 0;
     const out: SignalAttachmentInput[] = [];
     for (const item of attach) {
       const bytes = yield* Effect.tryPromise({
@@ -136,14 +130,14 @@ const readAttachments = (attach: ReadonlyArray<SignalAttachCliInput>) =>
           const info = await stat(item.path);
           if (!info.isFile()) throw new Error("not a regular file");
           // Refused on its size alone, before a byte of it is read.
-          if (total + info.size > AGENT_SIGNAL_MAX_ATTACHMENT_BYTES) throw new Error(OVER_TOTAL);
+          if (encoded + base64Length(info.size) > WORK_MAX_FRAME_BYTES) throw new Error(OVER_FRAME);
           return await readFile(item.path);
         },
         catch: (cause) => attachError(item.path, cause instanceof Error ? cause.message : "read failed"),
       });
-      total += bytes.byteLength;
-      if (total > AGENT_SIGNAL_MAX_ATTACHMENT_BYTES) {
-        return yield* Effect.fail(attachError(item.path, OVER_TOTAL));
+      encoded += base64Length(bytes.byteLength);
+      if (encoded > WORK_MAX_FRAME_BYTES) {
+        return yield* Effect.fail(attachError(item.path, OVER_FRAME));
       }
       const name = basename(item.path);
       const kind = classifyAttachment(name, bytes);

@@ -1,7 +1,5 @@
 import { Effect, Option } from "effect";
 import {
-  AGENT_SIGNAL_MAX_ATTACHMENT_BYTES,
-  AGENT_SIGNAL_MAX_ATTACHMENTS,
   AGENT_SIGNAL_MAX_CAPTION_LENGTH,
   type AgentSignal,
   type AgentSignalAttachment,
@@ -14,9 +12,9 @@ import { ContentService } from "../content/service";
 /**
  * Files attached to a signal: main is the authority on what is admitted.
  *
- * Admitted: at most AGENT_SIGNAL_MAX_ATTACHMENTS files and
- * AGENT_SIGNAL_MAX_ATTACHMENT_BYTES in all, each one something a preview can
- * show (`classifyAttachment`: an image by its bytes, or text by its name).
+ * Admitted: any number of files of any size the request could carry, each
+ * one something a preview can show (`classifyAttachment`: an image by its
+ * bytes, or text by its name).
  * The bytes go into the content store under the signal as owner, so they
  * outlive the folder they came from; they are let go when the signal closes
  * and collected by the store's own garbage collection after its grace.
@@ -54,24 +52,13 @@ export const admitSignalAttachments = (
   | { readonly ok: true; readonly attachments: ReadonlyArray<AdmittedAttachment> }
   | { readonly ok: false; readonly refusal: AttachmentRefusal } => {
   const refuse = (path: string, message: string) => ({ ok: false as const, refusal: { path, message } });
-  if (inputs.length > AGENT_SIGNAL_MAX_ATTACHMENTS) {
-    return refuse("attach", `a signal carries at most ${AGENT_SIGNAL_MAX_ATTACHMENTS} files, got ${inputs.length}`);
-  }
   const attachments: AdmittedAttachment[] = [];
-  let total = 0;
   for (const [index, input] of inputs.entries()) {
     const path = `attach[${index}]`;
     const name = attachmentName(input.name);
     if (!name) return refuse(path, "an attachment needs a file name");
     const bytes = decodeBase64(input.bytesBase64);
     if (!bytes) return refuse(path, `${name}: the bytes are not valid Base64`);
-    total += bytes.byteLength;
-    if (total > AGENT_SIGNAL_MAX_ATTACHMENT_BYTES) {
-      return refuse(
-        path,
-        `${name}: the files together are over ${AGENT_SIGNAL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`,
-      );
-    }
     const kind = classifyAttachment(name, bytes);
     if (!kind.ok) return refuse(path, `${name}: ${kind.reason}`);
     const caption = input.caption?.replace(/\s+/gu, " ").trim();
