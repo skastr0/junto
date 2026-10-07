@@ -6,6 +6,7 @@ import {
   isValidCronExpression,
   nextCronOccurrence,
 } from "@shared/cron-expression";
+import { canvasFromDocument } from "@shared/model/from-document";
 import { collectEffectEdgesFrom } from "@shared/scheduler-effects";
 import { setNodeTimer } from "../../lib/mutations";
 import { nodeTitle } from "../../lib/presentation";
@@ -229,7 +230,10 @@ export function CronScheduleSurface({
   const timeValue = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
   // Fire now scopes to this cron only — its outbound does wires, nothing else.
-  const effectCount = collectEffectEdgesFrom(state$.doc.peek(), node.id).length;
+  const effectCount = collectEffectEdgesFrom(
+    canvasFromDocument(state$.canvasName.peek(), state$.doc.peek()),
+    node.id,
+  ).length;
   const cronLabel = nodeTitle(node);
   const fireHint =
     effectCount === 0

@@ -9,6 +9,7 @@ import {
   defaultEffectTasksCreate,
   type EffectTasksCreate,
 } from "@shared/node-insert";
+import { canvasFromDocument } from "@shared/model/from-document";
 import {
   collectEffectEdgesFrom,
   defaultInjectPromptText,
@@ -117,11 +118,11 @@ const applyOne = async (
   const err = validateEffectTarget(binding.effect, binding.target);
   if (err) {
     console.error(
-      `[kernel] scheduler effect rejected on ${binding.edge.id}: ${err}`,
+      `[kernel] scheduler effect rejected on ${binding.wire.id}: ${err}`,
     );
     return "failed";
   }
-  if (deps.hasReceipt(fire.fireKey, binding.edge.id)) return "skipped";
+  if (deps.hasReceipt(fire.fireKey, binding.wire.id)) return "skipped";
   if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
 
   if (binding.effect.mode === "enqueue_task") {
@@ -137,18 +138,18 @@ const applyOne = async (
     if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
     if (!result.ok) {
       console.error(
-        `[kernel] enqueue_task failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
+        `[kernel] enqueue_task failed on ${binding.wire.id}: ${result.message ?? "unknown"}`,
       );
       return "failed";
     }
-    deps.recordReceipt(fire.fireKey, binding.edge.id);
+    deps.recordReceipt(fire.fireKey, binding.wire.id);
     return "applied";
   }
 
   // inject_prompt: the only other fire action a scheduler verb compiles to.
   if (!deps.injectPrompt) {
     console.error(
-      `[kernel] inject_prompt skipped on ${binding.edge.id}: no inject handler`,
+      `[kernel] inject_prompt skipped on ${binding.wire.id}: no inject handler`,
     );
     return "failed";
   }
@@ -164,11 +165,11 @@ const applyOne = async (
   if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
   if (!result.ok) {
     console.error(
-      `[kernel] inject_prompt failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
+      `[kernel] inject_prompt failed on ${binding.wire.id}: ${result.message ?? "unknown"}`,
     );
     return "failed";
   }
-  deps.recordReceipt(fire.fireKey, binding.edge.id);
+  deps.recordReceipt(fire.fireKey, binding.wire.id);
   return "applied";
 };
 
@@ -262,7 +263,10 @@ export const applySchedulerFire = async (
   visited.add(fire.sourceNodeId);
 
   // Scope law: only edges leaving this scheduler whose verb is a fire action.
-  const bindings = collectEffectEdgesFrom(doc, fire.sourceNodeId);
+  const bindings = collectEffectEdgesFrom(
+    canvasFromDocument(fire.canvasName, doc),
+    fire.sourceNodeId,
+  );
   let applied = 0;
   let failed = 0;
   for (const binding of bindings) {
@@ -279,7 +283,7 @@ export const applySchedulerFire = async (
     } catch (error) {
       failed += 1;
       console.error(
-        `[kernel] scheduler effect threw on ${binding.edge.id}:`,
+        `[kernel] scheduler effect threw on ${binding.wire.id}:`,
         error,
       );
     }

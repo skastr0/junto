@@ -13,9 +13,10 @@
  * tick.
  */
 
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "./canvas";
-import { compileEdgeGrant, edgeKindIndex } from "./canvas";
-import { resolveSpec, roleOf } from "./physics/kinds";
+import type { CanvasNode } from "./canvas";
+import type { Canvas } from "./model/canvas";
+import type { Node } from "./model/kinds";
+import { wireGrant, wireKinds, type Wire } from "./model/wire";
 import type { EdgeEffect, WatchWhen } from "./physics/verbs";
 
 export const SCHEDULER_ENTITY_KINDS = [
@@ -35,80 +36,81 @@ export const isSchedulerEntityKind = (
   kind === "cron" ||
   kind === "relay";
 
-export const isSchedulerNode = (node: CanvasNode | undefined): boolean =>
-  node !== undefined &&
-  node.type !== "group" &&
-  isSchedulerEntityKind(node.ether?.entity?.kind);
+export const isSchedulerNode = (
+  node: Pick<Node, "kind"> | undefined,
+): boolean => node !== undefined && isSchedulerEntityKind(node.kind);
+
+type Wired = Pick<Canvas, "nodes" | "wires">;
 
 export type EffectEdgeBinding = {
-  readonly edge: CanvasEdge;
+  readonly wire: Wire;
   readonly effect: EdgeEffect;
-  readonly source: CanvasNode;
-  readonly target: CanvasNode;
+  readonly source: Node;
+  readonly target: Node;
 };
 
 /**
- * Scheduler → target edges whose verb is a fire action (`enqueues` /
- * `wakes`). The verb's own order puts the scheduler on `fromNode`, so a
- * downstream edge is exactly one whose source is this scheduler.
+ * Scheduler → target wires whose verb is a fire action (`enqueues` /
+ * `wakes`). The verb's own order puts the scheduler on `from`, so a
+ * downstream wire is exactly one whose source is this scheduler.
  */
 export const collectEffectEdgesFrom = (
-  doc: CanvasDoc,
+  canvas: Wired,
   sourceNodeId: string,
 ): ReadonlyArray<EffectEdgeBinding> => {
-  const source = doc.nodes.find((node) => node.id === sourceNodeId);
-  if (!isSchedulerNode(source)) return [];
-  const kinds = edgeKindIndex(doc);
+  const source = canvas.nodes.get(sourceNodeId as Node["id"]);
+  if (source === undefined || !isSchedulerNode(source)) return [];
+  const kinds = wireKinds(canvas.nodes.values());
   const out: EffectEdgeBinding[] = [];
-  for (const edge of doc.edges) {
-    if (edge.fromNode !== sourceNodeId) continue;
-    const effect = compileEdgeGrant(edge, kinds)?.does;
+  for (const wire of canvas.wires.values()) {
+    if (wire.from !== sourceNodeId) continue;
+    const effect = wireGrant(wire, kinds)?.does;
     if (!effect) continue;
-    const target = doc.nodes.find((node) => node.id === edge.toNode);
+    const target = canvas.nodes.get(wire.to);
     if (!target) continue;
-    out.push({ edge, effect, source: source!, target });
+    out.push({ wire, effect, source, target });
   }
   return out;
 };
 
-/** Watch input wires: sink → relay (`when` on the edge). */
+/** Watch input wires: sink → relay (`when` from the wire's verb). */
 export type WatchEdgeBinding = {
-  readonly edge: CanvasEdge;
+  readonly wire: Wire;
   readonly when: WatchWhen;
-  readonly source: CanvasNode;
-  readonly scheduler: CanvasNode;
+  readonly source: Node;
+  readonly scheduler: Node;
 };
 
 export const NO_WATCH_YET_DETAIL =
   "no watch yet — draw a sink in and set fires-when";
 
 /**
- * Watch inputs into a scheduler: the `announces` edges pointing at it.
+ * Watch inputs into a scheduler: the `announces` wires pointing at it.
  *
  * The verb names both the subscription and the predicate — a source announces
- * its own headline event — so there is nothing on the edge to read and nothing
+ * its own headline event — so there is nothing on the wire to read and nothing
  * to default. Scheduler chaining is not a watch: it rides the trigger cascade
  * (`chains`), and is filtered out here.
  *
- * Multiple matching edges remain OR-combined by the caller.
+ * Multiple matching wires remain OR-combined by the caller.
  */
 export const collectWatchEdgesInto = (
-  doc: CanvasDoc,
+  canvas: Wired,
   schedulerNodeId: string,
 ): ReadonlyArray<WatchEdgeBinding> => {
-  const scheduler = doc.nodes.find((node) => node.id === schedulerNodeId);
-  if (!isSchedulerNode(scheduler)) return [];
-  const kinds = edgeKindIndex(doc);
+  const scheduler = canvas.nodes.get(schedulerNodeId as Node["id"]);
+  if (scheduler === undefined || !isSchedulerNode(scheduler)) return [];
+  const kinds = wireKinds(canvas.nodes.values());
   const out: WatchEdgeBinding[] = [];
-  for (const edge of doc.edges) {
-    if (edge.toNode !== schedulerNodeId) continue;
-    const source = doc.nodes.find((node) => node.id === edge.fromNode);
+  for (const wire of canvas.wires.values()) {
+    if (wire.to !== schedulerNodeId) continue;
+    const source = canvas.nodes.get(wire.from);
     if (!source) continue;
-    const grant = compileEdgeGrant(edge, kinds);
+    const grant = wireGrant(wire, kinds);
     if (grant === undefined || grant.chain === true) continue;
     const when = grant.when;
     if (!when) continue;
-    out.push({ edge, when, source, scheduler: scheduler! });
+    out.push({ wire, when, source, scheduler });
   }
   return out;
 };
@@ -120,43 +122,36 @@ export type EffectTargetError =
 
 export const validateEffectTarget = (
   effect: EdgeEffect,
-  target: CanvasNode,
+  target: Pick<Node, "kind">,
 ): EffectTargetError | undefined => {
   if (effect.mode === "enqueue_task") {
-    const kind = target.ether?.entity?.kind;
-    if (kind !== "task") return "target_not_task_sink";
-    if (roleOf(resolveSpec({ isGroup: target.type === "group", kind })) !== "sink") {
-      return "target_not_task_sink";
-    }
     // No payload check: `enqueues` carries none, and the kernel builds the
     // brief from the firing scheduler at apply time.
-    return undefined;
+    return target.kind === "task" ? undefined : "target_not_task_sink";
   }
-  if (target.type === "group") return "target_missing";
-  if (target.ether?.entity?.kind !== "agent") return "target_not_agent";
+  if (target.kind === "region") return "target_missing";
+  if (target.kind !== "agent") return "target_not_agent";
   return undefined;
 };
 
-/** Human label for a scheduler node (text first line, else entity kind). */
-export const schedulerSourceLabel = (source: CanvasNode): string => {
-  if (source.type === "text" && source.text.trim().length > 0) {
-    return source.text.trim().split("\n")[0]!;
-  }
-  return source.ether?.entity?.kind ?? "scheduler";
+const firstLineOf = (node: Node): string | undefined => {
+  const text =
+    "label" in node ? node.label : "text" in node ? node.text : undefined;
+  const line = text?.trim().split("\n")[0];
+  return line === undefined || line.length === 0 ? undefined : line;
 };
+
+/** Human label for a scheduler node (its label, else its kind). */
+export const schedulerSourceLabel = (source: Node): string =>
+  firstLineOf(source) ?? source.kind;
 
 /** Default inject text when the wire carries no authored template. */
 export const defaultInjectPromptText = (
-  source: CanvasNode,
+  source: Node,
   fireStatus?: string,
 ): string => {
-  const kind = source.ether?.entity?.kind ?? "scheduler";
-  const label =
-    source.type === "text" && source.text.trim().length > 0
-      ? source.text.trim().split("\n")[0]!
-      : kind;
   const status = fireStatus ? ` (${fireStatus})` : "";
-  return `Scheduler ${label} fired${status}`;
+  return `Scheduler ${schedulerSourceLabel(source)} fired${status}`;
 };
 
 export type RelayEvaluation = {

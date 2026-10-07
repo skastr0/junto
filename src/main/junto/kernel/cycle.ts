@@ -351,12 +351,21 @@ export const runEvaluationCycle = async (): Promise<void> => {
       for (const node of doc.nodes) {
         if (node.type !== "text" || node.ether?.entity?.kind !== "relay") continue;
         if (!isNodeEligibleOnStation(node, stationHostId)) continue;
-        const watchEdges = collectWatchEdgesInto(doc, node.id);
+        const watchEdges = collectWatchEdgesInto(
+          canvasFromDocument(canvasName, doc),
+          node.id,
+        );
         const evaluation =
           watchEdges.length > 0
             ? combineWatchEvaluations(
                 watchEdges.map((w) =>
-                  evaluateWatchWhen(w.source, w.when, watchContext),
+                  // A canvas holds no work: the predicate still reads the
+                  // source's items off the document node.
+                  evaluateWatchWhen(
+                    doc.nodes.find((held) => held.id === w.source.id),
+                    w.when,
+                    watchContext,
+                  ),
                 ),
               )
             : ({

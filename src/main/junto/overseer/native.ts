@@ -24,7 +24,7 @@ import {
 } from "@shared/overseer-control";
 import type { WorkErrorBody } from "@shared/work-control";
 import { resolveTerminalBinding } from "@shared/terminal";
-import { isSchedulerNode } from "@shared/scheduler-effects";
+import { isSchedulerEntityKind } from "@shared/scheduler-effects";
 import { GIT_LOG_LIMIT_DEFAULT } from "@shared/git";
 import { resolveNodeHostId } from "@shared/station";
 import {
@@ -1145,7 +1145,7 @@ const handleScheduler = async (
   );
   if ("error" in targeted) return targeted;
   const { canvasName, node } = targeted;
-  if (!isSchedulerNode(node)) {
+  if (node.type === "group" || !isSchedulerEntityKind(node.ether?.entity?.kind)) {
     return fail("InvalidArguments", "node is not a scheduler (cron, relay, or gauge)");
   }
 

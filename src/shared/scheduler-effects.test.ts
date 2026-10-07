@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "./canvas";
+import { canvasFromDocument, nodeFromDocument } from "./model/from-document";
 import { defaultEffectTasksCreate } from "./node-insert";
 import {
   collectEffectEdgesFrom,
@@ -49,7 +50,7 @@ describe("scheduler-effects", () => {
         { id: "e2", fromNode: "t1", toNode: "c1", ether: { verb: "announces" } },
       ],
     });
-    const bindings = collectEffectEdgesFrom(canvas, "c1");
+    const bindings = collectEffectEdgesFrom(canvasFromDocument("factory", canvas), "c1");
     expect(bindings).toHaveLength(1);
     expect(bindings[0]!.effect.mode).toBe("enqueue_task");
   });
@@ -78,13 +79,13 @@ describe("scheduler-effects", () => {
     expect(
       validateEffectTarget(
         { mode: "enqueue_task", data: { brief: "hi", metadata: { title: "hi", details: "hi" } } },
-        task,
+        nodeFromDocument("factory", task, 0),
       ),
     ).toBeUndefined();
     expect(
       validateEffectTarget(
         { mode: "enqueue_task", data: { brief: "hi", metadata: { title: "hi", details: "hi" } } },
-        agent,
+        nodeFromDocument("factory", agent, 1),
       ),
     ).toBe("target_not_task_sink");
   });
@@ -330,10 +331,10 @@ describe("scheduler-effects", () => {
       ],
       edges: [{ id: "e1", fromNode: "t1", toNode: "r1", ether: { verb: "announces" } }],
     });
-    const edges = collectWatchEdgesInto(canvas, "r1");
+    const edges = collectWatchEdgesInto(canvasFromDocument("factory", canvas), "r1");
     expect(edges).toHaveLength(1);
     expect(edges[0]!.when).toEqual({ word: "completes" });
-    expect(evaluateWatchWhen(edges[0]!.source, edges[0]!.when).status).toBe(
+    expect(evaluateWatchWhen(canvas.nodes[0], edges[0]!.when).status).toBe(
       "satisfied",
     );
   });
@@ -359,7 +360,10 @@ describe("scheduler-effects", () => {
           y: 0,
           width: 1,
           height: 1,
-          ether: { entity: { kind: "agent", name: "local:a" } },
+          ether: {
+            entity: { kind: "agent", name: "local:a" },
+            terminal: { bindingId: "binding-a", harness: "claude" },
+          },
         },
         {
           id: "r1",
@@ -382,10 +386,10 @@ describe("scheduler-effects", () => {
         { id: "e-in", fromNode: "t1", toNode: "r1", ether: { verb: "announces" } },
       ],
     });
-    const edges = collectWatchEdgesInto(canvas, "r1");
-    expect(edges.map((e) => e.edge.id).sort()).toEqual(["e-agent", "e-in"]);
+    const edges = collectWatchEdgesInto(canvasFromDocument("factory", canvas), "r1");
+    expect(edges.map((e) => e.wire.id).sort()).toEqual(["e-agent", "e-in"]);
     // The agent's headline news is a raised hand, not a completion.
-    expect(edges.find((e) => e.edge.id === "e-agent")?.when).toEqual({
+    expect(edges.find((e) => e.wire.id === "e-agent")?.when).toEqual({
       word: "signals",
     });
   });
@@ -456,7 +460,7 @@ describe("scheduler-effects", () => {
         { id: "e2", fromNode: "p1", toNode: "r1", ether: { verb: "announces" } },
       ],
     });
-    const edges = collectWatchEdgesInto(canvas, "r1");
+    const edges = collectWatchEdgesInto(canvasFromDocument("factory", canvas), "r1");
     expect(edges).toHaveLength(2);
     expect(edges.map((e) => e.when)).toEqual([
       { word: "completes" },
@@ -482,7 +486,7 @@ describe("scheduler-effects", () => {
       height: 1,
       ether: { entity: { kind: "cron" as const } },
     };
-    const label = schedulerSourceLabel(source);
+    const label = schedulerSourceLabel(nodeFromDocument("factory", source, 0));
     expect(label).toBe("cron");
     const data = defaultEffectTasksCreate(label);
     expect(data.brief).toContain("cron");
