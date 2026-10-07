@@ -112,3 +112,45 @@ describe("the offboard rules in Settings", () => {
     expect(host.querySelector('[data-testid="offboard-settings-problem"]')).toBeNull();
   });
 });
+
+describe("a harness with its own rules", () => {
+  beforeEach(async () => {
+    state$.settings.set({
+      ...defaultSettings(),
+      offboard: {
+        cacheWindowMinutes: 60,
+        auto: { enabled: true, minutes: 120 },
+        nudge: { enabled: false, minutes: 40 },
+        harness: { codex: { cacheWindowMinutes: 30, auto: { enabled: true, minutes: 90 }, nudge: { enabled: false, minutes: 20 } } },
+      },
+    });
+    await act(async () => {});
+  });
+
+  it("shows that harness's window, and each rule's switch and minutes", () => {
+    const row = host.querySelector('[data-testid="offboard-harness-codex"]')!;
+    expect(row.textContent).toContain("Codex");
+    expect(Array.from(row.querySelectorAll<HTMLInputElement>('input[type="number"]')).map((input) => input.value)).toEqual(["30", "20", "90"]);
+    expect(field("offboard-harness-codex-nudge-on").checked).toBe(false);
+    expect(field("offboard-harness-codex-auto-on").checked).toBe(true);
+  });
+
+  it("turns a rule on or off for that harness only", async () => {
+    await act(async () => {
+      field("offboard-harness-codex-auto-on").click();
+    });
+    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { harness: { codex: { auto: { enabled: false } } } } });
+    await act(async () => {
+      field("offboard-harness-codex-nudge-on").click();
+    });
+    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { harness: { codex: { nudge: { enabled: true } } } } });
+  });
+
+  it("removes the harness's row, back to the installation's rules", async () => {
+    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove the Codex override"]')!;
+    await act(async () => {
+      remove.click();
+    });
+    expect(patchSettings).toHaveBeenLastCalledWith({ offboard: { harness: { codex: null } } });
+  });
+});

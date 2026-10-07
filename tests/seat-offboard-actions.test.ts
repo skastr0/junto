@@ -173,7 +173,13 @@ describe("a change to the automatic rules, before it is saved", () => {
   it("judges a harness override against that harness's own window, and names the harness", () => {
     const seeded = seedHarnessOverride(DEFAULT_OFFBOARD_RULES, "codex");
     expect(seeded).toEqual({
-      harness: { codex: { cacheWindowMinutes: 60, auto: { minutes: 120 }, nudge: { minutes: 40 } } },
+      harness: {
+        codex: {
+          cacheWindowMinutes: 60,
+          auto: { enabled: true, minutes: 120 },
+          nudge: { enabled: false, minutes: 40 },
+        },
+      },
     });
     expect(planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, seeded).ok).toBe(true);
     const bad = planOffboardRulesChange(DEFAULT_OFFBOARD_RULES, { harness: { codex: { cacheWindowMinutes: 30 } } });

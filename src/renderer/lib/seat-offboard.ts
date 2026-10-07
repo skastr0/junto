@@ -225,7 +225,8 @@ export const planOffboardRulesChange = (
 
 /**
  * A new override for one harness, seeded with what that harness runs on
- * today: all three intervals are set, so the row never shows a blank.
+ * today: the window, and each rule's switch and minutes, so the row never
+ * shows a blank and later installation changes do not move it.
  */
 export const seedHarnessOverride = (rules: OffboardRules, harness: string): OffboardRulesPatch => {
   const set = offboardRulesFor(rules, harness);
@@ -233,8 +234,8 @@ export const seedHarnessOverride = (rules: OffboardRules, harness: string): Offb
     harness: {
       [harness]: {
         cacheWindowMinutes: set.cacheWindowMinutes,
-        auto: { minutes: set.auto.minutes },
-        nudge: { minutes: set.nudge.minutes },
+        auto: { enabled: set.auto.enabled, minutes: set.auto.minutes },
+        nudge: { enabled: set.nudge.enabled, minutes: set.nudge.minutes },
       },
     },
   };

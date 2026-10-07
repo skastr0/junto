@@ -1,8 +1,9 @@
 /**
  * Settings -> Offboard: when Junto ends an idle agent's session by itself.
  *
- * Three numbers for the installation, each with an optional override per
- * harness (each harness keeps its cache for a different time):
+ * Three settings for the installation, and the same three for any harness
+ * the operator gives its own (each harness keeps its cache for a different
+ * time, and a rule can be on for one harness and off for another):
  *
  *   cache window   how long a still seat stays cheap to give a turn
  *   idle nudge     ask a still seat to offboard and continue (inside the window)
@@ -170,15 +171,17 @@ export function OffboardSettingsSection() {
 
       <div className="offboard-settings__harnesses" role="group" aria-label="Per harness">
         <p className="settings-note">
-          Per harness: a harness that keeps its cache for a different time can run on its own three numbers. On and
-          off stay with the installation.
+          Per harness: a harness can run on its own window, and have each rule on or off and timed by itself. A
+          harness with no row here follows the installation.
         </p>
         {overrides.map(([harness, over]) => {
           const name = harnessName(harness);
           const set = {
             window: over.cacheWindowMinutes ?? rules.cacheWindowMinutes,
             nudge: over.nudge?.minutes ?? rules.nudge.minutes,
+            nudgeOn: over.nudge?.enabled ?? rules.nudge.enabled,
             auto: over.auto?.minutes ?? rules.auto.minutes,
+            autoOn: over.auto?.enabled ?? rules.auto.enabled,
           };
           return (
             <div key={harness} className="offboard-settings__harness" data-testid={`offboard-harness-${harness}`}>
@@ -193,6 +196,12 @@ export function OffboardSettingsSection() {
               </label>
               <label>
                 <span>nudge</span>
+                <Switch
+                  checked={set.nudgeOn}
+                  aria-label={`${name} idle nudge`}
+                  data-testid={`offboard-harness-${harness}-nudge-on`}
+                  onCheckedChange={(on) => void change({ harness: { [harness]: { nudge: { enabled: on } } } })}
+                />
                 <MinutesInput
                   label={`${name} idle nudge after, minutes`}
                   value={set.nudge}
@@ -201,6 +210,12 @@ export function OffboardSettingsSection() {
               </label>
               <label>
                 <span>auto</span>
+                <Switch
+                  checked={set.autoOn}
+                  aria-label={`${name} auto offboard`}
+                  data-testid={`offboard-harness-${harness}-auto-on`}
+                  onCheckedChange={(on) => void change({ harness: { [harness]: { auto: { enabled: on } } } })}
+                />
                 <MinutesInput
                   label={`${name} auto offboard after, minutes`}
                   value={set.auto}
