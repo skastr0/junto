@@ -6,6 +6,8 @@ import {
 import { STATE_SCHEMA_SQL } from "./schema";
 import {
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
+  AGENT_SIGNAL_PARTS_COPY_SQL,
+  AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
   AGENT_SIGNALS_STATE_SCHEMA_SQL,
 } from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
@@ -200,7 +202,17 @@ export const STATE_SCHEMA_V10_IDENTITY = {
     "be023cfbff369afd83b5dde6cba7c9b0c61005d9dc228cce31b1506ccced2239",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 10;
+/**
+ * Version 11 adds signal parts: what a signal carries beside its words, with
+ * no bound on how many or on a caption's length. Expand only: the attachments
+ * table it replaces stays, and its rows are copied across.
+ */
+export const STATE_SCHEMA_V11_IDENTITY = {
+  actualSchemaSha256:
+    "b1b2007cca29300066c9b2ee3409ecf3f606fb7b2669e6f8b8558cfc8bb679b5",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 11;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -208,7 +220,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 10;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V10_IDENTITY;
+  STATE_SCHEMA_V11_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -313,6 +325,17 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V9_IDENTITY,
     migrate: (database) => {
       database.exec(SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 10,
+    toVersion: 11,
+    name: "add signal parts",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V10_IDENTITY,
+    migrate: (database) => {
+      database.exec(AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL);
+      database.exec(AGENT_SIGNAL_PARTS_COPY_SQL);
     },
   },
 ];

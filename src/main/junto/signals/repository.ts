@@ -117,38 +117,31 @@ const columnsOf = (from: string): string => `
   ${from}.signal_id, ${from}.canvas_name, ${from}.node_id, ${from}.kind, ${from}.text, ${from}.detail,
   ${from}.created_at, ${from}.state, ${from}.response_text, ${from}.response_at, ${from}.closed_at,
   (
-    SELECT json_group_array(json_object(
-      'sha256', sha256, 'byteLength', byte_length, 'mediaType', media_type,
-      'displayName', display_name, 'caption', caption
-    ))
+    SELECT json_group_array(json_object('kind', kind, 'body', json(body_json), 'caption', caption))
     FROM (
-      SELECT * FROM agent_signal_attachments
-      WHERE agent_signal_attachments.signal_id = ${from}.signal_id
+      SELECT * FROM agent_signal_parts
+      WHERE agent_signal_parts.signal_id = ${from}.signal_id
       ORDER BY position
     )
   ) AS attachments_json
 `;
 const COLUMNS = columnsOf("agent_signals");
 
-type AttachmentJson = {
-  readonly sha256: string;
-  readonly byteLength: number;
-  readonly mediaType: string;
-  readonly displayName: string;
+type PartJson = {
+  readonly kind: string;
+  readonly body: Record<string, unknown>;
   readonly caption: string | null;
 };
 
 // Written only by `raise` below, from values the wire schema already holds.
+// A part of a kind this build does not know is left out, not guessed at.
 const attachmentsOf = (json: string): ReadonlyArray<AgentSignalAttachment> =>
-  (JSON.parse(json) as ReadonlyArray<AttachmentJson>).map((row) => ({
-    ref: {
-      sha256: row.sha256,
-      byteLength: row.byteLength,
-      mediaType: row.mediaType,
-      displayName: row.displayName,
-    } as AgentSignalAttachment["ref"],
-    ...(row.caption === null ? {} : { caption: row.caption }),
-  }));
+  (JSON.parse(json) as ReadonlyArray<PartJson>)
+    .filter((row) => row.kind === "file")
+    .map((row) => ({
+      ref: row.body as unknown as AgentSignalAttachment["ref"],
+      ...(row.caption === null ? {} : { caption: row.caption }),
+    }));
 
 const withAttachments = (json: string): { readonly attachments?: ReadonlyArray<AgentSignalAttachment> } => {
   const attachments = attachmentsOf(json);
@@ -238,9 +231,15 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       `;
       for (const [position, attachment] of (input.attachments ?? []).entries()) {
         const { ref } = attachment;
+        const body = JSON.stringify({
+          sha256: ref.sha256,
+          byteLength: ref.byteLength,
+          mediaType: ref.mediaType,
+          displayName: ref.displayName ?? "file",
+        });
         yield* sql`
-          INSERT INTO agent_signal_attachments(signal_id, position, sha256, byte_length, media_type, display_name, caption)
-          VALUES (${signalId}, ${position}, ${ref.sha256}, ${ref.byteLength}, ${ref.mediaType}, ${ref.displayName ?? "file"}, ${attachment.caption ?? null})
+          INSERT INTO agent_signal_parts(signal_id, position, kind, body_json, caption)
+          VALUES (${signalId}, ${position}, 'file', ${body}, ${attachment.caption ?? null})
         `;
       }
       return (yield* readOne(signalId))!;

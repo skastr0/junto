@@ -15,6 +15,7 @@
 import { STATE_SCHEMA_FRAGMENTS } from "../../../src/main/junto/state/schema";
 import {
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
+  AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
   AGENT_SIGNALS_STATE_SCHEMA_SQL,
 } from "../../../src/main/junto/signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../../../src/main/junto/squads/state-schema";
@@ -33,7 +34,11 @@ const composedWithout = (retired: ReadonlyArray<string>): string =>
     STATE_SCHEMA_FRAGMENTS.filter((fragment) => !retired.includes(fragment)).join("\n"),
   );
 
-const V10_FRAGMENTS = [SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL];
+const V11_FRAGMENTS = [AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL];
+
+export const STATE_SCHEMA_V10_SQL = composedWithout(V11_FRAGMENTS);
+
+const V10_FRAGMENTS = [...V11_FRAGMENTS, SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL];
 
 export const STATE_SCHEMA_V9_SQL = composedWithout(V10_FRAGMENTS);
 

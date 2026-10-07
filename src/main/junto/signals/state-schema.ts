@@ -55,3 +55,36 @@ export const AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL = `
     PRIMARY KEY (signal_id, position)
   ) STRICT, WITHOUT ROWID;
 `;
+
+/**
+ * What a signal carries beside its words, in the order given: a file today,
+ * other kinds as they come (`kind` is open so a new one needs no migration).
+ * `body_json` is the part itself; for a file, its portable reference in the
+ * content store (digest, length, type, name). Nothing bounds how many parts
+ * a signal has or how long a caption is. Rows go with their signal.
+ *
+ * This replaces `agent_signal_attachments`, which capped a signal at twelve
+ * files and a caption at 120 characters. That table stays (the chain only
+ * expands) and is no longer read or written.
+ */
+export const AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_signal_parts (
+    signal_id TEXT NOT NULL
+      REFERENCES agent_signals(signal_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL
+      CHECK (typeof(position) = 'integer' AND position >= 0),
+    kind TEXT NOT NULL CHECK (length(kind) BETWEEN 1 AND 32),
+    body_json TEXT NOT NULL CHECK (json_valid(body_json) AND json_type(body_json) = 'object'),
+    caption TEXT CHECK (caption IS NULL OR length(caption) >= 1),
+    PRIMARY KEY (signal_id, position)
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/** 10 -> 11: every attachment already held becomes a file part, in place and order. */
+export const AGENT_SIGNAL_PARTS_COPY_SQL = `
+  INSERT INTO agent_signal_parts(signal_id, position, kind, body_json, caption)
+  SELECT signal_id, position, 'file',
+    json_object('sha256', sha256, 'byteLength', byte_length, 'mediaType', media_type, 'displayName', display_name),
+    caption
+  FROM agent_signal_attachments;
+`;

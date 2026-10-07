@@ -149,4 +149,20 @@ describe("AgentSignalRepository", () => {
     expect(plain).not.toHaveProperty("attachments");
     expect(listed.find((signal) => signal.signalId === plain.signalId)).not.toHaveProperty("attachments");
   });
+
+  it("holds any number of attachments and a caption of any length", async () => {
+    const attachments = Array.from({ length: 200 }, (_, n) => ({
+      ref: { sha256: n.toString(16).padStart(64, "0"), byteLength: n, mediaType: "text/plain", displayName: `${n}.txt` } as never,
+      caption: n === 0 ? "x".repeat(5000) : `file ${n}`,
+    }));
+    const got = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        yield* r.raise({ ...seatA, kind: "feedback", text: "many", signalId: "sig-many", attachments });
+        return yield* r.get("sig-many");
+      }),
+    );
+    expect(got.attachments).toHaveLength(200);
+    expect(got.attachments).toEqual(attachments);
+  });
 });

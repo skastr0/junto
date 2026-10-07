@@ -35,6 +35,7 @@ import { OVERSEER_LIVE_STATE_SCHEMA_SQL } from "../overseer/live/state-schema";
 import { CREW_STATE_SCHEMA_SQL } from "../work/crew-schema";
 import {
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
+  AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
   AGENT_SIGNALS_STATE_SCHEMA_SQL,
 } from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
@@ -116,6 +117,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   SEAT_SESSIONS_STATE_SCHEMA_SQL,
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
   SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
+  AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
 ] as const;
 
 

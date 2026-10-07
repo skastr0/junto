@@ -18,8 +18,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V9_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V10_SQL, STATE_SCHEMA_V9_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url));
 
@@ -61,10 +60,18 @@ const versionNinePlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 9),
 };
 
+// 10 -> 11 (signal parts) lands on top; this suite stops at 10.
+const versionTenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 10,
+  currentSchemaSql: STATE_SCHEMA_V10_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 10),
+};
+
 describe("state migration 9 -> 10 (seat session drains)", () => {
   it("freezes the version-nine witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V9_SQL)).toEqual(STATE_SCHEMA_V9_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V10_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V10_SQL)).toEqual(STATE_SCHEMA_V10_IDENTITY);
   });
 
   it("adds the table and leaves every existing row, immutable logs and session history included, untouched", async () => {
@@ -83,7 +90,7 @@ describe("state migration 9 -> 10 (seat session drains)", () => {
       expect((before.work_events as unknown[]).length).toBeGreaterThan(0);
       expect(before).not.toHaveProperty("seat_session_drains");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionTenPlan);
       expect(result).toMatchObject({ previousVersion: 9, schemaVersion: 10 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V10_IDENTITY);
 
@@ -100,7 +107,7 @@ describe("state migration 9 -> 10 (seat session drains)", () => {
   it("holds a detach and its end, refuses anything dishonest, and goes with its session", async () => {
     const database = await openCopy();
     try {
-      migrateStateSchema(database);
+      migrateStateSchema(database, versionTenPlan);
       database
         .prepare(
           `INSERT INTO seat_sessions(seat_id, session_id, harness, notes_path, started_at, ended_at, end_reason)
