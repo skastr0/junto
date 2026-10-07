@@ -1,7 +1,5 @@
 /**
- * Managed-terminal seat env inject — PATH for dist/junto + work-control paths.
- * Secrets stay file-backed (token on disk); we inject socket/home paths only.
- * Zero writes to harness configs.
+ * Host-owned launch environment inherited by a managed seat's child processes.
  */
 import { existsSync } from "node:fs";
 import { resolveJuntoHome } from "@shared/junto-home";
