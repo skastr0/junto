@@ -1,4 +1,3 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
 /**
  * The acceptance case, end to end on this machine's own code and a FAKE
  * keychain: a region carrying
@@ -10,7 +9,9 @@ import { canvasFromDocument } from "../src/shared/model/from-document";
  * No real Keychain, 1Password or home directory is read.
  */
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, EnvSource } from "../src/shared/canvas";
+import type { Canvas } from "../src/shared/model";
+import type { EnvSource } from "../src/shared/model/region";
+import { canvasOf, note, region as regionNode } from "./support/model-nodes";
 import { makeRegionEnvironmentResolution } from "../src/main/junto/region-env/resolve";
 import { makeEnvSourceResolver, OP_TOKEN_NAME } from "../src/main/junto/region-env/sources";
 import { removeRegionSecret, saveRegionSecret } from "../src/main/junto/region-env/secret-ipc";
@@ -26,25 +27,10 @@ const region = (
   id: string,
   rect: readonly [number, number, number, number],
   sources: EnvSource[],
-) => ({
-  id,
-  type: "group" as const,
-  x: rect[0],
-  y: rect[1],
-  width: rect[2],
-  height: rect[3],
-  label: id,
-  ether: { region: { environment: { sources } } },
-});
-const seat = (id: string, x: number, y: number) => ({
-  id,
-  type: "text" as const,
-  text: id,
-  x,
-  y,
-  width: 50,
-  height: 40,
-});
+) =>
+  regionNode(id, { x: rect[0], y: rect[1], width: rect[2], height: rect[3] }, { label: id, environment: { sources } });
+/** Where a seat stands is all the resolution reads of it. */
+const seat = (id: string, x: number, y: number) => note(id, id, { x, y, width: 50, height: 40 });
 
 const setup = (secrets = makeRegionSecrets({ store: new MemoryCredentialStore(), backend: "file", description: "test" })) => {
   const calls: ToolCall[] = [];
@@ -72,24 +58,21 @@ const setup = (secrets = makeRegionSecrets({ store: new MemoryCredentialStore(),
   return { calls, secrets, resolution: makeRegionEnvironmentResolution(resolver, "/nonexistent-home") };
 };
 
-const doc = (inner: EnvSource[] = [], service = SERVICE): CanvasDoc =>
-  ({
-    nodes: [
-      region("work", [0, 0, 1000, 1000], [
-        { id: "op-token", kind: "keychain", name: REGION_TOKEN_NAME, service },
-      ]),
-      region("privileged", [100, 100, 400, 400], inner),
-      seat("inside", 700, 700),
-      seat("deep", 200, 200),
-      seat("outside", 5000, 5000),
-    ],
-    edges: [],
-  }) as CanvasDoc;
+const canvas = (inner: EnvSource[] = [], service = SERVICE): Canvas =>
+  canvasOf([
+    region("work", [0, 0, 1000, 1000], [
+      { id: "op-token", kind: "keychain", name: REGION_TOKEN_NAME, service },
+    ]),
+    region("privileged", [100, 100, 400, 400], inner),
+    seat("inside", 700, 700),
+    seat("deep", 200, 200),
+    seat("outside", 5000, 5000),
+  ]);
 
 describe("region environment, the acceptance case", () => {
   it("a keychain source on a region yields its variable for a seat inside it", async () => {
     const { resolution, calls } = setup();
-    const resolved = await resolution.resolve(canvasFromDocument("factory", doc()), { seat: "inside" }, "local");
+    const resolved = await resolution.resolve(canvas(), { seat: "inside" }, "local");
     expect(resolved.env).toEqual({ [REGION_TOKEN_NAME]: TOKEN });
     expect(resolved.refusal).toBeUndefined();
     expect(resolved.report).toEqual([
@@ -109,7 +92,7 @@ describe("region environment, the acceptance case", () => {
 
   it("a seat outside the region gets nothing, and nothing is read for it", async () => {
     const { resolution, calls } = setup();
-    const resolved = await resolution.resolve(canvasFromDocument("factory", doc()), { seat: "outside" }, "local");
+    const resolved = await resolution.resolve(canvas(), { seat: "outside" }, "local");
     expect(resolved.env).toEqual({});
     expect(resolved.report).toEqual([]);
     expect(calls).toEqual([]);
@@ -117,7 +100,7 @@ describe("region environment, the acceptance case", () => {
 
   it("the value appears in the launch environment and nowhere else", async () => {
     const { resolution } = setup();
-    const resolved = await resolution.resolve(canvasFromDocument("factory", doc()), { seat: "inside" }, "local");
+    const resolved = await resolution.resolve(canvas(), { seat: "inside" }, "local");
     const { env: _env, ...everythingElse } = resolved;
     expect(JSON.stringify(everythingElse)).not.toContain(TOKEN);
   });
@@ -125,7 +108,7 @@ describe("region environment, the acceptance case", () => {
   it("an inner region resolves a 1Password reference with that token, passed to op only", async () => {
     const { resolution, calls } = setup();
     const resolved = await resolution.resolve(
-      canvasFromDocument("factory", doc([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }])),
+      canvas([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }]),
       { seat: "deep" },
       "local",
     );
@@ -134,13 +117,13 @@ describe("region environment, the acceptance case", () => {
     expect(op.env?.[OP_TOKEN_NAME]).toBe(TOKEN);
     expect(op.args.join(" ")).not.toContain(TOKEN);
     // The seat outside the inner region gets the token and not the GitHub one.
-    const outer = await resolution.resolve(canvasFromDocument("factory", doc([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }])), { seat: "inside" }, "local");
+    const outer = await resolution.resolve(canvas([{ id: "gh", kind: "onepassword", name: "GITHUB_TOKEN", ref: "op://Dev/GitHub/token", tokenFrom: "op-token" }]), { seat: "inside" }, "local");
     expect(Object.keys(outer.env)).toEqual([REGION_TOKEN_NAME]);
   });
 
   it("a missing Keychain item never stops the launch: the seat starts without it and the report says why", async () => {
     const { resolution } = setup();
-    const resolved = await resolution.resolve(canvasFromDocument("factory", doc([], "no-such-item")), { seat: "inside" }, "local");
+    const resolved = await resolution.resolve(canvas([], "no-such-item"), { seat: "inside" }, "local");
     expect(resolved.env).toEqual({});
     expect(resolved.refusal).toBeUndefined();
     expect(resolved.report[0]).toMatchObject({
@@ -156,10 +139,10 @@ describe("region environment, the acceptance case", () => {
     expect(saved.ok).toBe(true);
     const secretId = (saved as { secretId: string }).secretId;
     expect(JSON.stringify(saved)).not.toContain("saved-on-the-screen");
-    const withSecret = doc([{ id: "api", kind: "secret", name: "API_KEY", secretId }]);
-    expect((await resolution.resolve(canvasFromDocument("factory", withSecret), { seat: "deep" }, "local")).env.API_KEY).toBe("saved-on-the-screen");
+    const withSecret = canvas([{ id: "api", kind: "secret", name: "API_KEY", secretId }]);
+    expect((await resolution.resolve(withSecret, { seat: "deep" }, "local")).env.API_KEY).toBe("saved-on-the-screen");
     expect(removeRegionSecret(secretId, secrets)).toEqual({ ok: true });
-    const after = await resolution.resolve(canvasFromDocument("factory", withSecret), { seat: "deep" }, "local");
+    const after = await resolution.resolve(withSecret, { seat: "deep" }, "local");
     expect(after.env.API_KEY).toBeUndefined();
     expect(after.report.find((entry) => entry.sourceId === "api")).toMatchObject({ status: "missing" });
   });

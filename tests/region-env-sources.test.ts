@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { EnvSource } from "../src/shared/canvas";
+import type { EnvSource } from "../src/shared/model/region";
 import {
   OP_TOKEN_NAME,
   expandHome,

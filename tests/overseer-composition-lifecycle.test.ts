@@ -1,10 +1,9 @@
 import { asCanvasName } from "../src/shared/model";
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, seat } from "./support/model-nodes";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
-import type { CanvasReadResult } from "../src/shared/ipc";
 import { InstallationId } from "../src/shared/installation-id";
 import { CommandCenterConfiguration } from "../src/shared/station-api";
 import type { OverseerCaller, OverseerRequest } from "../src/shared/overseer-control";
@@ -31,47 +30,21 @@ const startRequest: OverseerRequest = {
   args: { nodeId: "worker" },
 };
 
-const fixture = (): CanvasReadResult => ({
+/** The canvas the overseer reads, and the seat it speaks from. */
+const fixture = () => ({
   name: "factory",
-  revision: "revision",
-  workRevision: "0",
   actorRefs: [
     { ...caller, seatId: deriveActorSeatId(remote, "planner-binding") },
   ],
-  doc: {
-    nodes: [
-      {
-        id: "planner",
-        type: "text",
-        text: "Planner",
-        x: 17,
-        y: -29,
-        width: 300,
-        height: 200,
-        ether: {
-          entity: { kind: "agent", name: "remote:planner" },
-          host: "remote",
-          overseer: true,
-          terminal: { bindingId: "planner-binding", harness: "claude" },
-        },
-      },
-      {
-        id: "worker",
-        type: "text",
-        text: "Worker",
-        x: 40,
-        y: 0,
-        width: 260,
-        height: 96,
-        ether: {
-          entity: { kind: "agent", name: "local:worker" },
-          host: "local",
-          terminal: { bindingId: "worker-binding", harness: "claude" },
-        },
-      },
-    ],
-    edges: [],
-  },
+  canvas: canvasOf([
+    seat("planner", {
+      label: "Planner", x: 17, y: -29, width: 300, height: 200,
+      agentKey: "remote:planner", host: "remote", overseer: true, bindingId: "planner-binding" as never,
+    }),
+    seat("worker", {
+      label: "Worker", x: 40, y: 0, width: 260, height: 96, bindingId: "worker-binding" as never,
+    }),
+  ]),
 });
 
 const makeChats = (): ChatService => {
@@ -160,7 +133,7 @@ const boot = async (mode: "succeed" | "fail") => {
       // The overseer's native commands read the canvas from the model.
       Layer.succeed(ModelService, {
         listCanvases: () => Effect.succeed([asCanvasName(read.name)]),
-        canvas: () => Effect.succeed(canvasFromDocument(read.name, read.doc)),
+        canvas: () => Effect.succeed(read.canvas),
         subscribeChanges: () => () => undefined,
         subscribeCanvasesChanges: () => () => undefined,
       } as never),

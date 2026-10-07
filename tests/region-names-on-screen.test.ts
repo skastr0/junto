@@ -4,45 +4,27 @@
  * the id beside the placeholder, since a node is addressed by id.
  */
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import { digestCanvas } from "../src/shared/digest";
 import { TASKS_ENABLED } from "../src/shared/features";
 import { formatWaitingOnLines } from "../src/shared/impact";
 import { regionAddress, rulesInForce } from "../src/shared/rules";
-import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
-import { canvasFromDocument, nodesFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
+import { canvasOf, note, region, taskBoard } from "./support/model-nodes";
 
-const doc = {
-  nodes: [
-    {
-      id: "g-unnamed",
-      type: "group",
+const canvas = canvasOf(
+  [
+    region("g-unnamed", { x: 0, y: 0, width: 600, height: 400 }, {
       label: "  ",
-      x: 0,
-      y: 0,
-      width: 600,
-      height: 400,
-      ether: { region: { contract: { rules: [{ id: "r1", text: "Tests pass before review." }] } } },
-    },
-    { id: "g-named", type: "group", label: " Build ", x: 1000, y: 0, width: 300, height: 300 },
-    {
-      id: "board",
-      type: "text",
-      text: "tasks",
-      x: 40,
-      y: 40,
-      width: 240,
-      height: 120,
-      ether: { entity: { kind: "task" }, host: "local", tasks: { items: [] } },
-    },
-    { id: "note", type: "text", text: "Note", x: 2000, y: 0, width: 100, height: 60 },
+      contract: { rules: [{ id: "r1", text: "Tests pass before review." }] },
+    }),
+    region("g-named", { x: 1000, y: 0, width: 300, height: 300 }, { label: " Build " }),
+    taskBoard("board", { x: 40, y: 40, width: 240, height: 120 }),
+    note("note", "Note", { x: 2000, y: 0, width: 100, height: 60 }),
   ],
-  edges: [{ id: "e1", fromNode: "note", toNode: "g-unnamed" }],
-} as unknown as CanvasDoc;
+);
 
 describe("an unnamed region on the operator's screen", () => {
   it.runIf(TASKS_ENABLED)("task rules name it, and the agent's line keeps its id", () => {
-    const [rule] = rulesInForce(nodesFromDocument(doc), "board");
+    const [rule] = rulesInForce(canvas, "board");
     expect(rule?.provenance).toMatchObject({ kind: "region", regionId: "g-unnamed", label: "unnamed region" });
   });
 
@@ -61,15 +43,15 @@ describe("an unnamed region on the operator's screen", () => {
           { nodeId: "g-named", role: "apex", reasons: [] },
         ],
       },
-      canvasFromDocument("factory", doc),
+      canvas,
     );
     expect(lines).toEqual(["unnamed region", "Build"]);
   });
 
   it("the digest names it and keeps its id on the line for the overseer", () => {
-    const text = digestCanvas(canvasFromDocument("main", doc), { bundles: [] }, {
-      itemsOf: workItemsFromDocument(doc),
-      resolveActorRef: executionContextForDoc(doc, "main").resolveActorRef,
+    const text = digestCanvas(canvas, { bundles: [] }, {
+      itemsOf: () => [],
+      resolveActorRef: () => undefined,
     });
     expect(text).toContain("unnamed region (g-unnamed)");
     // Never the bare id standing in for a name.
