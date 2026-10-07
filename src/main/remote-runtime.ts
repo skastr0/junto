@@ -41,7 +41,6 @@ import { WorkRepositoryLive } from "./junto/work/repository";
 import { CrewRepositoryLive } from "./junto/work/crew-repository";
 import { makeContentServiceLive } from "./junto/content/service";
 import { InstallOpsLive } from "./junto/install-ops/engine";
-import { RegionRollupLive } from "./junto/region-rollup";
 import { makeSettingsLive } from "./junto/settings/service";
 import { SnapshotsLive } from "./junto/snapshots";
 import { UsageLive } from "./junto/usage/live";
@@ -208,7 +207,7 @@ export const RemoteProductPlanesLive = Layer.provideMerge(
   ProductTransportsLive,
 );
 
-// ChatServiceContext is required by RegionRollup; hermes owns the chat instance.
+// Overseer operations use the chat service owned by the hermes plane.
 const ProductPlanesWithChatLive = Layer.provideMerge(
   ChatServiceFromHermesLive,
   RemoteProductPlanesLive,
@@ -237,7 +236,7 @@ const BaseWithActorSeatOccupyLive = Layer.provideMerge(
 const KernelWithWorkLive = Layer.provideMerge(KernelLive, WorkLive);
 
 const RemoteRootLayer = Layer.provideMerge(
-  Layer.mergeAll(KernelWithWorkLive, RegionRollupLive),
+  KernelWithWorkLive,
   Layer.provideMerge(
     BaseWithActorSeatOccupyLive,
     Layer.mergeAll(ProductPlanesWithChatLive, StateRepositoriesLive),

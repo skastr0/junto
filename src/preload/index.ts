@@ -513,8 +513,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   profileDelete: (profileId) => invoke(IPC_CHANNELS.profileDelete, IPC_TIMEOUT_MS, profileId),
   factoryPauseSet: (canvas, paused) =>
     invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, paused),
-  regionRollups: (name) =>
-    invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   contentPutImage: (input) =>
     invoke(IPC_CHANNELS.contentPutImage, IPC_TIMEOUT_MS, input),
   workItem: (query) => invoke(IPC_CHANNELS.workItem, IPC_TIMEOUT_MS, query),

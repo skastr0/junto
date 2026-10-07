@@ -40,7 +40,6 @@ import {
   USAGE_ENABLED,
 } from "@shared/features";
 import { KernelService } from "./kernel/service";
-import { RegionRollupService } from "./region-rollup";
 import { registerHostsIpc } from "./hosts/ipc";
 import {
   HOST_OPERATION_ADMISSIONS,
@@ -953,12 +952,6 @@ export const registerJuntoIpc = (): void => {
           };
         }),
       ),
-  );
-
-  // Region rollups for the bottom bar: derived per call from the current
-  // document + snapshots + the chat plane's session/permission state.
-  privilegedIpc.handle(IPC_CHANNELS.regionRollups, (_event, name: string) =>
-    AppRuntime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(name))),
   );
 
   // Image content put — canvas image nodes + note embeds. Content store only;

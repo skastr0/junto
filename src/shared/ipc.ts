@@ -45,7 +45,6 @@ import type {
 import type { SnapshotState } from "./entities";
 import type { NodeRefKey } from "./node-ref";
 import type { CanvasPauseState } from "./pause";
-import type { RegionRollup } from "./region-rollup";
 import type {
   Settings,
   SettingsOpResult,
@@ -255,7 +254,6 @@ export const IPC_CHANNELS = {
   factoryPauseSet: "junto:factory-pause-set",
   /** Operator Fire now — apply scheduler output-edge effects immediately. */
   schedulerFire: "junto:scheduler-fire",
-  regionRollups: "junto:region-rollups",
   /**
    * Put image bytes into the local content store; returns a ContentRef.
    * Canvas notes and image file nodes author through this — never inline Base64
@@ -933,9 +931,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     canvas: string,
     paused: boolean,
   ) => Promise<FactoryPauseSetResult>;
-  // Region severity rollups for the bottom bar, derived live per call from
-  // the document + snapshots + ACP chat activity (shared/region-rollup.ts).
-  readonly regionRollups: (name: string) => Promise<ReadonlyArray<RegionRollup>>;
   /**
    * Ingest image bytes into the content store. Used by canvas image nodes and
    * note embeds. Bytes never land in CanvasDoc; only the returned ContentRef

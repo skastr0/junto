@@ -66,7 +66,6 @@ import { WorkRevisionsLive, WorkRepositoryLive } from "./junto/work/repository";
 import { CrewRepositoryLive } from "./junto/work/crew-repository";
 import { makeContentServiceLive } from "./junto/content/service";
 import { InstallOpsLive } from "./junto/install-ops/engine";
-import { RegionRollupLive, RegionRollupService } from "./junto/region-rollup";
 import { SettingsLive, SettingsService } from "./junto/settings/service";
 import { probeSupervisedRuntime } from "./junto/settings/supervised-probe";
 import { SnapshotsLive, SnapshotsService } from "./junto/snapshots";
@@ -314,7 +313,7 @@ const BaseWithActorSeatOccupyLive = Layer.provideMerge(
 const KernelWithWorkLive = Layer.provideMerge(KernelLive, WorkLive);
 
 export const RootLayer = Layer.provideMerge(
-  Layer.mergeAll(KernelWithWorkLive, RegionRollupLive, CanvasControlQueries.layer),
+  Layer.mergeAll(KernelWithWorkLive, CanvasControlQueries.layer),
   BaseWithActorSeatOccupyLive,
 );
 
@@ -417,7 +416,6 @@ export const buildDoctorReport = Effect.gen(function* () {
   const model = yield* ModelService;
   const snapshots = yield* SnapshotsService;
   const kernel = yield* KernelService;
-  const regionRollup = yield* RegionRollupService;
   const usage = yield* UsageService;
   const settings = yield* SettingsService;
   const hosts = yield* HostsService;
@@ -532,7 +530,6 @@ export const buildDoctorReport = Effect.gen(function* () {
       })),
       snapshots.doctor,
       kernel.doctor,
-      regionRollup.doctor,
       usage.doctor,
       settings.doctor,
       Effect.succeed(hostsDoctorSnapshot.check),
