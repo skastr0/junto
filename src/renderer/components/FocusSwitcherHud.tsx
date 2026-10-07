@@ -7,26 +7,52 @@ import {
   selectFocusSwitcherIndex,
   type FocusSwitcherEntry,
 } from "../lib/focus-switcher";
-import { Chip, Eyebrow, Kbd } from "./ui";
+import type { CanvasNode } from "@shared/canvas";
+import { nodeTypeLabel } from "../lib/presentation";
+import { seatSaying } from "../lib/seat-line";
+import { state$ } from "../lib/state";
+import { accentColor } from "../lib/theme";
+import { NodeKindMark } from "./NodeKindMark";
+import { SeatRingView, useSeatGlance } from "./SeatRing";
+import { Kbd } from "./ui";
 
-const kindTone = (
-  kind: string,
-): "amber" | "cyan" | "violet" | "steel" | "green" => {
-  if (kind === "agent") return "amber";
-  if (kind === "terminal" || kind === "page" || kind === "pad") return "cyan";
-  if (kind === "task" || kind === "note") return "steel";
-  if (kind === "requests" || kind === "board") return "violet";
-  if (kind === "artifacts" || kind === "sheet") return "green";
-  return "steel";
-};
+/** An agent's card: the seat's own ring and portrait, its name, the line its seat is saying. */
+function AgentFace({ node, title }: { readonly node: CanvasNode; readonly title: string }) {
+  const glance = useSeatGlance(node);
+  const saying = seatSaying({
+    activity: glance.activity,
+    signal: glance.signal?.signal,
+    failure: glance.failure,
+    health: glance.health,
+  });
+  // An AI reading is named as one, as everywhere else: never the agent's own claim.
+  const line =
+    saying.kind === "signal" ? saying.word : saying.kind === "reading" ? `AI reads ${saying.text}` : saying.text;
+  return (
+    <>
+      <span className="focus-switcher__mark">
+        <SeatRingView node={node} px={44} glance={glance} />
+      </span>
+      <span
+        className="focus-switcher__title"
+        style={node.color ? { color: accentColor(node.color) } : undefined}
+      >
+        {title}
+      </span>
+      <span className="focus-switcher__line">{line}</span>
+    </>
+  );
+}
 
 function SwitcherCard({
   entry,
+  node,
   selected,
   onSelect,
   onCommit,
 }: {
   readonly entry: FocusSwitcherEntry;
+  readonly node: CanvasNode | undefined;
   readonly selected: boolean;
   readonly onSelect: () => void;
   readonly onCommit: () => void;
@@ -49,26 +75,30 @@ function SwitcherCard({
       onMouseEnter={onSelect}
       onClick={onCommit}
     >
-      <div className="focus-switcher__card-meta">
-        <Chip tone={kindTone(entry.kindLabel)}>{entry.kindLabel}</Chip>
-        {entry.hotbarSlot !== null ? (
-          <span className="focus-switcher__slot">{entry.hotbarSlot}</span>
-        ) : null}
-        {entry.parked && !entry.current ? (
-          <span className="focus-switcher__parked">open</span>
-        ) : null}
-      </div>
-      <span className="focus-switcher__title">{entry.title}</span>
+      {entry.hotbarSlot !== null ? (
+        <span className="focus-switcher__slot">{entry.hotbarSlot}</span>
+      ) : null}
+      {node?.ether?.entity?.kind === "agent" ? (
+        <AgentFace node={node} title={entry.title} />
+      ) : (
+        <>
+          {node ? <NodeKindMark node={node} className="focus-switcher__mark focus-switcher__mark--kind" iconSize={20} /> : null}
+          <span className="focus-switcher__title">{entry.title}</span>
+          <span className="focus-switcher__line">{node ? nodeTypeLabel(node) : entry.kindLabel}</span>
+        </>
+      )}
     </button>
   );
 }
 
 /**
- * Hold-Control HUD over the live focus modal. Catalog is frozen for the
- * session; click or Control-release commits; Escape / backdrop cancels.
+ * The switcher, up while Cmd is held over the live focus modal. Catalog is
+ * frozen for the session; a click or letting go of Cmd opens the selected
+ * card; Escape or the backdrop cancels.
  */
 export function FocusSwitcherHud() {
   const session = use$(focusSwitcher$.session);
+  const nodes = use$(state$.doc.nodes);
   if (!session) return null;
 
   const selected = session.entries[session.selectedIndex];
@@ -89,17 +119,12 @@ export function FocusSwitcherHud() {
         onClick={cancelFocusSwitcher}
       />
       <div className="focus-switcher__panel">
-        <div className="focus-switcher__header">
-          <Eyebrow tone="amber">switch</Eyebrow>
-          <span className="focus-switcher__count">
-            {session.entries.length} models
-          </span>
-        </div>
         <div className="focus-switcher__strip">
           {session.entries.map((entry, index) => (
             <SwitcherCard
               key={entry.nodeId}
               entry={entry}
+              node={nodes.find((candidate) => candidate.id === entry.nodeId)}
               selected={index === session.selectedIndex}
               onSelect={() => {
                 selectFocusSwitcherIndex(index);
@@ -113,20 +138,16 @@ export function FocusSwitcherHud() {
         </div>
         <div className="focus-switcher__footer">
           <span className="focus-switcher__hint">
-            <Kbd>ctrl</Kbd>
-            <Kbd>tab</Kbd>
-            cycle
-          </span>
-          <span className="focus-switcher__hint">
-            <Kbd>1–9</Kbd>
-            hotbar
+            <Kbd>⌘</Kbd>
+            <Kbd>`</Kbd>
+            next
           </span>
           <span className="focus-switcher__hint">
             <Kbd>esc</Kbd>
             cancel
           </span>
           <span className="focus-switcher__hint">
-            release <Kbd>ctrl</Kbd> to open
+            let go of <Kbd>⌘</Kbd> to open
           </span>
         </div>
       </div>
