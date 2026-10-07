@@ -17,7 +17,6 @@ export type OverseerReseatOptions = {
   readonly mode?: string;
   readonly permissionMode?: string;
   readonly cwd?: string;
-  readonly label?: string;
 };
 
 const requireHostId = (value: string): string => {
@@ -41,6 +40,10 @@ const launchChoices = (options: OverseerReseatOptions, sessionId?: string) => ({
 /**
  * Main-owned reseat of a managed agent onto a new harness (fresh binding).
  * Mirrors renderer `reseatManagedAgentNode` so native never imports renderer.
+ *
+ * Like it, this never touches the seat's name: the card's text stays as it
+ * was and the terminal keeps the seat's label. Only what runs in the seat
+ * changes; the rest of what the seat carries stays.
  */
 export const reseatManagedAgentNode = (
   node: TextNode,
@@ -88,11 +91,15 @@ export const reseatManagedAgentNode = (
     options.effort,
     options.mode,
   ].filter((part): part is string => Boolean(part && part.trim()));
-  const label = options.label?.trim() || parts.join(" - ");
+  const priorLabel = node.ether.terminal?.label;
+  const label =
+    (typeof priorLabel === "string" && priorLabel.trim().length > 0
+      ? priorLabel.trim()
+      : node.text.split("\n")[0]?.trim()) || parts.join(" - ");
   return {
     ...node,
-    text: label,
     ether: {
+      ...node.ether,
       entity: { kind: "agent", name: agentKey },
       host,
       terminal: {

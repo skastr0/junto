@@ -251,6 +251,11 @@ export const makeManagedAgentNode = (
  * Re-seat an existing agent node onto a new harness (new binding + launch).
  * Preserves id and geometry; mints a fresh bindingId so the old
  * process can be killed without colliding with the new seat.
+ *
+ * The seat's name is the operator's and is never touched: the card's text
+ * stays exactly as it was, and the terminal keeps the seat's label. Only
+ * what runs in the seat changes (entity key, host, terminal); everything
+ * else the seat carries (its overseer mark, its mailbox) stays.
  */
 export const reseatManagedAgentNode = (
   node: TextNode,
@@ -267,7 +272,23 @@ export const reseatManagedAgentNode = (
       ? node.ether.host
       : "local");
   const seat = buildManagedAgentSeat({ ...options, host });
-  return { ...node, text: seat.text, ether: seat.ether };
+  const label = seatNameOf(node);
+  return {
+    ...node,
+    ether: {
+      ...node.ether,
+      ...seat.ether,
+      terminal: { ...seat.ether.terminal!, ...(label ? { label } : {}) },
+    },
+  };
+};
+
+/** The seat's name: its terminal label, else the first line of its text. */
+const seatNameOf = (node: TextNode): string | undefined => {
+  const label = node.ether?.terminal?.label;
+  if (typeof label === "string" && label.trim().length > 0) return label.trim();
+  const first = node.text.split("\n")[0]?.trim();
+  return first && first.length > 0 ? first : undefined;
 };
 
 // A tasks node — task list; blocks only when edged with criteria.mode tasks.
