@@ -4,6 +4,7 @@
  * and the shared path derivation the fake seat binary and the spec side
  * must agree on. No Electron, no Playwright.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { edgeGrant, type CanvasDoc } from "../src/shared/canvas";
 import {
@@ -113,6 +114,16 @@ describe("seat dir derivation", () => {
     expect(crewSeatDir(sandbox, "canvas", "node")).toBe(
       "/tmp/crew-home/.junto/crew-seats/canvas--node",
     );
+  });
+});
+
+describe("fake seat credential", () => {
+  it("presents JUNTO_WORK_TOKEN and does not open the work token file", () => {
+    const source = readFileSync("e2e/harness/crew-fixture.ts", "utf8");
+    expect(source).toContain("process.env.JUNTO_WORK_TOKEN");
+    expect(source).not.toContain("tokPath");
+    expect(source).not.toContain('path.join(workHome, "token")');
+    expect(source).not.toContain(".junto/work/token");
   });
 });
 

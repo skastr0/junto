@@ -173,7 +173,8 @@ const workHome =
   process.env.JUNTO_WORK_HOME ||
   path.join(process.env.HOME || "", ".junto", "work");
 const sock = path.join(workHome, "control.sock");
-const tokPath = path.join(workHome, "token");
+// The credential this seat was given, as the real CLI reads it.
+const seatCredential = (process.env.JUNTO_WORK_TOKEN || "").trim();
 const seatRoot = path.join(workHome, "..", "crew-seats");
 const nodeRef =
   process.env.JUNTO_NODE_REF || "seat-" + String(process.pid);
@@ -435,13 +436,11 @@ process.stdin.on("data", (chunk) => {
 // --- work-control ops --------------------------------------------------------
 const callWork = (op, args, timeoutMs) =>
   new Promise((resolve) => {
-    let token;
-    try {
-      token = fs.readFileSync(tokPath, "utf8").trim();
-    } catch (error) {
+    const token = seatCredential;
+    if (token.length === 0) {
       resolve({
         ok: false,
-        error: { type: "InternalError", message: String(error) },
+        error: { type: "AuthError", message: "this seat was given no JUNTO_WORK_TOKEN" },
       });
       return;
     }
@@ -663,8 +662,8 @@ export class CrewSeat {
   }
 
   /**
-   * One work-control op over the seat's own socket+token — process-bound
-   * admission, real authorization. `timeoutMs` rides the request so long
+   * One work-control op over the seat's own socket and the credential it was
+   * given (JUNTO_WORK_TOKEN in its environment) — real authorization. `timeoutMs` rides the request so long
    * waits can run past the fake's default.
    */
   async op(
