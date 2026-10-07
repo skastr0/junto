@@ -111,6 +111,27 @@ const failed = (request: OverseerRequest, error: WorkErrorBody): OverseerResult 
 });
 
 /** Shared CC/Remote dispatcher; caller and source are never command arguments. */
+/** The families the canvas handlers answer. A screenshot is taken by the window, so it is native. */
+const CANVAS_FAMILIES = ["canvas", "node", "wire", "sheet", "env"] as const;
+const WORK_FAMILIES = ["tasks", "request", "artifact", "msg", "board", "pad", "content"] as const;
+
+const inFamily = (operation: string, families: ReadonlyArray<string>): boolean =>
+  families.some((family) => operation.startsWith(`${family}.`));
+
+/**
+ * Which handlers answer an operation once it is admitted: the canvas
+ * handlers, the work handlers, or the native adapter for everything else. A
+ * family renamed in the catalog and not here falls through to the native
+ * adapter, which refuses it; the catalog walk in the tests holds this list to
+ * the catalog so that cannot happen unseen.
+ */
+export const overseerRouteOf = (operation: string): "canvas" | "work" | "native" =>
+  operation !== "canvas.screenshot" && inFamily(operation, CANVAS_FAMILIES)
+    ? "canvas"
+    : inFamily(operation, WORK_FAMILIES)
+      ? "work"
+      : "native";
+
 export const executeOverseer = Effect.fn("overseer.execute")(function* (
   caller: OverseerCaller,
   request: OverseerRequest,
@@ -224,18 +245,10 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
         },
       } satisfies OverseerResult;
     }
-    const canvasOperation = operation !== "canvas.screenshot" && (
-      operation.startsWith("canvas.") || operation.startsWith("node.") ||
-      operation.startsWith("wire.") || operation.startsWith("sheet.") ||
-      operation.startsWith("env.")
-    );
-    const workOperation = operation.startsWith("tasks.") || operation.startsWith("request.") ||
-      operation.startsWith("artifact.") || operation.startsWith("msg.") ||
-      operation.startsWith("board.") || operation.startsWith("pad.") ||
-      operation.startsWith("content.");
-    const data = yield* canvasOperation
+    const route = overseerRouteOf(operation);
+    const data = yield* route === "canvas"
       ? executeOverseerCanvas(caller, request)
-      : workOperation
+      : route === "work"
         ? executeOverseerWork(caller, request, { kind: "overseer", actor: authority.actor })
         : runtime.native(caller, request);
     return { ok: true, operation, data } satisfies OverseerResult;

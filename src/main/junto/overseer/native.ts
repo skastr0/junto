@@ -640,7 +640,11 @@ const handleAgent = async (
         originBinding.bindingId === binding.bindingId &&
         originBinding.hostId === binding.hostId;
       if (sameSeat || sameBinding) {
-        return fail("Forbidden", "cannot reseat the live overseer seat");
+        return fail(
+          "Forbidden",
+          // The model's own sentence for this rule, so an agent reads one.
+          "Only the operator can change what an overseer seat runs or remove it.",
+        );
       }
       const beforeBuild = await requireGrant(ctx, caller);
       if (beforeBuild) return beforeBuild;
