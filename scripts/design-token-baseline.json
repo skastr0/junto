@@ -190,7 +190,7 @@
     "src/renderer/components/work/work-ledger.css": 6,
     "src/renderer/components/workbench/BrowserSurfaceSlot.tsx": 1,
     "src/renderer/lib/fleet-machine-model.ts": 4,
-    "src/renderer/styles.css": 61,
+    "src/renderer/styles.css": 45,
     "src/renderer/styles/factory-grammar.css": 1
   }
 }
