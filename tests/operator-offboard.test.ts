@@ -828,3 +828,23 @@ describe("the renderer's two calls", () => {
     expect(await handleSeatOffboardStatus(CANVAS, ["a"])).toMatchObject([{ now: { allowed: false, code: "failed" } }]);
   });
 });
+
+describe("the cut before a wake or a delivery", () => {
+  it("answers false when the installed operation fails, so the wake still happens", async () => {
+    const { cutBeforeMail, cutBeforeWake, setOperatorOffboard } = await import(
+      "../src/main/junto/seat-sessions/operator-offboard"
+    );
+    const w = world([seat("a")]);
+    setOperatorOffboard({
+      ...w.offboard,
+      beforeWake: () => Promise.reject(new Error("rules could not be read")),
+      beforeMail: () => Promise.reject(new Error("rules could not be read")),
+    });
+    try {
+      await expect(cutBeforeWake({ canvasName: CANVAS, seatId: "a" })).resolves.toBe(false);
+      await expect(cutBeforeMail({ canvasName: CANVAS, seatId: "a" })).resolves.toBe(false);
+    } finally {
+      setOperatorOffboard(undefined);
+    }
+  });
+});

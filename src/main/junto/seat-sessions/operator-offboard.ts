@@ -662,12 +662,24 @@ export const runSeatOffboard = (
       );
 
 /**
+ * The installed operation reads the rules before it runs, and that read is
+ * outside the rule's own guard. A failure there must cost the cut, never the
+ * wake or the delivery waiting on it.
+ */
+const failedCut =
+  (moment: "wake" | "mail", seat: SeatAddress) =>
+  (error: unknown): false => {
+    console.error(`[offboard] auto offboard before ${moment} for ${seat.canvasName}/${seat.seatId} failed: ${String(error)}`);
+    return false;
+  };
+
+/**
  * A seat is about to be woken. Ends its session first when it has gone cold
  * and is worth cutting, so the seat wakes fresh. Await it, then wake. It
  * never throws and never refuses the wake.
  */
 export const cutBeforeWake = (seat: SeatAddress): Promise<boolean> =>
-  current ? current.beforeWake(seat) : Promise.resolve(false);
+  current ? current.beforeWake(seat).catch(failedCut("wake", seat)) : Promise.resolve(false);
 
 /**
  * Mail is about to be typed into a seat whose agent is running. Ends its
@@ -676,7 +688,7 @@ export const cutBeforeWake = (seat: SeatAddress): Promise<boolean> =>
  * throws; false means deliver as usual.
  */
 export const cutBeforeMail = (seat: SeatAddress): Promise<boolean> =>
-  current ? current.beforeMail(seat) : Promise.resolve(false);
+  current ? current.beforeMail(seat).catch(failedCut("mail", seat)) : Promise.resolve(false);
 
 export const seatOffboardStatus = (
   canvasName: string,
