@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat, modelMessagesWire } from "../harness/model";
 /**
  * Actor mirrors — the connections rail as navigation.
  *   bun run test:e2e:fast e2e/scenarios/actor-mirrors.spec.ts
@@ -10,56 +11,42 @@
  *   - ONE Close press after cycling dismisses the whole modal — the parked
  *     stack never pops one press per cycled actor
  */
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "actor-mirrors";
 
-const fixture = canvasDoc(
-  [
-    agentTextNode({
+const nodes = [
+    modelSeat({
       id: "alpha",
       key: "local:e2e-mirror-alpha",
       label: "Alpha hub",
       x: 360,
       y: 40,
     }),
-    agentTextNode({
+    modelSeat({
       id: "bravo",
       key: "local:e2e-mirror-bravo",
       label: "Bravo peer",
       x: 660,
       y: 40,
     }),
-    agentTextNode({
+    modelSeat({
       id: "charlie",
       key: "local:e2e-mirror-charlie",
       label: "Charlie peer",
       x: 660,
       y: 220,
     }),
-  ],
-  [
-    {
-      id: "e-alpha-bravo",
-      fromNode: "alpha",
-      toNode: "bravo",
-      fromSide: "right",
-      toSide: "left",
-    },
-    {
-      id: "e-alpha-charlie",
-      fromNode: "alpha",
-      toNode: "charlie",
-      fromSide: "right",
-      toSide: "left",
-    },
-  ],
-);
+];
+const fixture = modelFixture(nodes, [
+  modelMessagesWire("e-alpha-bravo", "alpha", "bravo", nodes),
+  modelMessagesWire("e-alpha-charlie", "alpha", "charlie", nodes),
+]);
 
 test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async ({}, testInfo) => {
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: fixture },
+    seedModels: { [CANVAS]: fixture },
   });
 
   try {

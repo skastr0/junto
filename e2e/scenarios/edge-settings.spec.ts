@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat, modelWire } from "../harness/model";
 /**
  * Selecting a wire opens the RTS relation surface, which reads it
  * back. There is no edge settings form any more: an edge carries exactly one
@@ -8,18 +9,18 @@
  * holds no verb and is dropped at decode — so the pair is agent → agent,
  * wired by `messages`.
  */
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const nodes = [
-  agentTextNode({
+  modelSeat({
     id: "source",
     key: "local:edge-settings",
     label: "Source node",
     x: 0,
     y: 0,
   }),
-  agentTextNode({
+  modelSeat({
     id: "target",
     key: "local:edge-settings-target",
     label: "Target node",
@@ -28,12 +29,12 @@ const nodes = [
   }),
 ];
 
-const edge = verbEdge("e-settings", "source", "target", "messages", nodes);
+const edge = modelWire("e-settings", "source", "target", "messages", nodes);
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      "edge-settings": canvasDoc(nodes, [edge]),
+    seedModels: {
+      "edge-settings": modelFixture(nodes, [edge]),
     },
   },
 });

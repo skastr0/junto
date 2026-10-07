@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Previews in the needs-you feed: the files an agent names in a signal's
  * detail show as thumbnails and open in a viewer.
@@ -23,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import type { AgentSignal } from "../../src/shared/agent-signals";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "feed-previews");
@@ -118,9 +119,9 @@ test("the needs-you feed previews the files a signal names", async () => {
   const manySignal = extra("sig-many", "Seven screenshots of the onboarding tour.", many);
 
   const junto = await launchJunto({
-    seedCanvases: {
-      [CANVAS]: canvasDoc(
-        [agentTextNode({ id: "atlas", key: "local:e2e-previews-atlas", label: "Atlas", harness: "claude", x: 40, y: 80 })],
+    seedModels: {
+      [CANVAS]: modelFixture(
+        [modelSeat({ id: "atlas", key: "local:e2e-previews-atlas", label: "Atlas", harness: "claude", x: 40, y: 80 })],
         [],
       ),
     },

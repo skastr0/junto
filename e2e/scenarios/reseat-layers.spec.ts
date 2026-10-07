@@ -1,8 +1,9 @@
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+import { modelFixture, modelSeat } from "../harness/model";
+
 import { expect, test } from "../harness/launch";
 
-test.use({ juntoOptions: { seedCanvases: { probe: canvasDoc([
-  agentTextNode({ id: "seat", key: "local:e2e-reseat", label: "seat-one", harness: "claude", x: 0, y: 0 }),
+test.use({ juntoOptions: { seedModels: { probe: modelFixture([
+  modelSeat({ id: "seat", key: "local:e2e-reseat", label: "seat-one", harness: "claude", x: 0, y: 0 }),
 ]) } } });
 
 /**

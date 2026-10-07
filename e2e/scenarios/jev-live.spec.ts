@@ -1,3 +1,4 @@
+import { modelFixture, modelTerminal } from "../harness/model";
 /**
  * Jev, live, in the running app — a real judgment on a real screen.
  *
@@ -16,7 +17,7 @@
  * The key comes from the environment; it is never written into the spec, the
  * sandbox, or a log.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 
@@ -43,9 +44,9 @@ test.use({
       // to say when one happened.
       JUNTO_AWARENESS_TRACE: "1",
     },
-    seedCanvases: {
-      jevlive: canvasDoc([
-        terminalTextNode({
+    seedModels: {
+      jevlive: modelFixture([
+        modelTerminal({
           id: "jev-live-node",
           bindingId: BINDING,
           label: LABEL,

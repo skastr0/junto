@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * A preview thumbnail in the needs-you feed, by keyboard.
  *   bun run test:e2e:fast e2e/scenarios/feed-previews-keyboard.spec.ts
@@ -11,7 +12,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentSignal } from "../../src/shared/agent-signals";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "feed-previews-keys";
@@ -36,8 +37,8 @@ test("Enter and Space on a focused thumbnail open the viewer, and Enter opens no
     state: "open",
   };
   const junto = await launchJunto({
-    seedCanvases: {
-      [CANVAS]: canvasDoc([agentTextNode({ id: "atlas", key: "local:e2e-preview-keys", label: "Atlas", harness: "claude", x: 40, y: 80 })], []),
+    seedModels: {
+      [CANVAS]: modelFixture([modelSeat({ id: "atlas", key: "local:e2e-preview-keys", label: "Atlas", harness: "claude", x: 40, y: 80 })], []),
     },
     seedAgentSignals: [signal],
   });
