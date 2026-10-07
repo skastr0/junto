@@ -214,7 +214,7 @@ describe("WorkRepository stateSince projection", () => {
       yield* sql.withTransaction(unjournaledWorkMutationEffect("test.fixture-seed",
         sql`UPDATE work_task_messages SET parts_json='invalid unrelated JSON'
           WHERE canvas_name=${canvasName} AND node_id='board' AND item_id='unrelated'`,
-      )).pipe(Effect.ensuring(sql`PRAGMA ignore_check_constraints=OFF`));
+      )).pipe(Effect.ensuring(sql`PRAGMA ignore_check_constraints=OFF`.pipe(Effect.asVoid)));
     }));
     const rows = await runtime.runPromise(repository.taskRowsByIds(canvasName, ["selected", "selected"]));
     expect(rows).toHaveLength(1);
