@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasNode } from "@shared/canvas";
+import type { NodeOf } from "@shared/model";
 import { formatNodeRef } from "@shared/node-ref";
 import { Globe } from "lucide-react";
 import { browserActivity } from "../../lib/activity";
@@ -20,9 +20,9 @@ import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
  * Open via double-click / RTS. No action buttons. No agent-seat “automating”
  * proxy (that lied when the seat was busy for other reasons).
  */
-export function PageCard({ node }: { readonly node: CanvasNode }) {
-  const browser = node.ether?.browser;
-  const url = node.type === "link" ? node.url : "";
+export function PageCard({ node }: { readonly node: NodeOf<"page"> }) {
+  const browser = useMemo(() => ({ profile: node.profile, host: node.host, onDelete: node.onRemove }), [node.profile, node.host, node.onRemove]);
+  const url = node.url;
   const canvasName = use$(state$.canvasName);
   const pageRef = useMemo(() => {
     try {

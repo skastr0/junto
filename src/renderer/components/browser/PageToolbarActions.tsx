@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
 import { Globe, Pin, SquareX } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { NodeOf } from "@shared/model";
 import { formatNodeRef } from "@shared/node-ref";
 import { browser$ } from "../../lib/browser-state";
 import { openDockBrowser, stopDockBrowser } from "../../lib/dock-state";
@@ -16,9 +16,9 @@ import { IconButton } from "../ui";
  * Selection-toolbar page actions. Open is one-click (double-click on the card
  * does the same). Stop is two-click arm. Never on the card body.
  */
-export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
-  const browser = node.ether?.browser;
-  const url = node.type === "link" ? node.url : "";
+export function PageToolbarActions({ node }: { readonly node: NodeOf<"page"> }) {
+  const browser = useMemo(() => ({ profile: node.profile, host: node.host, onDelete: node.onRemove }), [node.profile, node.host, node.onRemove]);
+  const url = node.url;
   const canvasName = use$(state$.canvasName);
   const pageRef = useMemo(() => {
     try {

@@ -1,8 +1,4 @@
-/**
- * Page work surface — JSON Canvas `link` + entity.kind page + ether.browser.
- * Plain link furniture is retired; legacy url-only cards still decode but
- * render as a delete-only stub (no promote path).
- */
+/** A page work surface, or a retired link card. */
 import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
@@ -15,8 +11,7 @@ import { openDockBrowser } from "../../lib/dock-state";
 import { browser$ } from "../../lib/browser-state";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
-import { useDocumentNode } from "../../lib/document-node";
-import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
+import { useNodeFieldOf, useNodeValue, useNodeOf } from "../../lib/use-model";
 import { DIM, HUE, INK } from "../../lib/theme";
 import { NodeShell } from "./NodeShell";
 import { BROWSER_ENABLED } from "@shared/features";
@@ -31,8 +26,7 @@ export function LinkNode({ id, data, selected }: NodeProps<FlowNode>) {
   );
   const profile = useNodeFieldOf(canvasName, id, "page", (page) => page.profile);
   const onRemove = useNodeFieldOf(canvasName, id, "page", (page) => page.onRemove);
-  // The page card and its toolbar have not moved and take the document's node.
-  const node = useDocumentNode(id);
+  const node = useNodeOf(canvasName, id, "page");
   const isPage = BROWSER_ENABLED && kind === "page";
   const isEditTarget = use$(() => state$.editNodeId.get() === id);
   const pageRef = useMemo(() => {
