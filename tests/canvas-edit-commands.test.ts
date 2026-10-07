@@ -13,17 +13,24 @@ import {
   flushPendingCanvasSave,
   hasPendingCanvasChanges,
   loadDoc,
-  onEditRefused,
+  followStoreDocument,
   prepareCanvasRemoval,
   redo,
   undo,
 } from "../src/renderer/lib/mutations";
 import { state$ } from "../src/renderer/lib/state";
+import { modelStore } from "../src/renderer/lib/use-model";
 import { holdCanvas } from "./support/hold-canvas";
 
 const modelCommand = vi.fn(async (_command: Command) => ({ seq: 1 }));
+// Main, asked for a canvas again, answers with what the store holds: these
+// cases look at whether it was asked, not at what came back.
+const modelOpen = vi.fn(async (input: { readonly canvas: string }) => {
+  const held = modelStore.canvasOf(input.canvas);
+  return { canvas: held.name, seq: held.seq, nodes: [...held.nodes.values()], wires: [...held.wires.values()] };
+});
 const runtimeWindow = {
-  junto: { modelCommand },
+  junto: { modelCommand, modelOpen, onModelChanged: () => () => undefined },
   setTimeout: globalThis.setTimeout.bind(globalThis),
   clearTimeout: globalThis.clearTimeout.bind(globalThis),
   confirm: () => true,
@@ -53,16 +60,24 @@ const deferred = <T>() => {
   return { promise, resolve, reject };
 };
 
+/** The text the document shows for the note. */
+const shownText = (): string | undefined => {
+  const shown = state$.doc.peek().nodes.find((node) => node.id === "note");
+  return shown?.type === "text" ? shown.text : undefined;
+};
+
 const sent = (): Command[] => modelCommand.mock.calls.map(([command]) => command);
 
 describe("the window changes a canvas by sending commands", () => {
-  const refused = vi.fn();
+  // Reading the canvas again from main, which is what a refusal leads to.
+  const refused = modelOpen;
+  let stopFollowing: (() => void) | undefined;
 
   beforeEach(async () => {
     modelCommand.mockReset();
     modelCommand.mockImplementation(async () => ({ seq: 1 }));
     refused.mockReset();
-    onEditRefused(refused);
+    stopFollowing = followStoreDocument();
     for (const name of ["alpha", "beta"]) {
       clearAbandonedCanvas(name);
       authoring.forget(name);
@@ -75,7 +90,7 @@ describe("the window changes a canvas by sending commands", () => {
 
   afterEach(async () => {
     await flushPendingCanvasSave().catch(() => undefined);
-    onEditRefused(() => undefined);
+    stopFollowing?.();
     release?.();
     release = undefined;
   });
@@ -91,7 +106,8 @@ describe("the window changes a canvas by sending commands", () => {
   it("shows the new document at once and sends only what differs", async () => {
     const next = doc(note("note", "edited"));
     commitDoc(next);
-    expect(state$.doc.peek()).toBe(next);
+    // The document shows it by following the store, in the same turn.
+    expect(shownText()).toBe("edited");
     expect(state$.saveState.peek()).toBe("saving");
     await flushPendingCanvasSave();
     expect(sent()).toEqual([
@@ -175,26 +191,28 @@ describe("the window changes a canvas by sending commands", () => {
     await flushPendingCanvasSave();
     expect(state$.saveState.peek()).toBe("error");
     expect(state$.error.peek()).toContain("object does not exist");
-    expect(refused).toHaveBeenCalledWith("alpha");
+    expect(refused).toHaveBeenCalledWith({ canvas: "alpha" });
     expect(state$.canUndo.peek()).toBe(false);
   });
 
-  it("steps back and forward: the document at once, the canvas by the commands that reverse it", async () => {
+  it("steps back and forward by the commands that reverse an act, and the document follows", async () => {
     const base = state$.doc.peek();
     const edited = doc(note("note", "edited"));
     commitDoc(edited);
     await flushPendingCanvasSave();
     expect(state$.canUndo.peek()).toBe(true);
 
+    // A step back is worked out against the canvas as it stands once the acts
+    // before it are in, so it shows in its turn, not in the same line.
     undo();
-    expect(state$.doc.peek()).toBe(base);
     await flushPendingCanvasSave();
+    expect(shownText()).toBe("base");
     expect(sent().at(-1)).toEqual({ _tag: "Edit", canvas: "alpha", id: "note", change: { kind: "note", text: "base" } });
     expect(state$.canRedo.peek()).toBe(true);
 
     redo();
-    expect(state$.doc.peek()).toBe(edited);
     await flushPendingCanvasSave();
+    expect(shownText()).toBe("edited");
     expect(sent().at(-1)).toEqual({ _tag: "Edit", canvas: "alpha", id: "note", change: { kind: "note", text: "edited" } });
     expect(refused).not.toHaveBeenCalled();
   });
@@ -207,8 +225,8 @@ describe("the window changes a canvas by sending commands", () => {
     undo();
     await flushPendingCanvasSave();
     expect(sent().at(-1)).toEqual({ _tag: "Edit", canvas: "alpha", id: "note", change: { kind: "note", text: "base" } });
-    // The document could not show that step itself, so the canvas is read again.
-    expect(refused).toHaveBeenCalledWith("alpha");
+    expect(shownText()).toBe("base");
+    expect(refused).not.toHaveBeenCalled();
   });
 
   it("does not remember an act that is not the operator's to take back", async () => {

@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CanvasReadResult, NodeRefOpenedEvent } from "../src/shared/ipc";
+import type { NodeRefOpenedEvent } from "../src/shared/ipc";
 import { formatNodeRef } from "../src/shared/node-ref";
 import {
   makeNavigationClock,
   makeNodeRefNavigationCoordinator,
   type NodeRefNavigationError,
+  type NavigationRead,
 } from "../src/renderer/lib/node-ref-navigation";
 
 const textNode = (id: string) => ({
@@ -17,12 +18,10 @@ const textNode = (id: string) => ({
   height: 60,
 });
 
-const canvas = (name: string, nodeIds: ReadonlyArray<string>): CanvasReadResult => ({
+const canvas = (name: string, nodeIds: ReadonlyArray<string>): NavigationRead => ({
   name,
   doc: { nodes: nodeIds.map(textNode), edges: [] },
   actorRefs: [],
-  revision: `${name}-revision`,
-  workRevision: "0",
 });
 
 const event = (canvasName: string, nodeId: string): NodeRefOpenedEvent => ({
@@ -99,7 +98,7 @@ describe("renderer Junto node-reference navigation", () => {
   });
 
   it("rejects for durable replay when authoring quiesces during the async read", async () => {
-    const read = deferred<CanvasReadResult>();
+    const read = deferred<NavigationRead>();
     const apply = vi.fn();
     let admitted = true;
     const coordinator = makeNodeRefNavigationCoordinator({
@@ -120,7 +119,7 @@ describe("renderer Junto node-reference navigation", () => {
   });
 
   it("lets the latest async reference win and acknowledges the obsolete read", async () => {
-    const alpha = deferred<CanvasReadResult>();
+    const alpha = deferred<NavigationRead>();
     const applied: string[] = [];
     const coordinator = makeNodeRefNavigationCoordinator({
       clock: makeNavigationClock(),
@@ -139,7 +138,7 @@ describe("renderer Junto node-reference navigation", () => {
   });
 
   it("lets a newer invalid delivery supersede an older slow read", async () => {
-    const slow = deferred<CanvasReadResult>();
+    const slow = deferred<NavigationRead>();
     const apply = vi.fn();
     const coordinator = makeNodeRefNavigationCoordinator({
       clock: makeNavigationClock(),
@@ -157,7 +156,7 @@ describe("renderer Junto node-reference navigation", () => {
   });
 
   it("allows a newer ordinary canvas navigation to supersede a pending reference", async () => {
-    const slow = deferred<CanvasReadResult>();
+    const slow = deferred<NavigationRead>();
     const clock = makeNavigationClock();
     const apply = vi.fn();
     const coordinator = makeNodeRefNavigationCoordinator({

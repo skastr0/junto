@@ -1,4 +1,6 @@
-import type { CanvasReadResult, NodeRefOpenedEvent } from "@shared/ipc";
+import type { CanvasDoc } from "@shared/canvas";
+import type { NodeRefOpenedEvent } from "@shared/ipc";
+import type { ActorRef } from "@shared/work-protocol";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 
 export interface NavigationClock {
@@ -37,12 +39,19 @@ export class NodeRefNavigationError extends Error {
   }
 }
 
+/** A canvas as read for a jump: its name, its document, its actor references. */
+export interface NavigationRead {
+  readonly name: string;
+  readonly doc: CanvasDoc;
+  readonly actorRefs: ReadonlyArray<ActorRef>;
+}
+
 export interface NodeRefNavigationDependencies {
   readonly clock: NavigationClock;
-  readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
+  readonly readCanvas: (name: string) => Promise<NavigationRead>;
   /** Re-check process-local authoring admission immediately before apply. */
   readonly assertCanApply?: () => void;
-  readonly apply: (event: NodeRefOpenedEvent, result: CanvasReadResult) => void;
+  readonly apply: (event: NodeRefOpenedEvent, result: NavigationRead) => void;
   readonly onFailure?: (error: NodeRefNavigationError) => void;
 }
 
@@ -92,7 +101,7 @@ export const makeNodeRefNavigationCoordinator = (
       throw report(new NodeRefNavigationError("event", "This node reference is invalid."));
     }
 
-    let result: CanvasReadResult;
+    let result: NavigationRead;
     try {
       result = await dependencies.readCanvas(event.canvasName);
     } catch (cause) {

@@ -7,16 +7,16 @@ import { use$ } from "@legendapp/state/react";
 import { modelStore } from "./lib/use-model";
 import { impactModeActive$ } from "./lib/impact-mode";
 import { clearSelection, selectNode, state$ } from "./lib/state";
+import { asCanvasName } from "@shared/model";
+import type { ActorRef } from "@shared/work-protocol";
 import { canvasCommandGroups } from "./lib/command-groups";
 import {
-  acceptCanvasRevision,
   canvasMutationsQuiesced,
   clearAbandonedCanvas,
-  getCanvasRevision,
-  hasPendingCanvasChanges,
+  followStoreDocument,
   loadDoc,
-  onEditRefused,
   prepareCanvasRemoval,
+  projectedDocument,
   replaceActiveActorRefs,
   retrySave,
 } from "./lib/mutations";
@@ -25,7 +25,6 @@ import {
   quiesceAndFlushCanvasEdits,
   runCanvasAuthoringOperation,
 } from "./lib/canvas-editor-flush";
-import { makeCanvasExternalReloadCoordinator } from "./lib/canvas-external-reload";
 import { startKernelBridge } from "./lib/kernel-view";
 import { startSettingsBridge } from "./lib/settings-state";
 import { startThemeMode } from "./lib/theme-mode";
@@ -101,7 +100,7 @@ const setError = (error: unknown) =>
 
 const refreshList = async () => {
   if (!window.junto) return;
-  state$.canvases.set(await window.junto.listCanvases());
+  state$.canvases.set(await window.junto.modelCanvases());
 };
 
 const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
@@ -154,8 +153,42 @@ const holdCanvas = async (name: string): Promise<() => void> => {
   return release;
 };
 
+/** A canvas read into the store, with the actor references main compiled for it. */
+type HeldCanvas = { readonly release: () => void; readonly actorRefs: ReadonlyArray<ActorRef> };
+
+/**
+ * Read a canvas from main: its nodes and wires into the store, and its actor
+ * references. Nothing reads a document; the window works its own out from the
+ * store for the readers that still take one.
+ */
+const readHeld = async (name: string): Promise<HeldCanvas> => {
+  const junto = window.junto;
+  if (!junto) throw new Error("Electron preload bridge is not available.");
+  const release = await holdCanvas(name);
+  try {
+    if (modelStore.canvas$(name).status.peek() === "error") {
+      throw new Error(modelStore.canvas$(name).error.peek() || `canvas "${name}" could not be read`);
+    }
+    return { release, actorRefs: await junto.modelActorRefs({ canvas: name }) };
+  } catch (error) {
+    release();
+    throw error;
+  }
+};
+
+/** Put a canvas that was read on screen: its document, its actor references, a clean view. */
+const showHeld = (name: string, held: HeldCanvas): void => {
+  showHeldCanvas(name, held.release);
+  state$.canvasName.set(name);
+  resetCanvasView();
+  batch(() => {
+    loadDoc(projectedDocument(name), undefined, name);
+    replaceActiveActorRefs(held.actorRefs);
+  });
+};
+
 /** Canvases read for a jump to a node, held until the jump is applied. */
-const heldForNavigation = new Map<string, () => void>();
+const heldForNavigation = new Map<string, HeldCanvas>();
 
 /** The canvas held by `release` is the one on screen now. */
 const showHeldCanvas = (name: string, release: () => void): void => {
@@ -175,24 +208,15 @@ const openCanvas = async (name: string) => {
       await flushCanvasEdits("navigation");
       if (canvasMutationsQuiesced()) return;
       request = canvasNavigationClock.begin();
-      const result = await window.junto.readCanvas(name);
-      if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
-      const release = await holdCanvas(result.name);
+      const held = await readHeld(name);
       if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) {
-        release();
+        held.release();
         return;
       }
-      clearAbandonedCanvas(result.name);
-      showHeldCanvas(result.name, release);
-      state$.canvasName.set(result.name);
-      resetCanvasView();
-      batch(() => {
-        loadDoc(result.doc, result.revision, result.name);
-        replaceActiveActorRefs(result.actorRefs);
-      });
-      externalCanvasReload.accept(result);
+      clearAbandonedCanvas(name);
+      showHeld(name, held);
       state$.error.set("");
-      await refreshSnapshotsSoft(result.doc);
+      await refreshSnapshotsSoft(state$.doc.peek());
     } catch (error) {
       if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
     } finally {
@@ -212,60 +236,32 @@ const assertCanvasNavigationAdmitted = (): void => {
 const nodeRefNavigation = makeNodeRefNavigationCoordinator({
   clock: canvasNavigationClock,
   readCanvas: async (name) => {
-    const junto = window.junto;
-    if (!junto) throw new Error("Electron preload bridge is not available.");
-    const result = await junto.readCanvas(name);
     // Held until `apply` shows it. A read that is never applied is let go by
     // the next read of the same canvas.
-    heldForNavigation.get(result.name)?.();
-    heldForNavigation.set(result.name, await holdCanvas(result.name));
-    return result;
+    heldForNavigation.get(name)?.release();
+    heldForNavigation.delete(name);
+    const held = await readHeld(name);
+    heldForNavigation.set(name, held);
+    return { name, doc: projectedDocument(name), actorRefs: held.actorRefs };
   },
   assertCanApply: assertCanvasNavigationAdmitted,
   apply: (event, result) => {
     clearAbandonedCanvas(result.name);
-    showHeldCanvas(result.name, heldForNavigation.get(result.name) ?? modelStore.open(result.name));
+    showHeld(
+      result.name,
+      heldForNavigation.get(result.name) ?? { release: modelStore.open(result.name), actorRefs: result.actorRefs },
+    );
     heldForNavigation.delete(result.name);
-    state$.canvasName.set(result.name);
-    resetCanvasView();
-    batch(() => {
-      loadDoc(result.doc, result.revision, result.name);
-      replaceActiveActorRefs(result.actorRefs);
-    });
-    externalCanvasReload.accept(result);
     selectNode(event.nodeId);
     state$.focusNodeId.set(event.nodeId);
     state$.canvasLoading.set(false);
     state$.error.set("");
-    void refreshSnapshotsSoft(result.doc);
+    void refreshSnapshotsSoft(state$.doc.peek());
   },
   onFailure: (error) => {
     state$.canvasLoading.set(false);
     state$.error.set(`node reference / ${error.message}`);
   },
-});
-
-const externalCanvasReload = makeCanvasExternalReloadCoordinator({
-  flushLocalEdits: () => flushCanvasEdits("background"),
-  readCanvas: async (name) => {
-    const junto = window.junto;
-    if (!junto) throw new Error("Electron preload bridge is not available.");
-    return junto.readCanvas(name);
-  },
-  currentCanvasName: () => state$.canvasName.peek(),
-  currentDoc: () => state$.doc.peek(),
-  currentDocEpoch: () => state$.docEpoch.peek(),
-  currentRevision: getCanvasRevision,
-  hasPendingChanges: hasPendingCanvasChanges,
-  acceptRevision: acceptCanvasRevision,
-  apply: (result) =>
-    batch(() => {
-      loadDoc(result.doc, result.revision, result.name, {
-        preserveValidInteraction: true,
-      });
-      replaceActiveActorRefs(result.actorRefs);
-    }),
-  onFailure: setError,
 });
 
 const createCanvas = async (name: string) => {
@@ -277,26 +273,21 @@ const createCanvas = async (name: string) => {
       await flushCanvasEdits("navigation");
       if (canvasMutationsQuiesced()) return;
       request = canvasNavigationClock.begin();
-      const result = await window.junto.createCanvas(name);
+      // A new canvas is a command; it is then read like any other.
+      await window.junto.modelCommand({ _tag: "CreateCanvas", canvas: asCanvasName(name) });
+      const result = { name };
       if (canvasMutationsQuiesced()) return;
       clearAbandonedCanvas(result.name);
       await refreshList();
       if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
-      const release = await holdCanvas(result.name);
+      const held = await readHeld(result.name);
       if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) {
-        release();
+        held.release();
         return;
       }
-      showHeldCanvas(result.name, release);
-      state$.canvasName.set(result.name);
-      resetCanvasView();
-      batch(() => {
-        loadDoc(result.doc, result.revision, result.name);
-        replaceActiveActorRefs(result.actorRefs);
-      });
-      externalCanvasReload.accept(result);
+      showHeld(result.name, held);
       state$.error.set("");
-      await refreshSnapshotsSoft(result.doc);
+      await refreshSnapshotsSoft(state$.doc.peek());
     } catch (error) {
       if (request === undefined || canvasNavigationClock.isCurrent(request)) setError(error);
     } finally {
@@ -319,7 +310,7 @@ const deleteCanvas = async (name: string) => {
       // delete wins over any already-returning watcher echo.
       await prepareCanvasRemoval(name);
       if (canvasMutationsQuiesced()) return;
-      await window.junto.deleteCanvas(name);
+      await window.junto.modelCommand({ _tag: "RemoveCanvas", canvas: asCanvasName(name) });
       if (canvasMutationsQuiesced()) return;
       await refreshList();
       if (canvasMutationsQuiesced()) return;
@@ -407,7 +398,7 @@ export function App() {
           state$.settings.set(settingsResult.settings);
         }
         state$.snapshots.set(await junto.getSnapshots());
-        const list = await junto.listCanvases();
+        const list = await junto.modelCanvases();
         state$.canvases.set(list);
         if (!nodeRefNavigation.hasReceived()) {
           const action = nextCanvasBootAction(
@@ -451,13 +442,10 @@ export function App() {
     const stopSurfaceMotion = startSurfaceMotionGate();
 
     const offSnapshots = junto.onSnapshotsChanged((state) => state$.snapshots.set(state));
-    const offCanvas = junto.onCanvasChanged((name) => {
-      const current = state$.canvasName.peek();
-      if (name !== "" && name === current) {
-        void externalCanvasReload.changed(name);
-        return;
-      }
-      if (current !== "") return;
+    // The open canvas follows the node store; nothing reads it again here. A
+    // window showing no canvas opens the first one that comes to exist.
+    const offCanvas = junto.onModelCanvasesChanged(() => {
+      if (state$.canvasName.peek() !== "") return;
       void (async () => {
         await refreshList();
         const list = state$.canvases.peek();
@@ -515,11 +503,16 @@ export function App() {
   // A view never outlives its node, however the node left the canvas.
   useEffect(() => installRemovedNodeViews(), []);
 
-  // An edit main refuses leaves the document on screen ahead of the canvas.
-  useEffect(() => {
-    onEditRefused((name) => void externalCanvasReload.changed(name));
-    return () => onEditRefused(() => undefined);
-  }, []);
+  // The document is the node store in the old shape, for the readers that
+  // still take one; the actor references follow what main announces.
+  useEffect(() => followStoreDocument(), []);
+  useEffect(
+    () =>
+      window.junto?.onModelActorRefsChanged((event) => {
+        if (event.canvas === state$.canvasName.peek()) replaceActiveActorRefs(event.refs);
+      }),
+    [],
+  );
 
   // Command bar "Open canvas" action — one-shot request consumed here so the
   // readCanvas + loadDoc flow keeps its single owner in App.

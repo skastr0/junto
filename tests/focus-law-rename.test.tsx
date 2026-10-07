@@ -2,10 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeCanvasExternalReloadCoordinator } from "../src/renderer/lib/canvas-external-reload";
 import { flushCanvasEdits } from "../src/renderer/lib/canvas-editor-flush";
 import { FirstLineRenameInput } from "../src/renderer/components/nodes/FirstLineRenameInput";
-import type { CanvasDoc } from "@shared/canvas";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -49,27 +47,11 @@ describe("focus law: agent rename survives live canvas traffic", () => {
     act(() => typeInto(input, "builder-two"));
     input.setSelectionRange(7, 7);
 
-    // Work-fact commits (agent activity) and save echoes both arrive as
-    // canvasChanged; App wires that notification to this coordinator with
-    // flushCanvasEdits as its editor boundary.
-    const doc = { nodes: [], edges: [] } as unknown as CanvasDoc;
-    const reload = makeCanvasExternalReloadCoordinator({
-      flushLocalEdits: () => flushCanvasEdits("background"),
-      readCanvas: async (name) => ({ name, doc, revision: "r2", workRevision: "w2" }) as never,
-      currentCanvasName: () => "main",
-      currentDoc: () => doc,
-      currentDocEpoch: () => 1,
-      currentRevision: () => "r1",
-      hasPendingChanges: () => false,
-      acceptRevision: () => undefined,
-      apply: () => undefined,
-      onFailure: (error) => {
-        throw error;
-      },
-    });
+    // Canvas traffic reaches open editors only through the background
+    // flush boundary, which leaves a draft in progress alone.
     for (let tick = 0; tick < 5; tick++) {
       await act(async () => {
-        await reload.changed("main");
+        await flushCanvasEdits("background");
       });
     }
 

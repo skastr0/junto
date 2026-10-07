@@ -11,15 +11,19 @@ describe("canvas navigation quiesce wiring", () => {
     const block = source.slice(start, end);
 
     expect(block).toContain("runCanvasAuthoringOperation(async () =>");
-    expect(block.indexOf("canvasMutationsQuiesced()"))
-      .toBeLessThan(block.indexOf("state$.canvasName.set(result.name)"));
-    expect(block.indexOf("state$.canvasName.set(result.name)"))
-      .toBeLessThan(block.indexOf("loadDoc(result.doc, result.revision, result.name)"));
+    // The canvas is read first; the latch is checked after the read and
+    // before anything of it is put on screen.
+    const read = block.indexOf("await readHeld(name)");
+    const gate = block.indexOf("canvasMutationsQuiesced()", read);
+    const shown = block.indexOf("showHeld(name, held)");
+    expect(read).toBeGreaterThan(-1);
+    expect(gate).toBeGreaterThan(read);
+    expect(gate).toBeLessThan(shown);
   });
 
   it("checks node-ref admission before any partial canvas or selection update", () => {
     const coordinatorStart = source.indexOf("const nodeRefNavigation");
-    const coordinatorEnd = source.indexOf("const externalCanvasReload", coordinatorStart);
+    const coordinatorEnd = source.indexOf("const createCanvas = async", coordinatorStart);
     const coordinator = source.slice(coordinatorStart, coordinatorEnd);
     const listenerStart = source.indexOf("junto.onNodeRefOpened");
     const listenerEnd = source.indexOf("// Usage:", listenerStart);
@@ -27,7 +31,7 @@ describe("canvas navigation quiesce wiring", () => {
 
     expect(coordinator).toContain("assertCanApply: assertCanvasNavigationAdmitted");
     expect(coordinator.indexOf("assertCanApply: assertCanvasNavigationAdmitted"))
-      .toBeLessThan(coordinator.indexOf("state$.canvasName.set(result.name)"));
+      .toBeLessThan(coordinator.indexOf("showHeld("));
     expect(listener).toContain("runCanvasAuthoringOperation(async () =>");
     expect(listener.indexOf("assertCanvasNavigationAdmitted()"))
       .toBeLessThan(listener.indexOf("nodeRefNavigation.navigate(event)"));
@@ -41,12 +45,12 @@ describe("canvas navigation quiesce wiring", () => {
     const create = source.slice(createStart, deleteStart);
     const remove = source.slice(deleteStart, retryStart);
 
-    const createCall = create.indexOf("await window.junto.createCanvas(name)");
+    const createCall = create.indexOf('await window.junto.modelCommand({ _tag: "CreateCanvas"');
     const gateAfterCreate = create.indexOf("if (canvasMutationsQuiesced()) return", createCall);
     expect(createCall).toBeLessThan(gateAfterCreate);
     expect(gateAfterCreate)
-      .toBeLessThan(create.indexOf("state$.canvasName.set(result.name)"));
-    expect(remove.indexOf("await window.junto.deleteCanvas(name)"))
+      .toBeLessThan(create.indexOf("showHeld(result.name, held)"));
+    expect(remove.indexOf('await window.junto.modelCommand({ _tag: "RemoveCanvas"'))
       .toBeLessThan(remove.lastIndexOf("if (canvasMutationsQuiesced()) return"));
     expect(remove.lastIndexOf("if (canvasMutationsQuiesced()) return"))
       .toBeLessThan(remove.indexOf("await openCanvas(remaining[0]!.name)"));

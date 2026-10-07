@@ -281,6 +281,10 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
     /** Resolves when the canvas has been read, or the read has failed. */
     ready: (canvas: string): Promise<void> => opening.get(canvas) ?? Promise.resolve(),
 
+    /** Read a canvas that is open afresh from main, dropping what is held for it. */
+    reread: (canvas: string): Promise<void> =>
+      (users.get(canvas) ?? 0) > 0 ? read(canvas) : Promise.resolve(),
+
     /**
      * Show at once what a command will have done, where the window can know
      * it. Returns whether anything was shown; main's event settles it either
