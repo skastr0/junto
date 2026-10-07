@@ -28,14 +28,14 @@ import {
   readDeletionPolicy,
   tasksNodeDeletionWarnings,
 } from "./deletion-impact";
-import type { Command } from "@shared/model";
+import type { Color, Command, Node } from "@shared/model";
 import { authoring } from "./authoring";
 import { documentEdits, UnholdableEdit } from "@shared/model/document-edits";
 import { createDocumentProjection } from "./document-projection";
 import { canvasAfter } from "./model-undo";
 import { inPaintOrder, type Canvas } from "@shared/model/canvas";
 import { canvasFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
-import { topZ } from "./model-edits";
+import { recolored, regionEdited, renamed, topZ } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -1180,15 +1180,7 @@ export const setNodeHost = (id: string, input: string): void => {
 
 
 export const renameGroup = (id: string, label: string): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) =>
-      n.id === id && n.type === "group"
-        ? label.trim() ? { ...n, label: label.trim() } : without(n, "label")
-        : n,
-    ),
-  });
+  commitCommands((canvas) => (canvas.nodes.get(id as Node["id"])?.kind === "region" ? renamed(canvas, id, label) : []));
 };
 
 
@@ -1201,39 +1193,15 @@ export const setNodeColorForNodes = (
   ids: ReadonlyArray<string>,
   color?: string,
 ): void => {
-  const targets = new Set(ids);
-  if (targets.size === 0) return;
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (!targets.has(n.id)) return n;
-      return (color ? { ...n, color } : without(n, "color")) as CanvasNode;
-    }),
-  });
+  if (ids.length === 0) return;
+  commitCommands((canvas) => recolored(canvas, ids, (color || undefined) as Color | undefined));
 };
 
-// Region hold toggle (group nodes only). Strip pattern: `hold: true` writes ether.region, anything else strips the
-// `region` key entirely and degrades `ether` itself away once nothing else
-// is left. Membership is never written here — it stays derived (geometry.ts).
-// Merges into ether.region rather than replacing it — region briefing
-// (`instruction`) and defaults must survive toggling hold.
+// Region hold toggle. Only the hold changes: the region's briefing and
+// defaults are other fields of the same node and are not sent. Membership is
+// never written here: it stays derived (geometry.ts).
 export const setRegionHold = (id: string, hold: boolean): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
-      const currentRegion = n.ether?.region ?? {};
-      const nextRegion = hold ? { ...currentRegion, hold: true } : without(currentRegion, "hold");
-      if (Object.keys(nextRegion).length > 0) {
-        return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "region");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
+  commitCommands((canvas) => regionEdited(canvas, id, { hold }));
 };
 
 // Region spawn defaults (group nodes only). Create-time stamp source for

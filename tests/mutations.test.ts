@@ -1166,26 +1166,34 @@ describe("renderer graph mutations", () => {
     expect(dragHoldMemberIds(doc, region)).toEqual([]);
   });
 
-  it("writes and strips ether.region.hold following the strip pattern", () => {
+  it("turns a region's hold on and off, and off leaves nothing saying it holds", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [{ id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300 }], edges: [] });
 
     setRegionHold("region", true);
-    expect(state$.doc.peek().nodes[0]?.ether?.region).toEqual({ hold: true });
+    expect(state$.doc.peek().nodes[0]?.ether?.region?.hold).toBe(true);
 
     setRegionHold("region", false);
-    expect(Object.hasOwn(state$.doc.peek().nodes[0] ?? {}, "ether")).toBe(false);
+    expect(state$.doc.peek().nodes[0]?.ether?.region?.hold ?? false).toBe(false);
   });
 
-  it("clears just the region key, keeping a sibling ether field intact", () => {
+  it("changes only the hold: the region's briefing and its name stay as they were", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({ nodes: [{ id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300, ether: { host: "studio" } }], edges: [] });
+    loadDoc({
+      nodes: [{
+        id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300,
+        ether: { region: { instruction: "ship the region" } },
+      }],
+      edges: [],
+    });
 
     setRegionHold("region", true);
     setRegionHold("region", false);
 
-    expect(state$.doc.peek().nodes[0]?.ether?.host).toBe("studio");
-    expect(Object.hasOwn(state$.doc.peek().nodes[0]?.ether ?? {}, "region")).toBe(false);
+    const region = state$.doc.peek().nodes[0];
+    expect(region?.ether?.region?.instruction).toBe("ship the region");
+    expect(region?.type === "group" ? region.label : undefined).toBe("Hold");
+    expect(region?.ether?.region?.hold ?? false).toBe(false);
   });
 
   it("setRegionDefaults writes bag and preserves hold + instruction on clear", () => {
