@@ -18,7 +18,6 @@ import { CronScheduleSurface } from "./CronScheduleSurface";
 import { useSeatAwarenessOn } from "../../lib/experimental-features";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
-import { isGitNode, isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { timerActivity, watcherActivity } from "../../lib/activity";
 import { accentColor, INK } from "../../lib/theme";
@@ -50,6 +49,7 @@ import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
+import { useDocumentNode } from "../../lib/document-node";
 import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
 import { SeatCard } from "./SeatCard";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
@@ -244,19 +244,31 @@ function TimerCard({ canvas, id }: { readonly canvas: string; readonly id: strin
 // Freeform note body: instrument mono for body; condensed display for heads
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
-export function TextNode({ data, selected }: NodeProps<FlowNode>) {
-  const node = data.node;
-  const text = node.type === "text" ? node.text : "";
-  const isLabel = isLabelNode(node);
-  const isFreeNote = !node.ether?.entity;
-  const isTerminal = node.ether?.entity?.kind === "terminal";
-  const isAgent = node.ether?.entity?.kind === "agent";
-  const managedTerminal =
-    Boolean(node.ether?.terminal?.bindingId) && (isTerminal || isAgent);
-  // Boolean selector: only this node re-renders when edit intent targets it.
-  const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
+export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   const canvasName = use$(state$.canvasName);
+  // What the card is and what it says, from the node store, one field each.
+  const kind = useNodeValue(canvasName, id, (node) => node?.kind);
+  const text = useNodeValue(canvasName, id, (node) =>
+    node?.kind === "note" || node?.kind === "label" ? node.text : "",
+  );
+  const color = useNodeValue(canvasName, id, (node) => node?.color);
+  // The bodies that have not moved onto the store still take the document's
+  // node. It can be a moment behind the store, so each is drawn only once the
+  // document holds the node.
+  const node = useDocumentNode(id);
+  const isLabel = kind === "label";
+  const isFreeNote = kind === "note";
+  const isTerminal = kind === "terminal";
+  const isAgent = kind === "agent";
+  // A seat and a terminal in the model always hold a session binding.
+  const managedTerminal = isTerminal || isAgent;
+  // Boolean selector: only this node re-renders when edit intent targets it.
+  const isEditTarget = use$(() => state$.editNodeId.get() === id);
 
+  // The note editor opens on the document's node, with the store's text.
+  const openNote = (shown: string = text): void => {
+    if (node?.type === "text") openNoteSurface({ ...node, text: shown });
+  };
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [workDetail, setWorkDetail] = useState(false);
@@ -264,7 +276,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const [cronScheduleOpen, setCronScheduleOpen] = useState(false);
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
-  const entityKind = node.ether?.entity?.kind;
+  const entityKind = kind;
   const isWorkSurface =
     entityKind === "task" ||
     entityKind === "requests" ||
@@ -277,7 +289,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   // cannot open a work detail surface in a build whose gate is off.
   const workDetailAllowed =
     isWorkSurface && productNodeKindEnabled(entityKind);
-  const isCron = entityKind === "cron" || entityKind === "timer";
+  const isCron = entityKind === "cron";
 
   useEffect(() => {
     if (editing) {
@@ -297,7 +309,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       return;
     }
     if (isLabel) setEditing(true);
-    else if (isFreeNote) openNoteSurface(node);
+    else if (isFreeNote) openNote();
     // Seat/shell/sink cards: rename first line (not full note textarea).
     else if (
       isTerminal ||
@@ -310,7 +322,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     state$.editNodeId.set("");
   }, [
     isEditTarget,
-    node.id,
+    id,
     isFreeNote,
     isTerminal,
     isAgent,
@@ -324,20 +336,20 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   // Cross-surface open trigger (RTS bars / jump-to-cause): mirrors editNodeId —
   // consume the target (+ optional item id), open the work-plane detail, clear.
   const isWorkDetailTarget = use$(
-    () => workDetailOpen$.nodeId.get() === node.id,
+    () => workDetailOpen$.nodeId.get() === id,
   );
   useEffect(() => {
     if (!isWorkDetailTarget) return;
-    const consumed = consumeWorkDetailOpen(node.id);
+    const consumed = consumeWorkDetailOpen(id);
     if (!workDetailAllowed || !consumed) return;
     setWorkDetailItemId(consumed.itemId || undefined);
     setWorkDetail(true);
-  }, [isWorkDetailTarget, workDetailAllowed, node.id]);
+  }, [isWorkDetailTarget, workDetailAllowed, id]);
 
 
   const commit = () => {
     setEditing(false);
-    if (draft !== text) editText(node.id, draft);
+    if (draft !== text) editText(id, draft);
   };
 
   const discard = () => {
@@ -356,17 +368,17 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     const typed = editing ? draft : text;
     setEditing(false);
     if (typed === text) {
-      openNoteSurface(node);
+      openNote();
       return;
     }
-    editText(node.id, typed);
-    openNoteSurface(node.type === "text" ? { ...node, text: typed } : node);
-    const surfaceId = noteSurfaceId(node.id);
+    editText(id, typed);
+    openNote(typed);
+    const surfaceId = noteSurfaceId(id);
     updateNoteSurfaceDraft(surfaceId, typed);
     markNoteSurfaceSaved(surfaceId, typed);
   };
 
-  const labelHue = node.color ? accentColor(node.color) : INK;
+  const labelHue = color ? accentColor(color) : INK;
 
   // Both node kinds hold a seat, and the awareness plane observes both, so both
   // get the advisory hover. Collaboration is an agent seat's own surface: a
@@ -374,7 +386,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   // shell's overlay slot, which sits outside the clipped card body.
   const seatAwarenessOn = useSeatAwarenessOn();
   const seatNode = seatAwarenessOn && (managedTerminal || isAgent);
-  const collaborationOpen = use$(seatCollaborationUi$.openNodeId) === node.id;
+  const collaborationOpen = use$(seatCollaborationUi$.openNodeId) === id;
   // Visibility is the store, not `group-hover`: the slot is opened by the
   // same hover that sets it, so the two can never disagree, and a capture of
   // the page cannot show one state while the other is true.
@@ -387,9 +399,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         <>
           {/* The advisory hover first: it is the status echo, collaboration is
               the action. Both live outside the clipped card body. */}
-          <SeatAwarenessHoverForNode canvas={canvasName} id={node.id} graphBlocked={data.blocked} />
+          <SeatAwarenessHoverForNode canvas={canvasName} id={id} graphBlocked={data.blocked} />
           {isAgent ? (
-            <SeatCollaborationBlock nodeId={node.id} className="mt-1" />
+            <SeatCollaborationBlock nodeId={id} className="mt-1" />
           ) : null}
         </>
       ) : null}
@@ -402,38 +414,38 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     const next: unknown = event.relatedTarget;
     if (next === null || next === undefined) return;
     if (next instanceof Node && event.currentTarget.contains(next)) return;
-    closeSeatCollaboration(node.id);
+    closeSeatCollaboration(id);
   };
 
   return (
     <NodeShell
       canvas={canvasName}
-      id={node.id}
+      id={id}
       selected={selected}
       blocked={data.blocked}
       onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}
       resizable={!isAgent && !INSTRUMENT_KINDS.has(entityKind ?? "")}
-      showHandles={!isLabel && !isGitNode(node)}
+      showHandles={!isLabel && kind !== "git"}
       bare={isLabel}
       toolbar={isLabel ? "minimal" : "full"}
       overlay={collaborationOverlay}
-      onHoverEnter={seatNode ? () => openSeatCollaboration(node.id) : undefined}
+      onHoverEnter={seatNode ? () => openSeatCollaboration(id) : undefined}
       onHoverLeave={seatNode ? closeOnLeave : undefined}
       toolbarExtras={
         managedTerminal ? (
           <>
-            {isAgent ? <CustomizeAgentToolbarAction seatId={node.id} /> : null}
-            {isAgent ? <StartParamsToolbarAction seatId={node.id} /> : null}
-            {isAgent ? <SeatMessageToolbarAction id={node.id} /> : null}
-            {isAgent ? <SeatOffboardToolbarAction canvas={canvasName} id={node.id} /> : null}
-            <TerminalToolbarActions node={node} />
+            {isAgent ? <CustomizeAgentToolbarAction seatId={id} /> : null}
+            {isAgent ? <StartParamsToolbarAction seatId={id} /> : null}
+            {isAgent ? <SeatMessageToolbarAction id={id} /> : null}
+            {isAgent ? <SeatOffboardToolbarAction canvas={canvasName} id={id} /> : null}
+            {node ? <TerminalToolbarActions node={node} /> : null}
           </>
         ) : isAgent ? (
           <>
-            <CustomizeAgentToolbarAction seatId={node.id} />
-            {ACP_CHAT_SURFACE_HIDDEN ? null : <AgentChatToolbarActions node={node} />}
+            <CustomizeAgentToolbarAction seatId={id} />
+            {ACP_CHAT_SURFACE_HIDDEN || !node ? null : <AgentChatToolbarActions node={node} />}
           </>
-        ) : entityKind === "task" && TASKS_ENABLED ? (
+        ) : entityKind === "task" && TASKS_ENABLED && node ? (
           <TaskToolbarActions node={node} />
         ) : isCron ? (
           <CronScheduleToolbarAction onOpen={() => setCronScheduleOpen(true)} />
@@ -441,7 +453,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       }
 
     >
-      {workDetail && workDetailAllowed && entityKind === "task" ? (
+      {workDetail && node && workDetailAllowed && entityKind === "task" ? (
         <TasksDetail
           node={node}
           initialItemId={workDetailItemId}
@@ -451,7 +463,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
-      {workDetail && workDetailAllowed && entityKind === "requests" ? (
+      {workDetail && node && workDetailAllowed && entityKind === "requests" ? (
         <RequestsDetail
           node={node}
           initialItemId={workDetailItemId}
@@ -461,19 +473,19 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
-      {workDetail && workDetailAllowed && entityKind === "board" ? (
+      {workDetail && node && workDetailAllowed && entityKind === "board" ? (
         <BoardDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {workDetail && workDetailAllowed && entityKind === "pad" ? (
+      {workDetail && node && workDetailAllowed && entityKind === "pad" ? (
         <PadDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {workDetail && workDetailAllowed && entityKind === "sheet" ? (
+      {workDetail && node && workDetailAllowed && entityKind === "sheet" ? (
         <SheetDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {workDetail && entityKind === "git" ? (
+      {workDetail && node && entityKind === "git" ? (
         <GitDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {workDetail && workDetailAllowed && entityKind === "artifacts" ? (
+      {workDetail && node && workDetailAllowed && entityKind === "artifacts" ? (
         <ArtifactsDetail
           node={node}
           onClose={() => {
@@ -561,7 +573,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             }
           }}
         />
-      ) : node.ether?.entity ? (
+      ) : kind !== undefined && kind !== "note" ? (
         <div
           className="nopan h-full w-full"
           onDoubleClick={(event) => {
@@ -571,6 +583,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             // Actors / terminals / sinks: open the live surface (same as
             // command-group re-tap activate). Cron keeps its schedule modal.
             if (managedTerminal || isAgent || isWorkSurface) {
+              if (!node) return;
               const result = activateNodeSurface(node);
               if (result.opened) return;
               // Work surfaces also open via local state when the trigger path
@@ -593,19 +606,35 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             openInline();
           }}
         >
-          {cronScheduleOpen && isCron ? (
+          {cronScheduleOpen && isCron && node ? (
             <CronScheduleSurface
               node={node}
               onClose={() => setCronScheduleOpen(false)}
             />
           ) : null}
           {entityKind === "watcher" ? (
-            <WatcherCard canvas={canvasName} id={node.id} label="gauge" />
+            <WatcherCard canvas={canvasName} id={id} label="gauge" />
           ) : entityKind === "relay" ? (
-            <WatcherCard canvas={canvasName} id={node.id} label="relay" />
-          ) : entityKind === "timer" || entityKind === "cron" ? (
-            <TimerCard canvas={canvasName} id={node.id} />
-          ) : entityKind === "task" ? (
+            <WatcherCard canvas={canvasName} id={id} label="relay" />
+          ) : entityKind === "cron" ? (
+            <TimerCard canvas={canvasName} id={id} />
+          ) : entityKind === "terminal" ? (
+            <TerminalCard
+              canvas={canvasName}
+              id={id}
+              graphBlocked={data.blocked}
+              renaming={renaming}
+              onRenameDone={() => setRenaming(false)}
+            />
+          ) : entityKind === "agent" ? (
+            <SeatCard
+              canvas={canvasName}
+              id={id}
+              graphBlocked={data.blocked}
+              renaming={renaming}
+              onRenameDone={() => setRenaming(false)}
+            />
+          ) : node === undefined ? null : entityKind === "task" ? (
             <TasksCard
               node={node}
               renaming={renaming}
@@ -640,22 +669,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           ) : entityKind === "git" ? (
             <GitCard
               node={node}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
-          ) : entityKind === "terminal" ? (
-            <TerminalCard
-              canvas={canvasName}
-              id={node.id}
-              graphBlocked={data.blocked}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
-          ) : entityKind === "agent" ? (
-            <SeatCard
-              canvas={canvasName}
-              id={node.id}
-              graphBlocked={data.blocked}
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}
             />
