@@ -250,10 +250,10 @@ describe("order, seats and batches", () => {
 
   it("a reseat goes back to the agent it was, in a new session", () => {
     const before = canvasOf([seat("lead", { sessionId: "old-session", launch: { kind: "harness", argv: ["claude"] } })]);
-    const command: Command = {
+    const command = {
       _tag: "Reseat", canvas: name, id: "lead" as Node["id"],
       agentKey: "local:codex", bindingId: "binding-new", harness: "codex", host: "local", launch: null,
-    };
+    } as unknown as Command;
     expect(inverseOf(before, command)).toEqual({ _tag: "Irreversible", why: "missing" });
     const after = canvasAfter(before, command);
     expect(after.nodes.get("lead" as Node["id"])).toMatchObject({ agentKey: "local:codex", bindingId: "binding-new", harness: "codex" });

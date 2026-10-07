@@ -148,7 +148,7 @@ export const inverseOf = (canvas: Canvas, command: Command, context: UndoContext
         canvas: command.canvas,
         id: seat.id,
         agentKey: seat.agentKey,
-        bindingId,
+        bindingId: bindingId as typeof seat.bindingId,
         harness: seat.harness,
         host: seat.host,
         launch: seat.launch ?? null,
@@ -258,7 +258,7 @@ export const canvasAfter = (canvas: Canvas, command: Command): Canvas => {
       nodes.set(seat.id, {
         ...rest,
         agentKey: command.agentKey,
-        bindingId: command.bindingId as typeof seat.bindingId,
+        bindingId: command.bindingId,
         harness: command.harness,
         host: command.host,
         ...(command.launch == null ? {} : { launch: command.launch }),
