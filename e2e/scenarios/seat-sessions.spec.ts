@@ -50,12 +50,17 @@ const data = (envelope: WorkEnvelope): Record<string, any> => {
   return (envelope as { data?: Record<string, any> }).data ?? {};
 };
 
-test("a seat's second session onboards with the first one's notes", async () => {
+test("a seat's second session onboards with the first one's notes", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const junto = await launchJunto({
     seedModels: { [CANVAS]: modelFixture([seatNode]) },
     afterSeed: installCrewSeatHarness,
   });
+  const mainLog: string[] = [];
+  const appendLog = (chunk: Buffer) => mainLog.push(String(chunk));
+  const appProcess = junto.app.process();
+  appProcess.stdout?.on("data", appendLog);
+  appProcess.stderr?.on("data", appendLog);
   try {
     const { page, sandbox } = junto;
     await expect(page.locator(`.react-flow__node[data-id="${SEAT}"]`)).toBeVisible({ timeout: 30_000 });
@@ -93,6 +98,14 @@ test("a seat's second session onboards with the first one's notes", async () => 
       type: "session_meta", payload: { id: SECOND, timestamp: at.toISOString(), cwd: rested!.launch!.cwd, thread_source: "user", source: "cli" },
     })}\n`);
 
+    // Discovery runs on seat-state boundaries, not on an onboard read.
+    await seat.control({ screen: { mode: "working" } });
+    await expect.poll(async () => (await page.evaluate(() => window.junto!.agentSeatStateSnapshot()))
+      .find((event) => event.bindingId === rested!.bindingId)?.state, { timeout: 30_000 }).toBe("working");
+    await expect.poll(async () => (await readModelSeat(page, CANVAS, SEAT))?.sessionId,
+      { message: "runtime capture stored the second session", timeout: 30_000 }).toBe(SECOND);
+    await seat.control({ screen: { mode: "idle" } });
+
     // The fresh session onboards: the first session is listed as history,
     // with its notes path and its notes inline.
     await expect
@@ -109,6 +122,12 @@ test("a seat's second session onboards with the first one's notes", async () => 
     });
     expect(sessions.past[0].notes).toContain("retry on 429");
   } finally {
-    await junto.close();
+    try {
+      await testInfo.attach("app-main-capture.log", { body: mainLog.join("").slice(-100_000), contentType: "text/plain" });
+    } finally {
+      appProcess.stdout?.off("data", appendLog);
+      appProcess.stderr?.off("data", appendLog);
+      await junto.close();
+    }
   }
 });
