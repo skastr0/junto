@@ -109,7 +109,7 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     crimson: { l: 0.56, c: 0.19, h: 25 },
     "crimson-fg": { l: 0.48, c: 0.17, h: 25 }, // deep red
     violet: { l: 0.52, c: 0.13, h: 295 },
-    steel: { l: 0.53, c: 0.03, h: 230 },
+    steel: { l: 0.52, c: 0.03, h: 230 }, // 4.5 on ground: quiet status lines are words
     indigo: { l: 0.5, c: 0.12, h: 275 },
     gold: { l: 0.55, c: 0.11, h: 80 },
     orange: { l: 0.54, c: 0.15, h: 45 },

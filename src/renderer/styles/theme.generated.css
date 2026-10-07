@@ -113,7 +113,7 @@ html[data-theme="bright"] {
   --color-crimson: oklch(0.56000 0.19000 25.00);
   --color-crimson-fg: oklch(0.48000 0.17000 25.00);
   --color-violet: oklch(0.52000 0.13000 295.00);
-  --color-steel: oklch(0.53000 0.03000 230.00);
+  --color-steel: oklch(0.52000 0.03000 230.00);
   --color-indigo: oklch(0.50000 0.12000 275.00);
   --color-gold: oklch(0.55000 0.11000 80.00);
   --color-orange: oklch(0.54000 0.15000 45.00);
