@@ -10,6 +10,12 @@
   justify-content: flex-end;
   gap: 10px;
 }
+/* A settings row sizes its checkboxes to 16px; a switch keeps its own size. */
+.offboard-settings .settings-field__control input[role="switch"] {
+  width: 34px;
+  height: 20px;
+  flex: none;
+}
 .offboard-settings__minutes {
   display: inline-flex;
   align-items: center;

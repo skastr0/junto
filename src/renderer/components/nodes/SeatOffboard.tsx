@@ -174,6 +174,7 @@ export function SeatOffboardPanel({
       </div>
 
       <div className="seat-offboard-panel__choice" data-preferred={preferred === "ask" ? "true" : undefined}>
+        {preferred === "ask" ? <PreferredMark /> : null}
         <div className="seat-offboard-panel__buttons">
           <Button
             size="sm"
@@ -194,7 +195,6 @@ export function SeatOffboardPanel({
           >
             Ask, then rest
           </Button>
-          {preferred === "ask" ? <PreferredMark /> : null}
         </div>
         <p className="seat-offboard-panel__hint">
           {many ? "Each agent" : "The agent"} writes its notes and ends the session. It continues in a fresh one
@@ -203,6 +203,7 @@ export function SeatOffboardPanel({
       </div>
 
       <div className="seat-offboard-panel__choice" data-preferred={preferred === "now" ? "true" : undefined}>
+        {preferred === "now" ? <PreferredMark /> : null}
         <div className="seat-offboard-panel__buttons">
           <Button
             size="sm"
@@ -221,7 +222,6 @@ export function SeatOffboardPanel({
           >
             {armed ? `Close ${sessions}?` : "Offboard now"}
           </Button>
-          {preferred === "now" ? <PreferredMark /> : null}
         </div>
         {nowBlock !== undefined ? (
           <p id="seat-offboard-now-block" className="seat-offboard-panel__block" data-testid="seat-offboard-now-block">
@@ -250,6 +250,7 @@ export function SeatOffboardPanel({
   );
 }
 
+/** One line above the preferred choice's buttons, so it never wraps under them. */
 function PreferredMark() {
   return (
     <span
