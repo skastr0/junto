@@ -71,7 +71,7 @@ import { makeBrowserProductPathProbe } from "./junto/browser/readiness-probe";
 import { installBrowserProductPathProbe } from "./junto/station-readiness";
 import { findHostById, hostsSnapshot } from "./junto/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
-import { applyInterfaceScale, followInterfaceScale } from "./junto/interface-scale";
+import { applyInterfaceScale, followInterfaceScale, refitInterfaceScale } from "./junto/interface-scale";
 import {
   BROWSER_ENABLED,
   HERMES_INTEGRATION_ENABLED,
@@ -867,10 +867,17 @@ const createWindow = () => {
   trustedMainWindow = mainWindow;
   notificationPlane?.attach(mainWindow);
   // The interface size (Settings, Appearance) is this window's zoom factor:
-  // applied now, on every change, and again after each load.
+  // applied now, on every change, and again after each load. A narrow window
+  // holds a large size back, so it is fitted again when the width changes.
   const mainContents = mainWindow.webContents;
-  const stopInterfaceScale = followInterfaceScale(mainContents);
-  mainContents.on("did-finish-load", () => applyInterfaceScale(mainContents));
+  const interfaceScaleTarget = {
+    isDestroyed: () => mainWindow.isDestroyed() || mainContents.isDestroyed(),
+    setZoomFactor: (factor: number) => mainContents.setZoomFactor(factor),
+    contentWidth: () => mainWindow.getContentSize()[0] ?? 0,
+  };
+  const stopInterfaceScale = followInterfaceScale(interfaceScaleTarget);
+  mainContents.on("did-finish-load", () => applyInterfaceScale(interfaceScaleTarget));
+  mainWindow.on("resize", () => refitInterfaceScale(interfaceScaleTarget));
   // BrowserWindow's `closed` event fires after its native object and
   // WebContents have been destroyed. Capture the routing identity while it is
   // live; dereferencing mainWindow.webContents inside `closed` throws.

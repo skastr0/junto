@@ -13,7 +13,9 @@ import {
   applyInterfaceScale,
   currentInterfaceScale,
   followInterfaceScale,
+  refitInterfaceScale,
   setInterfaceScale,
+  shownInterfaceScale,
 } from "../src/main/junto/interface-scale";
 
 const decodePatch = Schema.decodeUnknownSync(SettingsPatch, { onExcessProperty: "error" });
@@ -89,5 +91,39 @@ describe("interface size in main", () => {
     window.destroy();
     setInterfaceScale(175);
     expect(window.factors).toEqual([1, 1.5, 1.5]);
+  });
+});
+
+describe("interface size in a narrow window", () => {
+  afterEach(() => setInterfaceScale(100));
+
+  it("shows the chosen size when the window can hold it, else the largest listed size that fits", () => {
+    expect(shownInterfaceScale(200, 1280)).toBe(200);
+    expect(shownInterfaceScale(200, 960)).toBe(150);
+    expect(shownInterfaceScale(175, 960)).toBe(150);
+    expect(shownInterfaceScale(150, 960)).toBe(150);
+    expect(shownInterfaceScale(200, 700)).toBe(100);
+    // Standard and smaller are never held back, and a target with no width is left as chosen.
+    expect(shownInterfaceScale(90, 300)).toBe(90);
+    expect(shownInterfaceScale(200, undefined)).toBe(200);
+  });
+
+  it("fits again when the window changes width, and only when the size it shows changes", () => {
+    let width = 1280;
+    const factors: number[] = [];
+    const window = { isDestroyed: () => false, setZoomFactor: (factor: number) => void factors.push(factor), contentWidth: () => width };
+    const stop = followInterfaceScale(window);
+    setInterfaceScale(200);
+    expect(factors).toEqual([1, 2]);
+    width = 960;
+    refitInterfaceScale(window);
+    expect(factors).toEqual([1, 2, 1.5]);
+    width = 1000;
+    refitInterfaceScale(window);
+    expect(factors).toEqual([1, 2, 1.5]);
+    width = 1280;
+    refitInterfaceScale(window);
+    expect(factors).toEqual([1, 2, 1.5, 2]);
+    stop();
   });
 });
