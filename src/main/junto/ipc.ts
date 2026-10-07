@@ -155,6 +155,7 @@ import { injectionSupervisor } from "./term/injection-supervisor";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import { handleSeatOffboardRun, handleSeatOffboardStatus } from "./seat-sessions/operator-offboard-ipc";
 import { startOperatorOffboard } from "./seat-sessions/operator-offboard-live";
+import { startOperatorOffboard } from "./seat-sessions/operator-offboard-live";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
   scheduleManagedPulseReady,
@@ -217,6 +218,8 @@ const latestBoardPostExcerpt = (topic: {
 
 /** Closes a seat's session once its agent offboarded and went idle. */
 let offboardCloser: SeatOffboardCloser | undefined;
+/** Stops operator offboard: its motion watch and the automatic rules. */
+let stopOperatorOffboard: (() => void) | undefined;
 /** Stops operator offboard: its motion watch and the automatic rules. */
 let stopOperatorOffboard: (() => void) | undefined;
 let seatDrain: SeatDrain | undefined;
@@ -2187,6 +2190,16 @@ export const registerJuntoIpc = (): void => {
         log: (message) => console.info(`[offboard] ${message}`),
       });
       offboardCloser.start();
+      // Operator offboard: the buttons, the overseer command and the two
+      // automatic rules, all through the closer just started. It restores the
+      // motionless clock from disk and looks once a minute.
+      stopOperatorOffboard?.();
+      stopOperatorOffboard = startOperatorOffboard({
+        closer: offboardCloser,
+        sendPrompt: ({ bindingId, text, canvasName, nodeId }) =>
+          appendManagedPrompt({ bindingId, text, canvasName, nodeId }),
+        suspended: () => productAutomationSuspended,
+      });
       // Operator offboard: the buttons, the overseer command and the two
       // automatic rules, all through the closer just started. It restores the
       // motionless clock from disk and looks once a minute.
