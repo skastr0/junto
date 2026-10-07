@@ -14,7 +14,6 @@ import type {
 } from "@shared/canvas";
 import { resolveBrowserOnDelete } from "@shared/canvas";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
-import { mirrorRequestsText } from "@shared/task";
 import { batch, observe } from "@legendapp/state";
 import type { BindingHint } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
@@ -923,71 +922,6 @@ export const editText = (id: string, text: string): void => {
   commitDoc({
     ...doc,
     nodes: doc.nodes.map((n) => (n.id === id && n.type === "text" ? { ...n, text } : n)),
-  });
-};
-
-/** Persist a Tasks node rename as its projection-safe authored name. */
-export const renameTasksNode = (id: string, firstLine: string): void => {
-  const next = firstLine.trim();
-  if (!next) return;
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((node) => {
-      if (
-        node.id !== id ||
-        node.type !== "text" ||
-        node.ether?.entity?.kind !== "task"
-      ) return node;
-      const rest = node.text.split("\n").slice(1).join("\n");
-      return {
-        ...node,
-        text: rest ? `${next}\n${rest}` : next,
-        ether: {
-          ...node.ether,
-          tasks: {
-            items: node.ether.tasks?.items ?? [],
-            ...(node.ether.tasks ?? {}),
-            name: next,
-          },
-        },
-      };
-    }),
-  });
-};
-
-/**
- * Author requests identity on a requests sink: ether.requests.name plus a
- * freshly regenerated node.text mirror (identity line, attention count,
- * briefs). The mirror is never preserved across the rename — the next work op
- * rewrites it, and display reads the authored name, not the mirror.
- */
-export const renameRequestsNode = (id: string, firstLine: string): void => {
-  const next = firstLine.trim();
-  if (!next) return;
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((node) => {
-      if (
-        node.id !== id ||
-        node.type !== "text" ||
-        node.ether?.entity?.kind !== "requests"
-      ) return node;
-      const items = node.ether.requests?.items ?? [];
-      return {
-        ...node,
-        text: mirrorRequestsText(items, next),
-        ether: {
-          ...node.ether,
-          requests: {
-            items,
-            ...(node.ether.requests ?? {}),
-            name: next,
-          },
-        },
-      };
-    }),
   });
 };
 
