@@ -9,12 +9,11 @@
 
 import { observe } from "@legendapp/state";
 import { useEffect, useRef } from "react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Node, Seat, Terminal } from "@shared/model";
 import type { RegionRollup } from "@shared/region-rollup";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
   agentSeat$,
-  bindingIdForNode,
   presentationForSeat,
 } from "./agent-seat-state";
 import {
@@ -30,7 +29,6 @@ import { playCue } from "./sound";
 import { ALERT_CUE } from "./sound/director";
 import { state$ } from "./state";
 import { modelStore } from "./use-model";
-import { nodeToDocument } from "@shared/model/from-document";
 
 /**
  * How urgent each kind is, on the one table every surface reads: the rise
@@ -89,14 +87,14 @@ export const collectAlertSignals = (
  * cover region members, and a freestanding agent is heard too.
  */
 export const collectReadyWorkingSignals = (
-  nodes: ReadonlyArray<CanvasNode>,
+  nodes: ReadonlyArray<Node>,
   seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
   needsLookByBindingId: Readonly<Record<string, boolean | undefined>>,
 ): ReadonlyArray<AlertSignal> => {
   const byId = new Map<string, AlertSignal>();
   for (const node of nodes) {
-    const bindingId = bindingIdForNode(node);
-    if (!bindingId) continue;
+    if (node.kind !== "agent" && node.kind !== "terminal") continue;
+    const bindingId = node.bindingId;
     const presentation = presentationForSeat(seats[bindingId]?.state, needsLookByBindingId[bindingId] === true);
     const kind: AlertKind | undefined =
       presentation === "done" ? "ready" : presentation === "attention" ? "attention" : presentation === "working" ? "working" : undefined;
@@ -167,21 +165,20 @@ export const observeAlertSignals = (
  * reconnecting): nothing is known about them right now.
  */
 export const heldSeatSignalIds = (
-  nodes: ReadonlyArray<CanvasNode>,
+  nodes: ReadonlyArray<Node>,
   seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
 ): ReadonlySet<string> => {
   const held = new Set<string>();
   for (const node of nodes) {
-    const bindingId = bindingIdForNode(node);
-    if (bindingId && seats[bindingId]?.state === "unknown") held.add(alertId.node(node.id));
+    if (node.kind !== "agent" && node.kind !== "terminal") continue;
+    if (seats[node.bindingId]?.state === "unknown") held.add(alertId.node(node.id));
   }
   return held;
 };
 
-const liveSeatNodes = (): ReadonlyArray<CanvasNode> =>
+const liveSeatNodes = (): ReadonlyArray<Seat | Terminal> =>
   Object.values(modelStore.canvas$(state$.canvasName.peek()).nodes.peek())
-    .filter(node => node.kind === "agent" || node.kind === "terminal")
-    .map(nodeToDocument);
+    .filter((node): node is Seat | Terminal => node.kind === "agent" || node.kind === "terminal");
 
 const observeLive = (signals: ReadonlyArray<AlertSignal>): void => {
   const seats = agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>;

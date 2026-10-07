@@ -9,7 +9,7 @@ import type { AgentChatCoarse } from "../lib/chat-state";
 import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-state";
 import { kernel$ } from "../lib/kernel-view";
 import { attentionCoarse$, useSeatAttentionReasons } from "../lib/occupancy-feed";
-import { attentionReasonsForNode, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
+import { attentionReasonsForSeat, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
 import { seatUrgency, type SeatUrgency } from "../lib/seat-line";
 import { state$ } from "../lib/state";
 import { terminal$ } from "../lib/terminal-state";
@@ -82,14 +82,13 @@ export function useSeatGlanceOf(seat: Seat): SeatGlance {
  * order while the operator moves through it.
  */
 export function seatUrgencyOf(seat: Seat): SeatUrgency {
-  const agent = { ether: { entity: { kind: "agent", name: seat.agentKey } } };
-  const coarse = attentionCoarse$(agent).peek() as AgentChatCoarse | undefined;
+  const coarse = attentionCoarse$(seat.agentKey).peek() as AgentChatCoarse | undefined;
   const control = seatControlOf(seat.id, seat.harness, {
     seatEvent: agentSeat$.byBindingId[seat.bindingId].peek(),
     needsLook: agentSeat$.needsLookByBindingId[seat.bindingId].peek() === true,
     session: terminal$.sessionByBindingId[seat.bindingId].peek(),
     graphBlocked: kernel$.execution.peek()?.blocked.includes(seat.id) === true,
-    attentionReasons: attentionReasonsForNode(agent, coarse),
+    attentionReasons: attentionReasonsForSeat(seat.agentKey, coarse),
   });
   return seatUrgency({ ...control, signal: seatSignalRollups$.peek()[seat.id]?.kind });
 }

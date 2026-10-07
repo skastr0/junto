@@ -3,6 +3,7 @@ import {
   ALERT_URGENCY,
   collectAlertSignals,
   collectReadyWorkingSignals,
+  heldSeatSignalIds,
   mergeAlertSignals,
   observeAlertSignals,
   resetAlertQueue,
@@ -11,7 +12,7 @@ import { alertId, type AlertKind, type AlertSignal } from "../src/renderer/lib/a
 import { SEAT_URGENCY } from "../src/renderer/lib/seat-line";
 import * as sound from "../src/renderer/lib/sound";
 import type { RegionRollup } from "../src/shared/region-rollup";
-import type { CanvasNode } from "../src/shared/canvas";
+import { note, seat, terminal } from "./support/model-nodes";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 
 const rollup = (members: RegionRollup["members"]): RegionRollup => ({
@@ -114,39 +115,33 @@ describe("observeAlertSignals", () => {
 });
 
 describe("seats anywhere on the canvas", () => {
-  it("collectReadyWorkingSignals maps a seat's done to ready, and its attention and working", async () => {
-    const { agentSeat$, resetAgentSeatState } = await import(
-      "../src/renderer/lib/agent-seat-state"
-    );
-    resetAgentSeatState();
-    agentSeat$.bindingIdByNodeId.set({
-      "agent-1": "bind-1",
-      "agent-2": "bind-2",
-      "agent-3": "bind-3",
-    });
-    try {
-      const nodes = ["agent-1", "agent-2", "agent-3"].map((id) => ({ id, type: "text", x: 0, y: 0, width: 80, height: 40, text: id })) as unknown as ReadonlyArray<CanvasNode>;
-      const at = (bindingId: string, state: AgentSeatStateEvent["state"]): AgentSeatStateEvent => ({
-        bindingId,
-        epoch: "e",
-        state,
-        reason: "r",
-        confidence: "high",
-        at: 1,
-      });
-      const seats: Record<string, AgentSeatStateEvent> = {
-        "bind-1": at("bind-1", "idle"),
-        "bind-2": at("bind-2", "working"),
-        "bind-3": at("bind-3", "attention"),
-      };
-      const signals = collectReadyWorkingSignals(nodes, seats, {
-        "bind-1": true,
-      });
-      // A freestanding seat is heard too, not only region members.
-      expect(signals).toEqual([signal("agent-1", "ready"), signal("agent-2", "working"), signal("agent-3", "attention")]);
-    } finally {
-      resetAgentSeatState();
-    }
+  const at = (bindingId: string, state: AgentSeatStateEvent["state"]): AgentSeatStateEvent => ({
+    bindingId, epoch: "e", state, reason: "r", confidence: "high", at: 1,
+  });
+
+  it("collectReadyWorkingSignals maps native seats' done, attention and working by their own bindings", () => {
+    const done = seat("agent-1");
+    const working = terminal("terminal-2");
+    const attention = seat("agent-3");
+    const nodes = [done, working, attention, note("note")];
+    const events = {
+      [done.bindingId]: at(done.bindingId, "idle"),
+      [working.bindingId]: at(working.bindingId, "working"),
+      [attention.bindingId]: at(attention.bindingId, "attention"),
+    };
+    expect(collectReadyWorkingSignals(nodes, events, { [done.bindingId]: true })).toEqual([
+      signal(done.id, "ready"), signal(working.id, "working"), signal(attention.id, "attention"),
+    ]);
+  });
+
+  it("holds only the native seats whose own bindings have an unknown state", () => {
+    const unknown = seat("unknown");
+    const known = terminal("known");
+    const events = {
+      [unknown.bindingId]: at(unknown.bindingId, "unknown"),
+      [known.bindingId]: at(known.bindingId, "idle"),
+    };
+    expect(heldSeatSignalIds([unknown, known, note("note")], events)).toEqual(new Set([alertId.node(unknown.id)]));
   });
 
   it("a seat that is both a region member and freestanding keeps its most urgent state", () => {

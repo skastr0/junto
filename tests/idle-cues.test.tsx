@@ -1,18 +1,17 @@
 import { modelStore } from "../src/renderer/lib/use-model";
 import { nodesOf } from "@shared/model";
-import { canvasFromDocument } from "@shared/model/from-document";
 // @vitest-environment jsdom
 /**
  * Cues fire on real transitions only.
  *
  * The operator heard Junto's cues on a board where nothing was happening.
- * The alert queue was observed only when the rollups or the document changed,
+ * The alert queue was observed only when the rollups or the canvas changed,
  * never when a seat did (the seat store mutates in place, so its identity
  * never moved): a seat's change was heard late, on whatever unrelated write
  * came next, or not at all. These tests drive the real hook through the real
  * seat store and hold the law both ways: a real transition is heard when it
  * happens, and a state re-sent unchanged, a reason-only change, a gap where
- * the seat's state is unknown, a document write, the seats loading, and a
+ * the seat's state is unknown, an unrelated card edit, the seats loading, and a
  * canvas switch are not.
  */
 import { act, Profiler } from "react";
@@ -20,7 +19,8 @@ import { observable } from "@legendapp/state";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSeatState, AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import type { CanvasNode } from "../src/shared/canvas";
+import { seat, note } from "./support/model-nodes";
+import type { Seat } from "../src/shared/model";
 import type { RegionRollup } from "../src/shared/region-rollup";
 import { resetAlertQueue, useAlertAttention, useAlertSignals } from "../src/renderer/lib/alert-attention";
 import type { AlertSignal } from "../src/renderer/lib/alert-queue";
@@ -37,19 +37,7 @@ import { state$ } from "../src/renderer/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const seatNode = (id: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 240,
-  height: 96,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId: `bind-${id}`, harness: "claude", launch: { kind: "harness", argv: ["claude"] } },
-  },
-});
+const seatNode = (id: string): Seat => seat(id, { bindingId: `bind-${id}` as Seat["bindingId"] });
 
 let clock = 1_000;
 const event = (
@@ -83,11 +71,9 @@ beforeEach(() => {
   resetAlertQueue();
   play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
   state$.canvasName.set("idle-board");
-  const doc = { nodes: [seatNode("a"), seatNode("b")], edges: [] };
-  state$.doc.set(doc);
-  const canvas = canvasFromDocument("idle-board", doc);
-  modelStore.canvas$("idle-board").nodes.set(Object.fromEntries(canvas.nodes));
-  modelStore.canvas$("idle-board").nodeIds.set([...canvas.nodes.keys()]);
+  const seats = [seatNode("a"), seatNode("b")];
+  modelStore.canvas$("idle-board").nodes.set(Object.fromEntries(seats.map(node => [node.id, node])));
+  modelStore.canvas$("idle-board").nodeIds.set(seats.map(node => node.id));
   modelStore.canvas$("idle-board").status.set("open");
   host = document.createElement("div");
   document.body.append(host);
@@ -101,7 +87,6 @@ afterEach(() => {
   play.mockRestore();
   resetAgentSeatState();
   resetAlertQueue();
-  state$.doc.set({ nodes: [], edges: [] });
   modelStore.canvas$("idle-board").nodes.set({});
   modelStore.canvas$("idle-board").nodeIds.set([]);
   modelStore.canvas$("other-board").status.set("closed");
@@ -179,12 +164,15 @@ describe("nothing new is not heard", () => {
     expect(cues()).toEqual([]);
   });
 
-  it("a document write while seats sit still plays nothing, and does not deliver an old change late", () => {
+  it("an unrelated card edit while seats sit still plays nothing, and does not deliver an old change late", () => {
     hydrateIdle();
     apply(event("a", "working", "rule:screen_working"));
     apply(event("a", "idle"));
     play.mockClear();
-    act(() => state$.doc.set({ nodes: [...state$.doc.peek().nodes, { id: "note", type: "text", text: "moved", x: 9, y: 9, width: 10, height: 10 }], edges: [] }));
+    act(() => {
+      modelStore.node$("idle-board", "note").set(note("note", "moved", { x: 9, y: 9 }));
+      modelStore.canvas$("idle-board").nodeIds.set(["a", "b", "note"]);
+    });
     expect(cues()).toEqual([]);
   });
 
@@ -194,9 +182,8 @@ describe("nothing new is not heard", () => {
     play.mockClear();
     act(() => {
       state$.canvasName.set("other-board");
-      const doc = { nodes: [seatNode("c")], edges: [] };
-      state$.doc.set(doc);
-      modelStore.canvas$("other-board").nodes.set(Object.fromEntries(canvasFromDocument("other-board", doc).nodes));
+      const node = seatNode("c");
+      modelStore.canvas$("other-board").nodes.set({ [node.id]: node });
       modelStore.canvas$("other-board").nodeIds.set(["c"]);
       modelStore.canvas$("other-board").status.set("open");
     });
@@ -220,7 +207,7 @@ describe("a finished turn is one need for desktop notifications", () => {
   const subjectKeys = (): ReadonlyArray<string> =>
     seatSubjects({
       canvasName: "idle-board",
-      seats: nodesOf(canvasFromDocument("idle-board", state$.doc.peek()), "agent"),
+      seats: nodesOf(modelStore.canvasOf("idle-board"), "agent"),
       seatState: (bindingId) => agentSeat$.byBindingId[bindingId].peek(),
       needsLook: (bindingId) => agentSeat$.needsLookByBindingId[bindingId].peek() === true,
       doneAt: seatDoneAt,
