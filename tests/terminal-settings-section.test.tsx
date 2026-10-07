@@ -114,15 +114,15 @@ describe("terminal settings section", () => {
       'value="Berkeley Mono, monospace"',
     );
     expect(inputFor(html, "Scrollback")).toContain('value="20000"');
-    expect(inputFor(html, "Cursor blink")).not.toContain("checked");
+    expect(inputFor(html, "Cursor blink")).toContain('aria-checked="false"');
     expect(inputFor(html, "Minimum contrast")).toContain('value="4.5"');
     expect(inputFor(html, "Line height")).toContain('value="1.35"');
     expect(inputFor(html, "Letter spacing")).toContain('value="0.5"');
-    expect(inputFor(html, "Screen reader mode")).toContain("checked");
-    expect(inputFor(html, "Copy selection automatically")).toContain("checked");
+    expect(inputFor(html, "Screen reader mode")).toContain('aria-checked="true"');
+    expect(inputFor(html, "Copy selection automatically")).toContain('aria-checked="true"');
     // Selects are the design-system dropdown: labelled trigger, selected label.
-    expect(selectLabel(html, "Cursor style")).toBe("bar");
-    expect(selectLabel(html, "Bell")).toBe("flash the surface");
+    expect(selectLabel(html, "Cursor style")).toBe("Bar");
+    expect(selectLabel(html, "Bell")).toBe("Flash the terminal");
   });
 
   it("resolves an installation written before the terminal fragment", () => {
@@ -135,7 +135,7 @@ describe("terminal settings section", () => {
     expect(inputFor(html, "Font size")).toContain(
       `value="${defaultTerminal().fontSize}"`,
     );
-    expect(inputFor(html, "Cursor blink")).toContain("checked");
+    expect(inputFor(html, "Cursor blink")).toContain('aria-checked="true"');
   });
 
   it("bounds every numeric control by the schema, not by a second copy", () => {
@@ -159,17 +159,19 @@ describe("terminal settings section", () => {
     );
   });
 
-  it("puts the accessibility controls in a labelled group of their own", () => {
+  it("sorts the rows into titled groups, each a labelled section", () => {
     const html = render(defaultSettings());
-    const group = html.indexOf('aria-label="Terminal accessibility"');
+    const titles = ["Text", "Cursor", "Scrolling and copying", "Bell and screen reader"];
+    const at = titles.map((title) => html.indexOf(`>${title}</h3>`));
 
-    expect(group).toBeGreaterThan(-1);
-    expect(html).toContain('role="group"');
-    expect(html).toContain("Accessibility");
-    // Preference rows precede the group; accessibility rows live inside it.
-    expect(html.indexOf('aria-label="Font size"')).toBeLessThan(group);
-    expect(html.indexOf('aria-label="Screen reader mode"')).toBeGreaterThan(group);
-    expect(html.indexOf('aria-label="Minimum contrast"')).toBeGreaterThan(group);
+    for (const [index, position] of at.entries()) expect(position, titles[index]).toBeGreaterThan(-1);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(html.match(/<section class="settings-group" aria-labelledby=/g)).toHaveLength(titles.length);
+    // A row sits under its own title.
+    expect(html.indexOf('aria-label="Font size"')).toBeLessThan(at[1]!);
+    expect(html.indexOf('aria-label="Cursor blink"')).toBeGreaterThan(at[1]!);
+    expect(html.indexOf('aria-label="Scrollback"')).toBeGreaterThan(at[2]!);
+    expect(html.indexOf('aria-label="Screen reader mode"')).toBeGreaterThan(at[3]!);
   });
 
   it("labels every control", () => {

@@ -78,3 +78,16 @@ export function SettingBlock({
     </div>
   );
 }
+
+/** Related rows under one plain title, a rule between each. */
+export function SettingGroup({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+  const titleId = useId();
+  return (
+    <section className="settings-group" aria-labelledby={titleId}>
+      <h3 id={titleId} className="settings-group__title">
+        {title}
+      </h3>
+      <div className="settings-group__rows">{children}</div>
+    </section>
+  );
+}

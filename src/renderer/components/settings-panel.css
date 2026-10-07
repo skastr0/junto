@@ -556,6 +556,61 @@
 }
 
 /* Appearance — theme choice buttons are the previews */
+/* Rows in titled groups: a rule under the title and between rows. */
+.settings-groups {
+  gap: 28px;
+}
+.settings-group__title {
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-overlay-4);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--color-dim);
+}
+.settings-group__rows {
+  display: flex;
+  flex-direction: column;
+}
+.settings-group__rows > .settings-field {
+  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 24px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-overlay-3);
+}
+.settings-group__rows > .settings-field:last-child {
+  border-bottom: 0;
+}
+.settings-group__rows .settings-field__label {
+  gap: 4px;
+  font-weight: 500;
+}
+.settings-group__rows .settings-field__hint {
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+}
+.settings-group__rows .settings-field__control {
+  display: flex;
+  justify-content: flex-end;
+}
+.settings-field__range {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.settings-field__range input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--color-amber);
+}
+.settings-field__range-value {
+  min-width: 2ch;
+  text-align: right;
+  font-size: var(--text-body-lg);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-dim);
+}
 /* Full-width settings, one under another, a rule between them. */
 .settings-blocks {
   gap: 0;

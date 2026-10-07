@@ -22,8 +22,8 @@ import {
 } from "@shared/settings";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
-import { Select } from "../ui";
-import { FieldRow } from "./FieldRow";
+import { Select, Switch } from "../ui";
+import { FieldRow, SettingGroup } from "./FieldRow";
 
 /**
  * Typed text → the number to persist, or undefined when the text is not yet a
@@ -133,7 +133,7 @@ function FontFamilyRow({
   };
 
   return (
-    <FieldRow label="Font family" hint="font stack for terminal cells, monospace first">
+    <FieldRow label="Font family" hint="The fonts terminals use, in order; the first one installed wins. Keep to monospace fonts.">
       <input
         type="text"
         value={draft ?? value}
@@ -160,18 +160,18 @@ const CURSOR_STYLES: ReadonlyArray<{
   readonly value: TerminalCursorStyle;
   readonly label: string;
 }> = [
-  { value: "block", label: "block" },
-  { value: "bar", label: "bar" },
-  { value: "underline", label: "underline" },
+  { value: "block", label: "Block" },
+  { value: "bar", label: "Bar" },
+  { value: "underline", label: "Underline" },
 ];
 
 const BELLS: ReadonlyArray<{
   readonly value: TerminalBell;
   readonly label: string;
 }> = [
-  { value: "off", label: "ignore" },
-  { value: "visual", label: "flash the surface" },
-  { value: "sound", label: "play a sound" },
+  { value: "off", label: "Nothing" },
+  { value: "visual", label: "Flash the terminal" },
+  { value: "sound", label: "Play a sound" },
 ];
 
 export function TerminalSettingsSection() {
@@ -180,167 +180,149 @@ export function TerminalSettingsSection() {
   const patch = (next: TerminalPatch): Promise<boolean> =>
     patchSettings({ terminal: next });
 
+  const range = (bounds: { readonly min: number; readonly max: number }): string =>
+    `${bounds.min.toLocaleString("en-US")} to ${bounds.max.toLocaleString("en-US")}`;
+
   return (
-    <div className="settings-section">
-      <FieldRow
-        label="Scroll sensitivity"
-        hint={`lines per wheel notch (${TERMINAL_BOUNDS.scrollSensitivity.min}–${TERMINAL_BOUNDS.scrollSensitivity.max})`}
-      >
-        <input
-          type="range"
-          min={TERMINAL_BOUNDS.scrollSensitivity.min}
-          max={TERMINAL_BOUNDS.scrollSensitivity.max}
+    <div className="settings-section settings-groups">
+      <SettingGroup title="Text">
+        <FontFamilyRow
+          value={terminal.fontFamily}
+          onCommit={(next) => patch({ fontFamily: next })}
+        />
+        <NumberRow
+          label="Font size"
+          hint={`Text size in pixels, ${range(TERMINAL_BOUNDS.fontSize)}.`}
+          value={terminal.fontSize}
+          bounds={TERMINAL_BOUNDS.fontSize}
+          kind="integer"
           step={1}
-          value={terminal.scrollSensitivity}
-          aria-label="Scroll sensitivity"
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (!Number.isFinite(next)) return;
-            void patch({ scrollSensitivity: Math.round(next) });
-          }}
+          onCommit={(next) => patch({ fontSize: next })}
         />
-        <span className="settings-field__hint" style={{ marginLeft: 8 }}>
-          {terminal.scrollSensitivity}
-        </span>
-      </FieldRow>
-
-      <NumberRow
-        label="Font size"
-        hint={`cell size in px (${TERMINAL_BOUNDS.fontSize.min}–${TERMINAL_BOUNDS.fontSize.max})`}
-        value={terminal.fontSize}
-        bounds={TERMINAL_BOUNDS.fontSize}
-        kind="integer"
-        step={1}
-        onCommit={(next) => patch({ fontSize: next })}
-      />
-
-      <FontFamilyRow
-        value={terminal.fontFamily}
-        onCommit={(next) => patch({ fontFamily: next })}
-      />
-
-      <FieldRow group label="Cursor style" hint="how the cursor is drawn">
-        <Select
-          dense
-          value={terminal.cursorStyle}
-          aria-label="Cursor style"
-          options={CURSOR_STYLES.map((option) => ({
-            value: option.value,
-            label: option.label,
-          }))}
-          onChange={(value) => {
-            const choice = CURSOR_STYLES.find((option) => option.value === value);
-            if (choice) void patch({ cursorStyle: choice.value });
-          }}
+        <NumberRow
+          label="Line height"
+          hint={`Space between lines, as a multiple of the font size, ${range(TERMINAL_BOUNDS.lineHeight)}.`}
+          value={terminal.lineHeight}
+          bounds={TERMINAL_BOUNDS.lineHeight}
+          kind="fractional"
+          step={0.05}
+          onCommit={(next) => patch({ lineHeight: next })}
         />
-      </FieldRow>
-
-      <NumberRow
-        label="Scrollback"
-        hint={`lines kept above the viewport (${TERMINAL_BOUNDS.scrollback.min.toLocaleString("en-US")}–${TERMINAL_BOUNDS.scrollback.max.toLocaleString("en-US")})`}
-        value={terminal.scrollback}
-        bounds={TERMINAL_BOUNDS.scrollback}
-        kind="integer"
-        step={100}
-        onCommit={(next) => patch({ scrollback: next })}
-      />
-
-      <FieldRow
-        label="Copy selection automatically"
-        hint="off by default; selecting text otherwise replaces the system clipboard"
-      >
-        <input
-          type="checkbox"
-          checked={terminal.copyOnSelect === true}
-          aria-label="Copy selection automatically"
-          onChange={(event) =>
-            void patch({ copyOnSelect: event.target.checked })
-          }
+        <NumberRow
+          label="Letter spacing"
+          hint={`Extra space between characters in pixels, ${range(TERMINAL_BOUNDS.letterSpacing)}.`}
+          value={terminal.letterSpacing}
+          bounds={TERMINAL_BOUNDS.letterSpacing}
+          kind="fractional"
+          step={0.1}
+          onCommit={(next) => patch({ letterSpacing: next })}
         />
-      </FieldRow>
+        <NumberRow
+          label="Minimum contrast"
+          hint={`Text too faint against its background is adjusted until it reaches this contrast. ${TERMINAL_BOUNDS.minimumContrastRatio.min} leaves every colour as the agent set it.`}
+          value={terminal.minimumContrastRatio}
+          bounds={TERMINAL_BOUNDS.minimumContrastRatio}
+          kind="fractional"
+          step={0.5}
+          onCommit={(next) => patch({ minimumContrastRatio: next })}
+        />
+      </SettingGroup>
 
-      <div
-        className="settings-profile-list"
-        role="group"
-        aria-label="Terminal accessibility"
-      >
-        <div className="settings-profile-list__head">
-          <span>Accessibility</span>
-          <span>contrast, spacing, and how output is announced</span>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <FieldRow label="Cursor blink" hint="blink while the terminal is visible">
+      <SettingGroup title="Cursor">
+        <FieldRow group label="Cursor style" hint="The cursor's shape.">
+          <Select
+            dense
+            value={terminal.cursorStyle}
+            aria-label="Cursor style"
+            options={CURSOR_STYLES.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            onChange={(value) => {
+              const choice = CURSOR_STYLES.find((option) => option.value === value);
+              if (choice) void patch({ cursorStyle: choice.value });
+            }}
+          />
+        </FieldRow>
+        <FieldRow label="Cursor blink" hint="Off keeps the cursor steady.">
+          <Switch
+            checked={terminal.cursorBlink}
+            aria-label="Cursor blink"
+            onCheckedChange={(cursorBlink) => void patch({ cursorBlink })}
+          />
+        </FieldRow>
+      </SettingGroup>
+
+      <SettingGroup title="Scrolling and copying">
+        <FieldRow
+          label="Scroll sensitivity"
+          hint={`Lines moved by one notch of the mouse wheel, ${range(TERMINAL_BOUNDS.scrollSensitivity)}.`}
+        >
+          <span className="settings-field__range">
             <input
-              type="checkbox"
-              checked={terminal.cursorBlink}
-              aria-label="Cursor blink"
-              onChange={(event) =>
-                void patch({ cursorBlink: event.target.checked })
-              }
-            />
-          </FieldRow>
-
-          <NumberRow
-            label="Minimum contrast"
-            hint={`ratio enforced per cell (${TERMINAL_BOUNDS.minimumContrastRatio.min} keeps agent colours)`}
-            value={terminal.minimumContrastRatio}
-            bounds={TERMINAL_BOUNDS.minimumContrastRatio}
-            kind="fractional"
-            step={0.5}
-            onCommit={(next) => patch({ minimumContrastRatio: next })}
-          />
-
-          <NumberRow
-            label="Line height"
-            hint={`multiple of font size (${TERMINAL_BOUNDS.lineHeight.min}–${TERMINAL_BOUNDS.lineHeight.max})`}
-            value={terminal.lineHeight}
-            bounds={TERMINAL_BOUNDS.lineHeight}
-            kind="fractional"
-            step={0.05}
-            onCommit={(next) => patch({ lineHeight: next })}
-          />
-
-          <NumberRow
-            label="Letter spacing"
-            hint={`extra px per cell (${TERMINAL_BOUNDS.letterSpacing.min}–${TERMINAL_BOUNDS.letterSpacing.max})`}
-            value={terminal.letterSpacing}
-            bounds={TERMINAL_BOUNDS.letterSpacing}
-            kind="fractional"
-            step={0.1}
-            onCommit={(next) => patch({ letterSpacing: next })}
-          />
-
-          <FieldRow
-            label="Screen reader mode"
-            hint="expose terminal output to the screen reader"
-          >
-            <input
-              type="checkbox"
-              checked={terminal.screenReaderMode}
-              aria-label="Screen reader mode"
-              onChange={(event) =>
-                void patch({ screenReaderMode: event.target.checked })
-              }
-            />
-          </FieldRow>
-
-          <FieldRow group label="Bell" hint="what happens when a program rings the bell">
-            <Select
-              dense
-              value={terminal.bell}
-              aria-label="Bell"
-              options={BELLS.map((option) => ({
-                value: option.value,
-                label: option.label,
-              }))}
-              onChange={(value) => {
-                const choice = BELLS.find((option) => option.value === value);
-                if (choice) void patch({ bell: choice.value });
+              type="range"
+              min={TERMINAL_BOUNDS.scrollSensitivity.min}
+              max={TERMINAL_BOUNDS.scrollSensitivity.max}
+              step={1}
+              value={terminal.scrollSensitivity}
+              aria-label="Scroll sensitivity"
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                if (!Number.isFinite(next)) return;
+                void patch({ scrollSensitivity: Math.round(next) });
               }}
             />
-          </FieldRow>
-        </div>
-      </div>
+            <span className="settings-field__range-value">{terminal.scrollSensitivity}</span>
+          </span>
+        </FieldRow>
+        <NumberRow
+          label="Scrollback"
+          hint={`Lines of earlier output you can scroll back to in each terminal, ${range(TERMINAL_BOUNDS.scrollback)}. More lines use more memory.`}
+          value={terminal.scrollback}
+          bounds={TERMINAL_BOUNDS.scrollback}
+          kind="integer"
+          step={100}
+          onCommit={(next) => patch({ scrollback: next })}
+        />
+        <FieldRow
+          label="Copy selection automatically"
+          hint="Selecting text in a terminal copies it at once, replacing what was on your clipboard."
+        >
+          <Switch
+            checked={terminal.copyOnSelect === true}
+            aria-label="Copy selection automatically"
+            onCheckedChange={(copyOnSelect) => void patch({ copyOnSelect })}
+          />
+        </FieldRow>
+      </SettingGroup>
+
+      <SettingGroup title="Bell and screen reader">
+        <FieldRow group label="Bell" hint="What happens when a program in a terminal rings the bell.">
+          <Select
+            dense
+            value={terminal.bell}
+            aria-label="Bell"
+            options={BELLS.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            onChange={(value) => {
+              const choice = BELLS.find((option) => option.value === value);
+              if (choice) void patch({ bell: choice.value });
+            }}
+          />
+        </FieldRow>
+        <FieldRow
+          label="Screen reader mode"
+          hint="Lets a screen reader read terminal output. Turn it on if you use one."
+        >
+          <Switch
+            checked={terminal.screenReaderMode}
+            aria-label="Screen reader mode"
+            onCheckedChange={(screenReaderMode) => void patch({ screenReaderMode })}
+          />
+        </FieldRow>
+      </SettingGroup>
     </div>
   );
 }
