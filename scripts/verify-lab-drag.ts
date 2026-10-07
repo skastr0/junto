@@ -187,6 +187,20 @@ const gripNow = () =>
     const box = card.getBoundingClientRect();
     return { x: box.left + box.width / 2, y: box.top + box.height / 2, selected: document.querySelectorAll(".react-flow__node.selected").length };
   })()`);
+// For each chosen card: does React Flow mark it selected (the class), and does
+// the app's own label say so (aria-label ending in "selected")?
+const selectionOf = () =>
+  evaluate<Array<{ id: string; cls: boolean; aria: boolean }>>(`${JSON.stringify(chosen.map((card) => card.id))}.map((id) => {
+    const card = document.querySelector('.react-flow__node[data-id="' + id + '"]');
+    const label = card?.getAttribute("aria-label") ?? card?.querySelector("[aria-label]")?.getAttribute("aria-label") ?? "";
+    return { id, cls: card?.classList.contains("selected") ?? false, aria: /selected\s*$/u.test(label) };
+  })`);
+const lacking = (rows: Array<{ id: string; cls: boolean; aria: boolean }>) => ({
+  withClass: rows.filter((row) => row.cls).length,
+  withAria: rows.filter((row) => row.aria).length,
+  lackClass: rows.filter((row) => !row.cls).map((row) => row.id),
+  lackAria: rows.filter((row) => !row.aria).map((row) => row.id),
+});
 const routed = () =>
   evaluate<{ total: number; byTrigger: Record<string, number> } | null>(`(() => {
     const snap = typeof juntoPerf === "object" ? juntoPerf.snapshot() : null;
@@ -213,6 +227,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   const direction = repeat % 2 === 0 ? 1 : -1;
   const grip = await gripNow();
   if (!grip) break;
+  console.log(JSON.stringify({ selectionBeforePress: lacking(await selectionOf()), gripCard: chosen[0]!.id, repeat }));
   const before = await world();
   const routedBefore = await routed();
   await take();
@@ -272,6 +287,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   await mouse("mouseReleased", grip.x + direction * steps * 2, grip.y + direction * steps);
   await evaluate<number>(`new Promise((done) => requestAnimationFrame(() => done(performance.now())))`);
   const dropMs = Date.now() - released;
+  const selectionAtRelease = lacking(await selectionOf());
   if (profileDrops) {
     await sleep(1_000);
     const { profile } = await send("Profiler.stop", {});
@@ -343,6 +359,7 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
   await sleep(3_000);
   const after = await take();
   const routedDrop = await routed();
+  console.log(JSON.stringify({ selectionRightAfterRelease: selectionAtRelease, selectionThreeSecondsLater: lacking(await selectionOf()), repeat }));
   const dropped = await world();
   const moved = Object.keys(before.positions).filter((id) => before.positions[id] !== dropped.positions[id]).length;
   if (repeat === 0) movedOnFirstDrag = moved;
