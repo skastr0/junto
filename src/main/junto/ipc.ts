@@ -2092,7 +2092,8 @@ export const registerJuntoIpc = (): void => {
         console.info(`[offboard] ${owedContinuations} seat(s) still owed their continuation line`);
       }
       offboardCloser = new SeatOffboardCloser({
-        locate: managedSeatOn,
+        // The closer names the seat first, the canvas second.
+        locate: (seatId, canvasName) => managedSeatOn(canvasName, seatId),
         isRunning: (bindingId) =>
           !productAutomationSuspended && termPlane.host.get(bindingId)?.status === "running",
         isIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
