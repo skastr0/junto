@@ -3,7 +3,7 @@ import { ModelService } from "../src/main/junto/model/service";
 /**
  * Live acceptance for the work control plane + compiled `dist/junto`.
  *
- * Boots the real NDJSON work control daemon (WorkService + CanvasesService)
+ * Boots the real NDJSON work control daemon (WorkService + ModelService)
  * against a sandboxed work home, then drives the compiled CLI from a cwd
  * outside the repo. Proves doctor/onboard/capabilities/claim/batch/scope/
  * artifact/request + 0600 socket + wrong-token AuthError without fighting
@@ -32,7 +32,9 @@ import {
   type AppProcessDrainResult,
   type AppProcessPlane,
 } from "../src/main/junto/app-process-plane";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { ModelLive } from "../src/main/junto/model/layer";
+import { WorkModelDependentsLive } from "../src/main/junto/work/model-dependents";
+import { Command } from "../src/shared/model";
 import {
   startWorkControlServer,
   type WorkControlShutdownReceipt,
@@ -311,74 +313,23 @@ export const runBoundedWorkCliCommand = (
   return Promise.race([closed, closeDeadline]);
 };
 
-const seed = (): import("../src/shared/canvas").CanvasDoc =>
-  ({
+const seed = () => Schema.decodeUnknownSync(Command)({
+  _tag: "Add", canvas: CANVAS,
   nodes: [
-    {
-      id: AGENT,
-      type: "text" as const,
-      x: 40,
-      y: 40,
-      width: 140,
-      height: 56,
-      text: "agent",
-      ether: {
-        entity: { kind: "agent", name: "local:default" },
-        terminal: {
-          bindingId: "work-acceptance-agent",
-          harness: "claude",
-        },
-      },
-    },
-    {
-      id: TASKS,
-      type: "text" as const,
-      x: 240,
-      y: 40,
-      width: 160,
-      height: 80,
-      text: "ship it",
-      ether: {
-        entity: { kind: "task" as const },
-      },
-    },
-    {
-      id: REQS,
-      type: "text" as const,
-      x: 440,
-      y: 40,
-      width: 160,
-      height: 80,
-      text: "0 pending",
-      ether: { entity: { kind: "requests" as const } },
-    },
-    {
-      id: ARTS,
-      type: "text" as const,
-      x: 640,
-      y: 40,
-      width: 160,
-      height: 80,
-      text: "artifacts",
-      ether: { entity: { kind: "artifacts" as const } },
-    },
-    {
-      id: "region",
-      type: "group" as const,
-      x: 0,
-      y: 0,
-      width: 900,
-      height: 200,
-      label: "Acceptance",
-      ether: { region: { hold: false, instruction: "accept the work plane" } },
-    },
+    { kind: "agent", id: AGENT, x: 40, y: 40, width: 140, height: 56, z: 0,
+      label: "agent", agentKey: "local:default", host: "local", overseer: false,
+      bindingId: "work-acceptance-agent", harness: "claude", onRemove: "detach" },
+    { kind: "task", id: TASKS, x: 240, y: 40, width: 160, height: 80, z: 1 },
+    { kind: "requests", id: REQS, x: 440, y: 40, width: 160, height: 80, z: 2 },
+    { kind: "artifacts", id: ARTS, x: 640, y: 40, width: 160, height: 80, z: 3 },
+    { kind: "region", id: "region", x: 0, y: 0, width: 900, height: 200, z: 4,
+      label: "Acceptance", hold: false, instruction: "accept the work plane" },
   ],
-  edges: [
-    { id: "e-tasks", fromNode: AGENT, toNode: TASKS },
-    { id: "e-req", fromNode: AGENT, toNode: REQS },
-    { id: "e-art", fromNode: AGENT, toNode: ARTS },
+  wires: [
+    { id: "e-tasks", from: AGENT, to: TASKS, verb: "contributes" },
+    { id: "e-art", from: AGENT, to: ARTS, verb: "publishes" },
   ],
-} as import("../src/shared/canvas").CanvasDoc);
+});
 
 const runCli = (
   processPlane: AppProcessPlane,
@@ -477,7 +428,7 @@ export const runWorkCliAcceptance = async () => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesLive = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), repositoriesLive);
   const workLive = Layer.provideMerge(
     WorkLive,
     Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
@@ -497,18 +448,15 @@ export const runWorkCliAcceptance = async () => {
 
   // Author only topology, then seed fixed acceptance work through explicit
   // WorkRepository verbs. The canvas never carries a durable work projection.
-  const canvasesSvc = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvasesSvc.write(CANVAS, seed()));
-  const intentWitness = await runtime.runPromise(
-    canvasesSvc.activeIntentWitness(),
-  );
+  const model = await runtime.runPromise(ModelService);
+  await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas: CANVAS }), "operator"));
+  await runtime.runPromise(model.command(seed(), "operator"));
+  const canvas = await runtime.runPromise(model.canvas(CANVAS));
   const basis = Schema.decodeUnknownSync(IntentFactBasis, {
     onExcessProperty: "error",
   })({
-    kind: "canvas", canvasName: CANVAS, seq: (await runtime.runPromise((await runtime.runPromise(ModelService)).canvas(CANVAS))).seq,
+    kind: "canvas", canvasName: CANVAS, seq: canvas.seq,
   });
-  const model = await runtime.runPromise(ModelService);
-  const canvas = await runtime.runPromise(model.canvas(CANVAS));
   const taskSink = { canvasName: CANVAS, nodeId: TASKS };
   const dependencyScope = createCanvasTaskDependencyScopeCapability({
     canvas,
@@ -670,33 +618,13 @@ export const runWorkCliAcceptance = async () => {
     const wrongTok = await readWrongTokenReceipt(server.socketPath);
     log("A3 wrong token", wrongTok);
 
-    const docAfter = (await runtime.runPromise(canvasesSvc.read(CANVAS))).doc;
     log(
       "canvas after",
-      JSON.stringify(
-        {
-          tasks: docAfter.nodes
-            .find((n: { id: string }) => n.id === TASKS)
-            ?.ether?.tasks?.items?.map((t: { id: string; state: string }) => ({
-              id: t.id,
-              state: t.state,
-            })),
-          requests: docAfter.nodes
-            .find((n: { id: string }) => n.id === REQS)
-            ?.ether?.requests?.items?.map((t: { id: string; state: string }) => ({
-              id: t.id,
-              state: t.state,
-            })),
-          artifacts: docAfter.nodes
-            .find((n: { id: string }) => n.id === ARTS)
-            ?.ether?.artifacts?.items?.map((a: { name?: string; artifactId: string }) => ({
-              id: a.artifactId,
-              name: a.name,
-            })),
-        },
-        null,
-        2,
-      ),
+      JSON.stringify({
+        tasks: (await runtime.runPromise(repository.taskLane(CANVAS, TASKS, "task"))).map((task) => ({ id: task.id, state: task.state })),
+        requests: (await runtime.runPromise(repository.taskLane(CANVAS, REQS, "requests"))).map((task) => ({ id: task.id, state: task.state })),
+        artifacts: (await runtime.runPromise(repository.artifactLane(CANVAS, ARTS))).map((artifact) => ({ id: artifact.artifactId, name: artifact.name })),
+      }, null, 2),
     );
 
     const claimOk = (() => {

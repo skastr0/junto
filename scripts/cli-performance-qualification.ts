@@ -4,20 +4,20 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { unitTestEnvironment } from "./unit-test-environment";
 import { WORK_TOKEN_ENV } from "../src/shared/work-control";
 
 const [, , mode, ...args] = process.argv;
 
 const serve = async (root: string) => {
-  const [{ makeStateEngineLive }, { makeInstallOpsLive }, { CanvasesLive, CanvasesService },
+  const [{ makeStateEngineLive }, { makeInstallOpsLive }, { ModelLive },
     { WorkLive }, { WorkRepositoryLive }, { CrewRepositoryLive }, { AgentSignalRepositoryLive },
     { StationRepositoryLive }, { StationFleetTargetRepositoryLive }, { StationLivePeerRegistryLive },
     { SettingsLive, SettingsService }, { makeContentServiceLive }, { PausePlaneAllPlaying },
     { startWorkControlServer }, { makeSeatCredentialRegistry, mintSeatCredential }, { makeProcessIdentityMap }] = await Promise.all([
     import("../src/main/junto/state/engine"), import("../src/main/junto/install-ops/engine"),
-    import("../src/main/junto/canvases"), import("../src/main/junto/work/service"),
+    import("../src/main/junto/model/layer"), import("../src/main/junto/work/service"),
     import("../src/main/junto/work/repository"), import("../src/main/junto/work/crew-repository"),
     import("../src/main/junto/signals/repository"), import("../src/main/junto/station/repository"),
     import("../src/main/junto/station/fleet-target-repository"), import("../src/main/junto/station/session-registry"),
@@ -25,23 +25,26 @@ const serve = async (root: string) => {
     import("../src/main/junto/pause-plane"), import("../src/main/junto/work/control"),
     import("../src/main/junto/work/seat-credentials"), import("../src/main/junto/process-identity"),
   ]);
+  const [{ ModelService }, { WorkModelDependentsLive }, { Command }] = await Promise.all([
+    import("../src/main/junto/model/service"), import("../src/main/junto/work/model-dependents"), import("../src/shared/model"),
+  ]);
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive, CrewRepositoryLive, AgentSignalRepositoryLive, StationRepositoryLive,
     StationFleetTargetRepositoryLive, SettingsLive,
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state", "junto.db")), makeInstallOpsLive(join(root, "state", "install-ops.db"))));
-  const canvases = Layer.provideMerge(CanvasesLive, repositories);
+  const canvases = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), repositories);
   const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive,
     Layer.mergeAll(canvases, StationLivePeerRegistryLive)), PausePlaneAllPlaying));
   const settings = await runtime.runPromise(SettingsService);
   await runtime.runPromise(settings.setStationTopology({ role: "command-center", hostId: "local", supervisedPreferred: true }));
-  const canvasService = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvasService.write("cli-performance", { nodes: [{
-    id: "agent", type: "text", text: "qualification", x: 0, y: 0, width: 120, height: 48,
-    ether: { entity: { kind: "agent", name: "local:qualification" }, terminal: {
-      bindingId: "qualification", harness: "codex", launch: { kind: "harness", argv: ["codex"] },
-    } },
-  }], edges: [] }));
+  const model = await runtime.runPromise(ModelService);
+  await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas: "cli-performance" }), "operator"));
+  await runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)({ _tag: "Add", canvas: "cli-performance", nodes: [{
+    kind: "agent", id: "agent", label: "qualification", x: 0, y: 0, width: 120, height: 48, z: 0,
+    agentKey: "local:qualification", host: "local", overseer: false, bindingId: "qualification", harness: "codex", onRemove: "detach",
+    launch: { kind: "harness", argv: ["codex"] },
+  }], wires: [] }), "operator"));
   const credentials = makeSeatCredentialRegistry();
   const mint = mintSeatCredential();
   if (!credentials.publish(mint, { agentKey: "local:qualification", bindingId: "qualification", canvasName: "cli-performance", nodeId: "agent" })) throw new Error("credential publish failed");
