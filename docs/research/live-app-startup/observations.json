@@ -2167,5 +2167,356 @@
       ]
     }
   ],
-  "systemTop": "Processes: 1218 total, 2 running, 1216 sleeping, 8019 threads \n2026/10/07 04:18:36\nLoad Avg: 10.49, 12.82, 10.17 \nCPU usage: 34.54% user, 23.5% sys, 42.40% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 1283600 total, 17G resident, 489M private, 6041M shared.\nPhysMem: 60G used (6831M wired, 13G compressor), 2809M unused.\nVM: 594T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254752615/168G in, 240647693/281G out.\nDisks: 251105284/5973G read, 149955566/3897G written.\n\n\nProcesses: 1221 total, 3 running, 1218 sleeping, 8041 threads \n2026/10/07 04:18:39\nLoad Avg: 10.53, 12.79, 10.17 \nCPU usage: 19.11% user, 9.98% sys, 70.89% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 155 total, 14M resident, 489M private, 6042M shared.\nPhysMem: 60G used (6114M wired, 13G compressor), 3184M unused.\nVM: 595T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254753804/168G in, 240649567/281G out.\nDisks: 251105284/5973G read, 149955578/3897G written.\n\n\nProcesses: 1222 total, 7 running, 1215 sleeping, 7957 threads \n2026/10/07 04:18:41\nLoad Avg: 10.53, 12.79, 10.17 \nCPU usage: 34.21% user, 18.50% sys, 47.28% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 211 total, 26M resident, 489M private, 6044M shared.\nPhysMem: 61G used (6791M wired, 13G compressor), 2649M unused.\nVM: 596T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254756338/168G in, 240653171/281G out.\nDisks: 251105308/5973G read, 149955854/3897G written.\n\n\n"
+  "systemTop": "Processes: 1218 total, 2 running, 1216 sleeping, 8019 threads \n2026/10/07 04:18:36\nLoad Avg: 10.49, 12.82, 10.17 \nCPU usage: 34.54% user, 23.5% sys, 42.40% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 1283600 total, 17G resident, 489M private, 6041M shared.\nPhysMem: 60G used (6831M wired, 13G compressor), 2809M unused.\nVM: 594T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254752615/168G in, 240647693/281G out.\nDisks: 251105284/5973G read, 149955566/3897G written.\n\n\nProcesses: 1221 total, 3 running, 1218 sleeping, 8041 threads \n2026/10/07 04:18:39\nLoad Avg: 10.53, 12.79, 10.17 \nCPU usage: 19.11% user, 9.98% sys, 70.89% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 155 total, 14M resident, 489M private, 6042M shared.\nPhysMem: 60G used (6114M wired, 13G compressor), 3184M unused.\nVM: 595T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254753804/168G in, 240649567/281G out.\nDisks: 251105284/5973G read, 149955578/3897G written.\n\n\nProcesses: 1222 total, 7 running, 1215 sleeping, 7957 threads \n2026/10/07 04:18:41\nLoad Avg: 10.53, 12.79, 10.17 \nCPU usage: 34.21% user, 18.50% sys, 47.28% idle \nSharedLibs: 927M resident, 129M data, 133M linkedit.\nMemRegions: 211 total, 26M resident, 489M private, 6044M shared.\nPhysMem: 61G used (6791M wired, 13G compressor), 2649M unused.\nVM: 596T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.\nNetworks: packets: 254756338/168G in, 240653171/281G out.\nDisks: 251105308/5973G read, 149955854/3897G written.\n\n\n",
+  "capabilitiesFollowup": {
+    "burst": {
+      "at": "2026-10-07T07:32:04.471Z",
+      "command": "capabilities",
+      "count": 24,
+      "successes": 24,
+      "wallMs": 2410.907292,
+      "medianMs": 1581.4190409999999,
+      "p95Ms": 2395.675416,
+      "maxMs": 2400.0849580000004,
+      "samples": [
+        {
+          "ms": 448.08466699999997,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 759.2600420000001,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1119.185042,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1838.9290829999998,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1498.9130420000001,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 669.9593329999999,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 945.207209,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1914.1224170000003,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1032.514958,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 434.28229199999987,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1230.911917,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 849.9278330000001,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1317.436542,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 2246.083417,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1662.610875,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 2077.1243329999998,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1581.4190409999999,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 2395.675416,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1747.9032080000002,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1403.0401250000002,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 2400.0849580000004,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 1994.3139579999997,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 2318.1257920000003,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        },
+        {
+          "ms": 2149.0434999999998,
+          "exitCode": 0,
+          "success": true,
+          "stdoutBytes": 12067,
+          "stderrBytes": 0
+        }
+      ]
+    },
+    "samples": [
+      {
+        "name": "main-capabilities-burst.sample.txt",
+        "scratchPath": "/tmp/junto-live-profile.kGOJlp/main-capabilities-burst.sample.txt",
+        "sha256": "99efff1734b09db971a693ce8003d52c6eb402988f5a6271a92974ed99be25c1",
+        "metadata": [
+          "Analysis of sampling Junto (pid 40070) every 2 milliseconds",
+          "Process:         Junto [40070]",
+          "Path:            /Applications/Junto.app/Contents/MacOS/Junto",
+          "Load Address:    0x100a34000",
+          "Identifier:      com.skastr0.junto",
+          "Version:         0.5.0 (0.5.0)",
+          "Code Type:       ARM64",
+          "Platform:        macOS",
+          "Parent Process:  launchd [1]",
+          "Target Type:     live task",
+          "",
+          "Date/Time:       2026-10-07 04:32:03.826 -0300",
+          "Launch Time:     2026-10-07 03:09:32.859 -0300",
+          "OS Version:      macOS 26.5.2 (25F84)",
+          "Report Version:  7",
+          "Analysis Tool:   /usr/bin/sample",
+          "",
+          "Physical footprint:         317.8M",
+          "Physical footprint (peak):  420.8M",
+          "Idle exit:                  untracked",
+          "----",
+          "",
+          "Call graph:"
+        ],
+        "firstThreadHeader": "    2073 Thread_28750490: CrBrowserMain",
+        "firstThreadSamples": 2073,
+        "uv_fs_scandirInclusiveSamples": 220,
+        "uv_fs_accessInclusiveSamples": 50,
+        "uv_fs_statInclusiveSamples": 149,
+        "firstThreadFrames": [
+          "    +                         !   :           | + !   :   1011 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +   ! : | +     ! 73 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +   ! : |   + ! : | 2 uv_fs_stat  (in Electron Framework) + 229924  [0x10d051380]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +   ! : |   +         ! : | 1 uv_fs_stat  (in Electron Framework) + 229924  [0x10d051380]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +   !   | + !     30 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +   !   |     + !   1 uv_fs_stat  (in Electron Framework) + 229924  [0x10d051380]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +   !   |                   5 uv_fs_stat  (in Electron Framework) + 14668  [0x10d01caa8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +     ! :       | 5 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +     ! :         1 uv_fs_scandir_next  (in Electron Framework) + 60  [0x10edeaa38]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :     | +       :       | 6 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! :         + ! : 51 uv_fs_stat  (in Electron Framework) + 312  [0x10d019294]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   +         ! : | 26 uv_fs_access  (in Electron Framework) + 80  [0x10e7da09c]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   + ! : |     +       !       1 uv_fs_stat  (in Electron Framework) + 9320  [0x10d01b5c4]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   + !                     :     |   + ! : |     +       !         1 uv_fs_stat  (in Electron Framework) + 9620  [0x10d01b6f0]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :     | +       !   :   | 33 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :     | +       !   :   | 1 uv_fs_scandir_next  (in Electron Framework) + 60  [0x10edeaa38]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :     | +       !   :     6 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :     |       !     1 uv_fs_stat  (in Electron Framework) + 9320  [0x10d01b5c4]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :     |       !       1 uv_fs_stat  (in Electron Framework) + 9980  [0x10d01b858]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :     |       !         1 uv_fs_stat  (in Electron Framework) + 12688  [0x10d01c2ec]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :     |       !           1 uv_fs_stat  (in Electron Framework) + 12960  [0x10d01c3fc]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :     |       !             1 uv_fs_stat  (in Electron Framework) + 14668  [0x10d01caa8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         ! :         +   ! 17 uv_fs_stat  (in Electron Framework) + 312  [0x10d019294]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                       :     |   +         !   : 10 uv_fs_access  (in Electron Framework) + 80  [0x10e7da09c]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                                 |         + !     : |       + !       47 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                                 |         + !     : |       +       ! 4 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                                 |         + !             | 10 uv_fs_stat  (in Electron Framework) + 312  [0x10d019294]",
+          "    +                         !   :           | + !     :   | + ! : | +     !     :             |   +                                 |         +   ! 10 uv_fs_access  (in Electron Framework) + 80  [0x10e7da09c]",
+          "    +                         !   :           | + !     :   | + ! : | + !   :                             |               28 node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600  [0x10f14d5b8]",
+          "    +                         !   :           | + !     :   | + ! : | + !   :                               +             3 node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600  [0x10f14d5b8]",
+          "    +                         !   :           | + !     :   | + ! : | + !                             |               14 node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600  [0x10f14d5b8]",
+          "    +                         !   :           | + !     :   | + ! : | + !                               +             2 node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600  [0x10f14d5b8]",
+          "    +                         !   :           | + !     :   | + ! : | + !   : 29 uv_fs_stat  (in Electron Framework) + 17056  [0x10d01d3fc]",
+          "    +                         !   :           | + !     :   | + ! : | + !       2 uv_fs_stat  (in Electron Framework) + 12960  [0x10d01c3fc]",
+          "    +                         !   :           | + !     :   | + ! : | + !         2 uv_fs_stat  (in Electron Framework) + 14668  [0x10d01caa8]",
+          "    +                         !   :           | + !     :   | + ! :                           |               54 node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600  [0x10f14d5b8]",
+          "    +                         !   :           | + !     :   | + ! :                             +   !         6 node::SyncProcessRunner::Spawn(v8::FunctionCallbackInfo<v8::Value> const&)  (in Electron Framework) + 600  [0x10f14d5b8]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !       : 15 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !     : |       1 uv_fs_stat  (in Electron Framework) + 12688  [0x10d01c2ec]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !     : |         1 uv_fs_stat  (in Electron Framework) + 12960  [0x10d01c3fc]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !     : |           1 uv_fs_stat  (in Electron Framework) + 14776  [0x10d01cb14]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !     : |             1 uv_fs_stat  (in Electron Framework) + 16476  [0x10d01d1b8]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !     : |               1 uv_fs_stat  (in Electron Framework) + 19768  [0x10d01de94]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !       :           1 uv_fs_stat  (in Electron Framework) + 229924  [0x10d051380]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !       1 uv_fs_stat  (in Electron Framework) + 9320  [0x10d01b5c4]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !         1 uv_fs_stat  (in Electron Framework) + 9980  [0x10d01b858]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !           1 uv_fs_stat  (in Electron Framework) + 12688  [0x10d01c2ec]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !             1 uv_fs_stat  (in Electron Framework) + 12960  [0x10d01c3fc]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !               1 uv_fs_stat  (in Electron Framework) + 14668  [0x10d01caa8]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :     | +       !       : 1 uv_fs_scandir  (in Electron Framework) + 188  [0x10edecfe8]",
+          "    +                         !   :           | +                 !   :                             |                                 +         ! :             + 6 uv_fs_stat  (in Electron Framework) + 312  [0x10d019294]",
+          "    +                         !   :           | +                 !   :                             |                                 +         !   : 4 uv_fs_access  (in Electron Framework) + 80  [0x10e7da09c]",
+          "    +                         !   :           | +                 !           5 uv_fs_stat  (in Electron Framework) + 17056  [0x10d01d3fc]",
+          "    +                         !   :                                     1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+          "    +                               : |                           + ! :       18 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+          "    +                                                                                             1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]"
+        ]
+      },
+      {
+        "name": "renderer-capabilities-burst.sample.txt",
+        "scratchPath": "/tmp/junto-live-profile.kGOJlp/renderer-capabilities-burst.sample.txt",
+        "sha256": "3914aa294d9dbe778738a84da3a49b8943a436974c260d35050b9ee5d6948f53",
+        "metadata": [
+          "Analysis of sampling Junto Helper (Renderer) (pid 40088) every 2 milliseconds",
+          "Process:         Junto Helper (Renderer) [40088]",
+          "Path:            /Applications/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)",
+          "Load Address:    0x100d44000",
+          "Identifier:      com.skastr0.junto.helper.Renderer",
+          "Version:         0.5.0",
+          "Code Type:       ARM64",
+          "Platform:        macOS",
+          "Parent Process:  Junto [40070]",
+          "Target Type:     live task",
+          "",
+          "Date/Time:       2026-10-07 04:32:03.817 -0300",
+          "Launch Time:     2026-10-07 03:09:36.940 -0300",
+          "OS Version:      macOS 26.5.2 (25F84)",
+          "Report Version:  7",
+          "Analysis Tool:   /usr/bin/sample",
+          "",
+          "Physical footprint:         504.0M",
+          "Physical footprint (peak):  1.1G",
+          "Idle exit:                  untracked",
+          "----",
+          "",
+          "Call graph:"
+        ],
+        "firstThreadHeader": "    2152 Thread_28750934   DispatchQueue_1: com.apple.main-thread  (serial)",
+        "firstThreadSamples": 2152,
+        "uv_fs_scandirInclusiveSamples": 0,
+        "uv_fs_accessInclusiveSamples": 0,
+        "uv_fs_statInclusiveSamples": 6,
+        "firstThreadFrames": [
+          "    +                 ! :       1963 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+          "    +                   : | +     !     : 1 uv_fs_stat  (in Electron Framework) + 162588  [0x10d3e8c78]",
+          "    +                   : | +     !     : 1 uv_fs_stat  (in Electron Framework) + 163056  [0x10d3e8e4c]",
+          "    +                   : | +     !     :   1 uv_fs_stat  (in Electron Framework) + 164060  [0x10d3e9238]",
+          "    +                   : | +     !     :     1 uv_fs_stat  (in Electron Framework) + 167448  [0x10d3e9f74]",
+          "    +                   : | + !             :     |     +   1 uv_fs_stat  (in Electron Framework) + 163056  [0x10d3e8e4c]",
+          "    +                   : | + !             :     |     +     1 uv_fs_stat  (in Electron Framework) + 164476  [0x10d3e93d8]",
+          "    +                   : | + !             :                           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+          "    +                   : |             1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]",
+          "    +                   :           1 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18e1bdc34]"
+        ]
+      }
+    ],
+    "installedExcerpts": [
+      {
+        "start": 5260,
+        "end": 5312,
+        "text": "  \"/usr/local/bin\",\n  \"/opt/local/bin\",\n  \"/usr/bin\",\n  \"/bin\",\n  \"/usr/sbin\",\n  \"/sbin\"\n];\nconst readVersionDirs = (root) => {\n  try {\n    const rank = (entry) => entry.isSymbolicLink() ? 0 : /\\d/.test(entry.name) ? 1 : 2;\n    return readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() || entry.isSymbolicLink()).sort((left, right) => {\n      const rankDiff = rank(left) - rank(right);\n      if (rankDiff !== 0) return rankDiff;\n      return right.name.localeCompare(left.name, void 0, { numeric: true });\n    }).map((entry) => join(root, entry.name));\n  } catch {\n    return [];\n  }\n};\nconst isDirectory$1 = (path2) => {\n  try {\n    return statSync(path2).isDirectory();\n  } catch {\n    return false;\n  }\n};\nconst expandVersionRoot = (root, tail) => {\n  let dirs = [root];\n  for (const segment of tail) {\n    dirs = segment === \"*\" ? dirs.flatMap((dir) => readVersionDirs(dir)) : dirs.map((dir) => join(dir, segment));\n  }\n  return dirs;\n};\nconst enumeratedToolDirs = (home) => {\n  const specs = [\n    [join(home, \".nvm\", \"versions\", \"node\"), [\"*\", \"bin\"]],\n    [join(home, \".pyenv\", \"versions\"), [\"*\", \"bin\"]],\n    [join(home, \".rbenv\", \"versions\"), [\"*\", \"bin\"]],\n    [join(home, \".local\", \"share\", \"mise\", \"installs\"), [\"*\", \"*\", \"bin\"]],\n    [join(home, \".asdf\", \"installs\"), [\"*\", \"*\", \"bin\"]],\n    [\n      join(home, \".local\", \"share\", \"fnm\", \"node-versions\"),\n      [\"*\", \"installation\", \"bin\"]\n    ],\n    [join(home, \".volta\", \"tools\", \"image\", \"node\"), [\"*\", \"bin\"]]\n  ];\n  return specs.flatMap(\n    ([root, tail]) => expandVersionRoot(root, tail).filter(isDirectory$1)\n  );\n};\nconst mergePath = (inputs) => {\n  const segments = [];\n  const pushAll = (value) => {"
+      },
+      {
+        "start": 63231,
+        "end": 63262,
+        "text": "const harnessSearchPath = (options = {}) => {\n  const home = options.home ?? homedir();\n  const sep2 = options.pathSep ?? delimiter;\n  const segments = [];\n  const push = (value) => {\n    if (!value) return;\n    for (const part of value.split(sep2)) {\n      const dir = part.trim();\n      if (dir) segments.push(dir);\n    }\n  };\n  push(options.pathEnv ?? process.env.PATH ?? process.env.Path ?? \"\");\n  for (const dir of options.extraDirs ?? configuredToolDirectories()) {\n    const trimmed2 = dir.trim();\n    if (trimmed2) segments.push(trimmed2);\n  }\n  for (const dir of enumeratedToolDirs(home)) segments.push(dir);\n  for (const dir of knownHarnessInstallDirs(home)) segments.push(dir);\n  const seen = /* @__PURE__ */ new Set();\n  const merged = [];\n  for (const dir of segments) {\n    if (seen.has(dir)) continue;\n    seen.add(dir);\n    merged.push(dir);\n  }\n  return merged.join(sep2);\n};\nconst SHIM_ROOT = /[/\\\\]shims$/u;\nconst SHIM_LIVENESS_TIMEOUT_MS = 1500;\nconst SHIM_LIVENESS_CACHE_MS = 6e4;\nconst shimLivenessCache = /* @__PURE__ */ new Map();\nconst shimRunsLive = (candidate, pathEnv) => {"
+      },
+      {
+        "start": 63345,
+        "end": 63374,
+        "text": "    return name;\n  }\n  for (const dir of searchPath.split(sep2)) {\n    if (!dir) continue;\n    const candidate = join(dir, name);\n    if (!isExecutableFile(candidate)) continue;\n    if (SHIM_ROOT.test(dir) && !shimRunsLive(candidate, searchPath)) continue;\n    return candidate;\n  }\n  return void 0;\n};\nconst harnessBinaryInstalled = (harness, binary, options) => resolveHarnessExecutable(binary, harness === \"junto-overseer\" ? {\n  ...options,\n  extraDirs: [...juntoCliPathPrefixes(), ...configuredToolDirectories()]\n} : options) !== void 0;\nconst probeOne = (template) => {\n  const binary = template.argvSpec.binary;\n  return {\n    harness: template.harness,\n    displayName: template.displayName,\n    binary,\n    installed: harnessBinaryInstalled(template.harness, binary),\n    mailTransport: template.mailTransport,\n    isolation: template.isolation\n  };\n};\nconst probeManagedHarnessInstalls = () => allTemplates().map(probeOne);\nconst harnessInstall = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({\n  __proto__: null,\n  harnessBinaryInstalled,"
+      },
+      {
+        "start": 95868,
+        "end": 95885,
+        "text": "    }\n  }\n  if (op === \"capabilities\") {\n    const self = findNode$1(board, caller.nodeId);\n    const connected = connectedCapabilities(board, caller.nodeId);\n    const overseer = isManagedAgentNode(self) && self.ether.overseer === true;\n    return {\n      node: summarizeNode(self),\n      harnesses: probeManagedHarnessInstalls(),\n      // Additive: derived factory role of the credentialed seat.\n      role: factoryRoleOfNode(self),\n      tools: overseer ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL] : [PREAMBLE_TOOL, ...SIGNAL_TOOLS],\n      overseer: { enabled: overseer, affectedByPause: false },\n      protocol_version: WORK_PROTOCOL_VERSION,\n      connected,\n      co_members: regionVisibility(board, caller.nodeId),\n      // Pause surface: a paused seat must distinguish pause from a broken\n      // grant. Reads stay open; mutating ops still refuse with Paused."
+      }
+    ],
+    "caveats": [
+      "Native sample includes background work and the surrounding five-second window, not only the 2.41-second burst.",
+      "Synchronous spawn frames were also present in this capture; their caller and command are not attributed by the native trace.",
+      "No renderer frame-gap measurement, startup-window capture, or fix was performed."
+    ]
+  }
 }
