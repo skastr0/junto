@@ -9,3 +9,4 @@ export * from "./wire";
 export * from "./commands";
 export * from "./events";
 export * from "./canvas";
+export * from "./title";

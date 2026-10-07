@@ -79,7 +79,7 @@ export type Seat = typeof Seat.Type;
 export const Terminal = Schema.Struct({
   kind: Schema.Literal("terminal"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
   host: HostId,
   bindingId: BindingId,
   launch: Schema.optionalKey(Launch),
@@ -107,7 +107,7 @@ export type Page = typeof Page.Type;
 export const TaskBoard = Schema.Struct({
   kind: Schema.Literal("task"),
   ...placement,
-  name: Schema.optionalKey(Schema.String),
+  name: Schema.optionalKey(OneLine),
   /** What agents read and must satisfy when they take a task here. */
   contract: Schema.optionalKey(TasksContract),
 });
@@ -116,14 +116,14 @@ export type TaskBoard = typeof TaskBoard.Type;
 export const Requests = Schema.Struct({
   kind: Schema.Literal("requests"),
   ...placement,
-  name: Schema.optionalKey(Schema.String),
+  name: Schema.optionalKey(OneLine),
 });
 export type Requests = typeof Requests.Type;
 
 export const Artifacts = Schema.Struct({
   kind: Schema.Literal("artifacts"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
 });
 export type Artifacts = typeof Artifacts.Type;
 
@@ -131,7 +131,7 @@ export type Artifacts = typeof Artifacts.Type;
 export const Board = Schema.Struct({
   kind: Schema.Literal("board"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
 });
 export type Board = typeof Board.Type;
 
@@ -139,7 +139,7 @@ export type Board = typeof Board.Type;
 export const Pad = Schema.Struct({
   kind: Schema.Literal("pad"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
 });
 export type Pad = typeof Pad.Type;
 
@@ -151,7 +151,7 @@ export type Pad = typeof Pad.Type;
 export const Sheet = Schema.Struct({
   kind: Schema.Literal("sheet"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
 });
 export type Sheet = typeof Sheet.Type;
 
@@ -160,7 +160,7 @@ export type Sheet = typeof Sheet.Type;
 export const Cron = Schema.Struct({
   kind: Schema.Literal("cron"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
   /** Five fields: minute, hour, day of month, month, day of week. */
   expression: NonEmpty,
 });
@@ -169,7 +169,7 @@ export type Cron = typeof Cron.Type;
 export const Relay = Schema.Struct({
   kind: Schema.Literal("relay"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
 });
 export type Relay = typeof Relay.Type;
 
@@ -177,7 +177,7 @@ export type Relay = typeof Relay.Type;
 export const Watcher = Schema.Struct({
   kind: Schema.Literal("watcher"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
   key: Schema.optionalKey(Schema.String),
   stat: Schema.optionalKey(Schema.String),
   op: Schema.optionalKey(Schema.Literals(["gt", "lt", "eq"])),
@@ -223,7 +223,7 @@ export type LinkCard = typeof LinkCard.Type;
 export const GitCard = Schema.Struct({
   kind: Schema.Literal("git"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(OneLine),
   cwd: NonEmpty,
 });
 export type GitCard = typeof GitCard.Type;

@@ -34,7 +34,7 @@ const set = Schema.optionalKey;
 /** A field that may be absent on the node: `null` clears it. */
 const setOrClear = <S extends Schema.Top>(field: S) => Schema.optionalKey(Schema.NullOr(field));
 
-const label = setOrClear(Schema.String);
+const label = setOrClear(OneLine);
 const edit = <const K extends NodeKind, Fields extends Schema.Struct.Fields>(
   kind: K,
   fields: Fields,
@@ -66,8 +66,8 @@ export const NodeEdit = Schema.Union([
     host: set(HostId),
     onRemove: set(PageOnRemove),
   }),
-  edit("task", { name: setOrClear(Schema.String), contract: setOrClear(TasksContract) }),
-  edit("requests", { name: setOrClear(Schema.String) }),
+  edit("task", { name: setOrClear(OneLine), contract: setOrClear(TasksContract) }),
+  edit("requests", { name: setOrClear(OneLine) }),
   edit("artifacts", { label }),
   edit("board", { label }),
   edit("pad", { label }),

@@ -136,7 +136,7 @@ export type RegionBackgroundStyle = typeof RegionBackgroundStyle.Type;
 export const Region = Schema.Struct({
   kind: Schema.Literal("region"),
   ...placement,
-  label: Schema.optionalKey(Schema.String),
+  label: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isPattern(/^[^\r\n]*$/)))),
   /** Things inside travel with the region when it moves. */
   hold: Schema.Boolean,
   /** Briefing for agents inside, served on onboard. */
