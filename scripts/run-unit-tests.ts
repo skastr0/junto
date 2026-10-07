@@ -15,6 +15,15 @@ const VITEST = join(ROOT, "node_modules", ".bin", "vitest");
 const extra = process.argv.slice(2);
 const lanes = vitestFileLanes();
 
+// Electron's package downloads its binary synchronously on first require.
+// Cold parallel workers otherwise race while unpacking the same directory.
+const runtime = spawnSync(process.execPath, ["-e", "require('electron')"], {
+  cwd: ROOT,
+  stdio: "inherit",
+  env: unitTestEnvironment(process.env),
+});
+if (runtime.status !== 0) process.exit(runtime.status ?? 1);
+
 const run = (
   label: string,
   isolate: boolean,
