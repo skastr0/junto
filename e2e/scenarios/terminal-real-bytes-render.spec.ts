@@ -93,6 +93,26 @@ for (const { harness, scenario } of CASES) {
     await expect.poll(async () => (await geomOf(page)) !== undefined, { timeout: 30_000 }).toBe(true);
     await waitForTerminalPaint(page);
 
+    // The grid keeps settling for a moment after the surface opens (it grew
+    // from 41 to 42 rows here), and the capture scrolls by the height it is
+    // replayed at. Replay only once the size has held for three reads and the
+    // terminal's own row count agrees with it, and build the reference at
+    // that same size.
+    let held = 0;
+    let lastSize = "";
+    await expect
+      .poll(
+        async () => {
+          const now = await geomOf(page);
+          const rows = (await terminalRows(page)).length;
+          const size = now ? `${now.cols}x${now.rows}` : "";
+          held = size !== "" && size === lastSize && rows === now?.rows ? held + 1 : 0;
+          lastSize = size;
+          return held >= 3;
+        },
+        { timeout: 15_000, intervals: [400] },
+      )
+      .toBe(true);
     const geom = (await geomOf(page))!;
 
     // Push the real harness stream through the real PTY into the real xterm.
@@ -109,6 +129,7 @@ for (const { harness, scenario } of CASES) {
     await waitForTerminalQuiet(page);
 
     const onScreen = await renderedRows(page);
+    expect(onScreen.length, "the terminal changed height during the replay, so the reference is for another size").toBe(geom.rows);
     await page.screenshot({ path: `/tmp/junto-real-bytes-${harness}-${scenario}.png` });
 
     // Ground truth: the app's own headless terminal, same bytes, same geometry.
