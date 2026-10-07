@@ -5,8 +5,12 @@ import {
   connectMesh,
   disconnectWithin,
   edgeIdsWithin,
+  meshPlanOn,
+  targetPlanOn,
+  wireIdsWithin,
   planConnectMesh,
 } from "../src/renderer/lib/edge-mutations";
+import { canvasOf, region, seat, wire as modelWire } from "./support/model-nodes";
 import { agentCountLabel, agentSeatIds } from "../src/renderer/lib/multi-selection";
 import { placeBesideRect } from "../src/renderer/lib/menu-placement";
 import { state$ } from "../src/renderer/lib/state";
@@ -49,6 +53,24 @@ const pairs = (plan: ReturnType<typeof planConnectMesh>) =>
 
 afterEach(() => {
   state$.error.set("");
+});
+
+describe("the same plans asked of the model canvas", () => {
+  const canvas = canvasOf(
+    [seat("a"), seat("b"), seat("c"), seat("d"), region("region", { x: 0, y: 0, width: 400, height: 200 })],
+    [modelWire("in1", "a", "b", "messages"), modelWire("out", "c", "d", "messages")],
+  );
+
+  it("plans a mesh over what is not yet wired, and a region takes no wire", () => {
+    expect(pairs(meshPlanOn(canvas, ["a", "b", "c"]))).toEqual(["a|c", "b|c"]);
+    expect(targetPlanOn(canvas, ["a", "b"], "region").skipped.map((skip) => skip.reason)).toEqual(["invalid-target", "invalid-target"]);
+    expect(targetPlanOn(canvas, ["a", "b"], "d").toAdd).toHaveLength(2);
+  });
+
+  it("finds the wires inside a selection and leaves the ones that cross out", () => {
+    expect(wireIdsWithin(canvas, ["a", "b", "c"])).toEqual(["in1"]);
+    expect(wireIdsWithin(canvas, ["a"])).toEqual([]);
+  });
 });
 
 describe("planConnectMesh", () => {

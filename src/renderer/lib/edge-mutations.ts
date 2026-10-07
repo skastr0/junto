@@ -490,12 +490,27 @@ export const edgeIdsWithin = (
     .map((edge) => edge.id);
 };
 
+/** The wires with both ends among `nodeIds`; wires to cards outside stay out. */
+export const wireIdsWithin = (canvas: Pick<Canvas, "wires">, nodeIds: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const inside = new Set(nodeIds);
+  return [...canvas.wires.values()]
+    .filter((wire) => inside.has(wire.from) && inside.has(wire.to))
+    .map((wire) => wire.id);
+};
+
+/** What connecting `nodeIds` to each other would add, on the canvas as given. Nothing is written. */
+export const meshPlanOn = (canvas: Canvas, nodeIds: ReadonlyArray<string>): EdgeBatchPlan => {
+  const view = planView(canvas);
+  return planMesh(nodeIds, view.nodes, view.wires);
+};
+
+/** What connecting each of `sourceIds` to `targetId` would add, on the canvas as given. Nothing is written. */
+export const targetPlanOn = (canvas: Canvas, sourceIds: ReadonlyArray<string>, targetId: string): EdgeBatchPlan => {
+  const view = planView(canvas);
+  return planToTarget(sourceIds, targetId, view.nodes, view.wires);
+};
+
 /** Remove every wire among `nodeIds` through the confirmed delete path. */
 export const disconnectWithin = (nodeIds: ReadonlyArray<string>): void => {
-  const inside = new Set(nodeIds);
-  void deleteEdges(
-    [...canvasAsItStands().wires.values()]
-      .filter((wire) => inside.has(wire.from) && inside.has(wire.to))
-      .map((wire) => wire.id),
-  );
+  void deleteEdges(wireIdsWithin(canvasAsItStands(), nodeIds));
 };
