@@ -360,6 +360,27 @@ for (let repeat = 0; repeat < repeats; repeat += 1) {
     const watch = await evaluate<{ release: number; frames: Array<{ at: number; boxes: Record<string, [string | null, string]>; loom: Record<string, number> }> }>(`(() => { const w = window.__verifyWatch; w.stopped = true; return { release: w.release, frames: w.frames }; })()`);
     // Each frame after the release in which a card's box or a loom counter moved; boxes read "x,y,width,height,z".
     console.log(JSON.stringify({ dropWatch: watch.frames.map((frame) => ({ msAfterRelease: Math.round((frame.at - watch.release) * 10) / 10, cardsChanged: Object.keys(frame.boxes).length, boxes: frame.boxes, loom: frame.loom })), repeat }));
+    // Where the model says each selected card is, against where its wrapper sits on screen once the drop has settled.
+    const apart = await evaluate<{ compared: number; apart: Array<{ id: string; model: [number, number]; screen: [number, number] }>; error?: string }>(`(async () => {
+      try {
+        const opened = await window.junto.modelOpen({ canvas: ${JSON.stringify(arg("canvas", "verify-counts"))} });
+        const model = new Map(opened.nodes.map((node) => [node.id, node]));
+        const out = [];
+        let compared = 0;
+        for (const card of document.querySelectorAll(".react-flow__node.selected")) {
+          const id = card.getAttribute("data-id");
+          const at = /translate\\(([-0-9.]+)px,\\s*([-0-9.]+)px\\)/.exec(card.style.transform) ?? [];
+          const node = model.get(id);
+          if (!node) continue;
+          compared += 1;
+          if (Math.abs(node.x - Number(at[1])) > 0.01 || Math.abs(node.y - Number(at[2])) > 0.01) out.push({ id, model: [node.x, node.y], screen: [Number(at[1]), Number(at[2])] });
+        }
+        return { compared, apart: out };
+      } catch (error) {
+        return { compared: 0, apart: [], error: String(error).slice(0, 200) };
+      }
+    })()`);
+    console.log(JSON.stringify({ modelAgainstScreen: { compared: apart.compared, apart: apart.apart.length, first: apart.apart.slice(0, 3), error: apart.error ?? null }, repeat }));
   }
   const selectionAtRelease = lacking(await selectionOf());
   if (profileDrops) {
