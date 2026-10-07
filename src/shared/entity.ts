@@ -53,7 +53,7 @@ export const entityKeyOf = (
 
 /**
  * Proof that an entity currently holds canvas membership (present in the
- * authorial document). Only ActiveEntity carries this brand.
+ * current canvas rows). Only ActiveEntity carries this brand.
  */
 export type EntityMembershipProof = {
   readonly _tag: "EntityMembershipProof";
@@ -73,7 +73,7 @@ const membershipProof = (
 /**
  * An entity that is on a canvas and lifecycle=active.
  * Construction requires a membership proof minted only from a live node id
- * present in a CanvasDoc for that canvas.
+ * present in the current node rows for that canvas.
  */
 export type ActiveEntity = {
   readonly _tag: "ActiveEntity";

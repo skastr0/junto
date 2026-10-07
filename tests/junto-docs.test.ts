@@ -15,6 +15,19 @@ describe("junto docs catalog", () => {
     expect(agent).toContain("process-bind");
   });
 
+  it.each([
+    ["agent", ["agentKey", "bindingId", "harness", "onRemove"]],
+    ["task", ["name", "contract"]],
+    ["requests", ["name"]],
+    ["board", ["label"]],
+    ["sheet", ["label"]],
+    ["page", ["url", "profile", "onRemove"]],
+  ] as const)("%s documents its native authored fields", (kind, fields) => {
+    const doc = buildNodeKindDoc(kind)!;
+    for (const field of fields) expect(doc).toContain(`\`${field}\``);
+    for (const field of ["items", "topics", "unread"]) expect(doc).not.toContain(`- \`${field}\``);
+  });
+
   it("unknown kinds return undefined", () => {
     expect(buildNodeKindDoc("nope")).toBeUndefined();
   });

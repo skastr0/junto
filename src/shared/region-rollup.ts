@@ -15,10 +15,10 @@ import type { WorkItemsOf } from "./execution-graph";
 
 // Region severity rollups: the operational tier of the bottom-bar information
 // ladder (minimap strategic / region bar operational / selection tactical).
-// One rollup per group node — the region is the control group; every member's
+// One rollup per region node — the region is the control group; every member's
 // severity bubbles up to the chip.
 //
-// Pure, side-effect-free, derived from (document + compiled actor refs +
+// Pure, side-effect-free, derived from (canvas rows + compiled actor refs +
 // optional live inputs). Never persisted. INVARIANT (mirror of the edge law):
 // unknown or missing live data invents NOTHING — absent snapshots/activity
 // only narrow what can be derived; they never fabricate blocks, attention,
@@ -38,7 +38,7 @@ export const MemberSeverity = Schema.Literals([
 ]);
 export type MemberSeverity = typeof MemberSeverity.Type;
 
-// Live per-agent runtime signal, keyed by ether.entity.name (the hermes
+// Live per-agent runtime signal, keyed by agentKey (the hermes
 // "<host>:<profile>" key). The app-side ACP chat plane fills this in; the
 // headless digest omits it entirely (determinism over liveness).
 export const AgentActivity = Schema.Struct({
@@ -50,7 +50,7 @@ export type AgentActivity = typeof AgentActivity.Type;
 export const MemberStatus = Schema.Struct({
   nodeId: Schema.String,
   label: Schema.String,
-  // ether.entity.kind, or "node" for unbound (ether-free) members.
+  // the native node kind.
   kind: Schema.String,
   severity: MemberSeverity,
   // Short machine strings, worst-tier first: work:<detail>, edge:<detail>,
@@ -76,7 +76,7 @@ export const RegionRollup = Schema.Struct({
     ready: Schema.Number,
   }),
   // Sorted: severity rank (blocked -> idle), then kind rank (agent, task/
-  // requests, rest), then document order.
+  // requests, rest), then paint order.
   members: Schema.Array(MemberStatus),
 });
 export type RegionRollup = typeof RegionRollup.Type;
@@ -197,7 +197,7 @@ const deriveMember = (
 };
 
 // A region's members, sorted for the rollcall: severity rank (blocked ->
-// idle), then kind rank (agent, project, rest), then document order.
+// idle), then kind rank (agent, project, rest), then paint order.
 const regionMembers = (
   memberIds: ReadonlyArray<string>,
   nodeById: ReadonlyMap<string, Node>,
@@ -236,8 +236,8 @@ const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["co
   return counts;
 };
 
-// One rollup per group node, in document order. Only members per
-// groupMembers(doc) participate — members are non-group nodes, and nodes
+// One rollup per region node, in paint order. Only members per
+// groupMembers(doc) participate — members are non-region nodes, and nodes
 // outside every region are ignored. Nesting-correct as-is: a node inside an
 // inner region is a member of every container, so severity aggregates up the
 // whole region stack without walking region-in-region structure.

@@ -21,16 +21,7 @@ import {
   type KindSpec,
 } from "./physics/kinds";
 import { ALL_PORTS, type Port } from "./physics/schema";
-import {
-  EtherArtifacts,
-  EtherBoard,
-  WorkMessages,
-  PadGlance,
-  EtherRequests,
-  EtherTasks,
-} from "./work-model";
-import { EtherBrowser, EtherRegion, EtherTerminal, EtherTimer, EtherWatch } from "./canvas";
-import { EtherSheet } from "./sheet";
+import { Seat, TaskBoard, Requests, Artifacts, Board, Pad, Sheet, Page, Terminal, Cron, Relay, Watcher } from "./model/kinds";
 import {
   SEAT_DOCTRINE,
   buildDoctrineBody,
@@ -133,29 +124,20 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
   timer: ["timer.fire — durable timer due"],
 };
 
-const ETHER_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
-  task: EtherTasks,
-  requests: EtherRequests,
-  artifacts: EtherArtifacts,
-  board: EtherBoard,
-  pad: PadGlance,
-  sheet: EtherSheet,
-  agent: WorkMessages,
-  page: EtherBrowser,
-  terminal: EtherTerminal,
-  cron: EtherTimer,
-  timer: EtherTimer,
-  watcher: EtherWatch,
+const SCHEMA_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
+  task: TaskBoard, requests: Requests, artifacts: Artifacts, board: Board,
+  pad: Pad, sheet: Sheet, agent: Seat, page: Page, terminal: Terminal,
+  cron: Cron, timer: Cron, relay: Relay, watcher: Watcher,
 };
 
 const MODEL_NOTE: Readonly<Record<string, string>> = {
   task: "Tasks board: one stable TaskId is persisted immediately. Omitted admission is approval — the operator's approval lets a seat claim; admission never loosens the board's base admission (Immediate / Approval / Me). dependsOn contains TaskIds only and gates claim until every prerequisite completes. Finish criteria + completionEvidence gate the completed transition; every rule in force needs a claim (or a waiver when the chosen path no longer reaches its board); checks gate sending on.",
-  requests: "Requests sink: items share the Task state machine; resolving a request unblocks the seat.",
-  artifacts: "Artifacts sink: items (Artifact[]) published through the admitted, process-bound path.",
-  board: "Board sink: topics with posts; glance strip in ether, full posts on list/detail.",
-  sheet: "Sheet sink: an operator-authored grid (columns + rows of plain text). The canvas document owns it — there is no work-plane row, no revision counter, and no agent write path.",
+  requests: "Requests sink: separately queried items share the Task state machine; resolving a request unblocks the seat.",
+  artifacts: "Artifacts sink: separately queried items (Artifact[]) published through the admitted, process-bound path.",
+  board: "Board sink: the node holds its authored label; paged Work queries hold topics and posts.",
+  sheet: "Sheet sink: an operator-authored grid (columns + rows of plain text). The grid is stored separately from its node and is read by node id; only operator commands write it.",
   pad: "Pad sink: work-plane IR. Empty pad is legal. Glance is title + shape count + unread pin count. Working copy is pad.read, not the canvas digest.",
-  agent: "Actor seat: mailbox items (Message[]) + terminal session; identity is process-bind.",
+  agent: "Actor seat: the node holds identity, harness and launch settings. Mail is separately stored and paged per seat; terminal sessions are runtime facts. Identity is process-bind.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",
   terminal: "Terminal resource: PTY session surface.",
   cron: "Time scheduler: durable due times projected as nextFire.",
@@ -187,8 +169,8 @@ const buildNodeDocs = (): ReadonlyArray<NodeDoc> =>
       kind,
       role: spec.role,
       offers,
-      model: schemaFields(ETHER_BY_KIND[kind]),
-      modelNote: MODEL_NOTE[kind] ?? "No canonical ether data model.",
+      model: schemaFields(SCHEMA_BY_KIND[kind]),
+      modelNote: MODEL_NOTE[kind] ?? "No native node schema.",
       events: NODE_EVENTS[kind] ?? [],
       note: KIND_NOTE[kind] ?? "",
     };
@@ -241,12 +223,12 @@ export const buildNodeKindDoc = (kind: string): string | undefined => {
       ? doc.offers.map((p) => `- \`${p}\` — ${PORT_DESCRIPTIONS[p as Port] ?? "—"}`)
       : ["- (none — access family only in v1)"]),
     "",
-    "## Data model (ether)",
+    "## Data model",
     `_${doc.modelNote}_`,
     "",
     ...(doc.model.length > 0
       ? doc.model.map((f) => `- \`${f.name}\`: ${f.type}`)
-      : ["- (no canonical ether data model)"]),
+      : ["- (no native node schema)"]),
     "",
     "## Events",
     ...(doc.events.length > 0 ? doc.events.map((e) => `- ${e}`) : ["- (none documented)"]),

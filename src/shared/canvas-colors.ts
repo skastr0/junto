@@ -1,9 +1,8 @@
 /**
  * The colours a card or region can wear, in hue order.
  *
- * "1" to "6" are the JSON Canvas presets and stay as digits, so a file keeps
- * meaning red or cyan in any JSON Canvas reader. The rest are stored as hex
- * (the only other colour JSON Canvas has), and Junto paints each one with its
+ * "1" to "6" select the six preset hues. Other colours are stored as hex,
+ * and Junto paints each named swatch with its
  * theme token, so a yellow region is tuned for dark and for bright instead of
  * one fixed shade. Each hex is the token's dark value; tests keep them equal.
  *
