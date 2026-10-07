@@ -330,3 +330,86 @@
   font-family: var(--font-mono);
   font-size: var(--text-label);
 }
+
+/* One commit on a needs-you card (CommitPreview): read only. The subject
+   leads; who, when and where follow as one quiet line; then the files. */
+.commit-preview {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  color: var(--color-ink);
+}
+
+.commit-preview__head {
+  display: grid;
+  gap: 4px;
+  padding: 0 16px;
+}
+
+.commit-preview__subject {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+
+.commit-preview__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.commit-preview > .commit-preview__meta,
+.commit-preview__problem {
+  padding: 0 16px;
+}
+
+.commit-preview__sha {
+  color: var(--color-ink);
+}
+
+.commit-preview__problem {
+  margin: 0;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+}
+
+.commit-preview__files {
+  display: grid;
+  margin: 0;
+  padding: 0 16px;
+  list-style: none;
+  font-size: var(--text-body);
+}
+
+.commit-preview__file {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+  border-top: 1px solid color-mix(in oklch, var(--color-stroke) 70%, transparent);
+}
+
+.commit-preview__path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.commit-preview__count {
+  flex: none;
+  color: var(--color-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.commit-preview__count [data-sign="add"] {
+  color: var(--color-green);
+}
+
+.commit-preview__count [data-sign="del"] {
+  color: var(--color-crimson-fg);
+}
