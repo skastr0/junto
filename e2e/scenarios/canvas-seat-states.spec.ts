@@ -83,49 +83,72 @@ test("every seat state, at rest, selected and speaking", async () => {
       },
       { seatsNow: seatEvents(stagedAt), signalsNow: signalEvents(stagedAt) },
     );
-    await page.getByRole("button", { name: /fit all/i }).first().click();
-    await page.waitForTimeout(900);
     // No status chip rides a seat: the ring and the line say it once.
     await expect(page.locator(".junto-node__status-rail")).toHaveCount(0);
 
-    await page.locator(".react-flow").screenshot({ path: join(SHOTS, "canvas.png") });
-    for (const [id] of seats) {
-      const box = await seat(id).boundingBox();
-      if (!box) throw new Error(`seat ${id} has no box`);
-      // Room around the seat, so anything that sticks out of it is in frame.
+    const setTheme = async (mode: "dark" | "bright"): Promise<void> => {
+      await page.getByRole("button", { name: "Open settings" }).click();
+      await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
+      const choice = page
+        .getByRole("radiogroup", { name: "Theme", exact: true })
+        .getByRole("radio", { name: mode === "bright" ? "Bright" : "Dark", exact: true });
+      await choice.click();
+      await expect(choice).toHaveAttribute("aria-checked", "true");
+      await page.locator(".settings-panel__close").click();
+      await page.waitForTimeout(400);
+    };
+    const frameAll = async (): Promise<void> => {
+      await page.locator(".react-flow__pane").click({ position: { x: 12, y: 12 } });
+      await page.getByRole("button", { name: /fit all/i }).first().click();
+      // Past the camera's settle, so every bubble has taken its place.
+      await page.waitForTimeout(1200);
+      await page.mouse.move(8, 400);
+    };
+
+    for (const mode of ["dark", "bright"] as const) {
+      await setTheme(mode);
+      await frameAll();
+      await page.locator(".react-flow").screenshot({ path: join(SHOTS, `${mode}-canvas.png`) });
+      for (const [id] of seats) {
+        const box = await seat(id).boundingBox();
+        if (!box) throw new Error(`seat ${id} has no box`);
+        // Room around the seat, so anything that sticks out of it is in frame.
+        await page.screenshot({
+          path: join(SHOTS, `${mode}-seat-${id}.png`),
+          clip: { x: box.x - 24, y: box.y - 34, width: box.width + 48, height: box.height + 58 },
+        });
+      }
+
+      // Selected: the surface and the toolbar.
+      await seat("input").click();
+      await page.waitForTimeout(400);
+      const selected = await seat("input").boundingBox();
+      if (!selected) throw new Error("selected seat has no box");
       await page.screenshot({
-        path: join(SHOTS, `seat-${id}.png`),
-        clip: { x: box.x - 24, y: box.y - 34, width: box.width + 48, height: box.height + 58 },
+        path: join(SHOTS, `${mode}-seat-input-selected.png`),
+        clip: { x: selected.x - 60, y: selected.y - 70, width: selected.width + 120, height: selected.height + 100 },
       });
+      await page.locator(".react-flow__pane").click({ position: { x: 12, y: 12 } });
     }
 
-    // Selected: the surface and the toolbar.
-    await seat("input").click();
-    await page.waitForTimeout(400);
-    const selected = await seat("input").boundingBox();
-    if (!selected) throw new Error("selected seat has no box");
-    await page.screenshot({
-      path: join(SHOTS, "seat-input-selected.png"),
-      clip: { x: selected.x - 60, y: selected.y - 70, width: selected.width + 120, height: selected.height + 100 },
-    });
-    await page.locator(".react-flow__pane").click({ position: { x: 12, y: 12 } });
-
-    // Speaking: a bubble over each kind of seat.
+    // Speaking: a bubble over seats that had none.
+    await setTheme("dark");
     const now = Date.now();
     const staged = [
       { nodeId: "working", text: "splitting the migration into two steps" },
       { nodeId: "input", text: "approve the schema change?", provenance: "agent", action: "signal", tone: "amber" },
-      { nodeId: "blocked", text: "blocked: needs the staging key", provenance: "agent", action: "signal", tone: "crimson" },
-      { nodeId: "done", text: "done, not read yet", provenance: "system", action: "state", tone: "green" },
+      { nodeId: "resting", text: "read the migration plan", provenance: "agent", action: "tool", tone: "indigo" },
     ].map((fields, i) => ({ preambleId: `stage-${String(i)}`, canvasName: CANVAS, expiresAt: now + 60_000, ...fields }));
     await junto.app.evaluate(({ BrowserWindow }, events) => {
       for (const window of BrowserWindow.getAllWindows()) {
         for (const event of events) window.webContents.send("junto:preamble", event);
       }
     }, staged);
-    await expect(page.getByTestId("node-preamble")).toHaveCount(staged.length, { timeout: 10_000 });
-    await page.waitForTimeout(500);
-    await page.locator(".react-flow").screenshot({ path: join(SHOTS, "canvas-speaking.png") });
+    for (const note of staged) {
+      await expect(page.locator(`[data-testid="node-preamble"][data-node-id="${note.nodeId}"]`)).toBeVisible({ timeout: 10_000 });
+    }
+    await frameAll();
+    await page.locator(".react-flow").screenshot({ path: join(SHOTS, "dark-canvas-speaking.png") });
   } finally {
     await junto.close();
   }

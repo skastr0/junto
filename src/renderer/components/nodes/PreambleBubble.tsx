@@ -18,6 +18,7 @@ import type { PreambleItem, SeatBubble } from "../../lib/preamble-feed";
 import { dismissPreamble } from "../../lib/preamble-state";
 import { stopNodeGestureUnlessMultiSelect } from "../../lib/multi-select-gesture";
 import { state$ } from "../../lib/state";
+import { cameraSettled$ } from "../../lib/canvas-tier";
 import "./preamble-bubble.css";
 
 /**
@@ -46,7 +47,7 @@ const KIND: Readonly<Record<PreambleAction, LucideIcon | undefined>> = {
   state: CircleDot,
 };
 
-/** Keeps the bubble inside the canvas viewport; measured once per note. */
+/** Keeps the bubble inside the canvas viewport; measured per note and again when the camera rests. */
 const EDGE = 8;
 /** The tail's centre from the bubble's left edge (see preamble-bubble.css). */
 const TAIL_X = 20.5;
@@ -122,6 +123,9 @@ export function PreambleBubble({
   // region, a shift set or a rubber band leaves the seat bare, so the bubble
   // stays on its ring.
   const lifted = use$(() => selected && state$.selectedNodeIds.get().length <= 1);
+  // A slide measured against the old view is wrong in the new one: it lays
+  // the bubble over a neighbour's. Measured again each time the camera rests.
+  const settled = use$(cameraSettled$);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -145,7 +149,7 @@ export function PreambleBubble({
     if (box.right > bounds.right - EDGE) dx = (bounds.right - EDGE - box.right) / zoom;
     if (box.left + dx * zoom < bounds.left + EDGE) dx = (bounds.left + EDGE - box.left) / zoom;
     if (dx !== 0) el.style.setProperty("--pre-dx", `${String(Math.round(dx))}px`);
-  }, [current.shownAt, lifted, tail]);
+  }, [current.shownAt, lifted, tail, settled]);
 
   return (
     <div

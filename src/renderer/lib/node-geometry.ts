@@ -2,10 +2,12 @@
  * Canonical canvas footprints for fixed-geometry instruments.
  *
  * An agent is a seat: a 52px ring around its portrait, the name, one line.
+ * Wide enough for an eighteen letter name ("product-automation") and for the
+ * longest line Junto itself writes ("done, not read yet") without an ellipsis.
  * Agents render at this size whatever their stored size (convert.ts), so
  * changing it needs no migration.
  */
-export const AGENT_NODE_SIZE = { width: 184, height: 56 } as const;
+export const AGENT_NODE_SIZE = { width: 216, height: 56 } as const;
 
 /**
  * Terminal and git are instruments in the seat's language: a 40px ring

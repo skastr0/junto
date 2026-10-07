@@ -55,6 +55,16 @@ export const tierForZoom = (zoom: number, previous?: CanvasTier): CanvasTier => 
 
 export const canvasTier$ = observable<CanvasTier>("near");
 
+/**
+ * Counts each time the camera comes to rest after a pan or zoom. For what is
+ * placed against the edge of the view once and must be placed again when the
+ * view has moved (a seat's bubble), without following every frame of it.
+ */
+export const cameraSettled$ = observable(0);
+
+/** How long the camera must hold still to count as at rest. */
+export const CAMERA_SETTLE_MS = 160;
+
 /** Publish the camera zoom: stamps <html> and the observable when the tier changes. */
 export const publishCanvasTier = (zoom: number): CanvasTier => {
   const next = tierForZoom(zoom, canvasTier$.peek());

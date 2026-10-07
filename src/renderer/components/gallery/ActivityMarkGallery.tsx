@@ -392,7 +392,7 @@ function Stress({ count, bare }: { readonly count: number; readonly bare: boolea
         ))}
       </div>
     ) : (
-      <div className="grid grid-cols-[repeat(auto-fill,184px)] gap-2" data-testid="mark-stress-grid">
+      <div className="grid grid-cols-[repeat(auto-fill,216px)] gap-2" data-testid="mark-stress-grid">
         {seats.map((seat) => (
           <SeatShell key={seat.id} seat={seat} caption={false} />
         ))}
