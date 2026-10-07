@@ -367,7 +367,9 @@ describe("merge and report", () => {
       ["file", "ok", ["KEEP"]],
       ["p", "ok", ["PATH"]],
     ]);
-    expect(merged.report[0]!.reason).toBe("Junto sets JUNTO_SOCKET itself");
+    expect(merged.report[0]!.reason).toBe(
+      "JUNTO_SOCKET is not applied: names that start with JUNTO_ are reserved for Junto",
+    );
     expect(merged.report[1]!.reason).toContain("nested session");
     expect(merged.report[3]!.reason).toContain("JUNTO_SEAT");
     expect(reservedEnvNameReason("PATH")).toBeUndefined();

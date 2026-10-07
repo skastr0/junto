@@ -692,6 +692,98 @@ describe("the launch applies it", () => {
       expect(fake.controllers).toHaveLength(2);
     });
 
+    describe("the app walk's fixture: region Team at (40,40) 520x360, a default-shell terminal at (120,140)", () => {
+      // What the renderer sends for a plain terminal opened by double-click is
+      // { node, canvasName }; main turns that into exactly this create call
+      // (src/main/junto/term/ipc.ts, the entity kind terminal branch).
+      const walkDoc = (name: string): CanvasDoc =>
+        ({
+          nodes: [
+            {
+              id: "region-env",
+              type: "group",
+              label: "Team",
+              x: 40,
+              y: 40,
+              width: 520,
+              height: 360,
+              ether: {
+                region: {
+                  hold: true,
+                  environment: {
+                    sources: [{ id: "src-walk", kind: "value", name, value: "from-the-region" }],
+                  },
+                },
+              },
+            },
+            {
+              id: "term-in",
+              type: "text",
+              text: "inside",
+              x: 120,
+              y: 140,
+              width: 260,
+              height: 110,
+              ether: {
+                entity: { kind: "terminal" },
+                host: "local",
+                terminal: { bindingId: "local:term-in", label: "inside" },
+              },
+            },
+          ],
+          edges: [],
+        }) as CanvasDoc;
+
+      const open = async (name: string) => {
+        const doc = walkDoc(name);
+        const service = makeRegionEnvironmentService({
+          resolution: makeRegionEnvironmentResolution(fakeResolver({}).resolver, "/home/op"),
+          readDoc: async () => doc,
+          hostId: async () => "local",
+          launchRecord: () => undefined,
+        });
+        const { fake, router } = routerWith(async (seat) => {
+          const resolved = await service.forLaunch(seat);
+          return { env: resolved.env, folders: resolved.folders, record: resolved.record };
+        });
+        const node = doc.nodes[1]!;
+        const summary = await router.create({
+          bindingId: "local:term-in",
+          hostId: "local",
+          canvasName: "regionterm",
+          nodeId: node.id,
+          seatRect: { x: node.x, y: node.y, width: node.width, height: node.height },
+          label: "inside",
+        });
+        expect(summary.status).toBe("running");
+        return { env: fake.controllers[0]!.spec.env ?? {}, report: await service.regionReport("regionterm", "region-env") };
+      };
+
+      it("a variable with an ordinary name reaches the shell", async () => {
+        const { env, report } = await open("REGION_WALK");
+        expect(env.REGION_WALK).toBe("from-the-region");
+        expect(report).toMatchObject([{ sourceId: "src-walk", status: "ok", names: ["REGION_WALK"] }]);
+      });
+
+      it("a variable named JUNTO_REGION_WALK does not: a region cannot set a JUNTO_ name, and the report says so", async () => {
+        const { env, report } = await open("JUNTO_REGION_WALK");
+        expect(env.JUNTO_REGION_WALK).toBeUndefined();
+        expect(report).toEqual([
+          {
+            regionId: "region-env",
+            regionLabel: "Team",
+            sourceId: "src-walk",
+            kind: "value",
+            names: ["JUNTO_REGION_WALK"],
+            status: "overridden",
+            reason:
+              "JUNTO_REGION_WALK is not applied: names that start with JUNTO_ are reserved for Junto",
+            required: false,
+          },
+        ]);
+      });
+    });
+
     it("a router nobody wired starts terminals exactly as before", async () => {
       const { fake, host, router } = routerWith(undefined);
       expect((await router.create({ bindingId: "t5", canvasName: "factory", nodeId: "node-t5", launch })).status).toBe("running");

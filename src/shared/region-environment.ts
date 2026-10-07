@@ -183,7 +183,11 @@ const TERMINAL_NAMES: ReadonlySet<string> = new Set([
  * directory kept in front of it.
  */
 export const reservedEnvNameReason = (name: string): string | undefined => {
-  if (name.startsWith("JUNTO_")) return `Junto sets ${name} itself`;
+  // The whole prefix, not only the names Junto sets today: a region must not
+  // be able to point a seat's own `junto` CLI somewhere else.
+  if (name.startsWith("JUNTO_")) {
+    return `${name} is not applied: names that start with JUNTO_ are reserved for Junto`;
+  }
   if (TERMINAL_NAMES.has(name)) {
     return `Junto sets ${name} itself: every seat is a real terminal`;
   }
