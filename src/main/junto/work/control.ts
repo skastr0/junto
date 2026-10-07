@@ -150,7 +150,7 @@ import { PausePlane } from "../pause-plane";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
-import { continuationPathOf, readNotesFile } from "../seat-sessions/notes-file";
+import { continuationPathOf, readNotesFile, readEndedMarker } from "../seat-sessions/notes-file";
 import { seatSessionOnNode } from "../seat-sessions/transitions";
 import type { SeatSessionObservation } from "../seat-sessions/repository";
 import { getCapturedSessionId } from "../term/session-id-store";
@@ -986,6 +986,8 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
     // A session that follows one which ended with no notes at all (Junto or
     // the operator ended it without an agent turn, or its id just changed) is
     // told so, with the one reference there is: the previous transcript.
+    const endedBy =
+      previous === undefined ? undefined : readEndedMarker(previous.notesPath)?.by;
     const previousWithoutNotes =
       previous !== undefined &&
       previous.endedAt !== undefined &&
@@ -996,6 +998,9 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
             harness: previous.harness,
             ended_at: isoAt(previous.endedAt),
             ended_because: previous.endReason,
+            // Who ended it, when Junto did so itself: the operator, an
+            // overseer, or the idle rule. Absent when nothing recorded it.
+            ...(endedBy === undefined ? {} : { ended_by: endedBy }),
             transcript_path: previous.transcriptPath ?? null,
           }
         : undefined;

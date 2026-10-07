@@ -5,7 +5,7 @@
  * latest notes inline, the paths to the rest, and the past-sessions framing.
  * Every store, home, and socket lives under a temp root.
  */
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -34,6 +34,7 @@ import {
   SeatSessionRepository,
 } from "../src/main/junto/seat-sessions/repository";
 import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
+import { endedPathOf, writeEndedMarker } from "../src/main/junto/seat-sessions/notes-file";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   CONTINUATION_FRAMING,
@@ -430,6 +431,33 @@ describe("junto onboard after a session that ended without notes", () => {
     expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/without (leaving )?notes/);
     expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/history/i);
     expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/if you need/i);
+  });
+
+  it.each(["operator", "overseer", "automatic"] as const)(
+    "says who ended it when Junto recorded that: %s",
+    async (by) => {
+      const notesPath = join(root, "seats", "agent", "sessions", "s1.md");
+      writeEndedMarker(notesPath, { by, at: 1_800_000_000_000 });
+      await endAsOffboard("s1");
+      await writeSession("s2");
+      const told = (await op("onboard", {})).data.previous_session_without_notes;
+      expect(told).toMatchObject({ session_id: "s1", ended_because: "offboard", ended_by: by });
+    },
+  );
+
+  it("names nobody when nothing was recorded, or the record cannot be read", async () => {
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    const unmarked = (await op("onboard", {})).data.previous_session_without_notes;
+    expect(unmarked).toMatchObject({ session_id: "s1" });
+    expect(unmarked).not.toHaveProperty("ended_by");
+
+    const notesPath = join(root, "seats", "agent", "sessions", "s1.md");
+    mkdirSync(join(root, "seats", "agent", "sessions"), { recursive: true });
+    writeFileSync(endedPathOf(notesPath), "{not json");
+    const malformed = (await op("onboard", {})).data.previous_session_without_notes;
+    expect(malformed).toMatchObject({ session_id: "s1" });
+    expect(malformed).not.toHaveProperty("ended_by");
   });
 
   it("says so when no transcript is known, and names none", async () => {
