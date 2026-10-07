@@ -115,11 +115,11 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
   { key: "companion", group: "Agents", label: "Companion", blurb: "" },
   { key: "updates", group: "App", label: "Updates", blurb: "" },
   ...(BROWSER_ENABLED
-    ? [{ key: "browser", group: "App", label: "Browser", blurb: "surface and warm-session limits" } as const]
+    ? [{ key: "browser", group: "App", label: "Browser", blurb: "" } as const]
     : []),
   // Machine/station topology is fleet-adjacent (host id, supervised runtime).
   ...(FLEET_UI_ENABLED
-    ? [{ key: "station", group: "App", label: "Machine", blurb: "this installation" } as const]
+    ? [{ key: "station", group: "App", label: "Machine", blurb: "" } as const]
     : []),
   // Built and in the app, off until turned on here. Absent when this build
   // ships nothing experimental.
@@ -413,7 +413,7 @@ function BrowserSection() {
 
   return (
     <div className="settings-section">
-      <FieldRow label="Max warm sessions" hint="concurrent warm browser pages (hard ceiling 32)">
+      <FieldRow label="Max warm sessions" hint="Browser pages kept ready, up to 32.">
         <input
           type="number"
           min={1}
@@ -430,7 +430,7 @@ function BrowserSection() {
       <div className="settings-profile-list" aria-label="Browser profiles">
         <div className="settings-profile-list__head">
           <span>Profiles</span>
-          <span>Wiping removes cookies, site storage, and sessions for one profile.</span>
+          <span>Wiping removes a profile's cookies, site storage and sessions.</span>
         </div>
         {profilesLoading ? <p className="settings-note">loading profiles…</p> : null}
         {!profilesLoading && profiles.length === 0 ? (
@@ -1035,17 +1035,10 @@ function StationSection() {
   if (!FLEET_UI_ENABLED || !isCommandCenterFleetUi(station.role)) return null;
   return (
     <div className="settings-section" data-testid="settings-machine-section">
-      <FieldRow
-        group
-        label="This machine's host id"
-        hint="How this installation is identified across the fleet"
-      >
+      <FieldRow group label="This machine's host id">
         <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{station.hostId}</span>
       </FieldRow>
-      <FieldRow
-        label="Allow remote managed installs"
-        hint="Deploy and update Junto on enrolled Remotes. Off until you opt in; an old default-on value is not treated as consent."
-      >
+      <FieldRow label="Allow remote managed installs" hint="Deploy and update Junto on enrolled Remotes.">
         <input
           type="checkbox"
           checked={fleet.remoteManagedInstalls}
@@ -1059,7 +1052,7 @@ function StationSection() {
       </FieldRow>
       <FieldRow
         label="Prefer supervised runtime"
-        hint="Preference only — does not install the supervisor"
+        hint="A preference. It does not install the supervisor."
         help={SUPERVISED_RUNTIME_HELP}
       >
         <input
@@ -1074,11 +1067,6 @@ function StationSection() {
           }
         />
       </FieldRow>
-      <p className="settings-note" role="note">
-        Supervisor install is separate from this checkbox. Packaged installs can
-        enable LaunchAgent/systemd; Doctor reports when preference and actual
-        supervisor state disagree.
-      </p>
     </div>
   );
 }

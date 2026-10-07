@@ -76,15 +76,15 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("companion", "Pair a phone", "Answer agents and send them mail from your phone"),
   entry("companion", "Paired phones", "Phones that can reach this Mac"),
 
-  entry("station", "This machine's host id", "How this installation is identified across the fleet"),
+  entry("station", "This machine's host id", "How this machine is named across the fleet"),
   entry("station", "Allow remote managed installs", "Deploy and update Junto on enrolled Remotes"),
-  entry("station", "Prefer supervised runtime", "Preference only, does not install the supervisor"),
+  entry("station", "Prefer supervised runtime", "A preference. It does not install the supervisor"),
 
   entry("updates", "Check for updates", "The Junto version you run, and newer ones", "version install"),
 
   entry("audio", "All sounds", "The level and switch for every sound together"),
 
-  entry("browser", "Max warm sessions", "concurrent warm browser pages"),
+  entry("browser", "Max warm sessions", "Browser pages kept ready, up to 32"),
 
   entry("harnesses", "Offer in palette", "Whether this agent can be picked when you add one"),
   entry("harnesses", "Default model", "the model a new seat of this harness starts with"),
