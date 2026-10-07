@@ -203,7 +203,8 @@ test("profiles: soul and instructions, save as profile, seat it again", async ({
           const fresh = doc.nodes.filter((node) => node.ether?.entity?.kind === "agent" && node.id !== "seat-ada");
           const guidance = await api.seatGuidanceList();
           return fresh.map((node) => ({
-            label: node.ether?.terminal?.label,
+            // The seat's name is its text, as the product reads it.
+            label: node.type === "text" ? node.text.split("\n")[0] : undefined,
             harness: node.ether?.terminal?.harness,
             cwd: node.ether?.terminal?.launch?.cwd,
             guidance: guidance[node.id],
