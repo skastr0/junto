@@ -1,26 +1,11 @@
-import type { CanvasDoc, EtherEntity } from "./canvas";
-import type { Entity, EntitySource, SnapshotState } from "./entities";
+import type { Entity, SnapshotState } from "./entities";
 import type { BindingHint } from "./ipc";
 import type { Canvas } from "./model/canvas";
 
-// The ONE place node identity joins the live corpus. A node stores only what
-// it IS (ether.entity: kind + immutable name); which hermes agent it connects
-// to is DERIVED here, per snapshot, and never written back into the document
-// (kernel law #1: derived state is never stored).
-//
-// Live adapter plane is hermes-only. Agents carry their hermes
-// "<host>:<profile>" key AS their identity name, so the connection is
-// declared — present or not in the current hermes bundle. Project / orbit
-// cards do not join the live corpus (no private-source plane).
-
-export interface Connection {
-  readonly source: EntitySource;
-  readonly key: string;
-  // The live corpus entity backing this connection. Absent only for the
-  // identity-declared hermes connection when the agent isn't in the current
-  // bundle — the key must survive an offline fleet (chat/pulse routing).
-  readonly entity?: Entity;
-}
+// Where a seat joins the live corpus. A seat stores only the agent it runs
+// (its agent key, "<host>:<profile>"); what that agent is doing is derived
+// here, per snapshot, and never written back to the canvas. The live plane is
+// Hermes only, and only seats join it.
 
 // Built once per snapshot, O(corpus); every node resolution is O(1) lookups.
 export interface ConnectionIndex {
@@ -43,47 +28,9 @@ export const buildConnectionIndex = (snapshots: SnapshotState): ConnectionIndex 
   return { byKey };
 };
 
-export const resolveConnections = (
-  entity: EtherEntity | undefined,
-  index: ConnectionIndex,
-): ReadonlyArray<Connection> => {
-  const name = entity?.name;
-  if (!name) return [];
-
-  if (entity.kind === "agent") {
-    const live = index.byKey.get(`hermes:${name}`);
-    return [{ source: "hermes", key: name, ...(live === undefined ? {} : { entity: live }) }];
-  }
-
-  // Non-agent entities do not join the live hermes corpus.
-  return [];
-};
-
-// Adapter enrichment hints, derived from identity resolution over documents.
-// Only hermes agent keys are emitted (live plane).
-export const identityHints = (
-  docs: Iterable<CanvasDoc>,
-  snapshots: SnapshotState,
-): ReadonlyArray<BindingHint> => {
-  const index = buildConnectionIndex(snapshots);
-  const seen = new Set<string>();
-  const hints: BindingHint[] = [];
-  for (const doc of docs) {
-    for (const node of doc.nodes) {
-      for (const connection of resolveConnections(node.ether?.entity, index)) {
-        const dedup = `${connection.source}:${connection.key}`;
-        if (seen.has(dedup)) continue;
-        seen.add(dedup);
-        hints.push({ source: connection.source, key: connection.key });
-      }
-    }
-  }
-  return hints;
-};
-
 /**
- * The same hints from canvases: every seat names the Hermes agent it runs by
- * its agent key, whether or not that agent is in the current bundle.
+ * The agents to look up, from canvases: every seat names the Hermes agent it
+ * runs by its agent key, whether or not that agent is in the current bundle.
  */
 export const seatIdentityHints = (
   canvases: Iterable<Pick<Canvas, "nodes">>,

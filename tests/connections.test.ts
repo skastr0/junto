@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import type { Entity, SnapshotState } from "../src/shared/entities";
-import {
-  buildConnectionIndex,
-  identityHints,
-  resolveConnections,
-} from "../src/shared/connections";
+import { buildConnectionIndex, seatIdentityHints } from "../src/shared/connections";
+import { canvasOf, note, seat } from "./support/model-nodes";
 
 const entity = (
   key: string,
@@ -30,76 +26,34 @@ const state = (entities: ReadonlyArray<Entity>, down = false): SnapshotState => 
   ],
 });
 
-describe("resolveConnections — hermes-only", () => {
-  it("no identity name -> no connections (quiet, never guessed)", () => {
+describe("buildConnectionIndex", () => {
+  it("holds each live entity by its source and key", () => {
     const index = buildConnectionIndex(state([entity("remote-a:vega")]));
-    expect(resolveConnections(undefined, index)).toEqual([]);
-    expect(resolveConnections({ kind: "project" }, index)).toEqual([]);
-    expect(resolveConnections({ kind: "watcher" }, index)).toEqual([]);
+    expect(index.byKey.get("hermes:remote-a:vega")).toMatchObject({ key: "remote-a:vega" });
   });
 
-  it("project cards do not join the live corpus", () => {
-    const index = buildConnectionIndex(state([entity("remote-a:vega")]));
-    expect(resolveConnections({ kind: "project", name: "junto" }, index)).toEqual([]);
-  });
-
-  it("agents are identity-declared: connection exists even when hermes is down or missing", () => {
-    const offline = resolveConnections({ kind: "agent", name: "remote-a:vega" }, buildConnectionIndex(state([])));
-    expect(offline).toEqual([{ source: "hermes", key: "remote-a:vega" }]);
-    const live = entity("remote-a:vega");
-    const online = resolveConnections({ kind: "agent", name: "remote-a:vega" }, buildConnectionIndex(state([live])));
-    expect(online[0]?.entity).toBe(live);
-  });
-
-  it("a down bundle contributes nothing (its entities never enter the index)", () => {
-    const index = buildConnectionIndex(state([entity("remote-a:vega")], true));
-    const connections = resolveConnections({ kind: "agent", name: "remote-a:vega" }, index);
-    // Key survives offline fleet; entity is absent
-    expect(connections).toEqual([{ source: "hermes", key: "remote-a:vega" }]);
+  it("a down bundle contributes nothing, bar the rows it marked current", () => {
+    const index = buildConnectionIndex(
+      state([entity("remote-a:vega"), entity("remote-a:lyra", { stale: false })], true),
+    );
+    expect(index.byKey.has("hermes:remote-a:vega")).toBe(false);
+    expect(index.byKey.has("hermes:remote-a:lyra")).toBe(true);
   });
 });
 
-describe("identityHints", () => {
-  it("emits hermes agent keys only, deduped across docs", () => {
-    const doc = (name: string): CanvasDoc => ({
-      nodes: [
-        {
-          id: `a-${name}`,
-          type: "text",
-          text: name,
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "agent", name } },
-        },
-      ],
-      edges: [],
-    });
-    const snapshots = state([entity("remote-a:vega"), entity("studio:profile-13")]);
-    const hints = identityHints([doc("remote-a:vega"), doc("remote-a:vega"), doc("studio:profile-13")], snapshots);
+describe("seatIdentityHints", () => {
+  it("names each seat's agent once across canvases, whether or not it is live", () => {
+    const hints = seatIdentityHints([
+      canvasOf([seat("a", { agentKey: "remote-a:vega" }), note("n")]),
+      canvasOf([seat("b", { agentKey: "remote-a:vega" }), seat("c", { agentKey: "studio:profile-13" })]),
+    ]);
     expect(hints).toEqual([
       { source: "hermes", key: "remote-a:vega" },
       { source: "hermes", key: "studio:profile-13" },
     ]);
   });
 
-  it("project cards produce no hints", () => {
-    const card: CanvasDoc = {
-      nodes: [
-        {
-          id: "n1",
-          type: "text",
-          text: "my-new-project",
-          x: 0,
-          y: 0,
-          width: 240,
-          height: 96,
-          ether: { entity: { kind: "project", name: "my-new-project" } },
-        },
-      ],
-      edges: [],
-    };
-    expect(identityHints([card], state([]))).toEqual([]);
+  it("a canvas with no seat produces no hints", () => {
+    expect(seatIdentityHints([canvasOf([note("card")])])).toEqual([]);
   });
 });
