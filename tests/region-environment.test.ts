@@ -1,4 +1,5 @@
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import type { Canvas } from "../src/shared/model";
+import { canvasOf, note, region as modelRegion } from "./support/model-nodes";
 /**
  * Region environment, the pure half: document shape, the ordered plan, the
  * merge and its report, and what a running seat was launched with.
@@ -68,6 +69,16 @@ const doc = (
   ],
   edges: [],
 });
+
+/** The same nesting as a canvas of model nodes, for everything but the document's own shape. */
+const canvas = (outer?: EtherRegionEnvironment, inner?: EtherRegionEnvironment): Canvas =>
+  canvasOf([
+    modelRegion("outer", { x: 0, y: 0, width: 1000, height: 1000 }, { label: "Outer" as never, ...(outer ? { environment: outer as never } : {}) }),
+    modelRegion("inner", { x: 100, y: 100, width: 400, height: 400 }, { label: "Inner" as never, ...(inner ? { environment: inner as never } : {}) }),
+    note("in", "in", { x: 200, y: 200, width: 50, height: 40 }),
+    note("mid", "mid", { x: 700, y: 700, width: 50, height: 40 }),
+    note("out", "out", { x: 2000, y: 2000, width: 50, height: 40 }),
+  ]);
 
 const ok = (values: Record<string, string>): SourceResolution => ({ status: "ok", values });
 
@@ -155,11 +166,11 @@ describe("document shape", () => {
 
 describe("plan", () => {
   it("is empty for a seat in no region, an unknown node, and a region without an environment", () => {
-    const d = doc({ sources: [value("a", "A", "1")] });
+    const d = canvas({ sources: [value("a", "A", "1")] });
     for (const target of [{ seat: "out" }, { seat: "nope" }, { region: "nope" }, { region: "in" }]) {
-      expect(planRegionEnvironment(canvasFromDocument("factory", d), target, "local").sources).toEqual([]);
+      expect(planRegionEnvironment(d, target, "local").sources).toEqual([]);
     }
-    expect(planRegionEnvironment(canvasFromDocument("factory", doc()), { seat: "in" }, "local")).toEqual({
+    expect(planRegionEnvironment(canvas(), { seat: "in" }, "local")).toEqual({
       regions: [
         { regionId: "outer", regionLabel: "Outer", sealed: false },
         { regionId: "inner", regionLabel: "Inner", sealed: false },
@@ -170,11 +181,11 @@ describe("plan", () => {
   });
 
   it("applies regions outermost first and sources in list order", () => {
-    const d = doc(
+    const d = canvas(
       { sources: [value("o1", "A", "outer"), value("o2", "B", "outer")] },
       { sources: [value("i1", "A", "inner")] },
     );
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "in" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "in" }, "local");
     expect(plan.sources.map((s) => `${s.regionId}/${s.source.id}`)).toEqual([
       "outer/o1",
       "outer/o2",
@@ -182,47 +193,47 @@ describe("plan", () => {
     ]);
     // A seat only in the outer region gets only the outer sources.
     expect(
-      planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "local").sources.map((s) => s.source.id),
+      planRegionEnvironment(d, { seat: "mid" }, "local").sources.map((s) => s.source.id),
     ).toEqual(["o1", "o2"]);
   });
 
   it("a sealed region inherits nothing from outside it", () => {
-    const d = doc(
+    const d = canvas(
       { sources: [value("o1", "A", "outer")], folders: ["/outer"] },
       { sealed: true, sources: [value("i1", "B", "inner")], folders: ["/inner"] },
     );
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "in" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "in" }, "local");
     expect(plan.regions).toEqual([{ regionId: "inner", regionLabel: "Inner", sealed: true }]);
     expect(plan.sources.map((s) => s.source.id)).toEqual(["i1"]);
     expect(plan.folders).toEqual(["/inner"]);
     // The seal protects what is inside it, not the outer region's own seats.
     expect(
-      planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "local").sources.map((s) => s.source.id),
+      planRegionEnvironment(d, { seat: "mid" }, "local").sources.map((s) => s.source.id),
     ).toEqual(["o1"]);
   });
 
   it("resolves a region exactly as a seat placed directly inside it", () => {
-    const d = doc(
+    const d = canvas(
       { sources: [value("o1", "A", "outer")], folders: ["/outer"] },
       { sources: [value("i1", "A", "inner")], folders: ["/inner", "/outer"] },
     );
-    expect(planRegionEnvironment(canvasFromDocument("factory", d), { region: "inner" }, "local")).toEqual(
-      planRegionEnvironment(canvasFromDocument("factory", d), { seat: "in" }, "local"),
+    expect(planRegionEnvironment(d, { region: "inner" }, "local")).toEqual(
+      planRegionEnvironment(d, { seat: "in" }, "local"),
     );
-    expect(planRegionEnvironment(canvasFromDocument("factory", d), { region: "outer" }, "local")).toEqual(
-      planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "local"),
+    expect(planRegionEnvironment(d, { region: "outer" }, "local")).toEqual(
+      planRegionEnvironment(d, { seat: "mid" }, "local"),
     );
-    expect(planRegionEnvironment(canvasFromDocument("factory", d), { region: "inner" }, "local").folders).toEqual([
+    expect(planRegionEnvironment(d, { region: "inner" }, "local").folders).toEqual([
       "/outer",
       "/inner",
     ]);
   });
 
   it("marks a source that names another machine", () => {
-    const d = doc({
+    const d = canvas({
       sources: [value("here", "A", "1", { host: "mac" }), value("there", "B", "2", { host: "linux" })],
     });
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "mac");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "mac");
     expect(plan.sources.map((s) => [s.source.id, s.skippedHost])).toEqual([
       ["here", false],
       ["there", true],
@@ -230,30 +241,30 @@ describe("plan", () => {
   });
 
   it("reads `local` as the machine resolving, and a given rect over the saved one", () => {
-    const d = doc({ sources: [value("l", "A", "1", { host: "local" })] });
+    const d = canvas({ sources: [value("l", "A", "1", { host: "local" })] });
     expect(
-      planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "mac").sources.map((s) => s.skippedHost),
+      planRegionEnvironment(d, { seat: "mid" }, "mac").sources.map((s) => s.skippedHost),
     ).toEqual([false]);
     // `out` is saved outside every region, but it was just dragged inside.
     const moved = { x: 700, y: 700, width: 50, height: 40 };
-    expect(planRegionEnvironment(canvasFromDocument("factory", d), { seat: "out" }, "mac").sources).toEqual([]);
+    expect(planRegionEnvironment(d, { seat: "out" }, "mac").sources).toEqual([]);
     expect(
-      planRegionEnvironment(canvasFromDocument("factory", d), { seat: "out", rect: moved }, "mac").sources.map((s) => s.source.id),
+      planRegionEnvironment(d, { seat: "out", rect: moved }, "mac").sources.map((s) => s.source.id),
     ).toEqual(["l"]);
     // A seat not saved at all yet still resolves from where it sits.
     expect(
-      planRegionEnvironment(canvasFromDocument("factory", d), { seat: "brand-new", rect: moved }, "mac").sources,
+      planRegionEnvironment(d, { seat: "brand-new", rect: moved }, "mac").sources,
     ).toHaveLength(1);
   });
 });
 
 describe("merge and report", () => {
   it("an inner region overrides the outer by name, and a later source an earlier one", () => {
-    const d = doc(
+    const d = canvas(
       { sources: [value("o1", "A", "outer"), value("o2", "B", "outer")] },
       { sources: [value("i1", "A", "inner-first"), value("i2", "A", "inner-last")] },
     );
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "in" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "in" }, "local");
     const merged = mergeRegionEnvironment(plan, outcomesFor(plan));
     expect(merged.env).toEqual({ A: "inner-last", B: "outer" });
     expect(merged.report.map((r) => [r.regionId, r.sourceId, r.status, r.names])).toEqual([
@@ -270,13 +281,13 @@ describe("merge and report", () => {
   });
 
   it("a multi-name source that loses only some names stays ok", () => {
-    const d = doc({
+    const d = canvas({
       sources: [
         { id: "file", kind: "envFile", path: "/x.env" },
         value("v", "A", "later"),
       ],
     });
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, { file: ok({ A: "file", B: "file" }) }),
@@ -289,7 +300,7 @@ describe("merge and report", () => {
   });
 
   it("a missing or failing source leaves the variable out and says why", () => {
-    const d = doc({
+    const d = canvas({
       sources: [
         { id: "k", kind: "keychain", name: "TOKEN", service: "absent" },
         { id: "f", kind: "envFile", path: "/gone.env" },
@@ -297,7 +308,7 @@ describe("merge and report", () => {
         value("v", "A", "1"),
       ],
     });
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, {
@@ -317,13 +328,13 @@ describe("merge and report", () => {
   });
 
   it("a required source that cannot be read refuses the launch with the reason", () => {
-    const d = doc({
+    const d = canvas({
       sources: [
         { id: "k", kind: "keychain", name: "TOKEN", service: "absent", required: true },
         value("other", "B", "2", { required: true, host: "elsewhere" }),
       ],
     });
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, {
@@ -344,7 +355,7 @@ describe("merge and report", () => {
   });
 
   it("reports a name Junto keeps for itself instead of dropping it silently", () => {
-    const d = doc({
+    const d = canvas({
       sources: [
         value("j", "JUNTO_SOCKET", "/tmp/evil.sock"),
         value("c", "CLAUDECODE", "1"),
@@ -353,7 +364,7 @@ describe("merge and report", () => {
         value("p", "PATH", "/opt/bin"),
       ],
     });
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, { file: ok({ KEEP: "1", JUNTO_SEAT: "x", PRIME_AGENT_INTERNAL_ROLE: "w" }) }),
@@ -376,8 +387,8 @@ describe("merge and report", () => {
   });
 
   it("never puts a value in the report", () => {
-    const d = doc({ sources: [value("v", "A", "SECRET-CANARY")] });
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: "mid" }, "local");
+    const d = canvas({ sources: [value("v", "A", "SECRET-CANARY")] });
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, { v: ok({ A: "SECRET-CANARY", JUNTO_X: "SECRET-CANARY" }) }),
@@ -388,44 +399,44 @@ describe("merge and report", () => {
 });
 
 describe("what a running seat was launched with", () => {
-  const record = (d: CanvasDoc, target = "in") => {
-    const plan = planRegionEnvironment(canvasFromDocument("factory", d), { seat: target }, "local");
+  const record = (d: Canvas, target = "in") => {
+    const plan = planRegionEnvironment(d, { seat: target }, "local");
     return launchRecordOf(plan, mergeRegionEnvironment(plan, outcomesFor(plan)));
   };
 
   it("is the empty record outside every environment", () => {
-    expect(record(doc(), "out")).toEqual(EMPTY_LAUNCH_RECORD);
-    expect(record(doc())).toEqual(EMPTY_LAUNCH_RECORD);
+    expect(record(canvas(), "out")).toEqual(EMPTY_LAUNCH_RECORD);
+    expect(record(canvas())).toEqual(EMPTY_LAUNCH_RECORD);
   });
 
   it("the fingerprint moves with the document and with nothing else", () => {
-    const base = doc({ sources: [value("a", "A", "1")] }, { sources: [value("b", "B", "2")] });
-    const same = doc({ sources: [value("a", "A", "1")] }, { sources: [value("b", "B", "2")] });
+    const base = canvas({ sources: [value("a", "A", "1")] }, { sources: [value("b", "B", "2")] });
+    const same = canvas({ sources: [value("a", "A", "1")] }, { sources: [value("b", "B", "2")] });
     expect(record(base).fingerprint).toBe(record(same).fingerprint);
-    const variants: CanvasDoc[] = [
-      doc({ sources: [value("a", "A", "9")] }, { sources: [value("b", "B", "2")] }),
-      doc({ sources: [value("a", "A", "1")] }, { sealed: true, sources: [value("b", "B", "2")] }),
-      doc({ sources: [value("a", "A", "1")] }, { sources: [value("b", "B", "2")], folders: ["/x"] }),
-      doc({ sources: [value("a", "A", "1"), value("c", "C", "3")] }, { sources: [value("b", "B", "2")] }),
-      doc({ sources: [value("a", "A", "1")] }),
+    const variants: Canvas[] = [
+      canvas({ sources: [value("a", "A", "9")] }, { sources: [value("b", "B", "2")] }),
+      canvas({ sources: [value("a", "A", "1")] }, { sealed: true, sources: [value("b", "B", "2")] }),
+      canvas({ sources: [value("a", "A", "1")] }, { sources: [value("b", "B", "2")], folders: ["/x"] }),
+      canvas({ sources: [value("a", "A", "1"), value("c", "C", "3")] }, { sources: [value("b", "B", "2")] }),
+      canvas({ sources: [value("a", "A", "1")] }),
     ];
     for (const variant of variants) {
       expect(record(variant).fingerprint).not.toBe(record(base).fingerprint);
     }
     // Reordering inside a region changes who wins, so it counts.
-    const ab = doc({ sources: [value("a", "A", "1"), value("b", "A", "2")] });
-    const ba = doc({ sources: [value("b", "A", "2"), value("a", "A", "1")] });
-    expect(regionEnvironmentFingerprint(planRegionEnvironment(canvasFromDocument("factory", ab), { seat: "mid" }, "local"))).not.toBe(
-      regionEnvironmentFingerprint(planRegionEnvironment(canvasFromDocument("factory", ba), { seat: "mid" }, "local")),
+    const ab = canvas({ sources: [value("a", "A", "1"), value("b", "A", "2")] });
+    const ba = canvas({ sources: [value("b", "A", "2"), value("a", "A", "1")] });
+    expect(regionEnvironmentFingerprint(planRegionEnvironment(ab, { seat: "mid" }, "local"))).not.toBe(
+      regionEnvironmentFingerprint(planRegionEnvironment(ba, { seat: "mid" }, "local")),
     );
   });
 
   it("names what would differ after a restart: added, removed, or from another source", () => {
     const launched = record(
-      doc({ sources: [value("a", "A", "1"), value("gone", "GONE", "x"), value("keep", "KEEP", "k")] }),
+      canvas({ sources: [value("a", "A", "1"), value("gone", "GONE", "x"), value("keep", "KEEP", "k")] }),
     );
     const current = record(
-      doc(
+      canvas(
         { sources: [value("a", "A", "1"), value("keep", "KEEP", "k")] },
         { sources: [value("a2", "A", "inner"), value("new", "NEW", "n")] },
       ),
