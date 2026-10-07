@@ -173,10 +173,10 @@ function Composer({
             Goes to {draft.picked.filter((entry) => mentioned.includes(entry.nodeId)).map((entry) => entry.name).join(", ")}
           </span>
         ) : null}
-        <Button size="sm" variant="chrome" onClick={onCancel}>
+        <Button size="md" variant="chrome" onClick={onCancel}>
           Cancel
         </Button>
-        <Button size="sm" variant="primary" disabled={!canSave} title={`${modKeyGlyph()}+↵`} onClick={onSave}>
+        <Button size="md" variant="primary" disabled={!canSave} title={`${modKeyGlyph()}+↵`} onClick={onSave}>
           {draft.id ? "Save comment" : "Add comment"}
         </Button>
       </div>
@@ -256,6 +256,8 @@ export function ReviewDiff({
         theme: { dark: "pierre-dark", light: "pierre-light" },
         themeType,
         overflow: "scroll",
+        // The diff shows the surface it sits on, in both themes, not the syntax theme's own background.
+        disableBackground: true,
         enableGutterUtility: true,
         enableLineSelection: true,
         onLineSelected: (range) => {

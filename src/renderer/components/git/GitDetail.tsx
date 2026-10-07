@@ -398,6 +398,7 @@ export function GitRepositoryDetail({
                           theme: { dark: "pierre-dark", light: "pierre-light" },
                           themeType,
                           overflow: "scroll",
+                          disableBackground: true,
                         }}
                       />
                     )}
