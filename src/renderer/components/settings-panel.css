@@ -5,107 +5,171 @@
   background: var(--color-raise-2);
   color: var(--color-ink);
 }
-.settings-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--color-overlay-4);
-}
-.settings-panel__title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.settings-panel__eyebrow {
-  font-size: var(--text-label);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--color-dim);
-}
-.settings-panel__header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.settings-panel__ghost,
-.settings-panel__close {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--color-stroke);
-  background: transparent;
-  color: var(--color-steel);
-  border-radius: var(--radius-lg);
-  padding: 6px 10px;
-  font-size: var(--text-body-lg);
-  cursor: pointer;
-}
-.settings-panel__ghost:hover,
-.settings-panel__close:hover {
-  color: var(--color-ink);
-  border-color: var(--color-stroke-hi);
-}
+/* The shared overlay header draws the head; the close control is its own. */
 .settings-panel__body {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
   min-height: 0;
   flex: 1;
+}
+.settings-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--color-overlay-3);
+  background: var(--color-raise);
+}
+.settings-search {
+  position: relative;
+  padding: 12px 10px 8px;
+}
+.settings-search__glyph {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  margin-top: -4px;
+  color: var(--color-dim);
+  pointer-events: none;
+}
+.settings-search__input {
+  width: 100%;
+  padding-left: 28px;
+}
+.settings-search__input::-webkit-search-cancel-button {
+  display: none;
 }
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 12px 10px;
-  border-right: 1px solid var(--color-overlay-3);
+  gap: 14px;
+  padding: 6px 10px 14px;
   overflow: auto;
+}
+.settings-nav__group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.settings-nav__group-label {
+  padding: 4px 10px;
+  font-size: var(--text-body);
+  color: var(--color-dim);
 }
 .settings-nav__item {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  align-items: center;
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
-  border-radius: var(--radius-lg);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
   border: 0;
   background: transparent;
-  color: var(--color-dim);
+  color: var(--color-steel);
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 .settings-nav__item:hover {
   background: var(--color-overlay-1);
   color: var(--color-ink);
 }
+.settings-nav__item:focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: -1px;
+}
 .settings-nav__item.is-active {
-  background: color-mix(in oklab, var(--color-main) 10%, transparent);
+  background: color-mix(in oklab, var(--color-main) 12%, transparent);
   color: var(--color-ink);
 }
 .settings-nav__label {
   font-size: var(--text-body-lg);
   font-weight: 560;
-}
-.settings-nav__blurb {
-  font-size: var(--text-body);
-  color: var(--color-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .settings-content {
-  padding: 16px 18px 18px;
   overflow: auto;
   min-width: 0;
+  scroll-padding-block: 24px;
+}
+/* One readable column, centred in the room the wide frame leaves. */
+.settings-page {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 26px 32px 40px;
+}
+.settings-page[hidden] {
+  display: none;
+}
+.settings-content__head {
+  margin-bottom: 18px;
 }
 .settings-content__head h2 {
   margin: 0;
-  font-size: var(--text-title);
+  font-size: var(--text-display);
   font-weight: 600;
   color: var(--color-ink);
 }
 .settings-content__head p {
-  margin: 4px 0 14px;
+  margin: 6px 0 0;
   font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
   color: var(--color-dim);
+}
+/* A setting search just opened: marked for a moment, then let go. */
+.settings-field[data-found] {
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-main) 14%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-main) 14%, transparent);
+}
+.settings-field {
+  transition: background-color 400ms ease, box-shadow 400ms ease;
+}
+.settings-results {
+  display: flex;
+  flex-direction: column;
+}
+.settings-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  margin: 0 -12px;
+  box-sizing: content-box;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.settings-result + .settings-result {
+  margin-top: 2px;
+}
+.settings-result[aria-selected="true"] {
+  background: color-mix(in oklab, var(--color-main) 12%, transparent);
+}
+.settings-result__name {
+  font-size: var(--text-body-lg);
+  font-weight: 560;
+}
+.settings-result__page {
+  font-size: var(--text-body);
+  color: var(--color-dim);
+}
+.settings-result__about {
+  grid-column: 1 / -1;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--color-dim);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-nav__item,
+  .settings-field {
+    transition: none;
+  }
 }
 .settings-section {
   display: flex;

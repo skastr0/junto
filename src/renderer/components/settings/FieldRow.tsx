@@ -24,7 +24,7 @@ export function FieldRow({
   const labelId = useId();
   const Row = group ? "div" : "label";
   return (
-    <Row className="settings-field" {...(group ? { role: "group", "aria-labelledby": labelId } : {})}>
+    <Row className="settings-field" data-setting={label} {...(group ? { role: "group", "aria-labelledby": labelId } : {})}>
       <span className="settings-field__label">
         <span className="settings-field__label-row">
           <span id={labelId}>{label}</span>

@@ -1,6 +1,6 @@
 import { use$ } from "@legendapp/state/react";
-import { RotateCcw, Settings2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { RotateCcw, Search, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BrowserProfileInfo, JuntoBrowserApi } from "@shared/ipc";
 import { DEFAULT_INTERFACE_SCALE, INTERFACE_SCALES, interfaceScaleOf, type SettingsSectionKey } from "@shared/settings";
 import {
@@ -16,6 +16,7 @@ import {
 } from "@shared/features";
 import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSection";
 import { FieldRow } from "./settings/FieldRow";
+import { searchSettings, settingsIndex, type SettingHit } from "./settings/search-index";
 import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
@@ -47,7 +48,7 @@ import {
 import { HUE, INK, themeFor } from "../lib/theme";
 import { getJuntoApi } from "../lib/junto-api";
 import { FocusSurface } from "./FocusSurface";
-import { Button, ConfirmDialog, Eyebrow, Select } from "./ui";
+import { Button, ConfirmDialog, Eyebrow, IconButton, Input, OverlayHeader, Select } from "./ui";
 import "./settings-panel.css";
 
 /**
@@ -59,33 +60,37 @@ type PanelSection = SettingsSectionKey | "updates" | "experimental" | "companion
 const PROVIDERS_SECTION_ENABLED =
   USAGE_ENABLED || LIVE_OVERSEER_ENABLED || HERMES_INTEGRATION_ENABLED;
 
-const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
-  { key: "appearance", label: "Appearance", blurb: "" },
-  { key: "terminal", label: "Terminal", blurb: "scrolling, font, and accessibility" },
-  { key: "feed", label: "Quick replies", blurb: "one-click answers for agents waiting on you" },
-  { key: "keyboard", label: "Keyboard shortcuts", blurb: "every shortcut, and the keys you chose" },
+/** The section list's groups, in the order they are listed. */
+const SECTION_GROUPS = ["You", "Agents", "App"] as const;
+type SectionGroup = (typeof SECTION_GROUPS)[number];
+
+type SectionItem = {
+  readonly key: PanelSection;
+  readonly group: SectionGroup;
+  readonly label: string;
+  readonly blurb: string;
+};
+
+const SECTIONS: ReadonlyArray<SectionItem> = [
+  { key: "appearance", group: "You", label: "Appearance", blurb: "" },
+  { key: "terminal", group: "You", label: "Terminal", blurb: "scrolling, font, and accessibility" },
+  { key: "keyboard", group: "You", label: "Keyboard shortcuts", blurb: "every shortcut, and the keys you chose" },
+  ...(AUDIO_ENABLED
+    ? [{ key: "audio", group: "You", label: "Sound", blurb: "levels for each kind of sound, and a preview" } as const]
+    : []),
   {
     key: "notifications",
+    group: "You",
     label: "Notifications",
     blurb: "what reaches you while Junto is in the background",
   },
-  { key: "offboard", label: "Offboard", blurb: "when an idle agent's session is ended for it" },
-  { key: "companion", label: "Companion", blurb: "answer your agents from your phone" },
-  // Machine/station topology is fleet-adjacent (host id, supervised runtime).
-  ...(FLEET_UI_ENABLED
-    ? [{ key: "station", label: "Machine", blurb: "this installation" } as const]
-    : []),
-  { key: "updates", label: "Updates", blurb: "check and install app updates" },
-  ...(AUDIO_ENABLED
-    ? [{ key: "audio", label: "Sound", blurb: "levels for each kind of sound, and a preview" } as const]
-    : []),
-  ...(BROWSER_ENABLED
-    ? [{ key: "browser", label: "Browser", blurb: "surface and warm-session limits" } as const]
-    : []),
+  { key: "feed", group: "Agents", label: "Quick replies", blurb: "one-click answers for agents waiting on you" },
+  { key: "offboard", group: "Agents", label: "Offboard", blurb: "when an idle agent's session is ended for it" },
   ...(HARNESS_SETTINGS_ENABLED
     ? [
         {
           key: "harnesses",
+          group: "Agents",
           label: "Agents",
           blurb: "scan CLIs and set spawn defaults per harness",
         } as const,
@@ -97,6 +102,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
     ? [
         {
           key: "providers",
+          group: "Agents",
           label: "Providers",
           blurb: USAGE_ENABLED
             ? "usage credentials: API keys, tokens, cookies"
@@ -104,12 +110,22 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
         } as const,
       ]
     : []),
+  { key: "companion", group: "Agents", label: "Companion", blurb: "answer your agents from your phone" },
+  { key: "updates", group: "App", label: "Updates", blurb: "check and install app updates" },
+  ...(BROWSER_ENABLED
+    ? [{ key: "browser", group: "App", label: "Browser", blurb: "surface and warm-session limits" } as const]
+    : []),
+  // Machine/station topology is fleet-adjacent (host id, supervised runtime).
+  ...(FLEET_UI_ENABLED
+    ? [{ key: "station", group: "App", label: "Machine", blurb: "this installation" } as const]
+    : []),
   // Built and in the app, off until turned on here. Absent when this build
   // ships nothing experimental.
   ...(experimentalFeatureKeys().length > 0
     ? [
         {
           key: "experimental",
+          group: "App",
           label: "Experimental",
           blurb: "built, not yet fully available",
         } as const,
@@ -117,6 +133,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
     : []),
   {
     key: "advanced",
+    group: "App",
     label: "Advanced",
     blurb: DEV_TOOLS_ENABLED
       ? "startup, recovery, developer tools"
@@ -1118,6 +1135,9 @@ const resettableSection = (section: PanelSection): SettingsSectionKey | undefine
     ? undefined
     : section;
 
+/** How long a setting stays marked after search brought it into view. */
+const FOUND_MARK_MS = 1_800;
+
 export function SettingsPanel() {
   const open = use$(state$.settingsOpen);
   const loading = use$(state$.settingsLoading);
@@ -1126,14 +1146,52 @@ export function SettingsPanel() {
   // The section a reset was asked for, until the operator answers.
   const [resetAsk, setResetAsk] = useState<SettingsSectionKey | undefined>(undefined);
   const [resetting, setResetting] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeHit, setActiveHit] = useState(0);
+  // The setting search just opened, until its row is found and marked.
+  const [found, setFound] = useState<string | undefined>(undefined);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const resultsId = useId();
+
+  const stationRole = use$(state$.settings.station.role);
+  const sections = useMemo(
+    () => SECTIONS.filter((item) => item.key !== "station" || isCommandCenterFleetUi(stationRole)),
+    [stationRole],
+  );
+  const hits = useMemo(
+    () =>
+      searchSettings(
+        settingsIndex(sections.map((item) => item.key)),
+        Object.fromEntries(sections.map((item) => [item.key, item.label])),
+        query,
+      ),
+    [sections, query],
+  );
+
+  // Bring the found setting's row into view and mark it for a moment.
+  useEffect(() => {
+    if (found === undefined || loading) return;
+    const row = Array.from(
+      contentRef.current?.querySelectorAll<HTMLElement>("[data-setting]") ?? [],
+    ).find((element) => element.dataset.setting === found);
+    if (!row) {
+      contentRef.current?.scrollTo({ top: 0 });
+      setFound(undefined);
+      return;
+    }
+    row.scrollIntoView({ block: "center" });
+    row.dataset.found = "";
+    const timer = window.setTimeout(() => {
+      delete row.dataset.found;
+      setFound(undefined);
+    }, FOUND_MARK_MS);
+    return () => {
+      window.clearTimeout(timer);
+      delete row.dataset.found;
+    };
+  }, [found, section, loading]);
 
   if (!open) return null;
-
-  const stationRole = state$.settings.station.role.peek();
-  const sections = SECTIONS.filter(
-    (item) =>
-      item.key !== "station" || isCommandCenterFleetUi(stationRole),
-  );
 
   // Fleet-gated Machine may be absent — always render a nav-visible section.
   const activeSection: PanelSection = sections.some((item) => item.key === section)
@@ -1142,79 +1200,184 @@ export function SettingsPanel() {
   const meta =
     sections.find((item) => item.key === activeSection) ?? sections[0]!;
   const resettable = resettableSection(activeSection);
+  const searching = query.trim().length > 0;
+  const shownHit = Math.min(activeHit, Math.max(0, hits.length - 1));
+  const hitId = (index: number): string => `${resultsId}-${String(index)}`;
+
+  const openHit = (hit: SettingHit): void => {
+    setSection(hit.section as PanelSection);
+    setQuery("");
+    setActiveHit(0);
+    setFound(hit.name);
+  };
 
   return (
     <FocusSurface
-      measure="document"
-      height="fit"
+      measure="terminal"
+      height="immersive"
       label="Settings"
       panelClassName="settings-panel"
       onClose={closeSettings}
     >
-      <header className="settings-panel__header">
-        <div className="settings-panel__title">
-          <Settings2 size={16} style={{ color: HUE.amber }} />
-          <div>
-            <div className="settings-panel__eyebrow">Junto</div>
-            <strong style={{ color: INK }}>Settings</strong>
-          </div>
-        </div>
-        <div className="settings-panel__header-actions">
-          {resettable ? (
-            <button
-              type="button"
-              className="settings-panel__ghost"
-              title={`Reset ${meta.label} to defaults`}
-              aria-label={`Reset ${meta.label}`}
-              onClick={() => setResetAsk(resettable)}
-            >
-              <RotateCcw size={14} />
-              <span>reset section</span>
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="settings-panel__close"
-            aria-label="Close settings"
-            onClick={closeSettings}
-          >
-            <X size={16} />
-          </button>
-        </div>
-      </header>
+      <OverlayHeader
+        className="settings-panel__header"
+        eyebrow="Junto"
+        title="Settings"
+        actions={
+          <>
+            {resettable && !searching ? (
+              <Button
+                variant="subtle"
+                size="sm"
+                title={`Reset ${meta.label} to defaults`}
+                aria-label={`Reset ${meta.label}`}
+                onClick={() => setResetAsk(resettable)}
+              >
+                <RotateCcw size={12} aria-hidden />
+                reset {meta.label}
+              </Button>
+            ) : null}
+            <IconButton className="settings-panel__close" aria-label="Close settings" onClick={closeSettings}>
+              <X size={15} />
+            </IconButton>
+          </>
+        }
+      />
 
       <div className="settings-panel__body">
-        <nav className="settings-nav" aria-label="Settings sections">
-          {sections.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={`settings-nav__item${activeSection === item.key ? " is-active" : ""}`}
-              aria-current={activeSection === item.key ? "page" : undefined}
-              // Opening Settings puts the keyboard on the open section's tab.
-              data-autofocus={activeSection === item.key ? "" : undefined}
-              onClick={() => setSection(item.key)}
-            >
-              <span className="settings-nav__label">{item.label}</span>
-              <span className="settings-nav__blurb">{item.blurb}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="settings-content">
-          <div className="settings-content__head">
-            <h2>{meta.label}</h2>
-            {meta.blurb ? <p>{meta.blurb}</p> : null}
+        <div className="settings-side">
+          <div className="settings-search">
+            <Search size={13} aria-hidden className="settings-search__glyph" />
+            <Input
+              // Opening Settings puts the keyboard in search.
+              data-autofocus=""
+              type="search"
+              role="combobox"
+              className="settings-search__input"
+              placeholder="Search settings"
+              aria-label="Search settings"
+              aria-expanded={searching}
+              aria-controls={resultsId}
+              aria-activedescendant={searching && hits.length > 0 ? hitId(shownHit) : undefined}
+              autoComplete="off"
+              spellCheck={false}
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActiveHit(0);
+              }}
+              onKeyDown={(event) => {
+                if (!searching) return;
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  if (hits.length === 0) return;
+                  const step = event.key === "ArrowDown" ? 1 : -1;
+                  setActiveHit((shownHit + step + hits.length) % hits.length);
+                } else if (event.key === "Enter") {
+                  event.preventDefault();
+                  const hit = hits[shownHit];
+                  if (hit) openHit(hit);
+                } else if (event.key === "Escape") {
+                  // Escape clears the search first; the next one closes Settings.
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setQuery("");
+                }
+              }}
+            />
           </div>
-          {loading ? (
-            <p className="settings-note">loading…</p>
-          ) : (
-            <SectionBody section={activeSection} />
+          <nav className="settings-nav" aria-label="Settings sections">
+            {SECTION_GROUPS.map((group) => {
+              const items = sections.filter((item) => item.group === group);
+              if (items.length === 0) return null;
+              return (
+                <div key={group} className="settings-nav__group" role="group" aria-label={group}>
+                  <div className="settings-nav__group-label" aria-hidden>
+                    {group}
+                  </div>
+                  {items.map((item) => {
+                    const current = !searching && activeSection === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className={`settings-nav__item${current ? " is-active" : ""}`}
+                        aria-current={current ? "page" : undefined}
+                        onClick={() => {
+                          setQuery("");
+                          setSection(item.key);
+                        }}
+                      >
+                        <span className="settings-nav__label">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </nav>
+        </div>
+        <div className="settings-content" ref={contentRef}>
+          {/* Always mounted, so the search field can name it. */}
+          <div
+            id={resultsId}
+            role="listbox"
+            aria-label="Settings found"
+            className="settings-page settings-results"
+            hidden={!searching}
+          >
+            {searching ? (
+              <>
+                <div className="settings-content__head">
+                  <h2>
+                    {hits.length === 0
+                      ? "No setting found"
+                      : `${String(hits.length)} ${hits.length === 1 ? "setting" : "settings"}`}
+                  </h2>
+                  <p>
+                    {hits.length === 0
+                      ? "Try a setting's name, a word from its description, or the name of a page."
+                      : "Enter opens the marked one."}
+                  </p>
+                </div>
+                {hits.map((hit, index) => (
+                  <button
+                    key={`${hit.section}:${hit.name}`}
+                    id={hitId(index)}
+                    type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === shownHit}
+                    className="settings-result"
+                    onMouseMove={() => setActiveHit(index)}
+                    onClick={() => openHit(hit)}
+                  >
+                    <span className="settings-result__name">{hit.name}</span>
+                    <span className="settings-result__page">{hit.sectionLabel}</span>
+                    <span className="settings-result__about">{hit.description}</span>
+                  </button>
+                ))}
+              </>
+            ) : null}
+          </div>
+          {searching ? null : (
+            <div className="settings-page">
+              <div className="settings-content__head">
+                <h2>{meta.label}</h2>
+                {meta.blurb ? <p>{meta.blurb}</p> : null}
+              </div>
+              {loading ? (
+                <p className="settings-note">loading…</p>
+              ) : (
+                <SectionBody section={activeSection} />
+              )}
+              {error ? (
+                <p className="settings-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </div>
           )}
-          {error ? (
-            <p className="settings-error" role="alert">
-              {error}
-            </p>
-          ) : null}
         </div>
       </div>
       {resetAsk ? (
