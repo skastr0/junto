@@ -7,7 +7,7 @@
  */
 import { use$ } from "@legendapp/state/react";
 import { RotateCcw } from "lucide-react";
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useState, type KeyboardEvent } from "react";
 import { clearChords, isRebound, proposeRebind, resetChords, type RebindVerdict } from "@shared/key-rebind";
 import {
   KEY_TABLE,
@@ -20,7 +20,6 @@ import {
   type ShortcutDef,
   type ShortcutId,
 } from "@shared/key-table";
-import { keyboardSettings } from "@shared/settings";
 import { holdKeyDispatch } from "../../lib/key-dispatcher";
 import { isMac } from "../../lib/platform";
 import { patchSettings } from "../../lib/settings-state";
@@ -32,6 +31,8 @@ type Problem = {
   readonly id: ShortcutId;
   readonly verdict: Exclude<RebindVerdict, { readonly kind: "ok" }>;
 };
+
+const NO_OVERRIDES: KeyOverrides = {};
 
 const save = (overrides: KeyOverrides): Promise<boolean> => patchSettings({ keyboard: { overrides } });
 
@@ -65,7 +66,7 @@ function Chords({
     : chords.map((chord) => ({ id: chord, caps: chordKeyCaps(chord, mac), label: chordSpoken(chord) }));
   if (steps.length === 0) return <span className="text-body text-faint">none</span>;
   return (
-    <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 normal-case tracking-normal">
       {steps.map((step, index) => (
         <span key={step.id} className="inline-flex items-center gap-1.5">
           {index > 0 ? <span className="text-label text-faint">or</span> : null}
@@ -94,6 +95,7 @@ function ShortcutRow({
   readonly onProblem: (problem: Problem | undefined) => void;
 }) {
   const chords = chordsFor(def, mac, overrides);
+  const problemId = useId();
 
   // Every key pressed while recording belongs to this button: none reaches
   // the Settings shell, the canvas, a terminal or another shortcut.
@@ -132,15 +134,19 @@ function ShortcutRow({
 
   return (
     <>
-      <FieldRow group label={def.name} hint={def.fixed}>
+      <FieldRow
+        group
+        label={def.name}
+        hint={recording ? "Press the new keys. Backspace for none, Escape to cancel." : def.fixed}
+      >
         <span className="flex items-center justify-end gap-1.5">
           {def.fixed !== undefined ? (
             <Chords chords={chords} mac={mac} shown={def.shown} />
           ) : (
             <Button
               size="sm"
-              variant="chrome"
-              className={recording ? "border-cyan/60 shadow-[0_0_0_3px_var(--color-focus-ring)]" : ""}
+              variant={recording ? "armed" : "chrome"}
+              aria-describedby={problem ? problemId : undefined}
               aria-label={recording ? `Press keys for ${def.name}` : `Change the keys for ${def.name}`}
               aria-pressed={recording}
               onClick={() => {
@@ -175,7 +181,11 @@ function ShortcutRow({
         </span>
       </FieldRow>
       {problem ? (
-        <div className="flex flex-wrap items-center justify-end gap-2 text-label text-amber" role="status">
+        <div
+          id={problemId}
+          className="flex flex-wrap items-center justify-end gap-2 text-label text-amber"
+          role="status"
+        >
           {problem.kind === "taken" ? (
             <>
               <span>Already used by {nameOf(problem.by)}</span>
@@ -202,7 +212,8 @@ function ShortcutRow({
 }
 
 export function KeyboardSettingsSection() {
-  const overrides = use$(() => keyboardSettings(state$.settings.get()).overrides);
+  // Only the keyboard section: another setting changing does not redraw the list.
+  const overrides = use$(state$.settings.keyboard)?.overrides ?? NO_OVERRIDES;
   const mac = isMac();
   const [filter, setFilter] = useState("");
   const [recording, setRecording] = useState<ShortcutId>();
@@ -227,6 +238,13 @@ export function KeyboardSettingsSection() {
         placeholder="Filter shortcuts"
         aria-label="Filter shortcuts"
         onChange={(event) => setFilter(event.target.value)}
+        onKeyDown={(event) => {
+          // Escape empties the filter first; only an empty one lets it close Settings.
+          if (event.key !== "Escape" || filter.length === 0) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setFilter("");
+        }}
       />
       {groups.length === 0 ? <p className="m-0 text-body text-faint">No shortcut matches.</p> : null}
       {groups.map((group, index) => (

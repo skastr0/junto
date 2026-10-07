@@ -157,6 +157,29 @@ describe("keyboard shortcuts section", () => {
     expect(recorder("Open the needs-you feed").textContent).toBe("none");
   });
 
+  it("says what Backspace and Escape do while recording, and ties a conflict to its button", async () => {
+    const button = startRecording("Open the needs-you feed");
+    expect(host.textContent).toContain("Backspace for none, Escape to cancel");
+    await press(button, { key: "k", code: "KeyK", metaKey: true });
+    const again = recorder("Open the needs-you feed");
+    const line = document.getElementById(again.getAttribute("aria-describedby")!);
+    expect(line?.textContent).toContain("Already used by Open search");
+  });
+
+  it("empties the filter on Escape before Escape can reach Settings", async () => {
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Filter shortcuts"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "zoom");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(host.textContent).not.toContain("Open search");
+    const first = await press(input, { key: "Escape", code: "Escape" });
+    expect(first.defaultPrevented).toBe(true);
+    expect(host.textContent).toContain("Open search");
+    const second = await press(input, { key: "Escape", code: "Escape" });
+    expect(second.defaultPrevented).toBe(false);
+  });
+
   it("shows a chord that cannot change as keys alone, with the reason", () => {
     expect(host.querySelector('button[aria-label="Change the keys for Switcher: next agent"]')).toBeNull();
     expect(host.textContent).toContain("Cmd is held while the switcher is up");
