@@ -11,9 +11,14 @@ const compact = (value: string | undefined): string | undefined => {
 };
 
 /** A name that only repeats the kind says nothing, so it counts as unnamed. */
-const named = (value: string | undefined, generic: ReadonlyArray<string>): string | undefined => {
+const named = (
+  value: string | undefined,
+  generic: ReadonlyArray<string>,
+): string | undefined => {
   const name = compact(value);
-  return name !== undefined && !generic.includes(name.toLowerCase()) ? name : undefined;
+  return name !== undefined && !generic.includes(name.toLowerCase())
+    ? name
+    : undefined;
 };
 
 const NAME_LIMIT = 52;
@@ -29,7 +34,9 @@ const shortInstructions = (instructions: string): string => {
 
 export const shortNodeId = (id: string): string => {
   const compactId = compact(id) ?? "unknown";
-  return compactId.length <= SHORT_ID_LENGTH ? compactId : compactId.slice(-SHORT_ID_LENGTH);
+  return compactId.length <= SHORT_ID_LENGTH
+    ? compactId
+    : compactId.slice(-SHORT_ID_LENGTH);
 };
 
 export type TaskBoardTitle = {
@@ -55,18 +62,21 @@ export const taskBoardTitle = (
   }
   const shortId = shortNodeId(board?.id ?? fallbackId ?? "unknown");
   return {
-    name: ["task", "tasks"].includes(shortId.toLowerCase()) ? "Tasks" : `Tasks ${shortId}`,
+    name: ["task", "tasks"].includes(shortId.toLowerCase())
+      ? "Tasks"
+      : `Tasks ${shortId}`,
     source: "id",
   };
 };
 
-const firstLine = (text: string): string | undefined => compact(text.split(/\r?\n/, 1)[0]);
+const firstLine = (text: string): string | undefined =>
+  compact(text.split(/\r?\n/, 1)[0]);
 
 /** What any node is called. Never empty. */
 export const titleOf = (node: Node): string => {
   switch (node.kind) {
     case "agent":
-      return compact(node.label) ?? node.name;
+      return compact(node.label) ?? node.agentKey;
     case "region":
       return regionName(node);
     case "task":

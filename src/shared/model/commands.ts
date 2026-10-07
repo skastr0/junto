@@ -32,7 +32,8 @@ import { Wire, WireId } from "./wire";
 /** A field being set. */
 const set = Schema.optionalKey;
 /** A field that may be absent on the node: `null` clears it. */
-const setOrClear = <S extends Schema.Top>(field: S) => Schema.optionalKey(Schema.NullOr(field));
+const setOrClear = <S extends Schema.Top>(field: S) =>
+  Schema.optionalKey(Schema.NullOr(field));
 
 const label = setOrClear(OneLine);
 const edit = <const K extends NodeKind, Fields extends Schema.Struct.Fields>(
@@ -42,7 +43,7 @@ const edit = <const K extends NodeKind, Fields extends Schema.Struct.Fields>(
 
 /**
  * What may be changed on a node after it is made, per kind. Not here, because
- * they are not ordinary edits: a seat's `name` and a session's `bindingId`
+ * they are not ordinary edits: a seat's `agentKey` and a session's `bindingId`
  * (who the thing is), a seat's `overseer` (a grant of authority, with its own
  * command) and its `sessionId` (recorded by the runtime, not typed).
  */
@@ -66,7 +67,10 @@ export const NodeEdit = Schema.Union([
     host: set(HostId),
     onRemove: set(PageOnRemove),
   }),
-  edit("task", { name: setOrClear(OneLine), contract: setOrClear(TasksContract) }),
+  edit("task", {
+    name: setOrClear(OneLine),
+    contract: setOrClear(TasksContract),
+  }),
   edit("requests", { name: setOrClear(OneLine) }),
   edit("artifacts", { label }),
   edit("board", { label }),
@@ -83,7 +87,10 @@ export const NodeEdit = Schema.Union([
   }),
   edit("note", { text: set(Schema.String) }),
   edit("label", { text: set(Schema.String) }),
-  edit("file", { path: set(FileCard.fields.path), subpath: setOrClear(Schema.String) }),
+  edit("file", {
+    path: set(FileCard.fields.path),
+    subpath: setOrClear(Schema.String),
+  }),
   edit("link", { url: set(Schema.String) }),
   edit("git", { label, cwd: set(GitCard.fields.cwd) }),
   edit("region", {
@@ -111,7 +118,7 @@ export type NodeMove = typeof NodeMove.Type;
 export const Command = Schema.TaggedUnion({
   /**
    * Put new nodes and wires on a canvas. Ids are minted by the sender. A seat
-   * that was removed may be added back as it was, name and session binding
+   * that was removed may be added back as it was, agent key and session binding
    * included: that is how a removal is undone.
    */
   Add: {
@@ -150,7 +157,11 @@ export const Command = Schema.TaggedUnion({
    */
   GrantOverseer: { canvas: CanvasName, id: NodeId, overseer: Schema.Boolean },
   /** Record the harness session a seat is now running, or that it has none. */
-  RecordSession: { canvas: CanvasName, id: NodeId, sessionId: Schema.NullOr(Schema.String) },
+  RecordSession: {
+    canvas: CanvasName,
+    id: NodeId,
+    sessionId: Schema.NullOr(Schema.String),
+  },
   /** Replace what a sheet holds. */
   WriteSheet: { canvas: CanvasName, id: NodeId, grid: SheetGrid },
   /** Change what a wire grants or where it attaches. Its ends are fixed. */
@@ -171,7 +182,10 @@ export const Command = Schema.TaggedUnion({
 export type Command = typeof Command.Type;
 
 /** The edit a given kind accepts. */
-export type NodeEditOf<K extends NodeKind> = Extract<NodeEdit, { readonly kind: K }>;
+export type NodeEditOf<K extends NodeKind> = Extract<
+  NodeEdit,
+  { readonly kind: K }
+>;
 
 const strict = { onExcessProperty: "error" } as const;
 

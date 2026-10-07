@@ -14,7 +14,7 @@ const seat = (id: string, over: Record<string, unknown> = {}): Node =>
     width: 216,
     height: 96,
     z: 0,
-    name: `local:${id}`,
+    agentKey: `local:${id}`,
     label: id,
     host: "local",
     overseer: false,

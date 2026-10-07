@@ -31,8 +31,8 @@ const actorAt = (
   if (seat === undefined) return undefined;
   return {
     nodeId: seat.id,
-    agentKey: seat.name,
-    label: seat.name,
+    agentKey: seat.agentKey,
+    label: seat.label || seat.agentKey,
     wake: edgeNotifyOn(canvas, sinkNodeId, seat.id),
   };
 };

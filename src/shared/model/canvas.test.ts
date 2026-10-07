@@ -26,7 +26,7 @@ const at = (id: string, x: number, y: number, width: number, height: number, z =
 const seat = (id: string, x = 10, y = 10): Node => ({
   kind: "agent",
   ...at(id, x, y, 216, 96),
-  name: `local:${id}`,
+  agentKey: `local:${id}`,
   label: id,
   host: "local",
   overseer: false,

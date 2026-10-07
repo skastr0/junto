@@ -64,7 +64,7 @@ export const Seat = Schema.Struct({
    * creation. It is not the seat's identity: many seats run `local:claude`.
    * A seat is identified by its id, and its session by `bindingId`.
    */
-  name: NonEmpty,
+  agentKey: NonEmpty,
   /** What the operator sees and may rename. One line. */
   label: OneLine,
   host: HostId,

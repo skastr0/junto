@@ -7,7 +7,7 @@ const placed = { id: "n1", x: 0, y: 0, width: 216, height: 96, z: 0 };
 const seat = {
   kind: "agent",
   ...placed,
-  name: "local:claude",
+  agentKey: "local:claude",
   label: "canvas-lead",
   host: "local",
   overseer: false,
@@ -95,7 +95,7 @@ describe("commands", () => {
   it("cannot change who a seat is", () => {
     const edit = (change: unknown) =>
       decode({ _tag: "Edit", canvas: "factory", id: "n1", change });
-    expect(Exit.isFailure(edit({ kind: "agent", name: "local:other" }))).toBe(true);
+    expect(Exit.isFailure(edit({ kind: "agent", agentKey: "local:other" }))).toBe(true);
     expect(Exit.isFailure(edit({ kind: "agent", bindingId: "other" }))).toBe(true);
   });
 
