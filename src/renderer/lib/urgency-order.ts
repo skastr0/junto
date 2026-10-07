@@ -1,7 +1,5 @@
-import type { CanvasNode } from "@shared/canvas";
 import type { Seat } from "@shared/model";
 import { titleOf } from "@shared/model/title";
-import { nodeTitle } from "./presentation";
 import { SEAT_URGENCY, type SeatUrgency } from "./seat-line";
 
 /**
@@ -17,12 +15,6 @@ export const seatUrgencyOrder = <S extends Seat>(
   seats: ReadonlyArray<S>,
   urgencyOf: (seat: S) => SeatUrgency,
 ): S[] => ordered(seats, urgencyOf, titleOf);
-
-/** The same order over document nodes, for a caller that still holds them. */
-export const urgencyOrder = <N extends CanvasNode>(
-  agents: ReadonlyArray<N>,
-  urgencyOf: (agent: N) => SeatUrgency,
-): N[] => ordered(agents, urgencyOf, nodeTitle);
 
 const ordered = <N extends { readonly id: string }>(
   agents: ReadonlyArray<N>,

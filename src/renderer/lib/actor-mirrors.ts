@@ -15,23 +15,22 @@
  * Presentation and navigation only — nothing here writes the canvas.
  */
 import { observable } from "@legendapp/state";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { resolveTerminalBinding } from "@shared/terminal";
+import { asNodeId, type Canvas, type Node, type Seat } from "@shared/model";
+import { nodeToDocument } from "@shared/model/from-document";
 import { actorEdgeRows } from "./actor-edges";
 import { dock$, parseTerminalSurfaceId } from "./dock-state";
 import { state$ } from "./state";
 import { visiblePanes } from "./surface-registry";
 import { openTerminal } from "./terminal-actions";
+import { modelStore } from "./use-model";
 
 /**
- * A peer is mirrorable when it is an actor seat this UI can swap to: kind
- * `agent` with a native terminal binding. Geography shells and work sinks
- * open different modals (no rail) — navigation would dead-end there.
+ * A peer is mirrorable when it is a seat: the one kind this UI can swap to,
+ * and the model requires a terminal binding of every seat. Geography shells
+ * and work sinks open different modals (no rail) — navigation would dead-end
+ * there.
  */
-export const isMirrorablePeer = (peer: CanvasNode | undefined): peer is CanvasNode =>
-  peer !== undefined &&
-  peer.ether?.entity?.kind === "agent" &&
-  resolveTerminalBinding(peer)?.kind === "native";
+export const isMirrorablePeer = (peer: Node | undefined): peer is Seat => peer?.kind === "agent";
 
 /**
  * Unique mirrorable peer ids of `nodeId`, in rail order (peer title, then
@@ -39,16 +38,15 @@ export const isMirrorablePeer = (peer: CanvasNode | undefined): peer is CanvasNo
  * is not an actor or has no mirrorable peers.
  */
 export const mirrorPeerIds = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   nodeId: string,
 ): readonly string[] => {
-  const byId = new Map(doc.nodes.map((n) => [n.id, n]));
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const row of actorEdgeRows(doc, nodeId)) {
+  for (const row of actorEdgeRows(canvas, nodeId)) {
     if (seen.has(row.peerId)) continue;
     seen.add(row.peerId);
-    if (!isMirrorablePeer(byId.get(row.peerId))) continue;
+    if (!isMirrorablePeer(canvas.nodes.get(asNodeId(row.peerId)))) continue;
     out.push(row.peerId);
   }
   return out;
@@ -61,10 +59,9 @@ export type ActorRing = {
 };
 
 /** Ring for an anchor. Null when the anchor cannot mirror-cycle (no peers). */
-export const actorRingOf = (doc: CanvasDoc, anchorId: string): ActorRing | null => {
-  const anchor = doc.nodes.find((n) => n.id === anchorId);
-  if (!isMirrorablePeer(anchor)) return null;
-  const peers = mirrorPeerIds(doc, anchorId);
+export const actorRingOf = (canvas: Canvas, anchorId: string): ActorRing | null => {
+  if (!isMirrorablePeer(canvas.nodes.get(asNodeId(anchorId)))) return null;
+  const peers = mirrorPeerIds(canvas, anchorId);
   if (peers.length === 0) return null;
   return { anchorId, memberIds: [anchorId, ...peers] };
 };
@@ -72,18 +69,18 @@ export const actorRingOf = (doc: CanvasDoc, anchorId: string): ActorRing | null 
 /**
  * Sticky-anchor resolution: keep the standing ring while `currentId` is still
  * inside it; otherwise re-anchor at `currentId`. Membership is derived live
- * from the document, so edge changes take effect on the next step.
+ * from the canvas, so wire changes take effect on the next step.
  */
 export const resolveRing = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   currentId: string,
   anchorId: string | null,
 ): ActorRing | null => {
   if (anchorId !== null) {
-    const standing = actorRingOf(doc, anchorId);
+    const standing = actorRingOf(canvas, anchorId);
     if (standing && standing.memberIds.includes(currentId)) return standing;
   }
-  return actorRingOf(doc, currentId);
+  return actorRingOf(canvas, currentId);
 };
 
 /** Next member after `currentId` in ring order, wrapping. Null when absent. */
@@ -98,6 +95,12 @@ export const nextInRing = (
   const next = memberIds[(at + direction + memberIds.length) % memberIds.length];
   return next === undefined || next === currentId ? null : next;
 };
+
+/**
+ * The open canvas as the store holds it. Opening a terminal still takes the
+ * document form of a node, so a seat is turned into it at those two calls.
+ */
+const canvasNow = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
 
 /** Sticky ring anchor. Presentation state only — never persisted. */
 export const mirrorAnchor$ = observable<string | null>(null);
@@ -118,14 +121,14 @@ export const frontTerminalNodeId = (): string | null => {
  * already inside it, else re-anchors at the clicked rail's actor (whose ring
  * contains the target by construction).
  */
-export const openActorMirror = (peer: CanvasNode, fromNodeId: string): void => {
-  const doc = state$.doc.peek();
+export const openActorMirror = (peer: Seat, fromNodeId: string): void => {
+  const canvas = canvasNow();
   const anchor = mirrorAnchor$.peek();
-  const standing = anchor !== null ? actorRingOf(doc, anchor) : null;
+  const standing = anchor !== null ? actorRingOf(canvas, anchor) : null;
   if (!standing || !standing.memberIds.includes(peer.id)) {
     mirrorAnchor$.set(fromNodeId);
   }
-  void openTerminal(peer, "focus");
+  void openTerminal(nodeToDocument(peer), "focus");
 };
 
 /**
@@ -135,14 +138,14 @@ export const openActorMirror = (peer: CanvasNode, fromNodeId: string): void => {
 export const cycleActorMirror = (direction: 1 | -1): boolean => {
   const currentId = frontTerminalNodeId();
   if (!currentId) return false;
-  const doc = state$.doc.peek();
-  const ring = resolveRing(doc, currentId, mirrorAnchor$.peek());
+  const canvas = canvasNow();
+  const ring = resolveRing(canvas, currentId, mirrorAnchor$.peek());
   if (!ring) return false;
   const nextId = nextInRing(ring.memberIds, currentId, direction);
   if (!nextId) return false;
-  const next = doc.nodes.find((n) => n.id === nextId);
+  const next = canvas.nodes.get(asNodeId(nextId));
   if (!next) return false;
   mirrorAnchor$.set(ring.anchorId);
-  void openTerminal(next, "focus");
+  void openTerminal(nodeToDocument(next), "focus");
   return true;
 };

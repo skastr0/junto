@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasEdge, TextNode } from "../src/shared/canvas";
+import type { Canvas, Node, Wire } from "../src/shared/model";
+import { canvasOf, page as modelPage, seat, terminal, wire } from "./support/model-nodes";
 import {
   actorRingOf,
   isMirrorablePeer,
@@ -8,67 +9,11 @@ import {
   resolveRing,
 } from "../src/renderer/lib/actor-mirrors";
 
-const agent = (id: string, label: string): TextNode => ({
-  id,
-  type: "text",
-  text: label,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId: `local:${id}`, harness: "codex" },
-  },
-});
-
-/** Actor by kind, but no native terminal binding — not swappable. */
-const unboundAgent = (id: string, label: string): TextNode => ({
-  id,
-  type: "text",
-  text: label,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: { entity: { kind: "agent", name: `local:${id}` } },
-});
-
-const shell = (id: string): TextNode => ({
-  id,
-  type: "text",
-  text: "shell",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "terminal" },
-    terminal: { bindingId: `shell:${id}` },
-  },
-});
-
-const page = (id: string): TextNode => ({
-  id,
-  type: "text",
-  text: "page",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: { entity: { kind: "page" } },
-});
-
-const edge = (id: string, from: string, to: string): CanvasEdge => ({
-  id,
-  fromNode: from,
-  toNode: to,
-});
-
-const docOf = (
-  nodes: readonly TextNode[],
-  edges: readonly CanvasEdge[],
-): CanvasDoc => ({ nodes: [...nodes], edges: [...edges] });
+const agent = (id: string, label: string) => seat(id, { label: label as never });
+const shell = (id: string) => terminal(id);
+const page = (id: string) => modelPage(id);
+const edge = (id: string, from: string, to: string) => wire(id, from, to, "messages");
+const docOf = (nodes: ReadonlyArray<Node>, edges: ReadonlyArray<Wire>): Canvas => canvasOf(nodes, edges);
 
 /** Hub-and-spoke: hub wired to three actor peers that are not wired to each other. */
 const hubDoc = docOf(
@@ -86,9 +31,8 @@ const hubDoc = docOf(
 );
 
 describe("isMirrorablePeer", () => {
-  it("accepts only actors with a native terminal binding", () => {
+  it("accepts a seat and nothing else", () => {
     expect(isMirrorablePeer(agent("a", "A"))).toBe(true);
-    expect(isMirrorablePeer(unboundAgent("u", "U"))).toBe(false);
     expect(isMirrorablePeer(shell("s"))).toBe(false);
     expect(isMirrorablePeer(page("p"))).toBe(false);
     expect(isMirrorablePeer(undefined)).toBe(false);
@@ -112,20 +56,18 @@ describe("mirrorPeerIds", () => {
     expect(mirrorPeerIds(doc, "hub")).toEqual(["bravo"]);
   });
 
-  it("excludes shells, pages, and unbound actors", () => {
+  it("excludes shells and pages", () => {
     const doc = docOf(
       [
         agent("hub", "Hub"),
         agent("bravo", "Bravo"),
         shell("sh"),
         page("pg"),
-        unboundAgent("ub", "Unbound"),
       ],
       [
         edge("e-1", "hub", "bravo"),
         edge("e-2", "hub", "sh"),
         edge("e-3", "pg", "hub"),
-        edge("e-4", "hub", "ub"),
       ],
     );
     expect(mirrorPeerIds(doc, "hub")).toEqual(["bravo"]);

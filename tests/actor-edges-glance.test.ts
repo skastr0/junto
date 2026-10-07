@@ -1,85 +1,37 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasEdge, TextNode } from "../src/shared/canvas";
-import type { Verb } from "../src/shared/physics";
+import { board, canvasOf, note, seat, wire } from "./support/model-nodes";
 import {
   actorEdgePhaseLabel,
   actorEdgeRows,
 } from "../src/renderer/lib/actor-edges";
 
-const agent = (id: string, label: string): TextNode => ({
-  id,
-  type: "text",
-  text: label,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId: `local:${id}`, harness: "codex" },
-  },
-});
-
-const note = (id: string, text: string): TextNode => ({
-  id,
-  type: "text",
-  text,
-  x: 0,
-  y: 0,
-  width: 160,
-  height: 60,
-});
-
-const edge = (
-  id: string,
-  from: string,
-  to: string,
-  verb?: Verb,
-): CanvasEdge =>
-  verb === undefined
-    ? { id, fromNode: from, toNode: to }
-    : { id, fromNode: from, toNode: to, ether: { verb } };
-
-const docOf = (
-  nodes: TextNode[],
-  edges: CanvasEdge[],
-): CanvasDoc => ({ nodes, edges });
+const agent = (id: string, label: string) => seat(id, { label: label as never });
 
 describe("actorEdgeRows", () => {
-  it("returns empty for non-actor nodes", () => {
-    const doc = docOf(
-      [note("m", "memo"), note("n", "hi")],
-      [edge("e", "m", "n")],
-    );
-    expect(actorEdgeRows(doc, "m")).toEqual([]);
-    expect(actorEdgeRows(doc, "missing")).toEqual([]);
+  it("returns empty for a node that is not a seat", () => {
+    const canvas = canvasOf([note("m", "memo"), board("n")], []);
+    expect(actorEdgeRows(canvas, "m")).toEqual([]);
+    expect(actorEdgeRows(canvas, "missing")).toEqual([]);
   });
 
-  it("lists directed incident edges with peer kind — no soft nature", () => {
-    const doc = docOf(
+  it("lists directed incident wires with the peer's kind — no soft nature", () => {
+    const canvas = canvasOf(
+      [agent("worker", "Grok"), agent("lead", "Claude"), agent("helper", "Codex"), board("talk")],
       [
-        agent("worker", "Grok"),
-        agent("lead", "Claude"),
-        agent("helper", "Codex"),
-        note("memo", "note"),
-      ],
-      [
-        edge("e-in", "lead", "worker", "messages"),
-        edge("e-out", "worker", "helper", "messages"),
-        edge("e-note", "worker", "memo"),
+        wire("e-in", "lead", "worker", "messages"),
+        wire("e-out", "worker", "helper", "messages"),
+        wire("e-board", "worker", "talk", "participates"),
       ],
     );
-    const rows = actorEdgeRows(doc, "worker");
-    expect(rows.map((r) => r.edgeId).sort()).toEqual([
-      "e-in",
-      "e-note",
-      "e-out",
-    ]);
+    const rows = actorEdgeRows(canvas, "worker");
+    expect(rows.map((r) => r.edgeId).sort()).toEqual(["e-board", "e-in", "e-out"]);
 
     const inRow = rows.find((r) => r.edgeId === "e-in")!;
     expect(inRow.direction).toBe("in");
     expect(inRow.peerKind).toBe("agent");
     expect(inRow.peerId).toBe("lead");
+    expect(inRow.peerTitle).toBe("Claude");
+    expect(inRow.boardNotify).toBeNull();
     expect(actorEdgePhaseLabel(inRow)).toBeNull();
 
     const outRow = rows.find((r) => r.edgeId === "e-out")!;
@@ -87,8 +39,16 @@ describe("actorEdgeRows", () => {
     expect(outRow.peerKind).toBe("agent");
     expect(outRow.peerId).toBe("helper");
 
-    const noteRow = rows.find((r) => r.edgeId === "e-note")!;
-    expect(noteRow.direction).toBe("out");
-    expect(noteRow.peerKind).toBe("text");
+    // A board the seat takes part in wakes it: the megaphone is on.
+    const boardRow = rows.find((r) => r.edgeId === "e-board")!;
+    expect(boardRow.direction).toBe("out");
+    expect(boardRow.peerKind).toBe("board");
+    expect(boardRow.boardNotify).toBe("on");
+  });
+
+  it("carries the kernel's live phase when the caller holds it", () => {
+    const canvas = canvasOf([agent("worker", "Grok"), agent("lead", "Claude")], [wire("e", "lead", "worker", "messages")]);
+    const row = actorEdgeRows(canvas, "worker", new Map([["e", "blocks" as const]]))[0]!;
+    expect(actorEdgePhaseLabel(row)).toBe("blocks");
   });
 });

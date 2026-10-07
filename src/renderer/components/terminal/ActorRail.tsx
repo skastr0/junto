@@ -14,23 +14,23 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { Seat } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import { actorRailExpanded, actorRailPeers, setActorRailExpanded } from "../../lib/actor-rail";
 import type { ActorEdgeRow } from "../../lib/actor-edges";
 import { openActorMirror } from "../../lib/actor-mirrors";
 import { openOperatorModal } from "../../lib/operator-modal";
-import { isOverseerSeat } from "../../lib/overseer-set";
-import { nodeTitle } from "../../lib/presentation";
 import { preambleByNodeId$ } from "../../lib/preamble-state";
-import { useSeatOnboarding } from "../../lib/seat-onboarding";
+import { useSeatOnboardingOf } from "../../lib/seat-onboarding";
 import { seatSaying, seatUrgency, type SeatUrgency } from "../../lib/seat-line";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
-import { urgencyOrder } from "../../lib/urgency-order";
+import { seatUrgencyOrder } from "../../lib/urgency-order";
 import { state$ } from "../../lib/state";
+import { useCanvas } from "../../lib/use-model";
 import { accentColor, INK } from "../../lib/theme";
 import { AgentSeatView, SeatName } from "../nodes/AgentSeat";
 import { PreambleBubble } from "../nodes/PreambleBubble";
-import { seatUrgencyNow, useSeatGlance } from "../SeatRing";
+import { seatUrgencyOf, useSeatGlanceOf } from "../SeatRing";
 import { IconButton, ListRow } from "../ui";
 import "./actor-rail.css";
 
@@ -42,16 +42,16 @@ function RailSeat({
   onUrgency,
   seatRef,
 }: {
-  readonly peer: CanvasNode;
+  readonly peer: Seat;
   readonly actorNodeId: string;
   readonly compact: boolean;
   readonly onUrgency: (nodeId: string, urgency: SeatUrgency) => void;
   readonly seatRef: (nodeId: string, element: HTMLLIElement | null) => void;
 }) {
-  const glance = useSeatGlance(peer);
-  const onboarding = useSeatOnboarding(peer);
+  const glance = useSeatGlanceOf(peer);
+  const onboarding = useSeatOnboardingOf(peer.bindingId);
   const bubbleUp = use$(() => preambleByNodeId$[peer.id].get() !== undefined);
-  const name = nodeTitle(peer);
+  const name = titleOf(peer);
   const signal = glance.signal?.signal;
   const urgency = seatUrgency({ activity: glance.activity, signal: glance.signal?.kind, failure: glance.failure });
   useEffect(() => {
@@ -91,7 +91,7 @@ function RailSeat({
         onboarding={onboarding}
         // Signals live in the needs-you feed now.
         onSignalOpen={() => openOperatorModal("feed")}
-        overseer={isOverseerSeat(peer)}
+        overseer={peer.overseer}
         compact={compact}
       />
     </li>
@@ -141,10 +141,10 @@ function RailBubble({
 const boardMeta = (row: ActorEdgeRow): string | undefined =>
   row.boardNotify === "on" ? "wakes" : row.boardNotify === "off" ? "quiet" : undefined;
 
-export function ActorRail({ node }: { readonly node: CanvasNode }) {
-  const doc = use$(state$.doc);
+export function ActorRail({ node }: { readonly node: { readonly id: string } }) {
+  const canvas = useCanvas(use$(state$.canvasName));
   const expanded = actorRailExpanded(use$(sidebarSections$.open));
-  const { agents, others } = useMemo(() => actorRailPeers(doc, node.id), [doc, node.id]);
+  const { agents, others } = useMemo(() => actorRailPeers(canvas, node.id), [canvas, node.id]);
 
   // Order: most urgent first, by name inside a group. Seats report their own
   // urgency, so the list reorders only when a seat changes group.
@@ -153,7 +153,7 @@ export function ActorRail({ node }: { readonly node: CanvasNode }) {
     setUrgencyById((current) => (current[nodeId] === urgency ? current : { ...current, [nodeId]: urgency }));
   }, []);
   const ordered = useMemo(
-    () => urgencyOrder(agents, (peer) => urgencyById[peer.id] ?? seatUrgencyNow(peer)),
+    () => seatUrgencyOrder(agents, (peer) => urgencyById[peer.id] ?? seatUrgencyOf(peer)),
     [agents, urgencyById],
   );
 

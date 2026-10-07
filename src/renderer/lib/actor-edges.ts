@@ -1,31 +1,22 @@
 /**
- * Read-only inventory of edges incident to an actor node — used on agent
- * focus surfaces so the operator sees connected peers, ports, and wake
+ * Read-only inventory of the wires on a seat — used on agent focus surfaces
+ * so the operator sees connected peers and whether a board wakes the seat,
  * without inventing obsolete edge natures (soft / authorial stops).
  *
  * Live stoppage on a work lane is kernel-derived (actor blocked by task
  * attention) — never an authorable edge mode.
  */
-import {
-  compileEdgeGrant,
-  edgeKindIndex,
-  type CanvasDoc,
-  type CanvasNode,
-} from "@shared/canvas";
-import { isGroup } from "@shared/graph";
-import {
-  resolveSpec,
-  roleOf,
-  type VerbGrant,
-} from "@shared/physics";
-import { nodeTitle } from "./presentation";
+import { asNodeId, wireGrant, wireKinds, type Canvas } from "@shared/model";
+import { titleOf } from "@shared/model/title";
+import { kindWord } from "./model-kind";
 
 export type ActorEdgeRow = {
   readonly edgeId: string;
   readonly peerId: string;
   readonly peerTitle: string;
+  /** The peer's kind in the words the rail prints, or "missing" for an end that is gone. */
   readonly peerKind: string;
-  /** Actor is fromNode → out; actor is toNode → in. */
+  /** The seat is the wire's from end → out; its to end → in. */
   readonly direction: "out" | "in";
   /** Board megaphone: `participates` = ON, the quiet board verb = OFF. */
   readonly boardNotify: "on" | "off" | null;
@@ -36,64 +27,37 @@ export type ActorEdgeRow = {
   readonly livePhase: "blocks" | "relates" | null;
 };
 
-const peerKindOf = (peer: CanvasNode | undefined): string => {
-  if (!peer) return "missing";
-  if (peer.ether?.entity?.kind) return peer.ether.entity.kind;
-  if (isGroup(peer)) return "region";
-  return peer.type;
-};
-
-const boardNotifyOf = (
-  grant: VerbGrant | undefined,
-  actor: CanvasNode,
-  peer: CanvasNode | undefined,
-): "on" | "off" | null => {
-  const touchesBoard =
-    actor.ether?.entity?.kind === "board" ||
-    peer?.ether?.entity?.kind === "board";
-  if (!touchesBoard) return null;
-  // `participates` wakes the seat; the quiet board verb (`messages`) does not.
-  return grant?.wake === true ? "on" : "off";
-};
-
 /**
- * Directed incident edges for an actor seat, sorted peer title then edge id.
- * `phaseByEdgeId` is optional live kernel overlay (blocks | relates).
+ * The wires on a seat, one row each, sorted by the peer's title then the wire
+ * id. Empty for a node that is not a seat: a seat is the only actor the model
+ * holds. `phaseByWireId` is the kernel's live overlay (blocks | relates).
  */
 export const actorEdgeRows = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   actorNodeId: string,
-  phaseByEdgeId?: ReadonlyMap<string, "blocks" | "relates"> | null,
+  phaseByWireId?: ReadonlyMap<string, "blocks" | "relates"> | null,
 ): ReadonlyArray<ActorEdgeRow> => {
-  const actor = doc.nodes.find((n) => n.id === actorNodeId);
-  if (!actor) return [];
-  const actorRole = roleOf(
-    resolveSpec({ isGroup: isGroup(actor), kind: actor.ether?.entity?.kind }),
-  );
-  if (actorRole !== "actor") return [];
+  if (canvas.nodes.get(asNodeId(actorNodeId))?.kind !== "agent") return [];
 
-  const byId = new Map(doc.nodes.map((n) => [n.id, n]));
-  const kinds = edgeKindIndex(doc);
+  const kinds = wireKinds(canvas.nodes.values());
   const rows: ActorEdgeRow[] = [];
-
-  for (const edge of doc.edges) {
-    const out = edge.fromNode === actorNodeId;
-    const inn = edge.toNode === actorNodeId;
+  for (const wire of canvas.wires.values()) {
+    const out = wire.from === actorNodeId;
+    const inn = wire.to === actorNodeId;
     if (!out && !inn) continue;
 
-    const peerId = out ? edge.toNode : edge.fromNode;
-    const peer = byId.get(peerId);
-    const grant = compileEdgeGrant(edge, kinds);
-    const phase = phaseByEdgeId?.get(edge.id) ?? null;
-
+    const peerId = out ? wire.to : wire.from;
+    const peer = canvas.nodes.get(peerId);
     rows.push({
-      edgeId: edge.id,
+      edgeId: wire.id,
       peerId,
-      peerTitle: peer ? nodeTitle(peer) : peerId,
-      peerKind: peerKindOf(peer),
+      peerTitle: peer ? titleOf(peer) : peerId,
+      peerKind: peer ? kindWord(peer.kind) : "missing",
       direction: out ? "out" : "in",
-      boardNotify: boardNotifyOf(grant, actor, peer),
-      livePhase: phase,
+      // The megaphone exists only on a wire that touches a board:
+      // `participates` wakes the seat; the quiet board verb does not.
+      boardNotify: peer?.kind === "board" ? (wireGrant(wire, kinds)?.wake === true ? "on" : "off") : null,
+      livePhase: phaseByWireId?.get(wire.id) ?? null,
     });
   }
 

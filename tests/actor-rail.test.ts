@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import { board, canvasOf, seat, wire } from "./support/model-nodes";
 import {
   actorRailExpanded,
   actorRailMode,
@@ -8,38 +8,26 @@ import {
 } from "../src/renderer/lib/actor-rail";
 import { sidebarSections$ } from "../src/renderer/lib/sidebar-sections";
 
-const agent = (id: string): CanvasNode => ({
-  id,
-  type: "text",
-  x: 0,
-  y: 0,
-  width: 240,
-  height: 72,
-  text: id,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    host: "local",
-    terminal: { bindingId: `local:${id}`, harness: "codex" },
-  },
-});
-const note: CanvasNode = { id: "note", type: "text", x: 0, y: 0, width: 200, height: 80, text: "Notes" };
-const edge = (id: string, fromNode: string, toNode: string) => ({ id, fromNode, toNode });
-
-const doc: CanvasDoc = {
-  nodes: [agent("lead"), agent("ada"), agent("bea"), agent("solo"), note],
-  edges: [edge("e1", "lead", "ada"), edge("e2", "bea", "lead"), edge("e3", "lead", "ada"), edge("e4", "lead", "note")],
-};
+const doc = canvasOf(
+  [seat("lead"), seat("ada"), seat("bea"), seat("solo"), board("notes")],
+  [
+    wire("e1", "lead", "ada", "messages"),
+    wire("e2", "bea", "lead", "messages"),
+    wire("e3", "lead", "ada", "reviews"),
+    wire("e4", "lead", "notes", "participates"),
+  ],
+);
 
 describe("agent rail peers", () => {
   it("lists each connected agent once, whichever way the wire runs, and other connections apart", () => {
     const peers = actorRailPeers(doc, "lead");
     expect(peers.agents.map((peer) => peer.id).sort()).toEqual(["ada", "bea"]);
-    expect(peers.others.map((row) => row.peerId)).toEqual(["note"]);
+    expect(peers.others.map((row) => row.peerId)).toEqual(["notes"]);
   });
 
   it("a seat with no connections has no rail; a node that is not an agent has none either", () => {
     expect(actorRailMode(doc, "solo", true)).toBe("none");
-    expect(actorRailMode(doc, "note", true)).toBe("none");
+    expect(actorRailMode(doc, "notes", true)).toBe("none");
     expect(actorRailMode(doc, "missing", true)).toBe("none");
   });
 

@@ -1,6 +1,4 @@
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { isGroup } from "@shared/graph";
-import { resolveSpec, roleOf } from "@shared/physics";
+import { asNodeId, type Canvas, type Seat } from "@shared/model";
 import { actorEdgeRows, type ActorEdgeRow } from "./actor-edges";
 import { isMirrorablePeer } from "./actor-mirrors";
 import { sectionOpen, setSectionOpen, type SectionOpenMap } from "./sidebar-sections";
@@ -23,36 +21,33 @@ export const setActorRailExpanded = (expanded: boolean): void => setSectionOpen(
 
 export type ActorRailPeers = {
   /** Connected agents with a terminal to move to, one entry per agent. */
-  readonly agents: ReadonlyArray<CanvasNode>;
+  readonly agents: ReadonlyArray<Seat>;
   /** Every other connection, one row per peer. */
   readonly others: ReadonlyArray<ActorEdgeRow>;
 };
 
 const NO_PEERS: ActorRailPeers = { agents: [], others: [] };
 
-const isActor = (node: CanvasNode): boolean =>
-  roleOf(resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind })) === "actor";
-
 /** A seat's connections, split into agents and the rest; two wires to one peer are one entry. */
-export const actorRailPeers = (doc: CanvasDoc, nodeId: string): ActorRailPeers => {
-  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-  if (!node || !isActor(node)) return NO_PEERS;
-  const byId = new Map(doc.nodes.map((candidate) => [candidate.id, candidate] as const));
+export const actorRailPeers = (canvas: Canvas, nodeId: string): ActorRailPeers => {
+  // Only a seat has a rail; actorEdgeRows answers nothing for any other node.
+  const rows = actorEdgeRows(canvas, nodeId, null);
+  if (rows.length === 0) return NO_PEERS;
   const seen = new Set<string>();
-  const agents: CanvasNode[] = [];
+  const agents: Seat[] = [];
   const others: ActorEdgeRow[] = [];
-  for (const row of actorEdgeRows(doc, nodeId, null)) {
+  for (const row of rows) {
     if (seen.has(row.peerId)) continue;
     seen.add(row.peerId);
-    const peer = byId.get(row.peerId);
+    const peer = canvas.nodes.get(asNodeId(row.peerId));
     if (isMirrorablePeer(peer)) agents.push(peer);
     else others.push(row);
   }
   return { agents, others };
 };
 
-export const actorRailMode = (doc: CanvasDoc, nodeId: string, expanded: boolean): ActorRailMode => {
-  const { agents, others } = actorRailPeers(doc, nodeId);
+export const actorRailMode = (canvas: Canvas, nodeId: string, expanded: boolean): ActorRailMode => {
+  const { agents, others } = actorRailPeers(canvas, nodeId);
   if (agents.length + others.length === 0) return "none";
   return expanded ? "expanded" : "collapsed";
 };
