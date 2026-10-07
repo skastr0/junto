@@ -1,20 +1,21 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CanvasNode, TextNode } from "../src/shared/canvas";
 import {
   buildFocusSwitcherCatalog,
   cancelFocusSwitcher,
   focusMruNodeIds,
   focusSwitcher$,
-  jumpFocusSwitcherHotbar,
   moveFocusSwitcher,
   nextSelectedIndex,
   openFocusSwitcher,
+  openingIndex,
   selectFocusSwitcherIndex,
   wrapIndex,
 } from "../src/renderer/lib/focus-switcher";
 import { emptyHotbarSlots, type HotbarSlot } from "../src/renderer/lib/hotbar-slots";
 import { dock$, terminalSurfaceId } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState, openSurface } from "../src/renderer/lib/surface-registry";
+import { SEAT_URGENCY, type SeatUrgency } from "../src/renderer/lib/seat-line";
 import { state$ } from "../src/renderer/lib/state";
 
 const agent = (id: string, label: string): TextNode => ({
@@ -89,54 +90,60 @@ describe("buildFocusSwitcherCatalog", () => {
   const nodes = [
     agent("alpha", "Alpha hub"),
     agent("bravo", "Bravo"),
-    // An agent in a hotbar slot: task nodes are behind an unsupported flag.
     agent("sink", "Sink"),
     note("memo", "Field notes"),
     region("lane"),
   ];
+  const urgency: Record<string, SeatUrgency> = {
+    alpha: SEAT_URGENCY.working,
+    bravo: SEAT_URGENCY.working,
+    sink: SEAT_URGENCY.review,
+  };
+  const urgencyOf = (node: CanvasNode): SeatUrgency => urgency[node.id]!;
 
-  it("ranks open focus MRU first, then hotbar slots, then recency, then document order", () => {
+  it("lists agents only, the ones that need the operator first, then by name", () => {
     const catalog = buildFocusSwitcherCatalog({
       nodes,
       focusNodeIds: ["bravo", "alpha"],
       hotbarSlots: slotsWith([{ index: 0, nodeId: "sink" }]),
-      hotbarActiveMru: ["memo"],
+      urgencyOf,
     });
-    expect(catalog.map((entry) => entry.nodeId)).toEqual([
-      "bravo",
-      "alpha",
-      "sink",
-      "memo",
-    ]);
-    expect(catalog[0]?.current).toBe(true);
-    expect(catalog[0]?.parked).toBe(true);
-    expect(catalog[1]?.parked).toBe(true);
-    expect(catalog[2]?.hotbarSlot).toBe(1);
-    expect(catalog.find((entry) => entry.nodeId === "lane")).toBeUndefined();
+    expect(catalog.map((entry) => entry.nodeId)).toEqual(["sink", "alpha", "bravo"]);
+    expect(catalog.map((entry) => entry.current)).toEqual([false, false, true]);
+    expect(catalog[0]?.hotbarSlot).toBe(1);
+    expect(catalog[1]?.hotbarSlot).toBeNull();
   });
 
-  it("drops furniture and unbound kinds, and caps the list", () => {
-    const many = Array.from({ length: 20 }, (_, i) => agent(`a${i}`, `Agent ${i}`));
+  it("is not capped", () => {
+    const many = Array.from({ length: 40 }, (_, i) => agent(`a${i}`, `Agent ${i}`));
     const catalog = buildFocusSwitcherCatalog({
       nodes: many,
       focusNodeIds: [],
       hotbarSlots: emptyHotbarSlots(),
-      hotbarActiveMru: [],
-      cap: 5,
+      urgencyOf: () => SEAT_URGENCY.review,
     });
-    expect(catalog).toHaveLength(5);
-    expect(catalog[0]?.nodeId).toBe("a0");
+    expect(catalog).toHaveLength(40);
+  });
+});
+
+describe("openingIndex", () => {
+  const entry = (nodeId: string, current = false) => ({
+    nodeId,
+    title: nodeId,
+    kindLabel: "Agent",
+    hotbarSlot: null,
+    current,
   });
 
-  it("does not duplicate a parked node that is also on the hotbar", () => {
-    const catalog = buildFocusSwitcherCatalog({
-      nodes,
-      focusNodeIds: ["alpha"],
-      hotbarSlots: slotsWith([{ index: 2, nodeId: "alpha" }]),
-      hotbarActiveMru: ["alpha"],
-    });
-    expect(catalog.filter((entry) => entry.nodeId === "alpha")).toHaveLength(1);
-    expect(catalog[0]?.hotbarSlot).toBe(3);
+  it("comes up on the most urgent agent, or the least urgent stepping back", () => {
+    const entries = [entry("a"), entry("b", true), entry("c")];
+    expect(openingIndex(entries, 1)).toBe(0);
+    expect(openingIndex(entries, -1)).toBe(2);
+  });
+
+  it("skips the agent already in front", () => {
+    expect(openingIndex([entry("a", true), entry("b"), entry("c")], 1)).toBe(1);
+    expect(openingIndex([entry("a"), entry("b"), entry("c", true)], -1)).toBe(1);
   });
 });
 
@@ -174,8 +181,9 @@ describe("focus switcher session", () => {
       expect(openFocusSwitcher(1)).toBe(true);
       const first = focusSwitcher$.session.peek();
       expect(first).not.toBeNull();
-      expect(first?.entries.map((entry) => entry.nodeId)[0]).toBe("alpha");
-      expect(first && first.entries[first.selectedIndex]?.nodeId).not.toBe("alpha");
+      // Agents only: the task node is not in the switcher.
+      expect(first?.entries.map((entry) => entry.nodeId)).toEqual(["alpha", "bravo"]);
+      expect(first && first.entries[first.selectedIndex]?.nodeId).toBe("bravo");
 
       const frozen = first?.entries.map((entry) => entry.nodeId);
       expect(moveFocusSwitcher(1)).toBe(true);
@@ -185,7 +193,6 @@ describe("focus switcher session", () => {
 
       expect(selectFocusSwitcherIndex(0)).toBe(true);
       expect(focusSwitcher$.session.peek()?.selectedIndex).toBe(0);
-      expect(jumpFocusSwitcherHotbar(1)).toBe(false);
     } finally {
       state$.doc.set(previousDoc);
       state$.hotbarSlots.set(previousSlots);
@@ -193,7 +200,30 @@ describe("focus switcher session", () => {
     }
   });
 
-  it("refuses to open with fewer than two models", () => {
+  it("closes without opening anything when the window is left", () => {
+    const previousDoc = state$.doc.peek();
+    const listeners = new Map<string, () => void>();
+    const target = {
+      addEventListener: (type: string, listener: () => void) => void listeners.set(type, listener),
+      removeEventListener: (type: string) => void listeners.delete(type),
+    };
+    vi.stubGlobal("window", target);
+    vi.stubGlobal("document", { ...target, hidden: true });
+    try {
+      state$.doc.set({ nodes: [agent("alpha", "Alpha"), agent("bravo", "Bravo")], edges: [] });
+      for (const leave of ["blur", "visibilitychange"]) {
+        expect(openFocusSwitcher(1)).toBe(true);
+        listeners.get(leave)!();
+        expect(focusSwitcher$.session.peek()).toBeNull();
+        expect(listeners.size).toBe(0);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      state$.doc.set(previousDoc);
+    }
+  });
+
+  it("refuses to open with fewer than two agents", () => {
     const previousDoc = state$.doc.peek();
     try {
       state$.doc.set({ nodes: [agent("solo", "Solo")], edges: [] });

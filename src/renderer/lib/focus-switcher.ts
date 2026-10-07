@@ -1,13 +1,14 @@
 /**
- * Focus switcher — Alt-Tab for focus models.
+ * The agent switcher: hold Cmd, tap the backtick to step through the agents,
+ * let Cmd go to open the chosen one. The keys are rows in the key table; this
+ * file holds the model.
  *
- * Hold Cmd, tap the backtick to cycle a frozen catalog, let Cmd go to commit.
- * The keys are rows in the key table; this file holds the model.
- * The catalog is a snapshot: MRU does not reshuffle until commit, so A↔B
- * flicks. Cmd+] / Cmd+[ remain the connected-actor ring; this is the global
- * jump (parked focus surfaces first, then hotbar, then the rest of the canvas).
+ * The catalog is every agent seat with a surface to open, in the one urgency
+ * order (lib/urgency-order): the ones that need the operator first. It is a
+ * snapshot, read once as the switcher comes up, so nothing reorders under
+ * the operator while they step.
  *
- * Presentation and navigation only — nothing here writes the canvas.
+ * Presentation and navigation only: nothing here writes the canvas.
  */
 import { observable } from "@legendapp/state";
 import type { CanvasNode } from "@shared/canvas";
@@ -19,12 +20,13 @@ import {
   parseTaskCreateSurfaceId,
   parseTerminalSurfaceId,
 } from "./dock-state";
-import { nodeIdAt, slotIndexOf, type HotbarSlot } from "./hotbar-slots";
+import { slotIndexOf, type HotbarSlot } from "./hotbar-slots";
 import { nodeTitle, nodeTypeLabel } from "./presentation";
+import type { SeatUrgency } from "./seat-line";
+import { seatUrgencyNow } from "../components/SeatRing";
 import { state$ } from "./state";
 import type { WorkSurface } from "./surface-registry";
-
-export const FOCUS_SWITCHER_CAP = 16;
+import { urgencyOrder } from "./urgency-order";
 
 export type FocusSwitcherEntry = {
   readonly nodeId: string;
@@ -32,9 +34,7 @@ export type FocusSwitcherEntry = {
   readonly kindLabel: string;
   /** 1–9 when the node occupies a hotbar slot, else null. */
   readonly hotbarSlot: number | null;
-  /** Already in the focus-zone MRU (parked or front). */
-  readonly parked: boolean;
-  /** Frontmost focus surface when the snapshot was taken. */
+  /** The agent in front when the snapshot was taken. */
   readonly current: boolean;
 };
 
@@ -83,52 +83,32 @@ export const focusMruNodeIds = (
 
 export type FocusSwitcherCatalogInput = {
   readonly nodes: ReadonlyArray<CanvasNode>;
+  /** Open surfaces, front first: the first one names the agent in front. */
   readonly focusNodeIds: ReadonlyArray<string>;
   readonly hotbarSlots: ReadonlyArray<HotbarSlot>;
-  readonly hotbarActiveMru: ReadonlyArray<string>;
-  readonly cap?: number;
+  /** Read once per snapshot (seatUrgencyNow), so the order holds while the switcher is up. */
+  readonly urgencyOf: (agent: CanvasNode) => SeatUrgency;
 };
 
 /**
- * Ranked catalog: open focus MRU (front first), then occupied hotbar slots
- * 1–9, then hotbar recency, then document order. Closed to nodes that have
- * a focus surface. Capped so the HUD stays a glance, not a file picker.
+ * The catalog: every agent with a surface to open, most urgent first (the
+ * one urgency order, shared with the rail). Not capped: the strip scrolls.
  */
 export const buildFocusSwitcherCatalog = (
   input: FocusSwitcherCatalogInput,
 ): ReadonlyArray<FocusSwitcherEntry> => {
-  const cap = input.cap ?? FOCUS_SWITCHER_CAP;
-  const byId = new Map(input.nodes.map((node) => [node.id, node]));
-  const parked = new Set(input.focusNodeIds);
   const currentId = input.focusNodeIds[0];
-  const seen = new Set<string>();
-  const ranked: string[] = [];
-
-  const consider = (nodeId: string | undefined): void => {
-    if (!nodeId || seen.has(nodeId)) return;
-    const node = byId.get(nodeId);
-    if (!node || nodeSurfaceKind(node) === null) return;
-    seen.add(nodeId);
-    ranked.push(nodeId);
-  };
-
-  for (const id of input.focusNodeIds) consider(id);
-  for (let slot = 0; slot < 9; slot += 1) {
-    consider(nodeIdAt(input.hotbarSlots, slot));
-  }
-  for (const id of input.hotbarActiveMru) consider(id);
-  for (const node of input.nodes) consider(node.id);
-
-  return ranked.slice(0, cap).map((nodeId) => {
-    const node = byId.get(nodeId)!;
-    const slot = slotIndexOf(input.hotbarSlots, nodeId);
+  const agents = input.nodes.filter(
+    (node) => node.ether?.entity?.kind === "agent" && nodeSurfaceKind(node) !== null,
+  );
+  return urgencyOrder(agents, input.urgencyOf).map((node) => {
+    const slot = slotIndexOf(input.hotbarSlots, node.id);
     return {
-      nodeId,
+      nodeId: node.id,
       title: nodeTitle(node),
       kindLabel: nodeTypeLabel(node),
       hotbarSlot: slot === null ? null : slot + 1,
-      parked: parked.has(nodeId),
-      current: nodeId === currentId,
+      current: node.id === currentId,
     };
   });
 };
@@ -148,27 +128,51 @@ export const nextSelectedIndex = (
   return wrapIndex(currentIndex + direction, length);
 };
 
+/**
+ * Where the switcher comes up: on the most urgent agent that is not the one
+ * already in front (stepping back, on the least urgent).
+ */
+export const openingIndex = (
+  entries: ReadonlyArray<FocusSwitcherEntry>,
+  direction: 1 | -1,
+): number => {
+  const edge = direction === 1 ? 0 : entries.length - 1;
+  return entries[edge]?.current ? wrapIndex(edge + direction, entries.length) : edge;
+};
+
 const snapshotCatalog = (): ReadonlyArray<FocusSwitcherEntry> => {
   const registry = dock$.registry.peek();
   return buildFocusSwitcherCatalog({
     nodes: state$.doc.peek().nodes,
     focusNodeIds: focusMruNodeIds(registry.surfaces, registry.focusMru),
     hotbarSlots: state$.hotbarSlots.peek(),
-    hotbarActiveMru: state$.hotbarActiveMru.peek(),
+    urgencyOf: seatUrgencyNow,
   });
 };
 
-const currentIndexOf = (entries: ReadonlyArray<FocusSwitcherEntry>): number => {
-  const at = entries.findIndex((entry) => entry.current);
-  return at;
+const cancelWhenHidden = (): void => {
+  if (document.hidden) cancelFocusSwitcher();
+};
+
+// The switcher waits on Cmd being let go, and a key let go in another window
+// never arrives here: leaving the window closes the switcher, nothing opened.
+const watchWindow = (up: boolean): void => {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  if (up) {
+    window.addEventListener("blur", cancelFocusSwitcher);
+    document.addEventListener("visibilitychange", cancelWhenHidden);
+  } else {
+    window.removeEventListener("blur", cancelFocusSwitcher);
+    document.removeEventListener("visibilitychange", cancelWhenHidden);
+  }
 };
 
 export const openFocusSwitcher = (direction: 1 | -1): boolean => {
   if (focusSwitcher$.session.peek()) return false;
   const entries = snapshotCatalog();
   if (entries.length < 2) return false;
-  const selectedIndex = nextSelectedIndex(currentIndexOf(entries), entries.length, direction);
-  focusSwitcher$.session.set({ entries, selectedIndex });
+  focusSwitcher$.session.set({ entries, selectedIndex: openingIndex(entries, direction) });
+  watchWindow(true);
   return true;
 };
 
@@ -195,15 +199,8 @@ export const selectFocusSwitcherIndex = (index: number): boolean => {
   return true;
 };
 
-export const jumpFocusSwitcherHotbar = (slot: number): boolean => {
-  const session = focusSwitcher$.session.peek();
-  if (!session) return false;
-  const index = session.entries.findIndex((entry) => entry.hotbarSlot === slot);
-  if (index < 0) return false;
-  return selectFocusSwitcherIndex(index);
-};
-
 export const cancelFocusSwitcher = (): void => {
+  watchWindow(false);
   focusSwitcher$.session.set(null);
 };
 
@@ -211,7 +208,7 @@ export const commitFocusSwitcher = (): boolean => {
   const session = focusSwitcher$.session.peek();
   if (!session) return false;
   const entry = session.entries[session.selectedIndex];
-  focusSwitcher$.session.set(null);
+  cancelFocusSwitcher();
   if (!entry) return false;
   const node = state$.doc.peek().nodes.find((candidate) => candidate.id === entry.nodeId);
   if (!node) return false;
