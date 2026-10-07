@@ -10,7 +10,7 @@ import { TASKS_ENABLED } from "../src/shared/features";
 import { formatWaitingOnLines } from "../src/shared/impact";
 import { regionAddress, rulesInForce } from "../src/shared/rules";
 import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
-import { canvasFromDocument, nodesFromDocument } from "../src/shared/model/from-document";
+import { canvasFromDocument, nodesFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 
 const doc = {
   nodes: [
@@ -67,7 +67,8 @@ describe("an unnamed region on the operator's screen", () => {
   });
 
   it("the digest names it and keeps its id on the line for the overseer", () => {
-    const text = digestCanvas("main", doc, { bundles: [] } as never, {
+    const text = digestCanvas(canvasFromDocument("main", doc), { bundles: [] }, {
+      itemsOf: workItemsFromDocument(doc),
       resolveActorRef: executionContextForDoc(doc, "main").resolveActorRef,
     });
     expect(text).toContain("unnamed region (g-unnamed)");

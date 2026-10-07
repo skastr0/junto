@@ -1,3 +1,4 @@
+import { canvasFromDocument, workItemsFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
@@ -7,7 +8,7 @@ import {
 } from "../src/shared/digest";
 import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
 
-type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef">;
+type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef" | "itemsOf">;
 
 const digestCanvas = (
   name: string,
@@ -15,8 +16,9 @@ const digestCanvas = (
   snapshots: SnapshotState,
   live: DigestFixtureViews = {},
 ): string =>
-  digestCanvasWithActorRefs(name, doc, snapshots, {
+  digestCanvasWithActorRefs(canvasFromDocument(name, doc), snapshots, {
     ...live,
+    itemsOf: workItemsFromDocument(doc),
     resolveActorRef: executionContextForDoc(doc, name).resolveActorRef,
   });
 
@@ -54,7 +56,7 @@ const doc: CanvasDoc = {
       width: 100,
       height: 50,
       ether: {
-        entity: { kind: "agent" },
+        entity: { kind: "agent", name: "local:worker" }, terminal: { bindingId: "m3", harness: "codex" },
       },
     },
   ],
@@ -86,7 +88,7 @@ const snapshots: SnapshotState = {
 
 const expected = `canvas :: fixture
 nodes :: 4
-edges :: 3
+edges :: 0
 
 regions
 team :: Foo, Bar
@@ -96,28 +98,20 @@ team :: idle - 2 members
 
 factory physics
 roles :: actors=1 sinks=0 schedulers=0 geography=3
-edges :: 3
+edges :: 0
 
 design
 seats
   Baz :: empty
 empty seats
   Baz :: empty
-topology :: edges=3
 
 entities
-Foo :: project
-Bar :: orbit
+team :: region
+Foo :: note
+Bar :: note
 Baz :: agent
-
-edges
-Foo --relates--> Bar
-Baz --refs--> Foo
-Foo --relates--> Baz
-
-seeds
-Foo
-Bar
+  hermes: stale
 
 sources
 hermes :: ok (1 entities)
@@ -183,10 +177,14 @@ const expected2 = [
   "edges :: 0",
   "",
   "entities",
-  "W1 :: project",
-  "",
-  "seeds",
-  "W1",
+  "ops :: region",
+  "B1 :: note",
+  "A1 :: note",
+  "A2 :: note",
+  "W1 :: note",
+  "solo :: region",
+  "Lone :: note",
+  "unnamed region (g-empty) :: region",
   "",
 ].join("\n");
 
@@ -208,7 +206,7 @@ describe("digestCanvas — design (I13)", () => {
         y: 0,
         width: 100,
         height: 40,
-        ether: { entity: { kind: "agent", name: "local:worker" } },
+        ether: { entity: { kind: "agent", name: "local:worker" }, terminal: { bindingId: "agent1", harness: "codex" } },
       },
       {
         id: "page1",
@@ -248,4 +246,24 @@ describe("digestCanvas — design (I13)", () => {
     expect(out).toContain("empty seats");
     expect(out).toMatch(/empty seats\n {2}worker :: empty/);
   });
+});
+
+it("reads explicit Work waits and authored verbs from model rows", async () => {
+  const { Schema } = await import("effect");
+  const { Node, asCanvasName, asWireId } = await import("../src/shared/model");
+  const { ActorSeatId } = await import("../src/shared/actor-seat");
+  const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"b".repeat(64)}`);
+  const worker = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "worker", label: "Worker", agentKey: "local:worker", host: "local", bindingId: "worker", harness: "codex", overseer: false, onRemove: "detach", x: 0, y: 0, width: 100, height: 50, z: 0 });
+  const queue = Schema.decodeUnknownSync(Node)({ kind: "task", id: "queue", name: "Queue", x: 200, y: 0, width: 100, height: 50, z: 1 });
+  const id = asWireId("contribution");
+  const canvas = { name: asCanvasName("factory"), seq: 7, nodes: new Map([worker, queue].map((node) => [node.id, node])), wires: new Map([[id, { id, from: worker.id, to: queue.id, verb: "contributes" as const }]]) };
+  const live: DigestLiveViews = { resolveActorRef: (ref) => ref.nodeId === worker.id ? { canvasName: "factory", nodeId: worker.id, seatId } : undefined, itemsOf: (nodeId) => nodeId === queue.id ? [{ id: "waiting", state: "input-required", claimedBy: seatId, history: [] }] : [] };
+  const text = digestCanvasWithActorRefs(canvas, { bundles: [] }, live);
+  expect(text).toContain("edges :: 1");
+  expect(text).toContain("Queue :: task");
+  expect(text).toContain("blockers");
+  expect(text).toContain("Worker --blocks(");
+  const idle = digestCanvasWithActorRefs(canvas, { bundles: [] }, { ...live, itemsOf: () => [] });
+  expect(idle).toContain("Worker --contributes--> Queue");
+  expect(idle).not.toContain("blockers");
 });

@@ -1,42 +1,28 @@
-import { Match } from "effect";
-import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
+import { asNodeId, inPaintOrder, regionMembers, regionName, type Canvas, type Node } from "./model";
+import { titleOf as modelTitleOf } from "./model/title";
+import type { BoardGlanceTopic, PadGlance } from "./work-model";
 import type { ActorRefResolver } from "./attention";
-import { buildConnectionIndex, resolveConnections, type Connection } from "./connections";
+import { buildConnectionIndex } from "./connections";
 import type { EntitySource, SnapshotState } from "./entities";
 import {
-  clearingStampsForDoc,
   deriveExecutionGraph,
   type LiveTrustViews,
+  type WorkItemsOf,
 } from "./execution-graph";
-import { groupMembers, isGroup, regionDisplayName, UNNAMED_REGION } from "./graph";
 import {
   formatRankedStoppageLine,
   rankStoppageSeeds,
 } from "./impact";
 import type { OccupancySpectrumName } from "./occupancy";
 import { resolveSpec, roleOf, type FactoryRole } from "./physics";
-import { requestsNodeName } from "./requests-node-identity";
-import { boardNodeName } from "./board-node-identity";
 import { isAttentionTaskState } from "./task";
 import { deriveRegionRollups } from "./region-rollup";
 import { readReviewVerdict, type ReviewVerdict } from "./crew";
 import { rulesInForce, taskEpoch } from "./rules";
-import { canvasFromDocument, workItemsFromDocument } from "./model/from-document";
 
-// Deterministic text projection of a canvas + snapshots for agent consumption.
-// Contract: same doc + same actor projection + same snapshots/live views ->
-// byte-identical output. No timestamps, no randomness. Sections: regions (with members),
-// region rollups (severity), factory physics (role counts + soft/criteria
-// edges), design (topology + empty seats — I13), completion (stamped /
-// cleared proof — never empty seats), entities (with stats), edges (live
-// phase), blockers (with closure), seeds (unbound entity nodes), sources.
-// Ordering is document order throughout; the one place input order is
-// unstable (which adapter bundle landed first) is sorted to a fixed source
-// order instead.
-//
-// Factory physics is headless and pure document: roles via roleOf/resolveSpec
-// (never authorial ether.role), capability summary = edge criteria vs soft.
-// Occupancy is optional live input for design empty-seat lines only.
+// Deterministic text projection of spatial kinds, exact Work rows and snapshots.
+// Model paint order and fixed source order make repeat reads byte-identical.
+// Empty seats are design facts; only current Work waits generate blockers.
 
 // Fixed rendering order for the sources section, independent of fetch order.
 const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["hermes"];
@@ -56,28 +42,8 @@ const ROLE_COUNT_KEY: Record<FactoryRole, string> = {
   geography: "geography",
 };
 
-const titleOf = (node: CanvasNode): string => {
-  // Requests identity is authored (ether.requests.name), not the mirror's
-  // first line — see requests-node-identity.ts.
-  if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
-  // Board identity is the kind name — the mirror is dash-prefixed topic
-  // titles, never a title (see board-node-identity.ts).
-  if (node.ether?.entity?.kind === "board") return boardNodeName(node);
-  switch (node.type) {
-    case "text":
-      return (node.text.split("\n")[0] ?? "").trim();
-    case "file": {
-      const base = node.file.split(/[\\/]/).pop();
-      return base && base.length > 0 ? base : node.file;
-    }
-    case "link":
-      return node.url;
-    case "group":
-      // The overseer reads this text too and addresses a node by id, so an
-      // unnamed region keeps its id beside the placeholder.
-      return node.label?.trim() ? regionDisplayName(node) : `${UNNAMED_REGION} (${node.id})`;
-  }
-};
+const titleOf = (node: Node): string => node.kind === "region" && !node.label?.trim()
+  ? `unnamed region (${node.id})` : modelTitleOf(node);
 
 const formatStats = (stats: Record<string, string | number>): string => {
   const parts = Object.keys(stats)
@@ -86,45 +52,32 @@ const formatStats = (stats: Record<string, string | number>): string => {
   return parts.length > 0 ? parts.join(" ") : "ok";
 };
 
-// A seed is an entity card whose identity resolves to nothing in the live
-// corpus yet — planned, not real. Exhaustive over NodeSpec so the exceptions
-// are stated once, per variant, instead of as a negation chain:
-//   agent  — hermes connection is identity-declared, never a seed
-//   page   — browser surface bound by construction, never a seed
-// A raw terminal has no declared identity to resolve, so it can still be a seed.
-const seedEligible = (node: CanvasNode): boolean =>
-  Match.value(
-    resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind }),
-  ).pipe(
-    Match.tagsExhaustive({
-      Actor: () => false,
-      Sink: (spec) => spec.kind !== "page",
-      Scheduler: () => true,
-      Geography: () => true,
-    }),
-  );
-
-const isSeed = (node: CanvasNode, connections: ReadonlyArray<Connection>): boolean =>
-  node.ether?.entity !== undefined && seedEligible(node) && connections.length === 0;
-
 /** Required actor authority plus optional trust/occupancy views. */
 export type DigestLiveViews = LiveTrustViews & {
-  /** Exact resolver compiled from the CanvasReadResult actorRefs projection. */
+  /** Exact current Work rows supplied separately from the spatial model. */
+  readonly itemsOf: WorkItemsOf;
+  readonly artifactCounts?: ReadonlyMap<string, number>;
+  readonly padGlances?: ReadonlyMap<string, PadGlance>;
+  readonly boardGlances?: ReadonlyMap<string, { readonly topics: ReadonlyArray<BoardGlanceTopic>; readonly unread: number }>;
+  readonly sheetSizes?: ReadonlyMap<string, { readonly rows: number; readonly columns: number }>;
+  /** Exact resolver compiled from execution references. */
   readonly resolveActorRef: ActorRefResolver;
   /** nodeId → occupancy spectrum. Absent/empty seats surface under design only (I13). */
   readonly occupancy?: ReadonlyMap<string, OccupancySpectrumName>;
 };
 
 export const digestCanvas = (
-  name: string,
-  doc: CanvasDoc,
+  canvas: Canvas,
   snapshots: SnapshotState,
   live: DigestLiveViews,
 ): string => {
-  const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
+  const name = canvas.name;
+  const nodes = inPaintOrder(canvas);
+  const edges = [...canvas.wires.values()];
+  const nodeById = canvas.nodes;
   const connectionIndex = buildConnectionIndex(snapshots);
   const titleForId = (id: string): string => {
-    const node = nodeById.get(id);
+    const node = nodeById.get(asNodeId(id));
     return node ? titleOf(node) : id;
   };
 
@@ -132,8 +85,7 @@ export const digestCanvas = (
     ...(live.stamps ? { stamps: live.stamps } : {}),
     ...(live.approvals ? { approvals: live.approvals } : {}),
   };
-  const canvas = canvasFromDocument(name, doc);
-  const itemsOf = workItemsFromDocument(doc);
+  const itemsOf = live.itemsOf;
   const graph = deriveExecutionGraph(canvas, {
     canvasName: name,
     resolveActorRef: live.resolveActorRef,
@@ -143,21 +95,20 @@ export const digestCanvas = (
 
   const lines: string[] = [
     `canvas :: ${name}`,
-    `nodes :: ${doc.nodes.length}`,
-    `edges :: ${doc.edges.length}`,
+    `nodes :: ${nodes.length}`,
+    `edges :: ${edges.length}`,
   ];
 
   const sections: string[][] = [];
 
   // regions — nesting-correct as-is: a node inside an inner region is a
   // member of every container, so each ancestor region lists it too.
-  const groups = doc.nodes.filter(isGroup);
+  const groups = nodes.filter((node) => node.kind === "region");
   if (groups.length > 0) {
-    const members = groupMembers(doc);
     const regionLines = ["regions"];
     for (const group of groups) {
-      const memberTitles = (members.get(group.id) ?? []).map(titleForId);
-      regionLines.push(`${regionDisplayName(group)} :: ${memberTitles.join(", ")}`);
+      const memberTitles = regionMembers(canvas, group).map(titleOf);
+      regionLines.push(`${regionName(group)} :: ${memberTitles.join(", ")}`);
     }
     sections.push(regionLines);
   }
@@ -169,7 +120,7 @@ export const digestCanvas = (
     const rollupLines = ["region rollups"];
     for (const rollup of deriveRegionRollups({
       canvas,
-      itemsOf: workItemsFromDocument(doc),
+      itemsOf,
       snapshots,
       canvasName: name,
       resolveActorRef: live.resolveActorRef,
@@ -204,11 +155,11 @@ export const digestCanvas = (
       scheduler: 0,
       geography: 0,
     };
-    for (const node of doc.nodes) {
+    for (const node of nodes) {
       const role = roleOf(
         resolveSpec({
-          kind: node.ether?.entity?.kind,
-          isGroup: isGroup(node),
+          kind: node.kind,
+          isGroup: node.kind === "region",
         }),
       );
       roleCounts[role] += 1;
@@ -219,7 +170,7 @@ export const digestCanvas = (
     sections.push([
       "factory physics",
       `roles :: ${roleParts.join(" ")}`,
-      `edges :: ${doc.edges.length}`,
+      `edges :: ${edges.length}`,
     ]);
   }
 
@@ -229,11 +180,11 @@ export const digestCanvas = (
     const designLines = ["design"];
     const seatLines: string[] = [];
     const emptyLines: string[] = [];
-    for (const node of doc.nodes) {
+    for (const node of nodes) {
       const role = roleOf(
         resolveSpec({
-          kind: node.ether?.entity?.kind,
-          isGroup: isGroup(node),
+          kind: node.kind,
+          isGroup: node.kind === "region",
         }),
       );
       if (role !== "actor") continue;
@@ -252,56 +203,27 @@ export const digestCanvas = (
       designLines.push(...emptyLines.map((line) => `  ${line}`));
     }
     // Topology summary: edge count only — no soft/stops modes (retired).
-    if (doc.edges.length > 0) {
-      designLines.push(`topology :: edges=${doc.edges.length}`);
+    if (edges.length > 0) {
+      designLines.push(`topology :: edges=${edges.length}`);
     }
     if (designLines.length > 1) {
       sections.push(designLines);
     }
   }
 
-  // completion — retired proof/approval edge gates no longer appear.
-  // Keep the section shape only if stamps still clear via clearingStampsForDoc
-  // (currently always empty). Never lists empty seats (I13).
-  {
-    const completionLines = ["completion"];
-    const cleared = clearingStampsForDoc(doc, live.stamps);
-    if (cleared.length > 0) {
-      completionLines.push("stamps");
-      for (const { edgeId, stamp } of cleared) {
-        const refs = stamp.evidenceRefs.join(",") || "(none)";
-        completionLines.push(
-          `  ${stamp.step} - seat=${stamp.seat} - edge=${edgeId} - refs=${refs}`,
-        );
-      }
-      completionLines.push("cleared");
-      for (const { edgeId, stamp } of cleared) {
-        completionLines.push(`  proof edge ${edgeId} - step=${stamp.step}`);
-      }
-    }
-    if (completionLines.length > 1) {
-      sections.push(completionLines);
-    }
-  }
-
   // entities
-  const entityNodes = doc.nodes.filter((node) => node.ether?.entity !== undefined);
+  const entityNodes = nodes;
   if (entityNodes.length > 0) {
     const entityLines = ["entities"];
     for (const node of entityNodes) {
-      const entity = node.ether?.entity;
-      if (!entity) continue;
-      entityLines.push(`${titleOf(node)} :: ${entity.kind}`);
-      for (const connection of resolveConnections(entity, connectionIndex)) {
-        entityLines.push(
-          connection.entity
-            ? `  ${connection.source}: ${formatStats(connection.entity.stats)}`
-            : `  ${connection.source}: stale`,
-        );
+      entityLines.push(`${titleOf(node)} :: ${node.kind}`);
+      if (node.kind === "agent") {
+        const entity = connectionIndex.byKey.get(`hermes:${node.agentKey}`);
+        entityLines.push(entity ? `  hermes: ${formatStats(entity.stats)}` : "  hermes: stale");
       }
-      // Normalized work rows are overlaid into this runtime document view.
-      if (entity.kind === "task") {
-        const items = node.ether?.tasks?.items ?? [];
+      // Work rows are supplied separately from spatial kinds.
+      if (node.kind === "task") {
+        const items = itemsOf(node.id);
         const open = items.filter(
           (item) =>
             item.state !== "completed" &&
@@ -312,23 +234,23 @@ export const digestCanvas = (
         ).length;
         entityLines.push(`  tasks: ${items.length - open}/${items.length} settled`);
       }
-      if (entity.kind === "requests") {
-        const items = node.ether?.requests?.items ?? [];
+      if (node.kind === "requests") {
+        const items = itemsOf(node.id);
         const attention = items.filter((item) => isAttentionTaskState(item.state)).length;
         entityLines.push(`  requests: ${attention}/${items.length} need attention`);
       }
-      if (entity.kind === "artifacts") {
-        const items = node.ether?.artifacts?.items ?? [];
-        entityLines.push(`  artifacts: ${items.length}`);
+      if (node.kind === "artifacts") {
+        const count = live.artifactCounts?.get(node.id);
+        if (count !== undefined) entityLines.push(`  artifacts: ${count}`);
       }
-      if (entity.kind === "pad") {
-        const pad = node.ether?.pad;
-        entityLines.push(
+      if (node.kind === "pad") {
+        const pad = live.padGlances?.get(node.id);
+        if (pad) entityLines.push(
           `  pad: revision=${pad?.revision ?? 0} shapes=${pad?.shapeCount ?? 0} unread=${pad?.unreadPinCount ?? 0}`,
         );
       }
-      if (entity.kind === "board") {
-        const board = node.ether?.board;
+      if (node.kind === "board") {
+        const board = live.boardGlances?.get(node.id);
         const topics = board?.topics ?? [];
         const recent = topics
           .slice()
@@ -339,21 +261,21 @@ export const digestCanvas = (
               (a.topicId < b.topicId ? -1 : 1),
           )
           .slice(0, 3);
-        entityLines.push(
+        if (board) entityLines.push(
           `  board: topics=${topics.length} unread=${board?.unread ?? 0}`,
         );
         for (const topic of recent) {
           entityLines.push(`  topic: ${topic.title.replace(/\s+/g, " ").trim()}`);
         }
       }
-      if (entity.kind === "sheet") {
-        const sheet = node.ether?.sheet;
-        entityLines.push(
-          `  sheet: ${String(sheet?.rows.length ?? 0)} rows x ${String(sheet?.columns.length ?? 0)} columns`,
+      if (node.kind === "sheet") {
+        const sheet = live.sheetSizes?.get(node.id);
+        if (sheet) entityLines.push(
+          `  sheet: ${sheet.rows} rows x ${sheet.columns} columns`,
         );
       }
-      if (entity.kind === "git") {
-        const cwd = node.ether?.git?.cwd?.trim();
+      if (node.kind === "git") {
+        const cwd = node.cwd.trim();
         entityLines.push(`  git: ${cwd || "(no folder)"}`);
       }
     }
@@ -362,20 +284,20 @@ export const digestCanvas = (
 
   // edges — live phase (derived). A blocking edge always shows its phase and
   // reason; an idle one shows the operator's free-text label when there is one.
-  if (doc.edges.length > 0) {
+  if (edges.length > 0) {
     const edgeLines = ["edges"];
-    for (const edge of doc.edges) {
+    for (const edge of edges) {
       const phase = graph.phaseByEdgeId.get(edge.id) ?? "relates";
       const detail = graph.detailByEdgeId.get(edge.id);
       let token: string;
       if (phase !== "relates" && detail) {
         token = `${phase}(${detail})`;
-      } else if (phase === "relates" && edge.label) {
-        token = edge.label;
+      } else if (phase === "relates") {
+        token = edge.verb;
       } else {
         token = phase;
       }
-      edgeLines.push(`${titleForId(edge.fromNode)} --${token}--> ${titleForId(edge.toNode)}`);
+      edgeLines.push(`${titleForId(edge.from)} --${token}--> ${titleForId(edge.to)}`);
     }
     sections.push(edgeLines);
   }
@@ -384,7 +306,7 @@ export const digestCanvas = (
   if (graph.blocked.size > 0) {
     const blockerLines = ["blockers"];
     blockerLines.push(`blocked closure :: ${graph.blocked.size} nodes`);
-    for (const node of doc.nodes) {
+    for (const node of nodes) {
       if (graph.blocked.has(node.id)) {
         const reasons = graph.reasonsByNodeId.get(node.id) ?? [];
         const first = reasons[0];
@@ -417,8 +339,8 @@ export const digestCanvas = (
   // and marks entries stale vs the task's CURRENT projected binding. No
   // timestamps (digest contract); chain order is postedAtMs then id.
   const reviewLines = ["reviews"];
-  for (const node of doc.nodes) {
-    const items = node.ether?.tasks?.items ?? [];
+  for (const node of nodes) {
+    const items = itemsOf(node.id);
     if (items.length === 0) continue;
     const boardLines: string[] = [];
     for (const task of items) {
@@ -473,14 +395,6 @@ export const digestCanvas = (
   }
   if (reviewLines.length > 1) {
     sections.push(reviewLines);
-  }
-
-  // seeds
-  const seedNodes = doc.nodes.filter((node) =>
-    isSeed(node, resolveConnections(node.ether?.entity, connectionIndex)),
-  );
-  if (seedNodes.length > 0) {
-    sections.push(["seeds", ...seedNodes.map(titleOf)]);
   }
 
   // sources

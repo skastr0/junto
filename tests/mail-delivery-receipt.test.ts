@@ -8,6 +8,7 @@ import { Command } from "../src/shared/model";
 import { ModelLive } from "../src/main/junto/model/layer";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelService } from "../src/main/junto/model/service";
+import { readModelDigest } from "../src/main/junto/model/digest";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -44,6 +45,10 @@ it("a delivered mail commits its receipt against the live canvas sequence and su
       sentBy: actors.find((ref) => ref.nodeId === "sender")!, destination: { kind: "mailbox" },
       message: { messageId: "delivered-mail", role: "user", parts: [{ kind: "text", text: "hello" }] },
     }));
+    const digest = await runtime.runPromise(readModelDigest("factory", { bundles: [] }));
+    expect(digest).toContain("sender :: agent");
+    expect(digest).toContain("inbox :: agent");
+    expect(digest).not.toContain("hello");
     // The receipt must use the sequence at delivery, not the one at append.
     await runtime.runPromise(model.command(command({ _tag: "Move", canvas: "factory", moves: [{ id: "inbox", x: 25, y: 50 }] }), "operator"));
     const writes: string[] = [];

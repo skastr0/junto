@@ -13,7 +13,7 @@ import {
 import type { CanvasDoc } from "@shared/canvas";
 import type { Canvas } from "@shared/model";
 import { pauseWasResumed } from "@shared/pause";
-import { digestCanvas } from "@shared/digest";
+import { readModelDigest } from "./model/digest";
 import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
@@ -495,18 +495,8 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.canvasDigest, (_event, name: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
-        const canvases = yield* CanvasesService;
         const snapshots = yield* SnapshotsService;
-        const result = yield* canvases.read(name, "ipc.canvasDigest");
-        const state = yield* snapshots.current;
-        const digest = digestCanvas(name, result.doc, state, {
-          resolveActorRef: ({ canvasName, nodeId }) =>
-            resolveProjectedIpcActorRef(
-              result.actorRefs,
-              canvasName,
-              nodeId,
-            ),
-        });
+        const digest = yield* readModelDigest(name, yield* snapshots.current);
         return { digest };
       }),
     ),

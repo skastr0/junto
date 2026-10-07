@@ -1,3 +1,4 @@
+import { canvasFromDocument } from "@shared/model/from-document";
 import { Effect, Exit, Result } from "effect";
 import { ulid } from "ulid";
 import {
@@ -560,7 +561,7 @@ const handleDigest = (
   Effect.gen(function* () {
     const read = yield* readCanvas(targetCanvas(caller, args.canvas));
     return {
-      digest: digestCanvas(read.name, read.doc, { bundles: [] }, digestLive(read.actorRefs)),
+      digest: digestCanvas(canvasFromDocument(read.name, read.doc), { bundles: [] }, { ...digestLive(read.actorRefs), itemsOf: workItemsFromDocument(read.doc) }),
     };
   });
 
