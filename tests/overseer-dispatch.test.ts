@@ -97,6 +97,25 @@ describe("integrated overseer dispatcher", () => {
       .toMatchObject({ ok: false, error: { type: "Forbidden" } });
   });
 
+  it("sends every wire operation to the canvas, never to the native adapter", async () => {
+    const { toggle, adapters } = await boot();
+    await toggle(true);
+    await runtime.runPromise(seedCanvas("wired", [
+      seat("a", { label: "A", x: 0, y: 0, width: 240, height: 120 }),
+      seat("b", { label: "B", x: 400, y: 0, width: 240, height: 120 }),
+    ]));
+    const run = (request: Parameters<typeof executeOverseer>[1]) => runtime.runPromise(executeOverseer(caller, request, adapters));
+    expect(await run({ operation: "wire.verbs", args: { canvas: "wired", from: "a", to: "b" } })).toMatchObject({ ok: true, operation: "wire.verbs" });
+    const connected = await run({ operation: "wire.connect", args: { canvas: "wired", wire: { id: "w1", from: "a", to: "b", verb: "messages" } } });
+    expect(connected).toMatchObject({ ok: true, operation: "wire.connect" });
+    expect(await run({ operation: "wire.list", args: { canvas: "wired" } })).toMatchObject({ ok: true, operation: "wire.list" });
+    expect(await run({ operation: "wire.get", args: { canvas: "wired", wireId: "w1" } })).toMatchObject({ ok: true, operation: "wire.get" });
+    expect(await run({ operation: "wire.configure", args: { canvas: "wired", wireId: "w1", change: { mask: null } } })).toMatchObject({ ok: true, operation: "wire.configure" });
+    expect(await run({ operation: "wire.disconnect", args: { canvas: "wired", wireId: "w1" } })).toMatchObject({ ok: true, operation: "wire.disconnect" });
+    expect((await runtime.runPromise(readSeeded("wired"))).wires.size).toBe(0);
+    expect(adapters.native).not.toHaveBeenCalled();
+  });
+
   it("forwards Remote authoring but keeps browser and content resources on the caller installation", async () => {
     const { toggle, adapters } = await boot();
     await toggle(true);

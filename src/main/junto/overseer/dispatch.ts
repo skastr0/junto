@@ -226,7 +226,7 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
     }
     const canvasOperation = operation !== "canvas.screenshot" && (
       operation.startsWith("canvas.") || operation.startsWith("node.") ||
-      operation.startsWith("edge.") || operation.startsWith("sheet.") ||
+      operation.startsWith("wire.") || operation.startsWith("sheet.") ||
       operation.startsWith("env.")
     );
     const workOperation = operation.startsWith("tasks.") || operation.startsWith("request.") ||
