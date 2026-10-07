@@ -4,11 +4,12 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
+import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
+import { seat, wire } from "./support/model-nodes";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { mailboxMessageDeliveryId, mailboxMessageReactId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
-import type { CanvasDoc } from "../src/shared/canvas";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 
 const CANVAS = "crew-projection";
@@ -23,31 +24,19 @@ afterEach(async () => {
   while (roots.length > 0) await rm(roots.pop()!, { recursive: true, force: true });
 });
 
-const document: CanvasDoc = {
-  nodes: [
-    ...["author", "recipient", "other-recipient"].map((id) => ({
-      id, type: "text" as const, text: id, x: 0, y: 0, width: 200, height: 100,
-      ether: {
-        entity: { kind: "agent", name: `local:crew-projection-${id}` },
-        host: "local",
-        terminal: {
-          bindingId: `crew-projection-${id}`,
-          launch: { kind: "harness" as const, argv: ["claude"] },
-          harness: "claude" as const,
-        },
-      },
-    })),
-  ],
-  edges: [
-    { id: "mail", fromNode: "author", toNode: "recipient", ether: { verb: "messages" } },
-  ],
-};
+const nodes = ["author", "recipient", "other-recipient"].map((id) =>
+  seat(id, {
+    agentKey: `local:crew-projection-${id}`,
+    bindingId: `crew-projection-${id}` as never,
+    launch: { kind: "harness", argv: ["claude"] },
+  }));
+const wires = [wire("mail", "author", "recipient", "messages")];
 
 const openFixture = async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-crew-projection-"));
   roots.push(root);
   const runtime = ManagedRuntime.make(Layer.provideMerge(
-    CanvasesLive,
+    ModelStoresLive,
     Layer.provideMerge(
       WorkRepositoryLive,
       makeStateEngineLive(join(root, "state", "junto.db")),
@@ -62,17 +51,16 @@ const openFixture = async () => {
       command_center_installation_id, supervised_preferred, configured_at)
       VALUES (1, 'command-center', 'local', NULL, NULL, 1, ${iso(0)})`;
   })));
-  const canvases = await runtime.runPromise(CanvasesService);
   const work = await runtime.runPromise(WorkRepository);
-  await runtime.runPromise(canvases.write(CANVAS, document));
-  const initial = await runtime.runPromise(canvases.read(CANVAS));
-  const author = initial.actorRefs.find((actor) => actor.nodeId === "author")!;
-  const recipient = initial.actorRefs.find((actor) => actor.nodeId === "recipient")!;
+  await runtime.runPromise(seedCanvas(CANVAS, nodes, wires));
+  const refs = await runtime.runPromise(Effect.flatMap(ModelActorRefs, (actors) => actors.read(CANVAS)));
+  const author = refs.find((actor) => actor.nodeId === "author")!;
+  const recipient = refs.find((actor) => actor.nodeId === "recipient")!;
   expect(author).toBeDefined();
   expect(recipient).toBeDefined();
-  const {intentWitness: witness} = await runtime.runPromise(canvases.readWithIntentWitness(CANVAS));
-  const basis = Schema.decodeUnknownSync(IntentFactBasis)({ kind: "canvas", canvasName: witness.canvasName, seq: witness.seq });
-  const read = async () => (await runtime.runPromise(canvases.read(CANVAS))).doc;
+  const basis = Schema.decodeUnknownSync(IntentFactBasis)({
+    kind: "canvas", canvasName: CANVAS, seq: (await runtime.runPromise(readSeeded(CANVAS))).seq,
+  });
   const message = async (id: string) => {
     const found = await runtime.runPromise(work.mailMessage(CANVAS, mailSink.nodeId, id));
     expect(found, `projected mailbox message ${id}`).toBeDefined();
@@ -86,7 +74,7 @@ const openFixture = async () => {
   return { runtime, work, recipient, basis, message, appendMessage };
 };
 
-describe("Crew facts in the actual CanvasesService overlay", () => {
+describe("Crew facts over the model and the work repository", () => {
   it("projects independently timestamped delivery, read and reaction receipts onto the message", async () => {
     const f = await openFixture();
     const id = "attempt-and-receipts";
