@@ -262,7 +262,7 @@ Keychain, the keyring, or the operator's home.
 
 | risk | required proof | suite | status |
 | --- | --- | --- | --- |
-| Canvas edits restoring revoked authority | ordinary edits and undo/redo cannot grant or revoke overseer authority; the operator toggle sends a dedicated command | `tests/canvas-edit-commands.test.ts`; `tests/overseer-set.test.ts` | unit exercised; no undo/redo Electron proof |
+| Stale UI save/undo restoring revoked authority | the window saves no document; edits and undo/redo never emit `GrantOverseer`, and undo restores removed seats without their grant; the operator toggle sends a dedicated command | `tests/canvas-edit-commands.test.ts`; `tests/model-undo.test.ts`; `tests/overseer-set.test.ts` | unit exercised; no undo/redo Electron proof |
 | No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | `tests/overseer-work.test.ts`; `tests/overseer-native.test.ts`; `tests/overseer-admission.test.ts`; e2e grants without edges | unit exercised; integrated Work suite passes |
 | Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | `tests/overseer-authoring.test.ts`; `tests/overseer-canvas-commands.test.ts` `canvasOverseerSet` alias toggle | unit exercised |
 | Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | `tests/overseer-canvas-commands.test.ts`; `tests/overseer-authoring.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
