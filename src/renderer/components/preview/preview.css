@@ -38,7 +38,7 @@
   font-size: var(--text-label);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
 }
 
 .preview-block__name {
@@ -75,6 +75,7 @@
   padding: 8px 12px;
   font-family: var(--font-mono);
   font-size: var(--text-body);
+  line-height: var(--leading-body);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
