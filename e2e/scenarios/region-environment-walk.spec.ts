@@ -258,7 +258,7 @@ test("S1 entry: the key icon in the region toolbar opens a panel titled Environm
       "the key sits next to folder paths in the toolbar pill",
     ).toBe(true);
     await soft(paths).toBeVisible();
-    await soft(open).toHaveAttribute("data-junto-tooltip", "Environment");
+    await soft(open).toHaveAttribute("data-junto-tooltip", "Environment and secrets");
 
     await open.click();
     const dialog = page.getByRole("dialog", { name: "Region environment" });
