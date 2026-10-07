@@ -1,6 +1,7 @@
 import { use$ } from "@legendapp/state/react";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { clearGraphFilters, state$ } from "../lib/state";
+import { modelStore } from "../lib/use-model";
 
 // EdgeLegend + CanvasHint removed per docs/rts-bottom-bar.md.
 // CanvasReadout removed — pure noise.
@@ -24,14 +25,18 @@ function FilterTray() {
 }
 
 export function CanvasChrome() {
-  const doc = use$(state$.doc);
-  const nodes = doc.nodes.filter((node) => node.type !== "group");
+  // Whether anything but a region is on the canvas. A node's kind never
+  // changes, so only the list of ids is followed.
+  const hasNodes = use$(() => {
+    const canvas = state$.canvasName.get();
+    return modelStore.canvas$(canvas).nodeIds.get().some((id) => modelStore.node$(canvas, id).peek()?.kind !== "region");
+  });
   const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
 
   return (
     <>
       <FilterTray />
-      <CanvasEmpty hasNodes={nodes.length > 0} authoring={authoring} />
+      <CanvasEmpty hasNodes={hasNodes} authoring={authoring} />
     </>
   );
 }

@@ -6,7 +6,7 @@ import { selectNode, state$ } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import { executionGraphForImpact } from "../lib/impact-mode";
 import { HUE, HUE_TEXT } from "../lib/theme";
-import { canvasFromDocument } from "@shared/model/from-document";
+import { useCanvas } from "../lib/use-model";
 import { useCanvasWorkItems } from "../lib/use-work-sink";
 
 /**
@@ -14,13 +14,12 @@ import { useCanvasWorkItems } from "../lib/use-work-sink";
  * blocked node to the stoppage seed, listing each relay hop.
  */
 export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
-  const doc = use$(state$.doc);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
   const canvasName = use$(state$.canvasName);
   const actorRefs = use$(state$.actorRefs);
   const itemsOf = useCanvasWorkItems(canvasName);
-  const canvas = useMemo(() => canvasFromDocument(canvasName, doc), [canvasName, doc]);
+  const canvas = useCanvas(canvasName);
 
   const path = useMemo(() => {
     const context = executionGraphContextFromActorRefs(
@@ -39,7 +38,7 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
     }
     return waitingOnPath(canvas, graph, nodeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actorRefs, canvasName, doc, execution, executionRev, nodeId, itemsOf]);
+  }, [actorRefs, canvasName, canvas, execution, executionRev, nodeId, itemsOf]);
 
   if (!path || path.hops.length === 0) return null;
 
