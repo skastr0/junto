@@ -29,7 +29,17 @@ const region = (
   y: number,
   width: number,
   height: number,
-): GroupNode => ({ id, type: "group", ...(label === undefined ? {} : { label }), x, y, width, height });
+  color?: string,
+): GroupNode => ({
+  id,
+  type: "group",
+  ...(label === undefined ? {} : { label }),
+  ...(color === undefined ? {} : { color }),
+  x,
+  y,
+  width,
+  height,
+});
 
 const seat = (id: string, x: number, y: number, label = id): CanvasNode =>
   agentTextNode({ id, key: `local:e2e-crumb-${id}`, label, harness: "claude", x, y });
@@ -54,14 +64,14 @@ const OVERLONG = `max-${"very-long-name-".repeat(20)}end`;
 
 const nodes: ReadonlyArray<CanvasNode> = [
   // Three deep: Ops > Staging > Db.
-  region("r-ops", "Ops", 0, 0, 2000, 1200),
-  region("r-staging", "Staging", 100, 200, 1700, 900),
-  region("r-db", "Db", 200, 400, 1200, 600),
+  region("r-ops", "Ops", 0, 0, 2000, 1200, "4"),
+  region("r-staging", "Staging", 100, 200, 1700, 900, "5"),
+  region("r-db", "Db", 200, 400, 1200, 600, "6"),
   seat("ada", 40, 40),
   seat("bea", 140, 240),
   seat("cy", 300, 500),
   // A sibling region never appears in another region's path.
-  region("r-research", "Research", 2200, 0, 600, 400),
+  region("r-research", "Research", 2200, 0, 600, 400, "1"),
   seat("dee", 2260, 80),
   // Two regions sharing a label, one inside the other.
   region("r-twin-outer", "Ops", 3000, 0, 900, 600),
@@ -97,17 +107,29 @@ const measureCrumb = (crumb: Locator) =>
     const box = el.getBoundingClientRect();
     const row = el.closest(".command-bar__row")!.getBoundingClientRect();
     const title = el.closest(".command-bar__row")!.querySelector(".command-bar__row-title")!;
-    const text = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode() as Text;
+    // The path is one line of text spread over a span per region.
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const texts: Text[] = [];
+    for (let next = walker.nextNode(); next; next = walker.nextNode()) texts.push(next as Text);
+    const at = (offset: number): [Text, number] => {
+      let left = offset;
+      for (const node of texts) {
+        if (left <= node.data.length) return [node, left];
+        left -= node.data.length;
+      }
+      const last = texts[texts.length - 1]!;
+      return [last, last.data.length];
+    };
     const span = (from: number, to: number): DOMRect => {
       const range = document.createRange();
-      range.setStart(text, from);
-      range.setEnd(text, to);
+      range.setStart(...at(from));
+      range.setEnd(...at(to));
       return range.getBoundingClientRect();
     };
     const wholeTitle = document.createRange();
     wholeTitle.selectNodeContents(title);
     const inside = (rect: DOMRect): boolean => rect.left >= box.left - 0.5 && rect.right <= box.right + 0.5;
-    const full = text.data;
+    const full = texts.map((node) => node.data).join("");
     return {
       clipped: el.scrollWidth > el.clientWidth,
       oneLine: box.height < 24,
@@ -250,4 +272,37 @@ test("cmd+K rows read their region path, outer to inner", async ({ junto }) => {
   await page.keyboard.press("Enter");
   await expect(input).toHaveCount(0);
   await expect(page.locator(".react-flow__node.selected", { hasText: "bea" })).toHaveCount(1);
+});
+
+test("connecting from the bottom bar is a list of agents with their region paths", async ({ junto }) => {
+  const { page } = junto;
+  await mkdir(SHOTS, { recursive: true });
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+
+  // Go to cy (three regions deep), then connect it to dee, a region away.
+  await page.keyboard.press("Meta+k");
+  await page.getByTestId("command-bar-input").fill("cy");
+  await page.keyboard.press("Enter");
+  await page.locator('.rts-shell button[aria-label="Connect"]').click();
+
+  const pick = page.getByTestId("connect-pick");
+  await expect(pick).toBeVisible();
+  const rows = pick.getByTestId("connect-pick-row");
+  // Agents only, never the node itself, and no region or note.
+  await expect(rows).toHaveCount(10);
+  await expect(pick.locator('[data-node-id="cy"]')).toHaveCount(0);
+  await expect(pick.locator('[data-node-id="bea"] .region-crumb')).toHaveText("Ops / Staging");
+  // A region's colour tints its own name on the path.
+  const hues = await pick
+    .locator('[data-node-id="bea"] .region-crumb__step')
+    .evaluateAll((steps) => steps.map((step) => getComputedStyle(step).color));
+  expect(new Set(hues).size).toBe(2);
+  await page.screenshot({ path: join(SHOTS, "connect-list.png") });
+
+  await page.getByTestId("connect-pick-input").fill("research");
+  await expect(rows).toHaveCount(1);
+  await page.screenshot({ path: join(SHOTS, "connect-list-filtered.png") });
+  await page.keyboard.press("Enter");
+  await expect(pick).toHaveCount(0);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(1);
 });
