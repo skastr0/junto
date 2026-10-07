@@ -78,7 +78,7 @@ describe("keyboard shortcuts section", () => {
       );
       expect(rows, def.name).toHaveLength(1);
     }
-    expect([...host.querySelectorAll("section")].map((section) => section.getAttribute("aria-label"))).toEqual([
+    expect([...host.querySelectorAll("section > h3")].map((title) => title.textContent)).toEqual([
       "Anywhere",
       "Search and feed",
       "Canvas",

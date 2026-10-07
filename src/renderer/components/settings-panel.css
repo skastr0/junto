@@ -581,6 +581,10 @@
 .settings-group__rows > .settings-field:last-child {
   border-bottom: 0;
 }
+/* A row's own message (a shortcut already in use) sits under it, inside the rule. */
+.settings-group__rows > [role="status"] {
+  padding: 0 0 12px;
+}
 .settings-group__rows .settings-field__label {
   gap: 4px;
   font-weight: 500;

@@ -24,8 +24,8 @@ import { holdKeyDispatch } from "../../lib/key-dispatcher";
 import { isMac } from "../../lib/platform";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
-import { Button, Eyebrow, IconButton, Input, KeyChord } from "../ui";
-import { FieldRow } from "./FieldRow";
+import { Button, IconButton, Input, KeyChord } from "../ui";
+import { FieldRow, SettingGroup } from "./FieldRow";
 
 type Problem = {
   readonly id: ShortcutId;
@@ -137,7 +137,11 @@ function ShortcutRow({
       <FieldRow
         group
         label={def.name}
-        hint={recording ? "Press the new keys. Backspace for none, Escape to cancel." : def.fixed}
+        hint={
+          recording
+            ? "Press the new keys. Backspace for none, Escape to cancel."
+            : (def.fixed ?? (def.does === def.name ? undefined : def.does))
+        }
       >
         <span className="flex items-center justify-end gap-1.5">
           {def.fixed !== undefined ? (
@@ -231,7 +235,7 @@ export function KeyboardSettingsSection() {
   })).filter((group) => group.rows.length > 0);
 
   return (
-    <div className="settings-section" data-testid="settings-keyboard-section">
+    <div className="settings-section settings-groups" data-testid="settings-keyboard-section">
       <Input
         type="search"
         value={filter}
@@ -247,13 +251,8 @@ export function KeyboardSettingsSection() {
         }}
       />
       {groups.length === 0 ? <p className="m-0 text-body text-faint">No shortcut matches.</p> : null}
-      {groups.map((group, index) => (
-        <section
-          key={group.area}
-          aria-label={group.area}
-          className={`flex flex-col gap-3 ${index > 0 ? "border-t border-stroke pt-3" : ""}`}
-        >
-          <Eyebrow>{group.area}</Eyebrow>
+      {groups.map((group) => (
+        <SettingGroup key={group.area} title={group.area}>
           {group.rows.map((def) => (
             <ShortcutRow
               key={def.id}
@@ -266,7 +265,7 @@ export function KeyboardSettingsSection() {
               onProblem={setProblem}
             />
           ))}
-        </section>
+        </SettingGroup>
       ))}
     </div>
   );
