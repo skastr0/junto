@@ -49,7 +49,7 @@ import { isEditableEventTarget, toggleInSelection } from "../lib/multi-select-ge
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes } from "../lib/mutations";
-import { addEdge, connectAllToTarget, connectAllowed, connectMesh, deleteEdges, disconnectWithin, edgeIdsWithin, planConnectMesh } from "../lib/edge-mutations";
+import { addEdge, canConnect, connectAllToTarget, connectMesh, deleteEdges, disconnectWithin, edgeIdsWithin, planConnectMesh } from "../lib/edge-mutations";
 import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
 import { openAgentEditor } from "../lib/agent-editor-state";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
@@ -541,11 +541,8 @@ function useCanvasInteractions(
     const sourceId = connection.source;
     const targetId = connection.target;
     if (!sourceId || !targetId || sourceId === targetId) return false;
-    const doc = state$.doc.peek();
-    return connectAllowed(
-      doc.nodes.find((n) => n.id === sourceId),
-      doc.nodes.find((n) => n.id === targetId),
-    );
+    const canvas = state$.canvasName.peek();
+    return canConnect(nodeAt(canvas, sourceId), nodeAt(canvas, targetId));
   }, []);
   const onConnect = useCallback((connection: Connection) => addEdge(connection), []);
   // Dropping a connection on a card body (not a handle) still creates the
