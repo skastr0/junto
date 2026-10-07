@@ -148,12 +148,10 @@
   "text-hue": {
     "src/renderer/components/CanvasMagnifier.css": 1,
     "src/renderer/components/FirstPlayConfirm.tsx": 1,
-    "src/renderer/components/TopBar.tsx": 1,
     "src/renderer/components/UsageHud.css": 3,
     "src/renderer/components/UsageHud.tsx": 1,
     "src/renderer/components/browser/PageCard.tsx": 2,
     "src/renderer/components/browser/PageToolbarActions.tsx": 1,
-    "src/renderer/components/chat/InspectorTabs.tsx": 1,
     "src/renderer/components/chat/chat.css": 1,
     "src/renderer/components/fleet/FleetCompatibilitySection.tsx": 1,
     "src/renderer/components/fleet/FleetDetailPanel.tsx": 5,
