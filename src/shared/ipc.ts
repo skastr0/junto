@@ -166,6 +166,8 @@ export const IPC_CHANNELS = {
   modelActorRefsChanged: "junto:model-actor-refs-changed",
   modelSheetRead: "junto:model-sheet-read",
   modelSheetChanged: "junto:model-sheet-changed",
+  modelStart: "junto:model-start",
+  modelStop: "junto:model-stop",
   generatePortfolio: "junto:generate-portfolio",
   getSnapshots: "junto:get-snapshots",
   refreshSnapshots: "junto:refresh-snapshots",
@@ -848,6 +850,18 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly modelSheetRead: (input: { readonly canvas: string; readonly id: string }) => Promise<SheetGrid>;
   /** A sheet's grid was written; whoever shows it reads it again. */
   readonly onModelSheetChanged: (listener: (event: SheetChanged) => void) => () => void;
+  /**
+   * Start the session of a seat or terminal, named by canvas and id. Main reads
+   * the node itself, so the window sends no launch. `resume` false starts a
+   * fresh session where one could be resumed.
+   */
+  readonly modelStart: (input: {
+    readonly canvas: string;
+    readonly id: string;
+    readonly resume?: boolean;
+  }) => Promise<TerminalSessionSummary>;
+  /** Stop the session of a seat or terminal. The node stays on the canvas. */
+  readonly modelStop: (input: { readonly canvas: string; readonly id: string }) => Promise<void>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;

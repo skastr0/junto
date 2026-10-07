@@ -461,6 +461,8 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     subscribe<ModelActorRefsChanged>(IPC_CHANNELS.modelActorRefsChanged, listener),
   modelSheetRead: (input) => invoke(IPC_CHANNELS.modelSheetRead, IPC_TIMEOUT_MS, input),
   onModelSheetChanged: (listener) => subscribe<SheetChanged>(IPC_CHANNELS.modelSheetChanged, listener),
+  modelStart: (input) => invoke(IPC_CHANNELS.modelStart, IPC_TIMEOUT_MS, input),
+  modelStop: (input) => invoke(IPC_CHANNELS.modelStop, IPC_TIMEOUT_MS, input),
   getSnapshots: () => invoke(IPC_CHANNELS.getSnapshots, IPC_TIMEOUT_MS),
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   factoryPauseState: (canvas) =>
