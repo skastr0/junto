@@ -1,5 +1,4 @@
-import type { Canvas } from "../src/shared/model";
-import { canvasFromDocument } from "../src/shared/model/from-document";
+import { asNodeId, type Canvas, type Node } from "../src/shared/model";
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -39,7 +38,7 @@ import {
   tokenMatches,
   type ControlAdmitContext,
 } from "../src/main/junto/browser/control";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { canvasOf, note, page as pageNode } from "./support/model-nodes";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
@@ -340,22 +339,11 @@ describe("control route handlers", () => {
       version: "0.0.0-test",
       listDocuments: async () => [{
         name: "work",
-        doc: canvasFromDocument("work", {
-          nodes: [{
-            id: "n1",
-            type: "link",
-            url: DEFAULT_TARGET.url,
-            x: 0,
-            y: 0,
-            width: 400,
-            height: 300,
-            ether: {
-              entity: { kind: "page" },
-              browser: { profile: DEFAULT_TARGET.profile },
-            },
-          }],
-          edges: [],
-        }),
+        doc: canvasOf(
+          [pageNode("n1", { url: DEFAULT_TARGET.url, width: 400, height: 300, profile: DEFAULT_TARGET.profile })],
+          [],
+          "work",
+        ),
       }],
       shotsDir: join(root, "shots"),
       ...(screenshotFiles === undefined ? {} : { screenshotFiles }),
@@ -1110,27 +1098,20 @@ describe("control route handlers", () => {
   });
 });
 
+/** A page of the smallest size, on a profile a browser can open. */
+const tiny = (id: string, url: string, profile = "default"): Node =>
+  pageNode(id, { url, x: 0, y: 0, width: 1, height: 1, profile });
+const mailPage = (): Node =>
+  pageNode("p1", { url: "https://mail.example.com", width: 400, height: 300, profile: "personal" });
+/** A plain web link, which is not a page. */
+const plainLink = (id: string, url: string): Node => ({ kind: "link", id: asNodeId(id), url, x: 0, y: 0, z: 0, width: 1, height: 1 });
+
 describe("listPageNodes", () => {
   it("lists canonical page refs with nullable live handles", async () => {
     expect(
       await listPageNodes(async () => [{
         name: "work",
-        doc: canvasFromDocument("work", {
-          nodes: [
-            {
-              id: "p1",
-              type: "link",
-              url: "https://mail.example.com",
-              x: 0,
-              y: 0,
-              width: 400,
-              height: 300,
-              ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-            },
-            { id: "l1", type: "link", url: "https://plain.example.com", x: 0, y: 0, width: 1, height: 1 },
-          ],
-          edges: [],
-        }),
+        doc: canvasOf([mailPage(), plainLink("l1", "https://plain.example.com")], [], "work"),
       }]),
     ).toEqual([
       {
@@ -1146,24 +1127,11 @@ describe("listPageNodes", () => {
   });
 
   it("bounds canvas query rows and aggregate query bytes at exact N/N+1", async () => {
-    const doc: CanvasDoc = {
-      nodes: [{
-        id: "page",
-        type: "link",
-        url: "https://example.com",
-        x: 0,
-        y: 0,
-        width: 1,
-        height: 1,
-        ether: { entity: { kind: "page" } },
-      }],
-      edges: [],
-    };
-    const model = canvasFromDocument("work", doc);
+    const model = canvasOf([tiny("page", "https://example.com")], [], "work");
     const sourceBytes = utf8ByteLength(JSON.stringify({nodes:[...model.nodes.values()],wires:[...model.wires.values()]}));
     const documents = async () => [
-      { name: "a", doc: canvasFromDocument("work", doc) },
-      { name: "b", doc: canvasFromDocument("work", doc) },
+      { name: "a", doc: model },
+      { name: "b", doc: model },
     ];
 
     expect(await listPageNodes(documents, undefined, { maxCanvasQueryBytes: sourceBytes - 1 }))
@@ -1175,41 +1143,19 @@ describe("listPageNodes", () => {
   });
 
   it("caps page rows, documents, fields, and the encoded response budget", async () => {
-    const bounded: CanvasDoc = {
-      nodes: [
-        {
-          id: "x".repeat(BROWSER_MAX_METADATA_BYTES + 1),
-          type: "link", url: "https://example.com", x: 0, y: 0, width: 1, height: 1,
-          ether: { entity: { kind: "page" } },
-        },
-        {
-          id: "url-too-long", type: "link",
-          url: `https://example.com/${"x".repeat(BROWSER_MAX_URL_BYTES)}`,
-          x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "page" } },
-        },
-        {
-          id: "good", type: "link", url: "https://good.example.com",
-          x: 0, y: 0, width: 1, height: 1,
-          ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-        },
-      ],
-      edges: [],
-    };
-    const oversized: CanvasDoc = {
-      nodes: [{
-        id: "oversized",
-        type: "text" as const,
-        text: "x".repeat(BROWSER_MAX_CANVAS_SOURCE_BYTES + 1),
-        x: 0,
-        y: 0,
-        width: 1,
-        height: 1,
-      }],
-      edges: [],
-    };
+    const bounded = canvasOf([
+      tiny("x".repeat(BROWSER_MAX_METADATA_BYTES + 1), "https://example.com"),
+      tiny("url-too-long", `https://example.com/${"x".repeat(BROWSER_MAX_URL_BYTES)}`),
+      tiny("good", "https://good.example.com", "personal"),
+    ], [], "work");
+    const oversized = canvasOf(
+      [note("oversized", "x".repeat(BROWSER_MAX_CANVAS_SOURCE_BYTES + 1), { x: 0, y: 0, width: 1, height: 1 })],
+      [],
+      "work",
+    );
     const boundedRows = await listPageNodes(async () => [
-      { name: "oversized", doc: canvasFromDocument("work", oversized) },
-      { name: "bounded", doc: canvasFromDocument("work", bounded) },
+      { name: "oversized", doc: oversized },
+      { name: "bounded", doc: bounded },
     ]);
     expect(boundedRows).toEqual([{
       ref: "junto://canvas/bounded?node=good",
@@ -1224,16 +1170,14 @@ describe("listPageNodes", () => {
     const documents: ReadonlyArray<{ readonly name: string; readonly doc: Canvas }> =
       Array.from({ length: 8 }, (_, fileIndex) => ({
         name: `pages-${fileIndex}`,
-        doc: canvasFromDocument("work", {
-          nodes: Array.from({ length: 400 }, (_, rowIndex) => ({
-            id: `p-${fileIndex}-${rowIndex}`,
-            type: "link",
-            url: `https://example.com/${"x".repeat(1_000)}-${fileIndex}-${rowIndex}`,
-            x: 0, y: rowIndex, width: 1, height: 1,
-            ether: { entity: { kind: "page" } },
+        doc: canvasOf(
+          Array.from({ length: 400 }, (_, rowIndex) => ({
+            ...tiny(`p-${fileIndex}-${rowIndex}`, `https://example.com/${"x".repeat(1_000)}-${fileIndex}-${rowIndex}`),
+            y: rowIndex,
           })),
-          edges: [],
-        }),
+          [],
+          "work",
+        ),
       }));
     const rows = await listPageNodes(async () => documents);
     expect(rows.length).toBeGreaterThan(0);
@@ -1251,32 +1195,8 @@ describe("listPageNodes", () => {
   });
 
   it("lists page nodes from the canonical document provider", async () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        {
-          id: "p1",
-          type: "link" as const,
-          url: "https://mail.example.com",
-          x: 0,
-          y: 0,
-          width: 400,
-          height: 300,
-          ether: { entity: { kind: "page" as const }, browser: { profile: "personal" } },
-        },
-        {
-          id: "l1",
-          type: "link" as const,
-          url: "https://plain.example.com",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-        },
-      ],
-      edges: [],
-    };
     const rows = await listPageNodes(
-      async () => [{ name: "work", doc: canvasFromDocument("work", doc) }],
+      async () => [{ name: "work", doc: canvasOf([mailPage(), plainLink("l1", "https://plain.example.com")], [], "work") }],
       undefined,
       {},
       "junto-ui",
