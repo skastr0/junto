@@ -23,7 +23,7 @@ import { makeRegionSecrets } from "../src/main/junto/region-env/secret-store";
 import { SECRET_VALUE_MAX_BYTES, secretValueProblem } from "../src/shared/region-secrets";
 
 const ID = "0b6f4c1e-2f0a-4c55-9d3e-6a1f1f0c9a11";
-const VALUE = "ops_fake-service-account-token-value";
+const VALUE = "test-only-secret-value";
 
 type Call = { command: string; args: string[]; input?: string };
 let directory: string;
@@ -289,7 +289,7 @@ describe("region secrets, as the screen and the CLI use them", () => {
       store: {
         available: true,
         put: () => {
-          throw new Error("the Keychain refused to save the secret");
+          throw new Error(`backend failed while saving ${VALUE}`);
         },
         get: () => undefined,
         delete: () => undefined,
@@ -297,7 +297,7 @@ describe("region secrets, as the screen and the CLI use them", () => {
       },
     });
     const out = failing.save({ value: VALUE });
-    expect(out).toEqual({ ok: false, message: "The secret was not saved: the Keychain refused to save the secret." });
+    expect(out).toEqual({ ok: false, message: "The secret could not be saved. Try again." });
   });
 });
 

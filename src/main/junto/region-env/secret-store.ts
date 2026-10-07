@@ -68,13 +68,9 @@ export const makeRegionSecrets = (opened: OpenedSecretStore): RegionSecrets => {
       try {
         store.put(id, value);
         return { ok: true, secretId: id };
-      } catch (error) {
-        // Store errors are fixed sentences written in this codebase; a tool's
-        // own output never reaches here.
-        return {
-          ok: false,
-          message: `The secret was not saved: ${error instanceof Error ? error.message : "the store failed"}.`,
-        };
+      } catch {
+        // Backend diagnostics can quote the submitted value or other secrets.
+        return { ok: false, message: "The secret could not be saved. Try again." };
       }
     },
     remove: (secretId) => {

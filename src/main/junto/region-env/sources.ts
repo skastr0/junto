@@ -22,7 +22,6 @@ import type {
   SourceResolution,
 } from "@shared/region-environment";
 import { resolvedSpawnEnv } from "../adapters/exec";
-import { redactSecretValues } from "../credentials/redact";
 import { ENV_NAME, parseDotenv } from "./dotenv";
 import { regionSecrets, type RegionSecrets } from "./secret-store";
 import { runTool, type ToolResult, type ToolRunner } from "./tool";
@@ -227,13 +226,21 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
       }
     }
     const base = await deps.toolEnv();
+    // Explicit tokenFrom selects a service account. Connect credentials take
+    // precedence in op, so they must not override the operator's selection.
+    const env = { ...base };
+    if (token !== undefined) {
+      delete env.OP_CONNECT_HOST;
+      delete env.OP_CONNECT_TOKEN;
+      env[OP_TOKEN_NAME] = token;
+    }
     const result = await deps.run({
       command: "op",
       args: ["read", "--no-newline", source.ref],
       timeoutMs: token ? timeouts.onePasswordTokenMs : timeouts.onePasswordAppMs,
       // The token reaches this one `op` process through its environment and
       // nothing else: not argv, not the app's own environment.
-      env: token ? { ...base, [OP_TOKEN_NAME]: token } : base,
+      env,
     });
     if (result.kind === "ok") return named(source, result.stdout);
     if (result.kind === "not-installed") {
@@ -330,17 +337,9 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
       tool: `The command "${program}"`,
       waiting: `The command "${program}" did not finish in time.`,
     });
-    // The command is the operator's own, so its first words of complaint are
-    // worth showing. Whatever it printed on stdout is treated as the value it
-    // failed to deliver and is removed from them.
-    const said =
-      result.kind === "exit"
-        ? redactSecretValues(result.stderr.trim().split("\n")[0] ?? "", [
-            result.stdout,
-            stripLineEnd(result.stdout),
-          ]).slice(0, 160)
-        : "";
-    return failed([source.name], said ? `${reason} It said: ${said}` : reason);
+    // Either stream may contain credentials, including values Junto has
+    // never seen. Report the exit status only; never forward tool output.
+    return failed([source.name], reason);
   };
 
   const resolve = async (

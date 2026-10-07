@@ -8,7 +8,7 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EnvSource } from "../src/shared/canvas";
 import {
   OP_TOKEN_NAME,
@@ -20,16 +20,18 @@ import {
 } from "../src/main/junto/region-env/sources";
 import type { ToolCall, ToolResult } from "../src/main/junto/region-env/tool";
 
-const TOKEN = "ops_eyJzaWduSW5BZGRyZXNzIjoiZmFrZSJ9-not-a-real-token";
+const TOKEN = "test-only-service-account-token";
 
 let home: string;
 let calls: ToolCall[];
 
 beforeEach(() => {
+  vi.stubEnv(OP_TOKEN_NAME, "fake-ambient-service-account-token");
   home = mkdtempSync(join(tmpdir(), "junto-region-env-"));
   calls = [];
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -105,38 +107,38 @@ describe("secret (Junto's own store)", () => {
 });
 
 describe("keychain (an item that already exists)", () => {
-  const source = src({ id: "k", kind: "keychain", name: OP_TOKEN_NAME, service: "op-service-account" });
+  const source = src({ id: "k", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "test-region-credential" });
 
   it("the acceptance case: a keychain source yields its variable, read in place", async () => {
     const out = await resolver((call) =>
       call.command === "/usr/bin/security" ? { kind: "ok", stdout: `${TOKEN}\n` } : { kind: "failed" },
     ).resolve(source, nothing);
-    expect(out).toEqual({ status: "ok", values: { [OP_TOKEN_NAME]: TOKEN } });
+    expect(out).toEqual({ status: "ok", values: { EXAMPLE_AUTH_TOKEN: TOKEN } });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       command: "/usr/bin/security",
-      args: ["find-generic-password", "-s", "op-service-account", "-w"],
+      args: ["find-generic-password", "-s", "test-region-credential", "-w"],
     });
     expect(calls[0]!.timeoutMs).toBeGreaterThan(0);
   });
 
   it("narrows by account when one is given", async () => {
     await resolver(() => ({ kind: "ok", stdout: "v\n" })).resolve({ ...source, account: "ci" }, nothing);
-    expect(calls[0]!.args).toEqual(["find-generic-password", "-s", "op-service-account", "-a", "ci", "-w"]);
+    expect(calls[0]!.args).toEqual(["find-generic-password", "-s", "test-region-credential", "-a", "ci", "-w"]);
   });
 
   it("an item that is not there is missing, named by service", async () => {
     const out = await resolver(() => ({ kind: "exit", code: 44, stdout: "", stderr: "could not be found" })).resolve(source, nothing);
     expect(out).toEqual({
       status: "missing",
-      names: [OP_TOKEN_NAME],
-      reason: 'No Keychain item with service "op-service-account".',
+      names: ["EXAMPLE_AUTH_TOKEN"],
+      reason: 'No Keychain item with service "test-region-credential".',
     });
   });
 
   it("a Keychain that does not answer is an error that names the wait, never a hang", async () => {
     const out = await resolver(() => ({ kind: "timeout" })).resolve(source, nothing);
-    expect(out).toMatchObject({ status: "error", names: [OP_TOKEN_NAME] });
+    expect(out).toMatchObject({ status: "error", names: ["EXAMPLE_AUTH_TOKEN"] });
     expect((out as { reason: string }).reason).toContain("waiting for you to unlock");
   });
 
@@ -189,7 +191,20 @@ describe("onepassword", () => {
     expect(calls[0]!.args.join(" ")).not.toContain(TOKEN);
     expect(calls[0]!.env).toEqual({ PATH: "/usr/bin", [OP_TOKEN_NAME]: TOKEN });
     // The app's own environment never learns the token.
-    expect(process.env[OP_TOKEN_NAME]).not.toBe(TOKEN);
+    expect(process.env[OP_TOKEN_NAME]).toBe("fake-ambient-service-account-token");
+  });
+
+  it("an explicit tokenFrom wins over inherited Connect credentials without changing the base", async () => {
+    const base = {
+      PATH: "/usr/bin", OP_CONNECT_HOST: "https://connect.example.invalid",
+      OP_CONNECT_TOKEN: "fake-connect-token", [OP_TOKEN_NAME]: "fake-ambient-token",
+    };
+    await resolver(() => ({ kind: "ok", stdout: "v" }), {
+      toolEnv: async () => base,
+    }).resolve({ ...source, tokenFrom: "k" }, { resolved: () => ({ TEST_TOKEN: TOKEN }) });
+    expect(calls[0]!.env).toEqual({ PATH: "/usr/bin", [OP_TOKEN_NAME]: TOKEN });
+    expect(base.OP_CONNECT_TOKEN).toBe("fake-connect-token");
+    expect(base[OP_TOKEN_NAME]).toBe("fake-ambient-token");
   });
 
   it("takes the single value of the token source whatever its name", async () => {
@@ -360,9 +375,22 @@ describe("command", () => {
     expect(out).toEqual({
       status: "error",
       names: ["AWS_TOKEN"],
-      reason: 'The command "aws-vault" exited with code 3. It said: denied for [redacted]',
+      reason: 'The command "aws-vault" exited with code 3.',
     });
   });
+
+  it.each(["stderr-only-canary", "x", "encoded-canary%2Fvalue"])(
+    "does not forward untrusted stderr when stdout is empty (%s)",
+    async (canary) => {
+      const out = await resolver(() => ({
+        kind: "exit", code: 3, stdout: "", stderr: `failed using ${canary}`,
+      })).resolve(source, nothing);
+      expect(out).toEqual({
+        status: "error", names: ["AWS_TOKEN"],
+        reason: 'The command "aws-vault" exited with code 3.',
+      });
+    },
+  );
 
   it("a command that does not finish is bounded", async () => {
     const out = await resolver(() => ({ kind: "timeout" })).resolve(source, nothing);

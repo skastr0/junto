@@ -25,6 +25,7 @@ const ISOLATE_HINTS = [
   /from ["'][./]*\/src\/main\/junto\/process-signal["']/,
   /makeFakeTerminalProcessAuthority/,
   /LocalSessionHost/,
+  /createAppProcessPlane/,
   /node:sqlite/,
   /makeStateEngineLive/,
   /StateEngineLive/,
