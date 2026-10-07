@@ -50,7 +50,7 @@ import {
 import type { StationControlServer } from "../station/control-server";
 import type { ManagedTerminalDrive } from "../term/drive";
 import type { ContentService } from "../content/service";
-import { readCanvases, type OverseerStores } from "./portfolio";
+import { modelCanvases, type OverseerStores } from "./portfolio";
 import type { WorkService } from "../work/service";
 
 type OverseerServices =
@@ -113,7 +113,7 @@ const listCanvases = (
 ): Promise<ReadonlyMap<string, Canvas>> =>
   run(
     Effect.gen(function* () {
-      return yield* readCanvases;
+      return yield* modelCanvases;
     }),
   );
 

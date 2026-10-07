@@ -32,7 +32,7 @@ export const canvasRevisionOf = (model: ModelService["Service"]) => (canvasName:
  * One canvas as the live context reads it: the model's structure, and beside
  * it the task, request and artifact rows the context summarises.
  */
-export const readLiveCanvas = Effect.fn("Live.readCanvas")(function* (canvasName: string) {
+export const readLiveCanvas = Effect.fn("Live.modelCanvas")(function* (canvasName: string) {
   const sql = yield* SqlClient.SqlClient;
   return yield* withSqlRead(sql, Effect.gen(function* () {
     const model = yield* ModelService;

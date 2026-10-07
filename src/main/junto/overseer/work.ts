@@ -250,7 +250,7 @@ const decodeArgs = <Operation extends OverseerOperation>(
   return Effect.succeed(decoded.success);
 };
 
-const readCanvas = (canvasName: string) =>
+const topologyOf = (canvasName: string) =>
   Effect.gen(function* () {
     const work = yield* WorkService;
     return yield* work.readTopology(canvasName).pipe(
@@ -319,12 +319,12 @@ export const executeOverseerWork = (
       });
     }
 
-    const origin = yield* readCanvas(caller.canvasName);
+    const origin = yield* topologyOf(caller.canvasName);
     const actor = yield* Effect.fromResult(
       admitLiveOverseer(origin.canvas, origin.actorRefs, caller, admin),
     );
     const canvas = canvasOf(caller, namedCanvas(decoded.args));
-    const read = canvas === caller.canvasName ? origin : yield* readCanvas(canvas);
+    const read = canvas === caller.canvasName ? origin : yield* topologyOf(canvas);
     const work = yield* WorkService;
     const author = actorAuthor(origin.canvas, actor);
     const raw = decoded.args;
@@ -367,7 +367,7 @@ export const executeOverseerWork = (
       const assignee =
         args.actor === undefined
           ? actor
-          : (yield* readCanvas(canvas)).actorRefs.find(
+          : (yield* topologyOf(canvas)).actorRefs.find(
               (candidate) =>
                 candidate.canvasName === canvas && candidate.nodeId === args.actor,
             ) ??

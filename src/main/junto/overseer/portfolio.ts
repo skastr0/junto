@@ -52,7 +52,7 @@ export const canvasNameOf = (
       });
 
 /** Every canvas as the model holds it now, by name. */
-export const readCanvases: Effect.Effect<
+export const modelCanvases: Effect.Effect<
   ReadonlyMap<string, Canvas>,
   WorkErrorBody,
   ModelService
@@ -66,7 +66,7 @@ export const readCanvases: Effect.Effect<
 }).pipe(Effect.mapError(fromModelError));
 
 /** One canvas, by the name an overseer gave. */
-export const readCanvas = (
+export const modelCanvas = (
   raw: string,
 ): Effect.Effect<Canvas, WorkErrorBody, ModelService> =>
   Effect.gen(function* () {
@@ -97,7 +97,7 @@ export const editCanvases = <A>(
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          const edit = rule(yield* readCanvases);
+          const edit = rule(yield* modelCanvases);
           if (!edit.ok) return yield* Effect.fail(edit.error);
           for (const command of edit.commands) {
             yield* model.command(command, "overseer").pipe(Effect.mapError(fromModelError));

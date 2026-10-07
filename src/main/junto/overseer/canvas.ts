@@ -55,8 +55,8 @@ import {
   editCanvases,
   fromModelError,
   isCanvasName,
-  readCanvas,
-  readCanvases,
+  modelCanvas,
+  modelCanvases,
   type OverseerStores,
 } from "./portfolio";
 
@@ -355,7 +355,7 @@ const handleRead = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"canvas.read">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  Effect.map(readCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
+  Effect.map(modelCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
     name: canvas.name,
     seq: canvas.seq,
     nodes: inPaintOrder(canvas),
@@ -400,7 +400,7 @@ const handleDeleteCanvas = (
   hooks?: OverseerCanvasHooks,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const name = (yield* readCanvas(args.canvas)).name;
+    const name = (yield* modelCanvas(args.canvas)).name;
     const refusal = (canvases: Canvases): WorkErrorBody | undefined => {
       if (canvasDeleteRetiresCaller(caller, name)) {
         return fail("AuthError", "overseer cannot delete its own canvas");
@@ -416,7 +416,7 @@ const handleDeleteCanvas = (
         canvasName,
         nodeIds: new Set([...(canvases.get(canvasName)?.nodes.keys() ?? [])]),
       }]);
-    const before = yield* readCanvases;
+    const before = yield* modelCanvases;
     const early = refusal(before);
     if (early) return yield* Effect.fail(early);
     return yield* withPreparedDelete(
@@ -440,7 +440,7 @@ const handleDigest = (
   args: OverseerArgsFor<"canvas.digest">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
     return {
       digest: yield* readModelDigest(canvas.name, { bundles: [] }).pipe(
         Effect.mapError((error): WorkErrorBody =>
@@ -455,7 +455,7 @@ const handleRender = (
   args: OverseerArgsFor<"canvas.render">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
     // The picture marks boards by their rows; a read, never a work command.
     const work = yield* WorkRepository;
     const rows = yield* work.kernelWork(canvas.name).pipe(
@@ -478,7 +478,7 @@ const handleNodeList = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.list">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  Effect.map(readCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
+  Effect.map(modelCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
     nodes: inPaintOrder(canvas),
   }));
 
@@ -487,7 +487,7 @@ const handleNodeGet = (
   args: OverseerArgsFor<"node.get">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
     return { node: yield* nodeIn(canvas, args.nodeId) };
   });
 
@@ -514,7 +514,7 @@ const nodeAfter = (
   nodeId: string,
 ): Effect.Effect<{ readonly node: Node }, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    return { node: yield* nodeIn(yield* readCanvas(canvasName), nodeId) };
+    return { node: yield* nodeIn(yield* modelCanvas(canvasName), nodeId) };
   });
 
 const writeNode = (
@@ -562,7 +562,7 @@ const handleNodeDelete = (
       }
       return refuseIfRetiresCaller(canvases, caller, resourcesOf(canvases));
     };
-    const before = yield* readCanvases;
+    const before = yield* modelCanvases;
     const early = refusal(before);
     if (early) return yield* Effect.fail(early);
     return yield* withPreparedDelete(
@@ -592,7 +592,7 @@ const handleWireList = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"wire.list">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
-  Effect.map(readCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
+  Effect.map(modelCanvas(targetCanvas(caller, args.canvas)), (canvas) => ({
     wires: [...canvas.wires.values()],
   }));
 
@@ -608,7 +608,7 @@ const handleWireGet = (
   args: OverseerArgsFor<"wire.get">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
     return { wire: yield* wireIn(canvas, args.wireId) };
   });
 
@@ -617,7 +617,7 @@ const handleWireVerbs = (
   args: OverseerArgsFor<"wire.verbs">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
     if (args.from === undefined || args.to === undefined) return { verbs: [] };
     const from = canvas.nodes.get(asNodeId(args.from));
     const to = canvas.nodes.get(asNodeId(args.to));
@@ -653,7 +653,7 @@ const handleWireConfigure = (
     yield* sendSteps(caller, name, [
       { operation: "wire.configure", wireId: args.wireId, change: args.change },
     ]);
-    return { wire: yield* wireIn(yield* readCanvas(name), args.wireId) };
+    return { wire: yield* wireIn(yield* modelCanvas(name), args.wireId) };
   });
 };
 
@@ -678,7 +678,7 @@ const handleEnvShow = (
   args: OverseerArgsFor<"env.show">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
     const node = yield* nodeIn(canvas, args.nodeId);
     if (!isRegionNode(node)) {
       return yield* Effect.fail(fromEnvRefusal(notARegion(args.nodeId)));
@@ -743,7 +743,7 @@ const handleSheetRead = (
   args: OverseerArgsFor<"sheet.read">,
 ): Effect.Effect<unknown, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const canvas = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const canvas = yield* modelCanvas(targetCanvas(caller, args.canvas));
     yield* sheetIn(canvas, args.target);
     // A sheet's grid is content of its own; the canvas only says it is there.
     const model = yield* ModelService;
@@ -867,7 +867,7 @@ const requireLiveGrant = (
   caller: OverseerCaller,
 ): Effect.Effect<void, WorkErrorBody, OverseerStores> =>
   Effect.gen(function* () {
-    const revoked = requireGrant(yield* readCanvases, caller);
+    const revoked = requireGrant(yield* modelCanvases, caller);
     if (revoked) return yield* Effect.fail(revoked);
   });
 
