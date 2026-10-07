@@ -70,7 +70,7 @@ const seatCentre = async (page: Page, id: string): Promise<{ x: number; y: numbe
 const openEditor = async (page: Page, id = "seat-ada"): Promise<Locator> => {
   const at = await seatCentre(page, id);
   await page.mouse.click(at.x, at.y, { button: "right" });
-  await page.getByRole("button", { name: "Edit soul and instructions" }).click();
+  await page.getByRole("menuitem", { name: "Edit soul and instructions" }).click();
   const editor = page.getByTestId("agent-editor");
   await expect(editor).toBeVisible();
   return editor;
@@ -227,7 +227,7 @@ const SAVE_FLOWS: readonly SaveFlow[] = [
       await page.keyboard.up("Shift");
       const at = await seatCentre(page, "seat-cy");
       await page.mouse.click(at.x, at.y, { button: "right" });
-      await page.getByRole("button", { name: "Save 3 agents as a squad" }).click();
+      await page.getByRole("menuitem", { name: "Save 3 agents as a squad" }).click();
       return null;
     },
   },

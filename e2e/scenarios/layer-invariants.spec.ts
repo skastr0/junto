@@ -180,7 +180,7 @@ const ORIGINS: readonly Origin[] = [
     name: "agent-editor-text-field",
     enter: async (page) => {
       await seatMenu(page, "seat-ada");
-      await page.getByRole("button", { name: "Edit soul and instructions" }).click();
+      await page.getByRole("menuitem", { name: "Edit soul and instructions" }).click();
       const soul = page.getByTestId("agent-editor-soul");
       await expect(soul).toBeVisible();
       await soul.click();
@@ -296,7 +296,7 @@ test("a dialog opened from a working modal sits above it, under the operator mod
   await fitBoard(page);
 
   await seatMenu(page, "seat-ada");
-  await page.getByRole("button", { name: "Edit soul and instructions" }).click();
+  await page.getByRole("menuitem", { name: "Edit soul and instructions" }).click();
   const soul = page.getByTestId("agent-editor-soul");
   await expect(soul).toBeVisible();
   const launchTab = page.getByRole("tab", { name: "launch" });
@@ -344,7 +344,7 @@ test("under an open dialog the working modal cannot take focus, and Escape close
   await fitBoard(page);
 
   await seatMenu(page, "seat-ada");
-  await page.getByRole("button", { name: "Edit soul and instructions" }).click();
+  await page.getByRole("menuitem", { name: "Edit soul and instructions" }).click();
   await expect(page.getByTestId("agent-editor-soul")).toBeVisible();
   const launchTab = page.getByRole("tab", { name: "launch" });
   await launchTab.click();
