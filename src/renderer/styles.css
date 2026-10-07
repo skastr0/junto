@@ -850,7 +850,9 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   border: 1px solid color-mix(in oklab, var(--color-second) 22%, transparent);
   border-radius: var(--radius-sm);
   background: color-mix(in oklab, var(--color-second) 6%, transparent);
-  color: var(--color-cyan);
+  /* The text token, not the mark token: in bright the mark cyan is 3 to 1 on
+     this chip, the text cyan 5 to 1. They are one value in dark. */
+  color: var(--color-second-fg);
   padding: 3px 5px;
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: var(--text-caption);
