@@ -7,7 +7,7 @@
  * Remote both compose them here; mailbox mail is Command Center-only (actor
  * mailboxes are CC-homed) and is wired beside this in `ipc.ts` through the
  * drive's `writeMail`. Both callsites supply their own evidence sources
- * (runtime, kernel, canvases); this module owns only the shared recipe, so
+ * (runtime, kernel, model); this module owns only the shared recipe, so
  * neither side can drift into a raw PTY bypass.
  *
  * Product supervisory layers stay at their own callsites and are not part of
@@ -31,8 +31,6 @@ import {
   type ManagedPulseDeliver,
 } from "./managed-pulse-bridge";
 import type { BoardDeliveryTransport } from "../work/board-delivery";
-import type { MessageDeliveryReadSite } from "../work/message-delivery";
-import type { CanvasReadTag } from "../canvases";
 
 /** Minimal drive surface every delivery path needs. */
 export type FactoryDeliveryDrive = {
@@ -96,21 +94,6 @@ export type FactoryDeliveryPulse = {
 
 export type FactoryDeliveryBoard = {
   readonly configure: (transport: BoardDeliveryTransport) => void;
-};
-
-/**
- * One perf tag per delivery call site — a read loop must name its driver.
- * Identical vocabulary on both runtimes so the perf tape stays comparable.
- */
-export const factoryDeliveryReadTag = (
-  site: MessageDeliveryReadSite,
-): CanvasReadTag => {
-  switch (site) {
-    case "scan":
-      return "delivery.scan";
-    case "attempt":
-      return "delivery.attempt";
-  }
 };
 
 /**

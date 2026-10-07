@@ -10,7 +10,6 @@ import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed
 import { InjectionSupervisor } from "../src/main/junto/term/injection-supervisor";
 import {
   composeFactoryDelivery,
-  factoryDeliveryReadTag,
   makeFactoryWriteManagedPrompt,
   wireFactorySupervisor,
   type FactoryDeliveryDrive,
@@ -155,13 +154,6 @@ describe("wireFactorySupervisor", () => {
     expect(snapshots).toEqual([{ text: "frame" }]);
     dispose();
     expect(closed).toEqual(["snapshots"]);
-  });
-});
-
-describe("factoryDeliveryReadTag", () => {
-  it("names every read site distinctly", () => {
-    expect(factoryDeliveryReadTag("scan")).toBe("delivery.scan");
-    expect(factoryDeliveryReadTag("attempt")).toBe("delivery.attempt");
   });
 });
 

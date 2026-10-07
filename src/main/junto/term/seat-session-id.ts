@@ -35,7 +35,7 @@ type SeatSessionIdInput = {
 /**
  * Captured ids belong to one harness on one installation, across canvases.
  * This existing writer is Command Center authoring: Remote was already
- * refused by CanvasesService and needs a separate home-owned capture route.
+ * refused by authorial admission and needs a separate home-owned capture route.
  */
 const persistSeatSessionId = (input: SeatSessionIdInput) => Effect.gen(function* () {
   const model = yield* ModelService;
