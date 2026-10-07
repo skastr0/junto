@@ -42,7 +42,8 @@ import { playCue } from "../../lib/sound";
 import type { ClaimedTask } from "../../lib/claimed-task";
 import { claimedTask$ } from "../../lib/claimed-task-index";
 import { state$ } from "../../lib/state";
-import { modelStore } from "../../lib/use-model";
+import { modelStore, useNodeValue, useOpenCanvas } from "../../lib/use-model";
+import { titleOf } from "@shared/model/title";
 import {
   deadStateCopy,
   killActionCopy,
@@ -751,6 +752,8 @@ export function TerminalSurface({
    */
   const operatorStopped = useRef(false);
   const canvasName = use$(state$.canvasName);
+  // An open terminal holds its canvas open in the node store.
+  useOpenCanvas(canvasName);
   // One key of the canvas-wide claimed-task index, as the seat card reads it:
   // an open terminal does not hear the whole document.
   const claimedTask = use$(() => claimedTask$.byNodeId[node.id].get()) as ClaimedTask | undefined;
@@ -1873,11 +1876,21 @@ export function TerminalSurface({
     };
   }, [bindingId, hostId, attachKey, agentSeat]);
 
-  const label = node.type === "text" ? node.text : "terminal";
+  // What the header says of the seat, read from the node store as it stands
+  // now: the name, the harness and whether it is an overseer. The `node` this
+  // surface was opened with is a copy taken at that moment, so a rename or a
+  // grant made while the terminal is open would not show from it. It answers
+  // only until the store holds the canvas.
+  const shownLabel = useNodeValue(canvasName, node.id, (row) => (row === undefined ? undefined : titleOf(row)));
+  const shownHarness = useNodeValue(canvasName, node.id, (row) => (row?.kind === "agent" ? row.harness : undefined));
+  const shownOverseer = useNodeValue(canvasName, node.id, (row) =>
+    row === undefined ? undefined : row.kind === "agent" && row.overseer,
+  );
+  const label = shownLabel ?? (node.type === "text" ? node.text : "terminal");
   const harness =
-    typeof node.ether?.terminal?.harness === "string"
-      ? node.ether.terminal.harness
-      : undefined;
+    shownHarness ??
+    (typeof node.ether?.terminal?.harness === "string" ? node.ether.terminal.harness : undefined);
+  const overseer = agentSeat && (shownOverseer ?? isOverseerSeat(node));
   const surfaceId = terminalSurfaceId(node.id);
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
   // mirror views park behind the front pane), one press. Views only.
@@ -2051,7 +2064,7 @@ export function TerminalSurface({
       ]
         .filter(Boolean)
         .join(" ")}
-      data-overseer={agentSeat && isOverseerSeat(node) ? "true" : undefined}
+      data-overseer={overseer ? "true" : undefined}
       data-testid="native-terminal-surface"
     >
       {/* One header for the focus view and for a grid cell: the same parts,
@@ -2078,7 +2091,7 @@ export function TerminalSurface({
             <span className="shrink-0" data-testid="terminal-header-name">
               {label}
             </span>
-            {agentSeat && isOverseerSeat(node) ? <OverseerMark size="session" /> : null}
+            {overseer ? <OverseerMark size="session" /> : null}
             {hostId !== "local" ? (
               <Chip tone="steel" title={`Runs on ${hostId}`}>
                 {hostId}

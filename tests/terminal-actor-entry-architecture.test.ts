@@ -115,7 +115,7 @@ describe("terminal actor entry", () => {
     const attachEffect = between(
       source,
       "const api = getJuntoApi() as JuntoTerminalApi | undefined;",
-      'const label = node.type === "text" ? node.text : "terminal";',
+      "// What the header says of the seat, read from the node store as it stands",
     );
 
     expect(source).toContain(
