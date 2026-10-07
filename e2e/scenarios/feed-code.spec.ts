@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat } from "../harness/model";
 /**
  * Code, diffs and a commit on a needs-you signal.
  *   bun run test:e2e:fast e2e/scenarios/feed-code.spec.ts
@@ -20,8 +21,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import { expect, launchJunto, test } from "../harness/launch";
-import { crewDoc, crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
-import { agentTextNode } from "../harness/sandbox";
+import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
+
 
 const SHOTS = join(process.cwd(), "test-results", "feed-code");
 const CANVAS = "feed-code";
@@ -59,10 +60,10 @@ test("[fake-tui] a seat attaches code, a diff, a compare and a commit, and the c
   const head = makeRepository(repo);
   writeFileSync(join(repo, "before.ts"), BEFORE);
   writeFileSync(join(repo, "after.ts"), AFTER);
-  const seatNode = agentTextNode({ id: SEAT, key: `local:${SEAT}`, label: "Ada", harness: "codex", cwd: repo, x: 120, y: 220 });
+  const seatNode = modelSeat({ id: SEAT, key: `local:${SEAT}`, label: "Ada", harness: "codex", cwd: repo, x: 120, y: 220 });
 
   const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: crewDoc([seatNode]) },
+    seedModels: { [CANVAS]: modelFixture([seatNode]) },
     afterSeed: installCrewSeatHarness,
   });
   try {

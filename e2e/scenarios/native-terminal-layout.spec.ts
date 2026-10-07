@@ -1,3 +1,4 @@
+import { modelFixture, modelTerminal } from "../harness/model";
 /**
  * Native terminal layout e2e — proves the xterm host fills the focus
  * pane (not a content-sized 80×24 island inside a large black panel).
@@ -6,7 +7,7 @@
  * Geometry is asserted from getBoundingClientRect + status cols×rows, not
  * screenshots.
  */
-import { canvasDoc, terminalTextNode } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const LABEL = "e2e native term";
@@ -110,9 +111,9 @@ const assertFillsPane = (probe: LayoutProbe, where: string): void => {
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      term: canvasDoc([
-        terminalTextNode({
+    seedModels: {
+      term: modelFixture([
+        modelTerminal({
           id: "t1",
           bindingId: BINDING_ID,
           label: LABEL,

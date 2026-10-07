@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat, modelTerminal } from "../harness/model";
 /**
  * The seat-awareness gate, from the outside: a ship build shows nothing.
  *
@@ -12,23 +13,23 @@
  * check there, so it skips itself when it finds the surface present rather than
  * reporting a false failure.
  */
-import { agentTextNode, canvasDoc, terminalTextNode } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const AGENT_LABEL = "Gate probe seat";
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      gateoff: canvasDoc([
-        agentTextNode({
+    seedModels: {
+      gateoff: modelFixture([
+        modelSeat({
           id: "gate-probe-agent",
           key: "gate-probe-agent-binding",
           label: AGENT_LABEL,
           x: 80,
           y: 40,
         }),
-        terminalTextNode({
+        modelTerminal({
           id: "gate-probe-term",
           bindingId: "gate-probe-term-binding",
           label: "Gate probe terminal",

@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat, modelTerminal } from "../harness/model";
 /**
  * Seat awareness on a real card — the advisory surface paints.
  *
@@ -13,21 +14,21 @@
  * It is a hit test at the hover's own box: the element under that point must be
  * the hover or one of its descendants.
  */
-import { agentTextNode, canvasDoc, terminalTextNode } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 test.use({
   juntoOptions: {
-    seedCanvases: {
-      awareness: canvasDoc([
-        agentTextNode({
+    seedModels: {
+      awareness: modelFixture([
+        modelSeat({
           id: "e2e-awareness-agent",
           key: "e2e-awareness-agent-binding",
           label: "Awareness agent",
           x: 80,
           y: 40,
         }),
-        terminalTextNode({
+        modelTerminal({
           id: "e2e-awareness-term",
           bindingId: "e2e-awareness-term-binding",
           label: "Awareness terminal",

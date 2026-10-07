@@ -1,4 +1,5 @@
-import { installFixtureDocument } from "../harness/model";
+import { installModelFixture, modelFixture, modelNote, modelSeat } from "../harness/model";
+
 /**
  * Retired operator flags and scope pause, in the real app: a selected agent
  * seat's toolbar carries no pause and no flag, Stop names the agent's process
@@ -8,20 +9,20 @@ import { installFixtureDocument } from "../harness/model";
  *
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/retire-flags.spec.ts`
  */
-import { agentTextNode, canvasDoc, textNode } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const shots = "test-results/retire-flags";
 
-const fixtureDoc = canvasDoc([
-  agentTextNode({ id: "seat-a", key: "local:alpha", label: "alpha", x: 0, y: 0 }),
-  agentTextNode({ id: "seat-b", key: "local:beta", label: "beta", x: 420, y: 0 }),
-  textNode("note", "release checklist", 0, 260),
+const fixtureDoc = modelFixture([
+  modelSeat({ id: "seat-a", key: "local:alpha", label: "alpha", x: 0, y: 0 }),
+  modelSeat({ id: "seat-b", key: "local:beta", label: "beta", x: 420, y: 0 }),
+  modelNote("note", "release checklist", 0, 260),
 ]);
 
 const installBoard = async (page: import("@playwright/test").Page): Promise<void> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  await installFixtureDocument(page, fixtureDoc, "retire-flags");
+  await installModelFixture(page, fixtureDoc, "retire-flags");
 };
 
 const center = async (locator: import("@playwright/test").Locator) => {

@@ -1,4 +1,5 @@
-import { installFixtureDocument } from "../harness/model";
+import { installModelFixture, modelFixture, modelSeat } from "../harness/model";
+
 /**
  * Canvas pause surface e2e.
  *
@@ -7,19 +8,18 @@ import { installFixtureDocument } from "../harness/model";
  * surface the explicit confirmation (honest consequences), and confirming
  * must flip the control to playing.
  *
- * Boards install at runtime via window.junto (disk seedCanvases is dead —
- * authority-only boot).
+ * The fixture is installed at runtime through native model commands.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/pause-surface.spec.ts`
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "pause-surface");
 
-const fixtureDoc = canvasDoc([
-  agentTextNode({
+const fixtureDoc = modelFixture([
+  modelSeat({
     id: "seat",
     key: "local:worker",
     label: "worker",
@@ -28,10 +28,10 @@ const fixtureDoc = canvasDoc([
   }),
 ]);
 
-/** Authority-only boot: disk seed is not live. Install with model commands. */
+/** Install through the running app. */
 const installBoard = async (page: import("@playwright/test").Page): Promise<string> => {
   await page.waitForFunction(() => Boolean(window.junto?.modelCanvases), undefined, { timeout: 30_000 });
-  const name = await installFixtureDocument(page, fixtureDoc, "pause");
+  const name = await installModelFixture(page, fixtureDoc, "pause");
   return name;
 };
 

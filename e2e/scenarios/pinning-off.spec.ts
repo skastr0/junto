@@ -1,7 +1,8 @@
+import { modelFixture, modelNote, modelSeat, modelWire } from "../harness/model";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 /**
@@ -16,11 +17,11 @@ import { expect, launchJunto, test } from "../harness/launch";
 const SHOTS = join(process.cwd(), "test-results", "pinning-off");
 const CANVAS = "pinning-off";
 const nodes = [
-  agentTextNode({ id: "lead", key: "local:pin-lead", label: "lead", x: 40, y: 40 }),
-  agentTextNode({ id: "ada", key: "local:pin-ada", label: "ada", x: 360, y: 40 }),
-  { id: "note", type: "text" as const, text: "# Field notes\n\nNothing pins here.", x: 40, y: 260, width: 240, height: 120 },
+  modelSeat({ id: "lead", key: "local:pin-lead", label: "lead", x: 40, y: 40 }),
+  modelSeat({ id: "ada", key: "local:pin-ada", label: "ada", x: 360, y: 40 }),
+  modelNote("note", "# Field notes\n\nNothing pins here.", 40, 260),
 ];
-const fixture = canvasDoc(nodes, [verbEdge("e-lead-ada", "lead", "ada", "messages", nodes)]);
+const fixture = modelFixture(nodes, [modelWire("e-lead-ada", "lead", "ada", "messages", nodes)]);
 
 const front = (page: Page): Locator =>
   page.locator(".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface");
@@ -35,7 +36,7 @@ const expectNoPinAnywhere = async (page: Page, where: string): Promise<void> => 
 
 test("with pinning off no surface offers a pin and no dock appears", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
+  const junto = await launchJunto({ seedModels: { [CANVAS]: fixture } });
   try {
     const { page } = junto;
     const lead = page.locator('.react-flow__node[data-id="lead"]');

@@ -1,3 +1,4 @@
+import { modelFixture, modelSeat, modelMessagesWire } from "../harness/model";
 /**
  * The canvas under an open view is inert.
  *   bun run test:e2e:fast e2e/scenarios/view-inert-canvas.spec.ts
@@ -6,21 +7,17 @@
  * keyboard: not a node, not an edge label. Tab can never land on something
  * the view covers. Closing the view gives the canvas back.
  */
-import { agentTextNode, canvasDoc } from "../harness/sandbox";
+
 import { expect, launchJunto, test } from "../harness/launch";
 
 test("with a view open the canvas behind it cannot take the keyboard", async () => {
-  const junto = await launchJunto({
-    seedCanvases: {
-      "view-inert": canvasDoc(
-        [
-          agentTextNode({ id: "one", key: "local:e2e-inert-one", label: "One", x: 40, y: 40 }),
-          agentTextNode({ id: "two", key: "local:e2e-inert-two", label: "Two", x: 440, y: 40 }),
-        ],
-        [{ id: "e-one-two", fromNode: "one", toNode: "two" }],
-      ),
-    },
-  });
+  const seats = [
+    modelSeat({ id: "one", key: "local:e2e-inert-one", label: "One", x: 40, y: 40 }),
+    modelSeat({ id: "two", key: "local:e2e-inert-two", label: "Two", x: 440, y: 40 }),
+  ];
+  const junto = await launchJunto({ seedModels: {
+    "view-inert": modelFixture(seats, [modelMessagesWire("e-one-two", "one", "two", seats)]),
+  } });
   try {
     const { page } = junto;
     const canvas = page.locator(".react-flow");
