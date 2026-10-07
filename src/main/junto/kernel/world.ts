@@ -1,6 +1,4 @@
-import type { CanvasDoc } from "@shared/canvas";
 import type { Canvas } from "@shared/model/canvas";
-import { canvasFromDocument } from "@shared/model/from-document";
 import type { Task } from "@shared/work-model";
 import type { KernelWork } from "@shared/work-kernel";
 import type { WatchRead, WorkRead } from "@shared/work-read";
@@ -48,42 +46,4 @@ export const withTaskRow = (
     rows.map((row) => (row.id === task.id ? task : row)),
   );
   return { canvas: world.canvas, work: { ...world.work, tasks } };
-};
-
-/**
- * The world a document describes: the canvas from its nodes and edges, the
- * work from what its nodes carry. Tests describe a world this way; the kernel
- * reads the model and the work service.
- */
-export const worldFromDocument = (name: string, doc: CanvasDoc): World => {
-  const tasks = new Map<string, ReadonlyArray<Task>>();
-  const boards = new Map<string, { readonly topics: number; readonly posts: number }>();
-  const artifacts = new Map<string, number>();
-  for (const node of doc.nodes) {
-    const kind = node.ether?.entity?.kind;
-    if (kind === "task" && !tasks.has(node.id)) {
-      tasks.set(node.id, node.ether?.tasks?.items ?? NO_TASKS);
-    } else if (kind === "requests" && !tasks.has(node.id)) {
-      tasks.set(node.id, node.ether?.requests?.items ?? NO_TASKS);
-    }
-    const topics = node.ether?.board?.topics;
-    if (topics !== undefined && !boards.has(node.id)) {
-      boards.set(node.id, {
-        topics: topics.length,
-        posts: topics.reduce(
-          (sum, topic) =>
-            sum + (typeof topic.postCount === "number" ? topic.postCount : 0),
-          0,
-        ),
-      });
-    }
-    const items = node.ether?.artifacts?.items;
-    if (items !== undefined && !artifacts.has(node.id)) {
-      artifacts.set(node.id, items.length);
-    }
-  }
-  return {
-    canvas: canvasFromDocument(name, doc),
-    work: { tasks, boards, artifacts },
-  };
 };

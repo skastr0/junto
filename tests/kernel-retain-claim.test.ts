@@ -1,30 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import type { Task } from "../src/shared/work-model";
 import { retainClaimedTask } from "../src/main/junto/kernel/service";
-import { worldFromDocument, type World } from "../src/main/junto/kernel/world";
+import type { World } from "../src/main/junto/kernel/world";
+import { canvasOf, taskBoard, worldOf } from "./support/model-nodes";
 
 const task = (id: string, state: string): Task => ({ id, state }) as unknown as Task;
-
-const board = (id: string, items: ReadonlyArray<Task>) => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 60,
-  ether: { entity: { kind: "task" }, tasks: { items } },
-});
 
 const world = () =>
   new Map<string, World>([
     [
       "factory",
-      worldFromDocument("factory", {
-        nodes: [board("a", [task("t1", "submitted"), task("t2", "submitted")]), board("b", [task("t1", "submitted")])],
-        edges: [],
-      } as unknown as CanvasDoc),
+      worldOf(canvasOf([taskBoard("a"), taskBoard("b")]), {
+        tasks: new Map([
+          ["a", [task("t1", "submitted"), task("t2", "submitted")]],
+          ["b", [task("t1", "submitted")]],
+        ]),
+      }),
     ],
   ]);
 

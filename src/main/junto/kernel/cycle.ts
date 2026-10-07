@@ -38,7 +38,7 @@ import {
   schedulerKindOf,
   type OverseerFireAuthority,
 } from "./effects";
-import { workOf, worldFromDocument, type World } from "./world";
+import { workOf, type World } from "./world";
 import type { SnapshotState } from "../../../shared/entities";
 import {
   CRON_ENABLED,
@@ -135,11 +135,8 @@ let resolveActorRef: ActorRefResolver = () => undefined;
 const canAutomateCanvas = (canvasName: string): boolean =>
   automationGateDeps?.canAutomateCanvas(canvasName) ?? false;
 
-/** Tests describe a canvas and its work as a document. */
-export const __setDocsForTest = (docsMap: Map<string, CanvasDoc>): void => {
-  worlds = new Map(
-    [...docsMap].map(([name, doc]) => [name, worldFromDocument(name, doc)]),
-  );
+export const __setWorldsForTest = (held: Map<string, World>): void => {
+  worlds = held;
 };
 
 export const __setSnapshotsForTest = (state: SnapshotState): void => {
