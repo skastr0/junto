@@ -126,6 +126,21 @@ export const rotateSeatSession = async (
   return { ok: true, ...(ended ? { ended } : {}), ...(next ? { next } : {}), woke };
 };
 
+/**
+ * Stop the process on a seat and wait for it to be gone (bounded). Stopping
+ * goes through the router, the same owned-session stop the operator's
+ * terminal uses; rotation only ever reaches a local seat.
+ */
+export const stopSeatProcess = async (bindingId: string): Promise<void> => {
+  const { termPlane } = await import("../term/plane");
+  if (termPlane.host.get(bindingId) === undefined) return;
+  await termPlane.router.kill(bindingId);
+  const deadline = Date.now() + EXIT_WAIT_MS;
+  while (Date.now() < deadline && termPlane.host.get(bindingId)?.status !== "exited") {
+    await sleep(50);
+  }
+};
+
 /** Rotate one seat (its canvas node id) in the running app. */
 export const offboardAndRotate = async (
   seatId: string,
@@ -213,24 +228,14 @@ export const offboardAndRotate = async (
           ),
         ),
       detach: async (seat, id, endedSessionId) => {
-        // Stopping goes through the router, the same owned-session stop the
-        // operator's terminal uses; rotation only ever reaches a local seat.
-        const stopNow = async (): Promise<void> => {
-          if (termPlane.host.get(seat.bindingId) === undefined) return;
-          await termPlane.router.kill(seat.bindingId);
-          const deadline = Date.now() + EXIT_WAIT_MS;
-          while (Date.now() < deadline && termPlane.host.get(seat.bindingId)?.status !== "exited") {
-            await sleep(50);
-          }
-        };
         // A rotation is deliberate, not a crash: it spends none of the seat's
         // automatic restarts, now or at the wake that follows a rest.
         forgetAutoRestartSpend(seat.bindingId);
         if (options.detach !== undefined) return options.detach(seat, id, endedSessionId);
         // No one to wind the old process down: stop it, and let it exit
         // before the wake, which refuses while a process is still dying.
-        await stopNow();
-        return { stopNow };
+        await stopSeatProcess(seat.bindingId);
+        return { stopNow: () => stopSeatProcess(seat.bindingId) };
       },
       wake: (seat, id) => {
         forgetAutoRestartSpend(seat.bindingId);

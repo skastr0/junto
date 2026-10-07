@@ -2496,7 +2496,11 @@ describe("LocalSessionHost", () => {
 
     it("never names the fresh session: a session id it prints after the detach is not captured", () => {
       const { fake, host, input } = seated();
+      // What it printed before the detach was the seat's; it goes with it.
+      fake.controllers[0]?.emitData("Session: 99999999-2222-3333-4444-555555555555\n");
+      expect(getCapturedSessionId(input.bindingId)).toBe("99999999-2222-3333-4444-555555555555");
       host.drain(input.bindingId);
+      expect(getCapturedSessionId(input.bindingId)).toBeUndefined();
       host.createAgentSeat(input);
       fake.controllers[0]?.emitData("Session: 11111111-2222-3333-4444-555555555555\n");
       expect(getCapturedSessionId(input.bindingId)).toBeUndefined();
