@@ -14,6 +14,7 @@
  *   - the viewer opens on the attached file with the agent's caption, and offers no reveal in Finder
  *   - the A B view opens on the Before and After pair
  *   - main serves an attachment only by its place in that signal's list
+ *   - a file larger than one work socket frame is attached and shown
  *   - the seat withdraws the signal through its CLI and it closes
  */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -192,6 +193,27 @@ test("[fake-tui] a seat attaches files to a signal and the card shows them after
     const cleared = await ada.cli(["signal", "clear", signal.signalId]);
     expect(cleared.ok, `${cleared.stdout}${cleared.stderr}`).toBe(true);
     await expect.poll(async () => (await signalsNow())[0]?.state, { timeout: 15_000 }).toBe("withdrawn");
+
+    // No size of ours: a file larger than one socket frame goes up in pieces.
+    await mkdir(dir, { recursive: true });
+    const bigBytes = 20 * 1024 * 1024;
+    await writeFile(at("run.log"), Buffer.alloc(bigBytes, "a line of the run's log\n"));
+    const big = await ada.cli(["escalate", "The full run log is attached.", "--attach", `Run log=${at("run.log")}`]);
+    expect(big.ok, `${big.stdout}${big.stderr}`).toBe(true);
+    await expect
+      .poll(async () => (await signalsNow()).filter((raisedSignal) => raisedSignal.state === "open").length, { timeout: 15_000 })
+      .toBe(1);
+    const bigSignal = (await signalsNow()).find((raisedSignal) => raisedSignal.state === "open")!;
+    expect(bigSignal.attachments?.map((attachment) => [attachment.caption, attachment.ref.displayName, attachment.ref.mediaType, attachment.ref.byteLength])).toEqual([
+      ["Run log", "run.log", "text/plain", bigBytes],
+    ]);
+    await rm(dir, { recursive: true, force: true });
+    const shown = await page.evaluate(
+      (signalId) =>
+        window.junto!.previewRead({ source: { kind: "signal", signalId }, target: { kind: "attachment", index: 0 }, variant: "full" }),
+      bigSignal.signalId,
+    );
+    expect(shown).toMatchObject({ ok: true, kind: "text", name: "run.log", byteLength: bigBytes, truncated: true });
   } finally {
     await junto.close();
     await rm(dir, { recursive: true, force: true });
