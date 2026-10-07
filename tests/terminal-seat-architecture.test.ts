@@ -27,7 +27,7 @@ const TERMINAL_ACTIONS = "src/renderer/lib/terminal-actions.ts";
 const OCCUPANCY =
   /\b(?:occupyVacantSeat|occupancyFromSession|occupancyFromSummary|SeatOccupancy)\b/u;
 const SPAWN =
-  /\bspawnTerminal\s*\(|\bthis\.open\s*\(|\bclient\.create\s*\(|\bhost\.create\s*\(|\bterminalCreate\s*\(/u;
+  /\bspawnTerminal\s*\(|\bthis\.open\s*\(|\bclient\.create\s*\(|\bhost\.create\s*\(|\bterminalCreate\s*\(|\bmodelStart\s*\(/u;
 
 const skipQuoted = (text: string, start: number): number => {
   const quote = text[start];
@@ -259,10 +259,10 @@ describe("terminal seat architecture", () => {
       if (!actor) {
         violations.push(`${loc} — exact agent arm missing`);
       } else {
-        const createAt = actor.search(/\bterminalCreate\s*\(/u);
+        const createAt = actor.search(/\bmodelStart\s*\(/u);
         const getAt = actor.search(/\bterminalGet\b/u);
         if (createAt < 0) {
-          violations.push(`${loc} — agent arm does not delegate to terminalCreate`);
+          violations.push(`${loc} — agent arm does not delegate to modelStart`);
         } else if (getAt >= 0 && getAt < createAt) {
           violations.push(`${loc} — agent arm makes a renderer occupancy decision`);
         }

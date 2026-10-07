@@ -73,7 +73,7 @@ describe("terminal actor entry", () => {
       'if (entityKind === "agent") {',
       "\n\n  // Raw native terminals are geography.",
     );
-    const createAt = actor.indexOf("api.terminalCreate({");
+    const createAt = actor.indexOf("api.modelStart({");
 
     expect(source).toContain(
       'import { actorDeliverySurfaceOf } from "@shared/actor-surface";',
@@ -101,7 +101,7 @@ describe("terminal actor entry", () => {
       "\n\n  // Raw native terminals are geography.",
     );
     const flushAt = actor.indexOf("flushPendingCanvasSave()");
-    const createAt = actor.indexOf("api.terminalCreate({");
+    const createAt = actor.indexOf("api.modelStart({");
 
     expect(source).toContain(
       'import { flushPendingCanvasSave } from "./mutations";',

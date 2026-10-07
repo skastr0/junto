@@ -39,7 +39,7 @@ export const ensureTerminalRunning = async (
       return { ok: false, message: missingActorSurfaceMessage };
     }
     const api = getJuntoApi();
-    if (!api?.terminalCreate) {
+    if (!api?.modelStart) {
       return { ok: false, message: "terminal API unavailable — restart Junto" };
     }
     try {
@@ -52,9 +52,9 @@ export const ensureTerminalRunning = async (
       // Main owns ActorSeatOccupy, including occupied-vs-vacant WHEN. Always
       // send the node-derived actor command; a cached renderer summary is not
       // authority to skip occupation or reconstruct a geography shell.
-      let next = await api.terminalCreate({
-        node,
-        canvasName: state$.canvasName.peek(),
+      let next = await api.modelStart({
+        canvas: state$.canvasName.peek(),
+        id: node.id,
         resume: options?.resume ?? true,
       });
       if (!sessionActorMatches(next, surface)) {
@@ -101,7 +101,7 @@ export const ensureTerminalRunning = async (
     return { ok: false, message: "raw terminal is missing its binding" };
   }
   const api = getJuntoApi();
-  if (!api?.terminalCreate) {
+  if (!api?.modelStart) {
     return { ok: false, message: "terminal API unavailable — restart Junto" };
   }
 
@@ -120,9 +120,12 @@ export const ensureTerminalRunning = async (
   }
 
   try {
-    const next = await api.terminalCreate({
-      node,
-      canvasName: state$.canvasName.peek(),
+    // Main starts the terminal from its own row, so a terminal the operator
+    // just made has to be committed before it can be started.
+    await flushPendingCanvasSave().catch(() => undefined);
+    const next = await api.modelStart({
+      canvas: state$.canvasName.peek(),
+      id: node.id,
     });
     terminal$.sessionByBindingId[binding.bindingId].set(next);
     // Create is still allowed to open the surface for journal/error replay
