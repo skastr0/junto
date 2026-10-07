@@ -251,8 +251,8 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
     seconds: 0.12,
     coalesceMs: 0,
     minGapMs: 60,
-    label: "Next alert",
-    meaning: "Space or ` jumps to the next seat that needs you.",
+    label: "Next agent",
+    meaning: "Space or ` goes to the next agent, most urgent first.",
     render: (v, t) => {
       wood(v, t, NOTE.D6, { gain: 0.2, tau: 0.04, bright: 0.2 });
     },
