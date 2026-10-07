@@ -23,11 +23,13 @@ import { AgentPortrait } from "../AgentPortrait";
 /** Portrait inside the 52px seat ring: fits the ring's hole with a hairline gap. */
 export const SEAT_PORTRAIT_PX = 34;
 
+// Words take a hue's text form where it has one: the mark form, made for
+// rings and dots, is near 3 to 1 on the bright ground.
 const TONE_TEXT: Readonly<Record<ActivityTone, string>> = {
-  amber: "text-amber",
-  cyan: "text-cyan",
+  amber: "text-amber-fg",
+  cyan: "text-cyan-fg",
   green: "text-green",
-  crimson: "text-crimson",
+  crimson: "text-crimson-fg",
   steel: "text-steel",
 };
 
@@ -113,7 +115,7 @@ export function AgentSeatView({
       </>
     );
   } else if (saying.kind === "failure") {
-    line = <span className="text-amber">{saying.text}</span>;
+    line = <span className="text-amber-fg">{saying.text}</span>;
   } else if (saying.kind === "reading") {
     // An AI reading, never the agent's own claim: a quiet prefix, dim ink.
     line = (
