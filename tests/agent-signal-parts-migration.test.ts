@@ -20,8 +20,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V10_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V10_SQL, STATE_SCHEMA_V11_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url));
 
@@ -63,6 +62,14 @@ const versionTenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 10),
 };
 
+// 11 -> 12 (app texts) lands on top; this suite stops at 11.
+const versionElevenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 11,
+  currentSchemaSql: STATE_SCHEMA_V11_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 11),
+};
+
 const sha = (fill: string): string => fill.repeat(64);
 const raiseSignal = (database: DatabaseSync, signalId: string): void => {
   database
@@ -76,7 +83,7 @@ const raiseSignal = (database: DatabaseSync, signalId: string): void => {
 describe("state migration 10 -> 11 (signal parts)", () => {
   it("freezes the version-ten witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V10_SQL)).toEqual(STATE_SCHEMA_V10_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V11_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V11_SQL)).toEqual(STATE_SCHEMA_V11_IDENTITY);
   });
 
   it("carries every attachment already held across, in place and order, and touches nothing else", async () => {
@@ -99,7 +106,7 @@ describe("state migration 10 -> 11 (signal parts)", () => {
       expect(before.agent_signal_attachments).toHaveLength(3);
       expect(before).not.toHaveProperty("agent_signal_parts");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionElevenPlan);
       expect(result).toMatchObject({ previousVersion: 10, schemaVersion: 11 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V11_IDENTITY);
 
@@ -122,7 +129,7 @@ describe("state migration 10 -> 11 (signal parts)", () => {
   it("bounds neither how many parts a signal has nor a caption's length, and lets parts go with their signal", async () => {
     const database = await openCopy();
     try {
-      migrateStateSchema(database);
+      migrateStateSchema(database, versionElevenPlan);
       raiseSignal(database, "sig-1");
       const insert = database.prepare(
         "INSERT INTO agent_signal_parts(signal_id, position, kind, body_json, caption) VALUES (?, ?, ?, ?, ?)",

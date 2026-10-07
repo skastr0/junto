@@ -47,6 +47,7 @@ import {
   SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
   SEAT_SESSIONS_STATE_SCHEMA_SQL,
 } from "../seat-sessions/state-schema";
+import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -118,6 +119,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
   SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
   AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
+  APP_TEXTS_STATE_SCHEMA_SQL,
 ] as const;
 
 

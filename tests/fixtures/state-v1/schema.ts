@@ -27,6 +27,7 @@ import {
   SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
   SEAT_SESSIONS_STATE_SCHEMA_SQL,
 } from "../../../src/main/junto/seat-sessions/state-schema";
+import { APP_TEXTS_STATE_SCHEMA_SQL } from "../../../src/main/junto/references/state-schema";
 import { withoutProposalStorage } from "../../../src/main/junto/work/state-schema";
 
 const composedWithout = (retired: ReadonlyArray<string>): string =>
@@ -34,7 +35,12 @@ const composedWithout = (retired: ReadonlyArray<string>): string =>
     STATE_SCHEMA_FRAGMENTS.filter((fragment) => !retired.includes(fragment)).join("\n"),
   );
 
-const V11_FRAGMENTS = [AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL];
+// Version 12 added app texts (11 -> 12), so version 11 is the current composition without it.
+const V12_FRAGMENTS = [APP_TEXTS_STATE_SCHEMA_SQL];
+
+export const STATE_SCHEMA_V11_SQL = composedWithout(V12_FRAGMENTS);
+
+const V11_FRAGMENTS = [...V12_FRAGMENTS, AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL];
 
 export const STATE_SCHEMA_V10_SQL = composedWithout(V11_FRAGMENTS);
 

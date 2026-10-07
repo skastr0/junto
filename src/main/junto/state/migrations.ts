@@ -4,6 +4,7 @@ import {
   type SQLOutputValue,
 } from "node:sqlite";
 import { STATE_SCHEMA_SQL } from "./schema";
+import { APP_TEXTS_STATE_SCHEMA_SQL } from "../references/state-schema";
 import {
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
   AGENT_SIGNAL_PARTS_COPY_SQL,
@@ -212,7 +213,16 @@ export const STATE_SCHEMA_V11_IDENTITY = {
     "b1b2007cca29300066c9b2ee3409ecf3f606fb7b2669e6f8b8558cfc8bb679b5",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 11;
+/**
+ * Version 12 adds app texts: the app briefing and the named references seats
+ * read on demand. Expand only: one new table, nothing else touched.
+ */
+export const STATE_SCHEMA_V12_IDENTITY = {
+  actualSchemaSha256:
+    "5c8983f4ed3a056986f61208625b9571903cfa2ae0ff989fd5afb60e95462502",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 12;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -220,7 +230,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 11;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V11_IDENTITY;
+  STATE_SCHEMA_V12_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -336,6 +346,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL);
       database.exec(AGENT_SIGNAL_PARTS_COPY_SQL);
+    },
+  },
+  {
+    fromVersion: 11,
+    toVersion: 12,
+    name: "add app texts",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V11_IDENTITY,
+    migrate: (database) => {
+      database.exec(APP_TEXTS_STATE_SCHEMA_SQL);
     },
   },
 ];
