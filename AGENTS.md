@@ -67,6 +67,9 @@ A rebuilt Remote must enforce the same-host rule for watcher and timer firing:
 Command Center may target any agent, a Remote only agents on its own host.
 Nothing enforces it today; its last statement in code ran nowhere and was
 removed with the dead document helpers in `src/shared/station.ts`.
+A rebuilt Remote must also decide where a task board's home host lives: the
+model task board carries none, so there is no control for it and no stored
+choice.
 Junto writes no canvas file: there is no JSON Canvas export or import, and no
 digest or SVG file beside a canvas.
 
