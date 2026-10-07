@@ -5,9 +5,10 @@
    rows on a grid and needs a whole length, 1.5 times the code size. */
 .code-view {
   min-width: 0;
-  /* The well code sits in. A caller on another surface sets this one variable. */
-  --code-view-surface: var(--color-ground);
-  background: var(--code-view-surface);
+  /* The well code sits in: the ground colour, unless a caller on another
+     surface sets --code-view-surface on its own box. It is never declared
+     here, so a value from any ancestor takes. */
+  background: var(--code-view-surface, var(--color-ground));
 }
 
 /* On the library's own element: it declares its colours there, so a value
@@ -15,7 +16,7 @@
 .code-view,
 .code-view diffs-container {
   color-scheme: dark;
-  --diffs-bg: var(--code-view-surface);
+  --diffs-bg: var(--code-view-surface, var(--color-ground));
   --diffs-font-family: var(--font-mono);
   --diffs-header-font-family: var(--font-mono);
   --diffs-font-size: var(--text-body-lg);
@@ -26,14 +27,14 @@
   --diffs-fg-number: var(--color-faint);
   /* A selected line or range: the house cyan, not the library's blue. */
   --diffs-selection-base: var(--color-second);
-  --diffs-dark-bg: var(--code-view-surface);
+  --diffs-dark-bg: var(--code-view-surface, var(--color-ground));
   --diffs-dark: var(--color-ink);
 }
 
 html[data-theme="bright"] .code-view,
 html[data-theme="bright"] .code-view diffs-container {
   color-scheme: light;
-  --diffs-light-bg: var(--code-view-surface);
+  --diffs-light-bg: var(--code-view-surface, var(--color-ground));
   --diffs-light: var(--color-ink);
 }
 
