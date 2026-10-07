@@ -15,6 +15,15 @@ import { SettingsLive, SettingsService } from "../src/main/junto/settings/servic
 import { WorkLive } from "../src/main/junto/work/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { executeOverseer, type OverseerRuntime } from "../src/main/junto/overseer/dispatch";
+import type { OverseerOffboard } from "../src/main/junto/overseer/offboard-seam";
+import {
+  DEFAULT_OFFBOARD_RULES,
+  applyOffboardRulesPatch,
+  defaultOffboardRules,
+  offboardRulesProblem,
+  summarizeOffboardRun,
+  type OffboardRules,
+} from "../src/shared/seat-offboard";
 import { InstallationId } from "../src/shared/installation-id";
 import { RemoteConfiguration } from "../src/shared/station-api";
 import { managedAgentEther } from "./helpers/managed-agent-ether";
@@ -201,63 +210,66 @@ describe("integrated overseer dispatcher", () => {
     expect(adapters.native).not.toHaveBeenCalled();
   });
 
-  it("offboards seats through the operator's entry point, one result per seat, and keeps the rules", async () => {
+  it("offboards seats through the operator's entry point and keeps the rules", async () => {
     const { toggle, adapters } = await boot();
-    let rules = { auto: { enabled: true, minutes: 120 }, nudge: { enabled: false, minutes: 40 } };
-    const seat = vi.fn(async ({ nodeId, action }: { nodeId: string; action: string }) =>
-      nodeId === "idle"
-        ? { ok: true as const, title: "Idle", outcome: action === "now" ? "ended" : "asked" }
-        : { ok: false as const, reason: "This seat is working." });
-    const offboard = {
-      seat,
-      rules: async () => rules,
-      configure: async (change: { auto?: object; nudge?: object }) => {
-        rules = { auto: { ...rules.auto, ...change.auto }, nudge: { ...rules.nudge, ...change.nudge } };
-        return rules;
+    let rules: OffboardRules = defaultOffboardRules();
+    const run = vi.fn<OverseerOffboard["run"]>(async ({ seatIds, action }) => summarizeOffboardRun(seatIds.map((seatId) =>
+      seatId === "idle"
+        ? { seatId, title: "Idle", ok: true as const, action, outcome: action === "now" ? "closed" as const : "asked" as const, pastWindow: true }
+        : { seatId, ok: false as const, code: "working" as const, reason: "This seat is working." })));
+    const offboard: OverseerOffboard = {
+      run,
+      status: async (_canvasName, seatIds) => seatIds.map((seatId) => ({
+        seatId, now: { allowed: true as const }, idleMinutes: 90, pastWindow: true, preferred: "now" as const,
+      })),
+      readRules: () => rules,
+      patchRules: (patch) => {
+        const next = applyOffboardRulesPatch(rules, patch);
+        const message = offboardRulesProblem(next);
+        if (message !== undefined) return { ok: false, message };
+        rules = next;
+        return { ok: true, rules };
       },
     };
-    const run = (request: Parameters<typeof executeOverseer>[1], runtimeAdapters: OverseerRuntime = { ...adapters, offboard }) =>
+    const run_ = (request: Parameters<typeof executeOverseer>[1], runtimeAdapters: OverseerRuntime = { ...adapters, offboard }) =>
       runtime.runPromise(executeOverseer(caller, request, runtimeAdapters));
 
-    expect(await run({ operation: "agent.offboard", args: { nodeIds: ["idle"] } }))
+    expect(await run_({ operation: "agent.offboard", args: { nodeIds: ["idle"] } }))
       .toMatchObject({ ok: false, error: { type: "Forbidden" } });
-    expect(seat).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
     await toggle(true);
 
-    expect(await run({ operation: "agent.offboard", args: { nodeIds: ["idle", "busy", "boss"], action: "now" } })).toEqual({
+    expect(await run_({ operation: "agent.offboard", args: { nodeIds: ["idle", "busy", "boss"], action: "now" } })).toEqual({
       ok: true,
       operation: "agent.offboard",
       data: {
         results: [
-          { nodeId: "idle", title: "Idle", ok: true, action: "now", outcome: "ended" },
-          { nodeId: "busy", ok: false, reason: "This seat is working." },
-          { nodeId: "boss", ok: false, reason: "This seat is working." },
+          { seatId: "idle", title: "Idle", ok: true, action: "now", outcome: "closed", pastWindow: true },
+          { seatId: "busy", ok: false, code: "working", reason: "This seat is working." },
+          { seatId: "boss", ok: false, code: "working", reason: "This seat is working." },
         ],
+        closed: 1,
+        asked: 0,
         refused: 2,
       },
     });
-    expect(await run({ operation: "agent.offboard", args: { nodeIds: ["boss", "idle"] } })).toMatchObject({
-      ok: true,
-      data: {
-        results: [
-          { nodeId: "boss", ok: false, reason: "this is your own seat: run junto offboard" },
-          { nodeId: "idle", ok: true, action: "ask", outcome: "asked" },
-        ],
-        refused: 1,
-      },
-    });
-    expect(await run({ operation: "agent.offboard", args: { nodeIds: ["idle"], action: "now", mode: "rest" } }))
+    expect(run).toHaveBeenLastCalledWith({ canvasName: "origin", seatIds: ["idle", "busy", "boss"], action: "now" }, "overseer");
+    expect(await run_({ operation: "agent.offboard", args: { nodeIds: ["idle"], action: "now", mode: "rest" } }))
       .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
+    expect(await run_({ operation: "agent.offboard-status", args: { nodeIds: ["idle"] } }))
+      .toMatchObject({ ok: true, data: [{ seatId: "idle", preferred: "now" }] });
 
-    expect(await run({ operation: "agent.offboard-rules" })).toEqual({ ok: true, operation: "agent.offboard-rules", data: rules });
-    expect(await run({ operation: "agent.offboard-configure", args: { auto: { enabled: false } } })).toMatchObject({
-      ok: true, data: { auto: { enabled: false, minutes: 120 }, nudge: { enabled: false, minutes: 40 } },
+    expect(await run_({ operation: "agent.offboard-rules" }))
+      .toMatchObject({ ok: true, operation: "agent.offboard-rules", data: { rules: DEFAULT_OFFBOARD_RULES } });
+    expect(await run_({ operation: "agent.offboard-configure", args: { auto: { enabled: false } } })).toMatchObject({
+      ok: true, data: { rules: { cacheWindowMinutes: 60, auto: { enabled: false, minutes: 120 } } },
     });
-    expect(await run({ operation: "agent.offboard-configure", args: {} }))
+    expect(await run_({ operation: "agent.offboard-configure", args: { auto: { minutes: 30 } } }))
       .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
+    expect(rules.auto).toEqual({ enabled: false, minutes: 120 });
 
     // No entry point bound: Unsupported, and the native adapter is never asked.
-    expect(await run({ operation: "agent.offboard-rules" }, adapters))
+    expect(await run_({ operation: "agent.offboard-rules" }, adapters))
       .toMatchObject({ ok: false, error: { type: "Unsupported" } });
     expect(adapters.native).not.toHaveBeenCalled();
   });

@@ -592,9 +592,11 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
   it("prints the offboard result whole and exits non-zero when any seat was refused", async () => {
     const result = (refused: number) => ({
       results: [
-        { nodeId: "idle", title: "Idle", ok: true, action: "now", outcome: "ended" },
-        ...(refused > 0 ? [{ nodeId: "busy", ok: false, reason: "This seat is working." }] : []),
+        { seatId: "idle", title: "Idle", ok: true, action: "now", outcome: "closed", pastWindow: true },
+        ...(refused > 0 ? [{ seatId: "busy", ok: false, code: "working", reason: "This seat is working." }] : []),
       ],
+      closed: 1,
+      asked: 0,
       refused,
     });
     let next: unknown = result(0);
@@ -619,7 +621,7 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
     expect(bad.code).toBe(1);
     expect((JSON.parse(bad.stderr.trim()) as { error: { type: string } }).error.type).toBe("InputError");
 
-    for (const operation of ["agent.offboard", "agent.offboard-rules", "agent.offboard-configure"]) {
+    for (const operation of ["agent.offboard", "agent.offboard-status", "agent.offboard-rules", "agent.offboard-configure"]) {
       expect(overseerSchemas.some((schema) => schema.command_id === `overseer.${operation}`)).toBe(true);
       expect(overseerExamples.some((example) => example.command_id === `overseer.${operation}`)).toBe(true);
     }

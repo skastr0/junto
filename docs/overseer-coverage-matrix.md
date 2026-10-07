@@ -1,6 +1,6 @@
 # Overseer command acceptance matrix
 
-Status: inventory of the 112-op contract against integrated handlers
+Status: inventory of the 113-op contract against integrated handlers
 and owning suites. Native/composition lifecycle fixes and cross-canvas
 artifact publisher-home routing are integrated. Coverage below distinguishes
 executed behavior from catalog coverage; it does not claim every operation
@@ -63,7 +63,7 @@ replay.
 | Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Stale save / grant strip | `tests/authorial-canvas-merge.test.ts`, `tests/canvas-save-durability.test.ts` |
 
-## Wire operations (112)
+## Wire operations (113)
 
 | operation | catalog | owning service | coverage | suite |
 | --- | --- | --- | --- | --- |
@@ -177,6 +177,7 @@ replay.
 | `secret.delete` | mutation | main `executeOverseerSecret` over the store seam | exercised | tests/overseer-env-secret.test.ts; tests/overseer-dispatch.test.ts; fake store only |
 | `secret.list` | read | main `executeOverseerSecret` over the store seam | exercised | tests/overseer-env-secret.test.ts; tests/overseer-dispatch.test.ts; fake store only |
 | `agent.offboard` | mutation | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; tests/overseer-cli.test.ts; fake entry point only |
+| `agent.offboard-status` | read | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; fake entry point only |
 | `agent.offboard-rules` | read | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; fake entry point only |
 | `agent.offboard-configure` | mutation | main `executeOverseerOffboard` over the offboard seam | exercised | tests/overseer-offboard.test.ts; tests/overseer-dispatch.test.ts; fake entry point only |
 
@@ -189,16 +190,17 @@ replay.
 
 | item | contract |
 | --- | --- |
-| `agent.offboard` | `ask` mails each seat the operator's offboard prompt (`continue` by default, `rest` allowed); `now` has Junto end the session, only for an idle, offline or resting seat; `mode` with `now` is `InvalidArguments` |
-| Result | one row per seat in the order asked, and `refused`; a refused seat, an unknown node and a node that is not a seat are rows, not errors |
+| Shapes | all from `src/shared/seat-offboard.ts`; nothing is redeclared |
+| `agent.offboard` | one call to main's entry point as `"overseer"` for the whole list (1 to 200 seats); `ask` by default, `mode` only with `ask`; the result is `SeatOffboardRunResult` unchanged |
+| Refused seats | rows, not errors: an unknown node, a node that is not a seat, a seat that cannot be ended now; the caller's own seat is passed through like any other |
 | Exit rule | the CLI prints the result whole and exits non-zero when `refused` is above zero |
-| Own seat | `ask` on the caller's own seat is refused without mailing it; `now` is left to main's rule |
-| One entry point | the handler calls main's entry point through `src/main/junto/overseer/offboard-seam.ts` and adds no idle test, no ask wording and no retry |
-| Rules | `agent.offboard-rules` reads and `agent.offboard-configure` sets `{auto, nudge}`, each `{enabled, minutes}`; configure returns the rules after the change |
+| `agent.offboard-status` | `SeatOffboardStatus[]` unchanged |
+| Rules | `agent.offboard-rules` answers `{rules, effective}`; `agent.offboard-configure` takes `OffboardRulesPatch`, main applies, checks and saves it, and a refused change is `InvalidArguments` with main's message unchanged |
+| One entry point | `src/main/junto/overseer/offboard-seam.ts`; the handler adds no idle test, no ask wording, no rows and no retry |
 
-The seam is not yet bound to product code: until main publishes its entry
-point every `agent.offboard*` operation answers `Unsupported`. Tests use a
-fake entry point.
+The seam is not yet bound to product code: until main's entry point lands
+every `agent.offboard*` operation answers `Unsupported`. Tests use a fake
+entry point.
 
 ## Region environment and secrets
 

@@ -1,110 +1,111 @@
+import { managedHarnessEnabled } from "@shared/features";
+import { HARNESS_IDS } from "@shared/managed-terminal-templates";
 import type {
   OverseerArgsFor,
   OverseerCaller,
   OverseerErrorBody,
-  OverseerOffboardAction,
 } from "@shared/overseer-control";
-import type { OverseerOffboard, OverseerOffboardSeatResult } from "./offboard-seam";
+import {
+  offboardRulesFor,
+  type OffboardRuleSet,
+  type OffboardRules,
+} from "@shared/seat-offboard";
+import type { OverseerOffboard } from "./offboard-seam";
 
 /**
  * `agent.offboard*`: the operator's offboard actions and rules, for an
  * overseer.
  *
- * Each seat gets its own answer, in the order asked. A seat that is refused
- * is a row in the result, not a failure of the operation: one seat that
- * cannot be ended now does not hide what happened to the others.
+ * The answers are main's, unchanged. A seat that is refused is a row in the
+ * run result, not a failure of the operation: one seat that cannot be ended
+ * now does not hide what happened to the others.
  */
-export type OverseerOffboardRow =
+export type OverseerOffboardRequest =
+  | { readonly operation: "agent.offboard"; readonly args: OverseerArgsFor<"agent.offboard"> }
   | {
-      readonly nodeId: string;
-      readonly title?: string;
-      readonly ok: true;
-      readonly action: OverseerOffboardAction;
-      readonly outcome: string;
+      readonly operation: "agent.offboard-status";
+      readonly args: OverseerArgsFor<"agent.offboard-status">;
     }
+  | { readonly operation: "agent.offboard-rules" }
   | {
-      readonly nodeId: string;
-      readonly title?: string;
-      readonly ok: false;
-      readonly reason: string;
+      readonly operation: "agent.offboard-configure";
+      readonly args: OverseerArgsFor<"agent.offboard-configure">;
     };
-
-export type OverseerOffboardResult = {
-  readonly results: ReadonlyArray<OverseerOffboardRow>;
-  readonly refused: number;
-};
 
 export type OverseerOffboardOutcome =
   | { readonly ok: true; readonly data: unknown }
   | { readonly ok: false; readonly error: OverseerErrorBody };
 
+/** The installation's rules, and what they come to for each harness. */
+export type OverseerOffboardRulesView = {
+  readonly rules: OffboardRules;
+  readonly effective: Readonly<Record<string, OffboardRuleSet>>;
+};
+
 export const OFFBOARD_MISSING =
   "operator offboard is not available in this build";
-export const OFFBOARD_OWN_SEAT = "this is your own seat: run junto offboard";
-/** Main threw instead of answering. Its message is not repeated. */
-export const OFFBOARD_SEAT_FAILED = "Junto could not offboard this seat.";
-const OFFBOARD_RULES_FAILED = "the offboard rules could not be read or changed";
+/** Main failed instead of answering. Its own message is not repeated. */
+export const OFFBOARD_FAILED = "the offboard request could not be carried out";
 
-const withTitle = (title: string | undefined): { readonly title?: string } =>
-  title === undefined ? {} : { title };
+export const offboardRulesView = (rules: OffboardRules): OverseerOffboardRulesView => ({
+  rules,
+  effective: Object.fromEntries(
+    HARNESS_IDS.filter(managedHarnessEnabled).map((harness) => [
+      harness,
+      offboardRulesFor(rules, harness),
+    ]),
+  ),
+});
 
-export const offboardSeats = async (
+const answer = async (
   caller: OverseerCaller,
-  args: OverseerArgsFor<"agent.offboard">,
+  request: OverseerOffboardRequest,
   offboard: OverseerOffboard,
-): Promise<OverseerOffboardResult> => {
-  const canvasName = args.canvas ?? caller.canvasName;
-  const action = args.action ?? "ask";
-  const mode = args.mode ?? "continue";
-  const results: OverseerOffboardRow[] = [];
-  // One at a time, in the order asked: the same pace as the operator's clicks.
-  for (const nodeId of args.nodeIds) {
-    // An agent offboards its own session with its own notes; mail to itself
-    // asking for that would only arrive in the turn that sent it.
-    if (
-      action === "ask" &&
-      canvasName === caller.canvasName &&
-      nodeId === caller.nodeId
-    ) {
-      results.push({ nodeId, ok: false, reason: OFFBOARD_OWN_SEAT });
-      continue;
+): Promise<OverseerOffboardOutcome> => {
+  switch (request.operation) {
+    case "agent.offboard": {
+      const { canvas, nodeIds, action, mode } = request.args;
+      return {
+        ok: true,
+        data: await offboard.run(
+          {
+            canvasName: canvas ?? caller.canvasName,
+            seatIds: nodeIds,
+            action: action ?? "ask",
+            ...(mode === undefined ? {} : { mode }),
+          },
+          "overseer",
+        ),
+      };
     }
-    const answer = await offboard
-      .seat({ canvasName, nodeId, action, mode })
-      .catch((): OverseerOffboardSeatResult => ({ ok: false, reason: OFFBOARD_SEAT_FAILED }));
-    results.push(
-      answer.ok
-        ? { nodeId, ...withTitle(answer.title), ok: true, action, outcome: answer.outcome }
-        : { nodeId, ...withTitle(answer.title), ok: false, reason: answer.reason },
-    );
+    case "agent.offboard-status": {
+      const { canvas, nodeIds } = request.args;
+      return {
+        ok: true,
+        data: await offboard.status(canvas ?? caller.canvasName, nodeIds),
+      };
+    }
+    case "agent.offboard-rules":
+      return { ok: true, data: offboardRulesView(await offboard.readRules()) };
+    case "agent.offboard-configure": {
+      const patched = await offboard.patchRules(request.args);
+      return patched.ok
+        ? { ok: true, data: offboardRulesView(patched.rules) }
+        : { ok: false, error: { type: "InvalidArguments", message: patched.message } };
+    }
   }
-  return { results, refused: results.filter((row) => !row.ok).length };
 };
 
-export const executeOverseerOffboard = async (
+export const executeOverseerOffboard = (
   caller: OverseerCaller,
-  request:
-    | { readonly operation: "agent.offboard"; readonly args: OverseerArgsFor<"agent.offboard"> }
-    | { readonly operation: "agent.offboard-rules" }
-    | {
-        readonly operation: "agent.offboard-configure";
-        readonly args: OverseerArgsFor<"agent.offboard-configure">;
-      },
+  request: OverseerOffboardRequest,
   offboard: OverseerOffboard | undefined,
-): Promise<OverseerOffboardOutcome> => {
-  if (offboard === undefined) {
-    return { ok: false, error: { type: "Unsupported", message: OFFBOARD_MISSING } };
-  }
-  try {
-    switch (request.operation) {
-      case "agent.offboard":
-        return { ok: true, data: await offboardSeats(caller, request.args, offboard) };
-      case "agent.offboard-rules":
-        return { ok: true, data: await offboard.rules() };
-      case "agent.offboard-configure":
-        return { ok: true, data: await offboard.configure(request.args) };
-    }
-  } catch {
-    return { ok: false, error: { type: "InternalError", message: OFFBOARD_RULES_FAILED } };
-  }
-};
+): Promise<OverseerOffboardOutcome> =>
+  offboard === undefined
+    ? Promise.resolve({ ok: false, error: { type: "Unsupported", message: OFFBOARD_MISSING } })
+    : answer(caller, request, offboard).catch(
+        (): OverseerOffboardOutcome => ({
+          ok: false,
+          error: { type: "InternalError", message: OFFBOARD_FAILED },
+        }),
+      );

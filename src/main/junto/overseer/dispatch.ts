@@ -169,6 +169,7 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
     }
     if (
       operation === "agent.offboard" ||
+      operation === "agent.offboard-status" ||
       operation === "agent.offboard-rules" ||
       operation === "agent.offboard-configure"
     ) {

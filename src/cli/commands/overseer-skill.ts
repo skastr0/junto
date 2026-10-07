@@ -71,19 +71,22 @@ Remote seats are supported on the same CLI. Station transport is not this comman
 
 ## Offboarding seats
 
-A seat's session grows long and costly. Two actions cut it, each over one or many seats:
+A seat is permanent and its session grows. A harness keeps a session cheap to continue only while its cache is warm; a seat that sat still past that window pays for its whole history again on its next turn. Two actions cut a session, each over one or many seats:
 
-- \`agent offboard {nodeIds, action?, mode?}\` with \`action: "ask"\` (the default) mails each seat the operator's offboard prompt. The agent finishes its step, writes its own notes, and offboards. \`mode: "continue"\` (the default) starts a fresh session right away from its continuation note; \`mode: "rest"\` lets the seat rest until mail wakes it.
-- \`action: "now"\` has Junto end the session itself, with no notes from the agent. It works only on a seat that is idle, offline or resting. Any other seat is refused with the reason, never queued. \`mode\` is not allowed with \`now\`.
+- \`agent offboard {nodeIds, action?, mode?}\` with \`action: "ask"\` (the default) asks each seat's agent to offboard. It finishes its step, writes its own notes, and offboards. \`mode: "continue"\` (the default) starts a fresh session right away from its continuation note; \`mode: "rest"\` lets the seat rest until mail wakes it. It costs the seat one turn: right while the cache is warm.
+- \`action: "now"\` has Junto end the session itself: no turn, no notes. It works only on a seat that is idle, offline or resting. Any other seat is refused with the reason, never queued. \`mode\` is not allowed with \`now\`. Right once the cache window has passed.
 
-The answer is one row per seat, in the order asked: \`{nodeId, title?, ok: true, action, outcome}\` or \`{nodeId, ok: false, reason}\`, plus \`refused\`, the count of refused seats. A refused seat does not fail the command: the result prints whole on stdout and the exit code is non-zero when \`refused\` is above zero. An unknown node, or one that is not an agent seat, is a refused row.
+The answer is one row per seat, in the order asked: \`{seatId, title?, ok: true, action, outcome, pastWindow}\` with outcome \`asked\` or \`closed\`, or \`{seatId, title?, ok: false, code, reason, pastWindow?}\`, plus the counts \`closed\`, \`asked\` and \`refused\`. \`seatId\` is the canvas node id. Codes: \`working\`, \`attention\`, \`closing\`, \`not-a-seat\`, \`not-local\`, \`undelivered\`, \`failed\`; \`reason\` is the sentence to show. A refused seat does not fail the command: the result prints whole on stdout and the exit code is non-zero when \`refused\` is above zero.
 
-Prefer \`ask\`: the notes are what the next session starts from. Use \`now\` for a seat that is already idle and has nothing to hand on. You cannot ask your own seat; run \`junto offboard\` yourself.
+\`agent offboard-status {nodeIds}\` answers before you act: whether \`now\` is allowed for each seat, how many minutes it has sat still, whether it is past its cache window, and the \`preferred\` action (\`now\` once past the window, else \`ask\`). Read it, then offboard the seats by their preferred action.
 
-Two rules run per installation, without anyone asking:
+Three settings per installation do the same without anyone asking, each optionally overridden per harness:
 
-- \`agent offboard-rules\` reads them: \`{auto: {enabled, minutes}, nudge: {enabled, minutes}}\`. \`auto\` offboards a seat after that long (on, 120 minutes by default); \`nudge\` nudges a seat idle that long (off, 40 minutes by default).
-- \`agent offboard-configure {auto?, nudge?}\` sets only the fields given and returns the rules after the change.
+- \`cacheWindowMinutes\`: how long a still seat stays cheap to give a turn.
+- \`nudge {enabled, minutes}\`: ask a motionless seat's agent to offboard. Must come before the cache window.
+- \`auto {enabled, minutes}\`: end a motionless seat's session. Must come at or after the cache window.
+
+\`agent offboard-rules\` reads \`{rules, effective}\`: the installation's rules with any \`harness\` overrides, and what they come to for each harness. \`agent offboard-configure\` takes a partial of the rules, changes only the fields given, and answers in the same form. \`harness: {<id>: {...}}\` sets an override for one harness; \`harness: {<id>: null}\` removes it. Minutes are whole numbers. A combination the rules forbid is refused with the reason and nothing is saved.
 
 ## Region environment and secrets
 
