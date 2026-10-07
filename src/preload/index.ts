@@ -480,6 +480,10 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.regionEnvStaleSeats, IPC_TIMEOUT_MS, canvasName, regionId),
   seatOffboardAsk: (canvasName, seatId, mode) =>
     invoke(IPC_CHANNELS.seatOffboardAsk, AGENT_MESSAGE_TIMEOUT_MS, canvasName, seatId, mode),
+  seatOffboardRun: (input) =>
+    invoke(IPC_CHANNELS.seatOffboardRun, AGENT_MESSAGE_TIMEOUT_MS, input),
+  seatOffboardStatus: (canvasName, seatIds) =>
+    invoke(IPC_CHANNELS.seatOffboardStatus, IPC_TIMEOUT_MS, canvasName, seatIds),
   seatOffboardProgressList: () => invoke(IPC_CHANNELS.seatOffboardProgressList, IPC_TIMEOUT_MS),
   seatOnboardingSnapshot: () => invoke(IPC_CHANNELS.seatOnboardingSnapshot, IPC_TIMEOUT_MS),
   seatOnboardNudge: (canvasName, seatId) =>

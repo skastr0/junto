@@ -134,7 +134,9 @@ import {
   rulePackFor,
   seatStateRuntime,
 } from "./term/agent-state";
-import { offboardAndRotate } from "./seat-sessions/rotate";
+import { offboardAndRotate, stopSeatProcess } from "./seat-sessions/rotate";
+import { composeSeatDrain, type SeatDrain } from "./seat-sessions/drain-seat";
+import { SeatSessionRepository } from "./seat-sessions/repository";
 import {
   resolveSeatAwarenessGate,
   seatAwarenessApiKey,
@@ -151,6 +153,7 @@ import {
 } from "./term/seat-session-capture";
 import { injectionSupervisor } from "./term/injection-supervisor";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
+import { handleSeatOffboardRun, handleSeatOffboardStatus } from "./seat-sessions/operator-offboard-ipc";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
   scheduleManagedPulseReady,
@@ -213,6 +216,7 @@ const latestBoardPostExcerpt = (topic: {
 
 /** Closes a seat's session once its agent offboarded and went idle. */
 let offboardCloser: SeatOffboardCloser | undefined;
+let seatDrain: SeatDrain | undefined;
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -1927,6 +1931,9 @@ export const registerJuntoIpc = (): void => {
           managedDrive.suspend();
           messageDelivery.suspend();
           offboardCloser?.stop();
+          // Junto is going down and the host stops every process: what was
+          // still winding down is recorded as ended by the quit.
+          seatDrain?.quit();
           setManagedPulseDeliver(undefined);
           for (const pending of managedPulseReadyCancels.values()) {
             pending.cancel();
@@ -2105,12 +2112,44 @@ export const registerJuntoIpc = (): void => {
       if (owedContinuations > 0) {
         console.info(`[offboard] ${owedContinuations} seat(s) still owed their continuation line`);
       }
+      // An offboarded session is not killed: its process is detached from
+      // the seat and left to finish its turn, read but never written to, then
+      // stopped when it settles (or at the cap). What a previous run left
+      // winding down ended when that run did.
+      void AppRuntime.runPromise(
+        Effect.flatMap(SeatSessionRepository, (sessions) => sessions.closeOpenDrains(Date.now())),
+      ).then(
+        (closed) => {
+          if (closed > 0) console.info(`[offboard] ${closed} offboarded session(s) ended when Junto last quit`);
+        },
+        (error: unknown) => console.error("[offboard] could not close the last run's draining sessions:", error),
+      );
+      seatDrain?.dispose();
+      const drain = composeSeatDrain({
+        host: termPlane.host,
+        isIdle: (drainKey) => seatStateRuntime.isSeatIdle(drainKey),
+        subscribeDrainState: (listener) => seatStateRuntime.subscribeDrain((event) => listener(event.bindingId)),
+        stopSeat: stopSeatProcess,
+        record: {
+          begin: (seatId, sessionId, at) =>
+            AppRuntime.runPromise(
+              Effect.flatMap(SeatSessionRepository, (sessions) => sessions.beginDrain(seatId, sessionId, at)),
+            ),
+          end: (seatId, sessionId, how, at) =>
+            AppRuntime.runPromise(
+              Effect.flatMap(SeatSessionRepository, (sessions) => sessions.endDrain(seatId, sessionId, how, at)),
+            ),
+        },
+        log: (message) => console.info(`[offboard] ${message}`),
+      });
+      seatDrain = drain;
       offboardCloser = new SeatOffboardCloser({
         close: async (address, wake) => {
           // Name the generation that offboarded before it is replaced: the
           // fresh one may be up by the time the rotation returns.
           const seat = wake ? await managedSeatOn(address) : undefined;
-          const rotate = () => offboardAndRotate(address.seatId, { canvasName: address.canvasName, wake });
+          const rotate = () =>
+            offboardAndRotate(address.seatId, { canvasName: address.canvasName, wake, detach: drain.detach });
           if (seat === undefined) return rotate();
           // Owed before the old process is touched: owed any later, the
           // fresh session can be typed into and nudged before its line.
@@ -2141,6 +2180,16 @@ export const registerJuntoIpc = (): void => {
         if (!productAutomationSuspended) messageDelivery.onSeatLive(bindingId);
       });
       privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => offboardCloser?.current() ?? []);
+      // Operator offboard: ask or offboard now, one seat or many, and what the
+      // buttons should say first. The same operation the overseer and the
+      // automatic rules go through (seat-sessions/operator-offboard.ts).
+      privilegedIpc.handle(IPC_CHANNELS.seatOffboardRun, (_event, input: unknown) =>
+        handleSeatOffboardRun(input, "operator"),
+      );
+      privilegedIpc.handle(
+        IPC_CHANNELS.seatOffboardStatus,
+        (_event, canvasName: unknown, seatIds: unknown) => handleSeatOffboardStatus(canvasName, seatIds),
+      );
       privilegedIpc.handle(
         IPC_CHANNELS.seatOffboardAsk,
         async (_event, canvasName: unknown, seatId: unknown, mode: unknown): Promise<SeatOffboardAskResult> => {
@@ -2290,6 +2339,8 @@ export const registerJuntoIpc = (): void => {
             nodeId: live?.nodeId ?? "",
             cwd: live?.cwd ?? "",
             spawnedAtMs: Date.now(),
+            // A session still winding down on this seat is never the fresh one's.
+            excludeSessionIds: seatDrain?.drainingSessionIds(live?.nodeId ?? "") ?? [],
           });
         }
         if (harness === "grok") {

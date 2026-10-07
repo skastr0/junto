@@ -1,3 +1,8 @@
+import type {
+  SeatOffboardRunInput,
+  SeatOffboardRunResult,
+  SeatOffboardStatus,
+} from "./seat-offboard";
 import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "./companion-devices";
 import type {
   BrowserProfileWipeInput,
@@ -176,6 +181,9 @@ export const IPC_CHANNELS = {
   regionEnvStaleSeats: "junto:region-env-stale-seats",
   /** Offboard from the seat: ask the agent in a mode, and where each seat's offboard stands. */
   seatOffboardAsk: "junto:seat-offboard-ask",
+  /** Ask, or offboard now, one seat or many; and what the buttons should say first. */
+  seatOffboardRun: "junto:seat-offboard-run",
+  seatOffboardStatus: "junto:seat-offboard-status",
   seatOffboardProgressList: "junto:seat-offboard-progress-list",
   seatOffboardProgress: "junto:seat-offboard-progress",
   /** Onboarding: every seat's status, one seat's change, and the operator's nudge. */
@@ -843,6 +851,20 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
    * mail path. The agent writes the notes; Junto closes the session after.
    */
   readonly seatOffboardAsk?: (canvasName: string, seatId: string, mode: OffboardMode) => Promise<SeatOffboardAskResult>;
+  /**
+   * Ask the seats' agents to offboard, or end their sessions now (no turn,
+   * no notes; only a seat that is idle, offline or resting). One call for
+   * the whole selection; one row per seat comes back, in the order given.
+   */
+  readonly seatOffboardRun?: (input: SeatOffboardRunInput) => Promise<SeatOffboardRunResult>;
+  /**
+   * Before the click: whether offboard now is allowed for each seat (and why
+   * not), how long it has sat still, and which action is preferred.
+   */
+  readonly seatOffboardStatus?: (
+    canvasName: string,
+    seatIds: ReadonlyArray<string>,
+  ) => Promise<ReadonlyArray<SeatOffboardStatus>>;
   /** Where every seat's latest offboard stands. */
   readonly seatOffboardProgressList?: () => Promise<ReadonlyArray<SeatOffboardProgress>>;
   /** Whether each seat's agent ran `junto onboard` in its current harness session. */
