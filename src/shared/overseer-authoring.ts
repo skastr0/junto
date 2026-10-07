@@ -19,6 +19,7 @@ import type {
   OverseerNodeEtherChanges,
 } from "./overseer-control";
 import { validateFlowDag } from "./flow-graph";
+import { wiresFromDocument } from "./model/from-document";
 import { verbsForPair, type Verb } from "./physics/verbs";
 
 export type OverseerSeatBinding = {
@@ -436,7 +437,7 @@ export const edgeVerbAdmitted = (
 ): boolean => verbsForEndpoints(fromNode, toNode).includes(verb);
 
 export const flowCycleIfInvalid = (doc: CanvasDoc): string | undefined => {
-  const cycle = validateFlowDag(doc);
+  const cycle = validateFlowDag(wiresFromDocument(doc));
   return cycle?.message;
 };
 

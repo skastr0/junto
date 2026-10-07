@@ -1,5 +1,6 @@
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import { flowDestinations, isTaskSinkNode } from "@shared/flow-graph";
+import { wiresFromDocument } from "@shared/model/from-document";
 import {
   boardDeletionImpact,
   flowEdgeRemovalImpact,
@@ -94,7 +95,7 @@ export const flowEdgeRemovalWarnings = (
     const lostNames = [...removedNextBoards].map((board) =>
       boardName(doc, board),
     );
-    const remaining = flowDestinations(doc, source).filter(
+    const remaining = flowDestinations(wiresFromDocument(doc), source).filter(
       (board) => !removedNextBoards.has(board),
     );
     const warnings: string[] = [];

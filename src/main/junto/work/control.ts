@@ -223,6 +223,7 @@ import {
 import { regionStack } from "@shared/graph";
 import { sheetToMarkdown } from "@shared/sheet";
 import { flowDestinations, reachableBoards } from "@shared/flow-graph";
+import { wiresFromDocument } from "@shared/model/from-document";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import {
   tasksNodeIdentity,
@@ -631,7 +632,7 @@ const boardGuidance = (
   const incomingHandling = contract?.incoming?.handling?.trim();
   const incomingDescription = contract?.incoming?.description?.trim();
   // Handoff prose only surfaces when the board can send the task on.
-  const hasNext = flowDestinations(doc, board).length > 0;
+  const hasNext = flowDestinations(wiresFromDocument(doc), board).length > 0;
   const outgoingHandoff = hasNext ? contract?.outgoing?.handoff?.trim() : undefined;
   const outgoingDescription = hasNext
     ? contract?.outgoing?.description?.trim()
@@ -647,7 +648,7 @@ const boardGuidance = (
 
 /** Rules in force per reachable board, with the board's admission posture. */
 const boardRulesMap = (doc: CanvasDoc, fromNodeId: string) =>
-  [...reachableBoards(doc, fromNodeId)].map((board) => {
+  [...reachableBoards(wiresFromDocument(doc), fromNodeId)].map((board) => {
     const node = doc.nodes.find((candidate) => candidate.id === board);
     const identity = tasksNodeIdentity(node, board);
     const contract = boardContractOf(node);
@@ -679,7 +680,7 @@ const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   const identity = tasksNodeIdentity(node, nodeId);
   const contract = boardContractOf(node);
-  const next = flowDestinations(doc, nodeId).map((destination) => {
+  const next = flowDestinations(wiresFromDocument(doc), nodeId).map((destination) => {
     const destinationNode = doc.nodes.find(
       (candidate) => candidate.id === destination,
     );

@@ -110,6 +110,7 @@ import {
 import { WorkErrorDetails, type VerdictPostArgs, type WorkErrorBody } from "@shared/work-control";
 import type { MailSenderStamp, ReviewVerdict, VerdictSubject } from "@shared/crew";
 import { flowDestinations } from "@shared/flow-graph";
+import { wiresFromDocument } from "@shared/model/from-document";
 import { regionStack } from "@shared/graph";
 import { taskCommentRecipient } from "@shared/task-owner";
 import { makeUserMessage, isTerminalTaskState } from "@shared/task";
@@ -1025,7 +1026,7 @@ export const WorkLive = Layer.effect(
       installationId: string,
     ) => Effect.gen(function* () {
       const currentRules = rulesInForce(read.doc, nodeId, task);
-      const rules: ReadonlyArray<RuleInForce> = flowDestinations(read.doc, nodeId).length > 0
+      const rules: ReadonlyArray<RuleInForce> = flowDestinations(wiresFromDocument(read.doc), nodeId).length > 0
         ? currentRules
         : [
             ...currentRules,
@@ -2142,7 +2143,7 @@ export const WorkLive = Layer.effect(
           const incomingHandling = contract?.incoming?.handling?.trim();
           const incomingDescription = contract?.incoming?.description?.trim();
           // Handoff prose only surfaces when the board can send the task on.
-          const hasNext = flowDestinations(read.doc, nodeId).length > 0;
+          const hasNext = flowDestinations(wiresFromDocument(read.doc), nodeId).length > 0;
           const outgoingHandoff = hasNext
             ? contract?.outgoing?.handoff?.trim()
             : undefined;
@@ -2232,7 +2233,7 @@ export const WorkLive = Layer.effect(
             }));
           const epoch = taskEpoch(task);
           const results = task.checkResults ?? [];
-          const checks = flowDestinations(read.doc, nodeId).map(
+          const checks = flowDestinations(wiresFromDocument(read.doc), nodeId).map(
             (destination) => ({
               destination,
               checks: requiredChecks(read.doc, nodeId, destination).map(

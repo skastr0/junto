@@ -1,6 +1,10 @@
 /** Temporary window bootstrap; removed with the final document reader. */
 import type { CanvasEdge, CanvasNode } from "../canvas";
+import { asCanvasName } from "./base";
+import type { Canvas } from "./canvas";
 import { nodeFromLegacyRow, wireFromLegacyRow } from "./from-legacy-row";
+import type { Node } from "./kinds";
+import type { Wire } from "./wire";
 
 export const nodeFromDocument = (canvas: string, node: CanvasNode, z: number) =>
   nodeFromLegacyRow({
@@ -19,3 +23,63 @@ export const wireFromDocument = (canvas: string, wire: CanvasEdge) =>
     from_side: wire.fromSide, to_side: wire.toSide,
     ether_json: wire.ether === undefined ? null : JSON.stringify(wire.ether),
   });
+
+type Document = {
+  readonly nodes: ReadonlyArray<CanvasNode>;
+  readonly edges: ReadonlyArray<CanvasEdge>;
+};
+
+const heldWires = new WeakMap<object, Pick<Canvas, "wires">>();
+
+/**
+ * The wires a document describes, for a caller that holds a document and not
+ * the name of its canvas. Worked out once per document object. An edge with
+ * no verb, or one the model does not know, is not a wire; of two with one id
+ * the first is kept.
+ */
+export const wiresFromDocument = (doc: Pick<Document, "edges">): Pick<Canvas, "wires"> => {
+  const known = heldWires.get(doc);
+  if (known !== undefined) return known;
+  const wires = new Map<Wire["id"], Wire>();
+  for (const edge of doc.edges) {
+    try {
+      const row = wireFromDocument("", edge);
+      if (!wires.has(row.id)) wires.set(row.id, row);
+    } catch {
+      // Not a wire.
+    }
+  }
+  const made = { wires };
+  heldWires.set(doc, made);
+  return made;
+};
+
+const held = new WeakMap<object, Canvas>();
+
+/**
+ * The canvas a document describes, for a caller that still holds a document.
+ * Worked out once per document object. A node the model refuses is left out,
+ * the same as it would be when the old rows are read; of two with one id the
+ * first is kept.
+ */
+export const canvasFromDocument = (name: string, doc: Document): Canvas => {
+  const known = held.get(doc);
+  if (known !== undefined && known.name === name) return known;
+  const nodes = new Map<Node["id"], Node>();
+  doc.nodes.forEach((node, z) => {
+    try {
+      const row = nodeFromDocument(name, node, z);
+      if (!nodes.has(row.id)) nodes.set(row.id, row);
+    } catch {
+      // Not a kind the model knows.
+    }
+  });
+  const canvas: Canvas = {
+    name: asCanvasName(name),
+    seq: 0,
+    nodes,
+    wires: wiresFromDocument(doc).wires,
+  };
+  held.set(doc, canvas);
+  return canvas;
+};

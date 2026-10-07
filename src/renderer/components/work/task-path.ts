@@ -8,6 +8,7 @@
 import type { CanvasDoc, Task } from "@shared/canvas";
 import type { TasksContract, Visit } from "@shared/work-model";
 import { flowDestinations, flowSources } from "@shared/flow-graph";
+import { wiresFromDocument } from "@shared/model/from-document";
 import { taskAdmissionState, type TaskAdmissionState } from "@shared/rules";
 
 export type TaskPathShape = {
@@ -18,8 +19,8 @@ export type TaskPathShape = {
 };
 
 export const taskPathShape = (doc: CanvasDoc, nodeId: string): TaskPathShape => {
-  const sources = flowSources(doc, nodeId);
-  const destinations = flowDestinations(doc, nodeId);
+  const sources = flowSources(wiresFromDocument(doc), nodeId);
+  const destinations = flowDestinations(wiresFromDocument(doc), nodeId);
   return { sources, destinations, hasIncoming: sources.length > 0, hasOutgoing: destinations.length > 0 };
 };
 

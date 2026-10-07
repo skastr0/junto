@@ -20,6 +20,7 @@ import {
   type RuleInForce,
 } from "./rules";
 import { flowDestinations } from "./flow-graph";
+import { wiresFromDocument } from "./model/from-document";
 import { regionStack } from "./graph";
 import { tasksNodeIdentity, tasksNodeName } from "./tasks-node-identity";
 
@@ -107,7 +108,7 @@ const boardSections = (
     lines.push("", "Pinned rulings for this region stack:", ...rulings);
   }
 
-  const destinations = flowDestinations(doc, boardId);
+  const destinations = flowDestinations(wiresFromDocument(doc), boardId);
   if (destinations.length > 0) {
     const namedDestinations = destinations.map((destination) => ({
       id: destination,
@@ -237,7 +238,7 @@ export const buildFactoryClaimPrompt = (
   const guidanceInstructions = contract?.instructions?.trim();
   const guidanceHandling = contract?.incoming?.handling?.trim();
   const guidanceHandoff =
-    doc !== undefined && flowDestinations(doc, boardId).length > 0
+    doc !== undefined && flowDestinations(wiresFromDocument(doc), boardId).length > 0
       ? contract?.outgoing?.handoff?.trim()
       : undefined;
   const guidance = {
@@ -270,9 +271,9 @@ export const buildFactoryClaimPrompt = (
           })),
         }
       : {}),
-    ...(doc !== undefined && flowDestinations(doc, boardId).length > 0
+    ...(doc !== undefined && flowDestinations(wiresFromDocument(doc), boardId).length > 0
       ? {
-          next: flowDestinations(doc, boardId).map((nodeId) => ({
+          next: flowDestinations(wiresFromDocument(doc), boardId).map((nodeId) => ({
             nodeId,
             name: tasksNodeName(nodeById(doc, nodeId), nodeId),
           })),

@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import type { CanvasDoc } from "./canvas";
 import { requiredChecks } from "./rules";
 import { flowDestinations } from "./flow-graph";
+import { wiresFromDocument } from "./model/from-document";
 import { CHECK_OUTPUT_TAIL_MAX_BYTES, CheckSide } from "./work-model";
 
 // Agent-run task checks. Junto resolves the applicable commands and
@@ -73,7 +74,7 @@ export const resolveCheckPlan = (
   fromNodeId: string,
   next?: string,
 ): CheckPlanResolution => {
-  const destinations = flowDestinations(doc, fromNodeId);
+  const destinations = flowDestinations(wiresFromDocument(doc), fromNodeId);
   const chosen = pickDestination(destinations, next);
   if (typeof chosen !== "string") return { ok: false, rejection: chosen };
   return {

@@ -9,6 +9,7 @@ import {
 } from "@shared/physics";
 import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
+import { wiresFromDocument } from "@shared/model/from-document";
 import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
 import { flowEdgeRemovalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
@@ -269,7 +270,7 @@ export const addEdge = (params: {
   // DAG guard at connect: a hop that would close a loop refuses the wire
   // outright rather than landing a task path that can never drain.
   if (verb === "feeds") {
-    const cycle = validateFlowDag(nextDoc);
+    const cycle = validateFlowDag(wiresFromDocument(nextDoc));
     if (cycle) {
       state$.error.set(friendlyCycleMessage(cycle, doc));
       return;
@@ -390,7 +391,7 @@ export const planConnectToTarget = (
         toNode,
         ether: { verb },
       };
-      const cycle = validateFlowDag({ nodes, edges: [...prospective, probe] });
+      const cycle = validateFlowDag(wiresFromDocument({ edges: [...prospective, probe] }));
       if (cycle) {
         skipped.push({ source: sourceId, reason: "flow-cycle", cycle });
         continue;

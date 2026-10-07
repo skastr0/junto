@@ -4,6 +4,7 @@ import type { TaskAdmission } from "@shared/work-model";
 import { rulesInForce } from "@shared/rules";
 import { resolveTaskAdmission } from "@shared/work-model";
 import { flowDestinations, isTaskSinkNode } from "@shared/flow-graph";
+import { wiresFromDocument } from "@shared/model/from-document";
 import { tasksNodeName } from "@shared/tasks-node-identity";
 import { nodeTitle } from "../../../lib/presentation";
 import { admissionLabel } from "../../../lib/admission-labels";
@@ -78,7 +79,7 @@ export const taskPath = (
   while (queue.length > 0) {
     const current = queue.shift()!;
     walked.push(current);
-    for (const nodeId of flowDestinations(doc, current.nodeId)) {
+    for (const nodeId of flowDestinations(wiresFromDocument(doc), current.nodeId)) {
       if (seen.has(nodeId)) continue;
       seen.add(nodeId);
       queue.push({ nodeId, depth: current.depth + 1 });
@@ -86,7 +87,7 @@ export const taskPath = (
   }
   return walked.map((entry, index) => {
     const node = doc.nodes.find((candidate) => candidate.id === entry.nodeId);
-    const destinations = flowDestinations(doc, entry.nodeId);
+    const destinations = flowDestinations(wiresFromDocument(doc), entry.nodeId);
     const contract = node?.ether?.tasks?.contract;
     return {
       ...entry,

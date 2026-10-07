@@ -81,6 +81,7 @@ import {
 import { rulesInForce } from "@shared/rules";
 import { defectTargetOptions } from "@shared/visit-integrity";
 import { reachableBoards } from "@shared/flow-graph";
+import { wiresFromDocument } from "@shared/model/from-document";
 import {
   resolveTaskAdmission,
   type TaskAdmission,
@@ -3308,7 +3309,7 @@ export function TaskBoard({
                     pending={pendingTaskId === selectedTask.id}
                     waivable={(ruleId, next) => {
                       if (next === undefined) return false;
-                      const reachable = reachableBoards(doc, next);
+                      const reachable = reachableBoards(wiresFromDocument(doc), next);
                       return rulesInForce(doc, node.id, selectedTask).some(
                         (entry) =>
                           entry.rule.id === ruleId &&

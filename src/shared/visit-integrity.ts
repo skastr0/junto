@@ -18,6 +18,7 @@ import type { CanvasDoc } from "./canvas";
 import type { Task } from "./work-model";
 import { isTerminalTaskState } from "./task";
 import { flowDestinations, isTaskSinkNode } from "./flow-graph";
+import { wiresFromDocument } from "./model/from-document";
 import { taskDefects } from "./rules";
 
 /** How a task references a board. */
@@ -141,7 +142,7 @@ export const flowEdgeRemovalImpact = (
   board: string,
   nextBoard: string,
 ): FlowEdgeImpact => {
-  const nextBoards = flowDestinations(doc, board);
+  const nextBoards = flowDestinations(wiresFromDocument(doc), board);
   const remaining = nextBoards.filter((node) => node !== nextBoard);
   const affected = taskRows(doc)
     .filter(

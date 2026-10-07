@@ -14,6 +14,7 @@ import type {
 import { resolveTaskAdmission } from "./work-model";
 import { regionDisplayName, regionStack, UNNAMED_REGION } from "./graph";
 import { reachableBoards } from "./flow-graph";
+import { wiresFromDocument } from "./model/from-document";
 import { WAIT_FOR_MAX_MS } from "./work-control";
 
 // Pure structural enforcement for task rules, claims, checks, and admission.
@@ -256,7 +257,7 @@ export const evaluateForkWaivers = (params: {
 }): RuleFailure | undefined => {
   const rules = params.task.rules ?? [];
   if (rules.length === 0) return undefined;
-  const reachable = reachableBoards(params.doc, params.next);
+  const reachable = reachableBoards(wiresFromDocument(params.doc), params.next);
   const recorded = claimsRecorded(params.doc, params.task);
   const localClaims = new Set(
     (params.evidence?.claims ?? []).map((entry) => entry.ruleId),

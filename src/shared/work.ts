@@ -61,6 +61,7 @@ import {
   type RuleFailure,
 } from "./rules";
 import { flowDestinations, reachableBoards } from "./flow-graph";
+import { wiresFromDocument } from "./model/from-document";
 import { groupMembers, isGroup } from "./graph";
 import {
   ACTOR_ACTOR_INBOX_PORTS,
@@ -367,7 +368,7 @@ const validateTaskRules = (
 ): void => {
   if (rules === undefined || rules.length === 0) return;
   const seen = new Set<string>();
-  const reachable = reachableBoards(doc, originNodeId);
+  const reachable = reachableBoards(wiresFromDocument(doc), originNodeId);
   for (const rule of rules) {
     if (seen.has(rule.id)) {
       throw new WorkError("invalid", `task rule id "${rule.id}" is duplicated`);
@@ -752,7 +753,7 @@ export const workTaskTransition = (
         ? normalizeCompletionEvidence(completionEvidence)
         : undefined;
   const destinations =
-    state === "completed" ? flowDestinations(doc, nodeId) : [];
+    state === "completed" ? flowDestinations(wiresFromDocument(doc), nodeId) : [];
   const nextBoardId =
     destinations.length === 0
       ? undefined

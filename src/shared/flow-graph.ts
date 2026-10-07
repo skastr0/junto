@@ -1,12 +1,16 @@
 import { Schema } from "effect";
-import type { CanvasDoc, CanvasNode } from "./canvas";
+import type { CanvasNode } from "./canvas";
+import type { Canvas } from "./model/canvas";
 import { NodeSpec, resolveSpec } from "./physics/kinds";
 
 // Task path graph derived from the `feeds` verb. Pure — no I/O.
-// A `feeds` edge is stored in its own direction (fromNode is the upstream
-// board), so the hop needs no separate direction config. The flow graph must
+// A `feeds` wire runs from the upstream board to the downstream one, so the
+// hop needs no separate direction config. The flow graph must
 // be a DAG: a hop that would close a cycle is rejected with FlowCycleError at
 // mutation time and at act time.
+
+/** All the path reads of a canvas: its wires. A whole Canvas is one. */
+type Wired = Pick<Canvas, "wires">;
 
 /** One configured task path hop. */
 export type FlowHop = {
@@ -47,17 +51,20 @@ export const isTaskPathPair = (
   toNode: CanvasNode | undefined,
 ): boolean => isTaskSinkNode(fromNode) && isTaskSinkNode(toNode);
 
-/** All configured hops in document edge order. */
-export const flowHops = (doc: CanvasDoc): ReadonlyArray<FlowHop> =>
-  doc.edges.flatMap((edge) =>
-    edge.ether?.verb === "feeds"
-      ? [{ edgeId: edge.id, source: edge.fromNode, destination: edge.toNode }]
-      : [],
-  );
+/** All configured hops, in the order the canvas holds its wires. */
+export const flowHops = (canvas: Wired): ReadonlyArray<FlowHop> => {
+  const hops: FlowHop[] = [];
+  for (const wire of canvas.wires.values()) {
+    if (wire.verb === "feeds") {
+      hops.push({ edgeId: wire.id, source: wire.from, destination: wire.to });
+    }
+  }
+  return hops;
+};
 
-const adjacency = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<string>> => {
+const adjacency = (canvas: Wired): ReadonlyMap<string, ReadonlyArray<string>> => {
   const next = new Map<string, string[]>();
-  for (const hop of flowHops(doc)) {
+  for (const hop of flowHops(canvas)) {
     const out = next.get(hop.source);
     if (out === undefined) next.set(hop.source, [hop.destination]);
     else if (!out.includes(hop.destination)) out.push(hop.destination);
@@ -67,10 +74,10 @@ const adjacency = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<string>> =
 
 /**
  * Reject any cycle in the flow graph. Returns the first cycle found (walk
- * order, deterministic in document edge order), or undefined for a valid DAG.
+ * order, deterministic in wire order), or undefined for a valid DAG.
  */
-export const validateFlowDag = (doc: CanvasDoc): FlowCycleError | undefined => {
-  const next = adjacency(doc);
+export const validateFlowDag = (canvas: Wired): FlowCycleError | undefined => {
+  const next = adjacency(canvas);
   // Iterative DFS with three colors: unvisited, on-stack, done.
   const done = new Set<string>();
   const onStack = new Set<string>();
@@ -117,13 +124,13 @@ export const validateFlowDag = (doc: CanvasDoc): FlowCycleError | undefined => {
   return undefined;
 };
 
-/** Direct next boards, deduped in document edge order. */
+/** Direct next boards, deduped in wire order. */
 export const flowDestinations = (
-  doc: CanvasDoc,
+  canvas: Wired,
   nodeId: string,
 ): ReadonlyArray<string> => {
   const out: string[] = [];
-  for (const hop of flowHops(doc)) {
+  for (const hop of flowHops(canvas)) {
     if (hop.source === nodeId && !out.includes(hop.destination)) {
       out.push(hop.destination);
     }
@@ -131,13 +138,13 @@ export const flowDestinations = (
   return out;
 };
 
-/** Direct previous boards, deduped in document edge order. */
+/** Direct previous boards, deduped in wire order. */
 export const flowSources = (
-  doc: CanvasDoc,
+  canvas: Wired,
   nodeId: string,
 ): ReadonlyArray<string> => {
   const out: string[] = [];
-  for (const hop of flowHops(doc)) {
+  for (const hop of flowHops(canvas)) {
     if (hop.destination === nodeId && !out.includes(hop.source)) {
       out.push(hop.source);
     }
@@ -150,10 +157,10 @@ export const flowSources = (
  * starting board. Terminates on cyclic input via the visited set.
  */
 export const reachableBoards = (
-  doc: CanvasDoc,
+  canvas: Wired,
   fromNodeId: string,
 ): ReadonlySet<string> => {
-  const next = adjacency(doc);
+  const next = adjacency(canvas);
   const visited = new Set<string>([fromNodeId]);
   const queue: string[] = [fromNodeId];
   while (queue.length > 0) {
