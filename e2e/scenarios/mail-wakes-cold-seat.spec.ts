@@ -13,10 +13,21 @@ import { installFixtureDocument } from "../harness/model";
  * The fixture is written into the canvas the app boots on (playing that
  * canvas from the top bar is then the same canvas delivery consults) and
  * authored at runtime through the app — same gestures as a live session.
+ *
+ * Opt-in: JUNTO_REAL_WAKE=1. The seat is a real Claude Code, so the run
+ * needs one that is installed and signed in, and it spends a real turn. The
+ * same law on a fake harness is held by seat-message, seat-offboard and
+ * mail-delivered-once-across-restart, which run everywhere.
+ *
+ * HOME stays the operator's and only Junto's own home is the sandbox, as in
+ * real-harness-resume: with a sandbox HOME a real Claude Code has no
+ * `~/.claude.json`, stops at its first-run screens and never takes mail,
+ * which reads as "cold wake never receipted" with nothing wrong in Junto.
  */
 import { execFileSync } from "node:child_process";
+import { mkdirSync, realpathSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
@@ -26,11 +37,25 @@ const SEAT_ID = "agent-wake-target";
 /** Resolved at runtime: the canvas the app booted on. */
 let CANVAS = "";
 
+const OPT_IN = process.env.JUNTO_REAL_WAKE?.trim() === "1";
+
+const claudeOnPath = (): boolean => {
+  try {
+    return execFileSync("/usr/bin/which", ["claude"], { encoding: "utf8" }).trim().length > 0;
+  } catch {
+    return false;
+  }
+};
+
 // The seat's folder. Main refuses a managed agent seat with no working
 // directory (its cwd would otherwise fall back to the operator home), and the
 // seat is woken while unconnected — it needs the same document launch the
-// authoring path writes, argv included.
-const SEAT_CWD = tmpdir();
+// authoring path writes, argv included. A fixed folder, the one
+// real-harness-resume uses: Claude's trust grant for it persists across runs,
+// keyed by the resolved path (/private/tmp on macOS).
+const SEAT_FOLDER = join("/tmp", "junto-resume-proof", "claude");
+mkdirSync(SEAT_FOLDER, { recursive: true });
+const SEAT_CWD = realpathSync(SEAT_FOLDER);
 const seatLaunch = {
   ...resolveManagedLaunch(
     "claude",
@@ -106,13 +131,23 @@ const seatPid = (): number | null => {
 };
 
 test("mail wakes a cold seat and honors an operator stop", async () => {
+  test.skip(!OPT_IN, "opt-in: JUNTO_REAL_WAKE=1 (a real, signed-in Claude Code)");
+  test.skip(!claudeOnPath(), "claude not installed");
   test.setTimeout(420_000);
+  // Junto's state stays in the sandbox. PATH and HOME are the deliberate
+  // openings: the fakes-only sandbox PATH has no real harness binary, and a
+  // real Claude Code reads its sign-in and first-run state from HOME.
+  const extraEnv: Record<string, string> = {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    HOME: homedir(),
+    SHELL: process.env.SHELL ?? "/bin/zsh",
+    JUNTO_HOME_OWNS_SESSIONS: "1",
+  };
   const junto = await launchJunto({
-    // Sandbox HOME and state stay isolated. PATH is the one deliberate
-    // opening: the fakes-only sandbox PATH has no real harness binary, and
-    // this test exists to spawn one. Claude auth rides the macOS keychain,
-    // not HOME.
-    extraEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+    afterSeed: async (sandbox) => {
+      extraEnv.JUNTO_HOME = sandbox.homeDir;
+    },
+    extraEnv,
   });
   const appHome = junto.sandbox.homeDir;
 
