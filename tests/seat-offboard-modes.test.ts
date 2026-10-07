@@ -196,7 +196,9 @@ describe("junto offboard modes", () => {
       expect(result.ok).toBe(true);
       expect(result.data).toMatchObject({ session_id: "s1", mode: "rest", disposition: "applied" });
       expect(result.data).not.toHaveProperty("continuation_path");
-      expect(result.data.next_step).toContain("the seat rests");
+      expect(result.data.next_step).toContain("it rests until its next wake");
+      expect(result.data.next_step).toContain("starts a fresh session");
+      expect(result.data.next_step).toContain("its junto commands are refused");
       expect(events).toEqual([expect.objectContaining({ seatId: "agent", sessionId: "s1", mode: "rest" })]);
       expect(existsSync(join(root, "seats", "agent", "sessions", "s1.next.md"))).toBe(false);
     }));
