@@ -122,7 +122,7 @@ const SURFACES: readonly Surface[] = [
     name: "agent-editor",
     open: async (page) => {
       await seatMenu(page, "seat-ada");
-      await page.getByRole("menuitem", { name: "Edit soul and instructions" }).click();
+      await page.getByRole("button", { name: "Edit soul and instructions" }).click();
       await expect(page.getByTestId("agent-editor-soul")).toBeVisible();
     },
   },
@@ -130,7 +130,7 @@ const SURFACES: readonly Surface[] = [
     name: "save-as-profile",
     open: async (page) => {
       await seatMenu(page, "seat-ada");
-      await page.getByRole("menuitem", { name: "Edit soul and instructions" }).click();
+      await page.getByRole("button", { name: "Edit soul and instructions" }).click();
       await page.getByRole("tab", { name: "launch" }).click();
       await page.getByRole("button", { name: "Save as profile" }).click();
       await expect(page.getByRole("dialog", { name: "Save as profile" })).toBeVisible();
@@ -151,7 +151,7 @@ const SURFACES: readonly Surface[] = [
       await page.keyboard.up("Shift");
       const box = (await page.locator('.react-flow__node[data-id="seat-cy"]').boundingBox())!;
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
-      await page.getByRole("menuitem", { name: "Save 3 agents as a squad" }).click();
+      await page.getByRole("button", { name: "Save 3 agents as a squad" }).click();
       await expect(page.getByRole("dialog", { name: "Save as squad" })).toBeVisible();
     },
   },
