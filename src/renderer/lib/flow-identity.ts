@@ -91,12 +91,24 @@ export const keepHeldNodes = <N extends FlowLike>(held: ReadonlyArray<N>, rebuil
 type CardProps = { readonly id: string; readonly selected?: boolean; readonly data: object };
 
 /**
+ * The facts on a flow node's `data` that a card draws from. The rest of `data`
+ * is for others: a seat's ring room goes to its wrapper's style, and which
+ * region a seat or a region sits in is read by the overlays. A card that
+ * rendered for those would render whenever a neighbour moved.
+ */
+const CARD_FACTS = ["canvas", "id", "kind", "blocked", "regionDepth"] as const;
+
+/**
  * Whether a card needs no render for new props. A card reads its node from the
  * store by canvas and id; from React Flow it takes only its id, whether it is
- * selected, and the few facts on `data`. Where React Flow says the node is, how
- * big it measured, or that it is being dragged does not reach a card.
+ * selected, and the few facts on `data` named above, with a region's name
+ * slot. Where React Flow says the node is, how big it measured, or that it is
+ * being dragged does not reach a card.
  */
 export const sameCard = (before: CardProps, after: CardProps): boolean => {
   if (before.id !== after.id || before.selected !== after.selected) return false;
-  return flatSame(before.data, after.data);
+  if (before.data === after.data) return true;
+  const was = before.data as Record<string, unknown>;
+  const now = after.data as Record<string, unknown>;
+  return CARD_FACTS.every((fact) => was[fact] === now[fact]) && flatSame(was.nameSlot, now.nameSlot);
 };

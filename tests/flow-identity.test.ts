@@ -99,6 +99,21 @@ describe("a card renders for its own facts only", () => {
     expect(sameCard(props(), props({ data: { ...data } }))).toBe(true);
   });
 
+  it("needs no render for facts on its data that are for others", () => {
+    // A seat's ring room and the region it sits in change when a neighbour
+    // moves; neither is drawn by the card.
+    expect(sameCard(props(), props({ data: { ...data, ringCap: 3 } }))).toBe(true);
+    expect(sameCard(props(), props({ data: { ...data, seatRegion: "r1" } }))).toBe(true);
+    expect(sameCard(props(), props({ data: { ...data, parentRegion: "r0" } }))).toBe(true);
+  });
+
+  it("renders a region when its name slot changed, and not when it is a new object saying the same", () => {
+    const slot = { side: "top", offset: 12 };
+    expect(sameCard(props({ data: { ...data, nameSlot: slot } }), props({ data: { ...data, nameSlot: { ...slot } } }))).toBe(true);
+    expect(sameCard(props({ data: { ...data, nameSlot: slot } }), props({ data: { ...data, nameSlot: { ...slot, offset: 40 } } }))).toBe(false);
+    expect(sameCard(props(), props({ data: { ...data, nameSlot: slot } }))).toBe(false);
+  });
+
   it("renders when it is selected, or a fact on its data changed", () => {
     expect(sameCard(props(), props({ selected: true }))).toBe(false);
     expect(sameCard(props(), props({ data: { ...data, blocked: true } }))).toBe(false);
