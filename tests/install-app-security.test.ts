@@ -232,7 +232,8 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     expect(result.stdout, result.stderr).toContain("decoy=1");
     expect(result.stdout, result.stderr).toContain("installed=0");
     expect(paths).not.toContain('pgrep -xq "$PRODUCT_NAME"');
-  });
+    // A cold compiler on the macOS CI runner exceeds Vitest's five seconds.
+  }, 30_000);
 
   it("keeps filesystem-only sandbox mode away from product lifecycle controls", () => {
     expect(position(paths, 'launchd_loaded() {\n  if [[ -n "$INSTALL_SANDBOX_ROOT" ]]')).toBeGreaterThan(0);
