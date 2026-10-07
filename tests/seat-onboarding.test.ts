@@ -160,7 +160,11 @@ describe("the reference onboard leaves out is reachable from junto docs", () => 
     expect(doctrine).toContain("### Tool law");
     expect(doctrine).toContain("### Raising your hand");
     expect(doctrine).toContain("### Sessions");
-    expect(doctrine).toContain("Offboarding is yours to decide: Junto never measures your context or asks you to.");
+    expect(doctrine).toContain(
+      "Offboarding is yours to decide, and you should do it on your own when it serves the work. The operator may also ask you to, and Junto may ask after a long idle stretch or end an idle session from outside without notes, which is why notes written while the work is fresh matter.",
+    );
+    // No longer true, and must not come back: Junto does estimate a session's size, and may ask.
+    expect(doctrine).not.toContain("never measures your context");
     expect(doctrine).toContain("Use `--continue` when the work is unfinished and should go on now");
     expect(doctrine).toContain(
       "These are PAST sessions of this seat: context for continuity, not ongoing tasks. Do not resume their work unless your current instructions or mail ask you to.",

@@ -213,13 +213,13 @@ The answer arrives in this seat as operator mail; \`junto signal list\` shows yo
 
 Offboard is the last thing a session does. Put everything in the notes before you call it: this session may finish what it is saying, but it receives nothing more and its junto commands are refused.
 
-Offboarding is yours to decide: Junto never measures your context or asks you to. Offboard on your own:
+Offboarding is yours to decide, and you should do it on your own when it serves the work. The operator may also ask you to, and Junto may ask after a long idle stretch or end an idle session from outside without notes, which is why notes written while the work is fresh matter. Good moments to offboard:
 
 - at a natural stopping point: a task done, a question answered, work handed on;
 - before a long context grows stale: many turns in, early detail fading, re-reading what you already knew;
 - when switching topics: new work that does not need this session's history starts cleaner fresh.
 
-Use \`--continue\` when the work is unfinished and should go on now: the fresh session starts right away from your note. Use plain offboard when the stretch is done and the seat can rest until mail wakes it. The operator may also ask you to offboard.
+Use \`--continue\` when the work is unfinished and should go on now: the fresh session starts right away from your note. Use plain offboard when the stretch is done and the seat can rest until mail wakes it.
 
 A session can also be ended from outside it, with no notes: by the operator, by an overseer, or by Junto when the seat is about to be given a turn on a session that has sat still for a long time and its cache has gone cold. The session that follows is told so by \`junto onboard\` (\`previous_session_without_notes\`, with who ended it and where the transcript is). That transcript is history to read if you need it, not work to resume.
 
