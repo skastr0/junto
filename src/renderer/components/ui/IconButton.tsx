@@ -23,7 +23,9 @@ export function IconButton({
   const tones = {
     default: "text-steel hover:bg-ink/10 hover:text-ink",
     danger: "text-steel hover:bg-ink/10 hover:text-crimson",
-    accent: "text-cyan/70 hover:bg-ink/10 hover:text-cyan",
+    // The text cyan, not the mark cyan: at 70 percent the mark cyan falls
+    // under 3 to 1 in bright. One value in dark.
+    accent: "text-cyan-fg/70 hover:bg-ink/10 hover:text-cyan-fg",
   } as const;
   const sizes = {
     // Drawn at 16px, hit across 24px: an invisible area centred on it.
