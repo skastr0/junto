@@ -63,15 +63,11 @@
   border: 1px solid var(--color-stroke);
   border-radius: var(--radius-md);
   background: var(--color-well);
+  /* One surface: code and diffs sit on the box's own well, as a commit's facts do. */
+  --code-view-surface: var(--color-well);
   outline: none;
   /* What is drawn inside keeps its own layers inside: a pinned file name never rides over the feed's own pinned header. */
   isolation: isolate;
-}
-
-/* One surface: code and diffs sit on the box's own well, as a commit's facts do.
-   Set on the code view itself, where it declares its default. */
-.preview-block__body .code-view {
-  --code-view-surface: var(--color-well);
 }
 
 .preview-block__body:focus-visible {
