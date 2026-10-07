@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { use$ } from "@legendapp/state/react";
+import { batch, observe } from "@legendapp/state";
 import { CountedSurface } from "../../lib/performance/surface-commits";
 import {
   CircleDot,
@@ -26,7 +27,7 @@ import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { selectNode, state$ } from "../../lib/state";
-import { useRegionRollups } from "../../lib/region-rollups";
+import { readRegionRollups, useRegionRollups } from "../../lib/region-rollups";
 import { toggleSlotAssignment } from "../../lib/command-group-runtime";
 import {
   deleteNode,
@@ -552,9 +553,16 @@ const severityRank = (s: MemberSeverity): number =>
           ? 3
           : 4;
 
+const readRegionAlertSignals = () => collectAlertSignals(readRegionRollups());
+
 export const RtsBottomBar = memo(function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
   const selectedNodeId = use$(state$.selectedNodeId);
-  const view = useRegionRollups(rollups => {
+  const selectedRegion = useRegionRollups(rollups => rollups.find(row => row.regionId === selectedNodeId) ?? null);
+  useAlertSignals(readRegionAlertSignals);
+  useEffect(() => observe(() => {
+    // Counts and severity feed the map. Follow them outside React so crossing
+    // a region does not commit commands whose displayed facts did not change.
+    const rollups = readRegionRollups();
     const severities: Record<string, MemberSeverity> = {};
     const counts: Record<string, RegionRollup["counts"]> = {};
     for (const rollup of [...rollups].sort((a, b) => a.regionId.localeCompare(b.regionId))) {
@@ -565,25 +573,18 @@ export const RtsBottomBar = memo(function RtsBottomBar({ minimap, tools }: { rea
       severities[rollup.regionId] = rollup.severity;
       counts[rollup.regionId] = rollup.counts;
     }
-    return {
-      selectedRegion: rollups.find(row => row.regionId === selectedNodeId) ?? null,
-      severities, counts,
-      signals: [...collectAlertSignals(rollups)].sort((a, b) => a.id.localeCompare(b.id)),
-    };
-  });
-  useAlertSignals(view.signals);
-  useEffect(() => {
-    if (JSON.stringify(state$.regionSeverityByNodeId.peek()) !== JSON.stringify(view.severities)) state$.regionSeverityByNodeId.set(view.severities);
-    if (JSON.stringify(state$.regionCountsByNodeId.peek()) !== JSON.stringify(view.counts)) state$.regionCountsByNodeId.set(view.counts);
-  }, [view]);
-  const selectedRegion = view.selectedRegion ?? undefined;
+    batch(() => {
+      if (JSON.stringify(state$.regionSeverityByNodeId.peek()) !== JSON.stringify(severities)) state$.regionSeverityByNodeId.set(severities);
+      if (JSON.stringify(state$.regionCountsByNodeId.peek()) !== JSON.stringify(counts)) state$.regionCountsByNodeId.set(counts);
+    });
+  }), []);
 
   return (
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
       {/* One row: command, kind, minimap. Command groups live in the top bar,
           needs-you in the top-right inbox. */}
       <CountedSurface id="bottom-bar-commands">
-        <CommandCard regionRollup={selectedRegion} />
+        <CommandCard regionRollup={selectedRegion ?? undefined} />
         <KindMiddle />
       </CountedSurface>
       <div className="rts-right">

@@ -14,13 +14,15 @@ import { canvasFromDocument } from "@shared/model/from-document";
  * the seat's state is unknown, a document write, the seats loading, and a
  * canvas switch are not.
  */
-import { act } from "react";
+import { act, Profiler } from "react";
+import { observable } from "@legendapp/state";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSeatState, AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type { CanvasNode } from "../src/shared/canvas";
 import type { RegionRollup } from "../src/shared/region-rollup";
-import { resetAlertQueue, useAlertAttention } from "../src/renderer/lib/alert-attention";
+import { resetAlertQueue, useAlertAttention, useAlertSignals } from "../src/renderer/lib/alert-attention";
+import type { AlertSignal } from "../src/renderer/lib/alert-queue";
 import {
   agentSeat$,
   applyAgentSeatStateEvent,
@@ -115,6 +117,24 @@ const hydrateIdle = (): void => {
 };
 
 describe("a real transition is heard when it happens", () => {
+  it("hears observed region signals immediately without a React commit", () => {
+    hydrateIdle();
+    const signals = observable<ReadonlyArray<AlertSignal>>([]);
+    const readSignals = () => signals.get();
+    let commits = 0;
+    function RegionAttention() { useAlertSignals(readSignals); return null; }
+    act(() => root.render(<Profiler id="attention" onRender={() => { commits += 1; }}><RegionAttention /></Profiler>));
+    commits = 0;
+    play.mockClear();
+    const waiting: AlertSignal = { id: "node:a", kind: "attention", subjectKey: "a", urgency: 1 };
+    act(() => signals.set([waiting]));
+    expect(cues()).toEqual(["waiting"]);
+    expect(commits).toBe(0);
+    act(() => signals.set([{ ...waiting }]));
+    expect(cues()).toEqual(["waiting"]);
+    expect(commits).toBe(0);
+  });
+
   it("started working, then done, each at its own event", () => {
     hydrateIdle();
     apply(event("a", "working", "rule:screen_working"));

@@ -26,11 +26,19 @@ export const regionRollupStore = createRegionRollupStore({
   },
 });
 
+/** Read local rollups inside either a React selector or a store observer. */
+export function readRegionRollups(canvasName = state$.canvasName.get()): ReadonlyArray<RegionRollup> {
+  const state = regionRollupStore.state(canvasName);
+  return state.regionIds.get().flatMap((id) => {
+    const rollup = state.byRegionId[id].get();
+    return rollup ? [rollup] : [];
+  });
+}
+
 export function useRegionRollups<T = ReadonlyArray<RegionRollup>>(
   select: (rows: ReadonlyArray<RegionRollup>) => T = rows => rows as T,
 ): T {
   const canvasName = use$(state$.canvasName);
-  const state = regionRollupStore.state(canvasName);
   useEffect(() => {
     if (!canvasName) return;
     // Hydrate permissions and subscribe independently of any ChatView mount.
@@ -39,10 +47,7 @@ export function useRegionRollups<T = ReadonlyArray<RegionRollup>>(
     const releaseRollups = regionRollupStore.retain(canvasName);
     return () => { releaseRollups(); releaseAttention(); releaseChat(); };
   }, [canvasName]);
-  return useRtsValue(() => select(state.regionIds.get().flatMap((id) => {
-    const rollup = state.byRegionId[id].get();
-    return rollup ? [rollup] : [];
-  })));
+  return useRtsValue(() => select(readRegionRollups(canvasName)));
 }
 
 /**

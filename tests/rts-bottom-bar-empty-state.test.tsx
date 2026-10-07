@@ -185,6 +185,32 @@ describe("RTS bottom bar follows displayed facts", () => {
     expect(commits).toBe(0);
   });
 
+  it("updates minimap region counts without committing commands when selected cards cross regions", () => {
+    let commits = 0;
+    const region = Schema.decodeUnknownSync(Node)({ kind: "region", id: "region", x: 0, y: 0, width: 1000, height: 1000, z: 0, label: "Team", hold: false });
+    act(() => {
+      seed("a", "b"); modelStore.node$(canvasName, "region").set(region);
+      modelStore.canvas$(canvasName).nodeIds.set(["region", "a", "b"]);
+      state$.selectedNodeId.set(""); state$.selectedNodeIds.set(["a", "b"]);
+      root.render(<Profiler id="bar" onRender={() => { commits += 1; }}><RtsBottomBar minimap={null} /></Profiler>);
+    });
+    expect(state$.regionCountsByNodeId.region.peek()?.total).toBe(2);
+    commits = 0;
+    act(() => batch(() => {
+      modelStore.node$(canvasName, "a").set(nativeNote("a", 2000));
+      modelStore.node$(canvasName, "b").set(nativeNote("b", 2200));
+    }));
+    expect(state$.regionCountsByNodeId.region.peek()?.total).toBe(0);
+    expect(host.textContent).toContain("shared settings");
+    expect(commits).toBe(0);
+    act(() => batch(() => {
+      modelStore.node$(canvasName, "a").set(nativeNote("a", 50));
+      modelStore.node$(canvasName, "b").set(nativeNote("b", 300));
+    }));
+    expect(state$.regionCountsByNodeId.region.peek()?.total).toBe(2);
+    expect(commits).toBe(0);
+  });
+
   it("keeps the selected agent glance quiet while its seat moves", () => {
     let commits = 0;
     const agent = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", x: 0, y: 0, width: 100, height: 100, z: 0, label: "Planner", agentKey: "local:planner", bindingId: "planner-binding", host: "local", harness: "codex", overseer: false, onRemove: "detach" });

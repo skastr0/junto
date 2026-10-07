@@ -219,9 +219,10 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   useAlertSignals(collectAlertSignals(rollups));
 }
 
-export function useAlertSignals(signals: ReadonlyArray<AlertSignal>): void {
+export function useAlertSignals(signals: ReadonlyArray<AlertSignal> | (() => ReadonlyArray<AlertSignal>)): void {
   const signalsRef = useRef(signals);
   signalsRef.current = signals;
+  const readSignals = () => typeof signalsRef.current === "function" ? signalsRef.current() : signalsRef.current;
   useEffect(() => {
     // This hook performs sounds only. Observe its inputs without committing
     // React chrome for a seat timestamp, movement or unchanged signal.
@@ -236,13 +237,13 @@ export function useAlertSignals(signals: ReadonlyArray<AlertSignal>): void {
         agentSeat$.needsLookByBindingId[node.bindingId].get();
       }
       agentSeat$.hydrated.get();
-      observeLive(signalsRef.current);
+      observeLive(readSignals());
     });
     return () => { stop(); resetAlertQueue(); };
   }, []);
 
   // Re-observe when rollups or the seat plane change without wiping baseline.
   useEffect(() => {
-    observeLive(signalsRef.current);
+    observeLive(readSignals());
   }, [signals]);
 }
