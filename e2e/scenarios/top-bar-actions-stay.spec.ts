@@ -12,6 +12,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { crewPlayFactory } from "../harness/crew-fixture";
 import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
@@ -99,6 +100,9 @@ test("the top bar's actions stay in the window with the sometimes-there controls
       }),
     );
     await expect(bar.getByRole("button", { name: /restart/i })).toBeVisible();
+    // Play first (the first play asks to confirm), so the next press is a
+    // plain pause; with its handler gone that press fails and says so.
+    await crewPlayFactory(page);
     await app.evaluate(({ ipcMain }) => ipcMain.removeHandler("junto:factory-pause-set"));
     await bar.getByTestId("factory-pause").click();
     await expect(bar.getByRole("alert")).toBeVisible();

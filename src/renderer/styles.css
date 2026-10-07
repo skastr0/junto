@@ -524,6 +524,13 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   overflow-x: clip;
 }
 
+/* The actions keep their size; when even they are wider than the window
+   (an update, a pause error and Logs at once) the pause error is the one
+   part that gives way, down to nothing, and the buttons stay. */
+.station-actions { min-width: 0; }
+.station-actions > * { flex-shrink: 0; }
+.station-actions > [role="alert"] { min-width: 0; flex-shrink: 1; }
+
 html[data-junto-platform="darwin"] .station-bar {
   padding-left: 84px;
   -webkit-app-region: drag;

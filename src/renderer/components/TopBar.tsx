@@ -291,7 +291,7 @@ export function TopBar({
         <SaveStatus />
         <CommandGroupBar />
       </div>
-      <div className="station-actions relative ml-auto flex shrink-0 items-center gap-3">
+      <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />
         <NeedsYouButton />
         <FactoryPauseControl canvasName={canvasName} />
