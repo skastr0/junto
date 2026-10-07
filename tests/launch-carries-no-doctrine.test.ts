@@ -8,7 +8,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import {
   resolveManagedLaunchPlan,
   type ManagedLaunchChoices,
@@ -45,50 +44,6 @@ const CARRIER_FLAGS: readonly string[] = [
   "--add-dir",
   "--instructions",
 ];
-
-const doc = (harness: HarnessId, connected: boolean): CanvasDoc => ({
-  nodes: [
-    {
-      id: "region",
-      type: "group",
-      x: -50,
-      y: -50,
-      width: 600,
-      height: 400,
-      ether: { region: { instruction: REGION_BRIEFING } },
-    },
-    {
-      id: "worker",
-      type: "text",
-      text: harness,
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 80,
-      ether: {
-        entity: { kind: "agent", name: `local:${harness}` },
-        terminal: {
-          bindingId: "bind-1",
-          harness,
-          launch: { kind: "harness", argv: [templateFor(harness).argvSpec.binary] },
-        },
-      },
-    },
-    {
-      id: "peer",
-      type: "text",
-      text: "codex",
-      x: 200,
-      y: 0,
-      width: 100,
-      height: 80,
-      ether: { entity: { kind: "agent", name: "local:codex" } },
-    },
-  ],
-  edges: connected
-    ? [{ id: "e1", fromNode: "worker", toNode: "peer", ether: { verb: "messages" } }]
-    : [],
-});
 
 /**
  * Every token of a launch that carries nothing is short and is not prose.

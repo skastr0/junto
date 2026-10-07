@@ -14,7 +14,6 @@ import {
   shouldAvoidSharedHarnessResume,
 } from "../src/main/junto/term/managed-spawn-plan";
 import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
-import type { CanvasDoc } from "../src/shared/canvas";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -152,39 +151,6 @@ describe("amp readiness is positive, not quiet", () => {
 });
 
 describe("managed spawn plan", () => {
-  const baseDoc = (connected: boolean): CanvasDoc => ({
-    nodes: [
-      {
-        id: "worker",
-        type: "text",
-        text: "claude",
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 80,
-        ether: {
-          entity: { kind: "agent", name: "local:claude" },
-          terminal: {
-            bindingId: "bind-1",
-            harness: "claude",
-            launch: { kind: "harness", argv: ["claude"] },
-          },
-        },
-      },
-      {
-        id: "peer",
-        type: "text",
-        text: "codex",
-        x: 200,
-        y: 0,
-        width: 100,
-        height: 80,
-        ether: { entity: { kind: "agent", name: "local:codex" } },
-      },
-    ],
-    edges: connected ? [{ id: "e1", fromNode: "worker", toNode: "peer", ether: { verb: "messages" } }] : [],
-  });
-
   it("a connected seat launches on the plain harness argv", () => {
     for (const harness of ["claude", "codex", "devin"] as const) {
       const { plan, launch } = launchForManagedSpawn({
