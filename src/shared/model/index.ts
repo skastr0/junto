@@ -7,6 +7,7 @@ export * from "./region";
 export * from "./sheet";
 export * from "./wire";
 export * from "./commands";
+export * from "./drafts";
 export * from "./events";
 export * from "./canvas";
 export * from "./title";
