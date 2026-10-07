@@ -2,7 +2,6 @@
 import { act, Profiler } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasDoc } from "@shared/canvas";
 import { Schema } from "effect";
 import { Node, Wire } from "@shared/model";
 import { batch } from "@legendapp/state";
@@ -22,13 +21,10 @@ import { state$ } from "../src/renderer/lib/state";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const note = (id: string) => ({ id, type: "text", x: 0, y: 0, width: 200, height: 80, text: id }) as const;
-const doc = (...ids: string[]): CanvasDoc => ({ nodes: ids.map(note), edges: [] });
 const canvasName = "rts-regression";
 const nativeNote = (id: string, x = 0, z = 0, text = id) => Schema.decodeUnknownSync(Node)({ kind: "note", id, x, y: 0, width: 200, height: 80, z, text });
 const seed = (...ids: string[]) => batch(() => {
   state$.canvasName.set(canvasName);
-  state$.doc.set(doc(...ids));
   modelStore.canvas$(canvasName).nodes.set(Object.fromEntries(ids.map(id => [id, nativeNote(id)])));
   modelStore.canvas$(canvasName).nodeIds.set(ids);
 });
@@ -97,9 +93,6 @@ describe("RTS bottom bar follows displayed facts", () => {
       modelStore.node$(canvasName, "outside").set(nativeNote("outside", 900, 11));
       modelStore.canvas$(canvasName).nodeIds.set(["b", "a", "outside"]);
       modelStore.canvas$(canvasName).seq.set(2);
-      state$.doc.set(doc("b", "a", "outside"));
-      state$.docEpoch.set(state$.docEpoch.peek() + 1);
-      state$.docVersion.set(state$.docVersion.peek() + 1);
       state$.selectedNodeIds.set(["a"]);
     }));
     expect(commits).toBe(0);
@@ -225,7 +218,6 @@ describe("RTS bottom bar follows displayed facts", () => {
     act(() => batch(() => {
       modelStore.node$(canvasName, agent.id).set({ ...agent, x: 50, z: 2 });
       state$.selectedNodeIds.set([agent.id]);
-      state$.doc.set({ nodes: [], edges: [] });
     }));
     expect(commits).toBe(0);
     act(() => modelStore.node$(canvasName, agent.id).set({ ...agent, color: "1" }));
