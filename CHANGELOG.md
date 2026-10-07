@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## 0.5.0 — 2026-10-07
+
+- Offboard a seat from the app: ask or offboard now, one seat or many, from
+  its card, the bottom bar, and the canvas right-click menus. The old session
+  winds down in place while a fresh one takes the seat, and the new session
+  is told what the one before it left.
+- Add an Offboard section in Settings: the cache window, the two automatic
+  rules, the worth-cutting thresholds, and a per-harness switch for the idle
+  nudge and auto offboard. Auto offboard acts only as a seat is about to be
+  woken.
+- Let a needs-you card carry any number of attached files of any size, a
+  code block, a diff, a compare, a commit, and a video address. Code and
+  diffs draw in place; a video plays only once the operator presses play.
+- Review a single commit from a card: Review this commit opens the full
+  review and comes back to the same card. A commit takes comments as its own
+  review, and comments can be started, moved, and closed from the keyboard.
+- Rebuild the agent switcher as an operator modal: each card is the agent's
+  portrait, name, line, and where it sits, in the one urgency order.
+- Add keys: Cmd+Up lets the keyboard out of a terminal and Cmd+Down gives it
+  back, Cmd+B widens the agent's connections, Cmd+Enter opens the selected
+  agent, Space and the backtick walk the agents.
+- Open a region's Environment and secrets from the bottom bar's region
+  strip. A plain terminal inside a region gets that region's environment.
+- Make connecting from the bottom bar a searchable list of agents.
+- Hold keyboard focus inside the view in front: the canvas under an open
+  view is inert, and a focus move made by a key always draws its ring.
+- Fix readable colour for words in the bright theme across the app.
+- Drop the 32-client limit on the work socket, and make the CLI start
+  faster by loading only the selected command family.
+- State schema moves from 9 to 11.
+
 ## 0.4.0 — 2026-10-06
 
 - Add git review to an agent's git detail: uncommitted, since base, and
