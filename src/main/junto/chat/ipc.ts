@@ -1,6 +1,8 @@
+import type { ChatChromeChanged } from "@shared/chat-chrome";
 import type { IpcMain, WebContents } from "electron";
 import {
   IPC_CHANNELS,
+  type ChatEvent,
   type ChatFinishNodeDeleteOutcome,
   type ChatOpenResult,
   type ChatTurnResult,
@@ -19,28 +21,24 @@ export const registerChatIpc = (
 ): Promise<ChatService> => {
   const service = Promise.resolve(serviceSource);
   const nodeDelete = service.then((resolved) => resolved.nodeDelete);
-  void service.then((resolved) => {
-    resolved.setEventSink((event) => {
-      let recipients: ReadonlyArray<WebContents>;
+  const broadcast = (channel: string, event: ChatEvent | ChatChromeChanged): void => {
+    let recipients: ReadonlyArray<WebContents>;
+    try { recipients = [...webContentsGetter()]; } catch { return; }
+    for (const contents of recipients) {
       try {
-        recipients = [...webContentsGetter()];
+        if (!contents.isDestroyed()) contents.send(channel, event);
       } catch {
-        return;
+        // One stale renderer cannot block its siblings or session cleanup.
       }
-      for (const contents of recipients) {
-        try {
-          if (contents.isDestroyed()) continue;
-          contents.send(IPC_CHANNELS.chatEvent, event);
-        } catch {
-          // One stale/crashing renderer cannot block delivery to its siblings
-          // or escape into the process lifecycle callback.
-        }
-      }
-    });
+    }
+  };
+  void service.then((resolved) => {
+    resolved.setEventSink((event) => broadcast(IPC_CHANNELS.chatEvent, event));
+    resolved.subscribeChromeChanges((event) => broadcast(IPC_CHANNELS.chatChromeChanged, event));
   }).catch(() => {
-    // Handler registration below retains the rejected service promise for
-    // callers; this observer must not become an unhandled rejection.
+    // Registered handlers retain service failures for their callers.
   });
+  ipcMain.handle(IPC_CHANNELS.chatChrome, () => service.then((resolved) => resolved.chromeSnapshot()));
 
   ipcMain.handle(
     IPC_CHANNELS.chatOpen,

@@ -1,3 +1,4 @@
+import type { ChatChromeChanged } from "@shared/chat-chrome";
 import type { WorkSinkChanged } from "@shared/work-sinks";
 import type { WorkMailChanged } from "@shared/work-mail";
 import type { CanvasesChanged, Changed, SheetChanged } from "@shared/model";
@@ -831,6 +832,8 @@ const chatApi: JuntoChatApi = {
   chatFinishNodeDelete: (leaseId, outcome) =>
     invoke(IPC_CHANNELS.chatFinishNodeDelete, IPC_TIMEOUT_MS, leaseId, outcome),
   onChatEvent: (listener) => subscribe<ChatEvent>(IPC_CHANNELS.chatEvent, listener),
+  chatChrome: () => invoke(IPC_CHANNELS.chatChrome, IPC_TIMEOUT_MS),
+  onChatChromeChanged: (listener) => subscribe<ChatChromeChanged>(IPC_CHANNELS.chatChromeChanged, listener),
 };
 
 const browserApi: JuntoBrowserApi = {

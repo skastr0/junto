@@ -1,3 +1,4 @@
+import type { ChatChromeSnapshot, ChatChromeChanged } from "./chat-chrome";
 import type { WorkAttentionSnapshot } from "./work-attention";
 import type { WorkItemQuery, WorkActorQuery, WorkActorPage, WorkAttentionQuery, WorkLaneRow, WorkSinkQuery, WorkSinkPage, WorkSinkChanged } from "./work-sinks";
 import type { CanvasesChanged, Changed, Command, Opened, SheetChanged, SheetGrid } from "./model";
@@ -366,6 +367,8 @@ export const IPC_CHANNELS = {
   usageChanged: "junto:usage-changed",
   settingsChanged: "junto:settings-changed",
   chatEvent: "junto:chat-event",
+  chatChrome: "junto:chat-chrome",
+  chatChromeChanged: "junto:chat-chrome-changed",
   kernelChanged: "junto:kernel-changed",
   terminalList: "junto:terminal-list",
   terminalCreate: "junto:terminal-create",
@@ -670,6 +673,9 @@ export interface ChatApi {
     outcome: ChatFinishNodeDeleteOutcome,
   ) => Promise<ChatFinishNodeDeleteResult>;
   readonly onChatEvent: (listener: (event: ChatEvent) => void) => () => void;
+  /** Subscribe before the initial snapshot; apply only newer revisions afterward. */
+  readonly chatChrome: () => Promise<ChatChromeSnapshot>;
+  readonly onChatChromeChanged: (listener: (event: ChatChromeChanged) => void) => () => void;
 }
 
 /** Resource targeted by a Main-owned node-delete lease (agents only for Cut 6). */

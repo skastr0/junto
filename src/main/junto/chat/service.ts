@@ -1,3 +1,4 @@
+import type { ChatChromeState, ChatChromeSnapshot, ChatChromeChanged } from "@shared/chat-chrome";
 import type {
   AgentReply,
   ChatEvent,
@@ -132,6 +133,9 @@ export class ChatService {
   private readonly openInFlight = new Map<string, OpenInFlight>();
   private readonly generations = new Map<string, number>();
   private eventSink: ((event: ChatEvent) => void) | undefined;
+  private chromeRevision = 0;
+  private readonly chromeStates = new Map<string, ChatChromeState>();
+  private readonly chromeListeners = new Set<(event: ChatChromeChanged) => void>();
   private idleTimer: ReturnType<typeof setInterval> | undefined;
   private unsubscribeHostsSnapshot: (() => void) | undefined;
   private readonly clients = new Set<AcpClient>();
@@ -164,6 +168,35 @@ export class ChatService {
 
   setEventSink(sink: (event: ChatEvent) => void): void {
     this.eventSink = sink;
+  }
+
+  /** One initial read, followed by sparse revisioned changes; never transcripts. */
+  chromeSnapshot(): ChatChromeSnapshot {
+    return { revision: this.chromeRevision, states: [...this.chromeStates.values()] };
+  }
+
+  subscribeChromeChanges(listener: (event: ChatChromeChanged) => void): () => void {
+    this.chromeListeners.add(listener);
+    return () => { this.chromeListeners.delete(listener); };
+  }
+
+  private publishChrome(agentKey: string): void {
+    const state: ChatChromeState = {
+      agentKey,
+      sessionLive: this.isLive(agentKey),
+      permissionPending: this.hasPendingPermission(agentKey),
+    };
+    const previous = this.chromeStates.get(agentKey);
+    if ((previous?.sessionLive ?? false) === state.sessionLive &&
+        (previous?.permissionPending ?? false) === state.permissionPending) return;
+    if (state.sessionLive || state.permissionPending) this.chromeStates.set(agentKey, state);
+    else this.chromeStates.delete(agentKey);
+    const event: ChatChromeChanged = { revision: ++this.chromeRevision, state };
+    for (const listener of [...this.chromeListeners]) {
+      try { listener(event); } catch {
+        // Observers cannot prevent permission answers or session cleanup.
+      }
+    }
   }
 
   /** Test / shutdown seam. */
@@ -306,13 +339,14 @@ export class ChatService {
   }
 
   // True while an ACP permission request from this agent awaits a human
-  // answer — feeds the region rollup's attention tier.
+  // answer — feeds the chrome attention tier.
   hasPendingPermission(agentKey: string): boolean {
     const session = this.sessions.get(agentKey);
-    return session !== undefined && session.pendingPermissions.size > 0;
+    return session !== undefined && !session.client.closed && session.pendingPermissions.size > 0;
   }
 
   private emit(agentKey: string, kind: string, payload: unknown): void {
+    if (kind === "status" || kind === "error" || kind === "permission_request") this.publishChrome(agentKey);
     try {
       this.eventSink?.({ agentKey, kind, payload });
     } catch {
@@ -435,9 +469,12 @@ export class ChatService {
       return Promise.resolve([]);
     }
 
-    const flight = this.closeClient(session.client).then((receipts) => {
+    const closing = this.closeClient(session.client);
+    this.publishChrome(agentKey);
+    const flight = closing.then((receipts) => {
       if (this.sessions.get(agentKey) === session) {
         this.sessions.delete(agentKey);
+        this.publishChrome(agentKey);
       }
       const clean =
         receipts.length === 0 ||
@@ -489,6 +526,7 @@ export class ChatService {
 
   private abandonSession(agentKey: string, session: AgentSession): void {
     if (this.sessions.get(agentKey) === session) this.sessions.delete(agentKey);
+    this.publishChrome(agentKey);
     void this.closeClient(session.client);
   }
 
@@ -520,6 +558,7 @@ export class ChatService {
       session.sessionId = resumeSessionId;
       session.models = toModelChoices(result);
       this.touch(session);
+      this.publishChrome(agentKey);
       return { ok: true, sessionId: resumeSessionId, resumed: true, models: session.models };
     } catch (error) {
       this.abandonSession(agentKey, session);
@@ -641,6 +680,7 @@ export class ChatService {
       session.sessionId = created.sessionId;
       session.models = toModelChoices(created);
       this.touch(session);
+      this.publishChrome(agentKey);
       return { ok: true, sessionId: session.sessionId, resumed: false, models: session.models };
     } catch (err) {
       this.abandonSession(agentKey, session);
@@ -729,6 +769,7 @@ export class ChatService {
     const id = session.pendingPermissions.get(requestId);
     if (id === undefined) return { ok: false };
     session.pendingPermissions.delete(requestId);
+    this.publishChrome(agentKey);
     session.client.respond(id, { outcome: { outcome: "selected", optionId } });
     this.touch(session);
     return { ok: true };
