@@ -242,9 +242,9 @@ document rows remain readable and are never rewritten. Future physical
 compaction is a separately approved operation with backup, parity, fleet, and
 Work-reference proofs.
 
-JSON Canvas files, digests, SVG renders, screenshots, diagnostic bundles, and
-plugin payloads are deliberate outputs or interoperability formats. The app
-does not watch or ingest them as live state.
+Screenshots, diagnostic bundles, and plugin payloads are deliberate outputs.
+The app does not watch or ingest them as live state. It writes no canvas
+file, digest file, or SVG file.
 
 ## Work plane and ordering
 

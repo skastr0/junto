@@ -34,7 +34,6 @@ Read-only views of the running app's canvases:
 ```sh
 bun run canvas:ls          # list canvases
 bun run digest <canvas>    # text digest of one canvas
-bun run render             # SVG export
 ```
 
 ## Checks

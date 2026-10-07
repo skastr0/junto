@@ -196,8 +196,7 @@ live path creates or consumes:
 - a privileged Linux `.deb`, `/opt` release, administrator-credential prompt,
   release installer/bridge, root journal, or second install/update lane.
 
-Explicit JSON Canvas exports, digest/SVG outputs, owner-local socket/token
-transport, Chromium profile data, and package metadata are not product stores.
+Owner-local socket/token transport, Chromium profile data, and package metadata are not product stores.
 
 Linux package qualification remains governed by
 [linux-package-qualification.md](linux-package-qualification.md); the macOS

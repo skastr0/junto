@@ -55,8 +55,8 @@ homes are `InstallationId` values; `HostId` is placement, not durable work
 authority. Single-home rows and route-local
 `(event_home, entity_home, seq)` Work identities make station clocks irrelevant
 to correctness.
-JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
-not durability or input watched by the app.
+Junto writes no canvas file: there is no JSON Canvas export or import, and no
+digest or SVG file beside a canvas.
 
 **SQLite evolution law:** Version 1 is the baseline Junto schema, selected by
 `CURRENT_STATE_SCHEMA_VERSION = 1` and declared in `src/main/junto/state/migrations.ts`.
@@ -176,11 +176,10 @@ remain strictly read-only for authorial intent. Current headless CLIs:
 
 | command | who | what it does |
 |---|---|---|
-| `bun run digest [name]` | agents + operators | print (and write `<name>.digest.txt`) a deterministic text projection of the board + live hermes snapshot data. |
-| `bun run render [name]` | agents + operators | write `<name>.svg` — an image of the board, for multimodal reading. |
+| `bun run digest [name]` | agents + operators | print a deterministic text projection of the board + live hermes snapshot data. Writes no file. |
 | `bun run canvas:ls [--json]` | agents + operators | list canvases with node/edge counts. |
 
-To **read the board as an agent**: `bun run digest` (text) or `bun run render` then view the SVG (image).
+To **read the board as an agent**: `bun run digest` (text).
 
 ### Work plane (agent mutations)
 

@@ -289,10 +289,8 @@ The target product contract is:
 - undo, recovery, and "what authority changed?" remain operator facilities and
   must not restore a revoked overseer grant from a stale document.
 
-JSON Canvas is an import/export and interoperability format. Its contents are
-not inherently secret. It is not the canonical live authority store. Importing
-an edited document is an explicit operator action. Exporting a document does
-not grant the exported file live authority over a running factory.
+There is no JSON Canvas import or export. No file on disk carries canvas
+contents, and none can grant live authority over a running factory.
 
 Canonical live and durable state is `~/.junto/state/junto.db`. During normal
 product operation it is an owner-only SQLite database opened by exactly one
@@ -473,9 +471,8 @@ runtime requirement, so actor and page must share one installation.
 
 ### Portability and derivatives
 
-JSON Canvas files, digests, SVG renders, screenshots, diagnostic bundles, and
-other derivatives are explicit export and interoperability surfaces. They keep
-the operator from being locked into Junto.
+Screenshots, diagnostic bundles, and other derivatives are explicit export
+surfaces. Junto writes no canvas file, digest file, or SVG file.
 
 An exported derivative:
 

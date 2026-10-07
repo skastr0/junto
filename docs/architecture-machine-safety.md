@@ -184,8 +184,7 @@ process-group signal primitive.
   the explicit host removal/edit operation and is never a scope finalizer.
 - Canvas names share one bounded ASCII contract across settings, node refs,
   projections, and the repository. Full authorial generations commit through
-  the one app-owned `StateEngine`; render/export sidecars are outputs rather
-  than product durability. Station projection installation is a typed,
+  the one app-owned `StateEngine`. Station projection installation is a typed,
   replace-only database operation and has no caller-selected filesystem
   destination.
 - The Electron quit transaction synchronously closes authoring and resource

@@ -66,7 +66,7 @@ In 0.3.2, `junto msg send`, `junto seat wait`, and `junto seat read` stop with "
 
 ## State
 
-Everything Junto owns lives in `~/.junto/`. Product state is one SQLite file, `~/.junto/state/junto.db`, opened only by the app. JSON Canvas exports are outputs, never inputs the app watches.
+Everything Junto owns lives in `~/.junto/`. Product state is one SQLite file, `~/.junto/state/junto.db`, opened only by the app. Junto writes no canvas file and watches none.
 
 ## Play and pause
 
