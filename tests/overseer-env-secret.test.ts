@@ -2,7 +2,6 @@ import type { Node, NodeOf } from "../src/shared/model";
 import { note as noteNode, region as regionNode } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
-import type { CanvasNode } from "../src/shared/canvas";
 import {
   OVERSEER_SECRET_ARGS_FAILURE,
   decodeOverseerArgs,
