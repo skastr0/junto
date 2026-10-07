@@ -40,6 +40,13 @@ export const workControlTokenPath = (workHome: string): string =>
   `${workHome}/token`;
 
 export const WORK_HOME_ENV = "JUNTO_WORK_HOME";
+/**
+ * Seat generation credential for the work control socket. Main mints one value
+ * per occupant generation, injects it into the seat process environment at
+ * spawn, and the CLI presents it in the existing frame token field. The value
+ * never appears on argv, in logs, or in committed source.
+ */
+export const WORK_TOKEN_ENV = "JUNTO_WORK_TOKEN";
 export const WORK_PROTOCOL_VERSION = "junto/work-control/v1";
 
 export const WORK_DEFAULT_BATCH_CONCURRENCY = 5;

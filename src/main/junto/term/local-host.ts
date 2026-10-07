@@ -54,6 +54,12 @@ import {
   type ProcessIdentityBinding,
   type ProcessPrincipal,
 } from "../process-identity";
+import { WORK_TOKEN_ENV } from "@shared/work-control";
+import {
+  getSeatCredentialRegistry,
+  mintSeatCredential,
+  type SeatCredentialMint,
+} from "../work/seat-credentials";
 import {
   TerminalLaunchError,
   validateExecutableShell,
@@ -306,6 +312,13 @@ type SessionRec = {
   /** Exact PID/start-key authorities; never replace these with numeric revocation. */
   ptyIdentityBinding: ProcessIdentityBinding | undefined;
   daemonIdentityBinding: ProcessIdentityBinding | undefined;
+  /**
+   * Seat generation credential minted before spawn and injected into the seat
+   * environment. Published to the registry once the lease is live and canvas
+   * anchors are known; revoked when the generation ends.
+   */
+  seatCredential: SeatCredentialMint | undefined;
+  seatCredentialLive: boolean;
   /** Prime Agent's per-seat foreground daemon + reporter registration. */
   primeDaemon: PrimeAgentDaemonHandle | undefined;
   primeDaemonStopFlight: Promise<void> | undefined;
@@ -1101,22 +1114,29 @@ export class LocalSessionHost extends EventEmitter {
     const regionEnvironment = (
       input as LocalHostAgentSeatInput | LocalHostCreateInput
     ).regionEnvironment;
+    // Agent seats mint their generation credential before launch resolution so
+    // the value is in the spawn environment. Geography terminals never call
+    // the work socket and mint nothing.
+    const seatCredential = seat.kind === "agent" ? mintSeatCredential() : undefined;
     const resolved = resolveLaunch(
       seat,
       seat.kind === "agent"
         ? {
-            seatInject: buildManagedSeatInject(
-              {
-                agentKey: seat.agentKey,
-                canvasName: input.canvasName,
-                nodeId: input.nodeId,
-              },
-              // A region's PATH is honored, with Junto's CLI directory kept
-              // in front of it.
-              regionEnvironment?.env.PATH === undefined
-                ? process.env
-                : { ...process.env, PATH: regionEnvironment.env.PATH },
-            ),
+            seatInject: {
+              ...buildManagedSeatInject(
+                {
+                  agentKey: seat.agentKey,
+                  canvasName: input.canvasName,
+                  nodeId: input.nodeId,
+                },
+                // A region's PATH is honored, with Junto's CLI directory kept
+                // in front of it.
+                regionEnvironment?.env.PATH === undefined
+                  ? process.env
+                  : { ...process.env, PATH: regionEnvironment.env.PATH },
+              ),
+              ...(seatCredential ? { [WORK_TOKEN_ENV]: seatCredential.credential } : {}),
+            },
             ...(regionEnvironment
               ? {
                   regionEnv: regionEnvironment.env,
@@ -1150,6 +1170,8 @@ export class LocalSessionHost extends EventEmitter {
       pid: undefined,
       ptyIdentityBinding: undefined,
       daemonIdentityBinding: undefined,
+      seatCredential,
+      seatCredentialLive: false,
       primeDaemon: undefined,
       primeDaemonStopFlight: undefined,
       primeDaemonCleanupState: "none",
@@ -1297,6 +1319,11 @@ export class LocalSessionHost extends EventEmitter {
       if (!this.bindPtyProcessIdentity(rec)) {
         throw new Error("terminal process identity bind failed");
       }
+      // Publish the generation credential once the lease is live. Anchors may
+      // still be missing; bindCanvas completes those and publishes then.
+      if (!this.publishSeatCredential(rec)) {
+        throw new Error("terminal seat credential publish failed");
+      }
       rec.listenerCleanups.push(
         lease.io.onData((data) => this.observeData(rec, data)),
         lease.io.onError((error) => this.observeTerminalError(rec, error)),
@@ -1424,12 +1451,16 @@ export class LocalSessionHost extends EventEmitter {
     const nodeId = ref?.nodeId?.trim() || undefined;
 
     // Rebinding is two exact-generation retirements followed by two exact
-    // mints. A partial anchor is deliberately no principal at all.
-    this.revokeProcessIdentities(rec);
+    // mints. A partial anchor is deliberately no principal at all. The seat
+    // credential keeps its value across the rebind: detach suspends it and
+    // reattach reanchors it, since a replacement value cannot be delivered
+    // to a running process.
+    this.revokeProcessIdentities(rec, { keepSeatCredential: true });
     if (canvasName === undefined || nodeId === undefined) {
       rec.canvasName = undefined;
       rec.nodeId = undefined;
       rec.detached = true;
+      this.suspendSeatCredential(rec);
       return;
     }
 
@@ -1441,6 +1472,15 @@ export class LocalSessionHost extends EventEmitter {
       this.recordPostSpawnFailure(
         rec,
         new Error("canvas rebind could not bind every exact process generation"),
+      );
+      this.requestStop(rec, "canvas_identity_rebind_failed");
+      return;
+    }
+    if (!this.reanchorSeatCredential(rec)) {
+      this.revokeProcessIdentities(rec);
+      this.recordPostSpawnFailure(
+        rec,
+        new Error("canvas rebind could not reanchor the seat credential"),
       );
       this.requestStop(rec, "canvas_identity_rebind_failed");
     }
@@ -2144,6 +2184,7 @@ export class LocalSessionHost extends EventEmitter {
 
   /** Revoke the record's identities as offboarded (see process-identity). */
   private offboardProcessIdentities(rec: SessionRec): void {
+    this.revokeSeatCredential(rec, "offboarded");
     const identities = getProcessIdentityMap();
     const bindings = [rec.daemonIdentityBinding, rec.ptyIdentityBinding].filter(
       (binding): binding is ProcessIdentityBinding => binding !== undefined,
@@ -2957,7 +2998,67 @@ export class LocalSessionHost extends EventEmitter {
     return false;
   }
 
-  private revokeProcessIdentities(rec: SessionRec): void {
+  /**
+   * Publish the seat generation credential once the lease is live and canvas
+   * anchors are known. Either completion point may arrive first; both call
+   * here and the call is idempotent. True when published or not yet publishable.
+   */
+  private publishSeatCredential(rec: SessionRec): boolean {
+    const mint = rec.seatCredential;
+    if (mint === undefined || rec.seatCredentialLive) return true;
+    if (rec.lease === undefined) return true;
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined) return true;
+    const published = getSeatCredentialRegistry().publish(mint, principal);
+    if (published) rec.seatCredentialLive = true;
+    return published;
+  }
+
+  /** Canvas rebind moves a live credential to the new principal, same value. */
+  private reanchorSeatCredential(rec: SessionRec): boolean {
+    const mint = rec.seatCredential;
+    if (mint === undefined) return true;
+    const principal = this.processPrincipal(rec);
+    if (principal === undefined || rec.lease === undefined) return true;
+    if (getSeatCredentialRegistry().reanchor(mint.credential, principal)) {
+      rec.seatCredentialLive = true;
+      return true;
+    }
+    return this.publishSeatCredential(rec);
+  }
+
+  /** Canvas detach suspends the credential; calls fail closed until reattach. */
+  private suspendSeatCredential(rec: SessionRec): void {
+    const mint = rec.seatCredential;
+    if (mint === undefined || !rec.seatCredentialLive) return;
+    if (getSeatCredentialRegistry().suspend(mint.credential)) {
+      rec.seatCredentialLive = false;
+    }
+  }
+
+  /** Generation end retires the credential permanently with a tombstone. */
+  private revokeSeatCredential(
+    rec: SessionRec,
+    reason: "seat-closed" | "offboarded" | "replaced" = "seat-closed",
+  ): void {
+    const mint = rec.seatCredential;
+    if (mint === undefined) return;
+    rec.seatCredential = undefined;
+    rec.seatCredentialLive = false;
+    try {
+      getSeatCredentialRegistry().revoke(mint.credential, reason);
+    } catch (error) {
+      console.error(
+        `[term] seat credential revoke failed for ${rec.bindingId}@${rec.epoch}:`,
+        error,
+      );
+    }
+  }
+
+  private revokeProcessIdentities(rec: SessionRec, options?: { keepSeatCredential?: boolean }): void {
+    if (options?.keepSeatCredential !== true) {
+      this.revokeSeatCredential(rec);
+    }
     const identities = getProcessIdentityMap();
     const bindings = [
       rec.daemonIdentityBinding,

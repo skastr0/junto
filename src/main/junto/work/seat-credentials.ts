@@ -209,7 +209,7 @@ export const makeSeatCredentialRegistry = (
       return true;
     },
     reanchor: (credential: string, principal: ProcessPrincipal): boolean => {
-      const record = suspended.get(credential);
+      const record = live.get(credential) ?? suspended.get(credential);
       if (record === undefined) return false;
       const next: LiveRecord = {
         principal: Object.freeze({ ...principal }),

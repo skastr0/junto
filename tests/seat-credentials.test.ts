@@ -127,7 +127,7 @@ describe("seat credential registry", () => {
     expect(held.status).toBe("suspended");
     const reanchored = { ...PRINCIPAL, canvasName: "other", nodeId: "agent-9" };
     expect(registry.reanchor(minted.credential, reanchored)).toBe(true);
-    expect(registry.reanchor(minted.credential, reanchored)).toBe(false);
+    expect(registry.reanchor(minted.credential, reanchored)).toBe(true);
     const live = registry.lookup(minted.credential);
     expect(live.status).toBe("live");
     if (live.status === "live") {
