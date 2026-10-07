@@ -118,6 +118,25 @@ export type ContentServiceShape = {
   readonly releaseOwner: (
     owner: ContentOwner,
   ) => Effect.Effect<number, ContentManifestError | SqlError.SqlError>;
+  /**
+   * Hand a reference from one owner to another in one transaction: the new
+   * owner is bound to the reference as the old owner holds it, then the old
+   * owner lets go. Answers undefined, and changes nothing, when `from` holds
+   * no reference to those bytes.
+   */
+  readonly moveRef: (input: {
+    readonly ref: { readonly sha256: string; readonly byteLength: number };
+    readonly from: (owner: ContentOwner) => boolean;
+    readonly to: ContentOwner;
+  }) => Effect.Effect<
+    ContentRefRow | undefined,
+    ContentManifestError | SqlError.SqlError
+  >;
+  /** Release staged references no record claimed. See the manifest. */
+  readonly releaseByRecordPrefixBefore: (input: {
+    readonly prefix: string;
+    readonly before: string;
+  }) => Effect.Effect<number, ContentManifestError | SqlError.SqlError>;
   /** Startup / recovery integrity over referenced digests. */
   readonly integrityCheck: () => Effect.Effect<
     ContentIntegrityReport,
@@ -286,6 +305,31 @@ const makeContentService = (
         Effect.provideService(
           StateTransactionOperation,
           "content.releaseOwner",
+        ),
+      ),
+
+  moveRef: ({ ref, from, to }) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const held = (yield* manifest.listContentRefsForObject(ref.sha256)).find(
+            (row) => row.ref.byteLength === ref.byteLength && from(row.owner),
+          );
+          if (held === undefined) return undefined;
+          const moved = yield* manifest.recordContentRef({ ref: held.ref, owner: to });
+          yield* manifest.releaseContentRefsForOwner(held.owner);
+          return moved;
+        }),
+      )
+      .pipe(Effect.provideService(StateTransactionOperation, "content.moveRef")),
+
+  releaseByRecordPrefixBefore: (input) =>
+    sql
+      .withTransaction(manifest.releaseContentRefsByRecordPrefixBefore(input))
+      .pipe(
+        Effect.provideService(
+          StateTransactionOperation,
+          "content.releaseStaged",
         ),
       ),
 

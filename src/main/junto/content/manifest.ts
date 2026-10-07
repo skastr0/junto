@@ -120,6 +120,15 @@ export type ContentManifestShape = {
   readonly releaseContentRefsForOwner: (
     owner: ContentOwner,
   ) => Effect.Effect<number, ContentManifestError>;
+  /**
+   * Let go of every staged reference (an `other` owner whose record id
+   * starts with `prefix`) recorded before `before`: uploads that finished
+   * and that no record came to claim. Returns how many were released.
+   */
+  readonly releaseContentRefsByRecordPrefixBefore: (input: {
+    readonly prefix: string;
+    readonly before: string;
+  }) => Effect.Effect<number, ContentManifestError>;
   /** Object row + receipt only. Callers combine with filesystem verification. */
   readonly manifestAvailability: (
     ref: ContentRef,
@@ -452,6 +461,20 @@ export class ContentManifest extends Context.Service<
             DELETE FROM content_refs
             WHERE owner_canvas = ${owner.canvasName} AND owner_node = ${owner.nodeId}
               AND owner_kind = ${owner.kind} AND owner_record_id = ${owner.recordId}`;
+          return Number(held[0]?.count ?? 0);
+        }, Effect.mapError(manifestError)),
+        releaseContentRefsByRecordPrefixBefore: Effect.fn(
+          "ContentManifest.releaseContentRefsByRecordPrefixBefore",
+        )(function* ({ prefix, before }) {
+          // substr, not LIKE: the prefix is compared as text, with no pattern.
+          const held = yield* sql<{ readonly count: number | bigint }>`
+            SELECT COUNT(*) AS count FROM content_refs
+            WHERE owner_kind = 'other' AND created_at < ${before}
+              AND substr(owner_record_id, 1, ${prefix.length}) = ${prefix}`;
+          yield* sql`
+            DELETE FROM content_refs
+            WHERE owner_kind = 'other' AND created_at < ${before}
+              AND substr(owner_record_id, 1, ${prefix.length}) = ${prefix}`;
           return Number(held[0]?.count ?? 0);
         }, Effect.mapError(manifestError)),
         deleteUnreferencedContentObject: Effect.fn(
