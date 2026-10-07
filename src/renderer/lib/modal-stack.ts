@@ -84,7 +84,11 @@ export const closeFrontModal = (): boolean => {
 export const isModalLayerOpen = (layer: ModalLayer): boolean =>
   stack.some((entry) => entry.layer === layer);
 
-/** What counts as a tab stop, for every shell and floating panel. */
+/**
+ * What counts as a tab stop, for every shell and floating panel. An element
+ * taken out of the Tab order (tabindex -1: a dim, a roving item at rest) is
+ * never one, whatever kind of element it is.
+ */
 export const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -92,8 +96,10 @@ export const FOCUSABLE_SELECTOR = [
   "select:not([disabled])",
   "textarea:not([disabled])",
   "[contenteditable]:not([contenteditable='false'])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(", ");
+  "[tabindex]",
+]
+  .map((selector) => `${selector}:not([tabindex='-1'])`)
+  .join(", ");
 
 type TabStop = { readonly getClientRects?: () => { readonly length: number } };
 
@@ -433,7 +439,10 @@ export const useModalLayer = ({
             event.stopPropagation();
           }
         } else if (trap && event.key === "Tab" && !event.defaultPrevented && container) {
-          const stops = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+          // Never something hidden from the operator: the keyboard must not stand on it.
+          const stops = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+            (stop) => stop.closest("[inert], [aria-hidden='true']") === null,
+          );
           const target = nextTabStop(stops, document.activeElement, event.shiftKey);
           if (target) {
             event.preventDefault();
