@@ -1,25 +1,19 @@
 import type {
   Task,
-  CanvasDoc,
   CanvasNode,
   EdgePhase,
 } from "./canvas";
 import type { ActorSeatId } from "./actor-seat";
-import { claimedByOf, isTerminalTaskState, taskBrief } from "./task";
-import { dependencyScopeIndex } from "./task-dep-scope";
-import { workReadFromDocument } from "./work-read";
-import { taskDepStatus } from "./task-deps";
+import { claimedByOf, taskBrief } from "./task";
 import {
   resolveActorRefAt,
   type ActorRefResolver,
 } from "./attention";
 import type { Canvas } from "./model/canvas";
-import { nodesFromDocument } from "./model/from-document";
 import type { Node } from "./model/kinds";
 import { seatMayBeBlocked } from "./physics/phase-membership";
 import {
   type ApprovalView,
-  type ProofStamp,
   type StampView,
 } from "./proof-stamps";
 
@@ -245,14 +239,6 @@ export const evaluateEdge = (
   );
 };
 
-/**
- * Proof edges are retired. Kept as a no-op export for digest callers.
- */
-export const clearingStampsForDoc = (
-  _doc: CanvasDoc,
-  _stamps: StampView | undefined,
-): ReadonlyArray<{ readonly edgeId: string; readonly stamp: ProofStamp }> => [];
-
 export const deriveExecutionGraph = (
   canvas: Canvas,
   context: ExecutionGraphContext,
@@ -336,107 +322,6 @@ export const deriveExecutionGraph = (
     blockedEdgeIds,
     reasonsByNodeId,
   };
-};
-
-/** Human-readable region execution context for agent pulses. Deterministic. */
-export const composeRegionExecutionContext = (
-  doc: CanvasDoc,
-  _regionId: string,
-  graph: ExecutionGraph,
-  memberIds: ReadonlyArray<string>,
-): string => {
-  const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
-  const memberSet = new Set(memberIds);
-  const lines: string[] = ["execution"];
-
-  const memberTitles = memberIds.map((id) => titleOf(byId.get(id), id));
-  lines.push(`members :: ${memberTitles.join(", ") || "(none)"}`);
-
-  const edgeLines: string[] = [];
-  for (const edge of doc.edges) {
-    if (!memberSet.has(edge.fromNode) && !memberSet.has(edge.toNode)) continue;
-    const phase = graph.phaseByEdgeId.get(edge.id) ?? "relates";
-    const detail = graph.detailByEdgeId.get(edge.id) ?? "";
-    const from = titleOf(byId.get(edge.fromNode), edge.fromNode);
-    const to = titleOf(byId.get(edge.toNode), edge.toNode);
-    edgeLines.push(
-      detail && phase !== "relates"
-        ? `${from} --${phase}(${detail})--> ${to}`
-        : `${from} --${phase}--> ${to}`,
-    );
-  }
-  if (edgeLines.length > 0) {
-    lines.push("edges");
-    lines.push(...edgeLines);
-  }
-
-  const blockedMembers = memberIds.filter((id) => graph.blocked.has(id));
-  if (blockedMembers.length > 0) {
-    lines.push("blocked");
-    for (const id of blockedMembers) {
-      const reasons = graph.reasonsByNodeId.get(id) ?? [];
-      const reasonText = reasons
-        .slice(0, 3)
-        .map((reason) => {
-          if (reason.kind === "edge") return reason.detail;
-          return reason.detail;
-        })
-        .join("; ");
-      lines.push(
-        reasonText
-          ? `${titleOf(byId.get(id), id)} :: ${reasonText}`
-          : titleOf(byId.get(id), id),
-      );
-    }
-  }
-
-  const taskLines: string[] = [];
-  for (const id of memberIds) {
-    const node = byId.get(id);
-    const kind = node?.ether?.entity?.kind;
-    if (!node || (kind !== "task" && kind !== "requests")) continue;
-    const items =
-      kind === "requests" ? (node.ether?.requests?.items ?? []) : (node.ether?.tasks?.items ?? []);
-    if (items.length === 0) {
-      taskLines.push(`${titleOf(node, id)} :: (empty)`);
-      continue;
-    }
-    if (kind === "requests") {
-      const pending = items.filter((item) => item.state === "input-required").length;
-      const preview = items.map((item) => `${item.state}: ${taskBrief(item)}`).join("; ");
-      taskLines.push(`${titleOf(node, id)} :: ${pending}/${items.length} pending - ${preview}`);
-    } else {
-      const open = items.filter((item) => !isTerminalTaskState(item.state)).length;
-      const depById = dependencyScopeIndex(nodesFromDocument(doc), workReadFromDocument(doc), id);
-      const preview = items
-        .map((item) => {
-          const mark = isTerminalTaskState(item.state) ? "[x]" : "[ ]";
-          const brief = taskBrief(item);
-          if (item.state !== "submitted" || claimedByOf(item)) {
-            return `${mark} ${brief}`;
-          }
-          const dep = taskDepStatus(item, depById);
-          if (dep.kind === "ready") return `${mark} ${brief}`;
-          if (dep.kind === "waiting") {
-            return `${mark} ${brief} (waiting: ${dep.frontier.join(",")})`;
-          }
-          if (dep.kind === "blocked") {
-            return `${mark} ${brief} (blocked: ${dep.roots.join(",")})`;
-          }
-          return `${mark} ${brief} (orphan: ${dep.missing.join(",")})`;
-        })
-        .join("; ");
-      taskLines.push(
-        `${titleOf(node, id)} :: ${items.length - open}/${items.length} settled - ${preview}`,
-      );
-    }
-  }
-  if (taskLines.length > 0) {
-    lines.push("tasks");
-    lines.push(...taskLines);
-  }
-
-  return lines.join("\n");
 };
 
 /** The kernel's live projection of a canvas's execution graph, as it travels. */

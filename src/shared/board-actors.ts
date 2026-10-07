@@ -7,7 +7,6 @@
  * inject — no reply / ack required, less urgent copy than mailbox.
  */
 
-import type { CanvasNode } from "./canvas";
 import type { NodeId } from "./model/base";
 import { nodeOf, wiresAt, type Canvas } from "./model/canvas";
 import { edgeNotifyOn } from "./board-wake";
@@ -162,8 +161,3 @@ export const postTagsActor = (
 ): boolean =>
   Boolean(tags?.some((id) => id === actorNodeId));
 
-export const nodeDisplayLabel = (node: CanvasNode | undefined): string => {
-  const name = node?.ether?.entity?.name;
-  if (typeof name === "string" && name.trim()) return name.trim();
-  return node?.id ?? "agent";
-};

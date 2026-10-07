@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { Task, CanvasDoc, CanvasNode } from "./canvas";
+import type { Task, CanvasNode } from "./canvas";
 import type { TasksContract } from "./work-model";
 import { claimedByOf, isAttentionTaskState, isTerminalTaskState } from "./task";
 import { taskAdmissionState } from "./rules";
@@ -146,21 +146,6 @@ export const attentionOf = (
  * or ambiguous references.
  */
 export type ActorRefResolver = (ref: SinkRef) => ActorRefValue | undefined;
-
-/**
- * Resolve one exact canvas-scoped actor reference.
- *
- * A malformed result or a resolver result for another reference fails closed.
- * There is deliberately no node-id claimant fallback.
- */
-export const resolveCompiledActorRef = (
-  resolver: ActorRefResolver,
-  canvasName: string,
-  node: CanvasNode | undefined,
-): ActorRefValue | undefined => {
-  if (node === undefined || roleOfNode(node) !== "actor") return undefined;
-  return resolveActorRefAt(resolver, canvasName, node.id);
-};
 
 /**
  * The same resolution for a caller that holds the seat's id and already knows

@@ -45,12 +45,6 @@ export const isTaskSinkNode = (node: CanvasNode | undefined): boolean => {
   return isSinkSpec(spec) && spec.kind === "task";
 };
 
-/** Both endpoints of a hop must be Tasks nodes — the pair a path needs. */
-export const isTaskPathPair = (
-  fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
-): boolean => isTaskSinkNode(fromNode) && isTaskSinkNode(toNode);
-
 /** All configured hops, in the order the canvas holds its wires. */
 export const flowHops = (canvas: Wired): ReadonlyArray<FlowHop> => {
   const hops: FlowHop[] = [];
