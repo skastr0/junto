@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { TaskRule } from "@shared/work-model";
 import { state$ } from "../../../lib/state";
+import { useCanvas } from "../../../lib/use-model";
 import { taskPath } from "./task-path";
 import { pruneToPath, strandedRules } from "./task-path-rules";
 import { TaskPath } from "./TaskPath";
@@ -15,8 +16,10 @@ export function TaskCreationPath({
   readonly rules?: ReadonlyArray<TaskRule>;
   readonly onRulesChange?: (next: ReadonlyArray<TaskRule>) => void;
 }) {
-  const doc = use$(state$.doc);
-  const path = useMemo(() => taskPath(doc, nodeId), [doc, nodeId]);
+  // A task's path depends on every board and wire it could cross, so the
+  // whole canvas is followed; this is mounted only while a task is being made.
+  const canvas = useCanvas(use$(state$.canvasName));
+  const path = useMemo(() => taskPath(canvas, nodeId), [canvas, nodeId]);
   useEffect(() => {
     if (onRulesChange && strandedRules(rules, path).length) {
       onRulesChange(pruneToPath(rules, path));

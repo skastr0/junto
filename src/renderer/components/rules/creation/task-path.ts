@@ -1,12 +1,10 @@
-import type { CanvasDoc } from "@shared/canvas";
+import { asNodeId, type Canvas } from "@shared/model";
+import { titleOf } from "@shared/model/title";
 import type { RuleInForce } from "@shared/rules";
 import type { TaskAdmission } from "@shared/work-model";
 import { rulesInForce } from "@shared/rules";
 import { resolveTaskAdmission } from "@shared/work-model";
-import { flowDestinations, isTaskSinkNode } from "@shared/flow-graph";
-import { nodesFromDocument, wiresFromDocument } from "@shared/model/from-document";
-import { tasksNodeName } from "@shared/tasks-node-identity";
-import { nodeTitle } from "../../../lib/presentation";
+import { flowDestinations } from "@shared/flow-graph";
 import { admissionLabel } from "../../../lib/admission-labels";
 
 export type TaskPathNode = {
@@ -69,8 +67,9 @@ export const groupPathByDepth = (
   return stages;
 };
 
+/** The boards a task made at this one can travel to, in the order it reaches them. */
 export const taskPath = (
-  doc: CanvasDoc,
+  canvas: Canvas,
   originNodeId: string,
 ): ReadonlyArray<TaskPathNode> => {
   const walked: Array<{ nodeId: string; depth: number }> = [];
@@ -79,27 +78,23 @@ export const taskPath = (
   while (queue.length > 0) {
     const current = queue.shift()!;
     walked.push(current);
-    for (const nodeId of flowDestinations(wiresFromDocument(doc), current.nodeId)) {
+    for (const nodeId of flowDestinations(canvas, current.nodeId)) {
       if (seen.has(nodeId)) continue;
       seen.add(nodeId);
       queue.push({ nodeId, depth: current.depth + 1 });
     }
   }
   return walked.map((entry, index) => {
-    const node = doc.nodes.find((candidate) => candidate.id === entry.nodeId);
-    const destinations = flowDestinations(wiresFromDocument(doc), entry.nodeId);
-    const contract = node?.ether?.tasks?.contract;
+    const node = canvas.nodes.get(asNodeId(entry.nodeId));
+    const destinations = flowDestinations(canvas, entry.nodeId);
+    const contract = node?.kind === "task" ? node.contract : undefined;
     return {
       ...entry,
-      label: isTaskSinkNode(node)
-        ? tasksNodeName(node, entry.nodeId)
-        : node
-          ? nodeTitle(node)
-          : entry.nodeId,
+      label: node ? titleOf(node) : entry.nodeId,
       origin: index === 0,
       terminal: destinations.length === 0,
       destinations,
-      rules: rulesInForce(nodesFromDocument(doc), entry.nodeId),
+      rules: rulesInForce(canvas, entry.nodeId),
       admission: resolveTaskAdmission(contract),
       ...(contract?.incoming?.waitMs
         ? { waitMs: contract.incoming.waitMs }
