@@ -19,7 +19,8 @@
  * harness binary starts. Files live under os.tmpdir() or the launch sandbox.
  * One secret is saved, in S4, and only after a hard guard has proven the app
  * keeps secrets in files under the throwaway home; S12 (same test) removes
- * it. The only Keychain call is a lookup of a made-up item that does not
+ * the source and verifies that its stored secret remains. The only Keychain
+ * call is a lookup of a made-up item that does not
  * exist (S9).
  */
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
