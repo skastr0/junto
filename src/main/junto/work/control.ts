@@ -157,6 +157,7 @@ import { getCapturedSessionId } from "../term/session-id-store";
 import { harnessSessionExists } from "../term/session-existence";
 import {
   CONTINUATION_FRAMING,
+  PREVIOUS_WITHOUT_NOTES_FRAMING,
   gistOfNotes,
   ONBOARD_PAST_NOTES_DEFAULT,
   ONBOARD_PAST_SESSIONS_MAX,
@@ -960,10 +961,52 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
     );
     const mine = recorded.find((session) => session.sessionId === current?.sessionId);
     const past = recorded.filter((session) => session !== mine);
+    // The one exception to history: a continuation the session just before
+    // this one left for it. Only the next session gets it, and only here.
+    // It is complete by itself, in the order an agent needs it: what to do
+    // next, then what happened, then where the full record lives.
+    const previous = past[0];
+    const continuation =
+      previous?.endReason === "offboard" ? readNotesFile(continuationPathOf(previous.notesPath), SEAT_SESSION_CONTINUATION_MAX_CHARS) : undefined;
+    const handoffNotes =
+      previous !== undefined && continuation ? readNotesFile(previous.notesPath) : undefined;
+    const handoff =
+      previous !== undefined && continuation
+        ? {
+            note: CONTINUATION_FRAMING,
+            from_session: previous.sessionId,
+            left_at: isoAt(previous.offboardedAt ?? previous.endedAt),
+            continuation,
+            gist: previous.gist ?? null,
+            ...(handoffNotes === undefined ? {} : { notes: handoffNotes }),
+            notes_path: previous.notesPath,
+            transcript_path: previous.transcriptPath ?? null,
+          }
+        : undefined;
+    // A session that follows one which ended with no notes at all (Junto or
+    // the operator ended it without an agent turn, or its id just changed) is
+    // told so, with the one reference there is: the previous transcript.
+    const previousWithoutNotes =
+      previous !== undefined &&
+      previous.endedAt !== undefined &&
+      previous.offboardedAt === undefined
+        ? {
+            note: PREVIOUS_WITHOUT_NOTES_FRAMING,
+            session_id: previous.sessionId,
+            harness: previous.harness,
+            ended_at: isoAt(previous.endedAt),
+            ended_because: previous.endReason,
+            transcript_path: previous.transcriptPath ?? null,
+          }
+        : undefined;
     let inline = 0;
     const listed = past.slice(0, ONBOARD_PAST_SESSIONS_MAX).map((session) => {
       const offboarded = session.offboardedAt !== undefined;
-      const notes = offboarded && inline < pastNotes ? readNotesFile(session.notesPath) : undefined;
+      // The handoff already carries its session's notes in full; the list
+      // points there instead of printing them a second time.
+      const inHandoff = session === previous && handoffNotes !== undefined;
+      const notes =
+        offboarded && !inHandoff && inline < pastNotes ? readNotesFile(session.notesPath) : undefined;
       if (notes !== undefined) inline += 1;
       return {
         session_id: session.sessionId,
@@ -974,22 +1017,9 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
         notes_path: offboarded ? session.notesPath : null,
         transcript_path: session.transcriptPath ?? null,
         ...(notes === undefined ? {} : { notes }),
+        ...(inHandoff ? { notes_in: "handoff" as const } : {}),
       };
     });
-    // The one exception to history: a continuation the session just before
-    // this one left for it. Only the next session gets it, and only here.
-    const previous = past[0];
-    const continuation =
-      previous?.endReason === "offboard" ? readNotesFile(continuationPathOf(previous.notesPath), SEAT_SESSION_CONTINUATION_MAX_CHARS) : undefined;
-    const handoff =
-      previous !== undefined && continuation
-        ? {
-            note: CONTINUATION_FRAMING,
-            from_session: previous.sessionId,
-            left_at: isoAt(previous.offboardedAt ?? previous.endedAt),
-            continuation,
-          }
-        : undefined;
     const sessions = {
       note: PAST_SESSIONS_FRAMING,
       current: current
@@ -1004,7 +1034,11 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
       past: listed,
       ...(past.length > listed.length ? { older_not_listed: past.length - listed.length } : {}),
     };
-    return { sessions, ...(handoff ? { handoff } : {}) };
+    return {
+      sessions,
+      ...(handoff ? { handoff } : {}),
+      ...(previousWithoutNotes ? { previousWithoutNotes } : {}),
+    };
   });
 
 const dispatchOp = (
@@ -1131,6 +1165,11 @@ const dispatchOp = (
         // First, so it is read first: the note the previous session left
         // for this one, when it continued rather than rested.
         ...(history?.handoff ? { handoff: history.handoff } : {}),
+        // Or, when the previous session left nothing: say so, and where its
+        // transcript is.
+        ...(history?.previousWithoutNotes
+          ? { previous_session_without_notes: history.previousWithoutNotes }
+          : {}),
         // The few lines every seat needs. Nothing is sent to a harness at
         // session start, so this is where a seat learns what Junto asks of it.
         guidance: onboardGuidanceFor(seat),

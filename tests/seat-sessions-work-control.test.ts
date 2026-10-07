@@ -35,7 +35,11 @@ import {
 } from "../src/main/junto/seat-sessions/repository";
 import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { PAST_SESSIONS_FRAMING } from "../src/shared/seat-sessions";
+import {
+  CONTINUATION_FRAMING,
+  PAST_SESSIONS_FRAMING,
+  PREVIOUS_WITHOUT_NOTES_FRAMING,
+} from "../src/shared/seat-sessions";
 
 const CANVAS = "sessions";
 
@@ -314,5 +318,144 @@ describe("junto onboard past sessions", () => {
 
     const tooMany = await op("onboard", { past_notes: 99 });
     expect(tooMany).toMatchObject({ ok: false, error: { type: "InputError" } });
+  });
+});
+
+/** What the closer does once a session has offboarded: end it as an offboard. */
+const endAsOffboard = (sessionId: string) =>
+  runtime.runPromise(Effect.flatMap(SeatSessionRepository, (r) => r.end("agent", "offboard", sessionId)));
+
+const noteTranscript = (sessionId: string, path: string) =>
+  runtime.runPromise(Effect.flatMap(SeatSessionRepository, (r) => r.noteTranscript("agent", sessionId, path)));
+
+describe("junto onboard after an offboard that continues", () => {
+  const NOTES = "# Parser half done\n\n- shipped: tokenizer\n- left: the 429 retry in sync.ts";
+  const CONTINUATION = "Finish the 429 retry in sync.ts, then run the nightly sync once.";
+
+  const handOver = async () => {
+    const offboarded = await op("offboard", { notes: NOTES, continuation: CONTINUATION });
+    expect(offboarded.ok).toBe(true);
+    await noteTranscript("s1", "/harness/sessions/s1.jsonl");
+    await endAsOffboard("s1");
+    await writeSession("s2");
+  };
+
+  it("hands the next session everything in one place, first", async () => {
+    await handOver();
+    const onboard = await op("onboard", {});
+    expect(onboard.ok).toBe(true);
+    // Read first: the handoff leads the answer.
+    expect(Object.keys(onboard.data)[0]).toBe("handoff");
+    const { handoff } = onboard.data;
+    expect(handoff.note).toBe(CONTINUATION_FRAMING);
+    // What to do next comes before what happened.
+    expect(Object.keys(handoff).indexOf("continuation")).toBeLessThan(Object.keys(handoff).indexOf("notes"));
+    expect(handoff).toMatchObject({
+      from_session: "s1",
+      continuation: CONTINUATION,
+      gist: "Parser half done",
+      notes: NOTES,
+      notes_path: join(root, "seats", "agent", "sessions", "s1.md"),
+      transcript_path: "/harness/sessions/s1.jsonl",
+    });
+    expect(typeof handoff.left_at).toBe("string");
+    expect(onboard.data.sessions.current).toMatchObject({ session_id: "s2" });
+    expect(onboard.data).not.toHaveProperty("previous_session_without_notes");
+  });
+
+  it("does not print the same notes twice", async () => {
+    await handOver();
+    const onboard = await op("onboard", {});
+    const [previous] = onboard.data.sessions.past;
+    expect(previous).toMatchObject({
+      session_id: "s1",
+      ended_because: "offboard",
+      gist: "Parser half done",
+      notes_path: join(root, "seats", "agent", "sessions", "s1.md"),
+      notes_in: "handoff",
+    });
+    expect(previous).not.toHaveProperty("notes");
+    expect(JSON.stringify(onboard.data).split("the 429 retry in sync.ts, then run").length - 1).toBe(1);
+    expect(JSON.stringify(onboard.data).split("shipped: tokenizer").length - 1).toBe(1);
+  });
+
+  it("carries the notes even when the caller asked for no past notes inline", async () => {
+    await handOver();
+    const onboard = await op("onboard", { past_notes: 0 });
+    expect(onboard.data.handoff.notes).toBe(NOTES);
+  });
+
+  it("only the very next session gets the handoff", async () => {
+    await handOver();
+    await writeSession("s3");
+    const onboard = await op("onboard", {});
+    expect(onboard.data).not.toHaveProperty("handoff");
+    // The notes are history now, inline like any other.
+    const s1 = onboard.data.sessions.past.find((s: { session_id: string }) => s.session_id === "s1");
+    expect(s1.notes).toBe(NOTES);
+    expect(s1).not.toHaveProperty("notes_in");
+  });
+
+  it("an offboard that rests leaves notes as history and no handoff", async () => {
+    await op("offboard", { notes: NOTES });
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    const onboard = await op("onboard", {});
+    expect(onboard.data).not.toHaveProperty("handoff");
+    expect(onboard.data).not.toHaveProperty("previous_session_without_notes");
+    expect(onboard.data.sessions.past[0]).toMatchObject({ session_id: "s1", notes: NOTES });
+  });
+});
+
+describe("junto onboard after a session that ended without notes", () => {
+  it("says so first, with the previous session's id and transcript as the reference", async () => {
+    // Junto ended the session itself: no agent turn, so no notes were written.
+    await noteTranscript("s1", "/harness/sessions/s1.jsonl");
+    await endAsOffboard("s1");
+    await writeSession("s2");
+
+    const onboard = await op("onboard", {});
+    expect(onboard.ok).toBe(true);
+    expect(Object.keys(onboard.data)[0]).toBe("previous_session_without_notes");
+    expect(onboard.data).not.toHaveProperty("handoff");
+    const told = onboard.data.previous_session_without_notes;
+    expect(told.note).toBe(PREVIOUS_WITHOUT_NOTES_FRAMING);
+    expect(told).toMatchObject({
+      session_id: "s1",
+      ended_because: "offboard",
+      transcript_path: "/harness/sessions/s1.jsonl",
+    });
+    expect(typeof told.ended_at).toBe("string");
+    // History to read if needed, never a task: the framing says both.
+    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/without (leaving )?notes/);
+    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/history/i);
+    expect(PREVIOUS_WITHOUT_NOTES_FRAMING).toMatch(/if you need/i);
+  });
+
+  it("says so when no transcript is known, and names none", async () => {
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    const told = (await op("onboard", {})).data.previous_session_without_notes;
+    expect(told).toMatchObject({ session_id: "s1", transcript_path: null });
+  });
+
+  it("covers a session that was replaced without notes for any other reason", async () => {
+    await writeSession("s2");
+    const told = (await op("onboard", {})).data.previous_session_without_notes;
+    expect(told).toMatchObject({ session_id: "s1", ended_because: "replaced" });
+  });
+
+  it("is about the session just before this one only, and a first session is told nothing", async () => {
+    const first = await op("onboard", {});
+    expect(first.data).not.toHaveProperty("previous_session_without_notes");
+
+    // s1 ended without notes; s2 left notes; s3 follows s2.
+    await endAsOffboard("s1");
+    await writeSession("s2");
+    await op("offboard", { notes: "Second session: wired the parser" });
+    await endAsOffboard("s2");
+    await writeSession("s3");
+    const third = await op("onboard", {});
+    expect(third.data).not.toHaveProperty("previous_session_without_notes");
   });
 });

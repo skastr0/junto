@@ -120,6 +120,14 @@ export const CONTINUATION_FRAMING =
   "Left for you by your previous session: an explicit handoff, the one exception to past sessions being context only. Pick this up now, unless your current instructions or mail say otherwise.";
 
 /**
+ * How `junto onboard` tells a session that the one before it ended without
+ * notes: the operator or Junto ended it with no agent turn, or its id simply
+ * changed. Nothing was handed over, so the transcript is the only record.
+ */
+export const PREVIOUS_WITHOUT_NOTES_FRAMING =
+  "The session before this one ended without leaving notes, so nothing was handed over to you. Its transcript is the only record of it. It is history: read it if you need to know what that session was doing, and do not resume its work unless your current instructions or mail ask you to.";
+
+/**
  * What the operator's Offboard buttons send the agent: the offboard prompt
  * for that mode. The notes are always the agent's own to write.
  */
