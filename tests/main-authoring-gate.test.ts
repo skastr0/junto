@@ -192,6 +192,7 @@ describe("work-control main authoring classification", () => {
       "signal.clear": "authorial",
       "signal.list": "read",
       "env.report": "read",
+      "content.stage": "authorial",
       "artifact.publish": "authorial",
       "board.list": "read",
       "board.tags": "read",
@@ -216,6 +217,7 @@ describe("work-control main authoring classification", () => {
     expect(mainAuthoringLabelForWorkOperation("msg.read")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("signal.raise")).toBe("control.work.signal");
     expect(mainAuthoringLabelForWorkOperation("signal.clear")).toBe("control.work.signal");
+    expect(mainAuthoringLabelForWorkOperation("content.stage")).toBe("control.work.signal");
     expect(mainAuthoringLabelForWorkOperation("offboard")).toBe("control.work.offboard");
     expect(mainAuthoringLabelForWorkOperation("signal.list")).toBeUndefined();
   });

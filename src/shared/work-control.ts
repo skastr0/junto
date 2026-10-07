@@ -86,6 +86,8 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "signal.list",
 /** Universal seat-local: what this seat's regions resolve to (names and status, never values). */
 "env.report",
+/** Universal seat-local: the seat puts a file of its own into the content store, in pieces. */
+"content.stage",
 "artifact.publish",
 "board.list",
 "board.create_topic",

@@ -56,6 +56,7 @@ import {
   TasksShowArgs,
   TasksUpdateCliArgs,
 } from "../../shared/work-control";
+import { ContentStageArgs } from "../../shared/content-stage";
 import { envReportCapability, envReportExamples, envReportSchema } from "../commands/env";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
@@ -114,6 +115,8 @@ export interface CapabilityInvocation {
  */
 export const commandSurfaceEnabled = (commandId: string): boolean => {
   if (commandId.startsWith("tasks.")) return TASKS_ENABLED;
+  // Staging a file serves signals, which every build has.
+  if (commandId === "content.stage") return true;
   if (commandId.startsWith("content.")) return TASKS_ENABLED;
   // Region rulings are part of the region contract, which rides the Tasks gate.
   if (commandId === "rulings") return TASKS_ENABLED;
@@ -540,6 +543,20 @@ export const artifactPublishSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+/**
+ * Not a command: the work op the CLI uses to send a file. Documented so an
+ * agent that looks it up learns what it is and how it is normally reached.
+ */
+export const contentStageSchema: CommandSchemaContract = {
+  command_id: "content.stage",
+  command: "content.stage",
+  schema_id: "content.stage.input/v1",
+  description:
+    "Work op, not a command: a seat puts a file of its own into the content store, in pieces, and gets a ContentRef to name it by. Agents normally reach it through --attach on escalate, blocked and feedback, not by calling it. First piece {bytesBase64} answers {stageId, byteLength}; each next piece {stageId, bytesBase64}; the last carries done {mediaType, displayName?, expected?} and answers {ref}. A small file is one call with bytesBase64 and done. A piece is at most 4 MiB of raw bytes. A path never crosses.",
+  schema: ContentStageArgs,
+  input_modes: ["inline-json"],
+};
+
 export const contentPathSchema: CommandSchemaContract = {
   command_id: "content.path",
   command: "content path",
@@ -783,6 +800,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   padGetSchema,
   padTaggedSchema,
   envReportSchema,
+  contentStageSchema,
   ...overseerSchemas,
   ...(BROWSER_ENABLED
     ? [

@@ -124,6 +124,7 @@ import {
 } from "@shared/work-control";
 import { CanvasesService } from "../canvases";
 import { ContentService } from "../content/service";
+import { handleContentStage } from "./content-stage";
 import {
   admitSignalAttachments,
   releaseSignalAttachments,
@@ -2165,6 +2166,10 @@ const dispatchOp = (
         inReplyTo,
         read: exposeWorkMutation(markedMapped.success),
       };
+    }
+
+    if (op === "content.stage") {
+      return yield* handleContentStage({ canvasName: caller.canvasName, nodeId: caller.nodeId }, args);
     }
 
     if (op === "env.report") {

@@ -124,6 +124,8 @@ const WORK_OPERATION_CLASSIFICATION = {
   "signal.clear": "authorial",
   "signal.list": "read",
   "env.report": "read",
+  // Staging writes the content store and its manifest.
+  "content.stage": "authorial",
   "artifact.publish": "authorial",
   "board.list": "read",
   "board.tags": "read",
@@ -155,6 +157,9 @@ const WORK_AUTHORING_LABELS = {
   "msg.react": "control.work.msg-send",
   "signal.raise": "control.work.signal",
   "signal.clear": "control.work.signal",
+  // A staged file is a signal's attachment on its way in: the same
+  // authorial family, so it carries the same label.
+  "content.stage": "control.work.signal",
   offboard: "control.work.offboard",
   "artifact.publish": "control.work.artifact-publish",
   "board.create_topic": "control.work.board-create-topic",
@@ -177,6 +182,7 @@ const WORK_AUTHORING_LABELS = {
     | "msg.react"
     | "signal.raise"
     | "signal.clear"
+    | "content.stage"
     | "offboard"
     | "artifact.publish"
     | "board.create_topic"
