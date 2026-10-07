@@ -171,7 +171,10 @@ describe("WorkService — mail", () => {
     const name = "work-mail-lane";
     await workRuntime.runPromise(
       canvases.write(name, {
-        nodes: [agentNode("sender", name), agentNode("recipient", name)],
+        nodes: [agentNode("sender", name), agentNode("recipient", name), {
+          id: "tasks", type: "text", text: "Tasks", x: 0, y: 0, width: 200, height: 100,
+          ether: { entity: { kind: "task" } },
+        }],
         edges: [
           {
             id: "edge-message",
@@ -186,6 +189,8 @@ describe("WorkService — mail", () => {
     const authorialBefore = await workRuntime.runPromise(canvases.read(name));
 
     const canvasRead = vi.spyOn(canvases, "read");
+    const kernelChanges: Array<[string | undefined, string | undefined]> = [];
+    const offKernel = work.subscribeWorkChanges((canvas, nodeId) => kernelChanges.push([canvas, nodeId]));
     const appended = await workRuntime.runPromise(
       work.workMessageAppend(name, "recipient", null, mail("inbox-lane-1", "start"), sender)
     );
@@ -197,6 +202,13 @@ describe("WorkService — mail", () => {
     expect(appended).not.toHaveProperty("revision");
     expect(canvasRead).not.toHaveBeenCalled();
     canvasRead.mockRestore();
+    expect(kernelChanges).toEqual([]);
+    const created = await workRuntime.runPromise(work.workTaskCreate(name, "tasks", "A kernel-visible task", { details: "Run a task." }));
+    if (!created.ok) throw new Error(`${created.code}: ${created.message}`);
+    expect(kernelChanges).toEqual([[name, "tasks"]]);
+    offKernel();
+    await workRuntime.runPromise(work.workTaskCreate(name, "tasks", "After unsubscribe", { details: "Run another task." }));
+    expect(kernelChanges).toEqual([[name, "tasks"]]);
     const messages = await workRuntime.runPromise(repository.mailbox(name, "recipient"));
     expect(
       messages

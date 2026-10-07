@@ -1,4 +1,6 @@
 import { ModelNotFound, ModelRecords } from "../model/records";
+import type { KernelWork } from "@shared/work-kernel";
+export type { KernelWork } from "@shared/work-kernel";
 import { asCanvasName, asNodeId, taskBoardTitle, type Canvas, type Node, type SheetGrid } from "@shared/model";
 // WorkService — one repository-native orchestration seam for the SQLite work
 // plane. Typed canvas rows supply topology;
@@ -566,6 +568,8 @@ export interface WorkServiceShape {
     ) => Effect.Effect<WorkOpResult<Message>>;
     readonly readCanvases: (canvasName?: string) => Effect.Effect<ReadonlyArray<Canvas>, WorkServiceError>;
     readonly subscribeTopologyChanges: (listener: (canvasName: string) => void) => () => void;
+    readonly subscribeWorkChanges: (listener: (canvasName?: string, nodeId?: string) => void) => () => void;
+    readonly readKernelWork: (canvas: string) => Effect.Effect<KernelWork, WorkServiceError>;
     readonly readArtifacts: (canvas: string, nodeId: string) => Effect.Effect<ReadonlyArray<Artifact>, WorkServiceError>;
     readonly readArtifact: (canvas: string, nodeId: string, id: string) => Effect.Effect<Artifact | undefined, WorkServiceError>;
     readonly readSheet: (canvas: string, nodeId: string) => Effect.Effect<SheetGrid | undefined, WorkServiceError>;
@@ -1562,6 +1566,10 @@ export const WorkLive = Layer.effect(
         const offCanvases = model.subscribeCanvasesChanges((event) => listener(event.canvas));
         return () => { offChanges(); offCanvases(); };
       },
+      subscribeWorkChanges: (listener) => repository.subscribeChanges((canvas, nodeId, kind) => {
+        if (kind !== "mail") listener(canvas, nodeId);
+      }),
+      readKernelWork: (canvas) => repository.kernelWork(canvas).pipe(Effect.mapError(toWorkServiceError)),
       readArtifacts: (canvas, nodeId) => repository.artifactLane(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
       readArtifact: (canvas, nodeId, id) => repository.artifactItem(canvas, nodeId, id).pipe(Effect.mapError(toWorkServiceError)),
       readSheet: (canvas, nodeId) => model.readSheet(canvas, nodeId).pipe(Effect.mapError(toWorkServiceError)),
