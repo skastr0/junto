@@ -24,6 +24,7 @@ import {
   type ActorOccupySpec,
 } from "../src/main/junto/term/actor-seat-occupy";
 import { LocalSessionHost, resolveLaunch } from "../src/main/junto/term/local-host";
+import { TerminalRouter } from "../src/main/junto/term/router";
 import { juntoCliPathPrefixes } from "../src/main/junto/term/templates/seat-env";
 import type { SeatEnvironmentResolver } from "../src/main/junto/term/seat-process";
 import {
@@ -592,6 +593,111 @@ describe("the launch applies it", () => {
     expect(fake.controllers).toHaveLength(0);
     expect(host.get("b2")).toBeUndefined();
     expect(host.regionEnvironmentRecord("b2")).toBeUndefined();
+  });
+
+  describe("a plain shell terminal inside a region", () => {
+    const shell = (env?: Record<string, string>) =>
+      ({
+        kind: "terminal" as const,
+        launch: { kind: "command" as const, argv: ["/bin/sh", "-l"], ...(env ? { env } : {}) },
+      }) as Parameters<typeof resolveLaunch>[0];
+
+    it("gets the region's variables, under what the terminal itself sets", () => {
+      const launch = Result.getOrThrow(
+        resolveLaunch(shell({ FROM_TERMINAL: "terminal" }), {
+          regionEnv: { OP_SERVICE_ACCOUNT_TOKEN: CANARY, FROM_TERMINAL: "region", TERM: "dumb" },
+        }),
+      );
+      expect(launch.env.OP_SERVICE_ACCOUNT_TOKEN).toBe(CANARY);
+      expect(launch.env.FROM_TERMINAL).toBe("terminal");
+      // Every terminal is a real terminal, whatever a region says.
+      expect(launch.env.TERM).not.toBe("dumb");
+      expect(launch.args.join(" ")).not.toContain(CANARY);
+      // No region, no change: the shell is the operator's ordinary shell.
+      const plain = Result.getOrThrow(resolveLaunch(shell(), {}));
+      expect(plain.env.OP_SERVICE_ACCOUNT_TOKEN).toBeUndefined();
+    });
+
+    const routerWith = (seatEnvironment: SeatEnvironmentResolver | undefined) => {
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => {
+        const pid = 43_300 + index;
+        epochs.set(pid, `synthetic-${pid}`);
+        return { pid, exitOnSignal: false };
+      });
+      const host = new LocalSessionHost(fake.authority, {
+        killGraceMs: 5,
+        shutdownGraceMs: 5,
+        lateExitGraceMs: 5,
+      });
+      hosts.push(host);
+      const router = new TerminalRouter(host);
+      if (seatEnvironment) router.setTerminalEnvironment(seatEnvironment);
+      return { fake, host, router };
+    };
+    const launch = { kind: "command" as const, argv: ["/bin/sh", "-l"] };
+
+    it("is started with it by the router, from where the node sits now", async () => {
+      const asked: unknown[] = [];
+      const record = { fingerprint: "f1", names: { OP_SERVICE_ACCOUNT_TOKEN: "sig" }, folders: [] };
+      const { fake, host, router } = routerWith(async (seat) => {
+        asked.push(seat);
+        return { env: { OP_SERVICE_ACCOUNT_TOKEN: CANARY }, folders: ["/srv/shared"], record };
+      });
+      const summary = await router.create({
+        bindingId: "t1",
+        canvasName: "factory",
+        nodeId: "node-t1",
+        launch,
+        seatRect: { x: 1, y: 2, width: 3, height: 4 },
+      });
+      expect(summary.status).toBe("running");
+      expect(asked).toEqual([
+        { canvasName: "factory", nodeId: "node-t1", seatRect: { x: 1, y: 2, width: 3, height: 4 } },
+      ]);
+      const spawned = fake.controllers[0]!.spec;
+      expect(spawned.env?.OP_SERVICE_ACCOUNT_TOKEN).toBe(CANARY);
+      // A shell has no add-directory option: folders change nothing in its argv.
+      expect(spawned.args ?? []).toEqual(["-l"]);
+      expect(host.regionEnvironmentRecord("t1")).toEqual(record);
+      expect(JSON.stringify(host.get("t1"))).not.toContain(CANARY);
+    });
+
+    it("is refused in plain words when a required source cannot be read", async () => {
+      const { fake, host, router } = routerWith(async () => ({
+        env: {},
+        folders: [],
+        record: EMPTY_LAUNCH_RECORD,
+        refusal: "Outer: TOKEN is required and could not be read. Not there",
+      }));
+      await expect(
+        router.create({ bindingId: "t2", canvasName: "factory", nodeId: "node-t2", launch }),
+      ).rejects.toThrow(
+        "This terminal was not started. Outer: TOKEN is required and could not be read. Not there",
+      );
+      expect(fake.controllers).toHaveLength(0);
+      expect(host.get("t2")).toBeUndefined();
+    });
+
+    it("starts with nothing when the resolution cannot run, and is not asked without a node", async () => {
+      let asks = 0;
+      const { fake, router } = routerWith(async () => {
+        asks += 1;
+        throw new Error("canvas store is down");
+      });
+      expect((await router.create({ bindingId: "t3", canvasName: "factory", nodeId: "node-t3", launch })).status).toBe("running");
+      expect(asks).toBe(1);
+      // A terminal that is not on a canvas is in no region.
+      expect((await router.create({ bindingId: "t4", launch })).status).toBe("running");
+      expect(asks).toBe(1);
+      expect(fake.controllers).toHaveLength(2);
+    });
+
+    it("a router nobody wired starts terminals exactly as before", async () => {
+      const { fake, host, router } = routerWith(undefined);
+      expect((await router.create({ bindingId: "t5", canvasName: "factory", nodeId: "node-t5", launch })).status).toBe("running");
+      expect(fake.controllers).toHaveLength(1);
+      expect(host.regionEnvironmentRecord("t5")).toEqual(EMPTY_LAUNCH_RECORD);
+    });
   });
 
   it("a resolver that fails outright still launches the seat, with nothing", async () => {

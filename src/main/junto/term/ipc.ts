@@ -24,6 +24,7 @@ import {
   ActorSeatProjectionPending,
 } from "./actor-seat-occupy";
 import { AppRuntime } from "../../runtime";
+import { liveSeatEnvironment } from "../region-env/live";
 import { Effect } from "effect";
 
 type LeaseOwner = {
@@ -62,6 +63,9 @@ export const registerTerminalIpc = (
   const controlByBinding = new Map<string, string>();
   const router = plane.router;
   const nodeDelete = plane.nodeDelete;
+  // A plain terminal opened inside a region starts with that region's
+  // environment, read by the same service that serves agent seats.
+  router.setTerminalEnvironment(liveSeatEnvironment);
 
   const assertTrusted = (event: IpcMainInvokeEvent): WebContents => {
     const sender = event.sender;
@@ -363,6 +367,14 @@ export const registerTerminalIpc = (
           ...(typeof input.rows === "number" ? { rows: input.rows } : {}),
           ...(canvasName ? { canvasName } : {}),
           nodeId: node.id,
+          // The node in hand is newer than the saved canvas: read the
+          // terminal's regions from where it sits now.
+          seatRect: {
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+          },
           ...(binding.label ? { label: binding.label } : {}),
         });
       }

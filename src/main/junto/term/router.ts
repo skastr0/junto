@@ -26,6 +26,12 @@ import {
   type TermMaintenanceQuiescenceEvidence,
 } from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import type { RegionRect } from "@shared/graph";
+import { EMPTY_LAUNCH_RECORD } from "@shared/region-environment";
+import type {
+  SeatEnvironmentResolver,
+  SeatLaunchEnvironment,
+} from "./seat-process";
 import {
   occupancyFromSummary,
   occupyVacantSeat,
@@ -287,6 +293,16 @@ export class TerminalRouter extends EventEmitter {
   private readonly maintenanceDeadlineMs: number;
   private drainFlight: Promise<TerminalRouterShutdownReceipt> | undefined;
   private readonly diagnostics: string[] = [];
+  /**
+   * Resolves the region environment of a terminal on a canvas. Unset means
+   * terminals start with none, which is what a router with no canvas wants.
+   */
+  private terminalEnvironment: SeatEnvironmentResolver | undefined;
+
+  /** Wire the region environment for plain terminals (the app does, once). */
+  setTerminalEnvironment(resolver: SeatEnvironmentResolver | undefined): void {
+    this.terminalEnvironment = resolver;
+  }
 
   constructor(
     private readonly local: LocalSessionHost,
@@ -356,14 +372,48 @@ export class TerminalRouter extends EventEmitter {
     return hostId;
   }
 
-  /** Open a geography terminal on its host. Occupied seats are not replaced. */
+  /**
+   * Open a geography terminal on its host. Occupied seats are not replaced.
+   *
+   * A local terminal that sits on a canvas starts with the environment of the
+   * regions around it, like an agent seat: a shell opened inside a region is
+   * part of that region's work. `seatRect` is where the node sits when the
+   * caller holds one newer than the saved canvas.
+   */
   async create(
-    input: LocalHostCreateInput & { hostId?: string },
+    input: LocalHostCreateInput & { hostId?: string; seatRect?: RegionRect },
   ): Promise<TerminalSessionSummary> {
-    const hostId = this.admitSessionHost(input);
-    return this.isLocalHostId(hostId)
-      ? this.local.create({ ...input, hostId: "local" })
-      : this.createRemote(hostId, input);
+    const { seatRect, ...open } = input;
+    const hostId = this.admitSessionHost(open);
+    if (!this.isLocalHostId(hostId)) return this.createRemote(hostId, open);
+    const canvasName = open.canvasName?.trim();
+    const nodeId = open.nodeId?.trim();
+    // An occupied binding is returned as it is: nothing is read for it.
+    if (
+      this.terminalEnvironment === undefined ||
+      !canvasName ||
+      !nodeId ||
+      this.local.get(open.bindingId.trim()) !== undefined
+    ) {
+      return this.local.create({ ...open, hostId: "local" });
+    }
+    // A resolution that cannot run at all starts the terminal with nothing;
+    // only a required source refuses it.
+    const { refusal, ...regionEnvironment } = await this.terminalEnvironment({
+      canvasName,
+      nodeId,
+      ...(seatRect ? { seatRect } : {}),
+    }).catch(
+      (): SeatLaunchEnvironment => ({
+        env: {},
+        folders: [],
+        record: EMPTY_LAUNCH_RECORD,
+      }),
+    );
+    if (refusal !== undefined) {
+      throw new Error(`This terminal was not started. ${refusal}`);
+    }
+    return this.local.create({ ...open, hostId: "local", regionEnvironment });
   }
 
   private async createRemote(

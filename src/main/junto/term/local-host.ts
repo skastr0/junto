@@ -154,6 +154,8 @@ export type TerminalOpenInput = {
 /** Geography terminal (`geography/"terminal"`) — a shell. Holds no harness. */
 export type LocalHostCreateInput = TerminalOpenInput & {
   readonly launch?: TerminalLaunch;
+  /** What the regions around this terminal resolved to, for this spawn only. */
+  readonly regionEnvironment?: SeatRegionEnvironment;
 };
 
 /** The actor seat. Harness and agent key are part of the type, not a bolt-on. */
@@ -362,10 +364,10 @@ type SessionRec = {
   /** Payload to recreate a pin generation after resume failure. */
   failOpenSeed?: LocalHostAgentSeatInput;
   /**
-   * What this generation's region environment was (names and identities, no
-   * values). Undefined for a geography terminal, which takes none.
+   * What this generation's region environment was: names and identities, no
+   * values. The empty record when it was started inside no region.
    */
-  regionEnvironment: RegionEnvironmentLaunchRecord | undefined;
+  regionEnvironment: RegionEnvironmentLaunchRecord;
   /**
    * Pre-ownership failure only. Clean post-run exits leave this unset so
    * the canvas keeps the normal stopped/exited grammar.
@@ -723,6 +725,8 @@ export const resolveLaunch = (
         }
       : {
           ...(process.env as Record<string, string>),
+          // A shell opened inside a region is part of that region's work.
+          ...(options?.regionEnv ?? {}),
           ...(launch?.env ?? {}),
           TERM: term,
           COLORTERM: process.env.COLORTERM || "truecolor",
@@ -1091,10 +1095,11 @@ export class LocalSessionHost extends EventEmitter {
     const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
     const harness = seat.kind === "agent" ? seat.harness : undefined;
     const agentKey = seat.kind === "agent" ? seat.agentKey : undefined;
-    const regionEnvironment =
-      seat.kind === "agent"
-        ? (input as LocalHostAgentSeatInput).regionEnvironment
-        : undefined;
+    // Agent seats and plain terminals both start with their regions'
+    // environment; only the agent path has folders to pass on.
+    const regionEnvironment = (
+      input as LocalHostAgentSeatInput | LocalHostCreateInput
+    ).regionEnvironment;
     const resolved = resolveLaunch(
       seat,
       seat.kind === "agent"
@@ -1118,7 +1123,9 @@ export class LocalSessionHost extends EventEmitter {
                 }
               : {}),
           }
-        : {},
+        : regionEnvironment
+          ? { regionEnv: regionEnvironment.env }
+          : {},
     );
     const epoch = mintEpoch();
     const requestedCanvasName = input.canvasName?.trim() || undefined;
@@ -1156,10 +1163,7 @@ export class LocalSessionHost extends EventEmitter {
       nodeId,
       agentKey,
       harness,
-      regionEnvironment:
-        seat.kind === "agent"
-          ? (regionEnvironment?.record ?? EMPTY_LAUNCH_RECORD)
-          : undefined,
+      regionEnvironment: regionEnvironment?.record ?? EMPTY_LAUNCH_RECORD,
       detached: canvasName === undefined,
       createdAt: Date.now(),
       seq: 0n,
@@ -2051,6 +2055,9 @@ export class LocalSessionHost extends EventEmitter {
     // is refused in plain words and can never act as the seat.
     this.offboardProcessIdentities(rec);
     this.clearPrimeAgentReporterHook(rec, "offboard_detached");
+    // The id this process printed was the binding's captured session. The
+    // binding is the fresh session's now, and must not inherit it.
+    clearCapturedSessionId(rec.bindingId);
     // For the seat, this generation has ended. Say so once, as an exit does,
     // so every surface lets go of it now.
     rec.seq = rec.seq + 1n;
