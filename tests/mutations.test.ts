@@ -1,4 +1,5 @@
 import { holdCanvas } from "./support/hold-canvas";
+import { nodeOfDocument } from "../src/shared/model/from-document";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
@@ -1031,7 +1032,7 @@ describe("renderer graph mutations", () => {
     ]));
   });
 
-  it("renames a terminal node first line and ether.terminal.label together", () => {
+  it("renames a terminal: its label, and nothing else about it", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
@@ -1057,18 +1058,16 @@ describe("renderer graph mutations", () => {
 
     renameTerminalNode("term", "Dev shell");
 
+    // A terminal is named by its label, one line; that is all a rename changes.
     const node = state$.doc.peek().nodes.find((candidate) => candidate.id === "term");
-    expect(node).toMatchObject({
-      id: "term",
-      text: "Dev shell\nnotes stay",
-      ether: {
-        entity: { kind: "terminal" },
-        terminal: {
-          bindingId: "bind-1",
-          label: "Dev shell",
-        },
-      },
+    expect(node?.ether?.entity?.kind).toBe("terminal");
+    expect(node?.ether?.terminal).toMatchObject({ bindingId: "bind-1" });
+    expect(node === undefined ? undefined : nodeOfDocument("mutation-test", node, 0)).toMatchObject({
+      kind: "terminal",
+      label: "Dev shell",
+      bindingId: "bind-1",
     });
+    expect(node).toMatchObject({ x: 0, y: 0, width: 220, height: 84 });
   });
 
   it("editLink ignores plain (non-page) link furniture", () => {
