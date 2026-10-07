@@ -20,6 +20,7 @@
 import {
   useEffect,
   useMemo,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -60,7 +61,8 @@ import {
   useOperatorFeed,
   withLeavingItems,
 } from "../../lib/operator-feed";
-import { closeOperatorModal } from "../../lib/operator-modal";
+import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
+import { closeOperatorModal, takeOperatorModalPlace, type OperatorModalPlaces } from "../../lib/operator-modal";
 import { quickReplyForKey, useQuickReplies } from "../../lib/quick-replies";
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
@@ -121,6 +123,7 @@ export function FeedCard({
   onReply,
   onQuickReply,
   onToggleDetail,
+  onReviewCommit,
 }: {
   readonly item: FeedItem;
   readonly node: CanvasNode | undefined;
@@ -139,6 +142,8 @@ export function FeedCard({
   readonly onReply: (open: boolean) => void;
   readonly onQuickReply: (text: string) => void;
   readonly onToggleDetail: () => void;
+  /** Leave the feed for the full review of a commit this card carries. Absent where there is no feed to leave. */
+  readonly onReviewCommit?: ((sha: string) => void) | undefined;
 }) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -218,6 +223,8 @@ export function FeedCard({
               attachments={item.attachments}
               source={{ kind: "signal", signalId: item.signalId }}
               seat={{ canvasName: item.canvasName, nodeId: item.seat.nodeId }}
+              // Only a sender on the open canvas with a folder can be reviewed.
+              onReviewCommit={onReviewCommit && canReviewCommit(item.canvasName, item.seat.nodeId) ? onReviewCommit : undefined}
               textClassName="operator-feed__detail"
             />
           ) : null}
@@ -311,12 +318,21 @@ export function OperatorFeed() {
   const quickReplies = useQuickReplies();
   const doc = use$(state$.doc);
   const nodesById = useMemo(() => new Map(doc.nodes.map((node) => [node.id, node] as const)), [doc]);
-  const [selected, setSelected] = useState<string | null>(null);
+  // Coming back from a review opened on a card: the same card, the same
+  // open details, the same scroll. Taken once, as the feed mounts.
+  const placeRef = useRef<OperatorModalPlaces["feed"] | null | undefined>(null);
+  if (placeRef.current === null) placeRef.current = takeOperatorModalPlace("feed");
+  const place = placeRef.current;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (place && scrollRef.current) scrollRef.current.scrollTop = place.scrollTop;
+  }, [place]);
+  const [selected, setSelected] = useState<string | null>(place?.itemId ?? null);
   // A press selects what is already under the pointer; scrolling it would
   // move the row out from under the click.
-  const [reveal, setReveal] = useState(true);
+  const [reveal, setReveal] = useState(place === undefined);
   const [replyFor, setReplyFor] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(place?.expanded));
   // Quick replies in flight, by item: one per card, cards independent.
   const [sending, setSending] = useState<ReadonlyMap<string, string>>(() => new Map());
   const sendingRef = useRef(sending);
@@ -439,6 +455,7 @@ export function OperatorFeed() {
       onKeyDown={onKeyDown}
     >
       <div
+        ref={scrollRef}
         className="operator-feed__scroll"
         data-testid="operator-feed"
         onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}
@@ -482,6 +499,13 @@ export function OperatorFeed() {
                       if (next.has(item.itemId)) next.delete(item.itemId);
                       else next.add(item.itemId);
                       return next;
+                    })
+                  }
+                  onReviewCommit={(sha) =>
+                    openCommitReview({
+                      nodeId: item.seat.nodeId,
+                      sha,
+                      place: { itemId: item.itemId, expanded: [...expanded], scrollTop: scrollRef.current?.scrollTop ?? 0 },
                     })
                   }
                 />
