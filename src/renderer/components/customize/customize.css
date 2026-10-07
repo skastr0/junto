@@ -30,7 +30,7 @@
 
 .customize-guidance__error {
   margin: 0;
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   font-size: var(--text-label);
 }
 
@@ -177,7 +177,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   font-size: var(--text-label);
 }
 

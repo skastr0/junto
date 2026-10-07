@@ -43,7 +43,7 @@
 
 .quick-reply[aria-busy="true"] {
   background: color-mix(in oklab, var(--color-amber) 16%, transparent);
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   opacity: 1;
 }
 

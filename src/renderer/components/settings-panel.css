@@ -766,7 +766,7 @@
 }
 .settings-provider-reveal:hover,
 .settings-provider-clear:hover {
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   border-color: color-mix(in oklab, var(--color-amber) 40%, transparent);
 }
 

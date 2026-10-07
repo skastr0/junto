@@ -168,9 +168,9 @@
 }
 
 .seat-git-line__part--additions { color: var(--color-green); }
-.seat-git-line__part--deletions { color: var(--color-crimson); }
+.seat-git-line__part--deletions { color: var(--color-crimson-fg); }
 .seat-git-line__part--dirty,
-.seat-git-line__part--operation { color: var(--color-amber); }
+.seat-git-line__part--operation { color: var(--color-amber-fg); }
 
 /* The subject is the first to give way, down to nothing. */
 .seat-git-line__part--subject {
@@ -254,7 +254,7 @@
 }
 
 .git-review__status[data-problem="true"] {
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
 }
 
 /* Who a comment or the review goes to, said quietly. */

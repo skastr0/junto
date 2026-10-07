@@ -10,7 +10,7 @@
 
 .profile-save__error {
   margin: 0;
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   font-size: var(--text-body);
 }
 

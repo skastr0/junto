@@ -388,7 +388,7 @@
 .operator-feed__error {
   margin: 0;
   font-size: var(--text-body-lg);
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
 }
 
 /* Key legend -------------------------------------------------------------- */

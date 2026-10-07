@@ -121,7 +121,7 @@
   padding: 7px 10px;
 }
 .chat-ledger-row--user .chat-ledger-row__meta > span {
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
 }
 
 .chat-message__text {
@@ -218,7 +218,7 @@
   color: var(--color-cyan-fg);
 }
 .chat-plan__status.is-active {
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
 }
 .chat-plan__status.is-active svg {
   animation: chat-spin 1.4s linear infinite;
@@ -315,7 +315,7 @@
   border: 1px solid color-mix(in oklab, var(--color-main) 42%, transparent);
   border-radius: var(--radius-sm);
   background: color-mix(in oklab, var(--color-main) 8%, transparent);
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   padding: 4px 9px;
   font: inherit;
   font-size: var(--text-micro);
@@ -328,7 +328,7 @@
 .chat-permission-card__option.is-deny {
   border-color: color-mix(in oklab, var(--color-accent) 38%, transparent);
   background: color-mix(in oklab, var(--color-accent) 7%, transparent);
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
 }
 .chat-permission-card__option:disabled {
   cursor: not-allowed;
@@ -343,7 +343,7 @@
   line-height: var(--leading-body);
 }
 .chat-status-line.is-error {
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
 }
 
 .chat-session-rail {
@@ -637,7 +637,7 @@
   font-size: var(--text-body);
 }
 .chat-empty__line--error {
-  color: var(--color-crimson);
+  color: var(--color-crimson-fg);
 }
 .chat-empty__hint {
   color: var(--color-faint);
@@ -647,7 +647,7 @@
   border: 1px solid color-mix(in oklab, var(--color-main) 40%, transparent);
   border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--color-main) 9%, transparent);
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   padding: 6px 10px;
   font: inherit;
   font-size: var(--text-caption);

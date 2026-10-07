@@ -77,7 +77,7 @@
   font-size: var(--text-body);
   font-variant-numeric: tabular-nums;
 }
-.first-run-intro__chapter.is-active .first-run-intro__chapter-n { color: var(--color-amber); }
+.first-run-intro__chapter.is-active .first-run-intro__chapter-n { color: var(--color-amber-fg); }
 
 /* Main column: head, the chapter, the foot. */
 .first-run-intro__main {
@@ -148,7 +148,7 @@
 .first-run-intro__try-label {
   display: block;
   margin-bottom: 8px;
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   font-size: var(--text-body-lg);
   font-weight: 600;
 }

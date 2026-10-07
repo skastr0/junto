@@ -656,7 +656,7 @@
   border-radius: 3px;
   border: 1px solid color-mix(in oklab, var(--color-main) 40%, transparent);
   background: transparent;
-  color: var(--color-amber);
+  color: var(--color-amber-fg);
   font-size: 8px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
