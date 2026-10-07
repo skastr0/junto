@@ -1,3 +1,4 @@
+import { CountedSurface } from "../lib/performance/surface-commits";
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useId, useState } from "react";
 import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2 } from "lucide-react";
@@ -289,7 +290,9 @@ export function TopBar({
         <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} authoring={authoring} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
         <CommandBarTrigger canvasName={canvasName} />
         <SaveStatus />
-        <CommandGroupBar />
+        <CountedSurface id="command-groups">
+          <CommandGroupBar />
+        </CountedSurface>
       </div>
       <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />

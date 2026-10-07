@@ -1,3 +1,4 @@
+import { countRender } from "../../lib/performance/surface-commits";
 import {
   useEffect,
   type CSSProperties,
@@ -358,6 +359,7 @@ export function NodeShell({
 
   readonly children: ReactNode;
 }) {
+  countRender("node-shell");
   // The node, read from the store one field at a time: the shell hears its
   // kind, colour and who sits in it, and not a move, a resize or a rename.
   const kind = useNodeValue(canvas, id, (node) => node?.kind);

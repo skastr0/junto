@@ -1,3 +1,4 @@
+import { countRender } from "../../lib/performance/surface-commits";
 import {
   useEffect,
   useRef,
@@ -245,6 +246,7 @@ function TimerCard({ canvas, id }: { readonly canvas: string; readonly id: strin
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
 export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
+  countRender("text-card");
   const canvasName = use$(state$.canvasName);
   // What the card is and what it says, from the node store, one field each.
   const kind = useNodeValue(canvasName, id, (node) => node?.kind);

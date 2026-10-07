@@ -1,3 +1,4 @@
+import { countRender } from "../../lib/performance/surface-commits";
 import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { NodeResizer, NodeToolbar, Position, useReactFlow, useStoreApi } from "@xyflow/react";
@@ -140,6 +141,7 @@ function RegionLabel({
 }
 
 export function GroupNode({ id, data, selected }: NodeProps<FlowNode>) {
+  countRender("region-card");
   // The region is read from the node store one field at a time, so a move or
   // a resize of the region does not re-render its chrome.
   const canvasName = use$(state$.canvasName);

@@ -7,6 +7,7 @@ import { modelStore } from "./lib/use-model";
 import { impactModeActive$ } from "./lib/impact-mode";
 import { clearSelection, selectNode, state$ } from "./lib/state";
 import { asCanvasName } from "@shared/model";
+import { CountedSurface } from "./lib/performance/surface-commits";
 import type { ActorRef } from "@shared/work-protocol";
 import { canvasCommandGroups } from "./lib/command-groups";
 import {
@@ -564,11 +565,13 @@ export function App() {
 
   return (
     <div className="junto-app flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--color-ground)" }}>
-      <TopBar
-        onOpen={(name) => void openCanvas(name)}
-        onCreate={(name) => void createCanvas(name)}
-        onDelete={(name) => void deleteCanvas(name)}
-      />
+      <CountedSurface id="top-bar">
+        <TopBar
+          onOpen={(name) => void openCanvas(name)}
+          onCreate={(name) => void createCanvas(name)}
+          onDelete={(name) => void deleteCanvas(name)}
+        />
+      </CountedSurface>
 
       <div className="junto-stage flex min-h-0 flex-1">
         {/* Canvas column shrinks when the dock opens; overlays anchor to it. */}
@@ -597,8 +600,12 @@ export function App() {
           <Canvas />
           <DemoCameraBridge />
         </ReactFlowProvider>
-        <CanvasChrome />
-        <FocusSwitcherHud />
+        <CountedSurface id="canvas-chrome">
+          <CanvasChrome />
+        </CountedSurface>
+        <CountedSurface id="focus-switcher">
+          <FocusSwitcherHud />
+        </CountedSurface>
         {LIVE_OVERSEER_ENABLED && <LiveConversationHost />}
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
@@ -608,13 +615,21 @@ export function App() {
             closeAllWorkbenchSurfaces();
           }}
         >
-          <WorkFocusShell />
-          <PersistentTerminalHost />
-          <TerminalGridFocus />
+          <CountedSurface id="work-focus">
+            <WorkFocusShell />
+          </CountedSurface>
+          <CountedSurface id="terminal-host">
+            <PersistentTerminalHost />
+          </CountedSurface>
+          <CountedSurface id="terminal-grid">
+            <TerminalGridFocus />
+          </CountedSurface>
         </RendererErrorBoundary>
         <SettingsPanel />
         <DigestPanel />
-        <DesktopNotificationsHost />
+        <CountedSurface id="notifications">
+          <DesktopNotificationsHost />
+        </CountedSurface>
         <StoreHost />
         <AgentEditorHost />
         <ObservabilityPanel />
@@ -635,7 +650,9 @@ export function App() {
         </div>
         {WorkSurfaceDock ? (
           <Suspense fallback={null}>
-            <WorkSurfaceDock />
+            <CountedSurface id="work-dock">
+              <WorkSurfaceDock />
+            </CountedSurface>
           </Suspense>
         ) : null}
       </div>

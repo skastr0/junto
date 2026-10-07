@@ -127,6 +127,7 @@ import { RegionUrgencyGate } from "./RegionUrgencyGate";
 import { FactoryMinimap, type SeatMark } from "./FactoryMinimap";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
+import { CountedSurface } from "../lib/performance/surface-commits";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
 import { FocusSurface } from "./FocusSurface";
 import { useCanvasGroupFocus } from "./useCanvasGroupFocus";
@@ -1859,18 +1860,34 @@ function CanvasGraph() {
           on every pan frame (see the ground note in styles.css); React
           Flow's <Background> re-rendered a full-window SVG pattern per
           viewport change, which was worse. Flat ground wins. */}
-      <CanvasLoom edges={edges} />
-      <WirePulseFeed edges={edges} />
-      <CanvasMagnifier />
+      <CountedSurface id="loom">
+        <CanvasLoom edges={edges} />
+      </CountedSurface>
+      <CountedSurface id="wire-pulse">
+        <WirePulseFeed edges={edges} />
+      </CountedSurface>
+      <CountedSurface id="magnifier">
+        <CanvasMagnifier />
+      </CountedSurface>
       <CanvasKeyboardPan />
-      <RegionGlanceGate />
+      <CountedSurface id="region-glance">
+        <RegionGlanceGate />
+      </CountedSurface>
       <CanvasTierGate />
-      <SeatClusterLayer />
-      <RegionUrgencyGate />
-      <ImpactSeedChip />
+      <CountedSurface id="seat-clusters">
+        <SeatClusterLayer />
+      </CountedSurface>
+      <CountedSurface id="region-urgency">
+        <RegionUrgencyGate />
+      </CountedSurface>
+      <CountedSurface id="impact-chip">
+        <ImpactSeedChip />
+      </CountedSurface>
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
-        <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />
+        <CountedSurface id="bottom-bar">
+          <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />
+        </CountedSurface>
       </Panel>
     </ReactFlow>
     {ctxMenu ? <ContextModeDeck at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
