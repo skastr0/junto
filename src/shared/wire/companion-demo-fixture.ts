@@ -7,6 +7,7 @@
  * `src/shared/companion-demo.ts`.
  */
 
+import type { HarnessId } from "../managed-terminal-templates";
 import type { AgentSignal } from "./agent-signals";
 import type { CompanionActivity, CompanionMail, CompanionPreamble } from "./companion-protocol";
 import type { ThreadHealthValue } from "./thread-health";
@@ -28,7 +29,7 @@ export const DEMO_HEALTH_CONFIDENCE = 0.93;
 export type DemoRegion = {
   readonly id: string;
   readonly label: string;
-  /** JSON Canvas preset color. */
+  /** Region palette preset colour. */
   readonly color: string;
   readonly x: number;
   readonly y: number;
@@ -48,7 +49,7 @@ export type DemoControlState = "idle" | "working" | "attention" | "unknown" | "g
 export type DemoSeat = {
   readonly id: string;
   readonly name: string;
-  readonly harness: string;
+  readonly harness: HarnessId;
   /** Left edge of the seat's region; the seat sits inside it. */
   readonly regionX: number;
   readonly slot: number;

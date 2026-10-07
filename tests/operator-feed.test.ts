@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import type { AgentSignal } from "../src/shared/agent-signals";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { canvasOf, region, seat } from "./support/model-nodes";
 import type { ThreadHealthReading } from "../src/shared/thread-health";
 import {
   buildOperatorFeed,
-  feedRegionFor,
+  feedRegionForCanvas,
   feedKindCount,
-  feedSeatsFromDoc,
+  feedSeatsFromCanvas,
   needsOperatorCount,
   OperatorFeed,
   type FeedSeatInput,
@@ -15,27 +15,12 @@ import {
 
 const NOW = 10 * 60_000;
 
-const agent = (id: string, x: number, y: number): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: id.toUpperCase(),
-  x,
-  y,
-  width: 100,
-  height: 60,
-  ether: { entity: { kind: "agent", name: `local:${id}` }, terminal: { harness: "claude" } } as never,
-});
-
-const doc: CanvasDoc = {
-  nodes: [
-    { id: "outer", type: "group", label: "Build", x: 0, y: 0, width: 1000, height: 1000 },
-    { id: "inner", type: "group", label: "Docs", color: "5", x: 500, y: 500, width: 400, height: 400 },
-    agent("a", 10, 10),
-    agent("b", 600, 600),
-    agent("c", 2000, 2000),
-  ],
-  edges: [],
-};
+const agent = (id: string, x: number, y: number) => seat(id, { label: id.toUpperCase(), x, y, width: 100, height: 60 });
+const canvas = canvasOf([
+  region("outer", { x: 0, y: 0, width: 1000, height: 1000 }, { label: "Build" }),
+  region("inner", { x: 500, y: 500, width: 400, height: 400 }, { label: "Docs", color: "5" }),
+  agent("a", 10, 10), agent("b", 600, 600), agent("c", 2000, 2000),
+]);
 
 const signal = (over: Partial<AgentSignal> & Pick<AgentSignal, "signalId" | "nodeId">): AgentSignal => ({
   canvasName: "main",
@@ -56,16 +41,16 @@ const reading = (value: ThreadHealthReading["value"], observedAt: number): Threa
 });
 
 const seats = (extra?: Partial<Record<string, Partial<FeedSeatInput>>>): ReadonlyArray<FeedSeatInput> =>
-  feedSeatsFromDoc(doc, { nameOf: (node) => (node.type === "text" ? node.text : node.id) }).map((entry) => ({
+  feedSeatsFromCanvas(canvas).map((entry) => ({
     ...entry,
     ...(extra?.[entry.seat.nodeId] ?? {}),
   }));
 
 describe("feed regions", () => {
   it("uses the innermost containing region with the outer-to-inner path and its colour", () => {
-    expect(feedRegionFor(doc, "b")).toEqual({ regionId: "inner", label: "Docs", path: ["Build", "Docs"], color: "5" });
-    expect(feedRegionFor(doc, "a")).toEqual({ regionId: "outer", label: "Build", path: ["Build"] });
-    expect(feedRegionFor(doc, "c").regionId).toBeNull();
+    expect(feedRegionForCanvas(canvas, "b")).toEqual({ regionId: "inner", label: "Docs", path: ["Build", "Docs"], color: "5" });
+    expect(feedRegionForCanvas(canvas, "a")).toEqual({ regionId: "outer", label: "Build", path: ["Build"] });
+    expect(feedRegionForCanvas(canvas, "c").regionId).toBeNull();
   });
 
   it("resolves only agent seats with identity and harness", () => {

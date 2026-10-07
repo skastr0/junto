@@ -1,8 +1,6 @@
 import { asNodeId, inPaintOrder, regionStack as modelRegionStack, regionName, type Canvas, type Node } from "./model";
 import { titleOf } from "./model/title";
-import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { AgentSignal } from "./agent-signals";
-import { regionDisplayName, regionStack } from "./graph";
 import {
   THREAD_HEALTH_LABEL,
   THREAD_HEALTH_TONE,
@@ -29,7 +27,7 @@ export * from "./wire/operator-feed";
 
 // --- inputs -----------------------------------------------------------------
 
-/** A seat as the feed needs it, already resolved from the document. */
+/** A seat as the feed needs it, already resolved from the native canvas. */
 export type FeedSeatInput = {
   readonly seat: FeedSeat;
   readonly region: FeedRegion;
@@ -66,48 +64,6 @@ export type OperatorFeedInput = {
 };
 
 export const OPEN_FIELD: FeedRegion = { regionId: null, label: "open field", path: [] };
-
-/** Innermost containing region of a node, with its outer-to-inner path. */
-export const feedRegionFor = (doc: CanvasDoc, nodeId: string): FeedRegion => {
-  const stack = regionStack(doc, nodeId);
-  const inner = stack[stack.length - 1];
-  if (!inner) return OPEN_FIELD;
-  return {
-    regionId: inner.id,
-    label: regionDisplayName(inner),
-    path: stack.map(regionDisplayName),
-    ...(inner.color ? { color: inner.color } : {}),
-  };
-};
-
-/** Agent seats of a document as feed seats; live planes are joined by node id. */
-export const feedSeatsFromDoc = (
-  doc: CanvasDoc,
-  options: {
-    readonly nameOf: (node: CanvasNode) => string;
-    readonly attentionByNodeId?: ReadonlyMap<string, { readonly reason: string; readonly at: number }>;
-    readonly healthByNodeId?: ReadonlyMap<string, { readonly reading: ThreadHealthReading; readonly fresh?: boolean }>;
-  },
-): ReadonlyArray<FeedSeatInput> =>
-  doc.nodes
-    .filter((node) => node.type !== "group" && node.ether?.entity?.kind === "agent")
-    .map((node) => {
-      const harness = node.ether?.terminal?.harness;
-      const attention = options.attentionByNodeId?.get(node.id);
-      const health = options.healthByNodeId?.get(node.id);
-      return {
-        seat: {
-          nodeId: node.id,
-          name: options.nameOf(node),
-          portraitIdentity: node.id,
-          ...(typeof harness === "string" ? { harness } : {}),
-        },
-        region: feedRegionFor(doc, node.id),
-        ...(attention ? { attention } : {}),
-        ...(health ? { health: health.reading } : {}),
-        ...(health?.fresh !== undefined ? { healthFresh: health.fresh } : {}),
-      };
-    });
 
 /** Region and seats read directly from the kind model. */
 export const feedRegionForCanvas = (canvas: Canvas, nodeId: string): FeedRegion => {

@@ -1,24 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
-import { buildOperatorFeed, feedSeatsFromDoc } from "../src/shared/operator-feed";
+import { buildOperatorFeed, feedSeatsFromCanvas } from "../src/shared/operator-feed";
 import type { AgentSignal } from "../src/shared/agent-signals";
 import type { BindingId } from "../src/shared/model";
 import { seatSubjects, subjectsFromFeed } from "../src/renderer/lib/desktop-notify";
-import { seat } from "./support/model-nodes";
+import { canvasOf, seat } from "./support/model-nodes";
 
-const agent = (id: string, name: string): CanvasNode =>
-  ({
-    id,
-    type: "text",
-    x: 0,
-    y: 0,
-    width: 200,
-    height: 80,
-    text: name,
-    ether: { entity: { kind: "agent", name: `local:${id}` } },
-  }) as CanvasNode;
-
-const doc: CanvasDoc = { nodes: [agent("a1", "Maple"), agent("a2", "Pip"), agent("a3", "Clove")], edges: [] } as CanvasDoc;
+const canvas = canvasOf([seat("a1", { label: "Maple" }), seat("a2", { label: "Pip" }), seat("a3", { label: "Clove" })]);
 
 const signal = (nodeId: string, kind: AgentSignal["kind"], text: string): AgentSignal =>
   ({
@@ -36,8 +23,7 @@ describe("desktop notification subjects", () => {
     const feed = buildOperatorFeed({
       canvasName: "main",
       nowMs: 10,
-      seats: feedSeatsFromDoc(doc, {
-        nameOf: (node) => (node.type === "text" ? node.text : node.id),
+      seats: feedSeatsFromCanvas(canvas, {
         attentionByNodeId: new Map([["a3", { reason: "permission dialog", at: 5 }]]),
         healthByNodeId: new Map(),
       }),

@@ -12,7 +12,7 @@
  * shapes a real Mac sends.
  */
 
-import type { CanvasDoc, CanvasNode } from "./canvas";
+import { asCanvasName, asNodeId, canvasFromOpened, type BindingId, type NodeOf } from "./model";
 import type { AgentSignal } from "./agent-signals";
 import { rollupSeatSignals } from "./agent-signals";
 import {
@@ -33,7 +33,7 @@ import {
   type CompanionRequestFrame,
   type CompanionResponseFrame,
 } from "./companion-protocol";
-import { buildOperatorFeed, feedSeatsFromDoc, type FeedHealth } from "./operator-feed";
+import { buildOperatorFeed, feedSeatsFromCanvas, type FeedHealth } from "./operator-feed";
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, type ThreadHealthReading, type ThreadHealthValue } from "./thread-health";
 import {
   DEMO_ACTIVITY,
@@ -61,22 +61,21 @@ import {
 
 export { DEMO_CANVAS, DEMO_DEVICE_ID, DEMO_T0 } from "./wire/companion-demo-fixture";
 
-const region = (r: DemoRegion): CanvasNode =>
-  ({ id: r.id, type: "group", label: r.label, color: r.color, x: r.x, y: r.y, width: r.width, height: r.height }) as unknown as CanvasNode;
+const region = (r: DemoRegion, z: number): NodeOf<"region"> =>
+  ({ ...r, id: asNodeId(r.id), kind: "region", z, hold: false });
 
-const seatNode = (seat: DemoSeat): CanvasNode =>
-  ({
-    id: seat.id,
-    type: "text",
-    text: seat.name,
-    ...demoSeatPosition(seat),
-    width: 240,
-    height: 96,
-    ether: { entity: { kind: "agent", name: `local:demo-${seat.id}` }, terminal: { harness: seat.harness } },
-  }) as unknown as CanvasNode;
+const seatNode = (seat: DemoSeat, z: number): NodeOf<"agent"> => ({
+  id: asNodeId(seat.id), kind: "agent", label: seat.name,
+  ...demoSeatPosition(seat), width: 240, height: 96, z,
+  agentKey: `local:demo-${seat.id}`, host: "local", overseer: false,
+  bindingId: `demo-${seat.id}` as BindingId, harness: seat.harness, onRemove: "detach",
+});
 
 const SEATS = DEMO_SEATS;
-const DOC: CanvasDoc = { nodes: [...DEMO_REGIONS.map(region), ...SEATS.map(seatNode)], edges: [] };
+const CANVAS = canvasFromOpened({
+  canvas: asCanvasName(DEMO_CANVAS), seq: 0,
+  nodes: [...DEMO_REGIONS.map(region), ...SEATS.map((seat, index) => seatNode(seat, DEMO_REGIONS.length + index))], wires: [],
+});
 
 const reading = (seat: DemoSeat, value: ThreadHealthValue, at: number): ThreadHealthReading => ({
   bindingId: `local:demo-${seat.id}`,
@@ -144,13 +143,13 @@ export const makeDemoBackend = (): CompanionBackend & {
     return buildOperatorFeed({
       canvasName: DEMO_CANVAS,
       nowMs: clock,
-      seats: feedSeatsFromDoc(DOC, { nameOf: (node) => (node as { text?: string }).text ?? node.id, attentionByNodeId, healthByNodeId }),
+      seats: feedSeatsFromCanvas(CANVAS, { attentionByNodeId, healthByNodeId }),
       signals: [...signals.values()],
     });
   };
 
   const seatsNow = () => {
-    const feedSeats = feedSeatsFromDoc(DOC, { nameOf: (node) => (node as { text?: string }).text ?? node.id });
+    const feedSeats = feedSeatsFromCanvas(CANVAS);
     const rollups = rollupSeatSignals([...signals.values()].filter((signal) => signal.state === "open"));
     return SEATS.map((seat) => {
       const entry = feedSeats.find((candidate) => candidate.seat.nodeId === seat.id)!;
@@ -170,7 +169,7 @@ export const makeDemoBackend = (): CompanionBackend & {
 
   const known = (canvasName: string) => canvasName === DEMO_CANVAS;
   const regionIdOf = (nodeId: string): string | null =>
-    feedSeatsFromDoc(DOC, { nameOf: (node) => node.id }).find((entry) => entry.seat.nodeId === nodeId)?.region.regionId ?? null;
+    feedSeatsFromCanvas(CANVAS).find((entry) => entry.seat.nodeId === nodeId)?.region.regionId ?? null;
   const seatExists = (nodeId: string) => SEATS.some((seat) => seat.id === nodeId);
   const appendOperatorMail = (nodeId: string, text: string, at: number): CompanionMail => {
     const seat = SEATS.find((candidate) => candidate.id === nodeId)!;

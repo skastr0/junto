@@ -90,7 +90,7 @@ export const FeedRegion = Schema.Struct({
   label: Schema.String,
   /** Containing region labels, outer to inner. */
   path: Schema.Array(Schema.String),
-  /** The region's own JSON Canvas colour (preset "1".."6" or hex), when it has one. */
+  /** The region's own colour (preset "1".."6" or hex), when it has one. */
   color: Schema.optionalKey(Schema.String),
 });
 export type FeedRegion = typeof FeedRegion.Type;
