@@ -1,3 +1,4 @@
+import type { CanvasReadResult } from "../src/shared/ipc";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,8 @@ import { executeOverseerCanvas } from "../src/main/junto/overseer/canvas";
 import { buildLiveContext } from "../src/main/junto/overseer/live/context";
 import { OverseerLiveExecution, type OverseerHostIdentity } from "../src/main/junto/overseer/live/execution";
 import { makeLiveRepository } from "../src/main/junto/overseer/live/repository";
-import { canvasRevisionOf } from "../src/main/junto/overseer/live/composition";
+import { canvasRevisionOf, readLiveCanvas } from "../src/main/junto/overseer/live/composition";
+import { ModelService } from "../src/main/junto/model/service";
 import { createLiveSessionService } from "../src/main/junto/overseer/live/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -66,13 +68,13 @@ const boot = async () => {
   const revisions = new Map<string, string>();
   const service = createLiveSessionService({
     repository, run: (effect) => runtime.runPromise(effect),
-    canvasRevision: canvasRevisionOf(canvases),
+    canvasRevision: canvasRevisionOf(await runtime.runPromise(ModelService as never) as never),
     workProjection: await runtime.runPromise(WorkProjectionReader),
     settingsService: { get: Effect.succeed(defaultSettings()), resolveProviders: Effect.succeed({ openai: { apiKey: "test-key" } }) },
     resolveOccupant: async () => currentIdentity,
     subscribeAuthorityChanges: (listener) => { authorityListener = listener; return () => { authorityListener = undefined; }; },
     contextProvider: async (currentAttention) => {
-      const read = await runtime.runPromise(canvases.read(currentAttention.canvasName));
+      const read = await runtime.runPromise(readLiveCanvas(currentAttention.canvasName) as never) as CanvasReadResult;
       revisions.set(read.name, read.revision);
       return buildLiveContext(read, currentAttention);
     },
