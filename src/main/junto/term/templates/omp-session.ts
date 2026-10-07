@@ -84,6 +84,8 @@ export type OmpDiscoveryInput = {
   readonly graceMs?: number;
   /** Defaults to `os.tmpdir()`, matching installed omp. */
   readonly tmpDir?: string;
+  /** Session ids that are known not to be this seat's (a draining session). */
+  readonly exclude?: ReadonlySet<string>;
 };
 
 const DEFAULT_GRACE_MS = 2_000;
@@ -110,6 +112,7 @@ export const discoverOmpSessionId = (
   for (const name of names) {
     const match = OMP_SESSION_FILE.exec(name);
     if (!match) continue;
+    if (input.exclude?.has(match[2]!)) continue;
     let mtimeMs: number;
     try {
       const stat = statSync(join(dir, name));

@@ -2287,6 +2287,10 @@ export class LocalSessionHost extends EventEmitter {
         harness,
         sessionId,
         ...(rec.cwd ? { cwd: rec.cwd } : {}),
+        // The proof ladder runs for seconds. If this generation stops being
+        // the binding's own meanwhile (replaced, or offboarded and draining),
+        // its id must not be written onto the seat's node.
+        isCurrent: () => this.sessions.get(rec.bindingId) === rec,
       },
       ...(delays ? ([delays] as const) : ([] as const)),
     ).catch(() => {

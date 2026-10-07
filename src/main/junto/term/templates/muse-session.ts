@@ -155,6 +155,8 @@ export type MuseCaptureInput = {
    * session of the seat that started just before it.
    */
   readonly graceMs?: number;
+  /** Session ids that are known not to be this seat's (a draining session). */
+  readonly exclude?: ReadonlySet<string>;
 };
 
 const DEFAULT_GRACE_MS = 2_000;
@@ -173,7 +175,9 @@ export const captureMuseSessionId = (
   const mine = walkSessions(museSessionsRoot(input.home))
     .filter(
       (candidate) =>
-        candidate.workspaceRoot === input.cwd && candidate.recordedAtMs >= floor,
+        candidate.workspaceRoot === input.cwd &&
+        candidate.recordedAtMs >= floor &&
+        !input.exclude?.has(candidate.sessionId),
     )
     // Newest wins only among sessions that already passed both filters, so a
     // re-spawn in the same workspace claims its own generation.

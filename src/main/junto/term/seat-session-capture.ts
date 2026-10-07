@@ -26,6 +26,11 @@ export type SessionDiscovery = {
     readonly cwd: string;
     readonly spawnedAtMs: number;
     readonly home: string;
+    /**
+     * Ids that are known not to be this seat's. Skipped while choosing, so the
+     * seat's own session can still be found behind one.
+     */
+    readonly exclude?: ReadonlySet<string>;
   }) => string | undefined;
   readonly isSessionId: (value: string) => boolean;
 };
@@ -51,6 +56,8 @@ type Watch = {
   readonly cwd: string;
   readonly spawnedAtMs: number;
   readonly discovery: SessionDiscovery;
+  /** Sessions still running in this workspace that belong to no fresh seat. */
+  readonly exclude: ReadonlySet<string>;
   settled: boolean;
 };
 
@@ -78,6 +85,13 @@ export class SeatSessionCapture {
     readonly cwd: string;
     readonly spawnedAtMs: number;
     readonly existingSessionId?: string;
+    /**
+     * Session ids this seat must never take: its own earlier sessions that
+     * are still winding down after an offboard. Such a process keeps writing
+     * its session file in the same working directory, so workspace and start
+     * time alone can name the wrong one.
+     */
+    readonly excludeSessionIds?: ReadonlyArray<string>;
   }): void {
     const discovery = DISCOVERY[input.harness];
     if (!discovery) return;
@@ -94,6 +108,11 @@ export class SeatSessionCapture {
       cwd: input.cwd,
       spawnedAtMs: input.spawnedAtMs,
       discovery,
+      exclude: new Set(
+        (input.excludeSessionIds ?? [])
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+      ),
       settled: false,
     });
   }
@@ -114,10 +133,13 @@ export class SeatSessionCapture {
       cwd: watch.cwd,
       spawnedAtMs: watch.spawnedAtMs,
       home: watch.home,
+      exclude: watch.exclude,
     });
     // Undefined is the normal early answer: these harnesses write their store
     // asynchronously, so the next boundary tries again.
     if (sessionId === undefined) return undefined;
+    // Whatever a discovery does with `exclude`, an excluded id is never taken.
+    if (watch.exclude.has(sessionId)) return undefined;
     const candidateKey = JSON.stringify([watch.home, watch.harness, sessionId]);
     const owner = this.owners.get(candidateKey);
     if (owner !== undefined && owner !== watch) return undefined;
@@ -130,6 +152,7 @@ export class SeatSessionCapture {
           cwd: other.cwd,
           spawnedAtMs: other.spawnedAtMs,
           home: other.home,
+          exclude: other.exclude,
         }) === sessionId) return undefined;
       }
       this.owners.set(candidateKey, watch);

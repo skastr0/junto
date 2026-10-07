@@ -143,6 +143,8 @@ export type FxDiscoveryInput = {
   readonly home: string;
   /** Tolerance between recording the spawn and fx writing its store. */
   readonly graceMs?: number;
+  /** Session ids that are known not to be this seat's (a draining session). */
+  readonly exclude?: ReadonlySet<string>;
 };
 
 const DEFAULT_GRACE_MS = 2_000;
@@ -170,7 +172,9 @@ export const discoverFxSessionId = (
     return claimIfUnambiguous(
       indexed.filter(
         (entry) =>
-          entry.workspaceRoot === input.cwd && entry.createdAtMs >= floor,
+          entry.workspaceRoot === input.cwd &&
+          entry.createdAtMs >= floor &&
+          !input.exclude?.has(entry.id),
       ),
     );
   }
@@ -178,6 +182,8 @@ export const discoverFxSessionId = (
   // it says nothing about which workspace. Answer only when one session could
   // possibly be this seat's.
   return claimIfUnambiguous(
-    readSessionDirs(root).filter((entry) => entry.createdAtMs >= floor),
+    readSessionDirs(root).filter(
+      (entry) => entry.createdAtMs >= floor && !input.exclude?.has(entry.id),
+    ),
   );
 };

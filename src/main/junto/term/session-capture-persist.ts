@@ -38,6 +38,13 @@ export type CapturedSeatSession = {
   readonly harness: string;
   readonly sessionId: string;
   readonly cwd?: string;
+  /**
+   * Is the generation that announced this id still the seat's own? The proof
+   * ladder runs for seconds; a seat that offboards or is replaced meanwhile
+   * must not have its node rewritten with the session it just left. Absent
+   * means the caller makes no such claim and the id is written as before.
+   */
+  readonly isCurrent?: () => boolean;
 };
 
 export type CapturePersistOutcome =
@@ -49,6 +56,8 @@ export type CapturePersistOutcome =
   | "unverified"
   /** Pin / provisioned / unknown harness: the node's id is not ours to set. */
   | "not-captured"
+  /** The generation that announced the id is no longer the seat's. Not written. */
+  | "not-current"
   /** The canvas write itself failed. */
   | "failed";
 
@@ -123,6 +132,7 @@ export const persistCapturedSessionId = async (
   const nodeId = input.nodeId.trim();
   if (!sessionId || !canvasName || !nodeId) return "not-captured";
   if (!usesCapturedSession(harness)) return "not-captured";
+  if (input.isCurrent !== undefined && !input.isCurrent()) return "not-current";
 
   const cwd = input.cwd?.trim();
   if (
@@ -134,6 +144,9 @@ export const persistCapturedSessionId = async (
   ) {
     return "unverified";
   }
+
+  // Asked again right before the write: the probe above touches the disk.
+  if (input.isCurrent !== undefined && !input.isCurrent()) return "not-current";
 
   try {
     return await writer({

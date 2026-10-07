@@ -34,6 +34,8 @@ export type CodexDiscoveryInput = {
   readonly home: string;
   readonly nowMs?: number;
   readonly graceMs?: number;
+  /** Session ids that are known not to be this seat's (a draining session). */
+  readonly exclude?: ReadonlySet<string>;
 };
 
 const canonical = (path: string): string => {
@@ -147,6 +149,7 @@ export const discoverCodexSessionId = (input: CodexDiscoveryInput): string | und
       }
       const meta = readMeta(path);
       if (!meta || !meta.root || meta.createdMs < floor) continue;
+      if (input.exclude?.has(meta.id)) continue;
       if (canonical(meta.cwd) !== cwd) continue;
       if (!best || meta.createdMs < best.createdMs) best = meta;
     }
