@@ -114,6 +114,16 @@ export const absorbNativeTitlesInTree = (root: TitleHost | null | undefined): vo
   }
 };
 
+/**
+ * A toolbar under an open view is unseen, so there is nothing to keep clear
+ * of: whatever paints at its centre is neither the toolbar nor the canvas.
+ */
+const coveredByView = (element: HTMLElement): boolean => {
+  const rect = element.getBoundingClientRect();
+  const front = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return front !== null && !element.contains(front) && front.closest(".react-flow") === null;
+};
+
 /** A control whose popup is open: the popup is the answer, a tip only covers it. */
 const popupOpen = (target: HTMLElement): boolean => target.getAttribute("aria-expanded") === "true";
 
@@ -295,9 +305,8 @@ export function TooltipLayer() {
     if (!active || !tooltip || !active.target.isConnected) return;
     const tip = tooltip.getBoundingClientRect();
     // A toolbar's own buttons may tip over it; only other chrome is kept clear.
-    // A toolbar under an open view is inert and unseen: nothing to keep clear of.
     const keepClear = [...document.querySelectorAll<HTMLElement>(KEEP_CLEAR_SELECTOR)]
-      .filter((element) => !element.contains(active.target) && !element.closest("[inert]"))
+      .filter((element) => !element.contains(active.target) && !coveredByView(element))
       .map((element) => element.getBoundingClientRect())
       .filter((rect) => rect.width > 0 && rect.height > 0);
     setPosition(placeTooltip(
