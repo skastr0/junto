@@ -23,7 +23,8 @@ import { canvasToCapabilityView } from "@shared/physics/view";
 import { resolveHostPlacement } from "@shared/physics/placement";
 import { addEdge } from "../lib/edge-mutations";
 import { releaseFocus } from "../lib/focus-ownership";
-import { commitDoc, editLink, editText, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults } from "../lib/mutations";
+import { regionEdited } from "../lib/model-edits";
+import { commitCommands, editLink, editText, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults } from "../lib/mutations";
 import {
   describeCronExpression,
   isValidCronExpression,
@@ -440,32 +441,12 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
   );
 }
 
-const withoutKey = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
-  const { [key]: _removed, ...rest } = value;
-  return rest;
-};
-
-// Region briefing (ether.region.instruction) — operator context for agents
-// inside the group. Work-control `onboard` returns it via containingRegion;
-// nothing auto-injects it into agent turns.
-// Writes via commitDoc rather than a lib/mutations.ts export — same strip
-// pattern as setRegionHold.
+// Region briefing — operator context for agents inside the region.
+// Work-control `onboard` returns it via containingRegion; nothing injects it
+// into agent turns. An empty briefing clears the field.
 const commitRegionInstruction = (node: CanvasNode, instruction: string): void => {
   const trimmed = instruction.trim();
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== node.id) return n;
-      if (trimmed) {
-        return { ...n, ether: { ...(n.ether ?? {}), region: { ...(n.ether?.region ?? {}), instruction: trimmed } } };
-      }
-      if (!n.ether?.region) return n;
-      const nextRegion = withoutKey(n.ether.region, "instruction");
-      const nextEther = Object.keys(nextRegion).length ? { ...n.ether, region: nextRegion } : withoutKey(n.ether, "region");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : withoutKey(n, "ether")) as CanvasNode;
-    }),
-  });
+  commitCommands((canvas) => regionEdited(canvas, node.id, { instruction: trimmed === "" ? null : trimmed }));
 };
 
 /**
