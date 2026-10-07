@@ -6,6 +6,7 @@ import {
   offboardNowBlock,
   offboardNowLine,
   offboardPreferred,
+  offboardSessionLine,
   parseOffboardMinutes,
   planOffboardRulesChange,
   seedHarnessOverride,
@@ -186,5 +187,19 @@ describe("a minutes field", () => {
     expect(parseOffboardMinutes(" 1 ")).toBe(1);
     expect(parseOffboardMinutes("10080")).toBe(10080);
     for (const raw of ["", "0", "10081", "2.5", "-3", "1e2", "forty"]) expect(parseOffboardMinutes(raw)).toBeUndefined();
+  });
+});
+
+describe("what a seat's current session has done", () => {
+  it("says the work time and the estimated size", () => {
+    expect(offboardSessionLine(42, 180_400)).toBe("This session: 42m of work, about 180k tokens.");
+    expect(offboardSessionLine(95, 1_240_000)).toBe("This session: 1h 35m of work, about 1.2M tokens.");
+    expect(offboardSessionLine(0, 850)).toBe("This session: 0m of work, about 850 tokens.");
+    expect(offboardSessionLine(120, 2_000_000)).toBe("This session: 2h of work, about 2M tokens.");
+  });
+  it("leaves out what is not known, and says nothing when neither is", () => {
+    expect(offboardSessionLine(42, null)).toBe("This session: 42m of work.");
+    expect(offboardSessionLine(undefined, 200_000)).toBe("This session: about 200k tokens.");
+    expect(offboardSessionLine(null, undefined)).toBe("");
   });
 });

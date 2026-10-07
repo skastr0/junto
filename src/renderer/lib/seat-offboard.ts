@@ -167,6 +167,28 @@ export const offboardIdleLine = (statuses: ReadonlyArray<SeatOffboardStatus>): s
   return past === 2 ? "Both are past the cache window." : `All ${past} are past the cache window.`;
 };
 
+/** "180k", "1.2M", "850": a token estimate at the precision it has. */
+const tokensWords = (tokens: number): string => {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/u, "")}M`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
+  return String(tokens);
+};
+
+/**
+ * What one seat's current session has done: time spent working, and the
+ * size of its transcript as a token estimate. Either may be unknown (the
+ * size is, when the transcript cannot be found); empty when both are.
+ */
+export const offboardSessionLine = (
+  workMinutes: number | null | undefined,
+  tokens: number | null | undefined,
+): string => {
+  const work = typeof workMinutes === "number" ? `${minutesWords(workMinutes)} of work` : undefined;
+  const size = typeof tokens === "number" ? `about ${tokensWords(tokens)} tokens` : undefined;
+  if (work === undefined && size === undefined) return "";
+  return `This session: ${[work, size].filter((part) => part !== undefined).join(", ")}.`;
+};
+
 /** The action to mark as preferred: one seat's own; a selection has none. */
 export const offboardPreferred = (statuses: ReadonlyArray<SeatOffboardStatus>): SeatOffboardAction | undefined =>
   statuses.length === 1 ? statuses[0]!.preferred : undefined;
