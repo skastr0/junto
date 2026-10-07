@@ -1,4 +1,3 @@
-import type { CanvasDoc } from "@shared/canvas";
 import type { NodeRefOpenedEvent } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
@@ -39,10 +38,10 @@ export class NodeRefNavigationError extends Error {
   }
 }
 
-/** A canvas as read for a jump: its name, its document, its actor references. */
+/** A canvas as read for a jump: its name, the ids of its nodes, its actor references. */
 export interface NavigationRead {
   readonly name: string;
-  readonly doc: CanvasDoc;
+  readonly nodeIds: ReadonlyArray<string>;
   readonly actorRefs: ReadonlyArray<ActorRef>;
 }
 
@@ -124,7 +123,7 @@ export const makeNodeRefNavigationCoordinator = (
       );
     }
 
-    const matches = result.doc.nodes.filter((node) => node.id === event.nodeId);
+    const matches = result.nodeIds.filter((id) => id === event.nodeId);
     if (matches.length === 0) {
       throw report(new NodeRefNavigationError("missing", "The referenced node no longer exists."));
     }

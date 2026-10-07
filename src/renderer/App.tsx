@@ -243,7 +243,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
     heldForNavigation.delete(name);
     const held = await readHeld(name);
     heldForNavigation.set(name, held);
-    return { name, doc: projectedDocument(name), actorRefs: held.actorRefs };
+    return { name, nodeIds: [...modelStore.canvasOf(name).nodes.keys()], actorRefs: held.actorRefs };
   },
   assertCanApply: assertCanvasNavigationAdmitted,
   apply: (event, result) => {

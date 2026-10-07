@@ -6,8 +6,6 @@
  * Those are schema fields on Task, never metadata.reviewSubject,
  * metadata.verdicts, or a WorkTaskShow overlay.
  */
-import { wireOfDocument } from "@shared/model/from-document";
-import type { CanvasDoc } from "@shared/canvas";
 import {
   readReviewVerdict,
   type MailEvidenceRef,
@@ -251,17 +249,6 @@ const latestByReviewer = (
     }
   }
   return map;
-};
-
-/** reviews edge holds verdict.post: omitted mask is full compile, [] is none. */
-export const reviewsEdgeHoldsVerdictPost = (
-  edge: CanvasDoc["edges"][number],
-): boolean => {
-  const wire = wireOfDocument(edge);
-  return (
-    wire?.verb === "reviews" &&
-    (wire.mask === undefined || wire.mask.includes("verdict.post"))
-  );
 };
 
 /**

@@ -8,19 +8,9 @@ import {
   type NavigationRead,
 } from "../src/renderer/lib/node-ref-navigation";
 
-const textNode = (id: string) => ({
-  id,
-  type: "text" as const,
-  text: id,
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 60,
-});
-
 const canvas = (name: string, nodeIds: ReadonlyArray<string>): NavigationRead => ({
   name,
-  doc: { nodes: nodeIds.map(textNode), edges: [] },
+  nodeIds,
   actorRefs: [],
 });
 
