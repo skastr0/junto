@@ -119,8 +119,8 @@ import {
   validateTaskDependsOn,
 } from "@shared/task-deps";
 import {
-  canvasBodySha256Of,
-} from "../canvas-intent-identity";
+  bodySha256Of,
+} from "./body-sha256";
 import { decodeStationPortfolioBody } from "../station/portfolio";
 import {
   evaluateFinishCriteria,
@@ -885,7 +885,7 @@ const mintTaskDependencyScopeCapability = (input: {
       mode: input.mode,
       basis,
       authoringSink,
-      canvasBodySha256: input.rawCanvasBody === undefined ? "" : canvasBodySha256Of(input.rawCanvasBody),
+      canvasBodySha256: input.rawCanvasBody === undefined ? "" : bodySha256Of(input.rawCanvasBody),
       ...index,
     }),
   );
@@ -918,7 +918,7 @@ const createProjectedTaskDependencyScopeCapability = (
   const generation = input.generation;
   const contentSha256 = input.contentSha256;
   const authoringSink = decodeTopologySink(input.authoringSink);
-  const actualContentSha256 = canvasBodySha256Of(rawBody);
+  const actualContentSha256 = bodySha256Of(rawBody);
   if (actualContentSha256 !== contentSha256) {
     return topologyTypeError(
       "projection raw body does not match its exact contentSha256",
@@ -1822,7 +1822,7 @@ const assertProjectedCapabilityStored = Effect.fn(
   const row = rows.length === 1 ? rows[0]! : undefined;
   if (
     row === undefined ||
-    canvasBodySha256Of(row.body) !== data.basis.contentSha256
+    bodySha256Of(row.body) !== data.basis.contentSha256
   ) {
     return yield* Effect.fail(
       authorityError(

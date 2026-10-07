@@ -1,13 +1,11 @@
 import { Effect } from "effect";
 import { serializeCanvas, type CanvasDoc } from "../../src/shared/canvas";
-import {
-  canvasBodySha256Of,
-  intentSha256Of,
-} from "../../src/main/junto/canvas-intent-identity";
+import { bodySha256Of as canvasBodySha256Of } from "../../src/main/junto/work/body-sha256";
+import { intentSha256Of } from "./authorial-material";
 import type {
   CanvasIntentMaterial,
   StoredCanvasIntentDocument as CanvasAuthorityStoredDocument,
-} from "../../src/main/junto/canvas-intent-identity";
+} from "./authorial-material";
 type CanvasAuthorityMaterialSnapshot = CanvasIntentMaterial & { readonly generation: string };
 import { ModelRecords } from "../../src/main/junto/model/records";
 import { canvasFromDocument } from "../../src/shared/model/from-document";
