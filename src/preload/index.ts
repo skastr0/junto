@@ -863,12 +863,6 @@ const terminalApi: JuntoTerminalApi = {
       HOST_ACTIVATION_IPC_TIMEOUT_MS,
       hostId,
     ),
-  terminalCreate: (input) =>
-    invoke(
-      IPC_CHANNELS.terminalCreate,
-      HOST_ACTIVATION_IPC_TIMEOUT_MS,
-      input,
-    ),
   terminalGet: (bindingId, hostId) =>
     invoke(
       IPC_CHANNELS.terminalGet,

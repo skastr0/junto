@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { actorDeliverySurfaceOf } from "../src/shared/actor-surface";
-import type { CanvasNode } from "../src/shared/canvas";
-import { resolveTerminalBinding } from "../src/shared/terminal";
+import { Schema } from "effect";
+import { Node } from "../src/shared/model";
+import { seat, terminal } from "./support/model-nodes";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const readSource = (path: string): string =>
@@ -24,27 +24,18 @@ const between = (source: string, start: string, end: string): string => {
   return source.slice(from, to);
 };
 
-const baseNode = (kind: string): CanvasNode => ({
-  id: `node-${kind}`,
-  type: "text",
-  text: kind,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: { entity: { kind } },
-});
-
 describe("terminal actor entry", () => {
-  it("carries the canvas node instead of loose actor authority fields", () => {
+  it("carries only the stored canvas and node identity plus resume choice", () => {
     const source = readSource(IPC_CONTRACT);
     const body = between(
       source,
-      "export interface TerminalCreateInput {",
-      "\n}",
+      "readonly modelStart: (input: {",
+      "}) => Promise<TerminalSessionSummary>",
     );
 
-    expect(body).toMatch(/readonly node: CanvasNode;/u);
+    expect(body).toMatch(/readonly canvas: string;/u);
+    expect(body).toMatch(/readonly id: string;/u);
+    expect(body).toMatch(/readonly resume\?: boolean;/u);
     for (const field of [
       "bindingId",
       "hostId",
@@ -138,62 +129,32 @@ describe("terminal actor entry", () => {
     expect(ensureIndex).toBeLessThan(attachIndex);
   });
 
-  it("Main enters ActorSeatOccupy and never infers actors from optionals", () => {
+  it("Main reads its stored node and enters ActorSeatOccupy only for an agent", () => {
     const source = readSource(MAIN_ENTRY);
-    const create = between(
-      source,
-      "IPC_CHANNELS.terminalCreate,",
-      "IPC_CHANNELS.managedTerminalModels",
-    );
-    const actor = between(
-      create,
-      'if (entityKind === "agent") {',
-      '\n\n      if (entityKind === "terminal") {',
-    );
-    const geography = between(
-      create,
-      'if (entityKind === "terminal") {',
-      "\n\n      return deny(",
-    );
-
-    expect(actor).toContain("const surface = actorDeliverySurfaceOf(node);");
-    expect(actor).toContain("const seats = yield* ActorSeatOccupy;");
-    expect(actor).toContain("yield* seats.occupy({");
-    expect(actor).not.toContain("router.createAgentSeat");
-    expect(actor).toContain("makeManagedSpawnIntent");
-    expect(actor).toContain("spawnIntent,");
-    expect(actor).not.toContain("launchForManagedSpawn(");
-    expect(actor).not.toContain("firstTypedMessage");
-    expect(create).not.toContain("isManagedHarnessInstalled");
-    expect(create).not.toMatch(
-      /input\??\.(?:harness|agentKey|bindingId|hostId|launch)/u,
-    );
+    const start = between(source, "ipcMain.handle(IPC_CHANNELS.modelStart,", "ipcMain.handle(IPC_CHANNELS.modelStop,");
+    const geography = between(start, 'if (node.kind === "terminal") {', 'const { ensureSeatSessionId }');
+    expect(start).toContain("const node = await readSeat(input?.canvas, input?.id);");
+    expect(source).toContain('node?.kind !== "agent" && node?.kind !== "terminal"');
+    expect(source).toContain("return current.nodes.get(id as never);");
+    expect(start).toContain("const seats = yield* ActorSeatOccupy;");
+    expect(start).toContain("yield* seats.occupy({");
+    expect(start).toContain("makeManagedSpawnIntent");
+    expect(start).toContain("spawnIntent,");
+    expect(start).not.toContain("router.createAgentSeat");
+    expect(start).not.toContain("firstTypedMessage");
+    expect(start).not.toContain("isManagedHarnessInstalled");
+    expect(start).not.toMatch(/input\??\.(?:node|harness|agentKey|bindingId|hostId|launch)/u);
     expect(geography).toContain("return router.create({");
     expect(geography).not.toContain("ActorSeatOccupy");
   });
 
-  it("kind, not stray terminal optionals, discriminates actor from geography", () => {
-    const raw: CanvasNode = {
-      ...baseNode("terminal"),
-      ether: {
-        entity: { kind: "terminal", name: "local:not-an-actor" },
-        terminal: { bindingId: "raw-1", harness: "codex" },
-      },
-    };
-    expect(actorDeliverySurfaceOf(raw)).toBeUndefined();
-    expect(resolveTerminalBinding(raw)).toMatchObject({
-      kind: "native",
-      bindingId: "raw-1",
-    });
-
-    const incompleteActor: CanvasNode = {
-      ...baseNode("agent"),
-      ether: {
-        entity: { kind: "agent", name: "local:actor" },
-        terminal: { bindingId: "actor-1" },
-      },
-    };
-    expect(actorDeliverySurfaceOf(incompleteActor)).toBeUndefined();
-    expect(resolveTerminalBinding(incompleteActor)).toBeUndefined();
+  it("refuses actor fields on raw terminals and incomplete agent identities", () => {
+    const decode = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" });
+    expect(decode(terminal("raw"))).toMatchObject({ kind: "terminal", bindingId: "terminal-raw" });
+    expect(() => decode({ ...terminal("raw"), harness: "codex", agentKey: "local:actor" })).toThrow();
+    const { harness: _harness, ...withoutHarness } = seat("actor");
+    const { bindingId: _binding, ...withoutBinding } = seat("actor");
+    expect(() => decode(withoutHarness)).toThrow();
+    expect(() => decode(withoutBinding)).toThrow();
   });
 });

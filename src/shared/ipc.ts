@@ -21,16 +21,7 @@ export type {
   BrowserStopReceipt,
 } from "./browser";
 import type { DoctorReport, ServiceCheck } from "./contracts";
-import type {
-  WorkMetadata,
-  Task,
-  CanvasNode,
-  Part,
-  TaskState,
-  FinishCriteria,
-  CompletionEvidence,
-} from "./canvas";
-import type { TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
+import type { WorkMetadata, Task, Part, TaskState, FinishCriteria, CompletionEvidence, TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
 import type {
   SeatCollaborationAskResult,
   SeatCollaborationDraft,
@@ -369,7 +360,6 @@ export const IPC_CHANNELS = {
   chatChromeChanged: "junto:chat-chrome-changed",
   kernelChanged: "junto:kernel-changed",
   terminalList: "junto:terminal-list",
-  terminalCreate: "junto:terminal-create",
   terminalGet: "junto:terminal-get",
   terminalKill: "junto:terminal-kill",
   /** Fence terminal creates and await exact owned teardown before node commit. */
@@ -1432,23 +1422,6 @@ export type {
 // preload bridge alongside JuntoApi.
 export interface JuntoChatApi extends ChatApi {}
 
-/**
- * Open the terminal surface declared by this exact canvas node.
- *
- * The node kind is the command discriminant: `agent` occupies an actor seat,
- * while `terminal` opens raw shell geography. Stable identity, placement,
- * launch, harness, and label all come from the node rather than loose wire
- * fields, so a freshly authored node can start before its debounced canvas
- * save reaches Main without gaining a second source of authority.
- */
-export interface TerminalCreateInput {
-  readonly node: CanvasNode;
-  readonly canvasName?: string;
-  readonly resume?: boolean;
-  readonly cols?: number;
-  readonly rows?: number;
-}
-
 /** Fail-soft model option for the harness picker (main enumeration). */
 export interface ManagedTerminalModelOption {
   readonly id: string;
@@ -1558,7 +1531,6 @@ export type TerminalManagedPromptResult = {
 
 export interface JuntoTerminalApi {
   readonly terminalList: (hostId?: string) => Promise<readonly TerminalSessionSummary[]>;
-  readonly terminalCreate: (input: TerminalCreateInput) => Promise<TerminalSessionSummary>;
   readonly terminalGet: (bindingId: string, hostId?: string) => Promise<TerminalSessionSummary | undefined>;
   readonly terminalKill: (bindingId: string, hostId?: string) => Promise<boolean>;
   readonly terminalBeginNodeDelete: (

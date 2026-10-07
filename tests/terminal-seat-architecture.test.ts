@@ -27,7 +27,7 @@ const TERMINAL_ACTIONS = "src/renderer/lib/terminal-actions.ts";
 const OCCUPANCY =
   /\b(?:occupyVacantSeat|occupancyFromSession|occupancyFromSummary|SeatOccupancy)\b/u;
 const SPAWN =
-  /\bspawnTerminal\s*\(|\bthis\.open\s*\(|\bclient\.create\s*\(|\bhost\.create\s*\(|\bterminalCreate\s*\(|\bmodelStart\s*\(/u;
+  /\bspawnTerminal\s*\(|\bthis\.open\s*\(|\bclient\.create\s*\(|\bhost\.create\s*\(|\bmodelStart\s*\(/u;
 
 const skipQuoted = (text: string, start: number): number => {
   const quote = text[start];

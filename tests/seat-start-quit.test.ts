@@ -6,7 +6,6 @@ import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Command } from "../src/shared/model";
-import { nodeToDocument } from "../src/shared/model/from-document";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -75,17 +74,17 @@ const fixture = async () => {
   registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, plane, {
     isTrustedSender: () => true, broadcast: () => {},
   });
-  const start = (route: "modelStart" | "terminalCreate" = "modelStart") => Promise.resolve(handlers.get(IPC_CHANNELS[route])!(
+  const start = () => Promise.resolve(handlers.get(IPC_CHANNELS.modelStart)!(
     { sender: { isDestroyed: () => false, send: () => {} } },
-    route === "modelStart" ? { canvas: "quit", id: "seat" } : { canvasName: "quit", node: nodeToDocument(node) },
+    { canvas: "quit", id: "seat" },
   ));
   return { runtime, model, plane, fake, entered, environment, node, start, command };
 };
 
 describe("seat start across quit", () => {
-  it.each(["modelStart", "terminalCreate"] as const)("%s releases the SQL lease before occupation and drains without waiting for region resolution", async (route) => {
+  it("modelStart releases the SQL lease before occupation and drains without waiting for region resolution", async () => {
     const f = await fixture();
-    const starting = f.start(route);
+    const starting = f.start();
     // Observe failures immediately even when quit races the continuation.
     const outcome = starting.then((value) => ({ value }), (error: unknown) => ({ error }));
     await f.entered.promise;
