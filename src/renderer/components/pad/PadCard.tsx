@@ -8,6 +8,7 @@ import { themeMode$ } from "../../lib/theme-mode";
 import { state$ } from "../../lib/state";
 import { PAD_ENABLED } from "@shared/features";
 import { getJuntoApi } from "../../lib/junto-api";
+import { useWorkSink } from "../../lib/use-work-sink";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { editText } from "../../lib/mutations";
 import { padIsEmpty } from "./pad-editor-model";
@@ -32,12 +33,13 @@ export function PadCard({
   readonly renaming?: boolean;
   readonly onRenameDone?: () => void;
 }) {
-  const glance = node.ether?.pad;
+  const canvas = use$(state$.canvasName) || "";
+  const sink = useWorkSink("pad", canvas, node.id, PAD_ENABLED);
+  const glance = sink.page.kind === "pad" ? sink.page.glance : undefined;
   const shapeCount = glance?.shapeCount ?? 0;
   const unread = glance?.unreadPinCount ?? 0;
   const revision = glance?.revision ?? 0;
   const theme = use$(themeMode$);
-  const canvas = use$(state$.canvasName) || "";
   const [pad, setPad] = useState<Pad | null>(null);
   const rawText = node.type === "text" ? node.text : "";
   const firstLine = rawText.split("\n")[0] ?? "";
@@ -117,4 +119,3 @@ export function PadCard({
     </div>
   );
 }
-
