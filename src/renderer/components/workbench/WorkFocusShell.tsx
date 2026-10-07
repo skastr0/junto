@@ -19,7 +19,9 @@ import {
 import { scheduleFocusPrimaryControl } from "../../lib/focus-ownership";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
-import { actorRailExpanded, actorRailMode } from "../../lib/actor-rail";
+import { actorRailExpanded } from "../../lib/actor-rail";
+import { modelStore } from "../../lib/use-model";
+import { roleOfKind } from "../../lib/model-kind";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
@@ -32,15 +34,19 @@ import { saveAndCloseNoteSurface } from "./NoteSurface";
  * expanded, collapsed to a strip, or absent when the seat has no connections.
  * The panel budgets that width so the xterm keeps its target columns. Read
  * through a selector that returns the mode, so the shell re-renders when the
- * mode changes, never on every doc write.
+ * mode changes, never on a node move.
  */
 const railsForFrontSurface = (frontId: string | undefined): number => {
   if (!frontId) return 0;
   const nodeId = parseTerminalSurfaceId(frontId);
   if (!nodeId || !terminal$.openByNodeId[nodeId].get()) return 0;
-  return actorTerminalRailsPx(
-    actorRailMode(state$.doc.get(), nodeId, actorRailExpanded(sidebarSections$.open.get())),
+  const canvas = state$.canvasName.get();
+  const node = modelStore.node$(canvas, nodeId).get();
+  if (!node || roleOfKind(node.kind) !== "actor") return 0;
+  const connected = Object.values(modelStore.canvas$(canvas).wires.get()).some(
+    wire => wire.from === nodeId || wire.to === nodeId,
   );
+  return actorTerminalRailsPx(!connected ? "none" : actorRailExpanded(sidebarSections$.open.get()) ? "expanded" : "collapsed");
 };
 
 /** Map shell size family → FocusSurface measure token. */

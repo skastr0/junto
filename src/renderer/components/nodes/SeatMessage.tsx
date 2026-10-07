@@ -4,6 +4,7 @@ import { claimFocusOnMount } from "../../lib/focus-ownership";
 import type { Side } from "../../lib/menu-placement";
 import {
   planSeatMessageFor,
+  planSeatMessage,
   seatMessageReach,
   seatMessageTitle,
   sendSeatMessage,
@@ -11,6 +12,7 @@ import {
 } from "../../lib/seat-message";
 import { state$ } from "../../lib/state";
 import { use$ } from "@legendapp/state/react";
+import { useRtsNodes } from "../../lib/rts-selection";
 import { Button, IconButton, Popover } from "../ui";
 import "./seat-message.css";
 
@@ -21,10 +23,7 @@ import "./seat-message.css";
  * seat got it now or will when it is up.
  */
 export function SeatMessageForm({ nodeIds }: { readonly nodeIds: ReadonlyArray<string> }) {
-  const plan = use$(() => {
-    state$.doc.get();
-    return planSeatMessageFor(nodeIds);
-  });
+  const plan = planSeatMessage(useRtsNodes(use$(state$.canvasName), nodeIds));
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [outcome, setOutcome] = useState<SeatMessageOutcome | null>(null);
@@ -106,7 +105,7 @@ const COMPOSER_SIDES: ReadonlyArray<Side> = ["above", "below", "right", "left"];
 /** Seat toolbar button: opens the composer for this one seat. */
 export function SeatMessageToolbarAction({ id }: { readonly id: string }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const plan = planSeatMessageFor([id]);
+  const plan = planSeatMessage(useRtsNodes(use$(state$.canvasName), [id]));
   if (plan.targets.length === 0) return null;
   return (
     <>

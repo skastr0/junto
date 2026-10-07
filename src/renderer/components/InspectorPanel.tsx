@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo } from "react";
 import { X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
@@ -13,6 +13,7 @@ import { OverseerMark } from "./OverseerMark";
 import { isOverseerSeat } from "../lib/overseer-set";
 import { NoteMarkdown } from "../lib/note-markdown";
 import { WaitingOnSection } from "./WaitingOnSection";
+import { useRtsNodes } from "../lib/rts-selection";
 
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -70,8 +71,7 @@ function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
 
 // Node accent / focus / connect / delete / copy-ref live in the RTS
 // command bar (lower-left). This panel keeps surface-specific detail only.
-// Memoized so parent re-renders from unrelated doc churn (other-node drag stops
-// that leave this node reference stable) do not rebuild the inspector tree.
+// Only the selected node's displayed facts rebuild the inspector tree.
 const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly node: CanvasNode; readonly onClose: () => void }) {
 
   const isEntity = Boolean(node.ether?.entity);
@@ -110,13 +110,7 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
  * all read off the RTS bottom bar, which is the entire edge surface.
  */
 export function InspectorPanel() {
-  // Select the inspected node by id so other nodes' drag stops (which keep
-  // this node reference stable via syncPositions map) do not re-render us.
-  const node = use$(() => {
-    const id = state$.selectedNodeId.get();
-    if (!id) return undefined;
-    return state$.doc.get().nodes.find((candidate) => candidate.id === id);
-  });
+  const node = useRtsNodes(use$(state$.canvasName), [use$(state$.selectedNodeId)])[0];
   const onClose = () => { clearSelection(); };
   if (node) return <NodeInspector node={node} onClose={onClose} />;
   return null;
