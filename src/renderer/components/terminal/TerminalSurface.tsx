@@ -81,12 +81,10 @@ import { ActorRail } from "./ActorRail";
 import { SeatDetailsButton } from "./SeatDetails";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
 import { SeatRing } from "../SeatRing";
-import { HarnessMark } from "../HarnessMark";
 import { CustomizeAgentButton } from "../agent-editor/AgentEditor";
 import { START_PARAMS_SECTION_ID } from "../customize/ParamsSection";
 import { openAgentEditor } from "../../lib/agent-editor-state";
 import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
-import { isHarnessId } from "@shared/managed-terminal-templates";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -1878,7 +1876,6 @@ export function TerminalSurface({
     typeof node.ether?.terminal?.harness === "string"
       ? node.ether.terminal.harness
       : undefined;
-  const gridHarness = harness !== undefined && isHarnessId(harness) ? harness : undefined;
   const surfaceId = terminalSurfaceId(node.id);
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
   // mirror views park behind the front pane), one press. Views only.
@@ -2050,42 +2047,12 @@ export function TerminalSurface({
       data-overseer={agentSeat && isOverseerSeat(node) ? "true" : undefined}
       data-testid="native-terminal-surface"
     >
-      {grid ? (
-        <header
-          className="native-terminal-surface__grid-header flex shrink-0 items-center gap-2 border-b border-stroke bg-raise-2 px-2"
-          style={{ height: GRID_CELL_CHROME.headerPx }}
-        >
-          {agentSeat ? (
-            <SeatRing node={node} px={26} />
-          ) : (
-            <HarnessMark agent={gridHarness} size={18} />
-          )}
-          <span className="min-w-0 flex-1 truncate font-mono text-body-lg font-semibold text-ink">
-            {label}
-          </span>
-          <span className="native-terminal-surface__status inline-flex min-w-0 shrink items-center gap-1.5 truncate text-body text-dim">
-            {showLoadOverlay && loadPresentation ? (
-              <SessionLoadSpinner
-                variant="inline"
-                phase={loadPresentation.phase}
-                sessionId={pinSessionId}
-              />
-            ) : (
-              <>
-                <ActivityMark
-                  mode={attached ? "static" : "wave"}
-                  tone={processDead || processStopping ? "crimson" : "amber"}
-                  size="inline"
-                  label={status}
-                />
-                <span className="truncate">{status}</span>
-              </>
-            )}
-          </span>
-        </header>
-      ) : (
+      {/* One header for the focus view and for a grid cell: the same parts,
+          so an agent reads the same in both. A cell leaves out the buttons
+          that act on the single view; the grid has its own Close. */}
       <OverlayHeader
         dense
+        style={grid ? { height: GRID_CELL_CHROME.headerPx } : undefined}
         leading={
           agentSeat ? (
             <CustomizeAgentButton identity={node.id} name={label.split("\n")[0] ?? label} hint>
@@ -2160,7 +2127,7 @@ export function TerminalSurface({
                 }}
               />
             ) : null}
-            {agentSeat ? (
+            {agentSeat && !grid ? (
               <Button
                 size="xs"
                 variant="chrome"
@@ -2172,7 +2139,7 @@ export function TerminalSurface({
                 Params
               </Button>
             ) : null}
-            {attached ? (
+            {attached && !grid ? (
               <Button
                 size="xs"
                 variant="danger"
@@ -2185,19 +2152,20 @@ export function TerminalSurface({
                 {killCopy.label}
               </Button>
             ) : null}
-            <Button
-              size="xs"
-              variant="primary"
-              title="Close view — process keeps running"
-              aria-label="Close view"
-              onClick={closeSurface}
-            >
-              Close
-            </Button>
+            {grid ? null : (
+              <Button
+                size="xs"
+                variant="primary"
+                title="Close view — process keeps running"
+                aria-label="Close view"
+                onClick={closeSurface}
+              >
+                Close
+              </Button>
+            )}
           </>
         }
       />
-      )}
       {claimedTask && TASKS_ENABLED && !grid ? (
         <div
           className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-body"

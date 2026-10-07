@@ -30,7 +30,7 @@ import {
   type GridChoice,
 } from "../../lib/terminal-grid";
 import { FocusSurface } from "../FocusSurface";
-import { Button, Dropdown, Kbd, OverlayHeader, type DropdownOption } from "../ui";
+import { Button, Dropdown, OverlayHeader, type DropdownOption } from "../ui";
 import { claimFocus } from "../../lib/focus-ownership";
 
 /**
@@ -145,15 +145,21 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
       panelClassName="terminal-grid__panel"
     >
       <div className="terminal-grid" data-testid="terminal-grid-focus">
+        {/* The agent view's one-line header. A line is added to it only when
+            something is wrong with the layout. */}
         <OverlayHeader
-          eyebrow="grid focus"
-          title={agentCount(count)}
-          status={
-            <span className="inline-flex items-center gap-1.5">
-              {status ? <span className="text-amber">{status},</span> : null}
-              <span>click a cell to type,</span>
-              <Kbd>Esc</Kbd>
-              <span>closes when no cell has focus</span>
+          dense
+          title={
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 text-body font-normal text-dim">Grid</span>
+              <span className="shrink-0" data-testid="terminal-grid-count">
+                {agentCount(count)}
+              </span>
+              {status ? (
+                <span className="min-w-0 truncate text-body font-normal text-amber" role="status">
+                  {status}
+                </span>
+              ) : null}
             </span>
           }
           actions={
@@ -193,7 +199,7 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
               <Button
                 size="xs"
                 variant="primary"
-                title="Close grid, processes keep running"
+                title="Close grid, processes keep running. Esc closes it when no agent has the keyboard"
                 aria-label="Close grid"
                 onClick={closeTerminalGrid}
               >

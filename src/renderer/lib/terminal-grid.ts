@@ -28,8 +28,8 @@ export type GridPrefs = {
 export const GRID_CELL_CHROME = {
   /** Gap between cells. */
   gap: 8,
-  /** Compact cell header. */
-  headerPx: 28,
+  /** Cell header: the agent view's one-line header, border included. */
+  headerPx: 41,
   /** Horizontal xterm inset, both sides together. */
   padX: 8,
   /** Vertical xterm inset, both sides together. */
