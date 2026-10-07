@@ -10,6 +10,7 @@ import type {
   AgentSeatStateEvent,
 } from "../../../../shared/agent-seat-state";
 import { terminalObserverPlane } from "../observer";
+import { isDrainKey } from "../../../../shared/seat-drain";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { composerVerdictForHarness } from "./composer";
 import type { ComposerVerdict } from "./types";
@@ -58,6 +59,8 @@ export class SeatStateRuntime {
   private unsubObserver: (() => void) | undefined;
   private readonly harnessByBinding = new Map<string, HarnessId | string>();
   private readonly eventListeners = new Set<(event: AgentSeatStateEvent) => void>();
+  /** Listeners for draining sessions only (see `subscribeDrain`). */
+  private readonly drainListeners = new Set<(event: AgentSeatStateEvent) => void>();
   /** Last screen-derived composer verdict per binding (see composer.ts). */
   private readonly composerByBinding = new Map<string, ComposerVerdict>();
   private readonly composerListeners = new Set<
@@ -87,7 +90,12 @@ export class SeatStateRuntime {
       onEvent: (event) => {
         this.syncWatchWithEvent(event);
         opts.onEvent?.(event);
-        for (const listener of this.eventListeners) {
+        // A draining session is not a seat: its events go to the drain
+        // listeners and to nobody who mails, nudges, paints or reports seats.
+        const listeners = isDrainKey(event.bindingId)
+          ? this.drainListeners
+          : this.eventListeners;
+        for (const listener of listeners) {
           try {
             listener(event);
           } catch (err) {
@@ -111,9 +119,13 @@ export class SeatStateRuntime {
     if (this.unsubObserver) return;
     // Single observer path: OSC hook + evaluate on the same tick so null
     // clears sticky hooks before idle gate reads them (no dual-sub race).
-    this.unsubObserver = terminalObserverPlane.subscribeAll((snap) => {
-      this.observe(snap);
-    });
+    // Draining sessions included: this runtime is what reads them.
+    this.unsubObserver = terminalObserverPlane.subscribeAll(
+      (snap) => {
+        this.observe(snap);
+      },
+      { drains: true },
+    );
   }
 
   stop(): void {
@@ -127,6 +139,7 @@ export class SeatStateRuntime {
     this.machine.dispose();
     this.harnessByBinding.clear();
     this.eventListeners.clear();
+    this.drainListeners.clear();
     this.composerByBinding.clear();
     this.composerListeners.clear();
   }
@@ -206,6 +219,55 @@ export class SeatStateRuntime {
     }
     if (!event) return;
     this.harnessByBinding.delete(bindingId);
+  }
+
+  /**
+   * Move a generation's seat-state reading from its seat's binding to a drain
+   * key, whole: the slot (state, flags, epoch, a pending idle), the harness
+   * rule pack, the last judged screen, the composer verdict and the mid-turn
+   * watch. The binding is left with nothing, as if never bound, so the seat's
+   * next generation starts clean with no fence from this one.
+   *
+   * One thing does not move: a structured reporter's authority. The reporter
+   * reports for the seat, and the seat has moved on, so a draining session is
+   * read from its screen alone. Left in place it would pin the drained slot
+   * to the reporter's last word forever.
+   *
+   * Seat subscribers are told the generation is gone from the binding (state
+   * `gone`, its epoch, `reason`), exactly as `unbind` tells them: for the seat
+   * it is over. Drain subscribers then hear the moved slot under the drain key.
+   *
+   * Call it right after `TerminalObserverPlane.rekey`, in the same step.
+   * False, and nothing changes, when the binding has no slot or the drain key
+   * already has one.
+   */
+  rekey(bindingId: string, drainKey: string, reason = "offboard_detached"): boolean {
+    if (!isDrainKey(drainKey) || !this.machine.getSlot(bindingId)) return false;
+    if (this.machine.getSlot(drainKey)) return false;
+    const stalled = this.turnStalled.has(bindingId);
+    const structured = this.structuredHookByBinding.delete(bindingId);
+    this.clearTurnWatch(bindingId);
+
+    const move = <V>(map: Map<string, V>, patch?: (value: V) => V): void => {
+      const value = map.get(bindingId);
+      if (value === undefined) return;
+      map.delete(bindingId);
+      map.set(drainKey, patch ? patch(value) : value);
+    };
+    move(this.harnessByBinding);
+    move(this.composerByBinding);
+    move(this.lastSnapshot, (snap) => ({ ...snap, bindingId: drainKey }));
+    if (stalled) this.turnStalled.add(drainKey);
+
+    // Publishes the moved slot once under the drain key; a working slot
+    // re-arms its mid-turn watch there through the event.
+    this.machine.rekey(bindingId, drainKey, reason);
+    if (structured) {
+      this.machine.setHookState(drainKey, null);
+      const snapshot = this.lastSnapshot.get(drainKey);
+      if (snapshot) this.observe(snapshot);
+    }
+    return true;
   }
 
   /**
@@ -319,6 +381,7 @@ export class SeatStateRuntime {
   subscribeComposerVerdict(
     listener: (bindingId: string, verdict: ComposerVerdict) => void,
   ): () => void {
+    // Seats only: nothing types into a draining session.
     this.composerListeners.add(listener);
     return () => {
       this.composerListeners.delete(listener);
@@ -332,6 +395,7 @@ export class SeatStateRuntime {
     const prior = this.composerByBinding.get(bindingId);
     if (prior === verdict) return;
     this.composerByBinding.set(bindingId, verdict);
+    if (isDrainKey(bindingId)) return;
     for (const listener of this.composerListeners) {
       try {
         listener(bindingId, verdict);
@@ -346,15 +410,32 @@ export class SeatStateRuntime {
     return this.turnStalled.has(bindingId);
   }
 
-  /** Bounded current-state projection; no history or renderer-owned cache. */
+  /**
+   * Bounded current-state projection; no history or renderer-owned cache.
+   * Seats only: a draining session is not part of what a renderer hydrates.
+   */
   currentEvents(): ReadonlyArray<AgentSeatStateEvent> {
-    return this.machine.currentEvents();
+    return this.machine.currentEvents().filter((event) => !isDrainKey(event.bindingId));
   }
 
+  /** Seat-state events for seats. A draining session's are never delivered. */
   subscribe(listener: (event: AgentSeatStateEvent) => void): () => void {
     this.eventListeners.add(listener);
     return () => {
       this.eventListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Seat-state events for draining sessions only (their `bindingId` is a
+   * drain key). The drain manager listens here to learn when a detached
+   * session has settled; `isSeatIdle` and `getState` answer for a drain key
+   * exactly as for a binding.
+   */
+  subscribeDrain(listener: (event: AgentSeatStateEvent) => void): () => void {
+    this.drainListeners.add(listener);
+    return () => {
+      this.drainListeners.delete(listener);
     };
   }
 

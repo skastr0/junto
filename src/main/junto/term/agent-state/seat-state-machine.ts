@@ -44,6 +44,8 @@ export type SeatBindingConfig = {
 };
 
 type BindingSlot = {
+  /** The key this slot is published under. Moves with `rekey`. */
+  key: string;
   harness: HarnessId | string;
   epoch: string;
   state: AgentSeatState;
@@ -105,6 +107,7 @@ export class SeatStateMachine {
     }
     if (prior) this.clearPendingIdle(prior);
     const slot: BindingSlot = {
+      key: bindingId,
       harness: config.harness,
       epoch,
       state: "unknown",
@@ -176,6 +179,51 @@ export class SeatStateMachine {
     if (event !== null) this.retired.set(bindingId, event);
     this.slots.delete(bindingId);
     return event;
+  }
+
+  /**
+   * Move a generation's slot to another key, whole: state, flags, epoch, and
+   * an idle still waiting out its debounce. The old key is left with no slot,
+   * exactly as if nothing had ever been bound there, so the seat's next
+   * generation binds fresh.
+   *
+   * Two events come out of it, in this order. Under the old key, `gone` for
+   * the generation that left, with its epoch and `reason`: the same thing
+   * `unbind` says, and retained the same way, because to everything that
+   * follows the seat this generation is over. Then, under the new key, the
+   * moved slot once, with the state it already had.
+   *
+   * False, and nothing changes, when `from` has no slot or `to` already does.
+   */
+  rekey(from: string, to: string, reason = "offboard_detached"): boolean {
+    const slot = this.slots.get(from);
+    if (!slot || from === to || this.slots.has(to)) return false;
+    this.slots.delete(from);
+    slot.key = to;
+    this.slots.set(to, slot);
+    const gone: AgentSeatStateEvent = {
+      bindingId: from,
+      epoch: slot.epoch,
+      state: "gone",
+      reason,
+      confidence: "high",
+      at: this.now(),
+      harness: typeof slot.harness === "string" ? slot.harness : undefined,
+    };
+    this.retired.set(from, gone);
+    this.emit(gone);
+    this.maybePublish(
+      slot,
+      to,
+      {
+        ...this.lifecycleEvaluation(slot, slot.state, slot.reason, slot.confidence),
+        visibleIdle: slot.visibleIdle,
+        visibleWorking: slot.visibleWorking,
+        visibleAttention: slot.visibleAttention,
+      },
+      true,
+    );
+    return true;
   }
 
   setHookState(
@@ -324,9 +372,11 @@ export class SeatStateMachine {
         pending.timer = setTimeout(() => {
           if (slot.pendingIdle !== pending) return;
           slot.pendingIdle = null;
+          // The slot's key, read now: a slot moved to a drain key while its
+          // idle was pending still publishes, under the key it lives at.
           this.maybePublish(
             slot,
-            bindingId,
+            slot.key,
             {
               ...pending.evaluation,
               reason: `${pending.reason}+debounced_idle`,
@@ -395,6 +445,7 @@ export class SeatStateMachine {
     let slot = this.slots.get(bindingId);
     if (!slot) {
       slot = {
+        key: bindingId,
         harness: harness ?? "unknown",
         epoch: "",
         state: "unknown",
@@ -456,6 +507,11 @@ export class SeatStateMachine {
         typeof slot.harness === "string" ? slot.harness : undefined,
     };
 
+    this.emit(event);
+    return event;
+  }
+
+  private emit(event: AgentSeatStateEvent): void {
     for (const listener of this.listeners) {
       try {
         listener(event);
@@ -464,7 +520,6 @@ export class SeatStateMachine {
       }
     }
     this.onEvent?.(event);
-    return event;
   }
 
   private clearPendingIdle(slot: BindingSlot): void {

@@ -38,10 +38,17 @@ export {
   promptBoxBody,
   abovePromptBox,
 } from "./regions";
+import { isDrainKey } from "@shared/seat-drain";
 
 export class TerminalObserverPlane {
   private readonly byBinding = new Map<string, SessionObserver>();
   private readonly globalListeners = new Set<ObserverListener>();
+  /**
+   * Listeners that also hear draining sessions. Everyone else is told about
+   * seats only: a detached session winding down is not a seat, and nothing
+   * that mails, nudges, paints or reports a seat may mistake it for one.
+   */
+  private readonly drainListeners = new Set<ObserverListener>();
   /**
    * Attached surfaces per binding, kept on the plane rather than the observer
    * so a replacement generation (resume, respawn) inherits the tier a lease
@@ -62,7 +69,10 @@ export class TerminalObserverPlane {
     }
     // Always bridge — globalListeners may be empty at attach and filled later.
     observer.subscribe((snap) => {
-      for (const listener of this.globalListeners) {
+      const listeners = isDrainKey(snap.bindingId)
+        ? this.drainListeners
+        : this.globalListeners;
+      for (const listener of listeners) {
         try {
           listener(snap);
         } catch (err) {
@@ -73,7 +83,29 @@ export class TerminalObserverPlane {
     return observer;
   }
 
-  /** Register a global snapshot listener (supervisor, diagnostics). */
+  /**
+   * Move a live grid from its seat's binding to a drain key, whole: screen,
+   * title, modes and sequence. The binding reads vacant at once, so the
+   * seat's next generation attaches as if the old one had gone. Surface
+   * retention stays with the binding (the lease is the seat's, and the next
+   * generation inherits it); the moved grid keeps the bounded window.
+   *
+   * False, and nothing changes, when the binding has no live grid or the
+   * drain key is already taken.
+   */
+  rekey(bindingId: string, drainKey: string): boolean {
+    const observer = this.byBinding.get(bindingId);
+    if (!observer || !isDrainKey(drainKey) || this.byBinding.has(drainKey)) return false;
+    this.byBinding.delete(bindingId);
+    this.byBinding.set(drainKey, observer);
+    observer.rekey(drainKey);
+    return true;
+  }
+
+  /**
+   * Register a global snapshot listener (supervisor, diagnostics). Seats
+   * only: snapshots of a draining session are not delivered.
+   */
   subscribeGlobal(listener: ObserverListener): () => void {
     this.globalListeners.add(listener);
     return () => {
@@ -190,12 +222,23 @@ export class TerminalObserverPlane {
     return this.byBinding.get(bindingId)?.readWindowNow(lines);
   }
 
-  subscribeAll(listener: ObserverListener): () => void {
+  /**
+   * Every seat's snapshots, with the current screen of each replayed at once.
+   * Seats only, like `subscribeGlobal`. `{ drains: true }` adds draining
+   * sessions: for the seat-state runtime, which reads them, and nothing else.
+   */
+  subscribeAll(
+    listener: ObserverListener,
+    options: { readonly drains?: boolean } = {},
+  ): () => void {
+    const drains = options.drains === true;
     this.globalListeners.add(listener);
+    if (drains) this.drainListeners.add(listener);
     // A live PTY may have emitted its only readiness screen before a
     // downstream runtime finished booting. Subscriptions are therefore
     // current-state observations, not future-edge-only notifications.
-    for (const observer of this.byBinding.values()) {
+    for (const [key, observer] of this.byBinding) {
+      if (!drains && isDrainKey(key)) continue;
       try {
         listener(observer.snapshotNow());
       } catch (err) {
@@ -204,6 +247,7 @@ export class TerminalObserverPlane {
     }
     return () => {
       this.globalListeners.delete(listener);
+      this.drainListeners.delete(listener);
     };
   }
 

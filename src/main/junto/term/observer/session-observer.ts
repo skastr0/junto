@@ -174,7 +174,8 @@ const carriesSignal = (data: string): boolean =>
   data.includes(OSC_INTRODUCER) || data.includes(DEC_PRIVATE_INTRODUCER);
 
 export class SessionObserver {
-  readonly bindingId: string;
+  /** The key this grid is read under: a seat's binding, or a drain key. */
+  private key: string;
   readonly epoch: string;
   private readonly term: HeadlessTerminal;
   private readonly serializer: HeadlessSerializeAddon;
@@ -218,7 +219,7 @@ export class SessionObserver {
   private scrollbackTierFailed = false;
 
   constructor(opts: SessionObserverOptions) {
-    this.bindingId = opts.bindingId;
+    this.key = opts.bindingId;
     this.epoch = opts.epoch;
     const cols = Math.max(20, Math.min(300, opts.cols));
     const rows = Math.max(5, Math.min(120, opts.rows));
@@ -515,6 +516,26 @@ export class SessionObserver {
       .catch(() => {
         this.queueDepth = Math.max(0, this.queueDepth - 1);
       });
+  }
+
+  /** The key every snapshot of this grid carries. */
+  get bindingId(): string {
+    return this.key;
+  }
+
+  /**
+   * Read this grid under another key from now on. The screen, title, modes
+   * and sequence all stay: only the name changes. Used when a session is
+   * detached from its seat to drain. No surface follows it, so retention
+   * drops to the unwatched tier. Listeners hear the move as one snapshot
+   * under the new key.
+   */
+  rekey(next: string): void {
+    if (this.disposed || next === this.key) return;
+    this.key = next;
+    this.surfaces = 0;
+    this.applyScrollbackTier();
+    this.emitSnapshot();
   }
 
   /**
