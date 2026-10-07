@@ -22,9 +22,8 @@ import {
   encodeClaudeProjectCwd,
 } from "../src/main/junto/term/session-existence";
 import { gistOfNotes } from "../src/shared/seat-sessions";
-import { canvasFromDocument } from "../src/shared/model/from-document";
-import type { Canvas } from "../src/shared/model";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import { canvasOf, note, seat as seatNode } from "./support/model-nodes";
+import type { Canvas, Node } from "../src/shared/model";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
 
 let root: string;
@@ -50,26 +49,17 @@ const repo = Effect.gen(function* () {
   return yield* SeatSessionRepository;
 });
 
-const seat = (id: string, terminal: { harness?: HarnessId; bindingId?: string; sessionId?: string; cwd?: string }): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 120,
-  height: 48,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: {
-      bindingId: terminal.bindingId ?? `bind-${id}`,
-      harness: terminal.harness ?? "claude",
-      launch: { kind: "harness", argv: ["claude"], ...(terminal.cwd ? { cwd: terminal.cwd } : {}) },
-      ...(terminal.sessionId ? { sessionId: terminal.sessionId } : {}),
-    },
-  },
-});
+const seat = (id: string, terminal: { harness?: HarnessId; bindingId?: string; sessionId?: string; cwd?: string }): Node =>
+  seatNode(id, {
+    width: 120,
+    height: 48,
+    bindingId: (terminal.bindingId ?? `bind-${id}`) as never,
+    harness: terminal.harness ?? "claude",
+    launch: { kind: "harness", argv: ["claude"], ...(terminal.cwd ? { cwd: terminal.cwd } : {}) },
+    ...(terminal.sessionId ? { sessionId: terminal.sessionId } : {}),
+  });
 
-const doc = (...nodes: CanvasNode[]): Canvas => canvasFromDocument("factory", { nodes, edges: [] });
+const doc = (...nodes: Node[]): Canvas => canvasOf(nodes);
 
 describe("seat session transitions", () => {
   it("starts a session when a seat's id appears or changes, and names why the old one ended", () => {
@@ -92,8 +82,7 @@ describe("seat session transitions", () => {
     ]);
     expect(seatSessionTransitions(doc(pinned), doc())).toEqual([]);
     // Notes and other nodes are not seats.
-    const note: CanvasNode = { id: "n", type: "text", text: "note", x: 0, y: 0, width: 10, height: 10 };
-    expect(seatSessionTransitions(undefined, doc(note))).toEqual([]);
+    expect(seatSessionTransitions(undefined, doc(note("n")))).toEqual([]);
   });
 });
 
