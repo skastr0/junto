@@ -20,7 +20,7 @@ import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { state$ } from "./state";
 import { focusFrontTerminal, focusTerminalChrome } from "./terminal-chrome-focus";
-import { stepToNextAgent } from "./urgency-step";
+import { spacePressesControl, stepToNextAgent } from "./urgency-step";
 
 // The node whose surface is in front, when one is open.
 const frontNode = (): CanvasNode | undefined => {
@@ -80,8 +80,9 @@ export const KEY_ACTIONS: KeyActions = {
     const node = frontNode();
     return node !== undefined && toggleSeatGitDetail(node);
   },
-  // With no agent on the canvas, Space and the backtick stay with whatever has focus.
-  "alerts.next": () => stepToNextAgent(),
+  // With no agent on the canvas, Space and the backtick stay with whatever
+  // has focus; Space on a focused button or link presses it.
+  "alerts.next": (_hit, event) => !spacePressesControl(event) && stepToNextAgent(),
   "canvas.undo": () => undo(),
   "canvas.redo": () => redo(),
   "canvas.zoomIn": () => zoomCanvasIn(),

@@ -34,6 +34,25 @@ export const stepUrgencyWalk = (
   return { ids: order, index: order[0] === selectedId && order.length > 1 ? 1 : 0 };
 };
 
+const PRESSABLE =
+  "button, a[href], summary, select, [role='button'], [role='link'], [role='checkbox'], [role='switch'], [role='radio'], [role='tab'], [role='menuitem'], [role='option']";
+const CANVAS_ITSELF = ".react-flow__node, .react-flow__edge, .react-flow__pane";
+
+type Matches = { readonly matches?: (selector: string) => boolean };
+
+/**
+ * Space on a control with the keyboard presses that control: a button or a
+ * link, on the canvas and the top bar as much as in a modal. The step to
+ * the next agent is for when the canvas itself (the pane or a node) has
+ * the keyboard.
+ */
+export const spacePressesControl = (event: Pick<KeyboardEvent, "code" | "target">): boolean => {
+  if (event.code !== "Space") return false;
+  const target = event.target as Matches | null;
+  if (typeof target?.matches !== "function") return false;
+  return target.matches(PRESSABLE) && !target.matches(CANVAS_ITSELF);
+};
+
 let walk: UrgencyWalk | null = null;
 
 /** Go to the next agent. False with no agent on the canvas: the key passes. */
