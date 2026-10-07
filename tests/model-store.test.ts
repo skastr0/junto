@@ -8,7 +8,6 @@ const canvas = "factory" as Opened["canvas"];
 const seat = (id: string, over: Record<string, unknown> = {}): Node =>
   ({
     kind: "agent",
-    canvas,
     id,
     x: 0,
     y: 0,
@@ -27,7 +26,7 @@ const seat = (id: string, over: Record<string, unknown> = {}): Node =>
   }) as unknown as Node;
 
 const wire = (id: string, from: string, to: string): Wire =>
-  ({ canvas, id, from, to, verb: "messages" }) as unknown as Wire;
+  ({ id, from, to, verb: "messages" }) as unknown as Wire;
 
 const changed = (seq: number, rows: Partial<Omit<Changed, "canvas" | "seq">>): Changed =>
   ({ canvas, seq, nodes: [], wires: [], removedNodes: [], removedWires: [], ...rows }) as Changed;
@@ -176,10 +175,11 @@ describe("model store", () => {
     }));
     store.open(canvas);
     await store.ready(canvas);
-    await store.send({ _tag: "Edit", canvas, id: "a" as never, change: { kind: "agent", label: "lead", sessionId: null } });
+    await store.send({ _tag: "Edit", canvas, id: "a" as never, change: { kind: "agent", label: "lead", launch: null } });
     const a = store.node$(canvas, "a").peek() as { label: string; sessionId?: string };
     expect(a.label).toBe("lead");
-    expect("sessionId" in a).toBe(false);
+    expect("launch" in a).toBe(false);
+    expect(a.sessionId).toBe("s1");
     await store.send({ _tag: "Remove", canvas, nodes: ["b" as never], wires: [] });
     expect(store.canvas$(canvas).nodeIds.peek()).toEqual(["a"]);
     expect(store.canvas$(canvas).wireIds.peek()).toEqual([]);

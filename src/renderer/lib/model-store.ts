@@ -108,8 +108,7 @@ export const rowsAfterCommand = (state: ModelCanvasState, command: Command): Row
             ...node,
             x: move.x,
             y: move.y,
-            ...(move.width === undefined ? {} : { width: move.width }),
-            ...(move.height === undefined ? {} : { height: move.height }),
+            ...(move.size === undefined ? {} : move.size),
           }];
         }),
       };
@@ -142,12 +141,14 @@ export const rowsAfterCommand = (state: ModelCanvasState, command: Command): Row
       }
       return { ...none, wires: [next as Wire] };
     }
-    // Where restacked nodes land, and what a canvas command leaves behind, is
-    // main's to say.
-    case "Restack":
-    case "CreateCanvas":
-    case "RemoveCanvas":
-    case "RenameCanvas":
+    case "GrantOverseer": {
+      const node = state.nodes[command.id];
+      if (node === undefined || node.kind !== "agent") return none;
+      return { ...none, nodes: [{ ...node, overseer: command.overseer }] };
+    }
+    // Where restacked nodes land, what a canvas command leaves behind, and
+    // anything this window does not know how to foresee, is main's to say.
+    default:
       return undefined;
   }
 };
@@ -339,6 +340,25 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
     },
 
     applyChanged,
+
+    /**
+     * Fill a canvas from rows the window already holds, without asking main.
+     * Temporary: it stands in for `modelOpen` until main serves it, and goes
+     * with the last reader of the document.
+     */
+    adopt: (opened: Opened): (() => void) => {
+      const canvas = opened.canvas;
+      users.set(canvas, (users.get(canvas) ?? 0) + 1);
+      applyOpened(opened);
+      return () => {
+        const left = (users.get(canvas) ?? 1) - 1;
+        if (left > 0) users.set(canvas, left);
+        else {
+          users.delete(canvas);
+          close(canvas);
+        }
+      };
+    },
   };
 };
 
