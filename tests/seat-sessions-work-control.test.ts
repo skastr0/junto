@@ -14,7 +14,10 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
-import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { seat } from "./support/model-nodes";
+import { ModelService } from "../src/main/junto/model/service";
+import { asCanvasName, asNodeId } from "../src/shared/model";
 import {
   respondThen,
   setSeatSessionLookup,
@@ -41,7 +44,6 @@ import {
 } from "../src/main/junto/seat-sessions/repository";
 import { subscribeSeatOffboard, type SeatOffboardEvent } from "../src/main/junto/seat-sessions/service";
 import { endedPathOf, writeEndedMarker } from "../src/main/junto/seat-sessions/notes-file";
-import type { CanvasDoc } from "../src/shared/canvas";
 import {
   CONTINUATION_FRAMING,
   PAST_SESSIONS_FRAMING,
@@ -66,52 +68,20 @@ const makeRuntime = (root: string) => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(WorkLive, Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive));
   return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
 };
 
-const seatDoc = (sessionId: string | undefined): CanvasDoc => ({
-  nodes: [
-    {
-      id: "agent",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 120,
-      height: 48,
-      text: "agent",
-      ether: {
-        entity: { kind: "agent", name: "local:agent" },
-        terminal: {
-          bindingId: "bind-agent",
-          harness: "claude",
-          launch: { kind: "harness", argv: ["claude"] },
-          ...(sessionId ? { sessionId } : {}),
-        },
-      },
-    },
-    {
-      id: "other",
-      type: "text",
-      x: 200,
-      y: 0,
-      width: 120,
-      height: 48,
-      text: "other",
-      ether: {
-        entity: { kind: "agent", name: "local:other" },
-        terminal: {
-          bindingId: "bind-other",
-          harness: "claude",
-          launch: { kind: "harness", argv: ["claude"] },
-          sessionId: "other-session",
-        },
-      },
-    },
-  ],
-  edges: [],
-});
+const claude = (id: string, x: number, sessionId?: string) =>
+  seat(id, {
+    x,
+    width: 120,
+    height: 48,
+    bindingId: `bind-${id}` as never,
+    launch: { kind: "harness", argv: ["claude"] },
+    ...(sessionId ? { sessionId } : {}),
+  });
 
 let root: string;
 let runtime: ReturnType<typeof makeRuntime>;
@@ -151,8 +121,16 @@ afterEach(async () => {
 });
 
 const writeSession = async (sessionId: string | undefined) => {
-  const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write(CANVAS, seatDoc(sessionId)));
+  // The canvas is made once; after that only the seat's session changes.
+  const held = await runtime.runPromise(Effect.flatMap(ModelService, (model) => model.listCanvases()));
+  if (!held.some((name) => name === CANVAS)) {
+    await runtime.runPromise(seedCanvas(CANVAS, [claude("agent", 0, sessionId), claude("other", 200, "other-session")]));
+  } else {
+    await runtime.runPromise(Effect.flatMap(ModelService, (model) => model.command(
+      { _tag: "RecordSession", canvas: asCanvasName(CANVAS), id: asNodeId("agent"), sessionId: sessionId ?? null },
+      "runtime",
+    )));
+  }
   // What the app's canvas recorder does on this commit.
   if (sessionId) {
     await runtime.runPromise(
