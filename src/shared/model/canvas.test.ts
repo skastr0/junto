@@ -9,6 +9,7 @@ import {
   regionMembers,
   regionStack,
   wireGrant,
+  wireKinds,
   type Node,
   type Wire,
 } from "./index";
@@ -108,7 +109,8 @@ describe("reading a canvas", () => {
         wire("dangling", "a", "gone"),
       ],
     );
-    const grant = (id: string) => wireGrant(canvas, canvas.wires.get(asWireId(id))!);
+    const kinds = wireKinds(canvas.nodes.values());
+    const grant = (id: string) => wireGrant(canvas.wires.get(asWireId(id))!, kinds);
     expect(grant("open")?.ports).toContain("msg.prompt");
     expect(grant("masked")?.ports).toEqual(["msg.send"]);
     expect(grant("to-region")).toBeUndefined();

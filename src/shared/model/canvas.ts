@@ -1,4 +1,3 @@
-import { compileVerb, type VerbGrant } from "../physics/verbs";
 import type { CanvasName, Frame, NodeId } from "./base";
 import type { Changed, Opened, Seq } from "./events";
 import type { Node, NodeKind, NodeOf } from "./kinds";
@@ -72,21 +71,6 @@ export const inPaintOrder = (canvas: Canvas): ReadonlyArray<Node> =>
   [...canvas.nodes.values()].sort((a, b) => a.z - b.z || a.id.localeCompare(b.id));
 
 // ── Wires ───────────────────────────────────────────────────────────────────
-
-/**
- * What a wire grants, worked out from its verb and the kinds at its two ends,
- * less whatever the operator masked off. Nothing when either end is missing or
- * the pair cannot hold the verb.
- */
-export const wireGrant = (canvas: Canvas, wire: Wire): VerbGrant | undefined => {
-  const from = canvas.nodes.get(wire.from);
-  const to = canvas.nodes.get(wire.to);
-  if (from === undefined || to === undefined) return undefined;
-  const grant = compileVerb(wire.verb, from.kind, to.kind);
-  if (grant === undefined || wire.mask === undefined) return grant;
-  const mask = wire.mask;
-  return { ...grant, ports: grant.ports.filter((port) => mask.includes(port)) };
-};
 
 /** Every wire with an end on this node. */
 export const wiresAt = (canvas: Canvas, id: NodeId): ReadonlyArray<Wire> => {
