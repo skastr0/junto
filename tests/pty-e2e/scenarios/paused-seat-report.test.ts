@@ -11,42 +11,12 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createConnection } from "node:net";
 import { encodeWorkFrame } from "../../../src/shared/work-control";
-import type { CanvasDoc } from "../../../src/shared/canvas";
 import { ProtoHarness } from "../proto-harness";
 import { startWorkControlServer, type WorkControlServer } from "../../../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../../../src/main/junto/main-authoring-gate";
 import { makeProcessIdentityMap } from "../../../src/main/junto/process-identity";
 import { publishSeatCredential } from "../../helpers/seat-credential";
-
-const seatNode = (id: string, bindingId?: string): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 120,
-  height: 48,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: {
-      bindingId: bindingId ?? `bind-${id}`,
-      harness: "claude",
-      launch: { kind: "harness", argv: ["claude"] },
-    },
-  },
-});
-
-const edge = (id: string, fromNode: string, toNode: string) => ({
-  id,
-  fromNode,
-  toNode,
-  ether: { verb: "messages" as const },
-});
-
-const docWith = (nodes: CanvasDoc["nodes"], edges: CanvasDoc["edges"]): CanvasDoc => ({
-  nodes,
-  edges,
-});
+import { seat, wire } from "../../support/model-nodes";
 
 const call = (socketPath: string, body: unknown): Promise<{
   readonly ok: boolean;
@@ -79,14 +49,6 @@ const call = (socketPath: string, body: unknown): Promise<{
     });
   });
 
-const controlSeedDoc = (): CanvasDoc => docWith(
-  [
-    seatNode("agent"),
-    seatNode("peer"),
-  ],
-  [edge("e1", "agent", "peer")],
-);
-
 describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
   let harness: ProtoHarness;
   let server: WorkControlServer;
@@ -102,7 +64,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     harness = new ProtoHarness({ root });
     await harness.start();
     await harness.setStationCommandCenter();
-    await harness.writeDoc("work-cli", controlSeedDoc());
+    await harness.seed("work-cli", [seat("agent"), seat("peer")], [wire("e1", "agent", "peer", "messages")]);
     const processMap = makeProcessIdentityMap();
     processMap.bind(process.pid, { agentKey: "local:agent" });
     server = await startWorkControlServer({
