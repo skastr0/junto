@@ -336,6 +336,7 @@ export function Dropdown({
         title={title}
         className={[
           "inline-flex h-full min-w-0 items-center gap-1.5 text-left text-ink outline-none",
+          "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan/60",
           "disabled:cursor-wait disabled:opacity-60",
           triggerClassName ?? "",
         ]
