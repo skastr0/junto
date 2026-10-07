@@ -12,7 +12,7 @@ const at = { x: 0, y: 0, width: 10, height: 10, z: 0 };
 
 const seat = (id: string): Node =>
   ({
-    kind: "agent", id: asNodeId(id), ...at, name: `local:${id}`, label: id, host: "local",
+    kind: "agent", id: asNodeId(id), ...at, agentKey: `local:${id}`, label: id, host: "local",
     overseer: false, bindingId: `bind-${id}`, harness: "claude", onRemove: "detach",
   }) as Node;
 
@@ -59,8 +59,8 @@ describe("board wake set", () => {
 
   it("lists every seat wired to the board, with whether it can be woken", () => {
     expect(resolveBoardConnectedActors(room, "hall")).toEqual([
-      { nodeId: "ana", agentKey: "local:ana", label: "local:ana", wake: true },
-      { nodeId: "bo", agentKey: "local:bo", label: "local:bo", wake: false },
+      { nodeId: "ana", agentKey: "local:ana", label: "ana", wake: true },
+      { nodeId: "bo", agentKey: "local:bo", label: "bo", wake: false },
     ]);
   });
 
