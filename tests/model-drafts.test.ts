@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Result, Schema } from "effect";
-import { Node, NodeDraft, Wire, WireDraft } from "../src/shared/model";
+import { Node, NodeDraft, SEAT_FIELDS_MAIN_WORKS_OUT, Wire, WireDraft } from "../src/shared/model";
 
 // A draft is the model's node or wire with only what main decides left out.
 
@@ -8,9 +8,12 @@ const decodes = (schema: Schema.Top, input: unknown): boolean =>
   Result.isSuccess(Schema.decodeUnknownResult(schema as never)(input, { onExcessProperty: "error" }));
 
 const at = { x: 0, y: 0, width: 200, height: 100 };
-const seat = {
-  kind: "agent", ...at, agentKey: "local:claude", label: "Builder", host: "local",
-  harness: "claude", onRemove: "detach",
+/** A seat as asked for: the harness, and nothing main works out. */
+const seat = { kind: "agent", ...at, harness: "claude" };
+/** The same seat as the model holds it once main has worked it out. */
+const seated = {
+  ...seat, agentKey: "local:claude", label: "Builder", host: "local", onRemove: "detach",
+  overseer: false, bindingId: "seat-1",
 };
 
 describe("a node draft", () => {
@@ -39,10 +42,7 @@ describe("a node draft", () => {
       expect(decodes(NodeDraft, draft), `${String(draft["kind"])} draft`).toBe(true);
       // The same thing with an id and a place is the model's node; without
       // them it is not.
-      const placed = {
-        ...draft, id: "n1", z: 3,
-        ...(draft["kind"] === "agent" ? { overseer: false, bindingId: "seat-1" } : {}),
-      };
+      const placed = { ...(draft["kind"] === "agent" ? seated : draft), id: "n1", z: 3 };
       expect(decodes(Node, placed), `${String(draft["kind"])} node`).toBe(true);
       expect(decodes(Node, draft), `${String(draft["kind"])} draft as a node`).toBe(false);
     }
@@ -53,10 +53,23 @@ describe("a node draft", () => {
     expect(decodes(NodeDraft, { kind: "note", ...at, text: "x", z: 1 })).toBe(false);
   });
 
-  it("drafts a seat with or without its session, and never as an overseer", () => {
-    expect(decodes(NodeDraft, { ...seat, bindingId: "seat-1" })).toBe(true);
-    expect(decodes(NodeDraft, { ...seat, overseer: false })).toBe(false);
-    expect(decodes(NodeDraft, { ...seat, overseer: true })).toBe(false);
+  it("drafts a seat by its harness and dials, and nothing main works out", () => {
+    expect(decodes(NodeDraft, {
+      ...seat, label: "Builder", host: "studio", profile: "work", model: "opus", effort: "high",
+      mode: "ultra", permissionMode: "plan", cwd: "/repo", onRemove: "kill-session", color: "#aabbcc",
+    })).toBe(true);
+    for (const field of SEAT_FIELDS_MAIN_WORKS_OUT) {
+      const value = field === "overseer" ? false : field === "launch" ? { kind: "harness", argv: ["claude"] } : "x";
+      expect(decodes(NodeDraft, { ...seat, [field]: value }), field).toBe(false);
+    }
+    expect(decodes(NodeDraft, { kind: "agent", ...at })).toBe(false);
+    expect(decodes(NodeDraft, { ...seat, model: "" })).toBe(false);
+  });
+
+  it("drafts a terminal with the command it runs", () => {
+    const shell = { kind: "terminal", ...at, host: "local", onRemove: "detach" };
+    expect(decodes(NodeDraft, shell)).toBe(true);
+    expect(decodes(NodeDraft, { ...shell, bindingId: "term-1", launch: { kind: "command", argv: ["htop"] } })).toBe(true);
   });
 
   it("refuses a field its kind does not have, and a kind the model does not have", () => {

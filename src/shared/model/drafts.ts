@@ -37,22 +37,63 @@ const draft = <Fields extends { readonly id: Schema.Top; readonly z: Schema.Top 
     id: Schema.optionalKey(fields.id),
   }));
 
+const Choice = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
+
 /**
- * A seat to add. It cannot be drafted an overseer: that is the operator's
- * grant, with its own command. Its session binding may be left out for main
- * to mint.
+ * A seat to add, by naming what it runs. This is not the model's seat with
+ * fields left out: a sender says the harness and its dials, and main works out
+ * the rest with the one set of seat launch rules (the agent key, the session
+ * binding, the launch and a pinned session). So it has no `agentKey`,
+ * `bindingId`, `launch` or `sessionId`, and no `overseer`, which is the
+ * operator's grant with its own command. A plain terminal, by contrast, is
+ * drafted with its launch: a command is what the sender means there.
  */
-export const SeatDraft = Seat.mapFields((fields) => ({
-  ...Struct.omit(fields, ["id", "z", "overseer", "bindingId"]),
+export const SeatDraft = Schema.Struct({
+  kind: Seat.fields.kind,
+  id: Schema.optionalKey(Seat.fields.id),
+  x: Seat.fields.x,
+  y: Seat.fields.y,
+  width: Seat.fields.width,
+  height: Seat.fields.height,
+  color: Seat.fields.color,
+  /** Defaults to the harness name and its dials. */
+  label: Schema.optionalKey(Seat.fields.label),
+  harness: Seat.fields.harness,
+  /** The machine the seat runs on. Defaults to this one. */
+  host: Schema.optionalKey(Seat.fields.host),
+  profile: Schema.optionalKey(Choice),
+  model: Schema.optionalKey(Choice),
+  effort: Schema.optionalKey(Choice),
+  mode: Schema.optionalKey(Choice),
+  permissionMode: Schema.optionalKey(Choice),
+  /** The directory the seat starts in. */
+  cwd: Schema.optionalKey(Choice),
+  /** Defaults to detach. */
+  onRemove: Schema.optionalKey(Seat.fields.onRemove),
+});
+export type SeatDraft = typeof SeatDraft.Type;
+
+/** A plain terminal to add. Its session binding may be left out for main to mint. */
+export const TerminalDraft = Terminal.mapFields((fields) => ({
+  ...Struct.omit(fields, ["id", "z", "bindingId"]),
   id: Schema.optionalKey(fields.id),
   bindingId: Schema.optionalKey(fields.bindingId),
 }));
-export type SeatDraft = typeof SeatDraft.Type;
+export type TerminalDraft = typeof TerminalDraft.Type;
+
+/** The fields of the model's seat a draft may not carry: main works them out. */
+export const SEAT_FIELDS_MAIN_WORKS_OUT = [
+  "agentKey",
+  "bindingId",
+  "launch",
+  "sessionId",
+  "overseer",
+] as const;
 
 /** Any node to add, told by its kind. */
 export const NodeDraft = Schema.Union([
   SeatDraft,
-  draft(Terminal),
+  TerminalDraft,
   draft(Page),
   draft(TaskBoard),
   draft(Requests),
