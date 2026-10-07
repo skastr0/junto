@@ -4,7 +4,7 @@
  * seat restart. A build whose bridge lacks a method answers in words instead
  * of throwing, so the screen still opens and says what it cannot do.
  */
-import type { CanvasNode } from "@shared/canvas";
+import type { Node, Seat } from "@shared/model";
 import { getJuntoApi } from "./junto-api";
 import type { PortResult, RegionEnvironmentPort } from "./region-environment";
 
@@ -28,10 +28,10 @@ export type RegionEnvironmentHost = {
    * the report is asked for.
    */
   readonly flushSave: () => Promise<unknown>;
-  readonly findNode: (id: string) => CanvasNode | undefined;
+  readonly findNode: (id: string) => Node | undefined;
   /** The one seat restart: same binding, same session. */
   readonly restartSeat: (
-    node: CanvasNode & { readonly type: "text" },
+    node: Seat,
   ) => Promise<{ readonly ok: true; readonly restarted: boolean } | { readonly ok: false; readonly message: string }>;
 };
 
@@ -73,7 +73,7 @@ export const regionEnvironmentPort = (host: RegionEnvironmentHost): RegionEnviro
     restartSeat: (seatId) =>
       guarded(async () => {
         const node = host.findNode(seatId);
-        if (node === undefined || node.type !== "text") {
+        if (node === undefined || node.kind !== "agent") {
           return { ok: false, message: "That seat is no longer on the canvas." };
         }
         const outcome = await host.restartSeat(node);

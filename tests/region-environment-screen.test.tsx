@@ -4,6 +4,10 @@
  * kind, a secret that goes to the store and is never held or shown again, the
  * resolved list, the sealed switch, folders, reordering and restart to apply.
  */
+import { RegionEnvironmentModal } from "../src/renderer/components/region-environment/RegionEnvironmentModal";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { state$ } from "../src/renderer/lib/state";
+import { region } from "./support/model-nodes";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -738,4 +742,28 @@ describe("copy", () => {
     await click(q('[data-testid="region-env-add-source"]'));
     expect(host.textContent).not.toContain("·");
   });
+});
+
+
+it("the mounted region modal follows native environment edits with no document copy", async () => {
+  const canvasName = "native-region-environment";
+  const oldCanvas = state$.canvasName.peek(), oldDoc = state$.doc.peek();
+  state$.canvasName.set(canvasName); state$.doc.set({ nodes: [], edges: [] });
+  const node = region("native-region", { x: 0, y: 0, width: 600, height: 400 }, { label: "Native team", environment: { sources: [plain] } });
+  modelStore.node$(canvasName, node.id).set(node);
+  try {
+    await act(async () => root.render(<RegionEnvironmentModal nodeId={node.id} onClose={() => {}} />));
+    expect(document.body.textContent).toContain("Native team");
+    expect(document.body.textContent).toContain("AWS_REGION");
+    await act(async () => modelStore.node$(canvasName, node.id).set({ ...node, label: "Renamed team", environment: { sources: [{ ...plain, name: "NEXT_REGION" }] } }));
+    expect(document.body.textContent).toContain("Renamed team");
+    expect(document.body.textContent).toContain("NEXT_REGION");
+    expect(document.body.textContent).not.toContain("AWS_REGION");
+    await act(async () => modelStore.node$(canvasName, node.id).delete());
+    expect(document.querySelector('[aria-label="Region environment"]')).toBeNull();
+  } finally {
+    await act(async () => root.render(null));
+    modelStore.canvas$(canvasName).nodes.set({});
+    state$.canvasName.set(oldCanvas); state$.doc.set(oldDoc);
+  }
 });

@@ -7,6 +7,8 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { flushPendingCanvasSave, setRegionEnvironment } from "../../lib/mutations";
 import { regionEnvironmentPort } from "../../lib/region-environment-port";
 import { restartSeatOnSameSession } from "../../lib/seat-relaunch";
+import { nodeAt, useNodeOf } from "../../lib/use-model";
+import { titleOf } from "@shared/model/title";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, OverlayHeader } from "../ui";
@@ -32,19 +34,19 @@ export function RegionEnvironmentModal({
   readonly nodeId: string;
   readonly onClose: () => void;
 }) {
-  const node = use$(() => state$.doc.nodes.get().find((n) => n.id === nodeId));
+  const node = useNodeOf(use$(state$.canvasName), nodeId, "region");
   const port = useMemo(
     () =>
       regionEnvironmentPort({
         canvasName: () => state$.canvasName.peek(),
         flushSave: flushPendingCanvasSave,
-        findNode: (id) => state$.doc.peek().nodes.find((candidate) => candidate.id === id),
+        findNode: (id) => nodeAt(state$.canvasName.peek(), id),
         restartSeat: restartSeatOnSameSession,
       }),
     [],
   );
-  if (!node || node.type !== "group") return null;
-  const environment = node.ether?.region?.environment;
+  if (!node) return null;
+  const environment = node.environment;
   const label = node.label?.trim() || "this region";
   return (
     <FocusSurface measure="document" height="fit" label="Region environment" onClose={onClose}>
@@ -66,8 +68,8 @@ export function RegionEnvironmentModal({
           newId={ulid}
           readDirectory={readLocalDirectory}
           seatName={(seatId) => {
-            const seat = state$.doc.peek().nodes.find((candidate) => candidate.id === seatId);
-            return seat?.type === "text" ? seat.text.split("\n")[0] : undefined;
+            const seat = nodeAt(state$.canvasName.peek(), seatId);
+            return seat?.kind === "agent" ? titleOf(seat) : undefined;
           }}
           onChange={(next) => setRegionEnvironment(nodeId, next)}
         />

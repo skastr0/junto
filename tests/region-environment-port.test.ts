@@ -5,15 +5,15 @@
  * the canvas is saved, and a restart is the renderer's one seat restart.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
+import { seat as agentSeat, region as regionNode, note, terminal } from "./support/model-nodes";
 
 const bridge: { current: Record<string, unknown> | undefined } = { current: undefined };
 vi.mock("../src/renderer/lib/junto-api", () => ({ getJuntoApi: () => bridge.current }));
 
 const { regionEnvironmentPort } = await import("../src/renderer/lib/region-environment-port");
 
-const seat = { id: "seat-1", type: "text", text: "planner", x: 0, y: 0, width: 1, height: 1 } as CanvasNode;
-const region = { id: "region-1", type: "group", label: "R", x: 0, y: 0, width: 1, height: 1 } as CanvasNode;
+const seat = agentSeat("seat-1");
+const region = regionNode("region-1", { x: 0, y: 0, width: 400, height: 300 }, { label: "R" });
 
 const rig = (restart: { ok: true; restarted: boolean } | { ok: false; message: string } = { ok: true, restarted: true }) => {
   const order: string[] = [];
@@ -23,7 +23,7 @@ const rig = (restart: { ok: true; restarted: boolean } | { ok: false; message: s
     flushSave: async () => {
       order.push("saved");
     },
-    findNode: (id) => [seat, region].find((node) => node.id === id),
+    findNode: (id) => [seat, region, note("note-1"), terminal("terminal-1")].find((node) => node.id === id),
     restartSeat: async (node) => {
       restarted.push(node.id);
       return restart;
@@ -95,6 +95,8 @@ describe("regionEnvironmentPort", () => {
     const gone = { ok: false, message: "That seat is no longer on the canvas." };
     expect(await port.restartSeat("region-1")).toEqual(gone);
     expect(await port.restartSeat("nope")).toEqual(gone);
+    expect(await port.restartSeat("note-1")).toEqual(gone);
+    expect(await port.restartSeat("terminal-1")).toEqual(gone);
     expect(restarted).toEqual([]);
   });
 
