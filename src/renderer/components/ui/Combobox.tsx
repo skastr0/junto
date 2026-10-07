@@ -101,7 +101,22 @@ export function Combobox<T>({
     }
   };
 
-  useLayoutEffect(syncCaret, [value, suffix]);
+  /**
+   * A value longer than the field shows its end (a path's last folders), not
+   * its start, unless the operator has put the caret somewhere else.
+   */
+  const showEnd = () => {
+    const input = inputRef.current;
+    if (!input) return;
+    if (document.activeElement !== input || input.selectionStart === input.value.length) {
+      input.scrollLeft = input.scrollWidth;
+    }
+  };
+
+  useLayoutEffect(() => {
+    showEnd();
+    syncCaret();
+  }, [value, suffix]);
 
   useEffect(() => {
     if (activeIndex < 0) return;
@@ -132,7 +147,11 @@ export function Combobox<T>({
               setFocused(true);
               syncCaret();
             }}
-            onBlur={() => setFocused(false)}
+            onBlur={() => {
+              setFocused(false);
+              // The browser scrolls a field back to its start as it loses focus.
+              requestAnimationFrame(showEnd);
+            }}
             onSelect={syncCaret}
             onScroll={syncCaret}
             onChange={(event) => {

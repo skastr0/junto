@@ -185,7 +185,8 @@ export function HostDirectoryPicker({
   );
 
   return (
-    <div className="grid min-h-0 gap-2 normal-case tracking-normal">
+    // One column that takes the width it is given: a long path never widens the picker.
+    <div className="grid min-h-0 grid-cols-1 gap-2 normal-case tracking-normal">
       <Combobox<HostDirectoryEntry>
         aria-label={inputAriaLabel}
         listLabel={`Folders in ${snapshot?.root ?? draft}`}
@@ -258,8 +259,9 @@ export function HostDirectoryPicker({
       />
 
       <div className="flex items-center justify-between gap-3 text-[10px] text-dim">
-        <span className="min-w-0 truncate font-mono">
-          {selectedPath ?? snapshot?.root ?? draft}
+        {/* Clips from the left, so the folder itself stays readable. */}
+        <span className="min-w-0 truncate text-left font-mono [direction:rtl]">
+          <bdi>{selectedPath ?? snapshot?.root ?? draft}</bdi>
         </span>
         <Button
           type="button"
