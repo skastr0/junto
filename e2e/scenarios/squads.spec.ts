@@ -137,18 +137,17 @@ for (const theme of ["Dark", "Bright"] as const) test(`squads (${theme}): save f
   await expect(card).toBeVisible();
   // The squad card is the picker's one card: same slot and width as a node's.
   const squadCard = page.locator('[data-picker-card="squad"]');
-  const catalogCard = page.locator('[data-picker-card="catalog"]').first();
   await expect(squadCard).toContainText("alpha, beta, gamma");
-  const [squadArt, catalogArt] = await Promise.all([
-    squadCard.locator(".picker-card__art").boundingBox(),
-    catalogCard.locator(".picker-card__art").boundingBox(),
-  ]);
-  expect(squadArt!.width).toBeCloseTo(catalogArt!.width, 1);
-  expect(squadArt!.height).toBeCloseTo(catalogArt!.height, 1);
-  // Both in one read: the picker is still scaling in, so two reads apart differ.
-  const [squadWidth, catalogWidth] = await page.evaluate(() =>
-    ["squad", "catalog"].map((kind) => document.querySelector(`[data-picker-card="${kind}"]`)!.getBoundingClientRect().width));
-  expect(squadWidth!).toBeCloseTo(catalogWidth!, 0);
+  // One read for both cards: the picker is still scaling in, so reads apart differ.
+  const [squadSize, catalogSize] = await page.evaluate(() =>
+    ["squad", "catalog"].map((kind) => {
+      const pickerCard = document.querySelector(`[data-picker-card="${kind}"]`)!;
+      const art = pickerCard.querySelector(".picker-card__art")!.getBoundingClientRect();
+      return { width: pickerCard.getBoundingClientRect().width, artWidth: art.width, artHeight: art.height };
+    }));
+  expect(squadSize!.artWidth).toBeCloseTo(catalogSize!.artWidth, 1);
+  expect(squadSize!.artHeight).toBeCloseTo(catalogSize!.artHeight, 1);
+  expect(squadSize!.width).toBeCloseTo(catalogSize!.width, 0);
   await page.screenshot({ path: `${shots}/3-picker-squads.png` });
   await card.click();
 
