@@ -19,7 +19,9 @@ import {
   defaultOffboardRules,
   offboardRulesFor,
   offboardRulesProblem,
+  sessionWorthCutting,
   summarizeOffboardRun,
+  type OffboardRules as OffboardRulesType,
   wholeMinutesBetween,
 } from "../src/shared/seat-offboard";
 import { applySettingsPatch, defaultSettings, offboardRules } from "../src/shared/settings";
@@ -37,6 +39,7 @@ describe("offboard rules", () => {
       cacheWindowMinutes: 60,
       auto: { enabled: true, minutes: 120 },
       nudge: { enabled: false, minutes: 40 },
+      worth: { workMinutes: 30, tokens: 200_000 },
     });
     expect(offboardRulesProblem(DEFAULT_OFFBOARD_RULES)).toBeUndefined();
     // A fresh copy each time: nobody edits the shared default.
@@ -86,6 +89,7 @@ describe("offboard rules", () => {
       cacheWindowMinutes: 10,
       auto: { enabled: true, minutes: 15 },
       nudge: { enabled: false, minutes: 5 },
+      worth: { workMinutes: 30, tokens: 200_000 },
     });
     expect(offboardRulesFor(rules, "claude")).toEqual(DEFAULT_OFFBOARD_RULES);
     expect(offboardRulesFor(rules, undefined)).toEqual(DEFAULT_OFFBOARD_RULES);
@@ -120,6 +124,51 @@ describe("offboard rules", () => {
   });
 });
 
+describe("worth cutting thresholds", () => {
+  it("default to 30 minutes of work or about 200,000 tokens, and rules saved before them read as the defaults", () => {
+    const old: OffboardRulesType = {
+      cacheWindowMinutes: 60,
+      auto: { enabled: true, minutes: 120 },
+      nudge: { enabled: false, minutes: 40 },
+    };
+    expect(Result.isSuccess(Schema.decodeUnknownResult(OffboardRules)(old))).toBe(true);
+    expect(offboardRulesProblem(old)).toBeUndefined();
+    expect(offboardRulesFor(old, "claude").worth).toEqual({ workMinutes: 30, tokens: 200_000 });
+    expect(applyOffboardRulesPatch(old, {}).worth).toEqual({ workMinutes: 30, tokens: 200_000 });
+  });
+
+  it("a session qualifies on either measure, never with no work, and an unknown size does not count", () => {
+    const worth = { workMinutes: 30, tokens: 200_000 };
+    const MINUTE = 60_000;
+    expect(sessionWorthCutting(worth, { workMs: 30 * MINUTE })).toBe(true);
+    expect(sessionWorthCutting(worth, { workMs: 29 * MINUTE })).toBe(false);
+    expect(sessionWorthCutting(worth, { workMs: MINUTE, tokens: 200_000 })).toBe(true);
+    expect(sessionWorthCutting(worth, { workMs: MINUTE, tokens: 199_999 })).toBe(false);
+    expect(sessionWorthCutting(worth, { workMs: 0, tokens: 5_000_000 })).toBe(false);
+    expect(sessionWorthCutting(worth, { workMs: MINUTE })).toBe(false);
+  });
+
+  it("are changed by a patch, per installation and per harness, within their ranges", () => {
+    let rules = applyOffboardRulesPatch(defaultOffboardRules(), { worth: { tokens: 150_000 } });
+    expect(rules.worth).toEqual({ workMinutes: 30, tokens: 150_000 });
+    rules = applyOffboardRulesPatch(rules, { harness: { codex: { worth: { workMinutes: 10 } } } });
+    expect(offboardRulesFor(rules, "codex").worth).toEqual({ workMinutes: 10, tokens: 150_000 });
+    expect(offboardRulesFor(rules, "claude").worth).toEqual({ workMinutes: 30, tokens: 150_000 });
+    expect(offboardRulesProblem(rules)).toBeUndefined();
+    const decode = Schema.decodeUnknownResult(OffboardRulesPatch);
+    expect(Result.isFailure(decode({ worth: { tokens: 999 } }))).toBe(true);
+    expect(Result.isFailure(decode({ worth: { tokens: 100_000_001 } }))).toBe(true);
+    expect(Result.isFailure(decode({ worth: { workMinutes: 0 } }))).toBe(true);
+    expect(Result.isSuccess(decode({ worth: { tokens: 1_000, workMinutes: 1 } }))).toBe(true);
+    expect(offboardRulesProblem({ ...defaultOffboardRules(), worth: { workMinutes: 30, tokens: 10 } })).toBe(
+      "The session size that makes a session worth cutting must be a whole number of tokens, from 1000 to 100000000.",
+    );
+    expect(offboardRulesProblem({ ...defaultOffboardRules(), worth: { workMinutes: 0, tokens: 200_000 } })).toContain(
+      "The work time that makes a session worth cutting must be a whole number of minutes",
+    );
+  });
+});
+
 describe("offboard rules in installation settings", () => {
   it("a settings patch changes them and leaves every other section alone", () => {
     const current = defaultSettings();
@@ -128,6 +177,7 @@ describe("offboard rules in installation settings", () => {
       cacheWindowMinutes: 60,
       auto: { enabled: true, minutes: 120 },
       nudge: { enabled: true, minutes: 30 },
+      worth: { workMinutes: 30, tokens: 200_000 },
     });
     expect({ ...next, offboard: undefined }).toEqual({ ...current, offboard: undefined });
   });

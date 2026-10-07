@@ -47,11 +47,44 @@ const OffboardRulePatch = Schema.Struct({
   minutes: Schema.optionalKey(Minutes),
 });
 
+/** Token thresholds are whole numbers, from a thousand to a hundred million. */
+export const OFFBOARD_TOKENS_MIN = 1_000;
+export const OFFBOARD_TOKENS_MAX = 100_000_000;
+
+const Tokens = Schema.Number.pipe(
+  Schema.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(OFFBOARD_TOKENS_MIN),
+    Schema.isLessThanOrEqualTo(OFFBOARD_TOKENS_MAX),
+  ),
+);
+
+/**
+ * When a session is worth cutting by itself. The automatic rules must never
+ * recycle empty or tiny sessions, so they act only on one that has done
+ * enough: it worked for `workMinutes`, or its transcript has grown to about
+ * `tokens`. Either is enough. A session that has not worked at all never
+ * qualifies, and size does not count when the transcript cannot be found.
+ * The operator's own buttons are not held to this.
+ */
+const OffboardWorth = Schema.Struct({
+  /** Time the seat spent working in the session, in whole minutes. */
+  workMinutes: Minutes,
+  /** The session's transcript on disk, as a token estimate. */
+  tokens: Tokens,
+});
+const OffboardWorthPatch = Schema.Struct({
+  workMinutes: Schema.optionalKey(Minutes),
+  tokens: Schema.optionalKey(Tokens),
+});
+export type OffboardWorth = typeof OffboardWorth.Type;
+
 /** What one harness may set differently from the installation. */
 export const OffboardHarnessOverride = Schema.Struct({
   cacheWindowMinutes: Schema.optionalKey(Minutes),
   auto: Schema.optionalKey(OffboardRulePatch),
   nudge: Schema.optionalKey(OffboardRulePatch),
+  worth: Schema.optionalKey(OffboardWorthPatch),
 });
 export type OffboardHarnessOverride = typeof OffboardHarnessOverride.Type;
 
@@ -67,12 +100,19 @@ export const OffboardRules = Schema.Struct({
   auto: OffboardRule,
   /** Ask a motionless seat's agent to offboard and continue. */
   nudge: OffboardRule,
+  /**
+   * What makes a session worth cutting by itself. Absent on rules saved
+   * before it existed; absent means the defaults.
+   */
+  worth: Schema.optionalKey(OffboardWorth),
   harness: Schema.optionalKey(Schema.Record(Schema.String, OffboardHarnessOverride)),
 });
 export type OffboardRules = typeof OffboardRules.Type;
 
-/** The effective rules for one seat: no overrides left to apply. */
-export type OffboardRuleSet = Omit<OffboardRules, "harness">;
+/** The effective rules for one seat: no overrides left to apply, nothing absent. */
+export type OffboardRuleSet = Omit<OffboardRules, "harness" | "worth"> & {
+  readonly worth: OffboardWorth;
+};
 
 /**
  * A partial change. A harness key set to `null` removes that override; an
@@ -82,6 +122,7 @@ export const OffboardRulesPatch = Schema.Struct({
   cacheWindowMinutes: Schema.optionalKey(Minutes),
   auto: Schema.optionalKey(OffboardRulePatch),
   nudge: Schema.optionalKey(OffboardRulePatch),
+  worth: Schema.optionalKey(OffboardWorthPatch),
   harness: Schema.optionalKey(
     Schema.Record(Schema.String, Schema.NullOr(OffboardHarnessOverride)),
   ),
@@ -92,16 +133,20 @@ export type OffboardRulesPatch = typeof OffboardRulesPatch.Type;
  * The defaults follow the cache window: ask while a turn is cheap (40 min,
  * off until the operator turns it on), end the session once it is not (2 h).
  */
-export const DEFAULT_OFFBOARD_RULES: OffboardRules = {
+export const DEFAULT_OFFBOARD_WORTH: OffboardWorth = { workMinutes: 30, tokens: 200_000 };
+
+export const DEFAULT_OFFBOARD_RULES: OffboardRules & { readonly worth: OffboardWorth } = {
   cacheWindowMinutes: 60,
   auto: { enabled: true, minutes: 120 },
   nudge: { enabled: false, minutes: 40 },
+  worth: DEFAULT_OFFBOARD_WORTH,
 };
 
 export const defaultOffboardRules = (): OffboardRules => ({
   cacheWindowMinutes: DEFAULT_OFFBOARD_RULES.cacheWindowMinutes,
   auto: { ...DEFAULT_OFFBOARD_RULES.auto },
   nudge: { ...DEFAULT_OFFBOARD_RULES.nudge },
+  worth: { ...DEFAULT_OFFBOARD_WORTH },
 });
 
 const isHarness = (key: string): key is HarnessId =>
@@ -114,6 +159,7 @@ const overlay = (base: OffboardRuleSet, over: OffboardHarnessOverride | undefine
         cacheWindowMinutes: over.cacheWindowMinutes ?? base.cacheWindowMinutes,
         auto: { ...base.auto, ...over.auto },
         nudge: { ...base.nudge, ...over.nudge },
+        worth: { ...base.worth, ...over.worth },
       };
 
 /** The rules in force for a seat on this harness. */
@@ -125,6 +171,7 @@ export const offboardRulesFor = (
     cacheWindowMinutes: rules.cacheWindowMinutes,
     auto: rules.auto,
     nudge: rules.nudge,
+    worth: rules.worth ?? DEFAULT_OFFBOARD_WORTH,
   };
   return harness !== undefined && isHarness(harness)
     ? overlay(base, rules.harness?.[harness])
@@ -134,7 +181,8 @@ export const offboardRulesFor = (
 const isEmptyOverride = (over: OffboardHarnessOverride): boolean =>
   over.cacheWindowMinutes === undefined &&
   (over.auto === undefined || Object.keys(over.auto).length === 0) &&
-  (over.nudge === undefined || Object.keys(over.nudge).length === 0);
+  (over.nudge === undefined || Object.keys(over.nudge).length === 0) &&
+  (over.worth === undefined || Object.keys(over.worth).length === 0);
 
 /** Apply a partial change. Pure; validate the result with `offboardRulesProblem`. */
 export const applyOffboardRulesPatch = (
@@ -158,6 +206,9 @@ export const applyOffboardRulesPatch = (
       ...(over.nudge !== undefined || prior.nudge !== undefined
         ? { nudge: { ...prior.nudge, ...over.nudge } }
         : {}),
+      ...(over.worth !== undefined || prior.worth !== undefined
+        ? { worth: { ...prior.worth, ...over.worth } }
+        : {}),
     };
     if (isEmptyOverride(next)) delete harness[key];
     else harness[key] = next;
@@ -166,6 +217,7 @@ export const applyOffboardRulesPatch = (
     cacheWindowMinutes: patch.cacheWindowMinutes ?? rules.cacheWindowMinutes,
     auto: { ...rules.auto, ...patch.auto },
     nudge: { ...rules.nudge, ...patch.nudge },
+    worth: { ...(rules.worth ?? DEFAULT_OFFBOARD_WORTH), ...patch.worth },
     ...(Object.keys(harness).length > 0 ? { harness } : {}),
   };
 };
@@ -181,6 +233,12 @@ const setProblem = (set: OffboardRuleSet, who: string): string | undefined => {
     minutesProblem(`The cache window${who}`, window) ??
     minutesProblem(`The idle nudge${who}`, set.nudge.minutes) ??
     minutesProblem(`The auto offboard${who}`, set.auto.minutes) ??
+    minutesProblem(`The work time that makes a session worth cutting${who}`, set.worth.workMinutes) ??
+    (Number.isInteger(set.worth.tokens) &&
+    set.worth.tokens >= OFFBOARD_TOKENS_MIN &&
+    set.worth.tokens <= OFFBOARD_TOKENS_MAX
+      ? undefined
+      : `The session size that makes a session worth cutting${who} must be a whole number of tokens, from ${String(OFFBOARD_TOKENS_MIN)} to ${String(OFFBOARD_TOKENS_MAX)}.`) ??
     // A rule that is off is judged too, so turning it on later cannot break.
     (set.nudge.minutes >= window
       ? `The idle nudge${who} must come before the cache window (${String(window)} min): it asks the agent for a turn, which is only cheap while the cache is warm.`
@@ -290,7 +348,33 @@ export type SeatOffboardStatus = {
   readonly pastWindow: boolean;
   /** `now` once the cache window has passed, `ask` while a turn is still cheap. */
   readonly preferred: SeatOffboardAction;
+  /**
+   * Time the seat has spent working in its current session, in whole
+   * minutes. Main always sends it.
+   */
+  readonly workMinutes?: number;
+  /** The session's transcript as a token estimate. Absent when it cannot be located. */
+  readonly sessionTokens?: number;
+  /**
+   * The session has done enough for the automatic rules to act on it. The
+   * buttons are not held to this; it tells the operator what the rules see.
+   * Main always sends it.
+   */
+  readonly worthCutting?: boolean;
 };
+
+/**
+ * Has this session done enough to be worth cutting by itself? It must have
+ * worked at all; then either measure past its threshold is enough. An
+ * unknown size simply does not count.
+ */
+export const sessionWorthCutting = (
+  worth: OffboardWorth,
+  session: { readonly workMs: number; readonly tokens?: number },
+): boolean =>
+  session.workMs > 0 &&
+  (session.workMs >= worth.workMinutes * 60_000 ||
+    (session.tokens !== undefined && session.tokens >= worth.tokens));
 
 /** The sentence for each refusal. One place, so every surface says the same. */
 export const OFFBOARD_REFUSAL_REASON: Readonly<Record<OffboardRefusalCode, string>> = {

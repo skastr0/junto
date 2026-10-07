@@ -26,6 +26,7 @@ import {
   OFFBOARD_REFUSAL_REASON,
   offboardRulesFor,
   summarizeOffboardRun,
+  sessionWorthCutting,
   wholeMinutesBetween,
   type OffboardBy,
   type OffboardRefusalCode,
@@ -79,8 +80,12 @@ export type OperatorOffboardPorts = {
   ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   /** Record who ended this session without notes. */
   readonly markEnded: (seat: OffboardSeat, sessionId: string, by: OffboardBy, at: number) => void;
-  /** The harness has something on disk for this session: it was really used. */
-  readonly sessionHasHistory: (seat: OffboardSeat) => boolean;
+  /**
+   * The session's transcript as a token estimate. Undefined when the
+   * transcript cannot be located: the session is then judged on work time
+   * alone. Absent port: no size is known for any seat.
+   */
+  readonly sessionSize?: (seat: OffboardSeat) => { readonly tokens: number } | undefined;
   readonly rules: () => OffboardRules;
   /** Save the clock (called once per tick). */
   readonly saveClock?: (record: SeatMotionRecord) => void;
@@ -99,23 +104,41 @@ export type SeatMotionRecord = {
         readonly movedAt: number;
         readonly offboarded?: boolean;
         readonly nudged?: boolean;
+        /** Time the seat spent working in its current session (ms). */
+        readonly workMs?: number;
+        /** The session that work belongs to. */
+        readonly sessionId?: string;
       }
     >
   >;
 };
 
-type MotionEntry = { movedAt: number; offboarded: boolean; nudged: boolean };
+type MotionEntry = {
+  movedAt: number;
+  offboarded: boolean;
+  nudged: boolean;
+  /** Work finished so far in the current session. */
+  workMs: number;
+  /** Set while the seat is working: when this stretch of work began. */
+  workingSince: number | undefined;
+  sessionId: string | undefined;
+};
 
 /**
- * When each seat last moved: produced output, left idle, was typed into, or
- * had mail written to it.
+ * Two things about each seat, kept together because they are saved together.
  *
- * Real time, and durable: the clock is saved and restored, and time while
- * Junto was closed counts like any other. A session that sat still through
- * the night is exactly as cold as one that sat still with the app open.
+ * When it last moved: produced output, left idle, was typed into, or had
+ * mail written to it. Real time, and durable: time while Junto was closed
+ * counts like any other. A session that sat still through the night is
+ * exactly as cold as one that sat still with the app open.
+ *
+ * How long it has worked in its current session: the time its seat state
+ * read working, summed. It starts again from zero whenever the seat gets a
+ * fresh session, whoever caused that. This is what tells a session worth
+ * cutting from one that is empty or tiny.
  *
  * A seat the clock has never seen has been still since the clock first
- * started in this run.
+ * started in this run, and has done no work.
  */
 export class SeatMotionClock {
   private readonly entries = new Map<string, MotionEntry>();
@@ -134,6 +157,10 @@ export class SeatMotionClock {
         movedAt: seat.movedAt,
         offboarded: seat.offboarded === true,
         nudged: seat.nudged === true,
+        workMs: Math.max(0, seat.workMs ?? 0),
+        // Whatever was working when Junto closed is not working now.
+        workingSince: undefined,
+        sessionId: seat.sessionId,
       });
     }
   }
@@ -141,7 +168,14 @@ export class SeatMotionClock {
   private entry(bindingId: string): MotionEntry {
     let entry = this.entries.get(bindingId);
     if (entry === undefined) {
-      entry = { movedAt: this.startedAt, offboarded: false, nudged: false };
+      entry = {
+        movedAt: this.startedAt,
+        offboarded: false,
+        nudged: false,
+        workMs: 0,
+        workingSince: undefined,
+        sessionId: undefined,
+      };
       this.entries.set(bindingId, entry);
     }
     return entry;
@@ -149,7 +183,10 @@ export class SeatMotionClock {
 
   /** The seat moved. A new stretch of stillness starts here. */
   note(bindingId: string): void {
-    this.entries.set(bindingId, { movedAt: this.now(), offboarded: false, nudged: false });
+    const entry = this.entry(bindingId);
+    entry.movedAt = this.now();
+    entry.offboarded = false;
+    entry.nudged = false;
   }
 
   /** When the seat last moved. */
@@ -157,8 +194,54 @@ export class SeatMotionClock {
     return this.entries.get(bindingId)?.movedAt ?? this.startedAt;
   }
 
+  /**
+   * The seat's state changed. Time spent in `working` is work; leaving it
+   * for anything else (idle, a dialog, gone) ends the stretch.
+   */
+  noteState(bindingId: string, state: string): void {
+    const entry = this.entry(bindingId);
+    if (state === "working") {
+      entry.workingSince ??= this.now();
+      return;
+    }
+    if (entry.workingSince === undefined) return;
+    entry.workMs += Math.max(0, this.now() - entry.workingSince);
+    entry.workingSince = undefined;
+  }
+
+  /** Time the seat has worked in its current session (ms), a stretch in progress included. */
+  workMs(bindingId: string): number {
+    const entry = this.entries.get(bindingId);
+    if (entry === undefined) return 0;
+    return entry.workMs + (entry.workingSince === undefined ? 0 : Math.max(0, this.now() - entry.workingSince));
+  }
+
+  /**
+   * Tell the clock which session the seat is on. A different session than
+   * the one its work was counted for means that work belongs to the past:
+   * the count starts again. A session id appearing where none was known is
+   * the same session being named (some harnesses announce theirs late).
+   */
+  syncSession(bindingId: string, sessionId: string | undefined): void {
+    const entry = this.entry(bindingId);
+    if (entry.sessionId === sessionId) return;
+    if (entry.sessionId !== undefined) this.resetWork(entry);
+    entry.sessionId = sessionId;
+  }
+
+  private resetWork(entry: MotionEntry): void {
+    entry.workMs = 0;
+    // A turn running right now belongs to the new session from here.
+    if (entry.workingSince !== undefined) entry.workingSince = this.now();
+  }
+
+  /** The seat's session was ended from outside: what follows is a fresh one. */
   markOffboarded(bindingId: string): void {
-    this.entry(bindingId).offboarded = true;
+    const entry = this.entry(bindingId);
+    entry.offboarded = true;
+    this.resetWork(entry);
+    entry.workingSince = undefined;
+    entry.sessionId = undefined;
   }
 
   /** Closed from outside, and still since: its session is already fresh. */
@@ -182,10 +265,13 @@ export class SeatMotionClock {
   record(): SeatMotionRecord {
     const seats: Record<string, SeatMotionRecord["seats"][string]> = {};
     for (const [bindingId, entry] of this.entries) {
+      const workMs = this.workMs(bindingId);
       seats[bindingId] = {
         movedAt: entry.movedAt,
         ...(entry.offboarded ? { offboarded: true } : {}),
         ...(entry.nudged ? { nudged: true } : {}),
+        ...(workMs > 0 ? { workMs } : {}),
+        ...(entry.sessionId !== undefined ? { sessionId: entry.sessionId } : {}),
       };
     }
     return { savedAt: this.now(), seats };
@@ -200,12 +286,22 @@ export const parseSeatMotionRecord = (text: string): SeatMotionRecord | undefine
     if (typeof parsed.seats !== "object" || parsed.seats === null || Array.isArray(parsed.seats)) return undefined;
     const seats: Record<string, SeatMotionRecord["seats"][string]> = {};
     for (const [bindingId, value] of Object.entries(parsed.seats as Record<string, unknown>)) {
-      const seat = value as { movedAt?: unknown; offboarded?: unknown; nudged?: unknown };
+      const seat = value as {
+        movedAt?: unknown;
+        offboarded?: unknown;
+        nudged?: unknown;
+        workMs?: unknown;
+        sessionId?: unknown;
+      };
       if (typeof seat?.movedAt !== "number" || !Number.isFinite(seat.movedAt)) continue;
       seats[bindingId] = {
         movedAt: seat.movedAt,
         ...(seat.offboarded === true ? { offboarded: true } : {}),
         ...(seat.nudged === true ? { nudged: true } : {}),
+        ...(typeof seat.workMs === "number" && Number.isFinite(seat.workMs) && seat.workMs > 0
+          ? { workMs: seat.workMs }
+          : {}),
+        ...(typeof seat.sessionId === "string" && seat.sessionId ? { sessionId: seat.sessionId } : {}),
       };
     }
     return { savedAt: parsed.savedAt, seats };
@@ -265,6 +361,34 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
     return { since, minutes, pastWindow: minutes >= window };
   };
 
+  /**
+   * What the session has done, and whether that is enough for the automatic
+   * rules. The size is only asked for when work time alone does not settle
+   * it, or when `withSize` wants it shown.
+   */
+  const worthOf = (
+    seat: OffboardSeat,
+    withSize: boolean,
+  ): { readonly workMs: number; readonly tokens?: number; readonly worth: boolean } => {
+    clock.syncSession(seat.bindingId, seat.sessionId);
+    const workMs = clock.workMs(seat.bindingId);
+    const threshold = offboardRulesFor(ports.rules(), seat.harness).worth;
+    const byWork = sessionWorthCutting(threshold, { workMs });
+    let tokens: number | undefined;
+    if (seat.sessionId !== undefined && (withSize || (workMs > 0 && !byWork))) {
+      try {
+        tokens = ports.sessionSize?.(seat)?.tokens;
+      } catch {
+        tokens = undefined;
+      }
+    }
+    return {
+      workMs,
+      ...(tokens !== undefined ? { tokens } : {}),
+      worth: byWork || sessionWorthCutting(threshold, { workMs, ...(tokens !== undefined ? { tokens } : {}) }),
+    };
+  };
+
   const status = async (
     canvasName: string,
     seatIds: ReadonlyArray<string>,
@@ -276,6 +400,7 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
         const seat = await ports.locate(address).catch(() => undefined);
         const allowed = mayCloseNow(seat, address);
         const still = seat ? stillness(seat, at) : { minutes: null, pastWindow: false };
+        const done = seat ? worthOf(seat, true) : { workMs: 0, worth: false };
         return {
           seatId,
           now: allowed,
@@ -283,6 +408,9 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
           idleMinutes: still.minutes,
           pastWindow: still.pastWindow,
           preferred: still.pastWindow ? "now" : "ask",
+          workMinutes: Math.floor(done.workMs / 60_000),
+          ...(done.tokens !== undefined ? { sessionTokens: done.tokens } : {}),
+          worthCutting: done.worth,
         };
       }),
     );
@@ -374,8 +502,9 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
   /**
    * One pass of the two automatic rules over every seat this installation
    * runs. Auto offboard: a seat still for its interval, that may be closed
-   * now, whose session was really used. Idle nudge: a running, idle seat
-   * still for its (shorter) interval is asked once per stretch.
+   * now. Idle nudge: a running, idle seat still for its (shorter) interval
+   * is asked once per stretch. Both act only on a session that has done
+   * enough work to be worth cutting (see `sessionWorthCutting`).
    *
    * Paced so it never reads as a batch: nothing for the first minutes after
    * the app opens, then one seat per pass, the one that has sat still
@@ -413,7 +542,8 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
         !clock.isFresh(seat.bindingId) &&
         seat.sessionId !== undefined &&
         mayCloseNow(seat, address).allowed &&
-        ports.sessionHasHistory(seat)
+        // Never recycle an empty or tiny session.
+        worthOf(seat, false).worth
       ) {
         due.push({ seat, address, minutes, action: "now" });
         continue;
@@ -429,7 +559,8 @@ export const makeOperatorOffboard = (ports: OperatorOffboardPorts, clock: SeatMo
         !(set.auto.enabled && minutes >= set.auto.minutes) &&
         !clock.wasNudged(seat.bindingId) &&
         !clock.isFresh(seat.bindingId) &&
-        !ports.isClosing(address)
+        !ports.isClosing(address) &&
+        worthOf(seat, false).worth
       ) {
         due.push({ seat, address, minutes, action: "ask" });
       }
@@ -502,5 +633,7 @@ export const seatOffboardStatus = (
           idleMinutes: null,
           pastWindow: false,
           preferred: "ask" as const,
+          workMinutes: 0,
+          worthCutting: false,
         })),
       );

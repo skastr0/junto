@@ -37,7 +37,16 @@ const seat = (seatId: string, over: Partial<OffboardSeat> = {}): OffboardSeat =>
   ...over,
 });
 
-const world = (initial: OffboardSeat[], options: { rules?: OffboardRules; restored?: SeatMotionRecord; at?: number } = {}) => {
+const world = (
+  initial: OffboardSeat[],
+  options: {
+    rules?: OffboardRules;
+    restored?: SeatMotionRecord;
+    at?: number;
+    /** Seats whose session has done no work. Every other seat starts with an hour of it. */
+    noWork?: ReadonlyArray<string>;
+  } = {},
+) => {
   let at = options.at ?? T0;
   let rules = options.rules ?? defaultOffboardRules();
   const seats = new Map(initial.map((s) => [s.seatId, s]));
@@ -47,8 +56,18 @@ const world = (initial: OffboardSeat[], options: { rules?: OffboardRules; restor
   const ended: Array<{ seatId: string; sessionId: string; by: OffboardBy; at: number }> = [];
   const saved: SeatMotionRecord[] = [];
   const fail = { close: new Set<string>(), ask: new Set<string>() };
-  const unused = new Set<string>();
-  const clock = new SeatMotionClock(() => at, options.restored);
+  /** Transcript size per seat, in tokens. A seat not listed has no locatable transcript. */
+  const sizes = new Map<string, number>();
+  // A session worth cutting, unless the test says otherwise: an hour of work.
+  const seeded: SeatMotionRecord = {
+    savedAt: at,
+    seats: Object.fromEntries(
+      initial
+        .filter((s) => !(options.noWork ?? []).includes(s.seatId))
+        .map((s) => [s.bindingId, { movedAt: at, workMs: 60 * MIN, ...(s.sessionId ? { sessionId: s.sessionId } : {}) }]),
+    ),
+  };
+  const clock = new SeatMotionClock(() => at, options.restored ?? seeded);
   const ports: OperatorOffboardPorts = {
     locate: async ({ canvasName, seatId }) => (canvasName === CANVAS ? seats.get(seatId) : undefined),
     seats: async () => [...seats.values()],
@@ -66,7 +85,7 @@ const world = (initial: OffboardSeat[], options: { rules?: OffboardRules; restor
       return { ok: true };
     },
     markEnded: (s, sessionId, by, when) => ended.push({ seatId: s.seatId, sessionId, by, at: when }),
-    sessionHasHistory: (s) => !unused.has(s.seatId),
+    sessionSize: (s) => (sizes.has(s.seatId) ? { tokens: sizes.get(s.seatId)! } : undefined),
     rules: () => rules,
     saveClock: (record) => saved.push(record),
     now: () => at,
@@ -82,9 +101,19 @@ const world = (initial: OffboardSeat[], options: { rules?: OffboardRules; restor
     ended,
     saved,
     fail,
-    unused,
+    sizes,
     advance: (minutes: number) => {
       at += minutes * MIN;
+    },
+    /** The seat works for this long, then goes idle: time passes for everyone. */
+    work: (seatId: string, minutes: number) => {
+      const bindingId = seats.get(seatId)!.bindingId;
+      clock.syncSession(bindingId, seats.get(seatId)!.sessionId);
+      clock.noteState(bindingId, "working");
+      clock.note(bindingId);
+      at += minutes * MIN;
+      clock.noteState(bindingId, "idle");
+      clock.note(bindingId);
     },
     setRules: (next: OffboardRules) => {
       rules = next;
@@ -213,6 +242,8 @@ describe("before the click", () => {
       idleMinutes: 45,
       pastWindow: false,
       preferred: "ask",
+      workMinutes: 60,
+      worthCutting: true,
     });
     expect(status[1]).toEqual({
       seatId: "b",
@@ -220,6 +251,8 @@ describe("before the click", () => {
       idleMinutes: null,
       pastWindow: false,
       preferred: "ask",
+      workMinutes: 60,
+      worthCutting: true,
     });
     expect(status[2]).toMatchObject({ now: { allowed: true }, idleMinutes: 45 });
     expect(status[3]).toMatchObject({ now: { allowed: false, code: "not-a-seat" }, idleMinutes: null });
@@ -276,20 +309,22 @@ describe("auto offboard (on by default, 2 hours)", () => {
   });
 
   it("includes offline and resting seats, and leaves an unused or already fresh session alone", async () => {
-    const w = world([
-      seat("resting", { running: false, state: undefined }),
-      seat("unused", { running: false, state: undefined }),
-      seat("nosession", { running: false, state: undefined, sessionId: undefined }),
-    ]);
-    w.unused.add("unused");
+    const w = world(
+      [
+        seat("resting", { running: false, state: undefined }),
+        seat("unused", { running: false, state: undefined }),
+        seat("nosession", { running: false, state: undefined, sessionId: undefined }),
+      ],
+      { noWork: ["unused"] },
+    );
     w.advance(120);
     expect((await w.offboard.tick()).closed).toBe(1);
     expect(w.closed).toEqual([{ seatId: "resting", by: "automatic" }]);
     // Hours later, still nothing moved: the fresh session is not cut again.
     w.advance(600);
     expect((await w.offboard.tick()).closed).toBe(0);
-    // Once it moves and goes still again, it is a session worth cutting.
-    w.clock.note("bind-resting");
+    // Once it has really worked again and gone still, it is a session worth cutting.
+    w.work("resting", 35);
     w.advance(120);
     expect((await w.offboard.tick()).closed).toBe(1);
   });
@@ -370,6 +405,141 @@ describe("idle nudge (off by default, 40 minutes)", () => {
   });
 });
 
+describe("worth cutting: the automatic rules never recycle an empty or tiny session", () => {
+  const nudging = () => applyOffboardRulesPatch(defaultOffboardRules(), { nudge: { enabled: true } });
+
+  it("case 1: one small task, then hours of stillness: not cut, not nudged", async () => {
+    const w = world([seat("a")], { rules: nudging(), noWork: ["a"] });
+    w.work("a", 5);
+    w.advance(45);
+    expect(await w.offboard.tick()).toMatchObject({ asked: 0, closed: 0 });
+    w.advance(600);
+    expect(await w.offboard.tick()).toMatchObject({ asked: 0, closed: 0 });
+    expect(w.closed).toEqual([]);
+    expect(w.asked).toEqual([]);
+    expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 5, worthCutting: false, pastWindow: true });
+  });
+
+  it("case 2: cut, a small task in the fresh session, then stillness: not cut again", async () => {
+    const w = world([seat("a")]);
+    w.advance(120);
+    expect((await w.offboard.tick()).closed).toBe(1);
+    // The fresh session wakes, does one small task, and goes still.
+    w.set("a", { running: true, state: "idle", sessionId: "fresh-a" });
+    w.work("a", 4);
+    for (let hour = 0; hour < 12; hour += 1) {
+      w.advance(60);
+      expect((await w.offboard.tick()).closed).toBe(0);
+    }
+    expect(w.closed).toHaveLength(1);
+    // The work before the cut does not count for the session after it.
+    expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 4, worthCutting: false });
+  });
+
+  it("case 3: a new session that never really starts is never cut", async () => {
+    const w = world(
+      [seat("idle-new"), seat("resting-new", { running: false, state: undefined })],
+      { noWork: ["idle-new", "resting-new"] },
+    );
+    // It printed a banner and sat at its prompt: output, but no work.
+    w.clock.note("bind-idle-new");
+    // A large transcript does not rescue a session that has done no work.
+    w.sizes.set("idle-new", 900_000);
+    w.sizes.set("resting-new", 900_000);
+    for (let hour = 0; hour < 24; hour += 1) {
+      w.advance(60);
+      expect(await w.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
+    }
+    expect(w.closed).toEqual([]);
+  });
+
+  it("thirty minutes of work is enough, summed across turns", async () => {
+    const w = world([seat("a")], { noWork: ["a"] });
+    w.work("a", 10);
+    w.advance(20);
+    w.work("a", 10);
+    w.advance(20);
+    w.work("a", 9);
+    w.advance(120);
+    expect((await w.offboard.tick()).closed).toBe(0); // 29 minutes
+    w.work("a", 1);
+    w.advance(120);
+    expect((await w.offboard.tick()).closed).toBe(1); // 30
+  });
+
+  it("or a transcript of about 200,000 tokens, with only a little work", async () => {
+    const w = world([seat("big"), seat("small"), seat("lost")], { noWork: ["big", "small", "lost"] });
+    for (const id of ["big", "small", "lost"]) w.work(id, 2);
+    w.sizes.set("big", 200_000);
+    w.sizes.set("small", 199_999);
+    // "lost": its transcript cannot be located, so size does not count.
+    w.advance(120);
+    expect((await w.offboard.tick()).closed).toBe(1);
+    w.advance(5);
+    expect((await w.offboard.tick()).closed).toBe(0);
+    expect(w.closed).toEqual([{ seatId: "big", by: "automatic" }]);
+    const status = await w.offboard.status(CANVAS, ["small", "lost"]);
+    expect(status[0]).toMatchObject({ sessionTokens: 199_999, worthCutting: false });
+    expect(status[1]).toMatchObject({ worthCutting: false });
+    expect("sessionTokens" in status[1]!).toBe(false);
+  });
+
+  it("the thresholds are settings, with a harness override", async () => {
+    const rules = applyOffboardRulesPatch(defaultOffboardRules(), {
+      worth: { workMinutes: 10 },
+      harness: { codex: { worth: { tokens: 50_000, workMinutes: 90 } } },
+    });
+    const w = world([seat("a"), seat("c", { harness: "codex" })], { rules, noWork: ["a", "c"] });
+    w.work("a", 10);
+    w.work("c", 10);
+    w.sizes.set("c", 60_000);
+    w.advance(120);
+    expect((await w.offboard.tick()).closed).toBe(1);
+    w.advance(1);
+    expect((await w.offboard.tick()).closed).toBe(1);
+    expect(w.closed.map((entry) => entry.seatId).sort()).toEqual(["a", "c"]);
+  });
+
+  it("work is counted per session: a seat that got a new session by any route starts from zero", async () => {
+    const w = world([seat("a")]);
+    expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 60 });
+    // Its own agent offboarded: the canvas names a new session.
+    w.set("a", { sessionId: "session-a-2" });
+    expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 0, worthCutting: false });
+    w.advance(600);
+    expect((await w.offboard.tick()).closed).toBe(0);
+  });
+
+  it("a session id that appears late names the same session: its work is kept", async () => {
+    const w = world([seat("a", { sessionId: undefined })], { noWork: ["a"] });
+    w.work("a", 40);
+    w.set("a", { sessionId: "announced-later" });
+    expect((await w.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 40, worthCutting: true });
+  });
+
+  it("work time survives a restart with the clock, and a turn cut off by the quit is counted up to the save", async () => {
+    const first = world([seat("a")], { noWork: ["a"] });
+    first.work("a", 20);
+    first.clock.noteState("bind-a", "working");
+    first.advance(15);
+    await first.offboard.tick(); // saved mid-turn
+    const saved = parseSeatMotionRecord(JSON.stringify(first.saved.at(-1)!))!;
+    expect(saved.seats["bind-a"]).toMatchObject({ workMs: 35 * MIN, sessionId: "session-a" });
+    const second = world([seat("a")], { restored: saved, at: first.now() + 10 * MIN });
+    // Not working any more after the restart: the count stands, it does not run.
+    second.advance(30);
+    expect((await second.offboard.status(CANVAS, ["a"]))[0]).toMatchObject({ workMinutes: 35, worthCutting: true });
+  });
+
+  it("the buttons are not gated: the operator may cut a tiny session", async () => {
+    const w = world([seat("a")], { noWork: ["a"] });
+    const result = await w.offboard.run({ canvasName: CANVAS, seatIds: ["a"], action: "now" }, "operator");
+    expect(result).toMatchObject({ closed: 1 });
+    const asked = await w.offboard.run({ canvasName: CANVAS, seatIds: ["a"], action: "ask" }, "operator");
+    expect(asked).toMatchObject({ asked: 1 });
+  });
+});
+
 describe("the clock across a restart", () => {
   it("is saved on every pass and carries on where it was", async () => {
     const first = world([seat("a")]);
@@ -377,7 +547,10 @@ describe("the clock across a restart", () => {
     first.advance(90);
     await first.offboard.tick();
     const saved = first.saved.at(-1)!;
-    expect(saved).toEqual({ savedAt: T0 + 90 * MIN, seats: { "bind-a": { movedAt: T0 } } });
+    expect(saved).toEqual({
+      savedAt: T0 + 90 * MIN,
+      seats: { "bind-a": { movedAt: T0, workMs: 60 * MIN, sessionId: "session-a" } },
+    });
 
     // Restart one minute later: the seat is at 91 minutes, not at zero.
     const second = world([seat("a")], { restored: parseSeatMotionRecord(JSON.stringify(saved)), at: T0 + 91 * MIN });
@@ -466,12 +639,12 @@ describe("the clock across a restart", () => {
     expect(await second.offboard.tick()).toMatchObject({ closed: 0, asked: 0 });
   });
 
-  it("a seat the clock has never seen has been still since this run started", async () => {
-    const w = world([seat("new")]);
+  it("a seat the clock has never seen has been still since this run started, and has done no work", async () => {
+    const w = world([seat("new")], { noWork: ["new"] });
     w.advance(119);
+    expect((await w.offboard.status(CANVAS, ["new"]))[0]).toMatchObject({ idleMinutes: 119, workMinutes: 0, worthCutting: false });
+    w.advance(600);
     expect((await w.offboard.tick()).closed).toBe(0);
-    w.advance(1);
-    expect((await w.offboard.tick()).closed).toBe(1);
   });
 
   it("an unreadable saved clock is no clock, and a save that fails stops nothing", async () => {

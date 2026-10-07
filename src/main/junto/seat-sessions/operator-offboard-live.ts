@@ -28,7 +28,6 @@ import { SettingsService } from "../settings/service";
 import { seatStateRuntime } from "../term/agent-state/runtime";
 import { terminalObserverPlane } from "../term/observer";
 import { termPlane } from "../term/plane";
-import { harnessSessionExists } from "../term/session-existence";
 import { defaultSeatsRoot, seatSessionNotesPath, writeEndedMarker } from "./notes-file";
 import {
   OFFBOARD_TICK_MS,
@@ -233,13 +232,6 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
       },
       markEnded: (seat, sessionId, by, at) =>
         writeEndedMarker(seatSessionNotesPath(defaultSeatsRoot(), seat.seatId, sessionId), { by, at }),
-      sessionHasHistory: (seat) =>
-        seat.sessionId !== undefined &&
-        harnessSessionExists({
-          harness: seat.harness,
-          sessionId: seat.sessionId,
-          ...(cwds.get(seat.bindingId) ? { cwd: cwds.get(seat.bindingId)! } : {}),
-        } as Parameters<typeof harnessSessionExists>[0]),
       rules: () => rules,
       saveClock: (record) => writeClock(clockPath, record),
       log: (message) => console.info(`[offboard] ${message}`),
@@ -268,6 +260,8 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
     clock.note(snap.bindingId);
   });
   const offState = seatStateRuntime.subscribe((event) => {
+    // Time in `working` is the session's work; any other state ends a stretch.
+    clock.noteState(event.bindingId, event.state);
     if (event.state === "gone") {
       lastSeq.delete(event.bindingId);
       return;
