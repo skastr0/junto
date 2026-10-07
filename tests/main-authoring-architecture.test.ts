@@ -49,10 +49,6 @@ describe("main authoring architecture", () => {
     );
     expect([...labels].sort()).toEqual([
       "delivery.message-stamp",
-      "ipc.canvas.create",
-      "ipc.canvas.delete",
-      "ipc.canvas.overseer-set",
-      "ipc.canvas.write",
       "ipc.model.command",
       // Artifact library operator actions (archive / hard-delete).
       "ipc.work.artifact-archive",
@@ -168,15 +164,14 @@ describe("main authoring architecture", () => {
     );
   });
 
-  it("keeps the quit flush admission to the renderer's own canvas save", () => {
+  it("keeps the quit flush admission to the renderer's model commands", () => {
     const gate = source("src/main/junto/main-authoring-gate.ts");
     const finalFlush = gate.slice(
       gate.indexOf("const FINAL_FLUSH_LABELS"),
       gate.indexOf("export type MainAuthoringWorkClassification"),
     );
 
-    expect(finalFlush).toContain('"ipc.canvas.write"');
-    expect(finalFlush).toContain('"ipc.canvas.create"');
+    expect(finalFlush).toContain('"ipc.model.command"');
     expect(gate).toContain("readonly beginFinalFlush: () => void");
     expect(gate).toContain("readonly close: () => void");
   });

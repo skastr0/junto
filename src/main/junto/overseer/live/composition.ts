@@ -8,14 +8,14 @@ import { SettingsService } from "../../settings/service";
 import { StateEngine } from "../../state/service";
 import { withSqlRead } from "../../state/sql-read";
 import { StationRepository } from "../../station/repository";
-import { WorkProjectionReader, WorkRepository } from "../../work/repository";
+import { WorkRevisions, WorkRepository } from "../../work/repository";
 import { admitOverseer } from "../admission";
 import type { OverseerHostIdentity } from "./execution";
 import { buildLiveContext, type LiveCanvasRead } from "./context";
 import { makeLiveRepository } from "./repository";
 import { createLiveSessionService } from "./service";
 
-type Services = ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | WorkProjectionReader | WorkRepository;
+type Services = ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | WorkRevisions | WorkRepository;
 export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
 
 /** A canvas revision as the live journal keeps it: the sequence, as text. */
@@ -37,7 +37,7 @@ export const readLiveCanvas = Effect.fn("Live.readCanvas")(function* (canvasName
   return yield* withSqlRead(sql, Effect.gen(function* () {
     const model = yield* ModelService;
     const work = yield* WorkRepository;
-    const revisions = yield* WorkProjectionReader;
+    const revisions = yield* WorkRevisions;
     const canvas = yield* model.canvas(canvasName);
     const rows = yield* work.kernelWork(canvasName);
     const artifacts = new Map<string, ReadonlyArray<string>>();
@@ -67,9 +67,9 @@ const voiceSeatOf = (node: unknown): Seat | undefined => {
 
 /** Joins Live to the already running app owners; no process or database is opened here. */
 export const composeOverseerLive = async (run: LiveRun) => {
-  const { sql, settings, model, work, workProjection } = await run(Effect.gen(function* () {
+  const { sql, settings, model, work, workRevisions } = await run(Effect.gen(function* () {
     return { sql: yield* SqlClient.SqlClient, settings: yield* SettingsService, model: yield* ModelService,
-      work: yield* WorkRepository, workProjection: yield* WorkProjectionReader };
+      work: yield* WorkRepository, workRevisions: yield* WorkRevisions };
   }));
   const processMap = getProcessIdentityMap();
   const revisions = new Map<string, string>();
@@ -97,7 +97,7 @@ export const composeOverseerLive = async (run: LiveRun) => {
   const service = createLiveSessionService({
     repository: makeLiveRepository(sql),
     canvasRevision: canvasRevisionOf(model),
-    workProjection,
+    workRevisions,
     run,
     settingsService: settings,
     resolveOccupant,

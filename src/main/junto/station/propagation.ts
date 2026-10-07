@@ -16,12 +16,11 @@ import {
 import { resolveNodeHostId } from "@shared/station";
 import type { StationTopologyObservation } from "@shared/station-status";
 import { resolveSpec, roleOf } from "@shared/physics/kinds";
-import { compileEdgeGrant, edgeKindIndex } from "@shared/canvas";
+import { compileEdgeGrant, edgeKindIndex } from "./frozen-document";
 import {
-  CanvasesService,
   type CanvasAuthoritySnapshot,
-  type CanvasError,
-} from "../canvases";
+} from "./frozen-document";
+import type { CanvasError } from "../canvas/domain";
 import {
   STATION_PROJECTION_SWITCHED_OFF,
   StationApiService,
@@ -505,7 +504,6 @@ export class StationPropagation extends Context.Service<StationPropagation,
 export const StationPropagationLive = Layer.effect(
   StationPropagation,
   Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
     const repository = yield* StationRepository;
     const api = yield* StationApiService;
     const fleetTargets = yield* StationFleetTargetRepository;

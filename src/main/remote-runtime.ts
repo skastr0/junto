@@ -24,7 +24,6 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { ObservabilityLoggerLive } from "./junto/observability";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import { assessSupervisedRuntime } from "@shared/station";
-import { CanvasesLive } from "./junto/canvases";
 import {
   ChatServiceFromHermesLive,
   HermesPlaneLive,
@@ -36,6 +35,8 @@ import { PausePlaneLive } from "./junto/pause-plane";
 import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
 import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
 import { WorkLive } from "./junto/work/service";
+import { ModelLive } from "./junto/model/layer";
+import { WorkModelDependentsLive } from "./junto/work/model-dependents";
 import { WorkRepositoryLive } from "./junto/work/repository";
 import { CrewRepositoryLive } from "./junto/work/crew-repository";
 import { makeContentServiceLive } from "./junto/content/service";
@@ -145,17 +146,12 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationFleetTargetRepositoryLive,
     makeContentServiceLive(),
   ),
-  Layer.mergeAll(StateEngineLive, InstallOpsLive),
-);
-
-const CanvasesWithStateLive = Layer.provideMerge(
-  CanvasesLive,
-  StateRepositoriesLive,
+  Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(StateEngineLive, InstallOpsLive)),
 );
 
 const StatefulServicesLive = Layer.provideMerge(
   StationApiLive,
-  CanvasesWithStateLive,
+  StateRepositoriesLive,
 );
 
 const StationPropagationServicesLive = Layer.provideMerge(
@@ -244,7 +240,7 @@ const RemoteRootLayer = Layer.provideMerge(
   Layer.mergeAll(KernelWithWorkLive, RegionRollupLive),
   Layer.provideMerge(
     BaseWithActorSeatOccupyLive,
-    Layer.mergeAll(ProductPlanesWithChatLive, CanvasesWithStateLive),
+    Layer.mergeAll(ProductPlanesWithChatLive, StateRepositoriesLive),
   ),
 );
 

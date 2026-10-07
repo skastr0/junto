@@ -11,14 +11,14 @@ import { ModelDependents } from "../src/main/junto/model/dependents";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { createCanvasTaskDependencyScopeCapability, WorkProjectionReaderLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { createCanvasTaskDependencyScopeCapability, WorkRevisionsLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { readLiveCanvas } from "../src/main/junto/overseer/live/composition";
 import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 
 it("reads kernel lanes and compact watch counts without decoding mail, board posts or artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-kernel-read-"));
   const modelLive = Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), makeStateEngineLive(join(root, "junto.db")));
-  const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.mergeAll(WorkRepositoryLive, WorkProjectionReaderLive), modelLive));
+  const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.mergeAll(WorkRepositoryLive, WorkRevisionsLive), modelLive));
   try {
     const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {

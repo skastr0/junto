@@ -1,17 +1,13 @@
 import type { WorkOpName } from "@shared/work-control";
 
 /**
- * Every main-process ingress that can eventually change a canvas document.
+ * Every main-process ingress that can eventually change canvas or Work rows.
  * Keeping this vocabulary closed makes missing shutdown coverage a type error
  * instead of a convention hidden in string labels.
  */
 export const MAIN_AUTHORING_LABELS = [
-  "ipc.canvas.write",
   "ipc.model.command",
-  "ipc.canvas.create",
-  "ipc.canvas.delete",
   "ipc.canvas.portfolio",
-  "ipc.canvas.overseer-set",
   "control.overseer",
   "kernel.claim-tick",
   "startup.canvas.ensure-seed",
@@ -62,21 +58,19 @@ export const MAIN_AUTHORING_LABELS = [
 export type MainAuthoringLabel = (typeof MAIN_AUTHORING_LABELS)[number];
 
 /**
- * One-way lifecycle. `final-flush` still admits the renderer's own canvas save
+ * One-way lifecycle. `final-flush` still admits the renderer's model commands
  * so an open editor draft can land; `closed` admits nothing. There is no
  * reopen: the gate only leaves `open` after the operator has confirmed quit.
  */
 export type MainAuthoringPhase = "open" | "final-flush" | "closed";
 
 /**
- * The renderer's quit flush lands through the ordinary canvas IPC handlers.
+ * The renderer's quit flush lands through the ordinary model command handler.
  * Sender trust is already proven at the IPC boundary
  * (isTrustedMainWebContents), so the label alone is the admission fact here.
  */
 const FINAL_FLUSH_LABELS: ReadonlySet<MainAuthoringLabel> = new Set([
-  "ipc.canvas.write",
   "ipc.model.command",
-  "ipc.canvas.create",
 ]);
 
 export type MainAuthoringWorkClassification = "read" | "authorial";

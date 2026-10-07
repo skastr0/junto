@@ -6,7 +6,7 @@ import { isOverseerMutation, type OverseerRequest, type OverseerResult, type Ove
 import { formatNodeRef } from "@shared/node-ref";
 import { liveSettings, liveCallLimitSeconds, LIVE_INITIAL_BILLING_SECONDS, LIVE_VOICE_USD_PER_MINUTE } from "@shared/settings";
 import type { SettingsServiceApi } from "../../settings/service";
-import type { WorkProjectionReader } from "../../work/repository";
+import type { WorkRevisions } from "../../work/repository";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "./execution";
 import { createOpenAiLiveConnection, type OpenAiLiveConnection, type OpenAiLiveConnectionOptions } from "./openai-connection";
 import type {
@@ -19,7 +19,7 @@ export interface LiveSessionServiceOptions {
   readonly repository: LiveRepositoryShape;
   /** The revision of a canvas as stored now, or nothing when it is absent. */
   readonly canvasRevision: (canvasName: string) => Effect.Effect<string | undefined, unknown>;
-  readonly workProjection: Pick<WorkProjectionReader["Service"], "revision">;
+  readonly workRevisions: Pick<WorkRevisions["Service"], "revision">;
   /** The existing warm app runtime, never a newly constructed runtime. */
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
   readonly settingsService: Pick<SettingsServiceApi, "get" | "resolveProviders">;
@@ -580,7 +580,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
         if (actual !== undefined && actual !== expectedRevision) {
           return yield* Effect.fail(new Error("Canvas changed after this request was captured. Read current state and replan."));
         }
-        if (expectedWorkRevision !== undefined && (yield* options.workProjection.revision(canvasName)) !== expectedWorkRevision) {
+        if (expectedWorkRevision !== undefined && (yield* options.workRevisions.revision(canvasName)) !== expectedWorkRevision) {
           return yield* Effect.fail(new Error("Work changed after this request was captured. Read current state and replan."));
         }
       }
@@ -607,7 +607,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
       // Native teardown and mixed Work effects retain a dispatch receipt until settlement.
       const revisionAfter = yield* options.canvasRevision(canvasName);
       if (typeof revisionAfter === "string") { committedRevision = revisionAfter; expectedRevision = revisionAfter; }
-      committedWorkRevision = yield* options.workProjection.revision(canvasName);
+      committedWorkRevision = yield* options.workRevisions.revision(canvasName);
       expectedWorkRevision = committedWorkRevision;
       const structural = LIVE_STRUCTURAL_WRITES.has(request.operation);
       if (receiptCommitted || !structural || !["canvas.mutatePortfolio", "canvas.mutate", "canvas.create"].includes(transactionName)) return;

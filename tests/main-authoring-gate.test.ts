@@ -21,12 +21,12 @@ describe("main authoring gate", () => {
   it("retains the exact admitted promise until it settles", async () => {
     const gate = createMainAuthoringGate();
     const pending = deferred<string>();
-    const admitted = gate.run("ipc.canvas.write", () => pending.promise);
+    const admitted = gate.run("ipc.model.command", () => pending.promise);
 
     expect(admitted).toBe(pending.promise);
     expect(gate.snapshot()).toMatchObject({
       phase: "open",
-      activeLabels: ["ipc.canvas.write"],
+      activeLabels: ["ipc.model.command"],
     });
 
     pending.resolve("durable");
@@ -39,10 +39,7 @@ describe("main authoring gate", () => {
     gate.beginFinalFlush();
     expect(gate.snapshot().phase).toBe("final-flush");
 
-    await expect(gate.run("ipc.canvas.write", async () => "draft")).resolves.toBe("draft");
-    await expect(gate.run("ipc.canvas.create", async () => "recovery")).resolves.toBe(
-      "recovery",
-    );
+    await expect(gate.run("ipc.model.command", async () => "draft")).resolves.toBe("draft");
 
     let invoked = false;
     await expect(
@@ -64,8 +61,7 @@ describe("main authoring gate", () => {
     gate.close();
 
     for (const label of [
-      "ipc.canvas.write",
-      "ipc.canvas.create",
+      "ipc.model.command",
       "kernel.flag-mirror",
       "control.work.msg-send",
     ] as const) {
@@ -81,7 +77,7 @@ describe("main authoring gate", () => {
     gate.beginFinalFlush();
     gate.beginFinalFlush();
     expect(gate.snapshot().phase).toBe("final-flush");
-    await expect(gate.run("ipc.canvas.write", async () => "retry")).resolves.toBe("retry");
+    await expect(gate.run("ipc.model.command", async () => "retry")).resolves.toBe("retry");
 
     gate.close();
     gate.close();
@@ -95,7 +91,7 @@ describe("main authoring gate", () => {
     const gate = createMainAuthoringGate();
     const write = deferred<void>();
     const stamp = deferred<void>();
-    void gate.run("ipc.canvas.write", () => write.promise);
+    void gate.run("ipc.model.command", () => write.promise);
     const rejected = gate.run("delivery.message-stamp", () => stamp.promise);
     void rejected.catch(() => undefined);
 
@@ -137,9 +133,9 @@ describe("main authoring gate", () => {
   it("sees work admitted by a task that re-enters the gate synchronously", async () => {
     const gate = createMainAuthoringGate();
     const pending = deferred<string>();
-    const admitted = gate.run("ipc.canvas.write", () => {
+    const admitted = gate.run("ipc.model.command", () => {
       // A factory may drive quit preparation before it returns its promise.
-      expect(gate.snapshot().activeLabels).toEqual(["ipc.canvas.write"]);
+      expect(gate.snapshot().activeLabels).toEqual(["ipc.model.command"]);
       gate.beginFinalFlush();
       return pending.promise;
     });

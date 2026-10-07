@@ -1,7 +1,9 @@
+// Frozen for the inert Station; removed when Stations are rebuilt.
+// Copied from shared/canvas.ts. No product store or model service is read here.
 import { Schema } from "effect";
-import { HarnessId } from "./managed-terminal-templates";
-import { EtherSheet } from "./sheet";
-import { Port } from "./physics/schema";
+import { HarnessId } from "@shared/managed-terminal-templates";
+import { EtherSheet } from "@shared/sheet";
+import { Port } from "@shared/physics/schema";
 import {
   compileVerb,
   inferVerb,
@@ -10,7 +12,7 @@ import {
   verbsForPair,
   type LegacyEdgeEther,
   type VerbGrant,
-} from "./physics/verbs";
+} from "@shared/physics/verbs";
 import {
   EtherArtifacts,
   EtherBoard,
@@ -19,73 +21,7 @@ import {
   EtherTasks,
   Rule,
   Ruling,
-} from "./work-model";
-
-export { EtherSheet } from "./sheet";
-
-export {
-  Artifact,
-  BoardAuthor,
-  BoardGlanceTopic,
-  BoardPost,
-  BoardTopic,
-  Check,
-  CheckResult,
-  CheckSide,
-  Claim,
-  CHECK_OUTPUT_TAIL_MAX_BYTES,
-  ContentAvailability,
-  ContentByteLength,
-  ContentCorrupt,
-  ContentDisplayName,
-  ContentIdentity,
-  ContentLocalPathProjection,
-  ContentMediaType,
-  ContentMissing,
-  ContentObject,
-  ContentPart,
-  ContentPathProjection,
-  ContentReceipt,
-  ContentRef,
-  ContentSha256,
-  ContentUnavailable,
-  ContentTimestamp,
-  decodeContentPart,
-  CompletionEvidence,
-  DataPart,
-  EtherArtifacts,
-  EtherBoard,
-  PadGlance,
-  EtherRequests,
-  EtherTasks,
-  FinishCriteria,
-  Message,
-  MessageRole,
-  Part,
-  RawPart,
-  resolveTaskAdmission,
-  Rule,
-  Ruling,
-  Task,
-  TaskAdmission,
-  TaskRule,
-  TaskState,
-  TasksContract,
-  TasksIncoming,
-  TasksOutgoing,
-  TextPart,
-  UrlPart,
-  Visit,
-  VisitExit,
-  Waiver,
-  isContentPart,
-  WorkArtifacts,
-  WorkBoard,
-  WorkMessages,
-  WorkMetadata,
-  WorkRequests,
-  WorkTasks,
-} from "./work-model";
+} from "@shared/work-model";
 
 // JSON Canvas 1.0 (https://jsoncanvas.org/spec/1.0/) plus the namespaced
 // `ether` extension. Invariant: a document stripped of every `ether` key must
@@ -922,3 +858,21 @@ export const serializeCanvas = (doc: CanvasDoc): string => {
   return `${JSON.stringify(canonical, null, 2)}\n`;
 };
 
+
+export type CanvasAuthoritySnapshot = {
+  readonly generation: string;
+  readonly intentSha256: string;
+  readonly documents: ReadonlyMap<string, CanvasDoc>;
+};
+export type CanvasAuthorityStoredDocument = {
+  readonly document: CanvasDoc;
+  readonly rawBody: string;
+  readonly revisionSha256: string;
+};
+export type CanvasAuthorityMaterialSnapshot = CanvasAuthoritySnapshot & {
+  readonly storedDocuments: ReadonlyMap<string, CanvasAuthorityStoredDocument>;
+};
+export type InstalledProjectionCanvasChange = {
+  readonly name: string;
+  readonly detail: { readonly previous: CanvasDoc | undefined; readonly next: CanvasDoc | undefined };
+};

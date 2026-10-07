@@ -22,7 +22,7 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import { WorkProjectionReader, WorkProjectionReaderLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkRevisions, WorkRevisionsLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { runOverseerTurn } from "../src/overseer-host/session";
 import { asNodeId, type Node } from "../src/shared/model";
 import { note, seat } from "./support/model-nodes";
@@ -51,7 +51,7 @@ const boot = async () => {
   const root = await mkdtemp(join(tmpdir(), "command-live-poc-"));
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive, SettingsLive,
-    WorkProjectionReaderLive,
+    WorkRevisionsLive,
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state.db")), makeInstallOpsLive(join(root, "install-ops.db"))));
   const runtime = ManagedRuntime.make(Layer.provideMerge(ModelStoresLive, repositories));
@@ -70,7 +70,7 @@ const boot = async () => {
   const service = createLiveSessionService({
     repository, run: (effect) => runtime.runPromise(effect),
     canvasRevision: canvasRevisionOf(await runtime.runPromise(ModelService as never) as never),
-    workProjection: await runtime.runPromise(WorkProjectionReader),
+    workRevisions: await runtime.runPromise(WorkRevisions),
     settingsService: { get: Effect.succeed(defaultSettings()), resolveProviders: Effect.succeed({ openai: { apiKey: "test-key" } }) },
     resolveOccupant: async () => currentIdentity,
     subscribeAuthorityChanges: (listener) => { authorityListener = listener; return () => { authorityListener = undefined; }; },

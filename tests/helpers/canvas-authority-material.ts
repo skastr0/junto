@@ -5,9 +5,10 @@ import {
   intentSha256Of,
 } from "../../src/main/junto/canvas-intent-identity";
 import type {
-  CanvasAuthorityMaterialSnapshot,
-  CanvasAuthorityStoredDocument,
-} from "../../src/main/junto/canvases";
+  CanvasIntentMaterial,
+  StoredCanvasIntentDocument as CanvasAuthorityStoredDocument,
+} from "../../src/main/junto/canvas-intent-identity";
+type CanvasAuthorityMaterialSnapshot = CanvasIntentMaterial & { readonly generation: string };
 import { ModelRecords } from "../../src/main/junto/model/records";
 import { canvasFromDocument } from "../../src/shared/model/from-document";
 import { SqlClient } from "effect/unstable/sql";

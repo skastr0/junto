@@ -442,14 +442,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   },
   closeWindow: () => ipcRenderer.send(IPC_CHANNELS.windowClose),
   yieldMenuKeys: (yielding) => ipcRenderer.send(IPC_CHANNELS.menuYield, yielding),
-  listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
-  readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
-  writeCanvas: (name, doc, expectedRevision) =>
-    invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc, expectedRevision),
-  canvasOverseerSet: (input) =>
-    invoke(IPC_CHANNELS.canvasOverseerSet, IPC_TIMEOUT_MS, input),
-  createCanvas: (name) => invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name),
-  deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   canvasDigest: (name) => invoke(IPC_CHANNELS.canvasDigest, IPC_TIMEOUT_MS, name),
   modelOpen: (input) => invoke(IPC_CHANNELS.modelOpen, IPC_TIMEOUT_MS, input),
   modelCanvases: () => invoke(IPC_CHANNELS.modelCanvases, IPC_TIMEOUT_MS),
@@ -543,7 +535,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onNodeRefOpened,
   onCanvasFlushRequested,
   onCanvasQuiesceAndFlushRequested,
-  onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
   onPreamble: (listener) => subscribe<PreambleEvent>(IPC_CHANNELS.preamble, listener),
   onWireTraffic: (listener) =>
     subscribe<WireTrafficEvent>(IPC_CHANNELS.wireTraffic, listener),

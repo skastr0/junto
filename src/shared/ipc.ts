@@ -23,7 +23,6 @@ import type { DoctorReport, ServiceCheck } from "./contracts";
 import type {
   WorkMetadata,
   Task,
-  CanvasDoc,
   CanvasNode,
   Part,
   TaskState,
@@ -151,12 +150,6 @@ export const IPC_CHANNELS = {
   liveChanged: "junto:live-changed",
   doctor: "chassis:doctor",
   probeCodex: "chassis:probe-codex",
-  listCanvases: "junto:list-canvases",
-  readCanvas: "junto:read-canvas",
-  writeCanvas: "junto:write-canvas",
-  canvasOverseerSet: "junto:canvas-overseer-set",
-  createCanvas: "junto:create-canvas",
-  deleteCanvas: "junto:delete-canvas",
   canvasDigest: "junto:canvas-digest",
   modelOpen: "junto:model-open",
   modelCanvases: "junto:model-canvases",
@@ -369,7 +362,6 @@ export const IPC_CHANNELS = {
   canvasQuiesceAndFlushRequested: "junto:canvas-quiesce-and-flush-requested",
   canvasQuiesceAndFlushStarted: "junto:canvas-quiesce-and-flush-started",
   canvasQuiesceAndFlushComplete: "junto:canvas-quiesce-and-flush-complete",
-  canvasChanged: "junto:canvas-changed",
   snapshotsChanged: "junto:snapshots-changed",
   usageChanged: "junto:usage-changed",
   settingsChanged: "junto:settings-changed",
@@ -450,44 +442,6 @@ export interface ChassisApi {
 export interface CanvasSummary {
   readonly name: string;
   readonly modifiedAt: string;
-}
-
-export interface CanvasReadResult {
-  readonly name: string;
-  readonly doc: CanvasDoc;
-  /**
-   * Projection-only execution identities for actor nodes on this canvas.
-   * These are compiled by main from the active portfolio and never authored
-   * into the canvas document.
-   */
-  readonly actorRefs: ReadonlyArray<ActorRef>;
-  /** SHA-256 identity of the exact canonical database body. */
-  readonly revision: string;
-  /**
-   * Opaque monotonic identity of this canvas's runtime Work projection.
-   * This is deliberately separate from the authorial body revision: agents
-   * advance SQLite Work without authoring the canvas.
-   */
-  readonly workRevision: string;
-}
-
-export interface CanvasWriteResult {
-  /** SHA-256 identity of the exact canonical database body committed. */
-  readonly revision: string;
-}
-
-/** Direct operator delegation; never accepted by the agent command plane. */
-export interface CanvasOverseerSetInput {
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly overseer: boolean;
-  readonly expectedRevision: string;
-}
-
-export interface CanvasOverseerSetResult {
-  readonly binding: { readonly hostId: string; readonly bindingId: string };
-  readonly overseer: boolean;
-  readonly affected: ReadonlyArray<{ readonly name: string; readonly revision: string }>;
 }
 
 export interface CanvasFlushRequest {
@@ -817,18 +771,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
    * with Cmd held, so Cmd+H is the h of h j k l and does not hide the app.
    */
   readonly yieldMenuKeys: (yielding: MenuYield) => void;
-  readonly listCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
-  readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
-  readonly writeCanvas: (
-    name: string,
-    doc: CanvasDoc,
-    expectedRevision?: string,
-  ) => Promise<CanvasWriteResult>;
-  readonly canvasOverseerSet: (
-    input: CanvasOverseerSetInput,
-  ) => Promise<CanvasOverseerSetResult>;
-  readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
-  readonly deleteCanvas: (name: string) => Promise<{ name: string }>;
   readonly canvasDigest: (name: string) => Promise<DigestResult>;
   /** Everything on one canvas, read once when it is opened. */
   readonly modelOpen: (input: { readonly canvas: string }) => Promise<Opened>;
@@ -1171,7 +1113,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
       acknowledgeQuiesced: () => void,
     ) => CanvasQuiesceAndFlushOutcome | Promise<CanvasQuiesceAndFlushOutcome>,
   ) => () => void;
-  readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   /** Optional for older renderer bridges; present in the current preload. */
   readonly onPreamble?: (listener: (event: PreambleEvent) => void) => () => void;
   /** One message typed into a seat, as it lands. Optional for older bridges. */

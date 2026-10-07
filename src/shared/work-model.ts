@@ -620,20 +620,3 @@ export type EtherRequests = WorkRequests;
 
 export const EtherArtifacts = WorkArtifacts;
 export type EtherArtifacts = WorkArtifacts;
-
-
-/**
- * One immutable work read model, addressed by the same composite identity the
- * SQLite repository joins on. Lanes stay explicit: consumers never decode an
- * opaque per-node payload and never infer a lane from entity kind.
- */
-export const WorkSnapshot = Schema.Struct({
-  canvasName: Schema.String,
-  nodeId: Schema.String,
-  tasks: WorkTasks,
-  requests: WorkRequests,
-  artifacts: WorkArtifacts,
-  board: WorkBoard,
-  pad: Schema.optionalKey(PadGlance),
-});
-export type WorkSnapshot = typeof WorkSnapshot.Type;

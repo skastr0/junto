@@ -755,3 +755,46 @@ it("reseating revokes authority on every alias atomically and a refused batch re
   expect((yield* model.open("factory")).nodes[0]).toMatchObject({ bindingId: "replacement-binding", overseer: false });
   stop();
 })));
+
+it("serializes concurrent edits and keeps different canvases independent", () => run((model) => Effect.gen(function* () {
+  yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [node("note")], wires: [] }), "operator");
+  yield* model.command(decode({ _tag: "CreateCanvas", canvas: "other" }), "operator");
+  yield* model.command(decode({ _tag: "Add", canvas: "other", nodes: [node("note")], wires: [] }), "operator");
+  const completed: number[] = [];
+  yield* Effect.all(Array.from({ length: 20 }, (_, index) => model.command(decode({
+    _tag: "Edit", canvas: "factory", id: "note", change: { kind: "note", text: `write-${index}` },
+  }), "operator").pipe(Effect.tap(() => Effect.sync(() => { completed.push(index); })))), { concurrency: "unbounded" });
+  const factory = yield* model.open("factory");
+  expect(factory.seq).toBe(21);
+  expect(factory.nodes[0]).toMatchObject({ text: `write-${completed[completed.length - 1]}` });
+  const other = yield* model.open("other");
+  expect(other.seq).toBe(1);
+  expect(other.nodes[0]).toMatchObject({ text: "note" });
+})));
+
+it("admits one concurrent creator and refuses noncanonical canvas names", () => run((model) => Effect.gen(function* () {
+  const command = decode({ _tag: "CreateCanvas", canvas: "exclusive" });
+  const results = yield* Effect.all([model.command(command, "operator").pipe(Effect.result), model.command(command, "operator").pipe(Effect.result)], { concurrency: "unbounded" });
+  expect(results.map((result) => result._tag).sort()).toEqual(["Failure", "Success"]);
+  for (const canvas of ["../outside", "/tmp/outside", "subdir/name", "name%2fchild", ".dot", "name\\child", "a".repeat(65)]) {
+    expect(() => decode({ _tag: "CreateCanvas", canvas })).toThrow();
+    expect((yield* model.open(canvas).pipe(Effect.result))).toMatchObject({ _tag: "Failure" });
+  }
+})));
+
+it("streams canvas creation after commit for operator and overseer callers", () => run((model, sql, db) => Effect.gen(function* () {
+  const seen: string[] = [];
+  const subscription = yield* model.canvasesChanges.pipe(Stream.runForEach((event) => Effect.sync(() => {
+    expect(db.isTransaction).toBe(false);
+    seen.push(`${event._tag}:${event.canvas}`);
+  })), Effect.forkChild);
+  yield* Effect.yieldNow;
+  yield* sql.withTransaction(model.command(decode({ _tag: "CreateCanvas", canvas: "from-overseer" }), "overseer").pipe(
+    Effect.tap(() => Effect.sync(() => { expect(seen).toEqual([]); })),
+  ));
+  yield* Effect.yieldNow;
+  yield* model.command(decode({ _tag: "CreateCanvas", canvas: "from-window" }), "operator");
+  yield* Effect.yieldNow;
+  expect(seen).toEqual(["Created:from-overseer", "Created:from-window"]);
+  yield* Fiber.interrupt(subscription);
+})));

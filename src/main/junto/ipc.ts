@@ -10,14 +10,12 @@ import {
   type FactoryPauseSetResult,
   type WorkOpResult,
 } from "@shared/ipc";
-import type { CanvasDoc } from "@shared/canvas";
 import type { Canvas } from "@shared/model";
 import { pauseWasResumed } from "@shared/pause";
 import { readModelDigest } from "./model/digest";
 import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
-import { CanvasesService } from "./canvases";
 import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { ModelNotFound } from "./model/records";
@@ -416,85 +414,6 @@ export const registerJuntoIpc = (): void => {
     broadcast,
     app.getVersion(),
   );
-  privilegedIpc.handle(IPC_CHANNELS.listCanvases, () =>
-    AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.list)),
-  );
-
-  privilegedIpc.handle(IPC_CHANNELS.readCanvas, (_event, name: string) =>
-    AppRuntime.runPromise(
-      Effect.flatMap(CanvasesService, (canvases) => canvases.read(name, "ipc.readCanvas")),
-    ),
-  );
-
-  // This trusted-renderer channel is the only delegation writer. Agent
-  // commands and ordinary document saves cannot grant overseer authority.
-  const decodeOverseerToggle = Schema.decodeUnknownSync(Schema.Struct({
-    canvasName: Schema.NonEmptyString,
-    nodeId: Schema.NonEmptyString,
-    overseer: Schema.Boolean,
-    expectedRevision: Schema.NonEmptyString,
-  }), { onExcessProperty: "error" });
-  privilegedIpc.handle(IPC_CHANNELS.canvasOverseerSet, (_event, input: unknown) =>
-    runMainAuthoring(
-      "ipc.canvas.overseer-set",
-      () => AppRuntime.runPromise(
-        Effect.gen(function* () {
-          yield* denyUnlessCommandCenterAuthorial;
-          const decoded = yield* Effect.try(() => decodeOverseerToggle(input));
-          const canvases = yield* CanvasesService;
-          return yield* canvases.canvasOverseerSet(decoded);
-        }),
-      ),
-    ),
-  );
-
-  // The quit flush lands through these same handlers: the gate keeps
-  // ipc.canvas.write / ipc.canvas.create admitted during its final-flush phase,
-  // and the trusted-sender proof above is the only authority they need.
-  privilegedIpc.handle(IPC_CHANNELS.writeCanvas, (
-    _event,
-    name: string,
-    doc: CanvasDoc,
-    expectedRevision?: string,
-  ) =>
-    runMainAuthoring(
-      "ipc.canvas.write",
-      () => AppRuntime.runPromise(
-        Effect.gen(function* () {
-          yield* denyUnlessCommandCenterAuthorial;
-          const canvases = yield* CanvasesService;
-          return yield* canvases.write(name, doc, expectedRevision);
-        }),
-      ),
-    ),
-  );
-
-  privilegedIpc.handle(IPC_CHANNELS.createCanvas, (_event, name: string) =>
-    runMainAuthoring(
-      "ipc.canvas.create",
-      () => AppRuntime.runPromise(
-        Effect.gen(function* () {
-          yield* denyUnlessCommandCenterAuthorial;
-          const canvases = yield* CanvasesService;
-          return yield* canvases.create(name);
-        }),
-      ),
-    ),
-  );
-
-  privilegedIpc.handle(IPC_CHANNELS.deleteCanvas, (_event, name: string) =>
-    runMainAuthoring(
-      "ipc.canvas.delete",
-      () => AppRuntime.runPromise(
-        Effect.gen(function* () {
-          yield* denyUnlessCommandCenterAuthorial;
-          const canvases = yield* CanvasesService;
-          return yield* canvases.remove(name);
-        }),
-      ),
-    ),
-  );
-
   privilegedIpc.handle(IPC_CHANNELS.canvasDigest, (_event, name: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
@@ -1736,13 +1655,6 @@ export const registerJuntoIpc = (): void => {
       mailRepository.subscribeChanges((canvasName, nodeId, kind) => {
         if (kind === "mail") broadcast(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
         else broadcast(IPC_CHANNELS.workSinkChanged, { canvasName, nodeId });
-      });
-      // Temporary window invalidation until its last document reader moves.
-      modelForBoot.subscribeChanges((event) => broadcast(IPC_CHANNELS.canvasChanged, event.canvas));
-      modelForBoot.subscribeCanvasesChanges((event) => broadcast(IPC_CHANNELS.canvasChanged, event.canvas));
-      modelForBoot.subscribeSheetChanges((event) => broadcast(IPC_CHANNELS.canvasChanged, event.canvas));
-      mailRepository.subscribeChanges((name, _id, kind) => {
-        if (kind !== "mail") broadcast(IPC_CHANNELS.canvasChanged, name);
       });
       // Keep the last model topology for compact connection-change notices.
       const modelForNotices = yield* ModelService;

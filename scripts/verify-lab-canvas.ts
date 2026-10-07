@@ -8,7 +8,9 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { agentTextNode, canvasDoc } from "../e2e/harness/sandbox";
+import { Schema } from "effect";
+import { Node, type Node as ModelNode, type Wire as ModelWire } from "../src/shared/model";
+import { modelFixture, modelSeat, modelRegion, modelNote, modelWire } from "../e2e/harness/model";
 import { formatNodeRef } from "../src/shared/node-ref";
 
 const arg = (name: string, fallback: string): string => {
@@ -77,8 +79,8 @@ if (remove) {
   const result = await page.evaluate(`(async () => {
     const api = window.junto;
     await api.factoryPauseSet(${name}, true).catch(() => undefined);
-    const deleted = await api.deleteCanvas(${name}).then(() => true, (error) => String(error));
-    return { deleted, stillListed: (await api.listCanvases()).some((row) => row.name === ${name}) };
+    const deleted = await api.modelCommand({ _tag: "RemoveCanvas", canvas: ${name} }).then(() => true, (error) => String(error));
+    return { deleted, stillListed: (await api.modelCanvases()).some((row) => row.name === ${name}) };
   })()`);
   console.log(JSON.stringify({ canvasName, ...(result as object) }));
   page.close();
@@ -106,9 +108,9 @@ await page.evaluate(`(() => {
 })()`);
 
 const tag = canvasName.replace(/[^a-z0-9]/gu, "").slice(-8);
-const nodes = Array.from({ length: cards }, (_, i) => {
+const nodes: ModelNode[] = Array.from({ length: cards }, (_, i) => {
   const id = `verify-seat-${String(i + 1).padStart(2, "0")}-${tag}`;
-  return agentTextNode({
+  return modelSeat({
     id,
     key: `local:${id}`,
     label: id,
@@ -125,27 +127,31 @@ const nodes = Array.from({ length: cards }, (_, i) => {
 const layoutPath = arg("layout", "");
 type LaidOut = { kind: string; x: number; y: number; w: number; h: number; hold?: boolean };
 const layout = layoutPath === "" ? undefined : (JSON.parse(readFileSync(layoutPath, "utf8")) as { nodes: LaidOut[]; wires: Array<[number, number]> });
-let layoutEdges: Array<{ id: string; fromNode: string; toNode: string; ether: { verb: string } }> = [];
+let layoutEdges: ModelWire[] = [];
 if (layout) {
   nodes.length = 0;
   layout.nodes.forEach((item, i) => {
     const id = `verify-${item.kind === "agent" ? "seat" : item.kind}-${String(i + 1).padStart(3, "0")}-${tag}`;
     if (item.kind === "agent") {
-      nodes.push({ ...agentTextNode({ id, key: `local:${id}`, label: id, harness: "claude", cwd: root, x: item.x, y: item.y }), width: item.w, height: item.h } as never);
+      nodes.push({ ...modelSeat({ id, key: `local:${id}`, label: id, harness: "claude", cwd: root, x: item.x, y: item.y }), width: item.w, height: item.h });
     } else if (item.kind === "region") {
-      nodes.push({ id, type: "group", label: `region ${String(i + 1)}`, x: item.x, y: item.y, width: item.w, height: item.h, ether: { region: { hold: item.hold === true } } } as never);
+      nodes.push(modelRegion({ id, label: `region ${String(i + 1)}`, x: item.x, y: item.y, width: item.w, height: item.h, hold: item.hold === true }));
     } else {
-      nodes.push({ id, type: "text", text: `note ${String(i + 1)}`, x: item.x, y: item.y, width: item.w, height: item.h } as never);
+      nodes.push({ ...modelNote(id, `note ${String(i + 1)}`, item.x, item.y), width: item.w, height: item.h });
     }
   });
   layoutEdges = layout.wires
-    .map(([from, to], i) => ({ id: `verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, fromNode: nodes[from]!.id, toNode: nodes[to]!.id, ether: { verb: "messages" } }))
-    .filter((edge) => edge.fromNode !== edge.toNode && edge.fromNode.includes("-seat-") && edge.toNode.includes("-seat-"));
+    .flatMap(([from, to], i) => {
+      const source = nodes[from]!;
+      const target = nodes[to]!;
+      return source.id !== target.id && source.kind === "agent" && target.kind === "agent"
+        ? [modelWire(`verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, source.id, target.id, "messages", nodes)] : [];
+    });
   // The real pairs may be wired more than once with different verbs; here
   // every wire is a message wire, and a pair may hold only one of those.
   const pairs = new Set<string>();
   layoutEdges = layoutEdges.filter((edge) => {
-    const pair = `${edge.fromNode}>${edge.toNode}`;
+    const pair = `${edge.from}>${edge.to}`;
     if (pairs.has(pair)) return false;
     pairs.add(pair);
     return true;
@@ -158,52 +164,56 @@ if (layout) {
 const regions = Number(arg("regions", "0"));
 const notes = Number(arg("notes", "0"));
 const wires = Number(arg("wires", "0"));
-const seatsOnly = nodes.slice();
+const seatsOnly = nodes.filter((node) => node.kind === "agent");
 for (let i = 0; i < regions; i += 1) {
   const anchor = seatsOnly[(i * 2) % seatsOnly.length]!;
-  nodes.unshift({
+  nodes.unshift(modelRegion({
     id: `verify-region-${String(i + 1).padStart(2, "0")}-${tag}`,
-    type: "group",
     label: `region ${String(i + 1)}`,
     x: anchor.x - 20,
     y: anchor.y - 30,
     width: 520,
     height: 170,
-    ether: { region: { hold: false } },
-  } as never);
+    hold: false,
+  }));
 }
 for (let i = 0; i < notes; i += 1) {
-  nodes.push({ id: `verify-note-${String(i + 1).padStart(2, "0")}-${tag}`, type: "text", text: `note ${String(i + 1)}`, x: -320, y: i * 140, width: 240, height: 120 } as never);
+  nodes.push(modelNote(`verify-note-${String(i + 1).padStart(2, "0")}-${tag}`, `note ${String(i + 1)}`, -320, i * 140));
 }
 const edges = Array.from({ length: wires }, (_, i) => {
   const from = seatsOnly[i % seatsOnly.length]!;
   const to = seatsOnly[(i + 1 + Math.floor(i / seatsOnly.length) * 3) % seatsOnly.length]!;
-  return { id: `verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, fromNode: from.id, toNode: to.id, ether: { verb: "messages" } };
-}).filter((edge) => edge.fromNode !== edge.toNode).concat(layoutEdges);
+  return from.id === to.id ? [] : [modelWire(`verify-wire-${String(i + 1).padStart(3, "0")}-${tag}`, from.id, to.id, "messages", nodes)];
+}).flat().concat(layoutEdges);
 
 // --sinks adds one task board, one bulletin board and one pad beside the seats,
 // for measuring work changes other than mail.
 if (process.argv.includes("--sinks")) {
   for (const [index, kind] of ["task", "board", "pad"].entries()) {
-    nodes.push({
+    nodes.push(Schema.decodeUnknownSync(Node)({
       id: `verify-${kind}-${tag}`,
-      type: "text",
-      text: kind,
+      kind,
+      z: 0,
       x: 1400,
       y: index * 260,
       width: 320,
       height: 220,
-      ether: { entity: { kind }, ...(kind === "task" ? { tasks: { name: "verify", items: [] } } : {}) },
-    } as never);
+      ...(kind === "task" ? { name: "verify" } : { label: kind }),
+    }));
   }
 }
+const fixture = modelFixture(nodes, edges);
 // --open-only opens a canvas an earlier run made, without writing it again.
 if (!process.argv.includes("--open-only")) {
   await page.evaluate(`(async () => {
     const api = window.junto;
-    await api.createCanvas(${name}).catch(() => undefined);
-    const read = await api.readCanvas(${name});
-    await api.writeCanvas(${name}, ${JSON.stringify(canvasDoc(nodes, edges as never))}, read.revision);
+    if (!(await api.modelCanvases()).some((row) => row.name === ${name}))
+      await api.modelCommand({ _tag: "CreateCanvas", canvas: ${name} });
+    const before = await api.modelOpen({ canvas: ${name} });
+    await api.modelCommand({ _tag: "Batch", canvas: ${name}, steps: [
+      { _tag: "Remove", canvas: ${name}, nodes: before.nodes.map((node) => node.id), wires: before.wires.map((wire) => wire.id) },
+      { _tag: "Add", canvas: ${name}, nodes: ${JSON.stringify(fixture.nodes)}, wires: ${JSON.stringify(fixture.wires)} },
+    ] });
   })()`);
 }
 

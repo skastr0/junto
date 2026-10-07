@@ -3,7 +3,8 @@ import {
   canvasBodySha256Of,
   intentSha256Of,
 } from "../../src/main/junto/canvas-intent-identity";
-import type { CanvasAuthorityMaterialSnapshot } from "../../src/main/junto/canvases";
+import type { CanvasIntentMaterial } from "../../src/main/junto/canvas-intent-identity";
+type CanvasAuthorityMaterialSnapshot = CanvasIntentMaterial & { readonly generation: string };
 
 export const authorialMaterialForTest = (input: {
   readonly generation: string;

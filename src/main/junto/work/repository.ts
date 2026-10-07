@@ -10,11 +10,6 @@ import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import { withSqlRead } from "../state/sql-read";
 import { afterSqlCommit } from "../state/sql-commit";
-import {
-  serializeCanvas,
-  type CanvasDoc,
-  type CanvasNode,
-} from "@shared/canvas";
 import { ModelRecords, ModelError } from "../model/records";
 import { deriveActorSeatId } from "../station/actor-seat-compiler";
 import { Node, Wire, asCanvasName, asNodeId, regionStack as modelRegionStack, wireKinds, wireGrant, type Canvas } from "@shared/model";
@@ -42,7 +37,6 @@ import {
   type Task as TaskValue,
   type TaskAdmission,
   type TaskState,
-  type WorkSnapshot as WorkSnapshotValue,
   type BoardTopic as BoardTopicValue,
   type BoardTopicView as BoardTopicViewValue,
   type BoardPost as BoardPostValue,
@@ -112,11 +106,6 @@ import {
 import {
   canTransitionTaskState,
   isTerminalTaskState,
-  mirrorArtifactsText,
-  mirrorBoardText,
-  mirrorPadText,
-  mirrorRequestsText,
-  mirrorTasksText,
   taskWithTransitionState,
 } from "@shared/task";
 import {
@@ -463,8 +452,6 @@ const PadPostIdRow = Schema.Struct({
   pin_id: Schema.String,
   post_id: Schema.String,
 });
-const SinkPresentRow = Schema.Struct({ present: Schema.Number });
-const SinkNodeRow = Schema.Struct({ node_id: Schema.String });
 const RecentSeatOpRowSchema = Schema.Struct({
   operation: Schema.Union([
     Schema.Literal("task.claim"),
@@ -2220,19 +2207,6 @@ const assertTaskAdmissionReady = (
   }
 };
 
-const textNode = (node: CanvasNode): CanvasNode => node;
-
-/**
- * Runtime-only overlay retained for canvas readers. SQLite remains the sole
- * durability; this function never converts projected work back into authorial
- * canvas input.
- */
-const emptyPadGlance = (): PadGlanceValue => ({
-  revision: 0,
-  shapeCount: 0,
-  unreadPinCount: 0,
-});
-
 /** Factory-card glance is the operator's unread pins. */
 const PAD_GLANCE_PRINCIPAL_KEY = "operator";
 
@@ -2295,111 +2269,6 @@ const assertPadPatchRules = Effect.fn("work.assertPadPatchRules")(function* (
     return yield* Effect.fail(authorityError("invalid-transition", rule));
   }
 });
-
-export const projectWorkSnapshots = (
-  doc: CanvasDoc,
-  snapshots: ReadonlyArray<WorkSnapshotValue>,
-): CanvasDoc => {
-  const byNode = new Map(
-    snapshots.map((snapshot) => [snapshot.nodeId, snapshot]),
-  );
-  return {
-    ...doc,
-    nodes: doc.nodes.map((source) => {
-      const snapshot = byNode.get(source.id);
-      const kind = source.ether?.entity?.kind;
-      if (kind === "pad") {
-        const glance = snapshot?.pad ?? emptyPadGlance();
-        const node = textNode(source);
-        const ether = { ...(node.ether ?? {}) };
-        delete ether.tasks;
-        delete ether.requests;
-        delete ether.artifacts;
-        delete ether.board;
-        ether.pad = glance;
-        return {
-          ...node,
-          ...(source.type === "text"
-            ? { text: mirrorPadText(source.text, glance) }
-            : {}),
-          ether,
-        } as CanvasNode;
-      }
-      if (snapshot === undefined) return source;
-      const node = textNode(source);
-      const ether = { ...(node.ether ?? {}) };
-      delete ether.tasks;
-      delete ether.requests;
-      delete ether.artifacts;
-      delete ether.board;
-      delete ether.pad;
-      if (kind === "task") {
-        // Board name and contract are operator-authored document truth,
-        // not work rows — the projection overlay must carry both through.
-        const name = source.ether?.tasks?.name;
-        const contract = source.ether?.tasks?.contract;
-        ether.tasks = {
-          ...snapshot.tasks,
-          ...(name ? { name } : {}),
-          ...(contract ? { contract } : {}),
-        };
-      }
-      if (kind === "requests") {
-        // The authored name is operator document truth from the source
-        // document; items come from the work snapshot. The mirror regenerates
-        // from both — snapshot metadata never becomes authorial identity.
-        const name = source.ether?.requests?.name;
-        ether.requests = {
-          ...snapshot.requests,
-          ...(name !== undefined ? { name } : {}),
-        };
-      }
-      if (kind === "artifacts") ether.artifacts = snapshot.artifacts;
-      if (kind === "board") {
-        ether.board = {
-          topics: snapshot.board.topics.map((topic) => ({
-            topicId: topic.topicId,
-            title: topic.title,
-            state: topic.state,
-            postCount: topic.postCount,
-            lastActivityAt: topic.lastActivityAt,
-            unreadPostCount: topic.unreadPostCount,
-            authorLabel:
-              topic.openedBy.label ??
-              (topic.openedBy.kind === "operator"
-                ? "operator"
-                : topic.openedBy.nodeId),
-          })),
-          unread: snapshot.board.topics.reduce(
-            (sum, topic) => sum + topic.unreadPostCount,
-            0,
-          ),
-        };
-      }
-      return {
-        ...node,
-        ...(node.type === "text" && kind === "task"
-          ? { text: mirrorTasksText(snapshot.tasks.items) }
-          : {}),
-        ...(node.type === "text" && kind === "requests"
-          ? {
-              text: mirrorRequestsText(
-                snapshot.requests.items,
-                source.ether?.requests?.name,
-              ),
-            }
-          : {}),
-        ...(node.type === "text" && kind === "artifacts"
-          ? { text: mirrorArtifactsText(snapshot.artifacts.items) }
-          : {}),
-        ...(node.type === "text" && kind === "board"
-          ? { text: mirrorBoardText(node.text, snapshot.board.topics) }
-          : {}),
-        ether,
-      } as CanvasNode;
-    }),
-  };
-};
 
 const parseJson = (value: string): unknown => JSON.parse(value);
 
@@ -4193,40 +4062,6 @@ const persistPad = Effect.fn("work.persistPad")(function* (
   }
 });
 
-/**
- * Assemble one sink's read model from already-typed lane values.
- *
- * There is deliberately no aggregate `Schema.decodeUnknownSync(WorkSnapshot)`
- * here. Every lane loader above returns a `*Value` this module constructed from
- * columns the write path already validated, so an aggregate decode on the read
- * path is a second full traversal of the same bytes that can only restate what
- * the loaders' types already say. Validation lives at ingress
- * (`Schema.decodeUnknownSync` in createTask / appendMessage / publishArtifact /
- * openTopic / appendPost, plus the SQLite CHECK domains on every
- * column those writes land in), not on every read of the world.
- */
-const loadSnapshot = Effect.fn("work.loadSnapshot")(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-): Effect.fn.Return<WorkSnapshotValue, WorkSqlFailure> {
-  const pad = yield* loadPadGlance(reader, sink);
-  return {
-    canvasName: sink.canvasName,
-    nodeId: sink.nodeId,
-    tasks: {
-      // Soft-deleted tasks stay durable in work_tasks but leave the board /
-      // CLI projection entirely (not merely the Closed lane).
-      items: (yield* loadLaneTasks(reader, sink, "task")).filter(
-        (task) => task.state !== "archived",
-      ),
-    },
-    requests: { items: yield* loadLaneTasks(reader, sink, "request") },
-    artifacts: { items: yield* loadArtifacts(reader, sink) },
-    board: { topics: yield* loadBoardTopics(reader, sink) },
-    ...(pad === undefined ? {} : { pad }),
-  };
-});
-
 /** Attention policy sees every claimant without loading threads or work contents. */
 export const readWorkAttention = Effect.fn("work.attention")(function* (
   reader: SqlClient.SqlClient,
@@ -4391,107 +4226,6 @@ export const readWorkSinkPage = Effect.fn("work.sink.page")(function* (
     unreadPostCount: row.unread, ...(row.author_label === null ? {} : { authorLabel: row.author_label }),
   })), ...next };
 });
-
-export type CanvasWorkProjection = {
-  readonly snapshots: ReadonlyArray<WorkSnapshotValue>;
-  /**
-   * Opaque monotonic invalidation identity for this canvas's runtime Work
-   * projection, read as one PRIMARY KEY point lookup on
-   * `work_canvas_revisions`.
-   *
-   * The counter is bumped by AFTER INSERT/UPDATE/DELETE triggers on every
-   * durable table a snapshot projects from, so it cannot stay unchanged when a
-   * projected task/request/message/artifact/topic/post/pad changes — including
-   * the in-place UPDATEs (topic retitle, post_count, pad revision, read cursor)
-   * that the retired per-canvas row count could not see. Its cost does not grow
-   * with factory size, so a projection cache may key on it at any scale.
-   */
-  readonly workRevision: string;
-};
-
-/**
- * Which tables make a node a SINK — a node the canvas projection carries a
- * snapshot for.
- *
- * This list is the definition, and both membership queries below are built
- * from it, so the whole-canvas sweep and the one-node probe can never disagree
- * about what a sink is. Membership is deliberately "has a projected row",
- * NOT "has a non-empty snapshot": an archived task leaves `tasks.items` empty
- * while keeping the node a sink, and `projectWorkSnapshots` treats a present
- * empty snapshot differently from an absent one (it strips the authorial
- * lanes). Testing emptiness instead would silently change the document.
- */
-export const WORK_SINK_MEMBERSHIP_TABLES: ReadonlyArray<string> = [
-  "work_tasks",
-  "work_requests",
-  "work_artifacts",
-  "work_board_topics",
-  "work_pad_meta",
-];
-
-const SINK_MEMBERSHIP_SWEEP_SQL = `
-      ${WORK_SINK_MEMBERSHIP_TABLES.map(
-        (table) => `SELECT node_id FROM ${table} WHERE canvas_name = ?`,
-      ).join("\n      UNION\n      ")}
-      ORDER BY node_id
-    `;
-
-const SINK_MEMBERSHIP_PROBE_SQL = `
-      SELECT (${WORK_SINK_MEMBERSHIP_TABLES.map(
-        (table) =>
-          `EXISTS(SELECT 1 FROM ${table} WHERE canvas_name = ? AND node_id = ?)`,
-      ).join("\n        OR ")}) AS present
-    `;
-
-/**
- * Is this node a sink of the canvas projection right now?
- *
- * Same definition as the sweep, one node at a time: six PRIMARY KEY-prefix
- * EXISTS probes in one statement. The in-memory world uses it to decide
- * whether a node it just re-read still belongs in the projection, without
- * paying the whole-canvas sweep.
- */
-export const sinkIsProjected = Effect.fn("work.sinkIsProjected")(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-): Effect.fn.Return<boolean, WorkSqlFailure> {
-  return (
-    ((yield* SqlSchema.findOneOption({
-      Request: WorkSqlBindings,
-      Result: SinkPresentRow,
-      execute: (bindings) => reader.unsafe(SINK_MEMBERSHIP_PROBE_SQL, bindings),
-    })(
-      WORK_SINK_MEMBERSHIP_TABLES.flatMap(() => [sink.canvasName, sink.nodeId]),
-    ).pipe(Effect.map(Option.getOrUndefined)))?.present ?? 0) === 1
-  );
-});
-
-/** One sink's read model, rebuilt from its own rows. */
-export const readSinkSnapshot = Effect.fn("work.readSinkSnapshot")(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-): Effect.fn.Return<WorkSnapshotValue, WorkSqlFailure> {
-  return yield* loadSnapshot(reader, sink);
-});
-
-const snapshotsForCanvas = Effect.fn("work.snapshotsForCanvas")(function* (
-  reader: SqlClient.SqlClient,
-  canvasName: string,
-): Effect.fn.Return<ReadonlyArray<WorkSnapshotValue>, WorkSqlFailure> {
-  const nodes = yield* SqlSchema.findAll({
-    Request: WorkSqlBindings,
-    Result: SinkNodeRow,
-    execute: (bindings) => reader.unsafe(SINK_MEMBERSHIP_SWEEP_SQL, bindings),
-  })(WORK_SINK_MEMBERSHIP_TABLES.map(() => canvasName));
-  return yield* Effect.forEach(nodes, ({ node_id }) =>
-    Effect.gen(function* () {
-      return yield* loadSnapshot(reader, { canvasName, nodeId: node_id });
-    }),
-  );
-});
-
-/** The whole-canvas sweep, for the in-memory world's boot hydration. */
-export const readCanvasSinkSnapshots = snapshotsForCanvas;
 
 const normalizeRecentOpsLimit = (limit: number | undefined): number => {
   if (limit === undefined || !Number.isFinite(limit)) {
@@ -4738,37 +4472,7 @@ const recentOpsForSeat = Effect.fn("work.recentOpsForSeat")(function* (
   };
 });
 
-/**
- * Read the complete runtime Work overlay and its invalidation identity through
- * one caller-owned SQL read lease. CanvasesService uses this with the authorial
- * portfolio read so one CanvasReadResult never mixes SQLite snapshots.
- */
-export const readCanvasWorkProjection = Effect.fn(
-  "work.readCanvasWorkProjection",
-)(function* (
-  reader: SqlClient.SqlClient,
-  canvasName: string,
-): Effect.fn.Return<CanvasWorkProjection, WorkSqlFailure> {
-  return {
-    // Revision first, snapshots second, inside the caller's single read: the
-    // value witnesses the rows the snapshots are then built from, never a
-    // later state.
-    workRevision: yield* readCanvasWorkRevision(reader, canvasName),
-    snapshots: yield* snapshotsForCanvas(reader, canvasName),
-  };
-});
-
-/**
- * The invalidation identity alone, without building any snapshot.
- *
- * One PRIMARY KEY point lookup on `work_canvas_revisions`. A projection cache
- * probes with this on every read and only pays `readCanvasWorkProjection` when
- * the value moved, so an unchanged world costs one statement instead of the
- * whole factory.
- *
- * A canvas with no counter row reads "0": no projected Work row has ever
- * existed for it, and the first one to appear bumps the row into existence.
- */
+/** One primary-key lookup of the canvas's current Work mutation counter. */
 export const readCanvasWorkRevision = Effect.fn("work.readCanvasWorkRevision")(
   function* (
     reader: SqlClient.SqlClient,
@@ -8546,13 +8250,6 @@ export interface WorkRepositoryShape {
   readonly mailbox: (canvasName: string, nodeId: string) => Effect.Effect<ReadonlyArray<MessageValue>, WorkRepositoryError>;
   readonly companionMail: (canvasName: string, nodeId: string, limit: number) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: MessageValue }>, WorkRepositoryError>;
   readonly mailMessage: (canvasName: string, nodeId: string, messageId: string) => Effect.Effect<MessageValue | undefined, WorkRepositoryError>;
-  readonly readSnapshot: (
-    canvasName: string,
-    nodeId: string,
-  ) => Effect.Effect<WorkSnapshotValue, WorkRepositoryError>;
-  readonly snapshotsForCanvas: (
-    canvasName: string,
-  ) => Effect.Effect<ReadonlyArray<WorkSnapshotValue>, WorkRepositoryError>;
   readonly recentOpsForSeat: (input: {
     readonly canvasName: string;
     readonly actorSeatId: ActorSeatId;
@@ -8724,66 +8421,20 @@ export const WorkRepository = Context.Service<
   WorkRepositoryShape
 >("@junto/WorkRepository");
 
-export type WorkProjectionReaderShape = {
-  readonly revision: (
-    canvasName: string,
-  ) => Effect.Effect<string, WorkRepositoryError>;
-  readonly canvasProjection: (
-    canvasName: string,
-  ) => Effect.Effect<CanvasWorkProjection, WorkRepositoryError>;
-  readonly canvasSnapshots: (
-    canvasName: string,
-  ) => Effect.Effect<ReadonlyArray<WorkSnapshotValue>, WorkRepositoryError>;
-  readonly sinkSnapshot: (
-    sink: SinkRefValue,
-  ) => Effect.Effect<WorkSnapshotValue, WorkRepositoryError>;
-  readonly sinkIsProjected: (
-    sink: SinkRefValue,
-  ) => Effect.Effect<boolean, WorkRepositoryError>;
-};
+/** Reads participate in the caller's SQL lease or transaction. */
+export class WorkRevisions extends Context.Service<WorkRevisions, {
+  readonly revision: (canvasName: string) => Effect.Effect<string, WorkRepositoryError>;
+}>()("@junto/WorkRevisions") {}
 
-/** Reads participate in the caller's SQL lease or transaction, without caching. */
-export class WorkProjectionReader extends Context.Service<
-  WorkProjectionReader,
-  WorkProjectionReaderShape
->()("@junto/WorkProjectionReader") {}
-
-export const WorkProjectionReaderLive = Layer.effect(
-  WorkProjectionReader,
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    return WorkProjectionReader.of({
-      revision: (name) =>
-        readCanvasWorkRevision(sql, name).pipe(
-          Effect.mapError((error) => toRepositoryError("work.revision", error)),
-        ),
-      canvasProjection: (name) =>
-        readCanvasWorkProjection(sql, name).pipe(
-          Effect.mapError((error) =>
-            toRepositoryError("work.canvasProjection", error),
-          ),
-        ),
-      canvasSnapshots: (name) =>
-        snapshotsForCanvas(sql, name).pipe(
-          Effect.mapError((error) =>
-            toRepositoryError("work.canvasSnapshots", error),
-          ),
-        ),
-      sinkSnapshot: (sink) =>
-        loadSnapshot(sql, sink).pipe(
-          Effect.mapError((error) =>
-            toRepositoryError("work.sinkSnapshot", error),
-          ),
-        ),
-      sinkIsProjected: (sink) =>
-        sinkIsProjected(sql, sink).pipe(
-          Effect.mapError((error) =>
-            toRepositoryError("work.sinkIsProjected", error),
-          ),
-        ),
-    });
-  }),
-);
+export const WorkRevisionsLive = Layer.effect(WorkRevisions, Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  return WorkRevisions.of({
+    revision: Effect.fn("WorkRevisions.revision")((name: string) =>
+      withSqlRead(sql, readCanvasWorkRevision(sql, name)).pipe(
+        Effect.mapError((error) => toRepositoryError("work.revision", error)),
+      )),
+  });
+}));
 
 export const WorkRepositoryLive = Layer.effect(
   WorkRepository,
@@ -8808,48 +8459,6 @@ export const WorkRepositoryLive = Layer.effect(
       );
     const changes = workProjectionChanges(sql);
     const notify = changes.notify;
-
-    const readSnapshot = (
-      canvasName: string,
-      nodeId: string,
-    ): Effect.Effect<WorkSnapshotValue, WorkRepositoryError> =>
-      withSqlRead(
-        sql,
-        ((reader: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            return yield* loadSnapshot(reader, { canvasName, nodeId });
-          }))(sql),
-      )
-        .pipe(
-          Effect.provideService(StateTransactionOperation, "work.readSnapshot"),
-        )
-        .pipe(
-          Effect.mapError((error) =>
-            toRepositoryError("work.readSnapshot", error),
-          ),
-        );
-
-    const readSnapshotsForCanvas = (
-      canvasName: string,
-    ): Effect.Effect<ReadonlyArray<WorkSnapshotValue>, WorkRepositoryError> =>
-      withSqlRead(
-        sql,
-        ((reader: SqlClient.SqlClient) =>
-          Effect.gen(function* () {
-            return yield* snapshotsForCanvas(reader, canvasName);
-          }))(sql),
-      )
-        .pipe(
-          Effect.provideService(
-            StateTransactionOperation,
-            "work.snapshotsForCanvas",
-          ),
-        )
-        .pipe(
-          Effect.mapError((error) =>
-            toRepositoryError("work.snapshotsForCanvas", error),
-          ),
-        );
 
     const readRecentOpsForSeat = (input: {
       readonly canvasName: string;
@@ -12388,8 +11997,6 @@ export const WorkRepositoryLive = Layer.effect(
           Effect.provideService(StateTransactionOperation, "work.mail.page"),
           Effect.mapError((error) => toRepositoryError("work.mail.page", error)),
         )),
-      readSnapshot,
-      snapshotsForCanvas: readSnapshotsForCanvas,
       recentOpsForSeat: readRecentOpsForSeat,
       itemHome,
       currentTaskClaim,

@@ -102,8 +102,10 @@ describe("renderer canvas authoring IPC", () => {
     });
     registerJuntoIpc();
 
+    for (const name of ["list-canvases", "read-canvas", "write-canvas", "canvas-overseer-set", "create-canvas", "delete-canvas"]) {
+      expect(electron.handlers.has(`junto:${name}`)).toBe(false);
+    }
     const command = handlerFor(IPC_CHANNELS.modelCommand);
-    const remove = handlerFor(IPC_CHANNELS.deleteCanvas);
     const sender = { sender: trustedSender } as const;
     const edit = { _tag: "Edit", canvas: "final", id: "note", change: { kind: "note", text: "saved" } };
 
@@ -114,7 +116,6 @@ describe("renderer canvas authoring IPC", () => {
     mainAuthoringGate.beginFinalFlush();
     await expect(command(sender, edit)).resolves.toBe("executed");
     expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
-    await expect(remove(sender, "doomed")).rejects.toBeInstanceOf(MainAuthoringRefused);
     expect(runtime.runPromise).toHaveBeenCalledTimes(callsAfterOrdinary + 1);
 
     expect(() => command({ sender: {

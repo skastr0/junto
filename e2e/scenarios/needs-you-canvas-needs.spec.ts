@@ -22,7 +22,8 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type { Locator } from "@playwright/test";
 import type { GroupNode, TextNode } from "../../src/shared/canvas";
-import { CanvasesLive, CanvasesService } from "../../src/main/junto/canvases";
+import { ModelLive } from "../../src/main/junto/model/layer";
+import { ModelDependents } from "../../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../../src/main/junto/state/engine";
 import { SettingsLive } from "../../src/main/junto/settings/service";
 import { compileActorSeatRegistry } from "../../src/main/junto/station/actor-seat-compiler";
@@ -75,11 +76,10 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
     Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive, SettingsLive, StationFleetTargetRepositoryLive),
     state,
   );
-  const runtime = ManagedRuntime.make(Layer.provideMerge(CanvasesLive, repositories));
+  const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), repositories));
   try {
     await runtime.runPromise(
       Effect.gen(function* () {
-        const canvases = yield* CanvasesService;
         const work = yield* WorkRepository;
         const installationId = yield* (yield* StationRepository).installationId;
         const model = yield* ModelService;

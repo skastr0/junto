@@ -194,7 +194,7 @@ describe("overseer coverage matrix", () => {
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
     expect(FROZEN_OPERATIONS).toHaveLength(120);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
-    expect(matrix).toContain("canvasOverseerSet");
+    expect(matrix).toContain("GrantOverseer");
     expect(matrix).toContain("tests/overseer-admission.test.ts");
     expect(matrix).toContain("| catalog |");
     expect(matrix).toContain("| exercised |");

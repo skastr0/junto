@@ -6,7 +6,7 @@ import {
   EtherTerminalLaunch,
   type CanvasDoc,
   type EtherTerminalLaunch as EtherTerminalLaunchValue,
-} from "@shared/canvas";
+} from "./frozen-document";
 import { isCanonicalCanvasName } from "@shared/canvas-name";
 import {
   InstallationId,

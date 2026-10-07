@@ -1,5 +1,5 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
-import { serializeCanvas, type CanvasDoc, type CanvasNode } from "@shared/canvas";
+import { serializeCanvas, type CanvasDoc, type CanvasNode } from "./frozen-document";
 import type { InstallationId as InstallationIdValue } from "@shared/installation-id";
 import { StationContextTagIds } from "./context-services";
 import {
@@ -48,11 +48,10 @@ import {
   type StationRole,
 } from "@shared/station";
 import {
-  CanvasesService,
   type CanvasAuthorityMaterialSnapshot,
-  type CanvasError,
   type InstalledProjectionCanvasChange,
-} from "../canvases";
+} from "./frozen-document";
+import type { CanvasError } from "../canvas/domain";
 import {
   WorkRepository,
   createCanvasTaskDependencyScopeCapability,
@@ -1835,7 +1834,6 @@ const admitTransactionalResponse = (
 
 const captureTopology = (
   repository: Context.Service.Shape<typeof StationRepository>,
-  canvases: Context.Service.Shape<typeof CanvasesService>,
   fleetTargets: Context.Service.Shape<typeof StationFleetTargetRepository>,
   configuration: StationConfigurationRecord,
   localInstallationId: InstallationIdValue,
@@ -2324,7 +2322,6 @@ export const installProjectionAndNotify = <InstallError, ReadError>(
 
 const handleProject = (
   repository: Context.Service.Shape<typeof StationRepository>,
-  canvases: Context.Service.Shape<typeof CanvasesService>,
   request: ProjectRequest,
 ): Effect.Effect<ProjectResponse, StationApiError> =>
   Effect.gen(function* () {
@@ -2420,7 +2417,6 @@ export const StationApiLive = Layer.effect(
   Effect.gen(function* () {
     const repository = yield* StationRepository;
     const work = yield* WorkRepository;
-    const canvases = yield* CanvasesService;
     const fleetTargets = yield* StationFleetTargetRepository;
 
     const topologyForPeer = Effect.fn("StationApi.topologyForPeer")(
@@ -2429,7 +2425,6 @@ export const StationApiLive = Layer.effect(
           yield* requireConfiguredPeer(repository, peerInstallationId);
         const topology = yield* captureTopology(
           repository,
-          canvases,
           fleetTargets,
           configuration,
           localInstallationId,
@@ -2606,7 +2601,7 @@ export const StationApiLive = Layer.effect(
           );
         case "project":
           return requireRemoteInbound("project", peer).pipe(
-            Effect.flatMap(() => handleProject(repository, canvases, request)),
+            Effect.flatMap(() => handleProject(repository, request)),
           );
         case "report":
           return handleReport(request, peer);

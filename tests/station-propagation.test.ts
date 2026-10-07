@@ -20,10 +20,6 @@ import {
   type StationApiResponse,
 } from "../src/shared/station-api";
 import {
-  CanvasError,
-  CanvasesService,
-} from "../src/main/junto/canvases";
-import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
   StationAppVersion,
@@ -88,60 +84,6 @@ const emptyCanvas: CanvasDoc = {
   nodes: [],
   edges: [],
 };
-
-const canvases = (
-  documents: ReadonlyMap<string, CanvasDoc> =
-    new Map([["main", emptyCanvas]]),
-  generation = "1",
-) =>
-  CanvasesService.of({
-    doctor: Effect.succeed({
-      id: "canvases",
-      label: "Canvases",
-      status: "ok",
-      detail: "test authority",
-    }),
-    list: Effect.succeed([]),
-    read: () => Effect.fail(new CanvasError({ message: "unused" })),
-    readWithIntentWitness: () =>
-      Effect.fail(new CanvasError({ message: "unused" })),
-    readNodeStructure: () =>
-      Effect.fail(new CanvasError({ message: "unused" })),
-    write: () => Effect.fail(new CanvasError({ message: "unused" })),
-    mutate: () => Effect.fail(new CanvasError({ message: "unused" })),
-    mutatePortfolio: () =>
-      Effect.fail(new CanvasError({ message: "unused" })),
-    canvasOverseerSet: () =>
-      Effect.fail(new CanvasError({ message: "unused" })),
-    create: () => Effect.fail(new CanvasError({ message: "unused" })),
-    remove: () => Effect.fail(new CanvasError({ message: "unused" })),
-    ensureSeed: Effect.void,
-    start: () => undefined,
-    subscribeChanges: () => () => undefined,
-    announceInstalledProjection: () => undefined,
-    liveDocuments: () =>
-      Effect.succeed(
-        [...documents].map(([canvasName, doc]) => ({
-          canvasName,
-          doc,
-        })),
-      ),
-    liveAuthorityGeneration: () => Effect.succeed(generation),
-    authoritySnapshot: () =>
-      Effect.succeed({
-        generation,
-        intentSha256: AUTHORITY_SHA256,
-        documents,
-      }),
-    authorityMaterialSnapshot: () =>
-      Effect.sync(() => canvasAuthorityMaterialFixture(generation, documents)),
-    activeIntentWitness: () =>
-      Effect.succeed({
-        generation,
-        contentSha256: AUTHORITY_SHA256,
-      }),
-    activeActorRefs: () => Effect.succeed([]),
-  });
 
 const repository = (
   role: "command-center" | "remote" = "command-center",
@@ -313,13 +255,11 @@ const api = (options: {
 const runtime = (
   stationApi: ReturnType<typeof api>,
   stationRepository = repository(),
-  canvasService = canvases(),
 ) =>
   ManagedRuntime.make(
     Layer.provide(
       StationPropagationLive,
       Layer.mergeAll(
-        Layer.succeed(CanvasesService, canvasService),
         Layer.succeed(StationRepository, stationRepository),
         Layer.succeed(StationApiService, stationApi),
         Layer.succeed(
@@ -454,7 +394,6 @@ describe("StationPropagation", () => {
     const stationRuntime = runtime(
       api(),
       repository(),
-      canvases(undefined, "41"),
     );
 
     try {
@@ -733,7 +672,7 @@ describe("StationPropagation", () => {
 
   // Remote stations are switched off: this path refuses before it compiles.
   it.skip("compiles and archives one stable desired projection identity per committed authority", async () => {
-    const stationRuntime = runtime(api(), repository(), canvases(undefined, "41"));
+    const stationRuntime = runtime(api(), repository());
 
     try {
       const propagation = await stationRuntime.runPromise(StationPropagation);
@@ -763,7 +702,7 @@ describe("StationPropagation", () => {
   });
 
   it("refuses to compile a desired projection while Remote stations are switched off", async () => {
-    const stationRuntime = runtime(api(), repository(), canvases(undefined, "41"));
+    const stationRuntime = runtime(api(), repository());
 
     try {
       const propagation = await stationRuntime.runPromise(StationPropagation);

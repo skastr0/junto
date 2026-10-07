@@ -30,7 +30,7 @@ plus outer socket `tests/work-control-transport.test.ts` and
 | Admission seam | `onOverseer(args, {canvasName, nodeId}, AbortSignal)` after live process-bind and grant, before pause/blocked ordinary dispatch |
 | Caller | admitting transport supplies `OverseerCaller`; never taken from args |
 | Catalog | `OVERSEER_READ_ONLY_OPERATIONS` is the read set; `page.eval` is a mutation |
-| Human toggle | `canvasOverseerSet` trusted renderer; not an `OverseerOperation` |
+| Human toggle | `GrantOverseer` through trusted renderer `modelCommand`; not an `OverseerOperation` |
 | Offline CLI | `schema` / `examples` / `skill` are not wire operations |
 | Per-op args | `OverseerArgsSchemas[operation]` in the shared contract; unknown/excess fields fail |
 
@@ -211,7 +211,7 @@ replay.
 
 | action | schema | owning service | authorization | result | coverage |
 | --- | --- | --- | --- | --- | --- |
-| Grant or revoke overseer on a managed agent seat | `canvasOverseerSet({canvasName, nodeId, overseer, expectedRevision})` | canvases `canvasOverseerSet` under `runMainAuthoring("ipc.canvas.overseer-set")` | trusted renderer only; Command Center authorial; managed executable seat; aliases share one binding; copies do not inherit; agent commands and ordinary saves cannot mint | `{binding, overseer, affected}` | exercised: parent ran `e2e/scenarios/overseer-acceptance.spec.ts` (grant persisted, ordinary seat ungranted, viewport transform unchanged). Unit: `tests/overseer-set.test.ts`. Identity chrome: `e2e/scenarios/overseer-seat.spec.ts` (not a persistence proof). |
+| Grant or revoke overseer on a managed agent seat | `{_tag: "GrantOverseer", canvas, id, overseer}` | ModelService under `runMainAuthoring("ipc.model.command")` | trusted renderer only; Command Center authorial; managed executable seat; aliases share one binding; copies do not inherit; agent commands and ordinary saves cannot mint | `{seq}` | exercised: parent ran `e2e/scenarios/overseer-acceptance.spec.ts` (grant persisted, ordinary seat ungranted, viewport transform unchanged). Unit: `tests/overseer-set.test.ts`. Identity chrome: `e2e/scenarios/overseer-seat.spec.ts` (not a persistence proof). |
 ## Operator offboard
 
 | item | contract |
@@ -264,7 +264,7 @@ Keychain, the keyring, or the operator's home.
 | --- | --- | --- | --- |
 | Stale UI save/undo restoring revoked authority | the window saves no document; edits and undo/redo never emit `GrantOverseer`, and undo restores removed seats without their grant; the operator toggle sends a dedicated command | `tests/canvas-edit-commands.test.ts`; `tests/model-undo.test.ts`; `tests/overseer-set.test.ts` | unit exercised; no undo/redo Electron proof |
 | No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | `tests/overseer-work.test.ts`; `tests/overseer-native.test.ts`; `tests/overseer-admission.test.ts`; e2e grants without edges | unit exercised; integrated Work suite passes |
-| Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | `tests/overseer-authoring.test.ts`; `tests/overseer-canvas-commands.test.ts` `canvasOverseerSet` alias toggle | unit exercised |
+| Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | `tests/overseer-authoring.test.ts`; `tests/model-service.test.ts` `GrantOverseer` alias toggle | unit exercised |
 | Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | `tests/overseer-canvas-commands.test.ts`; `tests/overseer-authoring.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
 | Remote source impersonation | Command Center compares `deriveActorSeatId(authenticatedSourceInstallation, binding)` to compiled seatId; forged caller args ignored | `tests/overseer-admission.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/station-overseer-transport.test.ts` | unit exercised |
 | Uncertain completion, no automatic replay | timeout/disconnect reports uncertain completion and never replays mutations | `tests/station-overseer-transport.test.ts`; `tests/work-socket-overseer.test.ts` | unit exercised |

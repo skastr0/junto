@@ -5,7 +5,7 @@ import {
   scrubCanvasDocInput,
   serializeCanvas,
   type CanvasDoc,
-} from "@shared/canvas";
+} from "./frozen-document";
 import { isCanonicalCanvasName } from "@shared/canvas-name";
 import type { InstallationId } from "@shared/installation-id";
 import { remoteStationContractVersion } from "@shared/remote-station-release";

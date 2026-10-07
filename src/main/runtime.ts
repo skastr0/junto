@@ -38,7 +38,6 @@ import {
 import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
-import { CanvasesLive } from "./junto/canvases";
 import { ModelService } from "./junto/model/service";
 import { ChatServiceFromHermesLive, HermesPlaneLive } from "./junto/hermes/plane";
 import { HermesTransportLive } from "./junto/hermes/transport";
@@ -63,7 +62,7 @@ import { ReferencesFollowCanvasLive } from "./junto/references/follow-canvas";
 import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
 import { ProfileRepositoryLive } from "./junto/profiles/repository";
 import { WorkLive } from "./junto/work/service";
-import { WorkProjectionReaderLive, WorkRepositoryLive } from "./junto/work/repository";
+import { WorkRevisionsLive, WorkRepositoryLive } from "./junto/work/repository";
 import { CrewRepositoryLive } from "./junto/work/crew-repository";
 import { makeContentServiceLive } from "./junto/content/service";
 import { InstallOpsLive } from "./junto/install-ops/engine";
@@ -143,7 +142,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     PortraitOverrideRepositoryLive,
     CompanionDeviceRepositoryLive,
     WorkRepositoryLive,
-    WorkProjectionReaderLive,
+    WorkRevisionsLive,
     CrewRepositoryLive,
     SquadRepositoryLive,
     SeatGuidanceRepositoryLive,
@@ -164,17 +163,9 @@ const StateRepositoriesLive = Layer.provideMerge(
   Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(StateEngineLive, InstallOpsLive)),
 );
 
-// Canvases projects durable work rows on reads while keeping its authority
-// snapshot authorial-only, so it consumes the already memoized repository
-// graph rather than constructing another engine or work repository.
-const CanvasesWithStateLive = Layer.provideMerge(
-  CanvasesLive,
-  StateRepositoriesLive,
-);
-
 const StatefulServicesLive = Layer.provideMerge(
   StationApiLive,
-  CanvasesWithStateLive,
+  StateRepositoriesLive,
 );
 
 const StationPropagationServicesLive = Layer.provideMerge(

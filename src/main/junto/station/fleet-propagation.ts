@@ -25,9 +25,6 @@ import {
 import { stationControlOk } from "@shared/station-api-envelope";
 import type { StationProtocolObservation } from "@shared/station-status";
 import {
-  CanvasesService,
-} from "../canvases";
-import {
   parseHostSshRoute,
 } from "../ssh/domain";
 import {
@@ -493,7 +490,6 @@ export const StationFleetPropagationLive = Layer.effect(
     const exchange = yield* StationPeerExchange;
     const livePeers = yield* StationLivePeerRegistry;
     const api = yield* StationApiService;
-    const canvases = yield* CanvasesService;
     const work = yield* WorkRepository;
 
     const fibers = yield* FiberMap.make<HostIdValue, void, never>();

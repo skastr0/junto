@@ -24,7 +24,6 @@ import {
 } from "../src/shared/station-api";
 import { LogicalSequence as WorkLogicalSequence } from "../src/shared/work-protocol";
 import type { StationControlEnvelope } from "../src/shared/station-api-envelope";
-import { CanvasesService } from "../src/main/junto/canvases";
 import { WorkRepository } from "../src/main/junto/work/repository";
 import {
   StationApiService,
@@ -469,15 +468,6 @@ const makeHarness = (
       Effect.die("fake propagation integrates reports itself"),
   });
 
-  const canvases = {
-    subscribeChanges: (listener: (name: string) => void): (() => void) => {
-      canvasListeners.add(listener);
-      return () => {
-        canvasListeners.delete(listener);
-      };
-    },
-  } as Context.Service.Shape<typeof CanvasesService>;
-
   const work = {
     subscribeChanges: (
       listener: (canvasName: string, nodeId: string) => void,
@@ -495,7 +485,6 @@ const makeHarness = (
     Layer.succeed(StationPeerRouteResolver, routeResolver),
     Layer.succeed(StationPeerExchange, exchange),
     Layer.succeed(StationApiService, api),
-    Layer.succeed(CanvasesService, canvases),
     Layer.succeed(WorkRepository, work),
     StationLivePeerRegistryLive,
   );
