@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import {
   actorDeliverySurfaceOf,
-  deliveryTargetFromSurface,
 } from "../src/shared/actor-surface";
 import { deliveryTargetOf } from "../src/shared/message-delivery";
 import { resolveTerminalBinding } from "../src/shared/terminal";
@@ -66,9 +65,6 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
       harness: "claude",
       launch: { kind: "harness", argv: ["claude"] },
       hostId: "local",
-    });
-    expect(deliveryTargetFromSurface(s!)).toEqual({
-      bindingId: "bind-1",
     });
   });
 

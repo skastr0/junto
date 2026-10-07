@@ -15,7 +15,6 @@ import {
   seatRelaunch,
   type SeatLaunchParams,
 } from "@shared/seat-launch-params";
-import { resolveTerminalBinding } from "@shared/terminal";
 import { getJuntoApi } from "./junto-api";
 import { edited } from "./model-edits";
 import { commitCommands, flushPendingCanvasSave } from "./mutations";
@@ -81,15 +80,12 @@ type RestartOutcome =
  * current by itself.
  */
 const restartRunningSeat = async (
+  seat: Seat,
   node: TextNode,
   next: TextNode,
   wasRunning: boolean,
   savedForNextStart: string,
 ): Promise<RestartOutcome> => {
-  const binding = resolveTerminalBinding(node);
-  if (binding?.kind !== "native") {
-    return { ok: false, message: "seat has no terminal binding" };
-  }
   if (!wasRunning) return { ok: true, restarted: false };
   const surfaceWasOpen = Boolean(terminal$.openByNodeId[node.id].peek());
 
@@ -109,7 +105,7 @@ const restartRunningSeat = async (
       }`,
     };
   }
-  if (!(await waitForExit(binding.bindingId, binding.hostId))) {
+  if (!(await waitForExit(seat.bindingId, seat.host))) {
     return {
       ok: false,
       message: `the harness is still stopping; ${savedForNextStart}`,
@@ -126,11 +122,9 @@ const restartRunningSeat = async (
   return { ok: true, restarted: true };
 };
 
-const isRunning = async (node: TextNode): Promise<boolean> => {
-  const binding = resolveTerminalBinding(node);
-  if (binding?.kind !== "native") return false;
+const isRunning = async (seat: Seat): Promise<boolean> => {
   const session = await getJuntoApi()
-    ?.terminalGet?.(binding.bindingId, binding.hostId)
+    ?.terminalGet?.(seat.bindingId, seat.host)
     .catch(() => undefined);
   return isLive(session?.status);
 };
@@ -145,9 +139,10 @@ export const restartSeatOnSameSession = async (
 ): Promise<RestartOutcome> => {
   const node = documentSeat(seat);
   return restartRunningSeat(
+    seat,
     node,
     node,
-    await isRunning(node),
+    await isRunning(seat),
     "it starts on the current environment the next time it starts",
   );
 };
@@ -162,10 +157,7 @@ export const performSeatRelaunch = async (
   if (!relaunched) return { ok: false, message: "not a managed agent seat" };
   const node = documentSeat(seat);
   const next = documentSeat({ ...seat, launch: relaunched.launch });
-  if (resolveTerminalBinding(node)?.kind !== "native") {
-    return { ok: false, message: "seat has no terminal binding" };
-  }
-  const wasRunning = await isRunning(node);
+  const wasRunning = await isRunning(seat);
 
   // Committed BEFORE the old process stops, so nothing that wakes the seat in
   // between can start it on the old parameters. Only the launch is edited: the
@@ -174,6 +166,7 @@ export const performSeatRelaunch = async (
   await flushPendingCanvasSave().catch(() => undefined);
 
   const outcome = await restartRunningSeat(
+    seat,
     node,
     next,
     wasRunning,

@@ -135,9 +135,3 @@ export const actorDeliverySurfaceOf = (
 export type SurfaceDeliveryTarget = {
   readonly bindingId: string;
 };
-
-export const deliveryTargetFromSurface = (
-  surface: ActorDeliverySurface,
-): SurfaceDeliveryTarget => {
-  return { bindingId: surface.bindingId };
-};

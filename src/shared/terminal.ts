@@ -6,6 +6,7 @@ import { Schema } from "effect";
 import { actorDeliverySurfaceOf } from "./actor-surface";
 import type { CanvasNode, EtherTerminal, EtherTerminalLaunch, TerminalOnDelete } from "./canvas";
 import { resolveTerminalOnDelete } from "./canvas";
+import type { Node } from "./model";
 
 // Re-export canvas terminal schema pieces for runtime consumers.
 export type { EtherTerminal, EtherTerminalLaunch, TerminalOnDelete } from "./canvas";
@@ -185,6 +186,38 @@ export const resolveTerminalBinding = (
     harness: surface.harness,
     agentKey: surface.agentKey,
   };
+};
+
+/**
+ * The same binding read off a node as the model holds it: a seat or a raw
+ * terminal has one, nothing else does. The model requires a binding of both,
+ * so there is no partly authored case to refuse here.
+ */
+export const terminalBindingOf = (node: Node | undefined): ResolvedTerminalBinding | undefined => {
+  if (node === undefined) return undefined;
+  if (node.kind === "terminal") {
+    return {
+      kind: "native",
+      hostId: node.host,
+      bindingId: node.bindingId,
+      onDelete: node.onRemove,
+      ...(node.launch === undefined ? {} : { launch: node.launch as TerminalLaunch }),
+      ...(node.label === undefined ? {} : { label: node.label }),
+    };
+  }
+  if (node.kind === "agent") {
+    return {
+      kind: "native",
+      hostId: node.host,
+      bindingId: node.bindingId,
+      onDelete: node.onRemove,
+      ...(node.launch === undefined ? {} : { launch: node.launch as TerminalLaunch }),
+      ...(node.label === undefined ? {} : { label: node.label }),
+      harness: node.harness,
+      agentKey: node.agentKey,
+    };
+  }
+  return undefined;
 };
 
 /** Runtime summary for inventory / quit dialog (never canvas). */
