@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { allExamples } from "../src/cli/core/discovery";
 import { loadSignalRaiseArgs, parseAttachFlag } from "../src/cli/core/signal-input";
 
 const PNG = Buffer.from(
@@ -81,5 +82,25 @@ describe("--attach on the needs-you commands", () => {
       load(JSON.stringify({ text: "x", attach: [{ path: at("before.png") }] }), [at("after.png")]),
     ).rejects.toThrow(/attachments given twice/);
     await expect(load(JSON.stringify({ text: "x", attach: [{ path: at("before.png"), bytes: "x" }] }))).rejects.toThrow();
+  });
+
+  it("refuses a file on its size alone, before reading it", async () => {
+    const huge = at("huge.png");
+    // Sparse: six megabytes on paper, nothing to read.
+    writeFileSync(huge, "");
+    truncateSync(huge, 6 * 1024 * 1024);
+    await expect(load("x", [huge])).rejects.toThrow(/huge\.png: the attached files together are over 5 MB/);
+  });
+
+  it("decodes with the schema it shows: every example input is accepted as written", async () => {
+    const examples = allExamples.filter((example) => /^signal\.(escalate|blocked|feedback)$/u.test(example.command_id));
+    expect(examples.length).toBeGreaterThanOrEqual(4);
+    for (const example of examples) {
+      const input = example.input as { readonly text: string; readonly attach?: ReadonlyArray<{ readonly path: string }> };
+      expect(input).not.toHaveProperty("kind");
+      // Paths in an example are not files here; the shape is what is checked.
+      const { attach: _attach, ...rest } = input;
+      expect(await load(JSON.stringify(rest))).toMatchObject({ kind: "feedback", text: input.text });
+    }
   });
 });

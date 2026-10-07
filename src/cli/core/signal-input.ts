@@ -9,7 +9,8 @@ import {
 } from "../../shared/agent-signals";
 import { classifyAttachment } from "../../shared/preview-bytes";
 import {
-  SignalAttachCliInput,
+  type SignalAttachCliInput,
+  SignalRaiseCliArgs,
   type SignalAttachmentInput,
   type SignalRaiseArgs,
 } from "../../shared/work-control";
@@ -90,12 +91,6 @@ export const planSignalInvocation = (
   };
 };
 
-const SignalPayload = Schema.Struct({
-  text: Schema.String,
-  detail: Schema.optionalKey(Schema.String),
-  attach: Schema.optionalKey(Schema.Array(SignalAttachCliInput)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-
 /**
  * Pure: one `--attach` value as a file and its caption. A value that is a
  * file as written is that file; otherwise the text before the first `=` is
@@ -111,6 +106,8 @@ export const parseAttachFlag = (
   const path = value.slice(at + 1).trim();
   return caption ? { path, caption } : { path };
 };
+
+const OVER_TOTAL = `the attached files together are over ${AGENT_SIGNAL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`;
 
 const attachError = (path: string, message: string) =>
   new InputError({
@@ -138,18 +135,15 @@ const readAttachments = (attach: ReadonlyArray<SignalAttachCliInput>) =>
           // stat follows a link: what matters is that a regular file is read.
           const info = await stat(item.path);
           if (!info.isFile()) throw new Error("not a regular file");
+          // Refused on its size alone, before a byte of it is read.
+          if (total + info.size > AGENT_SIGNAL_MAX_ATTACHMENT_BYTES) throw new Error(OVER_TOTAL);
           return await readFile(item.path);
         },
         catch: (cause) => attachError(item.path, cause instanceof Error ? cause.message : "read failed"),
       });
       total += bytes.byteLength;
       if (total > AGENT_SIGNAL_MAX_ATTACHMENT_BYTES) {
-        return yield* Effect.fail(
-          attachError(
-            item.path,
-            `the attached files together are over ${AGENT_SIGNAL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`,
-          ),
-        );
+        return yield* Effect.fail(attachError(item.path, OVER_TOTAL));
       }
       const name = basename(item.path);
       const kind = classifyAttachment(name, bytes);
@@ -202,7 +196,7 @@ export const loadSignalRaiseArgs = (
     const { plan } = planned;
     const body = yield* readSource(plan.input);
     const payload = plan.input.json
-      ? yield* decodeJsonText(SignalPayload, body, plan.input.kind)
+      ? yield* decodeJsonText(SignalRaiseCliArgs, body, plan.input.kind)
       : { text: body };
     const detailText = plan.detail ? yield* readSource(plan.detail) : undefined;
     if (detailText !== undefined && payload.detail !== undefined) {

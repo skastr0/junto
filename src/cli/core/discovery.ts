@@ -1176,7 +1176,6 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     name: "blocked on the operator",
     description: "Stop and wait: the operator's answer arrives as operator mail.",
     input: {
-      kind: "blocked",
       text: FEW_SHOT_BLOCKED.args[1],
       detail: FEW_SHOT_BLOCKED.args[3],
     },
@@ -1186,14 +1185,14 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     command_id: "signal.escalate",
     command: "escalate",
     name: "needs attention, still working",
-    input: { kind: "escalate", text: "The migration touches billing tables; please confirm before I ship." },
+    input: { text: "The migration touches billing tables; please confirm before I ship." },
     args: ["escalate", "The migration touches billing tables; please confirm before I ship."],
   },
   {
     command_id: "signal.feedback",
     command: "feedback",
     name: "ready for review",
-    input: { kind: "feedback", text: "The onboarding redesign is up on the branch for review." },
+    input: { text: "The onboarding redesign is up on the branch for review." },
     args: ["feedback", "The onboarding redesign is up on the branch for review."],
   },
   {
@@ -1203,7 +1202,6 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     description:
       "Attach the files the operator should look at: they show as pictures on the card, and Before and After captions set up a comparison.",
     input: {
-      kind: "feedback",
       text: "The agent rail redesign is ready to review.",
       attach: [
         { path: "/abs/shots/before.png", caption: "Before" },

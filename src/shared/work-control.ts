@@ -653,11 +653,12 @@ export const SignalAttachCliInput = Schema.Struct({
 export type SignalAttachCliInput = typeof SignalAttachCliInput.Type;
 
 /**
- * What `junto escalate|blocked|feedback` takes as its JSON input. The CLI
- * turns `attach` paths into bytes (`SignalRaiseArgs.attach`) before the call.
+ * What `junto escalate|blocked|feedback` takes as its JSON input: the one
+ * schema the CLI both shows and decodes with. The command name is the kind,
+ * so there is none here. The CLI turns `attach` paths into bytes
+ * (`SignalRaiseArgs.attach`) before the call.
  */
 export const SignalRaiseCliArgs = Schema.Struct({
-  kind: AgentSignalKind,
   text: Schema.String,
   detail: Schema.optionalKey(Schema.String),
   attach: Schema.optionalKey(Schema.Array(SignalAttachCliInput)),
