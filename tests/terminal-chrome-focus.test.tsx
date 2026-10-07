@@ -5,6 +5,8 @@ import {
   focusFrontTerminal,
   focusTerminalChrome,
 } from "../src/renderer/lib/terminal-chrome-focus";
+import { keySituation } from "../src/renderer/lib/key-dispatcher";
+import { resolveKey } from "../src/shared/key-table";
 
 const mount = (html: string): HTMLElement => {
   const host = document.createElement("div");
@@ -21,8 +23,8 @@ const PANE = `
     <div class="native-terminal-surface">
       <header><button id="portrait">Portrait</button><button id="details">Details</button><button id="off" disabled>Off</button></header>
       <div class="xterm"><textarea id="pty"></textarea></div>
+      <aside><button id="rail">Rail</button></aside>
     </div>
-    <aside><button id="rail">Rail</button></aside>
   </div>`;
 
 const chord = (key: string): KeyboardEvent => new KeyboardEvent("keydown", { key, metaKey: true });
@@ -50,6 +52,22 @@ describe("the keyboard's way out of a terminal", () => {
     mount(PANE);
     document.getElementById("details")!.focus();
     expect(focusFrontTerminal(chord("ArrowDown"))).toBe(true);
+    expect(document.activeElement?.id).toBe("pty");
+  });
+
+  it("resolves Cmd+Down from the header and the connections, where the way back is needed", () => {
+    mount(PANE);
+    const down = { metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, key: "ArrowDown", code: "ArrowDown" };
+    for (const id of ["details", "rail"]) {
+      const situation = { ...keySituation(document.getElementById(id)), mac: true };
+      expect(resolveKey(down, situation)).toEqual({ id: "focus.toTerminal" });
+    }
+  });
+
+  it("passes Cmd+Down to the program when the keyboard is already in the terminal", () => {
+    mount(PANE);
+    document.getElementById("pty")!.focus();
+    expect(focusFrontTerminal(chord("ArrowDown"))).toBe(false);
     expect(document.activeElement?.id).toBe("pty");
   });
 

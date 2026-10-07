@@ -406,7 +406,9 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     does: "Move the keyboard from the header or the connected agents back into the terminal",
     mac: ["Cmd+ArrowDown"],
     other: [],
-    where: ["working"],
+    // The header and the connections sit inside the terminal's surface, so
+    // the keyboard is still in the terminal context there.
+    where: ["terminal", "working"],
   },
   {
     id: "canvas.open",

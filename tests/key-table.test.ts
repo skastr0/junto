@@ -374,6 +374,8 @@ describe("the agent view and the canvas", () => {
   it("lets the keyboard out of a terminal with Cmd+Up and back with Cmd+Down", () => {
     expect(resolveKey(key({ key: "ArrowUp", metaKey: true }), at("terminal"))).toEqual({ id: "focus.toChrome" });
     expect(resolveKey(key({ key: "ArrowDown", metaKey: true }), at("working"))).toEqual({ id: "focus.toTerminal" });
+    // The header is inside the terminal's surface, so the way back is live there too.
+    expect(resolveKey(key({ key: "ArrowDown", metaKey: true }), at("terminal"))).toEqual({ id: "focus.toTerminal" });
     // In a text field both keep moving the caret; on the canvas they are not ours.
     for (const name of ["ArrowUp", "ArrowDown"]) {
       expect(resolveKey(key({ key: name, metaKey: true }), at("field"))).toBeNull();

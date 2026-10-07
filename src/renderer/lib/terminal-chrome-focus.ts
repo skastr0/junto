@@ -40,8 +40,12 @@ export const focusTerminalChrome = (event: KeyboardEvent): boolean => {
   return target !== null && claimFocus(target, "gesture", { event });
 };
 
-/** Hand the keyboard back to the terminal in front. False when there is none. */
+/**
+ * Hand the keyboard back to the terminal in front. False when there is none,
+ * and when the keyboard is already in it, so the key passes to the program.
+ */
 export const focusFrontTerminal = (event: KeyboardEvent): boolean => {
   const target = pickPrimaryFocusControl(frontTerminalPane());
-  return target !== null && claimFocus(target, "gesture", { event, preventScroll: true });
+  if (target === null || target === document.activeElement) return false;
+  return claimFocus(target, "gesture", { event, preventScroll: true });
 };
