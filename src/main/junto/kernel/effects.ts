@@ -4,12 +4,14 @@
  */
 
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { compileEdgeGrant, edgeKindIndex } from "@shared/canvas";
 import {
   defaultEffectTasksCreate,
   type EffectTasksCreate,
 } from "@shared/node-insert";
+import type { NodeId } from "@shared/model/base";
+import type { Canvas } from "@shared/model/canvas";
 import { canvasFromDocument } from "@shared/model/from-document";
+import { wireGrant, wireKinds } from "@shared/model/wire";
 import {
   collectEffectEdgesFrom,
   defaultInjectPromptText,
@@ -212,20 +214,23 @@ const schedulerNodeEnabled = (node: CanvasNode | undefined): boolean => {
  * nothing, so a stale or hand-edited `chains` never buys a cascade hop.
  */
 export const collectTriggerCascadeTargets = (
-  doc: CanvasDoc,
+  canvas: Pick<Canvas, "nodes" | "wires">,
   sourceNodeId: string,
 ): ReadonlyArray<string> => {
-  const source = doc.nodes.find((node) => node.id === sourceNodeId);
-  if (!schedulerNodeEnabled(source)) return [];
+  const enabled = (id: string): boolean => {
+    const kind = canvas.nodes.get(id as NodeId)?.kind;
+    if (kind === "cron" || kind === "relay") return schedulerFeatureEnabled(kind);
+    return kind === "watcher" && schedulerFeatureEnabled("gauge");
+  };
+  if (!enabled(sourceNodeId)) return [];
 
-  const kinds = edgeKindIndex(doc);
+  const kinds = wireKinds(canvas.nodes.values());
   const out: string[] = [];
-  for (const edge of doc.edges) {
-    if (edge.fromNode !== sourceNodeId) continue;
-    if (compileEdgeGrant(edge, kinds)?.chain !== true) continue;
-    const target = doc.nodes.find((n) => n.id === edge.toNode);
-    if (!schedulerNodeEnabled(target)) continue;
-    out.push(edge.toNode);
+  for (const wire of canvas.wires.values()) {
+    if (wire.from !== sourceNodeId) continue;
+    if (wireGrant(wire, kinds)?.chain !== true) continue;
+    if (!enabled(wire.to)) continue;
+    out.push(wire.to);
   }
   return out;
 };
@@ -292,7 +297,7 @@ export const applySchedulerFire = async (
   let cascaded = 0;
   if (depth < SCHEDULER_TRIGGER_CASCADE_MAX_DEPTH) {
     for (const targetId of collectTriggerCascadeTargets(
-      doc,
+      canvasFromDocument(fire.canvasName, doc),
       fire.sourceNodeId,
     )) {
       if (visited.has(targetId)) continue;
