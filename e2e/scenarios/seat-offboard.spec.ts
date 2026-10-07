@@ -5,11 +5,11 @@
  *   bun run test:e2e:fast e2e/scenarios/seat-offboard.spec.ts
  *
  * The seat is the crew fixture's fake codex. Its agent runs `junto offboard`
- * mid-turn through the seat's own CLI, the turn ends, and the offboard
- * closer (main/junto/seat-sessions/offboard-close.ts) ends the session once
- * the seat has sat idle for its settle time:
+ * mid-turn through the seat's own CLI, and the offboard ends the session at
+ * once (main/junto/seat-sessions/offboard-close.ts): the process is stopped
+ * while the seat is still mid-turn, with no wait for idle:
  *
- *   O1 rest      the process stops, the seat rests on a fresh session id,
+ *   O1 rest      the process stops, the seat rests and no longer names the old session,
  *                nothing is typed into the old session, and the next mail
  *                starts a fresh process on the new session.
  *   O2 continue  the process stops and a fresh one starts by itself on a new
@@ -359,12 +359,11 @@ const offboardMidTurn = async (
   const oldInputAtOffboard = await inputOf(sandbox, SEAT_ID, 1);
   await shot("offboarded-mid-turn");
 
-  // The turn ends: the seat goes idle.
-  await seat.control({ screen: { mode: "idle" } });
-  await expectSeatState(page, SEAT_ID, "idle");
-  const idleAt = mark("the seat is idle");
+  // Offboard ends the session at once: the seat is still mid-turn, and
+  // nothing here ends the turn for it. The clock starts at the offboard.
+  const idleAt = offboardedAt;
 
-  // The closer ends the session: the old process is gone.
+  // The old process is gone.
   let closedAt: number | undefined;
   const until = idleAt + 30_000;
   while (Date.now() < until) {
@@ -375,7 +374,7 @@ const offboardMidTurn = async (
     }
     await sleep(50);
   }
-  note(testInfo, "idle-to-closed-ms", closedAt === undefined ? "not closed within 30 s of idle" : String(closedAt - idleAt));
+  note(testInfo, "offboard-to-closed-ms", closedAt === undefined ? "not closed within 30 s of the offboard" : String(closedAt - idleAt));
   return { seat, peer, oldPid: oldReady.pid, offboardedAt, idleAt, closedAt, oldInputAtOffboard };
 };
 
@@ -385,16 +384,16 @@ const writesBetween = (writes: ReadonlyArray<DriveWrite>, from: number, to: numb
 
 // ===========================================================================
 
-test("O1 [fake-tui] offboard to rest: the session closes, the seat rests on a fresh session id, and mail wakes the fresh session", async ({}, testInfo) => {
+test("O1 [fake-tui] offboard to rest: the session closes at once, the seat rests, and mail wakes a fresh session", async ({}, testInfo) => {
   test.setTimeout(360_000);
   await walk(testInfo, "O1", async (ctx) => {
     const { junto, mark, shot, mainLog } = ctx;
     const { page, sandbox } = junto;
     const closed = await offboardMidTurn(ctx, testInfo, { onboardFirst: true });
 
-    // Within about 5 s of going idle its process stops.
-    expect(closed.closedAt, "the seat's process stopped after it went idle").toBeDefined();
-    expect(closed.closedAt! - closed.idleAt, "idle to stopped, in ms").toBeLessThan(10_000);
+    // Within about a second of the offboard its process stops, mid-turn.
+    expect(closed.closedAt, "the seat's process stopped after the offboard").toBeDefined();
+    expect(closed.closedAt! - closed.idleAt, "offboard to stopped, in ms").toBeLessThan(4_000);
     expect(isLive(await sessionOf(page, SEAT_ID)), "no process is running on the seat").toBe(false);
 
     // The seat rests: the closer says so, to the operator's panel and on the log.
@@ -461,8 +460,8 @@ const continueFlow = async (
   const { page, sandbox } = junto;
   const closed = await offboardMidTurn(ctx, testInfo, { onboardFirst, continuation: NEXT });
 
-  check(closed.closedAt, "the old process stopped after the seat went idle").toBeDefined();
-  if (closed.closedAt !== undefined) check(closed.closedAt - closed.idleAt, "idle to stopped, in ms").toBeLessThan(10_000);
+  check(closed.closedAt, "the old process stopped after the offboard").toBeDefined();
+  if (closed.closedAt !== undefined) check(closed.closedAt - closed.idleAt, "offboard to stopped, in ms").toBeLessThan(4_000);
 
   // A fresh process starts by itself: no mail, no click.
   await check.poll(() => launches(sandbox, SEAT_ID), { message: "a fresh process starts by itself", timeout: 60_000 }).toBe(2);
@@ -470,7 +469,7 @@ const continueFlow = async (
     .poll(async () => (await closed.seat.ready()).pid, { message: "the fresh process's pid", timeout: 30_000 })
     .not.toBe(closed.oldPid);
   const freshAt = mark("a fresh process is up");
-  note(testInfo, `${id}-idle-to-fresh-ms`, String(freshAt - closed.idleAt));
+  note(testInfo, `${id}-offboard-to-fresh-ms`, String(freshAt - closed.idleAt));
   const freshSession = await nodeSessionId(page, SEAT_ID);
   check(freshSession, "the node no longer names the closed session").not.toBe(FIRST_SESSION);
   note(testInfo, `${id}-session-ids`, `${FIRST_SESSION} then ${String(freshSession)}`);
