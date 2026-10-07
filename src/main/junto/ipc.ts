@@ -2169,21 +2169,29 @@ export const registerJuntoIpc = (): void => {
       // session's notes, so a resumed session reads it back and a fresh one
       // starts without it. A seat whose session id is not known yet cannot
       // be recorded; the supervisor asks again at the next completed turn.
-      const onboardedMarkerOf = async (bindingId: string): Promise<string | undefined> => {
+      /**
+       * Where the binding's current harness session keeps its onboarded mark.
+       * "unreadable": cannot be told yet (the terminal is not bound to its
+       * seat, or the canvas cannot be read, as right after a start). null: the
+       * seat is known and its session has no id, so it has no mark anywhere.
+       */
+      const onboardedMarkerOf = async (bindingId: string): Promise<string | null | "unreadable"> => {
         const live = termPlane.host.get(bindingId);
-        if (!live?.canvasName || !live.nodeId) return undefined;
+        if (!live?.canvasName || !live.nodeId) return "unreadable";
         const seat = await managedSeatOn({ canvasName: live.canvasName, seatId: live.nodeId });
-        if (seat === undefined || seat.bindingId !== bindingId || !seat.sessionId) return undefined;
+        if (seat === undefined || seat.bindingId !== bindingId) return "unreadable";
+        if (!seat.sessionId) return null;
         return onboardedMarkerPath(defaultSeatsRoot(), live.nodeId, seat.sessionId);
       };
       injectionSupervisor.setOnboardedRecord({
         load: async (bindingId) => {
           const marker = await onboardedMarkerOf(bindingId);
-          return marker !== undefined && sessionOnboarded(marker);
+          if (marker === "unreadable") return undefined;
+          return marker !== null && sessionOnboarded(marker);
         },
         save: async (bindingId) => {
           const marker = await onboardedMarkerOf(bindingId);
-          if (marker === undefined) return false;
+          if (marker === null || marker === "unreadable") return false;
           markSessionOnboarded(marker, Date.now());
           return true;
         },

@@ -46,6 +46,8 @@ type SeatSupervision = {
   onboarding: OnboardingSignal;
   /** The onboarded status reached the session's record (or needs no record). */
   recorded: boolean;
+  /** The session's record is being read right now. */
+  loading: boolean;
   /** The operator typed into this generation's terminal. */
   operatorTyped: boolean;
   /** A draft the operator typed was seen in the composer. */
@@ -80,8 +82,13 @@ const printableCount = (data: string): number =>
 export type NoticeWriter = (bindingId: string, text: string) => boolean | Promise<boolean>;
 /** The composer as the drive's own gate reads it; null is unreadable. */
 export type ComposerLookup = (bindingId: string) => "empty" | "draft" | null;
-/** Read back whether the binding's current harness session already onboarded. */
-export type OnboardedLoader = (bindingId: string) => Promise<boolean>;
+/**
+ * Read back whether the binding's current harness session already onboarded.
+ * `undefined` means it cannot be told yet (the seat's canvas is not readable
+ * right after a start, the seat is not bound yet): that is not "no". The
+ * supervisor asks again and types nothing until it knows.
+ */
+export type OnboardedLoader = (bindingId: string) => Promise<boolean | undefined>;
 /** Record the binding's current harness session as onboarded; false = not yet possible. */
 export type OnboardedRecorder = (bindingId: string) => Promise<boolean>;
 export type OnboardingListener = (event: SeatOnboardingEvent) => void;
@@ -197,6 +204,7 @@ export class InjectionSupervisor {
       state: "unknown",
       onboarding: early ? "onboarded" : "unknown",
       recorded: false,
+      loading: false,
       operatorTyped: false,
       operatorDraft: false,
       typedSinceEnter: 0,
@@ -214,17 +222,34 @@ export class InjectionSupervisor {
       this.record(bindingId, seat);
       return seat;
     }
-    const settle = (onboarded: boolean): void => {
+    this.loadStatus(bindingId, seat);
+    return seat;
+  }
+
+  /**
+   * Ask the session's record whether it onboarded. Until the record can be
+   * read the status stays unknown, and unknown types nothing: taking "cannot
+   * tell" for "no" nudged seats that had onboarded, after a restart.
+   */
+  private loadStatus(bindingId: string, seat: SeatSupervision): void {
+    if (seat.onboarding !== "unknown" || seat.loading) return;
+    const settle = (onboarded: boolean | undefined): void => {
+      seat.loading = false;
       // A newer generation, or an onboard that landed meanwhile, wins.
       if (this.seats.get(bindingId) !== seat || seat.onboarding !== "unknown") return;
+      // Not readable yet: the next event for this seat asks again.
+      if (onboarded === undefined) return;
       seat.onboarding = onboarded ? "onboarded" : "not-onboarded";
       seat.recorded = onboarded;
       this.publish(bindingId, seat.onboarding);
       this.evaluate(bindingId, seat);
     };
-    if (this.loader === undefined) settle(false);
-    else void this.loader(bindingId).then(settle, () => settle(false));
-    return seat;
+    if (this.loader === undefined) {
+      settle(false);
+      return;
+    }
+    seat.loading = true;
+    void this.loader(bindingId).then(settle, () => settle(undefined));
   }
 
   private record(bindingId: string, seat: SeatSupervision): void {
@@ -332,6 +357,7 @@ export class InjectionSupervisor {
   noteMailWritten(bindingId: string): void {
     const seat = this.seats.get(bindingId);
     if (seat === undefined) return;
+    this.loadStatus(bindingId, seat);
     seat.firstMessageSeen = true;
     this.startTurn(seat);
     this.evaluate(bindingId, seat);
@@ -432,6 +458,7 @@ export class InjectionSupervisor {
       return;
     }
     const seat = this.ensure(event.bindingId, event.epoch);
+    this.loadStatus(event.bindingId, seat);
     const previous = seat.state;
     seat.state = event.state as SeatSignal;
     if (event.state === "working" && previous !== "working") {

@@ -517,6 +517,75 @@ describe("InjectionSupervisor", () => {
       expect(supervisor.isOnboarded("b1")).toBe(true);
     });
 
+    it("a status that cannot be read yet is not 'not onboarded': it is asked again, and nothing is typed meanwhile", async () => {
+      // Right after Junto restarts, a resumed seat's first events can arrive
+      // before its canvas can be read. The session DID onboard; the record
+      // just cannot be reached yet.
+      const answers: Array<boolean | undefined> = [undefined, undefined, true];
+      const supervisor = new InjectionSupervisor();
+      const writer = vi.fn<NoticeWriter>().mockReturnValue(true);
+      const asked: number[] = [];
+      supervisor.setWriter(writer);
+      supervisor.setOnboardedRecord({
+        load: async () => {
+          asked.push(asked.length);
+          return answers.shift();
+        },
+        save: async () => true,
+      });
+      const state = (value: AgentSeatStateEvent["state"]) => supervisor.noteSeatState(seatEvent({ state: value }));
+      state("idle");
+      await settled();
+      expect(supervisor.isOnboarded("b1")).toBe(false);
+      expect(supervisor.currentOnboarding()).toEqual([]);
+      // Mail wakes it and a turn runs: a nudge would be due if it were unonboarded.
+      supervisor.noteMailWritten("b1");
+      state("working");
+      await settled();
+      state("idle");
+      await settled();
+      expect(writer).not.toHaveBeenCalled();
+      expect(supervisor.isOnboarded("b1")).toBe(true);
+      expect(asked.length).toBe(3);
+      // And once it is known, it is not asked again.
+      state("working");
+      state("idle");
+      await settled();
+      expect(asked.length).toBe(3);
+    });
+
+    it("a status that can be read and says no is believed at once", async () => {
+      const supervisor = new InjectionSupervisor();
+      const writer = vi.fn<NoticeWriter>().mockReturnValue(true);
+      supervisor.setWriter(writer);
+      supervisor.setOnboardedRecord({ load: async () => false, save: async () => true });
+      supervisor.noteSeatState(seatEvent({ state: "idle" }));
+      await settled();
+      supervisor.noteMailWritten("b1");
+      expect(writer).toHaveBeenCalledTimes(1);
+    });
+
+    it("a record that fails to read is asked again, not taken for 'not onboarded'", async () => {
+      let calls = 0;
+      const supervisor = new InjectionSupervisor();
+      const writer = vi.fn<NoticeWriter>().mockReturnValue(true);
+      supervisor.setWriter(writer);
+      supervisor.setOnboardedRecord({
+        load: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error("canvas not loaded");
+          return true;
+        },
+        save: async () => true,
+      });
+      supervisor.noteSeatState(seatEvent({ state: "idle" }));
+      await settled();
+      supervisor.noteMailWritten("b1");
+      await settled();
+      expect(writer).not.toHaveBeenCalled();
+      expect(supervisor.isOnboarded("b1")).toBe(true);
+    });
+
     it("records a session whose id is learned after it onboarded", async () => {
       // A harness that mints its session id without printing it is captured
       // at a later turn boundary; the record is written then.
