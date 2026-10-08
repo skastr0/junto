@@ -2,10 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { useRtsNodes } from "../lib/rts-selection";
 import { HashMap, HashSet, Option } from "effect";
-import type {
-  EtherRegionDefaults,
-  EtherWatch,
-} from "@shared/canvas";
+import type { NodeOf } from "@shared/model";
+import type { RegionDefaults } from "@shared/model/region";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
@@ -344,7 +342,7 @@ export function RegionPageDefaultsControl({ nodeId: regionId }: { readonly nodeI
             ...(host.trim() ? { host: host.trim() } : {}),
           }
         : undefined;
-    const next: EtherRegionDefaults = {
+    const next: RegionDefaults = {
       ...(page ? { page } : {}),
       ...(paths && Object.keys(paths).length > 0 ? { paths } : {}),
     };
@@ -474,9 +472,14 @@ export function RegionBriefingEditor({ nodeId: regionId }: { readonly nodeId: st
   );
 }
 
-const STAT_SOURCE_OPTIONS: ReadonlyArray<NonNullable<EtherWatch["source"]>> = ["hermes"];
+/** A gauge reads one source today; the threshold fields are the watcher's own. */
+type WatchSource = "hermes";
+type WatchOp = NonNullable<NodeOf<"watcher">["op"]>;
+type WatchFields = Pick<NodeOf<"watcher">, "key" | "stat" | "op" | "value">;
 
-const STAT_OP_OPTIONS: ReadonlyArray<{ readonly value: NonNullable<EtherWatch["op"]>; readonly label: string }> = [
+const STAT_SOURCE_OPTIONS: ReadonlyArray<WatchSource> = ["hermes"];
+
+const STAT_OP_OPTIONS: ReadonlyArray<{ readonly value: WatchOp; readonly label: string }> = [
   { value: "gt", label: "greater than" },
   { value: "lt", label: "less than" },
   { value: "eq", label: "equal to" },
@@ -495,15 +498,15 @@ const commitOnEnter = (onCommit: () => void) => (event: React.KeyboardEvent<HTML
 // into the same commit call — React state from setSource/setOp wouldn't be
 // flushed yet if commit() read it directly); text fields commit on blur.
 function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceChange, onKey, onStat, onOpChange, onValue, onCommit }: {
-  readonly source: NonNullable<EtherWatch["source"]>;
+  readonly source: WatchSource;
   readonly entityKey: string;
   readonly stat: string;
-  readonly op: NonNullable<EtherWatch["op"]>;
+  readonly op: WatchOp;
   readonly valueText: string;
-  readonly onSourceChange: (value: NonNullable<EtherWatch["source"]>) => void;
+  readonly onSourceChange: (value: WatchSource) => void;
   readonly onKey: (value: string) => void;
   readonly onStat: (value: string) => void;
-  readonly onOpChange: (value: NonNullable<EtherWatch["op"]>) => void;
+  readonly onOpChange: (value: WatchOp) => void;
   readonly onValue: (value: string) => void;
   readonly onCommit: () => void;
 }) {
@@ -516,7 +519,7 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
         aria-label="Watcher stat source"
         value={source}
         options={STAT_SOURCE_OPTIONS.map((s) => ({ value: s, label: s }))}
-        onChange={(value) => onSourceChange(value as NonNullable<EtherWatch["source"]>)}
+        onChange={(value) => onSourceChange(value as WatchSource)}
       />
     </label>
     <label className="inspector-editor">
@@ -534,7 +537,7 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
         aria-label="Watcher comparison"
         value={op}
         options={STAT_OP_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-        onChange={(value) => onOpChange(value as NonNullable<EtherWatch["op"]>)}
+        onChange={(value) => onOpChange(value as WatchOp)}
       />
     </label>
     <label className="inspector-editor">
@@ -547,15 +550,15 @@ function StatThresholdFields({ source, entityKey, stat, op, valueText, onSourceC
 // Every watch field's draft state, reset together whenever the inspected
 // node changes — split out of WatcherEditor so the component body reads as
 // "fields + commit", not a wall of useState declarations.
-function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
-  const [source, setSource] = useState<NonNullable<EtherWatch["source"]>>(watch?.source ?? "hermes");
+function useWatchDraft(nodeId: string, watch: WatchFields | undefined) {
+  const [source, setSource] = useState<WatchSource>("hermes");
   const [key, setKey] = useState(watch?.key ?? "");
   const [stat, setStat] = useState(watch?.stat ?? "");
-  const [op, setOp] = useState<NonNullable<EtherWatch["op"]>>(watch?.op ?? "gt");
+  const [op, setOp] = useState<WatchOp>(watch?.op ?? "gt");
   const [valueText, setValueText] = useState(watch?.value !== undefined ? String(watch.value) : "");
 
   useEffect(() => {
-    setSource(watch?.source ?? "hermes");
+    setSource("hermes");
     setKey(watch?.key ?? "");
     setStat(watch?.stat ?? "");
     setOp(watch?.op ?? "gt");
@@ -572,33 +575,20 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
 // Gauge editor: hermes stat_threshold.
 export function WatcherEditor({ nodeId }: { readonly nodeId: string }) {
   const watcher = useNodeOf(use$(state$.canvasName), nodeId, "watcher");
-  // The model keeps a watcher's threshold as its own fields; the draft and the
-  // writer below still speak the document's watch shape.
-  const watch: EtherWatch | undefined = watcher && {
-    kind: "stat_threshold",
-    source: "hermes",
-    ...(watcher.key === undefined ? {} : { key: watcher.key }),
-    ...(watcher.stat === undefined ? {} : { stat: watcher.stat }),
-    ...(watcher.op === undefined ? {} : { op: watcher.op }),
-    ...(watcher.value === undefined ? {} : { value: watcher.value }),
-  };
   const {
     source, setSource, key, setKey, stat, setStat, op, setOp,
     valueText, setValueText,
-  } = useWatchDraft(nodeId, watch);
+  } = useWatchDraft(nodeId, watcher);
 
   type Overrides = Partial<{
-    readonly source: NonNullable<EtherWatch["source"]>;
-    readonly op: NonNullable<EtherWatch["op"]>;
+    readonly source: WatchSource;
+    readonly op: WatchOp;
   }>;
 
   const commit = (overrides: Overrides = {}) => {
-    const nextSource = overrides.source ?? source;
     const nextOp = overrides.op ?? op;
     const parsedValue = valueText.trim() === "" ? undefined : Number(valueText);
-    const nextWatch: EtherWatch = {
-      kind: "stat_threshold",
-      source: nextSource,
+    const nextWatch: WatchFields = {
       ...(key.trim() ? { key: key.trim() } : {}),
       ...(stat.trim() ? { stat: stat.trim() } : {}),
       op: nextOp,

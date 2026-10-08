@@ -1,10 +1,10 @@
-import type { EtherRegionDefaults } from "@shared/canvas";
+import type { RegionDefaults } from "@shared/model/region";
 import { stripEmptyRegionPaths } from "@shared/region-defaults";
 import { setRegionDefaults } from "../../lib/mutations";
 
 export const savePathAsRegionDefault = (
   regionId: string,
-  defaults: EtherRegionDefaults | undefined,
+  defaults: RegionDefaults | undefined,
   host: string,
   path: string | undefined,
 ) => {
@@ -13,7 +13,7 @@ export const savePathAsRegionDefault = (
   if (path?.trim()) paths[host] = path.trim();
   else delete paths[host];
   const cleanedPaths = stripEmptyRegionPaths(paths);
-  const next: EtherRegionDefaults = {
+  const next: RegionDefaults = {
     ...(defaults?.page ? { page: defaults.page } : {}),
     ...(cleanedPaths ? { paths: cleanedPaths } : {}),
   };
