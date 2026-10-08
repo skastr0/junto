@@ -1,5 +1,5 @@
 import type { SheetGrid } from "@shared/model/sheet";
-import type { NodeSide } from "@shared/canvas";
+import type { Side } from "@shared/model/base";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
@@ -274,12 +274,12 @@ export const showOpenedCanvas = (name = state$.canvasName.peek()): void => {
 };
 
 // --- graph queries used by interactions -----------------------------------
-const SIDES: ReadonlyArray<NodeSide> = ["top", "right", "bottom", "left"];
+const SIDES: ReadonlyArray<Side> = ["top", "right", "bottom", "left"];
 
-export const parseSide = (handle?: string | null): NodeSide | undefined => {
+export const parseSide = (handle?: string | null): Side | undefined => {
   if (!handle) return undefined;
   const raw = handle.replace(/^[st]-/, "");
-  return (SIDES as ReadonlyArray<string>).includes(raw) ? (raw as NodeSide) : undefined;
+  return (SIDES as ReadonlyArray<string>).includes(raw) ? (raw as Side) : undefined;
 };
 
 // --- mutations ------------------------------------------------------------

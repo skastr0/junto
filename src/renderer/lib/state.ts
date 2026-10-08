@@ -1,5 +1,5 @@
 import { batch, observable } from "@legendapp/state";
-import type { EtherEdgeKind } from "@shared/canvas";
+import type { WirePhase } from "@shared/model/wire";
 import type { SnapshotState } from "@shared/entities";
 import type { CanvasSummary, DigestResult, DiscoveredPeer } from "@shared/ipc";
 import type { RegionRollup } from "@shared/region-rollup";
@@ -28,7 +28,7 @@ export const state$ = observable({
   fitViewRequest: 0,
   /** One-shot request: canvas name to open (App consumes + clears). */
   canvasOpenRequest: "",
-  edgeFilter: "" as EtherEdgeKind | "",
+  edgeFilter: "" as WirePhase | "",
   editNodeId: "",
   // One-shot: open region folder-paths modal for this group id (cleared on consume).
   regionPathsNodeId: "",
