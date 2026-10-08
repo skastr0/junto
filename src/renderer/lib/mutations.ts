@@ -3,13 +3,7 @@ import type {
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
-  EtherRegionContract,
-  EtherRegionDefaults,
-  EtherTimer,
-  EtherWatch,
   NodeSide,
-  Ruling,
-  TasksContract,
   TextNode,
 } from "@shared/canvas";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
@@ -19,17 +13,17 @@ import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
 import { ulid } from "ulid";
-import type { RegionEnvironment } from "./region-environment";
 import { TASKS_ENABLED } from "@shared/features";
 import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "./deletion-impact";
-import type { Color, Command, Node, NodeOf } from "@shared/model";
+import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, RegionEnvironment } from "@shared/model";
+import type { Ruling, TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
 import { documentEdits, UnholdableEdit } from "@shared/model/document-edits";
 import { createDocumentProjection } from "./document-projection";
 import { canvasAfter } from "./model-undo";
 import { inPaintOrder, type Canvas } from "@shared/model/canvas";
 import { canvasFromDocument, nodeFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
-import { added, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, sheetWritten, topZ } from "./model-edits";
+import { added, cronEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, sheetWritten, taskBoardEdited, topZ, watcherEdited } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -927,24 +921,14 @@ export const renameTerminalNode = (id: string, firstLine: string): void => {
   commitCommands((canvas) => renamed(canvas, id, firstLine));
 };
 
-/** Page URL edit only — plain link furniture is retired. */
+/** Change a page's URL, keeping its browser binding. */
 export const editLink = (id: string, url: string): void => {
   const next = url.trim();
   if (!next) return;
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) =>
-      n.id === id &&
-      n.type === "link" &&
-      n.ether?.entity?.kind === "page"
-        ? { ...n, url: next }
-        : n,
-    ),
-  });
+  commitCommands((canvas) => pageEdited(canvas, id, { url: next }));
 };
 
-/** Edit the authorial browser binding without disturbing URL or sibling ether. */
+/** Change a page's browser binding, keeping its URL and removal choice. */
 export const setPageBinding = (
   id: string,
   input: { readonly profile: string; readonly host: string },
@@ -952,89 +936,15 @@ export const setPageBinding = (
   const profile = input.profile.trim();
   const host = input.host.trim();
   if (!profile || !isValidStationHostId(host)) return;
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((node) =>
-      node.id === id &&
-      node.type === "link" &&
-      node.ether?.entity?.kind === "page"
-        ? {
-            ...node,
-            ether: {
-              ...node.ether,
-              host,
-              browser: {
-                ...(node.ether.browser ?? {}),
-                profile,
-              },
-            },
-          }
-        : node,
-    ),
-  });
+  commitCommands((canvas) => pageEdited(canvas, id, { profile, host }));
 };
 
-/**
- * Change the queue home used for newly submitted tasks.
- *
- * Existing work rows keep their single authority home. Actor nodes are
- * deliberately excluded: moving one changes its InstallationId-derived
- * ActorSeatId, so relocation must be expressed as a newly authored seat after
- * the old seat's work has been resolved.
- */
+/** Change the repository a git card reads. */
 export const setGitCwd = (id: string, input: string): void => {
   const cwd = input.trim();
   if (!cwd) return;
-  const doc = state$.doc.peek();
-  const target = doc.nodes.find((node) => node.id === id);
-  if (target?.ether?.entity?.kind !== "git" || target.ether.git?.cwd === cwd) {
-    return;
-  }
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((node) =>
-      node.id === id && node.ether?.entity?.kind === "git"
-        ? {
-            ...node,
-            ether: {
-              ...node.ether,
-              git: { cwd },
-            },
-          }
-        : node,
-    ),
-  });
+  commitCommands((canvas) => gitEdited(canvas, id, { cwd }));
 };
-
-export const setNodeHost = (id: string, input: string): void => {
-  const host = input.trim();
-  if (!isValidStationHostId(host)) return;
-  const doc = state$.doc.peek();
-  const target = doc.nodes.find((node) => node.id === id);
-  if (
-    target?.ether?.entity?.kind !== "task" ||
-    target.ether.host === host
-  ) {
-    return;
-  }
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((node) =>
-      node.id === id && node.ether?.entity?.kind === "task"
-        ? {
-            ...node,
-            ether: {
-              ...node.ether,
-              host,
-            },
-          }
-        : node,
-    ),
-  });
-};
-
-
 
 export const renameGroup = (id: string, label: string): void => {
   commitCommands((canvas) => (canvas.nodes.get(id as Node["id"])?.kind === "region" ? renamed(canvas, id, label) : []));
@@ -1061,134 +971,38 @@ export const setRegionHold = (id: string, hold: boolean): void => {
   commitCommands((canvas) => regionEdited(canvas, id, { hold }));
 };
 
-// Region spawn defaults (group nodes only). Create-time stamp source for
-// page nodes placed inside the region — never live rebind.
-// Merges into ether.region so hold + instruction survive. Empty bags strip.
-export const setRegionDefaults = (id: string, defaults: EtherRegionDefaults | undefined): void => {
-  const doc = state$.doc.peek();
+/** Region spawn defaults, used when a page is created, never a live rebind. */
+export const setRegionDefaults = (id: string, defaults: RegionDefaults | undefined): void => {
   const cleaned = stripEmptyRegionDefaults(defaults);
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id || n.type !== "group") return n;
-      const currentRegion = n.ether?.region ?? {};
-      const nextRegion = cleaned
-        ? { ...currentRegion, defaults: cleaned }
-        : without(currentRegion, "defaults");
-      if (Object.keys(nextRegion).length > 0) {
-        return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "region");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
+  commitCommands((canvas) => regionEdited(canvas, id, { defaults: cleaned ?? null }));
 };
 
-// Region environment (group nodes only): where the seats inside get their
-// environment at launch. Names and references only; the one value the
-// document ever holds is a plain `value` source. Read live at every spawn,
-// never stamped. Merges into ether.region so hold, instruction, defaults and
-// contract survive; an empty environment strips.
+/** Names and references seats inside the region read at launch. */
 export const setRegionEnvironment = (id: string, environment: RegionEnvironment | undefined): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id || n.type !== "group") return n;
-      const currentRegion = n.ether?.region ?? {};
-      const nextRegion = environment
-        ? { ...currentRegion, environment }
-        : without(currentRegion, "environment");
-      if (Object.keys(nextRegion).length > 0) {
-        return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "region");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
+  commitCommands((canvas) => regionEdited(canvas, id, { environment: environment ?? null }));
 };
 
 // The claim tick runs in the kernel only (kernel/service.ts runClaimTicks,
 // pause-gated). The old renderer-side tick wrapper is gone — a canvas-door
 // tick would bypass the pause plane.
 
-// Watcher/timer definitions are document data (the kernel's runtime state
-// derived from them is not — that lives only in kernel app memory, per the
-// frozen contract). Empty optional fields never survive: blank source/key/stat
-// strings collapse to "field absent".
-const stripEmptyWatch = (watch: EtherWatch): EtherWatch => {
-  const key = watch.key?.trim();
-  const stat = watch.stat?.trim();
-  return {
-    kind: watch.kind,
-    ...(watch.source ? { source: watch.source } : {}),
-    ...(key ? { key } : {}),
-    ...(stat ? { stat } : {}),
-    ...(watch.op ? { op: watch.op } : {}),
-    ...(watch.value !== undefined ? { value: watch.value } : {}),
-  };
+/** Change a gauge's threshold fields, keeping its host and label. */
+export const setNodeWatch = (
+  id: string,
+  watch: Pick<NodeOf<"watcher">, "key" | "stat" | "op" | "value"> | undefined,
+): void => {
+  commitCommands((canvas) => watcherEdited(canvas, id, {
+    key: watch?.key?.trim() || null,
+    stat: watch?.stat?.trim() || null,
+    op: watch?.op ?? null,
+    value: watch?.value ?? null,
+  }));
 };
 
-// Writes/clears a node's ether.watch (predicate definition for a watcher
-// node). Strip pattern: strip empty fields, drop the
-// `watch` key entirely once cleared, degrade `ether` itself away when it
-// would otherwise be left holding nothing. Runtime evaluation of the
-// predicate is the kernel's job (kernel-state.ts) — this only ever writes
-// the definition, never a result.
-export const setNodeWatch = (id: string, watch: EtherWatch | undefined): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
-      const cleaned = watch ? stripEmptyWatch(watch) : undefined;
-      if (cleaned) {
-        return { ...n, ether: { ...(n.ether ?? {}), watch: cleaned } };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "watch");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
-};
-
-// Writes/clears a node's ether.timer. The v1 5-minute floor is a UI guard
-// (the editor rejects the input before it ever reaches here); this mutation
-// stays defensive and drops a sub-floor value rather than persist it.
-const MIN_TIMER_EVERY_MINUTES = 5;
-
-export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
-      const expression = timer?.expression?.trim().replace(/\s+/g, " ");
-      const every =
-        typeof timer?.everyMinutes === "number" &&
-        Number.isFinite(timer.everyMinutes) &&
-        timer.everyMinutes > 0
-          ? Math.round(timer.everyMinutes)
-          : undefined;
-      if (expression || every !== undefined) {
-        return {
-          ...n,
-          ether: {
-            ...(n.ether ?? {}),
-            timer: {
-              ...(expression ? { expression } : {}),
-              ...(every !== undefined ? { everyMinutes: every } : {}),
-            },
-          },
-        };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "timer");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
+/** Change a cron's schedule, or clear it, keeping its host and label. */
+export const setNodeTimer = (id: string, timer: Pick<NodeOf<"cron">, "expression"> | undefined): void => {
+  const expression = timer?.expression?.trim().replace(/\s+/g, " ");
+  commitCommands((canvas) => cronEdited(canvas, id, { expression: expression || null }));
 };
 
 // Checklist mutator deleted — work ops live in main (WorkService).
@@ -1200,8 +1014,8 @@ export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void =>
 
 /** Collapse an empty claims/rulings bag to `undefined` so the doc stays sparse. */
 const stripEmptyRegionContract = (
-  contract: EtherRegionContract | undefined,
-): EtherRegionContract | undefined => {
+  contract: RegionContract | undefined,
+): RegionContract | undefined => {
   if (!contract) return undefined;
   const rules = contract.rules && contract.rules.length > 0 ? contract.rules : undefined;
   const rulings = contract.rulings && contract.rulings.length > 0 ? contract.rulings : undefined;
@@ -1252,94 +1066,34 @@ export const flushNodeSheetTyping = (id: string): void => {
   sheetTypingBurst.delete(id);
 };
 
-export const setRegionContract = (
-  id: string,
-  contract: EtherRegionContract | undefined,
-): void => {
-  // Region rules ride the Tasks gate; a tasks-off build never writes them.
+/** Change the rules and rulings of a region. */
+export const setRegionContract = (id: string, contract: RegionContract | undefined): void => {
   if (!TASKS_ENABLED) return;
-  const doc = state$.doc.peek();
   const cleaned = stripEmptyRegionContract(contract);
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id || n.type !== "group") return n;
-      const currentRegion = n.ether?.region ?? {};
-      const nextRegion = cleaned
-        ? { ...currentRegion, contract: cleaned }
-        : without(currentRegion, "contract");
-      if (Object.keys(nextRegion).length > 0) {
-        return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "region");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
+  commitCommands((canvas) => regionEdited(canvas, id, { contract: cleaned ?? null }));
 };
 
-/**
- * Operator-authored board settings (instructions, board rules,
- * incoming/outgoing admission + check config). Tasks nodes only
- * (`ether.entity.kind === "task"`); the contract lives beside the runtime
- * `items` projection in `ether.tasks` and this mutation never
- * touches that projection — an authorial write carrying non-empty work rows
- * is rejected at the write boundary (canvases.ts containsWorkProjection).
- */
-export const setBoardSettings = (
-  id: string,
-  contract: TasksContract | undefined,
-): void => {
-  const doc = state$.doc.peek();
+/** Change a task board's authorial settings; tasks themselves are separate rows. */
+export const setBoardSettings = (id: string, contract: TasksContract | undefined): void => {
   const cleaned = contract && Object.keys(contract).length > 0 ? contract : undefined;
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id || n.ether?.entity?.kind !== "task") return n;
-      const ether = n.ether ?? {};
-      const currentTasks = ether.tasks ?? { items: [] };
-      const nextTasks = cleaned
-        ? { ...currentTasks, contract: cleaned }
-        : without(currentTasks, "contract");
-      return { ...n, ether: { ...ether, tasks: nextTasks } };
-    }),
-  });
+  commitCommands((canvas) => taskBoardEdited(canvas, id, { contract: cleaned ?? null }));
 };
 
-/**
- * Pin an escalation/request resolution as a standing ruling on a region's
- * contract (spec §6). Mints `id` + `pinnedAt` here, the same posture as
- * addNode/addEdge minting their own ids — callers supply only the resolved
- * text and its optional source. Group nodes only; blank text is a no-op.
- */
-export const pinRuling = (
-  regionId: string,
-  text: string,
-  sourceRequestId?: string,
-): void => {
+/** Pin an answer as a ruling, preserving the region's rules and previous rulings. */
+export const pinRuling = (regionId: string, text: string, sourceRequestId?: string): void => {
   const trimmed = text.trim();
   if (!trimmed || !TASKS_ENABLED) return;
-  const doc = state$.doc.peek();
-  const region = doc.nodes.find((n) => n.id === regionId);
-  if (!region || region.type !== "group") return;
-  const ruling: Ruling = {
-    id: ulid(),
-    text: trimmed,
-    pinnedAt: new Date().toISOString(),
-    ...(sourceRequestId ? { sourceRequestId } : {}),
-  };
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== regionId) return n;
-      const ether = n.ether ?? {};
-      const currentRegion = ether.region ?? {};
-      const currentContract = currentRegion.contract ?? {};
-      const nextContract: EtherRegionContract = {
-        ...currentContract,
-        rulings: [...(currentContract.rulings ?? []), ruling],
-      };
-      return { ...n, ether: { ...ether, region: { ...currentRegion, contract: nextContract } } };
-    }),
+  commitCommands((canvas) => {
+    const region = canvas.nodes.get(regionId as Node["id"]);
+    if (region?.kind !== "region") return [];
+    const ruling: Ruling = {
+      id: ulid(),
+      text: trimmed,
+      pinnedAt: new Date().toISOString(),
+      ...(sourceRequestId ? { sourceRequestId } : {}),
+    };
+    return regionEdited(canvas, regionId, {
+      contract: { ...region.contract, rulings: [...(region.contract?.rulings ?? []), ruling] },
+    });
   });
 };

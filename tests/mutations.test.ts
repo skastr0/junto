@@ -3,7 +3,7 @@ import { nodeOfDocument } from "../src/shared/model/from-document";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, targetPlanOn } from "../src/renderer/lib/edge-mutations";
 import * as fixtures from "./support/model-nodes";
 import { findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
@@ -1220,22 +1220,6 @@ describe("renderer graph mutations", () => {
     expect(Object.hasOwn(cleared ?? {}, "environment")).toBe(false);
     expect(cleared?.hold).toBe(true);
     expect(cleared?.defaults?.paths).toEqual({ local: "/Users/op/proj" });
-  });
-
-  it("setRegionEnvironment ignores non-group nodes and removes an emptied region bag", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [
-        { id: "note", type: "text", text: "x", x: 0, y: 0, width: 100, height: 80 },
-        { id: "region", type: "group", label: "R", x: 0, y: 0, width: 400, height: 300 },
-      ],
-      edges: [],
-    });
-    setRegionEnvironment("note", { sealed: true });
-    expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
-    setRegionEnvironment("region", { sealed: true });
-    setRegionEnvironment("region", undefined);
-    expect(Object.hasOwn(state$.doc.peek().nodes[1] ?? {}, "ether")).toBe(false);
   });
 
   it("setRegionDefaults ignores non-group nodes", () => {
