@@ -7,6 +7,10 @@ const allowed = new Set([
   "scripts/electron-sqlite-smoke.mjs",
   // Dev-only seed that copies a prod junto.db into an isolated dev tree.
   "scripts/dev-seed-from-prod.ts",
+  // Preview tools: a read-only backup of the live junto.db into a separate
+  // copy, and a read-only comparison of that copy with its baseline.
+  "scripts/preview-db-check.ts",
+  "scripts/preview-snapshot.ts",
   "src/main/junto/state/backup.ts",
   "src/main/junto/state/engine.ts",
   "src/main/junto/state/migrations.ts",
