@@ -30,7 +30,7 @@ describe("native node surface activation", () => {
     publish(seat("worker", { label: "Current", bindingId: "current-binding" as never }));
     expect(activateNodeSurface("worker")).toEqual({ opened: true, kind: "terminal" });
     expect(opens).toHaveBeenCalledOnce();
-    expect(opens.mock.calls[0]![0]).toMatchObject({ id: "worker", ether: { terminal: { bindingId: "current-binding" } } });
+    expect(opens).toHaveBeenCalledWith(canvas, "worker");
     modelStore.node$(canvas, "worker").delete();
     expect(activateNodeSurface("worker")).toEqual({ opened: false, reason: "no-surface" });
     expect(opens).toHaveBeenCalledOnce();
