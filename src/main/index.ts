@@ -249,6 +249,12 @@ if (
   // unpackaged process so it is visually distinct from production.
   app.setName(`${PRODUCT_NAME} Dev`);
 }
+// Preview is an explicit isolated launch, with visible identity in Dock and title.
+const isPreview = process.env.JUNTO_PREVIEW === "1";
+if (isPreview) {
+  app.setPath("userData", unpackagedElectronUserDataPath(resolveJuntoHome()));
+  app.setName(`${PRODUCT_NAME} PREVIEW`);
+}
 registerTrustedRendererScheme(protocol, [CONTENT_PROTOCOL_SCHEME_REGISTRATION]);
 
 // electron-vite (and some launchd/stdio handoffs) can close the parent pipe
@@ -838,7 +844,7 @@ const createWindow = () => {
     height: 900,
     minWidth: 960,
     minHeight: 680,
-    title: app.isPackaged ? PRODUCT_NAME : `${PRODUCT_NAME} Dev`,
+    title: isPreview ? `${PRODUCT_NAME} PREVIEW` : app.isPackaged ? PRODUCT_NAME : `${PRODUCT_NAME} Dev`,
     backgroundColor: DARK_RUNTIME.ground,
 
     // `hiddenInset` and traffic-light geometry are a macOS presentation
@@ -858,6 +864,7 @@ const createWindow = () => {
       ...(e2eIsolateFocus ? { backgroundThrottling: false } : {}),
     },
   });
+  if (isPreview) mainWindow.on("page-title-updated", (event) => event.preventDefault());
   if (BROWSER_ENABLED && productRuntimeStarted) {
     void browserCompositionHost.bindVisibleWindow(mainWindow).catch(() => {
       if (!mainWindow.isDestroyed()) mainWindow.destroy();
