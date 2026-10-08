@@ -56,6 +56,7 @@ const allMustPass = async (lanes: readonly Lane[]): Promise<void> => {
 
 await allMustPass([
   { name: "lint:product-name", cmd: ["bun", "scripts/lint-product-name.ts"] },
+  { name: "lint:no-canvas-document", cmd: ["bun", "scripts/lint-no-canvas-document.ts", "--enforce"] },
   { name: "lint:no-middot", cmd: ["bun", "scripts/lint-no-middot.ts"] },
   { name: "lint:effect-runpromise", cmd: ["bun", "scripts/lint-effect-runpromise.ts"] },
   { name: "lint:focus-law", cmd: ["bun", "scripts/lint-focus-law.ts"] },
