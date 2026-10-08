@@ -46,6 +46,7 @@ test("WASD and arrows fly the canvas, and any focused field keeps its keys", asy
   // An open focus surface takes the keyboard even with focus off any field.
   await page.getByLabel("Open settings").click();
   await expect(page.locator("[role='dialog']").first()).toBeVisible();
+  await page.getByLabel("Close settings").focus();
   const beforeModal = await viewport(page);
   await glide(page, "d", 260);
   const afterModal = await viewport(page);
