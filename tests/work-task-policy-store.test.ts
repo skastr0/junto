@@ -1,9 +1,8 @@
 import { expect, it, vi } from "vitest";
 import type { WorkLaneRow, WorkSinkChanged } from "../src/shared/work-sinks";
 import { createWorkTaskPolicyStore, taskPolicyRead } from "../src/renderer/lib/work-task-policy-store";
-import { tasksNodeDeletionWarnings, flowEdgeRemovalWarnings } from "../src/renderer/lib/deletion-impact";
+import { boardRemovalWarnings, wireRemovalWarnings } from "../src/renderer/lib/deletion-impact";
 import { dependencyScopeTasks } from "../src/shared/task-dep-scope";
-import { nodeToDocument, wireToDocument } from "../src/shared/model/from-document";
 import { canvasOf, taskBoard, wire } from "./support/model-nodes";
 
 const flush = async () => { for (let index = 0; index < 20; index += 1) await Promise.resolve(); };
@@ -36,14 +35,13 @@ it("refreshes only changed policy rows and clears rows when their board is delet
 
 it("keeps dependency choices and deletion consequences when topology carries no Work items", () => {
   const canvas = canvasOf([taskBoard("first"), taskBoard("next")], [wire("path", "first", "next", "feeds")]);
-  const doc = { nodes: [...canvas.nodes.values()].map(nodeToDocument), edges: [...canvas.wires.values()].map(wireToDocument) };
   const policy = taskPolicyRead([
     { nodeId: "first", item: { id: "live", state: "working", history: [],
       visits: [{ board: "next", enteredAt: "2026-10-07", epoch: 0 }] } },
     { nodeId: "next", item: { id: "done", state: "completed", history: [] } },
   ]);
   expect(dependencyScopeTasks(canvas, policy, "first").map((task) => task.id)).toEqual(["live", "done"]);
-  expect(tasksNodeDeletionWarnings(doc, new Set(["first"]), policy)).toEqual(["“Tasks first” holds 1 live task."]);
-  expect(tasksNodeDeletionWarnings(doc, new Set(["next"]), policy)).toHaveLength(1);
-  expect(flowEdgeRemovalWarnings(doc, doc.edges, policy)[0]).toContain("1 live task");
+  expect(boardRemovalWarnings(canvas, new Set(["first"]), policy)).toEqual(["“Tasks first” holds 1 live task."]);
+  expect(boardRemovalWarnings(canvas, new Set(["next"]), policy)).toHaveLength(1);
+  expect(wireRemovalWarnings(canvas, [...canvas.wires.values()], policy)[0]).toContain("1 live task");
 });
