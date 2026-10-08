@@ -4,8 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Schema } from "effect";
 import { batch } from "@legendapp/state";
-import { Node } from "../src/shared/model";
-import { nodeToDocument } from "../src/shared/model/from-document";
+import { Node, Opened } from "../src/shared/model";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { state$ } from "../src/renderer/lib/state";
 import { rtsNode, readRtsNode, useRtsNodes } from "../src/renderer/lib/rts-selection";
@@ -18,7 +17,7 @@ vi.hoisted(() => {
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 });
 // Select a different harness without probing a real CLI or spawning a process.
-// The re-seat control, mutation, native conversion and surface actions are real.
+// The re-seat control, native commands and surface actions are real.
 vi.mock("../src/renderer/components/node-palette/AgentHarnessPick", () => ({
   AgentHarnessPick: ({ onConfigure }: { onConfigure: (value: { harness: "claude" }) => void }) =>
     <button onClick={() => onConfigure({ harness: "claude" })}>Pick Claude</button>,
@@ -29,6 +28,7 @@ const canvas = "rts-write-placement";
 const frame = { id: "subject", x: 123, y: 456, width: 310, height: 145, z: 4, color: "1" };
 const moved = { x: 987, y: 654, width: 345, height: 167 };
 const decode = Schema.decodeUnknownSync(Node);
+let releaseCanvas: () => void;
 let host: HTMLDivElement, root: Root;
 let oldApi: typeof window.junto;
 let errors: ReturnType<typeof vi.spyOn>, context: ReturnType<typeof vi.spyOn>;
@@ -42,7 +42,6 @@ const click = async (label: string) => {
 const publish = (node: Node) => batch(() => {
   modelStore.node$(canvas, node.id).set(node);
   modelStore.canvas$(canvas).nodeIds.set([node.id]);
-  state$.doc.set({ nodes: [nodeToDocument(node)], edges: [] });
 });
 const mount = async (fields: Record<string, unknown>) => {
   const node = decode({ ...frame, onRemove: "detach", ...fields });
@@ -56,16 +55,19 @@ const move = async (node: Node) => {
   await act(async () => { publish(decode({ ...node, ...moved })); await flush(); });
 };
 const assertPlacement = () => {
-  expect(state$.doc.peek().nodes[0]).toMatchObject({ ...moved, color: frame.color });
-  expect(state$.doc.peek().nodes[0]?.ether?.entity?.kind).not.toBeUndefined();
+  expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ ...moved, color: frame.color });
+  expect(modelStore.node$(canvas, frame.id).peek()?.kind).toBeTruthy();
+  expect(state$.doc.peek().nodes).toEqual([]);
 };
 const agent = { kind: "agent", label: "Worker", agentKey: "local:worker", bindingId: "worker-binding", host: "local", harness: "codex", launch: { kind: "harness", argv: ["codex"] }, overseer: false, onRemove: "detach" };
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   oldApi = window.junto;
-  setApi({ onWorkSinkChanged: () => () => {}, workAttention: async () => ({ glances: [], items: [] }), hostsList: async () => ({ ok: true, hosts: [{ id: "local", label: "Local" }, { id: "remote-one", label: "Remote" }] }), terminalKill: async () => {}, terminalGet: async () => undefined });
+  setApi({ modelCommand: async () => ({ seq: 1 }), onWorkSinkChanged: () => () => {}, workAttention: async () => ({ glances: [], items: [] }), hostsList: async () => ({ ok: true, hosts: [{ id: "local", label: "Local" }, { id: "remote-one", label: "Remote" }] }), terminalKill: async () => {}, terminalGet: async () => undefined });
   state$.canvasName.set(canvas); state$.settings.station.role.set("command-center");
+  state$.doc.set({ nodes: [], edges: [] });
+  releaseCanvas = modelStore.adopt(Schema.decodeUnknownSync(Opened)({ canvas, seq: 0, nodes: [], wires: [] }));
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
   context = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
@@ -73,7 +75,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount()); host.remove(); context.mockRestore(); errors.mockRestore();
   writeSkipReseatConfirm(false); terminal$.openByNodeId.subject.delete(); profileDialog$.set(null);
-  modelStore.canvas$(canvas).nodes.set({}); modelStore.canvas$(canvas).nodeIds.set([]);
+  releaseCanvas();
   state$.selectedNodeId.set(""); state$.selectedNodeIds.set([]); state$.canvasName.set("");
   setApi(oldApi); vi.unstubAllGlobals();
 });
@@ -92,7 +94,7 @@ it("keeps placement when an open page URL editor saves after a move", async () =
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-  expect(state$.doc.peek().nodes[0]).toMatchObject({ url: "https://after.example" }); assertPlacement();
+  expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ kind: "page", url: "https://after.example" }); assertPlacement();
 });
 
 it("keeps placement when browser binding editor save after a move", async () => {
@@ -102,24 +104,23 @@ it("keeps placement when browser binding editor save after a move", async () => 
   const option = [...document.querySelectorAll('[role="option"]')].find(el => el.textContent?.trim() === "work")!;
   expect(option).toBeTruthy();
   await act(async () => { option.dispatchEvent(new MouseEvent("click", { bubbles: true })); await flush(); });
-  expect(state$.doc.peek().nodes[0]?.ether?.browser?.profile).toBe("work"); assertPlacement();
+  expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ kind: "page", profile: "work" }); assertPlacement();
 
 });
 
 it("keeps placement for task admission and wait writes from the bar", async () => {
   const task = await mount({ kind: "task", name: "Queue", host: "local" });
   await click("Who starts tasks"); await move(task); await click("Approval");
-  expect(state$.doc.peek().nodes[0]?.ether?.tasks?.contract?.incoming?.admission).toBe("approval"); assertPlacement();
+  expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ kind: "task", contract: { incoming: { admission: "approval" } } }); assertPlacement();
   await click("Wait before starting"); await click("15m");
-  expect(state$.doc.peek().nodes[0]?.ether?.tasks?.contract?.incoming?.waitMs).toBe(900000); assertPlacement();
+  expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ kind: "task", contract: { incoming: { waitMs: 900000 } } }); assertPlacement();
 });
 
 it("re-seats from an already-open bar picker without replacing or moving the seat", async () => {
   const node = await mount(agent);
   writeSkipReseatConfirm(true);
   await click("Re-seat agent"); await move(node); await click("Pick Claude");
-  expect(state$.doc.peek().nodes[0]?.ether?.entity?.kind).toBe("agent");
-  expect(state$.doc.peek().nodes[0]?.ether?.terminal?.harness).toBe("claude"); assertPlacement();
+  expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ kind: "agent", harness: "claude" }); assertPlacement();
 });
 
 it("opens a terminal using the current complete node after a quiet move", async () => {
