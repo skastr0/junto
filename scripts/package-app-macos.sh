@@ -74,7 +74,7 @@ NODE_SHIM_DIR=""
 
 SIGN_ARGS=(--config.mac.forceCodeSigning=false --config.mac.identity=null)
 if [[ "${JUNTO_PREVIEW_BUILD:-}" == "1" ]]; then
-  SIGN_ARGS+=("--config.mac.extendInfo.CFBundleDisplayName=Junto PREVIEW" "--config.mac.extendInfo.CFBundleName=Junto PREVIEW")
+  SIGN_ARGS+=("--config.mac.extendInfo.CFBundleDisplayName=Junto PREVIEW")
 fi
 if [[ "$SIGN" -eq 1 ]]; then
   SIGN_IDENTITY="$("$BUN_EXECUTABLE" "$SCRIPT_DIR/mac-signing-config.mjs" --builder-identity)"
