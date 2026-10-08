@@ -496,6 +496,12 @@ phase, and attention/occupancy are separate planes.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
 - Agent reach follows Factory physics (above): edges, ports, and a live generation credential. No ambient region grants. Browser-protected ops still also require peer process-bind.
 
+## Testing
+
+No test waits on a real clock for product time to pass. Rules that depend on
+time are tested through an injected clock or as pure functions. A spec that
+needs minutes of wall time is deleted, not skipped.
+
 ## State migrations — hard law
 
 Two kinds of migration exist and they never mix:
