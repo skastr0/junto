@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasEdge, CanvasNode } from "../src/main/junto/station/frozen-document";
 import {
-  canvasFromDocument,
+  stationCanvasOf,
   nodeOfDocument,
   wireOfDocument,
 } from "../src/main/junto/station/frozen-from-document";
@@ -24,11 +24,11 @@ const seat = (id: string, x = 0): CanvasNode =>
 describe("rows held per node and edge object", () => {
   it("converts an untouched node once across documents", () => {
     const lead = seat("lead");
-    const first = canvasFromDocument("factory", {
+    const first = stationCanvasOf("factory", {
       nodes: [lead, seat("nodes")],
       edges: [],
     });
-    const second = canvasFromDocument("factory", {
+    const second = stationCanvasOf("factory", {
       nodes: [lead, seat("nodes", 400)],
       edges: [],
     });

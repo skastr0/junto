@@ -137,7 +137,7 @@ import {
   padAuthorRuleError,
   stampPadPatchAuthors,
 } from "./pad-rules";
-import { canvasFromDocument } from "../station/frozen-from-document";
+import { stationCanvasOf } from "../station/frozen-from-document";
 import { ContentManifest, ContentManifestError } from "../content/manifest";
 import {
   mailboxMessageDeliveryId,
@@ -943,7 +943,7 @@ const createProjectedTaskDependencyScopeCapability = (
     mode,
     basis,
     authoringSink,
-    canvas: { ...canvasFromDocument(authoringSink.canvasName, document), seq: Number(generation) },
+    canvas: { ...stationCanvasOf(authoringSink.canvasName, document), seq: Number(generation) },
     rawCanvasBody: projectionCanvasRawBody(rawBody, authoringSink.canvasName),
   });
 };

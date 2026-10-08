@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/main/junto/station/frozen-document";
-import { canvasFromDocument, nodeOfDocument, nodesFromDocument } from "../src/main/junto/station/frozen-from-document";
+import { stationCanvasOf, nodeOfDocument, nodesFromDocument } from "../src/main/junto/station/frozen-from-document";
 import { convertLegacyRow } from "../src/shared/model/from-legacy-row";
 
 const note = (id: string): CanvasNode => ({ id, type: "text", text: id, x: 0, y: 0, width: 200, height: 80 }) as CanvasNode;
@@ -30,20 +30,20 @@ describe("a document node the model cannot hold is refused, never kept as a note
 
   it("fails a whole canvas that mixes good nodes with one it cannot hold, naming the node", () => {
     const doc: CanvasDoc = { nodes: [note("n"), seat("ok"), unseated("bad")], edges: [] };
-    expect(() => canvasFromDocument("factory", doc)).toThrow(/"bad"/);
+    expect(() => stationCanvasOf("factory", doc)).toThrow(/"bad"/);
     expect(() => nodesFromDocument(doc)).toThrow(/"bad"/);
   });
 
   it("fails every read of that document, not only the first", () => {
     const doc: CanvasDoc = { nodes: [seat("ok"), sizeless("bad")], edges: [] };
     for (let read = 0; read < 3; read += 1) {
-      expect(() => canvasFromDocument("factory", doc)).toThrow(/"bad"/);
+      expect(() => stationCanvasOf("factory", doc)).toThrow(/"bad"/);
       expect(() => nodesFromDocument(doc)).toThrow(/"bad"/);
     }
   });
 
   it("reads the same document once the node is made whole", () => {
-    const canvas = canvasFromDocument("factory", { nodes: [note("n"), seat("ok")], edges: [] });
+    const canvas = stationCanvasOf("factory", { nodes: [note("n"), seat("ok")], edges: [] });
     expect([...canvas.nodes.values()].map((node) => node.kind).sort()).toEqual(["agent", "note"]);
   });
 });

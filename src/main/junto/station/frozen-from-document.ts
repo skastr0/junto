@@ -165,7 +165,7 @@ const held = new WeakMap<object, Canvas>();
  * one-time reading of old rows keeps what it cannot hold as a note. Of two
  * nodes with one id the first is kept.
  */
-export const canvasFromDocument = (name: string, doc: Document): Canvas => {
+export const stationCanvasOf = (name: string, doc: Document): Canvas => {
   const known = held.get(doc);
   if (known !== undefined && known.name === name) return known;
   const canvas: Canvas = {
