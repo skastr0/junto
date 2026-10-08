@@ -75,7 +75,7 @@ import {
   type ProjectedActorSeat,
 } from "./actor-seat-compiler";
 import { decodeStationPortfolioBody } from "./portfolio";
-import { stationCanvasOf } from "./frozen-from-document";
+import { canvasFromDocument } from "./frozen-from-document";
 import {
   StationRepository,
   type StationConfigurationRecord,
@@ -422,7 +422,7 @@ const capturedBasisFor = (
   if (material?.kind !== "authorial-current") return undefined;
   const document = material.authority.documents.get(sink.canvasName);
   if (document === undefined) return undefined;
-  const canvas = stationCanvasOf(sink.canvasName, document);
+  const canvas = canvasFromDocument(sink.canvasName, document);
   return { kind: "canvas", canvasName: canvas.name, seq: canvas.seq };
 };
 
@@ -451,7 +451,7 @@ const admitDependencyScope = (
         const canvas =
           document === undefined
             ? undefined
-            : stationCanvasOf(sink.canvasName, document);
+            : canvasFromDocument(sink.canvasName, document);
         if (
           canvas === undefined ||
           !sameIntentBasis(
@@ -684,7 +684,7 @@ const authorizeActor = (
     );
   }
   const decision = admitWorkTarget(
-    stationCanvasOf(sink.canvasName, document),
+    canvasFromDocument(sink.canvasName, document),
     actor.nodeId,
     sink.nodeId,
     operation,
@@ -1130,7 +1130,7 @@ export const makeStationWorkAdmission = (
             author,
             command.body.patches,
             inboundActorNodeIds(
-              stationCanvasOf(command.item.sink.canvasName, canvas),
+              canvasFromDocument(command.item.sink.canvasName, canvas),
               command.item.sink.nodeId,
             ),
           );
