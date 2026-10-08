@@ -20,7 +20,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import type { CanvasNode } from "../src/shared/canvas";
+import { Effect } from "effect";
+import { decodeNode, type Node } from "../src/shared/model";
 import { TerminalCard } from "../src/renderer/components/terminal/TerminalCard";
 import { SeatAwarenessHoverForNode } from "../src/renderer/components/terminal/SeatAwarenessHoverForNode";
 import {
@@ -28,7 +29,7 @@ import {
   resetSeatAwareness,
 } from "../src/renderer/lib/seat-awareness";
 import type { SeatAwarenessAssessment } from "../src/renderer/lib/seat-awareness-contract";
-import { holdCanvas } from "./support/hold-canvas";
+import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import {
   applyAgentSeatStateEvent,
   resetAgentSeatState,
@@ -37,19 +38,10 @@ import {
 const T0 = 1_700_000_000_000;
 const MIDDLE_DOT = "\u00B7";
 
-const terminalNode = (id: string, bindingId: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 220,
-  height: 90,
-  ether: {
-    entity: { kind: "terminal" },
-    terminal: { bindingId, label: id },
-  },
-});
+const terminalNode = (id: string, bindingId: string): Node => Effect.runSync(decodeNode({
+  kind: "terminal", id, label: id, x: 0, y: 0, width: 220, height: 90, z: 0,
+  host: "local", bindingId, onRemove: "detach",
+}));
 
 const seatEvent = (state: AgentSeatStateEvent["state"]): AgentSeatStateEvent => ({
   bindingId: "b1",
@@ -98,7 +90,7 @@ afterEach(() => {
  * The card body and the hover for one node, as the node shell renders them.
  * Both read the node store, so the node is put on the open canvas.
  */
-const renderSeat = (node: CanvasNode): string => {
+const renderSeat = (node: Node): string => {
   stopFollowing?.();
   stopFollowing = holdCanvas("factory", [node]);
   return renderToStaticMarkup(

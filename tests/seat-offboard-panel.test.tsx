@@ -6,8 +6,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
-import { holdCanvas } from "./support/hold-canvas";
+import { Effect } from "effect";
+import { decodeNode, type Node } from "../src/shared/model";
+import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import {
   OFFBOARD_REFUSAL_REASON,
   summarizeOffboardRun,
@@ -22,19 +23,11 @@ import type { SeatOffboardOps } from "../src/renderer/lib/seat-offboard";
 const { state$ } = await import("../src/renderer/lib/state");
 const { SeatOffboardPanel } = await import("../src/renderer/components/nodes/SeatOffboard");
 
-const seat = (id: string, name: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: name,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: {
-    entity: { kind: "agent", name: `local:${id}` },
-    terminal: { bindingId: `bind-${id}`, harness: "claude", launch: { kind: "harness", argv: ["claude"] } },
-  },
-});
+const seat = (id: string, label: string): Node => Effect.runSync(decodeNode({
+  kind: "agent", id, label, x: 0, y: 0, width: 200, height: 80, z: 0,
+  agentKey: `local:${id}`, host: "local", overseer: false, onRemove: "detach",
+  bindingId: `bind-${id}`, harness: "claude", launch: { kind: "harness", argv: ["claude"] },
+}));
 
 const status = (seatId: string, over: Partial<SeatOffboardStatus> = {}): SeatOffboardStatus => ({
   seatId,
@@ -241,10 +234,11 @@ describe("a selection", () => {
   });
 
   it("only agents count: a note in the selection is left out", async () => {
-    state$.doc.set({
-      nodes: [seat("a", "Ada"), { id: "n", type: "text", text: "a note", x: 0, y: 0, width: 10, height: 10 }],
-      edges: [],
-    });
+    release();
+    release = holdCanvas("factory", [
+      seat("a", "Ada"),
+      Effect.runSync(decodeNode({ kind: "note", id: "n", text: "a note", x: 0, y: 0, width: 10, height: 10, z: 1 })),
+    ]);
     const { ops, run } = fakeOps([status("a")], (input) =>
       input.seatIds.map((seatId) => ({ seatId, ok: true, action: "ask", outcome: "asked", pastWindow: false })),
     );

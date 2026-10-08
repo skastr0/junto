@@ -1,4 +1,6 @@
-import { holdCanvas } from "./support/hold-canvas";
+import { Effect } from "effect";
+import { decodeNode } from "../src/shared/model";
+import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserOpResult, BrowserSessionInfo } from "../src/shared/ipc";
 import { formatNodeRef, parseNodeRef } from "../src/shared/node-ref";
@@ -283,21 +285,12 @@ describe("dock-state", () => {
   });
 
   it("opens agent chat as a focus surface and drops its payload on close", () => {
-    const node = {
-      id: "agent-1",
-      type: "text" as const,
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 96,
-      text: "PROFILE-01",
-      ether: {
-        entity: { kind: "agent", name: "remote-a:profile-01" },
-        host: "local",
-        terminal: { bindingId: "binding-agent-1", harness: "claude" },
-      },
-    };
-    const release = holdCanvas("dock-test", [node as never]);
+    const node = Effect.runSync(decodeNode({
+      kind: "agent", id: "agent-1", label: "PROFILE-01", x: 0, y: 0, width: 240, height: 96, z: 0,
+      agentKey: "remote-a:profile-01", host: "local", overseer: false, onRemove: "detach",
+      bindingId: "binding-agent-1", harness: "claude",
+    }));
+    const release = holdCanvas("dock-test", [node]);
     openAgentChatSurface("dock-test", node.id);
     release();
     const id = chatSurfaceId(node.id);
@@ -856,20 +849,11 @@ describe("dock-state", () => {
 
     it("with tab chrome visible (mixed kinds) close stays per-surface", () => {
       openTerminalSurface(nativeTerminalNode("t1"), "focus");
-      const release = holdCanvas("dock-test", [{
-        id: "agent-1",
-        type: "text",
-        x: 0,
-        y: 0,
-        width: 240,
-        height: 96,
-        text: "PROFILE-01",
-        ether: {
-          entity: { kind: "agent", name: "remote-a:profile-01" },
-          host: "local",
-          terminal: { bindingId: "binding-agent-1", harness: "claude" },
-        },
-      } as never]);
+      const release = holdCanvas("dock-test", [Effect.runSync(decodeNode({
+        kind: "agent", id: "agent-1", label: "PROFILE-01", x: 0, y: 0, width: 240, height: 96, z: 0,
+        agentKey: "remote-a:profile-01", host: "local", overseer: false, onRemove: "detach",
+        bindingId: "binding-agent-1", harness: "claude",
+      }))]);
       openAgentChatSurface("dock-test", "agent-1");
       release();
       closeFocusModalSurface(terminalSurfaceId("t1"));

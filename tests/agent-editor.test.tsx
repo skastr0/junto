@@ -2,9 +2,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
-import { managedAgentEther } from "./helpers/managed-agent-ether";
-import { holdCanvas } from "./support/hold-canvas";
+import { Effect } from "effect";
+import { decodeNode } from "../src/shared/model";
+import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,20 +28,14 @@ const { normalizePortraitOverride } = await import("../src/shared/portrait-overr
 const { installCosmeticPacks } = await import("../src/shared/cosmetics/catalog");
 const { decodeCosmeticPacks } = await import("../src/shared/cosmetics/load");
 
-const seat: CanvasNode = {
-  id: "seat-1",
-  type: "text",
-  text: "planner",
-  x: 0,
-  y: 0,
-  width: 240,
-  height: 96,
-  ether: managedAgentEther("local:planner"),
-} as CanvasNode;
+const seat = Effect.runSync(decodeNode({
+  kind: "agent", id: "seat-1", label: "planner", x: 0, y: 0, width: 240, height: 96, z: 0,
+  agentKey: "local:planner", host: "local", overseer: false, onRemove: "detach",
+  bindingId: "bind-local-planner", harness: "claude", launch: { kind: "harness", argv: ["claude"] },
+}));
 
 let host: HTMLDivElement;
-// The editor reads its seat from the node store; the re-seat writer it saves
-// through still reads the document, so the seat is in both.
+// The editor and its edits use the same model seat.
 let release: () => void = () => undefined;
 let root: Root;
 const patches: unknown[] = [];
@@ -54,7 +48,6 @@ beforeEach(() => {
   renames.length = 0;
   portraitOverrides$.set({});
   state$.canvasName.set("agent-editor-test");
-  state$.doc.set({ ...state$.doc.peek(), nodes: [seat] });
   release = holdCanvas("agent-editor-test", [seat]);
   // The main-process store: normalizes and echoes the stored override.
   (window as unknown as { junto: unknown }).junto = {
@@ -88,7 +81,6 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   release();
-  state$.doc.set({ ...state$.doc.peek(), nodes: [] });
   vi.useRealTimers();
 });
 
