@@ -12,10 +12,12 @@ export const pinFreshPreviewHome = (home: string, environment: NodeJS.ProcessEnv
     || existsSync(join(fresh, "snapshot.json")) || existsSync(join(fresh, "before"))) {
     throw new Error("Junto PREVIEW requires its fresh home. Prepare it with scripts/preview.sh --prepare; copied-state launch is refused.");
   }
+  // A launch from a seat's shell inherits the live app's sockets and token.
+  for (const name of Object.keys(environment)) {
+    if (name.startsWith("JUNTO_")) delete environment[name];
+  }
   environment.JUNTO_HOME = fresh;
   environment.JUNTO_PREVIEW = "1";
-  delete environment.JUNTO_HOME_OWNS_SESSIONS;
-  delete environment.JUNTO_WORK_TOKEN;
 };
 
 if (typeof __JUNTO_PREVIEW_BUILD__ !== "undefined" && __JUNTO_PREVIEW_BUILD__) {

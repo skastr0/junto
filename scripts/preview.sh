@@ -79,6 +79,8 @@ if [[ ! -d "$CHECKOUT/node_modules" ]]; then
   # APFS clone: isolated native rebuilds cannot alter the shared tree's PTY binary.
   cp -cR "$ROOT/node_modules" "$CHECKOUT/node_modules"
 fi
+# A link back into the shared tree makes the bundler resolve a second React.
+find "$CHECKOUT/node_modules" -maxdepth 1 -type l -name node_modules -delete
 cd "$CHECKOUT"
 PINNED_BUN="$(node -e 'process.stdout.write(require("./package.json").packageManager.replace(/^bun@/,""))')"
 if [[ "$(bun --version)" != "$PINNED_BUN" ]]; then

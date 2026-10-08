@@ -17,7 +17,7 @@ afterEach(() => { for (const p of paths.splice(0)) rmSync(p, { recursive: true, 
 
 it("pins a packaged Finder launch to fresh state before product imports and refuses copied homes", () => {
   const home = temporary(), fresh = join(home, ".junto-preview");
-  const environment = { JUNTO_HOME: home, JUNTO_HOME_OWNS_SESSIONS: "1", JUNTO_WORK_TOKEN: "live" };
+  const environment = { JUNTO_HOME: home, JUNTO_HOME_OWNS_SESSIONS: "1", JUNTO_WORK_TOKEN: "live", JUNTO_WORK_HOME: "/live/work", JUNTO_WORK_SOCKET: "/live/work/control.sock" };
   expect(() => pinFreshPreviewHome(home, environment)).toThrow("fresh home");
   mkdirSync(fresh); writeFileSync(join(fresh, ".fresh-preview"), "fresh");
   pinFreshPreviewHome(home, environment);
