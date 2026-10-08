@@ -92,7 +92,7 @@ const makeSpyAdapter = (): BrowserViewAdapter => {
 const frame = { y: 0, width: 120, height: 48 };
 
 /** An agent and a page; `hosts` puts each on a machine other than local. */
-const canvasDoc = (withEdge: boolean, hosts: { agent?: string; page?: string } = {}): Canvas =>
+const browserCanvas = (withEdge: boolean, hosts: { agent?: string; page?: string } = {}): Canvas =>
   canvasOf(
     [
       seat("agent", {
@@ -210,7 +210,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   };
 
   it("admits protected routes only through process principals or internal leases", async () => {
-    const doc = canvasDoc(true);
+    const doc = browserCanvas(true);
     const { handlers, edgeGrant, capabilities } = makeStack(doc);
       const token = rotateControlToken(join(root, "token"));
       const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
@@ -317,7 +317,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("denies process principals with no edge to a page", async () => {
-    const doc = canvasDoc(false);
+    const doc = browserCanvas(false);
     const { handlers, edgeGrant } = makeStack(doc);
     const token = rotateControlToken(join(root, "token"));
     const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
@@ -379,7 +379,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("refuses a cross-host page edge before minting browser authority", async () => {
-    const doc = canvasDoc(true, { agent: "studio", page: "render" });
+    const doc = browserCanvas(true, { agent: "studio", page: "render" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
@@ -418,7 +418,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("mints only when the Remote caller, document page, and resolved target share its host", async () => {
-    const doc = canvasDoc(true, { agent: "studio", page: "studio" });
+    const doc = browserCanvas(true, { agent: "studio", page: "studio" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
@@ -451,7 +451,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("refuses a resolver result that disagrees with its same-host page node", async () => {
-    const doc = canvasDoc(true, { agent: "studio", page: "studio" });
+    const doc = browserCanvas(true, { agent: "studio", page: "studio" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
     const authority = stationAuthority("studio");
@@ -566,7 +566,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       bindingId: "bind-local-default",
     })).toBe(true);
     const { edgeGrant, capabilities } = makeStack(
-      canvasDoc(true),
+      browserCanvas(true),
       undefined,
       {
         processMap,
@@ -583,7 +583,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("rejects a capability paired with a different registry principal", async () => {
-    const doc = canvasDoc(true);
+    const doc = browserCanvas(true);
     const { handlers, edgeGrant, capabilities } = makeStack(doc);
     const token = rotateControlToken(join(root, "token"));
     const processPrincipal: ProcessPrincipal = { agentKey: "local:default" };
@@ -637,7 +637,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("reuses admission cache and remints after canvas invalidation", async () => {
-    const doc = canvasDoc(true);
+    const doc = browserCanvas(true);
     const { edgeGrant } = makeStack(doc);
 
     const principal: ProcessPrincipal = { agentKey: "local:default" };
@@ -670,7 +670,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("immediately revokes the affected cached grant and its active lease", async () => {
-    const doc = canvasDoc(true);
+    const doc = browserCanvas(true);
     const { edgeGrant, capabilities } = makeStack(doc);
     const principal: ProcessPrincipal = { agentKey: "local:default" };
     const admission = await edgeGrant.admitPrincipal(principal);
@@ -712,7 +712,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it.each(["binding", "host"] as const)("revokes a cached process lease when the seat %s changes", async (field) => {
-    const doc = canvasDoc(true);
+    const doc = browserCanvas(true);
     const { edgeGrant, capabilities } = makeStack(doc);
     const admission = await edgeGrant.admitPrincipal({
       agentKey: "local:default", bindingId: "bind-local-default",
@@ -738,7 +738,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("caps Remote edge authority to the remaining pull freshness", async () => {
-    const doc = canvasDoc(true);
+    const doc = browserCanvas(true);
     const { edgeGrant, capabilities } = makeStack(doc, undefined, {
       processMap: makeProcessIdentityMap(),
       readPeerPid: () => process.pid,
@@ -764,7 +764,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("revokes only an exited process binding and remints for its replacement", async () => {
-    const doc = canvasDoc(true);
+    const doc = browserCanvas(true);
     const processMap = makeProcessIdentityMap();
     const principal: ProcessPrincipal = { agentKey: "local:default" };
     expect(processMap.bind(process.pid, principal)).toBe(true);
@@ -792,7 +792,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   });
 
   it("does not mint from a graph invalidated during async admission", async () => {
-    const doc = canvasDoc(true);
+    const doc = browserCanvas(true);
 
     let releaseResolution!: () => void;
     const resolutionGate = new Promise<void>((resolve) => {

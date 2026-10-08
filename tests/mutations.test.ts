@@ -335,20 +335,6 @@ describe("renderer graph mutations", () => {
 
   it("begins delete lease then finishes committed after document commit", async () => {
     state$.canvasName.set("mutation-test");
-    const agentNode = {
-        id: "agent",
-        type: "text",
-        text: "agent",
-        x: 0,
-        y: 0,
-        width: 220,
-        height: 84,
-        ether: {
-          entity: { kind: "agent", name: "local:default" },
-          host: "local",
-          terminal: { bindingId: "binding-agent", harness: "claude" },
-        },
-      } as const;
     load([fixtures.seat("agent", { agentKey: "local:default", label: "agent", width: 220, height: 84 })]);
     // The chat opens on the seat the store holds.
     openAgentChatSurface("mutation-test", "agent");
@@ -675,7 +661,7 @@ describe("renderer graph mutations", () => {
     expect(position.x + 240 <= existing[0].x || position.x >= existing[0].x + existing[0].width || position.y + 100 <= existing[0].y || position.y >= existing[0].y + existing[0].height).toBe(true);
   });
 
-  it("sets and clears JSON Canvas accent colors", () => {
+  it("sets and clears accent colors", () => {
     state$.canvasName.set("mutation-test");
     load(base());
     setNodeColor("source", "5");
@@ -752,7 +738,7 @@ describe("renderer graph mutations", () => {
     });
   });
 
-  it("edits page host/profile without dropping URL, delete policy, or sibling ether", () => {
+  it("edits page host/profile without dropping URL, delete policy, or other page fields", () => {
     state$.canvasName.set("mutation-test");
     load([pageNode("https://before.example", { width: 200, height: 80 })]);
 

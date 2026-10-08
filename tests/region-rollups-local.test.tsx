@@ -21,7 +21,7 @@ it("hydrates already-pending ACP permission without ChatView and reads no rollup
   const seat = decode({ ...frame, kind: "agent", id: "seat", label: "Seat", agentKey: "local:hook-seat", bindingId: "hook-binding", host: "local", overseer: false, harness: "codex", onRemove: "detach" });
   let change!: (event: Changed) => void;
   let chrome!: (event: ChatChromeChanged) => void;
-  const regionRollups = vi.fn(), readCanvas = vi.fn(), chatOpen = vi.fn();
+  const regionRollups = vi.fn(), chatOpen = vi.fn();
   const chatChrome = vi.fn(async () => ({ revision: 5, states: [{ agentKey: "local:hook-seat", sessionLive: true, permissionPending: true }] }));
   const workAttention = vi.fn(async () => ({ glances: [], items: [] }));
   const offChat = vi.fn(), offWork = vi.fn();
@@ -30,7 +30,7 @@ it("hydrates already-pending ACP permission without ChatView and reads no rollup
     onModelChanged: (listener: typeof change) => { change = listener; return () => {}; },
     chatChrome, onChatChromeChanged: (listener: typeof chrome) => { chrome = listener; return offChat; },
     workAttention, onWorkSinkChanged: () => offWork,
-    regionRollups, readCanvas, chatOpen,
+    regionRollups, chatOpen,
   } as unknown as typeof window.junto;
   const releaseModel = modelStore.open(canvas);
   const flush = async () => { for (let i = 0; i < 30; ++i) await Promise.resolve(); };
@@ -53,7 +53,11 @@ it("hydrates already-pending ACP permission without ChatView and reads no rollup
     expect(host.textContent).toBe("idle:Renamed");
     // A former 300 ms poll would have fired by now, without another command.
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
-    expect(regionRollups).not.toHaveBeenCalled(); expect(readCanvas).not.toHaveBeenCalled();
+    expect(regionRollups).not.toHaveBeenCalled();
+    expect(Object.keys(bridge.junto ?? {}).sort()).toEqual([
+      "chatChrome", "chatOpen", "modelOpen", "onChatChromeChanged",
+      "onModelChanged", "onWorkSinkChanged", "regionRollups", "workAttention",
+    ].sort());
     expect(chatChrome).toHaveBeenCalledOnce(); expect(workAttention).toHaveBeenCalledOnce();
   } finally {
     await act(async () => root.unmount());

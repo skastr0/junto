@@ -13,7 +13,7 @@ import { oklchToHex } from "../src/shared/theme/oklch";
 import { accentColor, borderColor } from "../src/renderer/lib/theme";
 
 describe("canvas palette", () => {
-  it("keeps the six JSON Canvas presets as digits and adds a clear yellow", () => {
+  it("keeps the six accent presets as digits and adds a clear yellow", () => {
     expect(CANVAS_SWATCHES.filter((s) => /^[1-6]$/.test(s.value)).map((s) => s.value)).toEqual([
       "1", "2", "3", "4", "5", "6",
     ]);
