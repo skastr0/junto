@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import type { Node, NodeOf } from "../src/shared/model";
 import { quiesceAndFlushCanvasEdits } from "../src/renderer/lib/canvas-editor-flush";
 import {
   canvasMutationsQuiesced,
   deleteNode,
   deleteNodes,
 } from "../src/renderer/lib/mutations";
-import { docNow, heldShape, loadDoc } from "./support/open-document";
+import { seat } from "./support/model-nodes";
+import { held, openCanvas } from "./support/open-canvas";
 import { state$ } from "../src/renderer/lib/state";
 
 type AgentDeleteResource = {
@@ -72,30 +73,21 @@ const managedAgent = ({
   readonly bindingId: string;
   readonly agentKey?: string;
   readonly hostId?: string;
-}): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 220,
-  height: 84,
-  ether: {
-    entity: { kind: "agent", name: agentKey },
-    terminal: { bindingId, harness: "claude" },
+}): NodeOf<"agent"> =>
+  seat(id, {
+    agentKey,
+    bindingId: bindingId as NodeOf<"agent">["bindingId"],
+    width: 220,
+    height: 84,
     ...(hostId === undefined ? {} : { host: hostId }),
-  },
-});
+  });
 
-const agentDoc = (...nodes: ReadonlyArray<CanvasNode>): CanvasDoc => ({
-  nodes: [...nodes],
-  edges: [],
-});
-
-const open = (doc: CanvasDoc): void => {
-  state$.canvasName.set("managed-agent-delete");
-  loadDoc(doc, "revision-1", "managed-agent-delete");
+const open = (...nodes: ReadonlyArray<Node>): void => {
+  openCanvas("managed-agent-delete", nodes);
 };
+
+/** The nodes the open canvas holds. */
+const nodesHeld = (): ReadonlyArray<Node> => [...held().nodes.values()];
 
 describe.sequential("managed agent node terminal teardown", () => {
   beforeEach(() => {
@@ -130,7 +122,7 @@ describe.sequential("managed agent node terminal teardown", () => {
       bindingId: "binding-a",
       hostId: "studio",
     });
-    open(agentDoc(node));
+    open(node);
     let finishTerminalDelete!: () => void;
     terminalBeginNodeDelete.mockImplementationOnce(
       (resources) => new Promise((resolve) => {
@@ -145,13 +137,13 @@ describe.sequential("managed agent node terminal teardown", () => {
         { bindingId: "binding-a", hostId: "studio" },
       ]);
     });
-    expect(docNow()).toEqual(heldShape(agentDoc(node)));
+    expect(nodesHeld()).toEqual([node]);
     expect(confirmDelete.mock.invocationCallOrder[0]).toBeLessThan(
       terminalBeginNodeDelete.mock.invocationCallOrder[0]!,
     );
 
     finishTerminalDelete();
-    await vi.waitFor(() => expect(docNow().nodes).toEqual([]));
+    await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
     expect(chatFinishNodeDelete).toHaveBeenCalledWith(
       "managed-delete-lease",
       "committed",
@@ -164,8 +156,7 @@ describe.sequential("managed agent node terminal teardown", () => {
 
   it("fails closed when privileged terminal teardown rejects", async () => {
     const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
-    const original = agentDoc(node);
-    open(original);
+    open(node);
     terminalBeginNodeDelete.mockRejectedValueOnce(
       new Error("terminal IPC rejected"),
     );
@@ -175,7 +166,7 @@ describe.sequential("managed agent node terminal teardown", () => {
     await vi.waitFor(() => expect(state$.error.peek()).toBe(
       "Junto could not stop the managed terminal cleanly; the agent node was not deleted.",
     ));
-    expect(docNow()).toEqual(heldShape(original));
+    expect(nodesHeld()).toEqual([node]);
     expect(chatFinishNodeDelete).toHaveBeenCalledWith(
       "managed-delete-lease",
       "aborted",
@@ -195,12 +186,12 @@ describe.sequential("managed agent node terminal teardown", () => {
       agentKey: "local:duplicate",
       hostId: "station-b",
     });
-    open(agentDoc(seatA, seatB));
+    open(seatA, seatB);
 
     deleteNode("seat-a");
 
     await vi.waitFor(() => {
-      expect(docNow().nodes.map((node) => node.id)).toEqual(["seat-b"]);
+      expect(nodesHeld().map((node) => node.id)).toEqual(["seat-b"]);
     });
     expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
     expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
@@ -224,11 +215,11 @@ describe.sequential("managed agent node terminal teardown", () => {
       agentKey: "local:alias",
       hostId: "studio",
     });
-    open(agentDoc(seatA, seatAlias));
+    open(seatA, seatAlias);
 
     deleteNodes(["seat-a", "seat-alias"]);
 
-    await vi.waitFor(() => expect(docNow().nodes).toEqual([]));
+    await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
     expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
     expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
       { bindingId: "binding-shared", hostId: "studio" },
@@ -237,11 +228,11 @@ describe.sequential("managed agent node terminal teardown", () => {
 
   it("accepts an exact clean receipt for a never-opened managed terminal", async () => {
     const node = managedAgent({ id: "never-opened", bindingId: "binding-cold" });
-    open(agentDoc(node));
+    open(node);
 
     deleteNode("never-opened");
 
-    await vi.waitFor(() => expect(docNow().nodes).toEqual([]));
+    await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
     expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
       { bindingId: "binding-cold", hostId: "local" },
     ]);
@@ -250,7 +241,7 @@ describe.sequential("managed agent node terminal teardown", () => {
 
   it("refuses a late commit when the canvas epoch changes during terminal stop", async () => {
     const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
-    open(agentDoc(node));
+    open(node);
     let finishTerminalDelete!: () => void;
     terminalBeginNodeDelete.mockImplementationOnce(
       (resources) => new Promise((resolve) => {
@@ -265,13 +256,13 @@ describe.sequential("managed agent node terminal teardown", () => {
       bindingId: "replacement-binding",
       agentKey: "local:replacement",
     });
-    loadDoc(agentDoc(replacement), "revision-2", "managed-agent-delete");
+    open(replacement);
     finishTerminalDelete();
 
     await vi.waitFor(() => expect(state$.error.peek()).toBe(
       "Canvas changed before deletion completed; no nodes were deleted.",
     ));
-    expect(docNow()).toEqual(heldShape(agentDoc(replacement)));
+    expect(nodesHeld()).toEqual([replacement]);
     expect(chatFinishNodeDelete).toHaveBeenCalledWith(
       "managed-delete-lease",
       "aborted",
@@ -281,8 +272,7 @@ describe.sequential("managed agent node terminal teardown", () => {
   // Quiescence is a monotonic process latch, so this proof must remain last.
   it("drains an admitted stop but rejects its commit after quiescence", async () => {
     const node = managedAgent({ id: "seat-a", bindingId: "binding-a" });
-    const original = agentDoc(node);
-    open(original);
+    open(node);
     let finishTerminalDelete!: () => void;
     terminalBeginNodeDelete.mockImplementationOnce(
       (resources) => new Promise((resolve) => {
@@ -304,7 +294,7 @@ describe.sequential("managed agent node terminal teardown", () => {
     finishTerminalDelete();
     await quiescence;
 
-    expect(docNow()).toEqual(heldShape(original));
+    expect(nodesHeld()).toEqual([node]);
     expect(modelCommand).not.toHaveBeenCalled();
     expect(chatFinishNodeDelete).toHaveBeenCalledWith(
       "managed-delete-lease",

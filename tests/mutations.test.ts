@@ -1,9 +1,8 @@
-import { nodeOfDocument } from "../src/shared/model/from-document";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Result } from "effect";
-import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
+import type { Node, NodeOf, Wire } from "../src/shared/model";
+import { inPaintOrder } from "../src/shared/model/canvas";
 import { addNode, flushPendingCanvasSave, deleteNode, editLink, editText, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/renderer/lib/mutations";
-import { docNow, loadDoc } from "./support/open-document";
+import { held, nodeHeld, openCanvas } from "./support/open-canvas";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { addEdge, connectAllToTarget, deleteEdges, targetPlanOn } from "../src/renderer/lib/edge-mutations";
 import * as fixtures from "./support/model-nodes";
@@ -86,38 +85,31 @@ const runtimeWindow = {
 };
 (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
 
-const doc: CanvasDoc = {
-  nodes: [
-    {
-      id: "source",
-      type: "text",
-      text: "agent",
-      x: 0,
-      y: 0,
-      width: 200,
-      height: 80,
-      ether: {
-        entity: { kind: "agent", name: "local:worker" },
-        host: "local",
-        terminal: { bindingId: "binding-worker", harness: "claude" },
-      },
-    },
-    {
-      id: "target",
-      type: "text",
-      text: "peer",
-      x: 300,
-      y: 0,
-      width: 200,
-      height: 80,
-      ether: {
-        entity: { kind: "agent", name: "local:peer" },
-        host: "local",
-        terminal: { bindingId: "binding-peer", harness: "claude" },
-      },
-    },
-  ],
-  edges: [],
+/** Two seats, the canvas most cases start from. */
+const base = (): ReadonlyArray<Node> => [
+  fixtures.seat("source", { agentKey: "local:worker", label: "agent", bindingId: "binding-worker" as never, height: 80 }),
+  fixtures.seat("target", { agentKey: "local:peer", label: "peer", bindingId: "binding-peer" as never, x: 300, height: 80 }),
+];
+
+const pageNode = (url: string, more: Partial<NodeOf<"page">> = {}): NodeOf<"page"> =>
+  fixtures.page("page", { url, profile: "personal", onRemove: "kill-session", ...more });
+
+const linkNode = (id: string, url: string, more: Partial<NodeOf<"link">> = {}): NodeOf<"link"> =>
+  ({ kind: "link", id: id as NodeOf<"link">["id"], x: 0, y: 0, width: 200, height: 100, z: 0, url, ...more });
+
+/** Open the test canvas holding these rows, stacked in the order given. */
+const load = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire> = []): void =>
+  openCanvas("mutation-test", nodes.map((node, z) => ({ ...node, z })), wires);
+
+/** What the open canvas holds now: its nodes in paint order, and its wires. */
+const docNow = (): { readonly nodes: ReadonlyArray<Node>; readonly edges: ReadonlyArray<Wire> } => ({
+  nodes: inPaintOrder(held()),
+  edges: [...held().wires.values()],
+});
+
+const regionNow = (): NodeOf<"region"> | undefined => {
+  const node = nodeHeld("region");
+  return node?.kind === "region" ? node : undefined;
 };
 
 describe("renderer graph mutations", () => {
@@ -147,28 +139,13 @@ describe("renderer graph mutations", () => {
     state$.settings.station.hostId.set("local");
     state$.settings.station.role.set("");
     clearGraphFilters();
-    loadDoc({ nodes: [], edges: [] });
+    load([]);
   });
 
   it("keeps a kill-session page node visible when Stop Page fails", async () => {
     state$.canvasName.set("mutation-test");
     const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
-    loadDoc({
-      nodes: [{
-        id: "page",
-        type: "link",
-        url: "https://example.com",
-        x: 0,
-        y: 0,
-        width: 320,
-        height: 180,
-        ether: {
-          entity: { kind: "page" },
-          browser: { profile: "personal", onDelete: "kill-session" },
-        },
-      }],
-      edges: [],
-    });
+    load([pageNode("https://example.com", { width: 320, height: 180 })]);
     cacheBrowserSession({
       sessionId: "page-session",
       ref,
@@ -199,22 +176,7 @@ describe("renderer graph mutations", () => {
   it("deletes a kill-session page node only after Stop Page succeeds", async () => {
     state$.canvasName.set("mutation-test");
     const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
-    loadDoc({
-      nodes: [{
-        id: "page",
-        type: "link",
-        url: "https://example.com",
-        x: 0,
-        y: 0,
-        width: 320,
-        height: 180,
-        ether: {
-          entity: { kind: "page" },
-          browser: { profile: "personal", onDelete: "kill-session" },
-        },
-      }],
-      edges: [],
-    });
+    load([pageNode("https://example.com", { width: 320, height: 180 })]);
     cacheBrowserSession({
       sessionId: "page-session",
       ref,
@@ -246,22 +208,7 @@ describe("renderer graph mutations", () => {
 
     state$.canvasName.set("mutation-test");
     const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
-    loadDoc({
-      nodes: [{
-        id: "page",
-        type: "link",
-        url: "https://example.com",
-        x: 0,
-        y: 0,
-        width: 320,
-        height: 180,
-        ether: {
-          entity: { kind: "page" },
-          browser: { profile: "personal", onDelete: "kill-session" },
-        },
-      }],
-      edges: [],
-    });
+    load([pageNode("https://example.com", { width: 320, height: 180 })]);
     cacheBrowserSession({
       sessionId: "ghost-session",
       ref,
@@ -287,22 +234,7 @@ describe("renderer graph mutations", () => {
   it("keeps a kill-session node after failure and deletes it only when Stop Page retry succeeds", async () => {
     state$.canvasName.set("mutation-test");
     const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
-    loadDoc({
-      nodes: [{
-        id: "page",
-        type: "link",
-        url: "https://example.com",
-        x: 0,
-        y: 0,
-        width: 320,
-        height: 180,
-        ether: {
-          entity: { kind: "page" },
-          browser: { profile: "personal", onDelete: "kill-session" },
-        },
-      }],
-      edges: [],
-    });
+    load([pageNode("https://example.com", { width: 320, height: 180 })]);
     cacheBrowserSession({
       sessionId: "page-session",
       ref,
@@ -329,22 +261,7 @@ describe("renderer graph mutations", () => {
   it("does not delete a replacement document node that reuses the id while Stop Page is pending", async () => {
     state$.canvasName.set("mutation-test");
     const ref = formatNodeRef({ canvasName: "mutation-test", nodeId: "page" });
-    loadDoc({
-      nodes: [{
-        id: "page",
-        type: "link",
-        url: "https://old.example.com",
-        x: 0,
-        y: 0,
-        width: 320,
-        height: 180,
-        ether: {
-          entity: { kind: "page" },
-          browser: { profile: "personal", onDelete: "kill-session" },
-        },
-      }],
-      edges: [],
-    });
+    load([pageNode("https://old.example.com", { width: 320, height: 180 })]);
     cacheBrowserSession({
       sessionId: "page-session",
       ref,
@@ -364,18 +281,7 @@ describe("renderer graph mutations", () => {
 
     deleteNode("page");
     await waitFor(() => expect(browserStop).toHaveBeenCalledTimes(1));
-    loadDoc({
-      nodes: [{
-        id: "page",
-        type: "link",
-        url: "https://replacement.example.com",
-        x: 10,
-        y: 10,
-        width: 320,
-        height: 180,
-      }],
-      edges: [],
-    });
+    load([linkNode("page", "https://replacement.example.com", { x: 10, y: 10, width: 320, height: 180 })]);
     finishStop({ ok: true });
 
     await waitFor(() => expect(state$.error.peek()).toBe(
@@ -388,23 +294,7 @@ describe("renderer graph mutations", () => {
 
   it("rechecks canvas epoch after agent close and refuses deletion on epoch drift", async () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [{
-        id: "agent",
-        type: "text",
-        text: "agent",
-        x: 0,
-        y: 0,
-        width: 220,
-        height: 84,
-        ether: {
-          entity: { kind: "agent", name: "local:default" },
-          host: "local",
-          terminal: { bindingId: "binding-default", harness: "claude" },
-        },
-      }],
-      edges: [],
-    });
+    load([fixtures.seat("agent", { agentKey: "local:default", label: "agent", x: 0, y: 0, width: 220, height: 84 })]);
     let finishBegin!: (result: {
       readonly ok: true;
       readonly leaseId: string;
@@ -427,23 +317,7 @@ describe("renderer graph mutations", () => {
       ]),
     );
     // Canvas switch / reload advances docEpoch while lease begin awaits.
-    loadDoc({
-      nodes: [{
-        id: "agent",
-        type: "text",
-        text: "replacement",
-        x: 10,
-        y: 10,
-        width: 220,
-        height: 84,
-        ether: {
-          entity: { kind: "agent", name: "local:default" },
-          host: "local",
-          terminal: { bindingId: "binding-default", harness: "claude" },
-        },
-      }],
-      edges: [],
-    });
+    load([fixtures.seat("agent", { agentKey: "local:default", label: "replacement", x: 10, y: 10, width: 220, height: 84 })]);
     finishBegin({
       ok: true,
       leaseId: "lease-epoch",
@@ -455,7 +329,7 @@ describe("renderer graph mutations", () => {
     ));
     expect(chatFinishNodeDelete).toHaveBeenCalledWith("lease-epoch", "aborted");
     expect(docNow().nodes).toMatchObject([
-      { id: "agent", text: "replacement" },
+      { id: "agent", label: "replacement" },
     ]);
   });
 
@@ -475,10 +349,7 @@ describe("renderer graph mutations", () => {
           terminal: { bindingId: "binding-agent", harness: "claude" },
         },
       } as const;
-    loadDoc({
-      nodes: [agentNode],
-      edges: [],
-    });
+    load([fixtures.seat("agent", { agentKey: "local:default", label: "agent", width: 220, height: 84 })]);
     // The chat opens on the seat the store holds.
     openAgentChatSurface("mutation-test", "agent");
     expect(dock$.registry.peek().surfaces).toMatchObject([
@@ -500,7 +371,7 @@ describe("renderer graph mutations", () => {
 
   it("rejects a duplicate source-to-target relation", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     addEdge({ source: "source", target: "target" });
     addEdge({ source: "source", target: "target" });
 
@@ -509,7 +380,7 @@ describe("renderer graph mutations", () => {
   });
 
   it("clears the edge filter without touching the document", () => {
-    loadDoc(doc);
+    load(base());
     const before = docNow();
 
     state$.edgeFilter.set("blocks");
@@ -523,7 +394,7 @@ describe("renderer graph mutations", () => {
 
   it("surfaces self-connections instead of failing silently", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
 
     addEdge({ source: "source", target: "source" });
 
@@ -598,92 +469,31 @@ describe("renderer graph mutations", () => {
 
   it("connectAllToTarget commits multi-source mail wires in one write", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [
-        {
-          id: "a",
-          type: "text",
-          text: "A",
-          x: 0,
-          y: 0,
-          width: 200,
-          height: 80,
-          ether: { entity: { kind: "agent", name: "local:a" }, terminal: { bindingId: "bind-a", harness: "claude" } },
-        },
-        {
-          id: "b",
-          type: "text",
-          text: "B",
-          x: 100,
-          y: 0,
-          width: 200,
-          height: 80,
-          ether: { entity: { kind: "agent", name: "local:b" }, terminal: { bindingId: "bind-b", harness: "claude" } },
-        },
-        {
-          id: "c",
-          type: "text",
-          text: "C",
-          x: 200,
-          y: 0,
-          width: 200,
-          height: 80,
-          ether: { entity: { kind: "agent", name: "local:c" }, terminal: { bindingId: "bind-c", harness: "claude" } },
-        },
-      ],
-      edges: [],
-    });
+    load([
+      fixtures.seat("a", { x: 0, height: 80 }),
+      fixtures.seat("b", { x: 100, height: 80 }),
+      fixtures.seat("c", { x: 200, height: 80 }),
+    ]);
 
     const plan = connectAllToTarget(["a", "b"], "c");
     expect(plan.toAdd).toHaveLength(2);
     const next = docNow().edges;
     expect(next).toHaveLength(2);
-    expect(next.map((edge) => ({ from: edge.fromNode, to: edge.toNode }))).toEqual([
+    expect(next.map((edge) => ({ from: edge.from, to: edge.to }))).toEqual([
       { from: "a", to: "c" },
       { from: "b", to: "c" },
     ]);
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe(next[1]?.id);
-    expect(Result.isSuccess(decodeCanvasDoc(docNow()))).toBe(true);
   });
 
   it("connectAllToTarget keepSelection leaves multi-select intact", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [
-        {
-          id: "a",
-          type: "text",
-          text: "A",
-          x: 0,
-          y: 0,
-          width: 200,
-          height: 80,
-          ether: { entity: { kind: "agent", name: "local:a" }, terminal: { bindingId: "bind-a", harness: "claude" } },
-        },
-        {
-          id: "t1",
-          type: "text",
-          text: "T1",
-          x: 100,
-          y: 0,
-          width: 200,
-          height: 80,
-          ether: { entity: { kind: "agent", name: "local:t1" }, terminal: { bindingId: "bind-t1", harness: "claude" } },
-        },
-        {
-          id: "t2",
-          type: "text",
-          text: "T2",
-          x: 200,
-          y: 0,
-          width: 200,
-          height: 80,
-          ether: { entity: { kind: "agent", name: "local:t2" }, terminal: { bindingId: "bind-t2", harness: "claude" } },
-        },
-      ],
-      edges: [],
-    });
+    load([
+      fixtures.seat("a", { x: 0, height: 80 }),
+      fixtures.seat("t1", { x: 100, height: 80 }),
+      fixtures.seat("t2", { x: 200, height: 80 }),
+    ]);
     state$.selectedNodeId.set("a");
     state$.selectedNodeIds.set(["a"]);
 
@@ -697,7 +507,7 @@ describe("renderer graph mutations", () => {
 
   it("removes deleted nodes from both selection channels", async () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set(["source", "target"]);
 
@@ -710,7 +520,7 @@ describe("renderer graph mutations", () => {
 
   it("requires confirmation before deleting signals and connected relations", async () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target", ether: { verb: "messages" } }] });
+    load(base(), [fixtures.wire("edge-1", "source", "target", "messages")]);
     runtimeWindow.confirm = () => false;
 
     // Deleting a seat runs its kill ceremony only once the operator confirms.
@@ -727,7 +537,7 @@ describe("renderer graph mutations", () => {
   it("requires confirmation before deleting relations", () => {
     state$.canvasName.set("mutation-test");
     // A wire the model holds: an edge with no verb is not one.
-    loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target", ether: { verb: "messages" } }] });
+    load(base(), [fixtures.wire("edge-1", "source", "target", "messages")]);
     const confirms: string[] = [];
     runtimeWindow.confirm = (message: string) => {
       confirms.push(message);
@@ -745,7 +555,7 @@ describe("renderer graph mutations", () => {
 
   it("keeps dragged positions integer-aligned in renderer state", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     syncPositions(new Map([["source", { x: 1.6, y: -2.4 }]]));
 
     expect(docNow().nodes[0]).toMatchObject({ x: 2, y: -2 });
@@ -753,7 +563,7 @@ describe("renderer graph mutations", () => {
 
   it("preserves CanvasNode identity for unmoved nodes so flow cache can reuse them", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     const rows = () => modelStore.canvasOf("mutation-test").nodes;
     const sourceBefore = rows().get("source" as never);
     const targetBefore = rows().get("target" as never);
@@ -771,7 +581,7 @@ describe("renderer graph mutations", () => {
 
   it("skips commit entirely when no rounded position changed", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     const before = docNow();
     const epoch = state$.docEpoch.peek();
     syncPositions(
@@ -783,29 +593,25 @@ describe("renderer graph mutations", () => {
 
   it("bumps docEpoch on undo and redo so generation fences observe history", async () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     renameTerminalNode("source", "EDITED");
     const afterCommit = state$.docEpoch.peek();
     undo();
     await flushPendingCanvasSave();
     expect(state$.docEpoch.peek()).toBe(afterCommit + 1);
-    expect(docNow().nodes[0]).toMatchObject({ text: "agent" });
+    expect(docNow().nodes[0]).toMatchObject({ label: "agent" });
     redo();
     await flushPendingCanvasSave();
     expect(state$.docEpoch.peek()).toBe(afterCommit + 2);
-    expect(docNow().nodes[0]).toMatchObject({ text: "EDITED" });
+    expect(docNow().nodes[0]).toMatchObject({ label: "EDITED" });
   });
 
   it("refuses authorial commits on a Remote station", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     const before = docNow();
     const epoch = state$.docEpoch.peek();
     state$.settings.station.role.set("remote");
-    const source = before.nodes[0];
-    if (!source || source.type !== "text") {
-      throw new Error("expected text source node");
-    }
     editText("source", "REMOTE MUST NOT WRITE");
     syncPositions(new Map([["source", { x: 99, y: 99 }]]));
     expect(docNow()).toEqual(before);
@@ -814,8 +620,7 @@ describe("renderer graph mutations", () => {
 
   it("persists region geometry changes without rebuilding the graph", () => {
     state$.canvasName.set("mutation-test");
-    const regionDoc: CanvasDoc = { nodes: [{ id: "region", type: "group", label: "UI QA", x: 0, y: 0, width: 400, height: 200 }], edges: [] };
-    loadDoc(regionDoc);
+    load([fixtures.region("region", { x: 0, y: 0, width: 400, height: 200 }, { label: "UI QA" })]);
     resizeNode("region", { x: 12.6, y: -3.4, width: 525.8, height: 286.2 });
 
     expect(docNow().nodes[0]).toMatchObject({ x: 13, y: -3, width: 526, height: 286 });
@@ -823,10 +628,10 @@ describe("renderer graph mutations", () => {
 
   it("selects a newly created item before opening its editor", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
-    const node = { id: "new-note", type: "text" as const, text: "new note", x: 0, y: 0, width: 240, height: 100 };
+    load(base());
+    const node = fixtures.note("new-note", "new note", { width: 240, height: 100, z: 9 });
 
-    addNode(nodeOfDocument("mutation-test", node, 9)!);
+    addNode(node);
 
     expect(state$.selectedNodeId.peek()).toBe("new-note");
     expect(state$.selectedNodeIds.peek()).toEqual(["new-note"]);
@@ -836,18 +641,13 @@ describe("renderer graph mutations", () => {
 
   it("addNode replaces a stale multi selection so the RTS command card targets the new node", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [
-        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 40 },
-        { id: "b", type: "text", text: "b", x: 20, y: 20, width: 100, height: 40 },
-      ],
-      edges: [],
-    });
+    load([
+      fixtures.note("a", "a", { x: 0, y: 0, width: 100, height: 40 }),
+      fixtures.note("b", "b", { x: 20, y: 20, width: 100, height: 40 }),
+    ]);
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set(["a", "b"]);
-    const node = { id: "c", type: "text" as const, text: "c", x: 40, y: 40, width: 100, height: 40 };
-
-    addNode(nodeOfDocument("mutation-test", node, 9)!);
+    addNode(fixtures.note("c", "c", { x: 40, y: 40, width: 100, height: 40, z: 9 }));
 
     expect(state$.selectedNodeId.peek()).toBe("c");
     expect(state$.selectedNodeIds.peek()).toEqual(["c"]);
@@ -855,22 +655,12 @@ describe("renderer graph mutations", () => {
 
   it("opens folder-paths modal after creating a region (not label edit)", async () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     // Drain any pending addNode timeouts from earlier cases.
     await new Promise((resolve) => setTimeout(resolve, 0));
     state$.regionPathsNodeId.set("");
     state$.editNodeId.set("");
-    const region = {
-      id: "region-new",
-      type: "group" as const,
-      label: "new region",
-      x: 0,
-      y: 0,
-      width: 560,
-      height: 320,
-    };
-
-    addNode(nodeOfDocument("mutation-test", region, 9)!);
+    addNode(fixtures.region("region-new", { x: 0, y: 0, width: 560, height: 320 }, { label: "new region", z: 9 }));
     expect(state$.selectedNodeId.peek()).toBe("region-new");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(state$.regionPathsNodeId.peek()).toBe("region-new");
@@ -887,7 +677,7 @@ describe("renderer graph mutations", () => {
 
   it("sets and clears JSON Canvas accent colors", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc(doc);
+    load(base());
     setNodeColor("source", "5");
     expect(docNow().nodes[0].color).toBe("5");
     setNodeColor("source");
@@ -896,14 +686,11 @@ describe("renderer graph mutations", () => {
 
   it("bulk-sets accent color across a multi-select", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [
-        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 40 },
-        { id: "b", type: "text", text: "b", x: 20, y: 20, width: 100, height: 40 },
-        { id: "c", type: "text", text: "c", x: 40, y: 40, width: 100, height: 40 },
-      ],
-      edges: [],
-    });
+    load([
+      fixtures.note("a", "a", { x: 0, y: 0, width: 100, height: 40 }),
+      fixtures.note("b", "b", { x: 20, y: 20, width: 100, height: 40 }),
+      fixtures.note("c", "c", { x: 40, y: 40, width: 100, height: 40 }),
+    ]);
     setNodeColorForNodes(["a", "b"], "3");
     const nodes = docNow().nodes;
     expect(nodes.find((n) => n.id === "a")?.color).toBe("3");
@@ -915,13 +702,10 @@ describe("renderer graph mutations", () => {
 
   it("sets and clears region plate accent colors", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [{ id: "region", type: "group", label: "Ops", x: 0, y: 0, width: 400, height: 200 }],
-      edges: [],
-    });
+    load([fixtures.region("region", { x: 0, y: 0, width: 400, height: 200 }, { label: "Ops" })]);
     setNodeColor("region", "6");
     const colored = docNow().nodes[0];
-    expect(colored?.type).toBe("group");
+    expect(colored?.kind).toBe("region");
     expect(colored?.color).toBe("6");
     setNodeColor("region");
     expect(docNow().nodes[0]?.color).toBeUndefined();
@@ -929,24 +713,11 @@ describe("renderer graph mutations", () => {
 
   it("edits text, page url, and region content through the shared mutation plane", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({ nodes: [
-      { id: "note", type: "text", text: "before", x: 0, y: 0, width: 200, height: 80 },
-      {
-        id: "page",
-        type: "link",
-        url: "https://before.example",
-        x: 0,
-        y: 100,
-        width: 200,
-        height: 80,
-        ether: {
-          entity: { kind: "page" },
-          host: "local",
-          browser: { profile: "personal", onDelete: "kill-session" },
-        },
-      },
-      { id: "region", type: "group", label: "Before", x: 0, y: 200, width: 300, height: 160 },
-    ], edges: [] });
+    load([
+      fixtures.note("note", "before", { width: 200, height: 80 }),
+      pageNode("https://before.example", { y: 100, width: 200, height: 80 }),
+      fixtures.region("region", { x: 0, y: 200, width: 300, height: 160 }, { label: "Before" }),
+    ]);
 
     editText("note", "after");
     editLink("page", "https://after.example");
@@ -961,48 +732,19 @@ describe("renderer graph mutations", () => {
 
   it("renames a terminal: its label, and nothing else about it", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [
-        {
-          id: "term",
-          type: "text",
-          text: "terminal\nnotes stay",
-          x: 0,
-          y: 0,
-          width: 220,
-          height: 84,
-          ether: {
-            entity: { kind: "terminal" },
-            terminal: {
-              bindingId: "bind-1",
-              label: "terminal",
-            },
-          },
-        },
-      ],
-      edges: [],
-    });
+    load([fixtures.terminal("term", { label: "terminal", bindingId: "bind-1" as never, width: 220, height: 84 })]);
 
     renameTerminalNode("term", "Dev shell");
 
     // A terminal is named by its label, one line; that is all a rename changes.
-    const node = docNow().nodes.find((candidate) => candidate.id === "term");
-    expect(node?.ether?.entity?.kind).toBe("terminal");
-    expect(node?.ether?.terminal).toMatchObject({ bindingId: "bind-1" });
-    expect(node === undefined ? undefined : nodeOfDocument("mutation-test", node, 0)).toMatchObject({
-      kind: "terminal",
-      label: "Dev shell",
-      bindingId: "bind-1",
-    });
-    expect(node).toMatchObject({ x: 0, y: 0, width: 220, height: 84 });
+    expect(nodeHeld("term")).toEqual(
+      fixtures.terminal("term", { label: "Dev shell", bindingId: "bind-1" as never, width: 220, height: 84 }),
+    );
   });
 
   it("editLink ignores plain (non-page) link furniture", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [{ id: "link", type: "link", url: "https://before.example", x: 0, y: 0, width: 200, height: 80 }],
-      edges: [],
-    });
+    load([linkNode("link", "https://before.example", { width: 200, height: 80 })]);
     editLink("link", "https://after.example");
     expect(docNow().nodes[0]).toMatchObject({
       id: "link",
@@ -1012,114 +754,69 @@ describe("renderer graph mutations", () => {
 
   it("edits page host/profile without dropping URL, delete policy, or sibling ether", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({ nodes: [{
-      id: "page",
-      type: "link",
-      url: "https://before.example",
-      x: 0,
-      y: 0,
-      width: 200,
-      height: 80,
-      ether: {
-        entity: { kind: "page" },
-        host: "local",
-        browser: { profile: "personal", onDelete: "kill-session" },
-      },
-    }], edges: [] });
+    load([pageNode("https://before.example", { width: 200, height: 80 })]);
 
     setPageBinding("page", { profile: "work", host: "studio" });
 
     expect(docNow().nodes[0]).toMatchObject({
+      kind: "page",
       url: "https://before.example",
-      ether: {
-        entity: { kind: "page" },
-        host: "studio",
-        browser: { profile: "work", onDelete: "kill-session" },
-      },
+      host: "studio",
+      profile: "work",
+      onRemove: "kill-session",
     });
-    expect(Result.isSuccess(decodeCanvasDoc(docNow()))).toBe(true);
   });
 
   it("turns a region's hold on and off, and off leaves nothing saying it holds", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({ nodes: [{ id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300 }], edges: [] });
+    load([fixtures.region("region", { x: 0, y: 0, width: 400, height: 300 }, { label: "Hold" })]);
 
     setRegionHold("region", true);
-    expect(docNow().nodes[0]?.ether?.region?.hold).toBe(true);
+    expect(regionNow()?.hold).toBe(true);
 
     setRegionHold("region", false);
-    expect(docNow().nodes[0]?.ether?.region?.hold ?? false).toBe(false);
+    expect(regionNow()?.hold).toBe(false);
   });
 
   it("changes only the hold: the region's briefing and its name stay as they were", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [{
-        id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300,
-        ether: { region: { instruction: "ship the region" } },
-      }],
-      edges: [],
-    });
+    load([fixtures.region("region", { x: 0, y: 0, width: 400, height: 300 }, { label: "Hold", instruction: "ship the region" })]);
 
     setRegionHold("region", true);
     setRegionHold("region", false);
 
-    const region = docNow().nodes[0];
-    expect(region?.ether?.region?.instruction).toBe("ship the region");
-    expect(region?.type === "group" ? region.label : undefined).toBe("Hold");
-    expect(region?.ether?.region?.hold ?? false).toBe(false);
+    const region = regionNow();
+    expect(region?.instruction).toBe("ship the region");
+    expect(region?.label).toBe("Hold");
+    expect(region?.hold).toBe(false);
   });
 
   it("setRegionDefaults writes bag and preserves hold + instruction on clear", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [{
-        id: "region",
-        type: "group",
-        label: "Defaults",
-        x: 0,
-        y: 0,
-        width: 400,
-        height: 300,
-        ether: { region: { hold: true, instruction: "ship the region" } },
-      }],
-      edges: [],
-    });
+    load([fixtures.region("region", { x: 0, y: 0, width: 400, height: 300 }, { label: "Defaults", hold: true, instruction: "ship the region" })]);
 
     setRegionDefaults("region", {
       page: { url: "https://example.com", profile: "work" },
       paths: { local: "/Users/op/proj", "remote-a": "/home/op/proj" },
     });
-    const withDefaults = docNow().nodes[0];
-    expect(withDefaults?.ether?.region?.hold).toBe(true);
-    expect(withDefaults?.ether?.region?.instruction).toBe("ship the region");
-    expect(withDefaults?.ether?.region?.defaults?.page?.profile).toBe("work");
-    expect(withDefaults?.ether?.region?.defaults?.paths).toEqual({
+    const withDefaults = regionNow();
+    expect(withDefaults?.hold).toBe(true);
+    expect(withDefaults?.instruction).toBe("ship the region");
+    expect(withDefaults?.defaults?.page?.profile).toBe("work");
+    expect(withDefaults?.defaults?.paths).toEqual({
       local: "/Users/op/proj",
       "remote-a": "/home/op/proj",
     });
 
     setRegionDefaults("region", undefined);
-    const cleared = docNow().nodes[0];
-    expect(cleared?.ether?.region).toEqual({ hold: true, instruction: "ship the region" });
-    expect(Object.hasOwn(cleared?.ether?.region ?? {}, "defaults")).toBe(false);
+    const cleared = regionNow();
+    expect(cleared).toMatchObject({ hold: true, instruction: "ship the region" });
+    expect(Object.hasOwn(cleared ?? {}, "defaults")).toBe(false);
   });
 
   it("setRegionEnvironment writes names and references, keeps the rest of the region, and strips on clear", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [{
-        id: "region",
-        type: "group",
-        label: "Payments",
-        x: 0,
-        y: 0,
-        width: 400,
-        height: 300,
-        ether: { region: { hold: true, instruction: "ship the region", defaults: { paths: { local: "/Users/op/proj" } } } },
-      }],
-      edges: [],
-    });
+    load([fixtures.region("region", { x: 0, y: 0, width: 400, height: 300 }, { label: "Payments", hold: true, instruction: "ship the region", defaults: { paths: { local: "/Users/op/proj" } } })]);
 
     setRegionEnvironment("region", {
       sealed: true,
@@ -1129,17 +826,15 @@ describe("renderer graph mutations", () => {
       ],
       folders: ["~/.config/gcloud"],
     });
-    const region = docNow().nodes[0]?.ether?.region;
+    const region = regionNow();
     expect(region?.hold).toBe(true);
     expect(region?.instruction).toBe("ship the region");
     expect(region?.defaults?.paths).toEqual({ local: "/Users/op/proj" });
     expect(region?.environment?.sealed).toBe(true);
     expect(region?.environment?.sources?.map((source) => source.id)).toEqual(["k1", "s1"]);
-    // What was written is a document the canvas schema accepts.
-    expect(Result.isSuccess(decodeCanvasDoc(docNow()))).toBe(true);
 
     setRegionEnvironment("region", undefined);
-    const cleared = docNow().nodes[0]?.ether?.region;
+    const cleared = regionNow();
     expect(Object.hasOwn(cleared ?? {}, "environment")).toBe(false);
     expect(cleared?.hold).toBe(true);
     expect(cleared?.defaults?.paths).toEqual({ local: "/Users/op/proj" });
@@ -1147,12 +842,11 @@ describe("renderer graph mutations", () => {
 
   it("setRegionDefaults ignores non-group nodes", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [{ id: "note", type: "text", text: "x", x: 0, y: 0, width: 100, height: 80 }],
-      edges: [],
-    });
+    load([
+      fixtures.note("note", "x", { x: 0, y: 0, width: 100, height: 80 }),
+    ]);
     setRegionDefaults("note", { page: { url: "https://example.com" } });
-    expect(docNow().nodes[0]?.ether).toBeUndefined();
+    expect(docNow().nodes[0]).toEqual(fixtures.note("note", "x", { width: 100, height: 80 }));
   });
 
 });

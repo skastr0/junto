@@ -3,7 +3,6 @@
  * become, the difference goes to main as commands, and no document is saved.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import type { Command } from "../src/shared/model";
 import { authoring } from "../src/renderer/lib/authoring";
 import { flushCanvasEdits, registerCanvasDraftCommit } from "../src/renderer/lib/canvas-editor-flush";
@@ -18,7 +17,8 @@ import {
   redo,
   undo,
 } from "../src/renderer/lib/mutations";
-import { docNow, loadDoc } from "./support/open-document";
+import { note } from "./support/model-nodes";
+import { held, nodeHeld, openCanvas } from "./support/open-canvas";
 import { state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
 
@@ -37,19 +37,6 @@ const runtimeWindow = {
 };
 (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
 
-const note = (id: string, text: string, x = 0): CanvasNode =>
-  ({ id, type: "text", text, x, y: 0, width: 120, height: 60 }) as CanvasNode;
-const seat = (id: string, overseer: boolean): CanvasNode =>
-  ({
-    id, type: "text", text: id, x: 0, y: 0, width: 216, height: 56,
-    ether: {
-      entity: { kind: "agent", name: "local:claude" }, host: "local",
-      terminal: { bindingId: `binding-${id}`, harness: "claude" },
-      ...(overseer ? { overseer: true } : {}),
-    },
-  }) as CanvasNode;
-const doc = (...nodes: CanvasNode[]): CanvasDoc => ({ nodes, edges: [] });
-
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -62,8 +49,8 @@ const deferred = <T>() => {
 
 /** The text the document shows for the note. */
 const shownText = (): string | undefined => {
-  const shown = docNow().nodes.find((node) => node.id === "note");
-  return shown?.type === "text" ? shown.text : undefined;
+  const shown = nodeHeld("note");
+  return shown?.kind === "note" ? shown.text : undefined;
 };
 
 const sent = (): Command[] => modelCommand.mock.calls.map(([command]) => command);
@@ -85,18 +72,13 @@ describe("the window changes a canvas by sending commands", () => {
     state$.canvasName.set("alpha");
     state$.error.set("");
     state$.saveState.set("saved");
-    open(doc(note("note", "base")), "alpha-r1");
+    openCanvas("alpha", [note("note", "base")]);
   });
 
   afterEach(async () => {
     await flushPendingCanvasSave().catch(() => undefined);
     stopFollowing?.();
   });
-
-  /** Open a document as the app does: the store holds the canvas, the window its document. */
-  const open = (opened: CanvasDoc, revision: string, name = "alpha"): void => {
-    loadDoc(opened, revision, name);
-  };
 
   it("shows the new document at once and sends only what differs", async () => {
     editText("note", "edited");
@@ -150,11 +132,11 @@ describe("the window changes a canvas by sending commands", () => {
     modelCommand.mockImplementationOnce(async () => taken.promise);
     editText("note", "for alpha");
     state$.canvasName.set("beta");
-    loadDoc(doc(note("other", "beta")), "beta-r1", "beta");
+    openCanvas("beta", [note("other", "beta")]);
     taken.resolve({ seq: 1 });
     await flushPendingCanvasSave();
     expect(sent().map((command) => command.canvas)).toEqual(["alpha"]);
-    expect(docNow().nodes[0]?.id).toBe("other");
+    expect([...held().nodes.keys()]).toEqual(["other"]);
   });
 
   it("says so when main refuses an edit, and asks for the canvas to be read again", async () => {
@@ -192,7 +174,7 @@ describe("the window changes a canvas by sending commands", () => {
   it("keeps undo when main sends the canvas again", async () => {
     editText("note", "edited");
     await flushPendingCanvasSave();
-    loadDoc(doc(note("note", "edited")), "alpha-r2", "alpha");
+    openCanvas("alpha", [note("note", "edited")]);
     expect(state$.canUndo.peek()).toBe(true);
     undo();
     await flushPendingCanvasSave();
@@ -211,14 +193,14 @@ describe("the window changes a canvas by sending commands", () => {
     });
     // Shown in the same turn, through the store and the document that follows it.
     expect(shownText()).toBe("by command");
-    expect(docNow().nodes.find((node) => node.id === "note")).toMatchObject({ x: 80 });
+    expect(nodeHeld("note")).toMatchObject({ x: 80 });
     await flushPendingCanvasSave();
     expect(sent().map((command) => command._tag)).toEqual(["Batch"]);
     expect(state$.canUndo.peek()).toBe(true);
     undo();
     await flushPendingCanvasSave();
     expect(shownText()).toBe("base");
-    expect(docNow().nodes.find((node) => node.id === "note")).toMatchObject({ x: 0 });
+    expect(nodeHeld("note")).toMatchObject({ x: 0 });
   });
 
   it("does not remember an act that is not the operator's to take back", async () => {

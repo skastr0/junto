@@ -1,29 +1,14 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc } from "../src/shared/canvas";
 import { ActorRef } from "../src/shared/work-protocol";
 import {
   replaceActiveActorRefs,
 } from "../src/renderer/lib/mutations";
-import { loadDoc } from "./support/open-document";
+import { note } from "./support/model-nodes";
+import { openCanvas } from "./support/open-canvas";
 import { state$ } from "../src/renderer/lib/state";
 
 const actorRef = Schema.decodeUnknownSync(ActorRef);
-
-const document = (text: string): CanvasDoc => ({
-  nodes: [
-    {
-      id: "note",
-      type: "text",
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 100,
-      text,
-    },
-  ],
-  edges: [],
-});
 
 describe("renderer ActorRef projection state", () => {
   it("retains refs through work-only refreshes and replaces them on authoritative loads", () => {
@@ -41,11 +26,11 @@ describe("renderer ActorRef projection state", () => {
     });
 
     state$.canvasName.set("factory");
-    loadDoc(document("authorial"), "revision-1", "factory");
+    openCanvas("factory", [note("note", "authorial")]);
     replaceActiveActorRefs([first]);
     expect(state$.actorRefs.peek()).toEqual([first]);
 
-    loadDoc(document("next-authorial"), "revision-2", "factory");
+    openCanvas("factory", [note("note", "next-authorial")]);
     expect(state$.actorRefs.peek()).toEqual([]);
     replaceActiveActorRefs([second]);
     expect(state$.actorRefs.peek()).toEqual([second]);
