@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/headless";
-import type { CanvasNode } from "../src/shared/canvas";
+import { terminal } from "./support/model-nodes";
 import { defaultTerminal } from "../src/shared/settings";
 import type { LocalHostEvent } from "../src/main/junto/term/local-host";
 import { TerminalStreamCoalescer } from "../src/main/junto/term/stream-coalescer";
@@ -101,10 +101,7 @@ const rig = () => {
     hooks.refIndex = 0;
     hooks.stateIndex = 0;
     hooks.effects = [];
-    const node: CanvasNode = {
-      id: "surface", type: "text", text: "Terminal", x: 0, y: 0, width: 200, height: 100,
-      ether: { entity: { kind: "terminal" }, terminal: { bindingId } },
-    };
+    const node = terminal("surface", { bindingId: bindingId as never });
     TerminalSurface({ node });
     hooks.refs[0]!.current = host;
     hooks.refs[1]!.current = host;

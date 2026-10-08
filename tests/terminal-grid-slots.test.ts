@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
+import { terminal } from "./support/model-nodes";
 import { closeAllWorkbenchSurfaces, dock$, openTerminalSurface, terminalSurfaceId } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
 import {
@@ -12,21 +12,7 @@ import {
   terminalSlotElement,
 } from "../src/renderer/lib/terminal-state";
 
-const node = (id: string): CanvasNode =>
-  ({
-    id,
-    type: "text",
-    text: id,
-    x: 0,
-    y: 0,
-    width: 220,
-    height: 84,
-    ether: {
-      entity: { kind: "terminal" },
-      host: "local",
-      terminal: { bindingId: `bind-${id}`, launch: { kind: "command", argv: ["zsh"] } },
-    },
-  }) satisfies CanvasNode;
+const node = (id: string) => terminal(id);
 
 const el = (name: string) => ({ name }) as unknown as HTMLElement;
 

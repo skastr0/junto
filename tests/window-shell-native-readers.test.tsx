@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Schema } from "effect";
 import { Node, Wire } from "../src/shared/model";
-import { nodeToDocument } from "../src/shared/model/from-document";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 import { dock$, terminalSurfaceId } from "../src/renderer/lib/dock-state";
@@ -116,8 +115,9 @@ it("messages the native seat's current binding and follows its name and removal"
 
 it("budgets the focused terminal's rail from native wires and follows collapse and disconnect", async () => {
   const seat = publish("seat", agent("Planner"));
+  if (seat.kind !== "agent") throw new Error("expected agent");
   publish("peer", agent("Reviewer", "binding-peer"));
-  terminal$.openByNodeId["seat"].set(nodeToDocument(seat));
+  terminal$.openByNodeId["seat"].set(seat);
   const id = terminalSurfaceId("seat");
   dock$.registry.set({ ...initialWorkbenchState(), surfaces: [{ id, kind: "terminal", zone: "focus" }], focusMru: [id] });
   await mount(<WorkFocusShell />);

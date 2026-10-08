@@ -3,15 +3,13 @@
  * Confirmation skip is a process-local operator preference (not product state;
  * not durable browser storage — see settings-state architecture).
  */
-import type { TextNode } from "@shared/canvas";
+import type { Seat } from "@shared/model";
 import { asCanvasName, type Command, type NodeOf } from "@shared/model";
-import { seatParts } from "@shared/model/seat-parts";
+import { seatParts, type SeatChoices } from "@shared/model/seat-parts";
 import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import type { AgentConfigurationChoices } from "../components/node-palette/agent-launch-model";
 import { getJuntoApi } from "./junto-api";
-import { type ManagedAgentSeatOptions } from "./node-factories";
 import { commitCommands } from "./mutations";
-import { state$ } from "./state";
 import { openTerminal } from "./terminal-actions";
 import { terminal$ } from "./terminal-state";
 import { nodeAt } from "./use-model";
@@ -32,8 +30,8 @@ export const harnessDisplayName = (harness: HarnessId): string =>
   templateFor(harness).displayName;
 
 /** Working directory stamped on the seat launch (if any). */
-export const seatLaunchCwd = (node: TextNode): string | undefined => {
-  const cwd = node.ether?.terminal?.launch?.cwd;
+export const seatLaunchCwd = (node: Seat): string | undefined => {
+  const cwd = node.launch?.cwd;
   if (typeof cwd !== "string") return undefined;
   const trimmed = cwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
@@ -42,7 +40,7 @@ export const seatLaunchCwd = (node: TextNode): string | undefined => {
 export const reseatChoicesFromConfiguration = (
   choices: AgentConfigurationChoices,
   cwd?: string,
-): Omit<ManagedAgentSeatOptions, "host"> => ({
+): Omit<SeatChoices, "host"> => ({
   harness: choices.harness,
   ...(choices.profile ? { profile: choices.profile } : {}),
   ...(choices.model ? { model: choices.model } : {}),
@@ -122,10 +120,7 @@ export const reseatSeat = async (
   commitCommands(() => [command]);
 
   if (surfaceWasOpen) {
-    // The terminal still opens on a document node; this one is the document's
-    // own, as it follows the store. It goes when openTerminal takes an id.
-    const next = state$.doc.peek().nodes.find((node) => node.id === id);
-    if (next !== undefined) await openTerminal(next, "focus", { resume: false });
+    await openTerminal(canvas, id, "focus", { resume: false });
   }
   return { ok: true };
 };

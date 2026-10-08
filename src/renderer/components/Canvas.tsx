@@ -15,7 +15,7 @@ import {
 } from "@xyflow/react";
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnBeforeDelete, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import type { EtherEdgeKind } from "@shared/canvas";
+import type { WirePhase } from "@shared/model/wire";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { Task } from "@shared/work-model";
 import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, MessageSquare, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
@@ -62,9 +62,8 @@ import { AGENT_BROADCAST_PROMPTS, type AgentBroadcastKind } from "@shared/agent-
 import { placeAtPoint, placeBesideRect, type ScreenRect } from "../lib/menu-placement";
 import { findOpenPosition, syncPositions } from "../lib/geometry";
 import { observe } from "@legendapp/state";
-import { documentNodeAt } from "../lib/document-node";
 import { heldBy } from "../lib/model-edits";
-import { modelStore, nodeAt, titleAt } from "../lib/use-model";
+import { modelStore, nodeAt, titleAt, useCanvas } from "../lib/use-model";
 import { useCanvasWorkItems, workAttentionStore } from "../lib/use-work-sink";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
@@ -72,21 +71,10 @@ import "../styles/factory-grammar.css";
 import "../styles/canvas-lod.css";
 import "../styles/canvas-lod-regions.css";
 import {
-  makeArtifactsNode,
-  makeBoardNode,
-  makeCronNode,
-  makePadNode,
-  makeSheetNode,
-  makeGroupNode,
-  makeImageNode,
-  makeLabelNode,
-  makeManagedAgentNode,
-  makePageNode,
-  makeRelayNode,
-  makeRequestsNode,
-  makeTasksNode,
-  makeTextNode,
-} from "../lib/node-factories";
+  newArtifacts, newBoard, newCron, newPad, newSheet, newRegion, newImage,
+  newLabel, newSeat, newPage, newRelay, newRequests, newTaskBoard, newNote,
+} from "../lib/model-factories";
+import { topZ } from "../lib/model-edits";
 import { putImagesFromDataTransfer } from "../lib/image-content";
 import { contentObjectUrl } from "@shared/content-url";
 import {
@@ -285,7 +273,7 @@ function applyStructuralRebuild(
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
   flowCache: ReturnType<typeof createFlowIdentityCache>,
-  edgeFilter: EtherEdgeKind | "",
+  edgeFilter: WirePhase | "",
 ): void {
   const built = toFlowOfCanvas(
     modelStore.canvasOf(state$.canvasName.peek()),
@@ -319,7 +307,7 @@ function applyStructuralRebuild(
 }
 
 function useCanvasDocument(
-  edgeFilter: EtherEdgeKind | "",
+  edgeFilter: WirePhase | "",
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
   dragInProgressRef: React.MutableRefObject<boolean>,
@@ -711,7 +699,7 @@ function useCanvasInteractions(
     }
     if (event.detail !== 2) return;
     const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    addNode(makeTextNode(pos.x - 120, pos.y - 50));
+    addNode(newNote(onTop({ x: pos.x - 120, y: pos.y - 50 })));
   }, [rf]);
   return {
     onConnect,
@@ -729,6 +717,10 @@ function useCanvasInteractions(
 
 // Node creation against a caller-supplied placement strategy — the toolbar
 // places near the viewport center, the context menu at the click point.
+const onTop = (position: { readonly x: number; readonly y: number }) => ({
+  ...position, z: topZ(modelStore.canvasOf(state$.canvasName.peek())),
+});
+
 const makeAddActions = (
   positionFor: (size: { width: number; height: number }) => { x: number; y: number },
   dismiss: () => void,
@@ -739,8 +731,8 @@ const makeAddActions = (
       : { width: 560, height: 320 };
     const position = positionFor(size);
     const node = kind === "text"
-      ? makeTextNode(position.x, position.y)
-      : makeGroupNode(position.x, position.y);
+      ? newNote(onTop(position))
+      : newRegion(onTop(position));
     addNode(node);
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -760,7 +752,7 @@ const makeAddActions = (
     openProfileDraft();
   },
   addConfiguredAgent: (choices, position) => {
-    const node = makeManagedAgentNode(position.x, position.y, choices);
+    const node = newSeat(onTop(position), choices);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -768,14 +760,7 @@ const makeAddActions = (
   addCron: () => {
     const position = positionFor({ width: 240, height: 96 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = {
-      ...makeCronNode(position.x, position.y),
-      ether: {
-        entity: { kind: "cron" as const },
-        host: stationHost,
-        timer: { everyMinutes: 30 },
-      },
-    };
+    const node = newCron(onTop(position), stationHost);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -783,7 +768,7 @@ const makeAddActions = (
   addRelay: () => {
     const position = positionFor({ width: 220, height: 96 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = makeRelayNode(position.x, position.y, stationHost);
+    const node = newRelay(onTop(position), stationHost);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -791,8 +776,7 @@ const makeAddActions = (
   addTasks: () => {
     if (!TASKS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
-    const stationHost = state$.settings.station.hostId.peek() || "local";
-    const node = makeTasksNode(position.x, position.y, stationHost);
+    const node = newTaskBoard(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -800,7 +784,7 @@ const makeAddActions = (
   addRequests: () => {
     if (!REQUESTS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
-    const node = makeRequestsNode(position.x, position.y);
+    const node = newRequests(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -808,7 +792,7 @@ const makeAddActions = (
   addArtifacts: () => {
     if (!ARTIFACTS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
-    const node = makeArtifactsNode(position.x, position.y);
+    const node = newArtifacts(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -816,7 +800,7 @@ const makeAddActions = (
   addBoard: () => {
     if (!BOARD_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
-    const node = makeBoardNode(position.x, position.y);
+    const node = newBoard(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -824,7 +808,7 @@ const makeAddActions = (
   addPad: () => {
     if (!PAD_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
-    const node = makePadNode(position.x, position.y);
+    const node = newPad(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -832,7 +816,7 @@ const makeAddActions = (
   addSheet: () => {
     if (!SHEET_ENABLED) return;
     const position = positionFor({ width: 260, height: 120 });
-    const node = makeSheetNode(position.x, position.y);
+    const node = newSheet(onTop(position));
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -858,23 +842,17 @@ const makeAddActions = (
       position.x + size.width / 2,
       position.y + size.height / 2,
     );
-    const node = makePageNode(
-      position.x,
-      position.y,
-      seed?.url?.trim() || "https://example.com",
-      seed?.profile ? { profile: seed.profile } : undefined,
-      resolveAuthoredPageHost(
-        seed?.host,
-        state$.settings.station.hostId.peek(),
-      ),
-    );
+    const node = newPage(onTop(position), seed?.url?.trim() || "https://example.com", {
+      ...(seed?.profile ? { profile: seed.profile } : {}),
+      host: resolveAuthoredPageHost(seed?.host, state$.settings.station.hostId.peek()),
+    });
     addNode(node);
     dismiss();
   },
   addLabel: () => {
     const size = { width: 160, height: 40 };
     const position = positionFor(size);
-    const node = makeLabelNode(position.x, position.y);
+    const node = newLabel(onTop(position));
     addNode(node);
     state$.focusNodeId.set(node.id);
     dismiss();
@@ -973,15 +951,15 @@ function CanvasFieldTools() {
 
   // A non-overlapping slot near the viewport center for a node of the given size.
   const nextPosition = (size: { width: number; height: number }) => {
-    const docNodes = state$.doc.peek().nodes;
-    const slot = docNodes.length;
+    const canvasNodes = [...modelStore.canvasOf(state$.canvasName.peek()).nodes.values()];
+    const slot = canvasNodes.length;
     const gridPlacement = slot < 6
       ? { x: (slot % 3) * 340 - 120, y: Math.floor(slot / 3) * 190 - 60 }
       : null;
     const center = gridPlacement
       ? { x: gridPlacement.x + size.width / 2, y: gridPlacement.y + size.height / 2 }
       : rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-    return gridPlacement ? gridPlacement : findOpenPosition(docNodes, center, size);
+    return gridPlacement ? gridPlacement : findOpenPosition(canvasNodes, center, size);
   };
 
   const actions = makeAddActions(nextPosition, dismiss);
@@ -1140,14 +1118,14 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   };
 
   const createRegionFromSelection = (ids: ReadonlyArray<string>) => {
-    const targets = state$.doc.peek().nodes.filter((node) => ids.includes(node.id));
+    const targets = selectedOn(modelStore.canvasOf(state$.canvasName.peek()), new Set(ids));
     if (targets.length === 0) return;
     const pad = 48;
     const minX = Math.min(...targets.map((node) => node.x)) - pad;
     const minY = Math.min(...targets.map((node) => node.y)) - pad;
     const maxX = Math.max(...targets.map((node) => node.x + node.width)) + pad;
     const maxY = Math.max(...targets.map((node) => node.y + node.height)) + pad;
-    const region = makeGroupNode(minX, minY, { width: maxX - minX, height: maxY - minY });
+    const region = newRegion(onTop({ x: minX, y: minY }), { width: maxX - minX, height: maxY - minY });
     // The selection is already fully in view — a fitView jump here would be
     // jarring, so this add skips the usual focus-zoom.
     addNode(region, { edit: false, focus: false });
@@ -1340,8 +1318,7 @@ const connectableSourceIds = (
   nodes
     .filter((node) => {
       if (!node.selected || node.id === targetId || node.type === "group") return false;
-      const canvasNode = (node.data as { node?: { ether?: { entity?: { kind?: string } } } } | undefined)?.node;
-      return canvasNode?.ether?.entity?.kind !== "label";
+      return nodeAt(state$.canvasName.peek(), node.id)?.kind !== "label";
     })
     .map((node) => node.id);
 
@@ -1359,6 +1336,8 @@ function FieldControls() {
 function RtsMinimapStack() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const severityByNodeId = use$(state$.regionSeverityByNodeId) as Readonly<Record<string, string>>;
+  const canvasName = use$(state$.canvasName);
+  const minimapCanvas = useCanvas(canvasName);
   const minimapTheme = themeFor(use$(themeMode$));
   const lastClickAt = useRef(0);
   const lastClickPos = useRef<{ x: number; y: number } | null>(null);
@@ -1368,11 +1347,11 @@ function RtsMinimapStack() {
   const seatRollups = useSeatRollups();
   const ground = minimapTheme.ground!;
   const miniMapNodeColor = useCallback((node: Node): string => {
-    const canvasNode = documentNodeAt(node.id);
+    const canvasNode = minimapCanvas.nodes.get(node.id as never);
     const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
     if (canvasNode) return minimapNodeColors(canvasNode, severity, seatRollups.get(node.id), ground).fill;
     return HUE.amber;
-  }, [severityByNodeId, seatRollups, ground]);
+  }, [minimapCanvas, severityByNodeId, seatRollups, ground]);
   // Agents are dots on the map, rimmed and pinging by urgency (FactoryMinimap).
   // A string key: seatUrgency$ changes in place, so its object never changes identity.
   const seatUrgencyKey = use$(() =>
@@ -1390,8 +1369,8 @@ function RtsMinimapStack() {
   }, [seatUrgencyKey]);
   const miniMapNodeStroke = useCallback((node: Node): string => {
     const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-    return minimapNodeColors(documentNodeAt(node.id), severity, seatRollups.get(node.id), ground).stroke;
-  }, [severityByNodeId, seatRollups, ground]);
+    return minimapNodeColors(minimapCanvas.nodes.get(node.id as never), severity, seatRollups.get(node.id), ground).stroke;
+  }, [minimapCanvas, severityByNodeId, seatRollups, ground]);
 
   // Click = pan camera to that world point; double-click = zoom in on it.
   // Stock MiniMap onClick already yields flow coordinates.
@@ -1511,15 +1490,15 @@ function useCanvasGraph() {
 function ImpactSeedChip() {
   const selectedNodeId = use$(state$.selectedNodeId);
   const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
-  const docVersion = use$(state$.docVersion);
   const executionRev = use$(kernel$.executionRev);
   const canvasName = use$(state$.canvasName);
   const actorRefs = use$(state$.actorRefs);
+  const canvas = useCanvas(canvasName);
   const itemsOf = useCanvasWorkItems(canvasName);
   const impact = useMemo(() => {
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs, itemsOf);
     return selectionForCanvas(selectedNodeId, context);
-  }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, docVersion, executionRev, itemsOf]);
+  }, [actorRefs, canvasName, connectionFocusNodeId, selectedNodeId, canvas, executionRev, itemsOf]);
   if (!impact.active) return null;
   return (
     <Panel position="top-left" className="impact-hud-panel">
@@ -1749,9 +1728,8 @@ function CanvasGraph() {
       }
       let offset = 0;
       for (const ref of result.refs) {
-        const node = makeImageNode(
-          flow.x + offset,
-          flow.y + offset,
+        const node = newImage(
+          onTop({ x: flow.x + offset, y: flow.y + offset }),
           contentObjectUrl(ref),
         );
         addNode(node, { edit: false });

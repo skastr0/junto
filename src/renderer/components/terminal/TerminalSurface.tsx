@@ -3,10 +3,9 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
-import type { CanvasNode } from "@shared/canvas";
+import type { Seat, Terminal as TerminalNode } from "@shared/model";
 import type { JuntoTerminalApi } from "@shared/ipc";
-import { resolveTerminalBinding, type TerminalOutputBatch } from "@shared/terminal";
+import { terminalBindingOf, type TerminalOutputBatch } from "@shared/terminal";
 import { terminalSettings, type TerminalSettings } from "@shared/settings";
 import { claimedTaskBrief } from "../../lib/claimed-task";
 import { MONO_CELL } from "../../lib/focus-measure";
@@ -692,7 +691,7 @@ export function TerminalSurface({
   visible = true,
   grid,
 }: {
-  readonly node: CanvasNode;
+  readonly node: Seat | TerminalNode;
   /** False in parked keep-alive panes — children may pause cosmetic work. */
   readonly visible?: boolean;
   /**
@@ -765,32 +764,28 @@ export function TerminalSurface({
    * the host's own fail-open replacement is followed without a click.
    */
   const operatorStopped = useRef(false);
-  const canvasName = use$(state$.canvasName);
+  const canvasName = use$(() => terminal$.canvasByNodeId[node.id].get() ?? state$.canvasName.get());
   // An open terminal holds its canvas open in the node store.
   useOpenCanvas(canvasName);
   // One key of the canvas-wide claimed-task index, as the seat card reads it:
   // an open terminal does not hear the whole document.
   const claimedTask = use$(() => claimedTask$.byNodeId[node.id].get()) as ClaimedTask | undefined;
-  const agentSeat = node.ether?.entity?.kind === "agent";
+  const agentSeat = node.kind === "agent";
   // Control classification comes from the node kind, never optional binding
   // fields. The exact actor surface is validated separately before its
   // binding can reach attach/occupy.
-  const actorSurface = agentSeat ? actorDeliverySurfaceOf(node) : undefined;
-  const binding = resolveTerminalBinding(node);
+  const binding = terminalBindingOf(node);
   const bindingId = agentSeat
-    ? actorSurface?.bindingId ?? ""
+    ? binding?.bindingId ?? ""
     : binding?.kind === "native"
       ? binding.bindingId
       : "";
   const hostId = agentSeat
-    ? actorSurface?.hostId ?? "local"
+    ? binding?.hostId ?? "local"
     : binding?.kind === "native"
       ? binding.hostId
       : "local";
-  const pinSessionId =
-    typeof node.ether?.terminal?.sessionId === "string"
-      ? node.ether.terminal.sessionId
-      : undefined;
+  const pinSessionId = node.kind === "agent" ? node.sessionId : undefined;
   const [loadPhase, setLoadPhase] = useState<SessionLoadPhase | null>(() =>
     initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
   );
@@ -1822,7 +1817,7 @@ export function TerminalSurface({
           await new Promise((resolve) => setTimeout(resolve, 150));
         }
       };
-      void ensureTerminalRunning(nodeRef.current, { resume: true }).then(
+      void ensureTerminalRunning(nodeRef.current, { resume: true, canvas: canvasName }).then(
         async (result) => {
           if (!alive) return;
           if (!result.ok) {
@@ -1900,10 +1895,10 @@ export function TerminalSurface({
   const shownOverseer = useNodeValue(canvasName, node.id, (row) =>
     row === undefined ? undefined : row.kind === "agent" && row.overseer,
   );
-  const label = shownLabel ?? (node.type === "text" ? node.text : "terminal");
+  const label = shownLabel ?? titleOf(node);
   const harness =
     shownHarness ??
-    (typeof node.ether?.terminal?.harness === "string" ? node.ether.terminal.harness : undefined);
+    (node.kind === "agent" ? node.harness : undefined);
   const overseer = agentSeat && shownOverseer === true;
   const surfaceId = terminalSurfaceId(node.id);
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
@@ -1960,7 +1955,7 @@ export function TerminalSurface({
           sessionLoadPresentation({ phase: "starting", sessionId: pinSessionId })
             .label,
         );
-        const result = await ensureTerminalRunning(node, { resume: false });
+        const result = await ensureTerminalRunning(node, { resume: false, canvas: canvasName });
         if (!result.ok) {
           setStatus(result.message);
           setKillPhase("stopped");

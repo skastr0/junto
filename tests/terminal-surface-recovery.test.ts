@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/headless";
-import type { CanvasNode } from "../src/shared/canvas";
+import type { Seat } from "../src/shared/model";
+import { seat } from "./support/model-nodes";
 import { defaultTerminal } from "../src/shared/settings";
 import { seatDeadReason } from "../src/renderer/lib/seat-recovery";
 
@@ -72,29 +73,10 @@ const REASON = "Codex could not start: the folder ~/gone does not exist";
 const EXIT_REASON = "Claude Code exited by itself with code 1: Error: Session ID 421f87b3 is already in use.";
 const PIN = "421f87b3-5a95-474e-9164-85bb2d7d1ac6";
 
-const agentNode: CanvasNode = {
-  id: "seat-node",
-  type: "text",
-  text: "Codex",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 100,
-  ether: {
-    entity: { kind: "agent", name: "local:codex" },
-    terminal: { bindingId: "seat", harness: "codex" },
-  },
-};
+const agentNode = seat("seat-node", { label: "Codex", agentKey: "local:codex", bindingId: "seat" as never, harness: "codex" });
 
 /** A brand-new Claude Code seat: its session id is pinned at creation. */
-const pinnedNode: CanvasNode = {
-  ...agentNode,
-  text: "Claude Code",
-  ether: {
-    entity: { kind: "agent", name: "local:claude" },
-    terminal: { bindingId: "seat", harness: "claude", sessionId: PIN },
-  },
-};
+const pinnedNode = seat("seat-node", { label: "Claude Code", agentKey: "local:claude", bindingId: "seat" as never, harness: "claude", sessionId: PIN });
 
 const cleanups: (() => void)[] = [];
 
@@ -111,7 +93,7 @@ type Summary = {
  * `attach` answers every attach. Each render is one attach-effect run.
  */
 const seatRig = (input: {
-  readonly node?: CanvasNode;
+  readonly node?: Seat;
   readonly get: () => Summary | undefined;
   readonly attach: () => { readonly status: "running" | "exited"; readonly epoch: string };
 }) => {

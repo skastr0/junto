@@ -1,3 +1,4 @@
+import { titleOf } from "@shared/model/title";
 import { dock$ } from "../../lib/dock-state";
 import type { WorkbenchState, WorkSurface } from "../../lib/surface-registry";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
@@ -16,7 +17,7 @@ export function surfaceLabel(
   if (surface.kind === "terminal") {
     const nodeId = parseTerminalSurfaceId(surface.id);
     const node = nodeId ? terminal$.openByNodeId[nodeId].peek() : undefined;
-    return node?.type === "text" ? node.text : "terminal";
+    return node ? titleOf(node) : "terminal";
   }
   if (surface.kind === "chat") {
     return dock$.chatById[surface.id].peek()?.title ?? "ACP chat";

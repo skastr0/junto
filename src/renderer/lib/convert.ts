@@ -1,4 +1,4 @@
-import type { EdgePhase } from "@shared/canvas";
+import type { WirePhase } from "@shared/model/wire";
 import {
   deriveExecutionGraph,
   type ExecutionGraphContext,
@@ -77,7 +77,7 @@ export const toFlowOfCanvas = (
       canvas,
       {
         phaseOf: (id) =>
-          (execution?.phaseByEdgeId[id] as EdgePhase | undefined) ??
+          (execution?.phaseByEdgeId[id] as WirePhase | undefined) ??
           getFallback().phaseByEdgeId.get(id) ??
           "relates",
         detailOf: (id) => execution?.detailByEdgeId[id] ?? getFallback().detailByEdgeId.get(id) ?? "",

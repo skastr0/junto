@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { GitBranch } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { NodeOf } from "@shared/model";
 import type { GitStatus } from "@shared/git";
 import type { ActivitySpec } from "../../lib/activity";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -21,10 +21,10 @@ export function GitCard({
   renaming = false,
   onRenameDone,
 }: {
-  readonly node: CanvasNode;
+  readonly node: NodeOf<"git">;
 } & SinkRenameProps) {
-  const cwd = node.ether?.git?.cwd?.trim() ?? "";
-  const rawText = node.type === "text" ? node.text : "";
+  const cwd = node.cwd?.trim() ?? "";
+  const rawText = node.label ?? "";
   const firstLine = rawText.split("\n")[0] ?? "";
   const label = firstLine || "git";
   const [status, setStatus] = useState<GitStatus | undefined>();

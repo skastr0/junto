@@ -67,9 +67,9 @@ describe("terminal actor entry", () => {
     const createAt = actor.indexOf("api.modelStart({");
 
     expect(source).toContain(
-      'import { actorDeliverySurfaceOf } from "@shared/actor-surface";',
+      'import { terminalBindingOf, sessionActorMatches } from "@shared/terminal";',
     );
-    expect(actor).toContain("const surface = actorDeliverySurfaceOf(node);");
+    expect(actor).toContain("const surface = terminalBindingOf(node)!;");
     expect(createAt).toBeGreaterThanOrEqual(0);
     expect(actor.indexOf("terminalGet")).toBeGreaterThan(createAt);
     expect(actor).not.toContain("occupancyFromSummary");
@@ -110,11 +110,9 @@ describe("terminal actor entry", () => {
     );
 
     expect(source).toContain(
-      'const agentSeat = node.ether?.entity?.kind === "agent";',
+      'const agentSeat = node.kind === "agent";',
     );
-    expect(source).toContain(
-      "const actorSurface = agentSeat ? actorDeliverySurfaceOf(node) : undefined;",
-    );
+    expect(source).toContain("const binding = terminalBindingOf(node);");
     expect(source).not.toContain("isAgentTerminalSeat");
     expect(attachEffect).toContain("if (agentSeat) {");
     const ensureIndex = attachEffect.indexOf(

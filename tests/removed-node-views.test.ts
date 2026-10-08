@@ -11,7 +11,7 @@ import { initialWorkbenchState, openSurface } from "../src/renderer/lib/surface-
 import { terminalGrid$ } from "../src/renderer/lib/terminal-grid-state";
 import { terminal$ } from "../src/renderer/lib/terminal-state";
 import { modelStore } from "../src/renderer/lib/use-model";
-import { note } from "./support/model-nodes";
+import { terminal, note } from "./support/model-nodes";
 
 const openIds = (): string[] => dock$.registry.peek().surfaces.map((surface) => surface.id);
 
@@ -100,7 +100,7 @@ describe("a view never outlives its node", () => {
   it("takes the node's cell out of the grid, and its grid-owned terminal view with it", () => {
     terminalGrid$.nodeIds.set(["alpha", "bravo", "gridded"]);
     terminal$.gridOwnedByNodeId.gridded.set(true);
-    terminal$.openByNodeId.gridded.set({ id: "gridded", type: "text", text: "gridded", x: 0, y: 0, width: 200, height: 80 });
+    terminal$.openByNodeId.gridded.set(terminal("gridded"));
 
     closeViewsOfNodes(new Set(["gridded"]));
     expect(terminalGrid$.nodeIds.peek()).toEqual(["alpha", "bravo"]);

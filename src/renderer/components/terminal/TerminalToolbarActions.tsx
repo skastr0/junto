@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { PINNING_ENABLED } from "@shared/features";
 import { CircleStop, Compass, Pin, SquareTerminal } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
-import { resolveTerminalBinding } from "@shared/terminal";
-import { sendOnboardNudge, useSeatOnboarding } from "../../lib/seat-onboarding";
+import type { Seat, Terminal } from "@shared/model";
+import { terminalBindingOf } from "@shared/terminal";
+import { sendOnboardNudge, useSeatOnboardingOf } from "../../lib/seat-onboarding";
 import { killTerminal, openTerminal } from "../../lib/terminal-actions";
 import {
   isAgentTerminalSeat,
@@ -23,9 +23,9 @@ import { Button, IconButton } from "../ui";
  * Icons share the toolbar steel chrome (IconButton default) — no per-action
  * accent colors. Crimson is reserved for the armed stop confirm only.
  */
-export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) {
+export function TerminalToolbarActions({ node }: { readonly node: Seat | Terminal }) {
   const [armed, setArmed] = useState(false);
-  const onboarding = useSeatOnboarding(node);
+  const onboarding = useSeatOnboardingOf(node.bindingId);
   const [nudgeProblem, setNudgeProblem] = useState<string | undefined>();
   const [nudging, setNudging] = useState(false);
   const nudge = async () => {
@@ -36,7 +36,7 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
     if (!result.ok) setNudgeProblem(result.message);
   };
   const armTimer = useRef<number | null>(null);
-  const binding = resolveTerminalBinding(node);
+  const binding = terminalBindingOf(node);
   const agentSeat =
     binding?.kind === "native" ? isAgentTerminalSeat(binding) : false;
   const stopCopy = killActionCopy({

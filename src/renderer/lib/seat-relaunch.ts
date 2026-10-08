@@ -6,9 +6,7 @@
  * launch is committed BEFORE the old process is stopped, so nothing that
  * wakes the seat in between can start it on the old parameters.
  */
-import type { TextNode } from "@shared/canvas";
 import type { Seat } from "@shared/model";
-import { nodeToDocument } from "@shared/model/from-document";
 import type { RejectedExtraArg } from "@shared/launch-extra-args";
 import {
   seatLaunchParamsChangeError,
@@ -60,12 +58,6 @@ const waitForExit = async (
   return false;
 };
 
-/**
- * The seat in the document form the terminal actions still take. Callers
- * hand the store's seat; this goes when those take it too.
- */
-const documentSeat = (seat: Seat): TextNode => nodeToDocument(seat) as TextNode;
-
 type RestartOutcome =
   | { readonly ok: true; readonly restarted: boolean }
   | { readonly ok: false; readonly message: string };
@@ -81,8 +73,8 @@ type RestartOutcome =
  */
 const restartRunningSeat = async (
   seat: Seat,
-  node: TextNode,
-  next: TextNode,
+  node: Seat,
+  next: Seat,
   wasRunning: boolean,
   savedForNextStart: string,
 ): Promise<RestartOutcome> => {
@@ -137,7 +129,7 @@ const isRunning = async (seat: Seat): Promise<boolean> => {
 export const restartSeatOnSameSession = async (
   seat: Seat,
 ): Promise<RestartOutcome> => {
-  const node = documentSeat(seat);
+  const node = seat;
   return restartRunningSeat(
     seat,
     node,
@@ -155,8 +147,8 @@ export const performSeatRelaunch = async (
   if (changeError) return { ok: false, message: changeError };
   const relaunched = seatRelaunch(seat, params);
   if (!relaunched) return { ok: false, message: "not a managed agent seat" };
-  const node = documentSeat(seat);
-  const next = documentSeat({ ...seat, launch: relaunched.launch });
+  const node = seat;
+  const next = { ...seat, launch: relaunched.launch };
   const wasRunning = await isRunning(seat);
 
   // Committed BEFORE the old process stops, so nothing that wakes the seat in

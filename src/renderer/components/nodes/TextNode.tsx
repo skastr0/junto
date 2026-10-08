@@ -6,7 +6,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import type { CanvasNode } from "@shared/canvas";
+import type { NodeKind, NodeOf } from "@shared/model";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { Gauge, Radio, Settings2, Timer } from "lucide-react";
@@ -52,8 +52,7 @@ import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
-import { documentNodeAt, useDocumentNode } from "../../lib/document-node";
-import { useNodeFieldOf, useNodeValue } from "../../lib/use-model";
+import { nodeAt, useNodeFieldOf, useNodeValue, useNodeOf } from "../../lib/use-model";
 import { SeatCard } from "./SeatCard";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
@@ -247,22 +246,16 @@ function TimerCard({ canvas, id }: { readonly canvas: string; readonly id: strin
 // Freeform note body: instrument mono for body; condensed display for heads
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
-/** The kinds whose card body still takes the document's node. */
-const DOCUMENT_BODY_KINDS: ReadonlySet<string> = new Set(["git"]);
-
-/**
- * Draws what still takes the document's node, and follows that node itself,
- * so the card around it does not render when the node moves. Nothing is drawn
- * until the document holds the node.
- */
-function WithDocumentNode({
-  id,
-  children,
+/** A body follows its own model row, so a card does not subscribe to it. */
+function WithNode<K extends NodeKind>({
+  canvas, id, kind, children,
 }: {
+  readonly canvas: string;
   readonly id: string;
-  readonly children: (node: CanvasNode) => ReactNode;
+  readonly kind: K;
+  readonly children: (node: NodeOf<K>) => ReactNode;
 }): ReactNode {
-  const node = useDocumentNode(id);
+  const node = useNodeOf(canvas, id, kind);
   return node === undefined ? null : children(node);
 }
 
@@ -275,10 +268,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
     node?.kind === "note" || node?.kind === "label" ? node.text : "",
   );
   const color = useNodeValue(canvasName, id, (node) => node?.color);
-  // The bodies that have not moved onto the store still take the document's
-  // node. Each follows it for itself (WithDocumentNode), so the card around
-  // them does not render when its node moves; what only needs the node at the
-  // moment of an act reads it then.
+  // Each body follows its own row; gestures read it at the moment of the act.
   const isLabel = kind === "label";
   const isFreeNote = kind === "note";
   const isTerminal = kind === "terminal";
@@ -288,10 +278,10 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
   // Boolean selector: only this node re-renders when edit intent targets it.
   const isEditTarget = use$(() => state$.editNodeId.get() === id);
 
-  // The note editor opens on the document's node, with the store's text.
+  // Opening keeps the current note draft in the workbench.
   const openNote = (shown: string = text): void => {
-    const node = documentNodeAt(id);
-    if (node?.type === "text") openNoteSurface({ ...node, text: shown });
+    const node = nodeAt(canvasName, id);
+    if (node?.kind === "note") openNoteSurface({ ...node, text: shown });
   };
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -462,13 +452,13 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             {isAgent ? <StartParamsToolbarAction seatId={id} /> : null}
             {isAgent ? <SeatMessageToolbarAction id={id} /> : null}
             {isAgent ? <SeatOffboardToolbarAction canvas={canvasName} id={id} /> : null}
-            <WithDocumentNode id={id}>{(node) => <TerminalToolbarActions node={node} />}</WithDocumentNode>
+            <WithNode canvas={canvasName} id={id} kind={isAgent ? "agent" : "terminal"}>{(node) => <TerminalToolbarActions node={node} />}</WithNode>
           </>
         ) : isAgent ? (
           <>
             <CustomizeAgentToolbarAction seatId={id} />
             {ACP_CHAT_SURFACE_HIDDEN ? null : (
-              <WithDocumentNode id={id}>{(node) => <AgentChatToolbarActions node={node} />}</WithDocumentNode>
+              <WithNode canvas={canvasName} id={id} kind="agent">{(node) => <AgentChatToolbarActions node={node} />}</WithNode>
             )}
           </>
         ) : entityKind === "task" && TASKS_ENABLED ? (
@@ -503,21 +493,21 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
         <BoardDetail nodeId={id} onClose={() => setWorkDetail(false)} />
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "pad" ? (
-        <WithDocumentNode id={id}>
+        <WithNode canvas={canvasName} id={id} kind="pad">
           {(node) => (
             <PadDetail node={node} onClose={() => setWorkDetail(false)} />
           )}
-        </WithDocumentNode>
+        </WithNode>
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "sheet" ? (
         <SheetDetail nodeId={id} onClose={() => setWorkDetail(false)} />
       ) : null}
       {workDetail && entityKind === "git" ? (
-        <WithDocumentNode id={id}>
+        <WithNode canvas={canvasName} id={id} kind="git">
           {(node) => (
             <GitDetail node={node} onClose={() => setWorkDetail(false)} />
           )}
-        </WithDocumentNode>
+        </WithNode>
       ) : null}
       {workDetail && workDetailAllowed && entityKind === "artifacts" ? (
         <ArtifactsDetail
@@ -617,7 +607,7 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             // Actors / terminals / sinks: open the live surface (same as
             // command-group re-tap activate). Cron keeps its schedule modal.
             if (managedTerminal || isAgent || isWorkSurface) {
-              const node = documentNodeAt(id);
+              const node = nodeAt(canvasName, id);
               if (!node) return;
               const result = activateNodeSurface(node.id);
               if (result.opened) return;
@@ -678,10 +668,10 @@ export function TextNode({ id, data, selected }: NodeProps<FlowNode>) {
             <PadCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
           ) : entityKind === "sheet" ? (
             <SheetCard nodeId={id} renaming={renaming} onRenameDone={() => setRenaming(false)} />
-          ) : DOCUMENT_BODY_KINDS.has(entityKind ?? "") ? (
-            <WithDocumentNode id={id}>
+          ) : entityKind === "git" ? (
+            <WithNode canvas={canvasName} id={id} kind="git">
               {(node) => <GitCard node={node} renaming={renaming} onRenameDone={() => setRenaming(false)} />}
-            </WithDocumentNode>
+            </WithNode>
           ) : (
             <NoteMarkdown source={text} />
           )}

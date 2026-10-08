@@ -1,7 +1,7 @@
 import { observable } from "@legendapp/state";
-import type { CanvasNode, EtherBrowser } from "@shared/canvas";
+import type { NodeOf, Seat, Terminal } from "@shared/model";
 import { PINNING_ENABLED } from "@shared/features";
-import { resolveTerminalBinding } from "@shared/terminal";
+import { terminalBindingOf } from "@shared/terminal";
 import type {
   BrowserOpResult,
   BrowserSessionInfo,
@@ -53,7 +53,7 @@ import { dropTerminalView, terminal$ } from "./terminal-state";
 
 export interface DockBrowserPayload {
   readonly nodeId: string;
-  readonly browser: EtherBrowser;
+  readonly browser: Pick<NodeOf<"page">, "profile"> & { readonly onDelete?: NodeOf<"page">["onRemove"] };
   readonly url: string;
   readonly title: string;
 }
@@ -296,10 +296,9 @@ export const openTaskCreateSurface = (
  * unsaved text must survive that churn.
  */
 export const openNoteSurface = (
-  node: CanvasNode,
+  node: NodeOf<"note">,
   zone: WorkZone = "focus",
 ): void => {
-  if (node.type !== "text" || node.ether?.entity) return;
   const id = noteSurfaceId(node.id);
   const title = node.text.split("\n")[0]?.trim() || "Note";
   const existing = dock$.noteById[id].peek();
@@ -442,11 +441,11 @@ export const closeDockBrowser = (ref: string): void => {
  * owned moves into the workbench; the grid lets it go.
  */
 export const openTerminalSurface = (
-  node: CanvasNode,
+  node: Seat | Terminal,
   zone: WorkZone = "focus",
   canvasName?: string,
 ): void => {
-  if (resolveTerminalBinding(node)?.kind !== "native") return;
+  if (terminalBindingOf(node)?.kind !== "native") return;
   if (canvasName !== undefined) terminal$.canvasByNodeId[node.id].set(canvasName);
   terminal$.gridOwnedByNodeId[node.id].delete();
   terminal$.openByNodeId[node.id].set(node);

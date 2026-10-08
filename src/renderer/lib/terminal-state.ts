@@ -1,7 +1,7 @@
 import { observable } from "@legendapp/state";
-import type { CanvasNode } from "@shared/canvas";
+import type { Seat, Terminal } from "@shared/model";
 import type { TerminalSessionSummary } from "@shared/terminal";
-import { resolveTerminalBinding } from "@shared/terminal";
+import { terminalBindingOf } from "@shared/terminal";
 
 /**
  * Pane slot handles live outside Legend. The store only carries a generation
@@ -62,7 +62,7 @@ export const terminalSlotElement = (nodeId: string): HTMLElement | null =>
   gridSlotElements.get(nodeId) ?? terminalSlotElements.get(nodeId) ?? null;
 
 export const terminal$ = observable({
-  openByNodeId: {} as Record<string, CanvasNode>,
+  openByNodeId: {} as Record<string, Seat | Terminal>,
   /**
    * Canvas each surface was opened from. Node-keyed surfaces survive canvas
    * navigation; canvas-scoped consumers (the actor ledger) must not project
@@ -101,10 +101,10 @@ export const dropTerminalView = (nodeId: string): void => {
  * PTY); a closed one opens grid-owned, outside the dock.
  */
 export const openGridTerminalSurface = (
-  node: CanvasNode,
+  node: Seat | Terminal,
   canvasName?: string,
 ): void => {
-  if (resolveTerminalBinding(node)?.kind !== "native") return;
+  if (terminalBindingOf(node)?.kind !== "native") return;
   if (terminal$.openByNodeId[node.id].peek()) return;
   if (canvasName !== undefined) {
     terminal$.canvasByNodeId[node.id].set(canvasName);

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { LOCAL_HOST_ID, TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
 import { resolveRegionCwd } from "@shared/region-defaults";
-import { makeTerminalNode } from "../../lib/node-factories";
+import { newTerminal } from "../../lib/model-factories";
+import { topZ } from "../../lib/model-edits";
 import { addNode } from "../../lib/mutations";
 import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
@@ -32,16 +33,12 @@ export const createTerminalAt = (
     anchor.y + TERMINAL_SIZE.height / 2,
     host,
   );
-  const node = makeTerminalNode(
-    anchor.x,
-    anchor.y,
-    { kind: "shell", ...(cwd ? { cwd } : {}) },
-    "terminal",
-    host,
-  );
+  const node = newTerminal({ ...anchor, z: topZ(modelStore.canvasOf(state$.canvasName.peek())) }, {
+    launch: { kind: "shell", ...(cwd ? { cwd } : {}) }, label: "terminal", host,
+  });
   addNode(node, { edit: false });
   state$.focusNodeId.set(node.id);
-  return openTerminal(node);
+  return openTerminal(state$.canvasName.peek(), node.id);
 };
 
 export function TerminalWizard({

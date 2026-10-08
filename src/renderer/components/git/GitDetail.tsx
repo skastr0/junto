@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { X } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { NodeOf } from "@shared/model";
 import {
   gitReviewedCommit,
   gitReviewedState,
@@ -68,11 +68,11 @@ export function GitDetail({
   node,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly node: NodeOf<"git">;
   readonly onClose: () => void;
 }) {
-  const cwd = node.ether?.git?.cwd?.trim() ?? "";
-  const title = node.type === "text" ? node.text.split("\n")[0] || "git" : "git";
+  const cwd = node.cwd?.trim() ?? "";
+  const title = node.label || "git";
   return <GitRepositoryDetail cwd={cwd} title={title} anchorNodeId={node.id} onClose={onClose} />;
 }
 

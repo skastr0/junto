@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { resolveRegionCwd } from "@shared/region-defaults";
-import { makeGitNode } from "../../lib/node-factories";
+import { newGit } from "../../lib/model-factories";
+import { topZ } from "../../lib/model-edits";
 import { addNode } from "../../lib/mutations";
 import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
@@ -25,7 +26,7 @@ export const createGitAt = (
 ): void => {
   const path = cwd.trim();
   if (!path) return;
-  const node = makeGitNode(anchor.x, anchor.y, path);
+  const node = newGit({ ...anchor, z: topZ(modelStore.canvasOf(state$.canvasName.peek())) }, path);
   addNode(node, { edit: false });
   state$.focusNodeId.set(node.id);
 };

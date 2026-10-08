@@ -6,7 +6,6 @@
  * and other furniture return false (caller still focuses/selects).
  */
 import type { Node } from "@shared/model";
-import { nodeToDocument } from "@shared/model/from-document";
 import { BROWSER_ENABLED, productNodeKindEnabled } from "@shared/features";
 import { formatNodeRef } from "@shared/node-ref";
 import { browser$ } from "./browser-state";
@@ -58,8 +57,7 @@ export function activateNodeSurface(nodeId: string): ActivateNodeSurfaceResult {
 
   switch (surface) {
     case "terminal": {
-      // canvas-nodes owns this last inner boundary until openTerminal takes a native node.
-      void openTerminal(nodeToDocument(node));
+      void openTerminal(state$.canvasName.peek(), node.id);
       return { opened: true, kind: "terminal" };
     }
     case "work": {
@@ -67,14 +65,14 @@ export function activateNodeSurface(nodeId: string): ActivateNodeSurfaceResult {
       return { opened: true, kind: "work" };
     }
     case "note": {
-      // The note workbench still takes the document form at this inner boundary.
-      openNoteSurface(nodeToDocument(node));
+      if (node.kind !== "note") return { opened: false, reason: "no-surface" };
+      openNoteSurface(node);
       return { opened: true, kind: "note" };
     }
     case "page": {
       const canvasName = state$.canvasName.peek();
       if (node.kind !== "page") return { opened: false, reason: "no-surface" };
-      const browser = { profile: node.profile, host: node.host, onRemove: node.onRemove };
+      const browser = { profile: node.profile, host: node.host, onDelete: node.onRemove };
       const url = node.url;
       if (!canvasName) return { opened: false, reason: "unavailable" };
       let pageRef: string;

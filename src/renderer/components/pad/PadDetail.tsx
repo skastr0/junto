@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import type { CanvasNode } from "@shared/canvas";
+import type { NodeOf } from "@shared/model";
 import type { Pad, PadPatch } from "@shared/pad";
 import type { WorkOpResult } from "@shared/ipc";
 import { FocusSurface } from "../FocusSurface";
@@ -19,10 +19,10 @@ export function PadDetail({
   node,
   onClose,
 }: {
-  readonly node: CanvasNode;
+  readonly node: NodeOf<"pad">;
   readonly onClose: () => void;
 }) {
-  const rawText = node.type === "text" ? node.text : "";
+  const rawText = node.label ?? "";
   const title = rawText.split("\n")[0]?.trim() || "Pad";
   const [pad, setPad] = useState<Pad | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);

@@ -36,7 +36,8 @@ import {
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import { terminal$ } from "../src/renderer/lib/terminal-state";
-import type { CanvasNode } from "../src/shared/canvas";
+import { asCanvasName } from "../src/shared/model";
+import { terminal, note as modelNote } from "./support/model-nodes";
 import {
   discardAndCloseNoteSurface,
   saveNoteSurfaceDraft,
@@ -256,24 +257,7 @@ function resetDock(): void {
   terminal$.openByNodeId.set({});
 }
 
-const nativeTerminalNode = (id = "term-1"): CanvasNode =>
-  ({
-    id,
-    type: "text",
-    text: "terminal",
-    x: 0,
-    y: 0,
-    width: 220,
-    height: 84,
-    ether: {
-      entity: { kind: "terminal" },
-      host: "local",
-      terminal: {
-        bindingId: `bind-${id}`,
-        launch: { kind: "command", argv: ["zsh"] },
-      },
-    },
-  }) satisfies CanvasNode;
+const nativeTerminalNode = (id = "term-1") => terminal(id, { bindingId: `bind-${id}` as never, launch: { kind: "command", argv: ["zsh"] } });
 
 describe("dock-state", () => {
   beforeEach(resetDock);
@@ -332,15 +316,7 @@ describe("dock-state", () => {
   });
 
   it("keeps a Note draft outside the canvas card across repeated opens", () => {
-    const node = {
-      id: "note-1",
-      type: "text" as const,
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 160,
-      text: "Field notes\n\nOriginal",
-    } satisfies CanvasNode;
+    const node = modelNote("note-1", "Field notes\n\nOriginal", { width: 240, height: 160 });
 
     openNoteSurface(node);
     const id = noteSurfaceId(node.id);
@@ -361,20 +337,11 @@ describe("dock-state", () => {
   });
 
   it("durability saves a Note draft without dismissing its focus surface", () => {
-    const node = {
-      id: "note-save",
-      type: "text" as const,
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 160,
-      text: "Focus-safe note",
-    } satisfies CanvasNode;
-    state$.doc.set({ nodes: [node], edges: [] });
-    modelStore.node$(state$.canvasName.peek(), node.id).set(Schema.decodeUnknownSync(Node)({
-      kind: "note", id: node.id, text: node.text, x: node.x, y: node.y,
-      width: node.width, height: node.height, z: 0,
-    }));
+    const oldCanvas = state$.canvasName.peek();
+    state$.canvasName.set("dock-note-save");
+    const node = modelNote("note-save", "Focus-safe note", { width: 240, height: 160 });
+    state$.doc.set({ nodes: [], edges: [] });
+    const release = modelStore.adopt({ canvas: asCanvasName(state$.canvasName.peek()), seq: 0, nodes: [node], wires: [] });
     openNoteSurface(node);
     const id = noteSurfaceId(node.id);
     dock$.noteById[id].draft.set("Focus-safe note\n\nStill open after canvas flush");
@@ -384,7 +351,7 @@ describe("dock-state", () => {
     expect(dock$.registry.peek().surfaces).toEqual([
       { id, kind: "note", zone: "focus" },
     ]);
-    expect(state$.doc.peek().nodes[0]).toMatchObject({
+    expect(modelStore.node$(state$.canvasName.peek(), node.id).peek()).toMatchObject({
       text: "Focus-safe note\n\nStill open after canvas flush",
     });
     expect(dock$.noteById[id].peek()?.savedText).toBe(
@@ -394,9 +361,11 @@ describe("dock-state", () => {
     dock$.noteById[id].draft.set("discard me");
     discardAndCloseNoteSurface(id);
     expect(dock$.registry.peek().surfaces).toEqual([]);
-    expect(state$.doc.peek().nodes[0]).toMatchObject({
+    expect(modelStore.node$(state$.canvasName.peek(), node.id).peek()).toMatchObject({
       text: "Focus-safe note\n\nStill open after canvas flush",
     });
+    release();
+    state$.canvasName.set(oldCanvas);
   });
 
   it("opens many browsers without detaching earlier ones (tabs replace eviction)", async () => {

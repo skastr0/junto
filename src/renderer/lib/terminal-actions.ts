@@ -2,22 +2,17 @@
  * Terminal open / create / kill — used by the node toolbar and card double-click.
  * Session start is automatic on open; no Start button on the card body.
  */
-import { actorDeliverySurfaceOf } from "@shared/actor-surface";
-import type { CanvasNode } from "@shared/canvas";
-import { resolveTerminalBinding, sessionActorMatches } from "@shared/terminal";
+import type { Node, Seat, Terminal } from "@shared/model";
+import { terminalBindingOf, sessionActorMatches } from "@shared/terminal";
 import { occupancyFromSummary } from "@shared/terminal-seat-occupancy";
 import { markAgentSeatSeen } from "./agent-seat-state";
 import { flushPendingCanvasSave } from "./mutations";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
-import { nodeToDocument } from "@shared/model/from-document";
 import { nodeAt } from "./use-model";
 import type { WorkZone } from "./surface-registry";
 import { openTerminalSurface } from "./dock-state";
 import { openGridTerminalSurface, terminal$ } from "./terminal-state";
-
-const missingActorSurfaceMessage =
-  "agent seat is incomplete — add an agent name, terminal binding, and harness";
 
 type TerminalActionResult =
   | {
@@ -30,16 +25,13 @@ type TerminalActionResult =
   | { readonly ok: false; readonly message: string };
 
 export const ensureTerminalRunning = async (
-  node: CanvasNode,
-  options?: { readonly resume?: boolean },
+  node: Seat | Terminal,
+  options?: { readonly resume?: boolean; readonly canvas?: string },
 ): Promise<TerminalActionResult> => {
-  const entityKind = node.ether?.entity?.kind;
+  const entityKind = node.kind;
 
   if (entityKind === "agent") {
-    const surface = actorDeliverySurfaceOf(node);
-    if (!surface) {
-      return { ok: false, message: missingActorSurfaceMessage };
-    }
+    const surface = terminalBindingOf(node)!;
     const api = getJuntoApi();
     if (!api?.modelStart) {
       return { ok: false, message: "terminal API unavailable — restart Junto" };
@@ -55,11 +47,11 @@ export const ensureTerminalRunning = async (
       // send the node-derived actor command; a cached renderer summary is not
       // authority to skip occupation or reconstruct a geography shell.
       let next = await api.modelStart({
-        canvas: state$.canvasName.peek(),
+        canvas: options?.canvas ?? state$.canvasName.peek(),
         id: node.id,
         resume: options?.resume ?? true,
       });
-      if (!sessionActorMatches(next, surface)) {
+      if (!sessionActorMatches(next, node)) {
         return {
           ok: false,
           message: "actor seat did not bind the requested identity",
@@ -98,7 +90,7 @@ export const ensureTerminalRunning = async (
   if (entityKind !== "terminal") {
     return { ok: false, message: "unbound terminal" };
   }
-  const binding = resolveTerminalBinding(node);
+  const binding = terminalBindingOf(node);
   if (binding?.kind !== "native") {
     return { ok: false, message: "raw terminal is missing its binding" };
   }
@@ -126,7 +118,7 @@ export const ensureTerminalRunning = async (
     // just made has to be committed before it can be started.
     await flushPendingCanvasSave().catch(() => undefined);
     const next = await api.modelStart({
-      canvas: state$.canvasName.peek(),
+      canvas: options?.canvas ?? state$.canvasName.peek(),
       id: node.id,
     });
     terminal$.sessionByBindingId[binding.bindingId].set(next);
@@ -164,14 +156,14 @@ export function openTerminal(
   zone?: WorkZone,
   options?: { readonly resume?: boolean },
 ): Promise<void>;
-/** The same for a caller that still holds a document node. Goes with its last caller. */
+/** Open a model seat or terminal already held by the caller. */
 export function openTerminal(
-  node: CanvasNode,
+  node: Seat | Terminal,
   zone?: WorkZone,
   options?: { readonly resume?: boolean },
 ): Promise<void>;
 export function openTerminal(
-  first: string | CanvasNode,
+  first: string | Seat | Terminal,
   second?: string | WorkZone,
   third?: WorkZone | { readonly resume?: boolean },
   fourth?: { readonly resume?: boolean },
@@ -180,28 +172,18 @@ export function openTerminal(
     return openTerminalNode(first, (second as WorkZone | undefined) ?? "focus", third as { readonly resume?: boolean } | undefined);
   }
   const row = nodeAt(first, second ?? "");
-  if (row === undefined) return Promise.resolve();
-  // The surface and the open-terminals store still take a document node; this
-  // is the one place it is made for them, and it goes when they take an id.
-  return openTerminalNode(nodeToDocument(row), (third as WorkZone | undefined) ?? "focus", fourth);
+  if (row?.kind !== "agent" && row?.kind !== "terminal") return Promise.resolve();
+  return openTerminalNode(row, (third as WorkZone | undefined) ?? "focus", fourth, first);
 }
 
 const openTerminalNode = async (
-  node: CanvasNode,
+  node: Seat | Terminal,
   zone: WorkZone = "focus",
   options?: { readonly resume?: boolean },
+  canvas = state$.canvasName.peek(),
 ): Promise<void> => {
-  const entityKind = node.ether?.entity?.kind;
-  if (entityKind === "agent" && !actorDeliverySurfaceOf(node)) {
-    // An authored actor never degrades into a shell. The global warning is a
-    // visible correction path even though an incomplete node has no terminal
-    // binding with which to mount the normal surface error chrome.
-    state$.error.set(`terminal / ${missingActorSurfaceMessage}`);
-    return;
-  }
-  if (entityKind !== "agent" && entityKind !== "terminal") return;
-
-  const binding = resolveTerminalBinding(node);
+  const entityKind = node.kind;
+  const binding = terminalBindingOf(node);
   if (binding?.kind !== "native") return;
 
   // Opening is "looking" — clear ready/complete (idle+unseen → idle).
@@ -209,11 +191,11 @@ const openTerminalNode = async (
 
   if (entityKind === "agent") {
     // Surface owns ensure + attach (spinner covers the full path).
-    openTerminalSurface(node, zone, state$.canvasName.peek());
+    openTerminalSurface(node, zone, canvas);
     return;
   }
 
-  const result = await ensureTerminalRunning(node, options);
+  const result = await ensureTerminalRunning(node, { ...options, canvas });
   if (!result.ok) {
     console.error("[terminal] open failed", result.message);
     state$.error.set(`terminal / ${result.message}`);
@@ -223,7 +205,7 @@ const openTerminalNode = async (
     const session = terminal$.sessionByBindingId[binding.bindingId].peek();
     if (!session) return;
   }
-  openTerminalSurface(node, zone, state$.canvasName.peek());
+  openTerminalSurface(node, zone, canvas);
 };
 
 /**
@@ -231,11 +213,11 @@ const openTerminalNode = async (
  * single open: a cold seat starts when its surface attaches. Seats that are
  * already open keep their one live surface; the grid adopts it.
  */
-export const openAgentGridTerminals = (nodes: ReadonlyArray<CanvasNode>): ReadonlyArray<string> => {
+export const openAgentGridTerminals = (nodes: ReadonlyArray<Node>): ReadonlyArray<string> => {
   const opened: string[] = [];
   for (const node of nodes) {
-    if (node.ether?.entity?.kind !== "agent" || !actorDeliverySurfaceOf(node)) continue;
-    const binding = resolveTerminalBinding(node);
+    if (node.kind !== "agent") continue;
+    const binding = terminalBindingOf(node);
     if (binding?.kind !== "native") continue;
     markAgentSeatSeen(binding.bindingId);
     openGridTerminalSurface(node, state$.canvasName.peek());
@@ -244,8 +226,8 @@ export const openAgentGridTerminals = (nodes: ReadonlyArray<CanvasNode>): Readon
   return opened;
 };
 
-export const killTerminal = async (node: CanvasNode): Promise<void> => {
-  const binding = resolveTerminalBinding(node);
+export const killTerminal = async (node: Seat | Terminal): Promise<void> => {
+  const binding = terminalBindingOf(node);
   if (binding?.kind !== "native") return;
   await getJuntoApi()?.terminalKill?.(binding.bindingId, binding.hostId);
   try {
