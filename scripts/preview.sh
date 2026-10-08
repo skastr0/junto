@@ -80,6 +80,11 @@ if [[ ! -d "$CHECKOUT/node_modules" ]]; then
   cp -cR "$ROOT/node_modules" "$CHECKOUT/node_modules"
 fi
 cd "$CHECKOUT"
+PINNED_BUN="$(node -e 'process.stdout.write(require("./package.json").packageManager.replace(/^bun@/,""))')"
+if [[ "$(bun --version)" != "$PINNED_BUN" ]]; then
+  BUN_PREFIX="$(mise where "bun@$PINNED_BUN")"
+  export PATH="$BUN_PREFIX/bin:$PATH"
+fi
 if [[ ! -f .preview-build-ready ]]; then
   # Display identity only, in this detached checkout, before packaging/signing.
   node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); p.build.mac.extendInfo.CFBundleDisplayName="Junto PREVIEW"; p.build.mac.extendInfo.CFBundleName="Junto PREVIEW"; fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")'
