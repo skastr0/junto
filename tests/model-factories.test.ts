@@ -14,7 +14,6 @@ import {
 } from "../src/shared/features";
 import { asCanvasName, decodeCommand, type Node } from "../src/shared/model";
 import { canvasFromOpened, type Canvas } from "../src/shared/model/canvas";
-import { nodeFromDocument } from "../src/shared/model/from-document";
 import { added, topZ } from "../src/renderer/lib/model-edits";
 import {
   newArtifacts,
@@ -35,7 +34,6 @@ import {
   newTerminal,
 } from "../src/renderer/lib/model-factories";
 import { seatParts } from "../src/shared/model/seat-parts";
-import { buildManagedAgentSeat, makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
 const name = asCanvasName("factory");
 const canvasOf = (nodes: Node[]): Canvas => canvasFromOpened({ canvas: name, seq: 0, nodes, wires: [] });
@@ -113,32 +111,4 @@ describe("a new seat", () => {
     });
   });
 
-  it("is the same seat the document path makes, apart from what is minted", () => {
-    const choices = { harness: "claude", host: "local", model: "opus", cwd: "/work", label: "planner" } as const;
-    const parts = seatParts(choices);
-    const old = buildManagedAgentSeat(choices);
-    expect(old.text).toBe(parts.label);
-    expect(old.ether.entity).toEqual({ kind: "agent", name: parts.agentKey });
-    expect(old.ether.host).toBe(parts.host);
-    expect(old.ether.terminal?.harness).toBe(parts.harness);
-    // The session id is minted per seat and rides in the arguments; compare around it.
-    const strip = (argv: ReadonlyArray<string> | undefined, id: string | undefined) =>
-      (argv ?? []).map((arg) => (id !== undefined && arg.includes(id) ? arg.replace(id, "<session>") : arg));
-    expect(strip(old.ether.terminal?.launch?.argv, old.ether.terminal?.sessionId)).toEqual(
-      strip(parts.launch.argv, parts.sessionId),
-    );
-    expect(old.ether.terminal?.sessionId === undefined).toBe(parts.sessionId === undefined);
-  });
-
-  it("reads back from a document seat as the same kind of node", () => {
-    const doc = makeManagedAgentNode(10, 20, { harness: "claude", host: "local", label: "planner" });
-    const fromDocument = nodeFromDocument("factory", doc, 7);
-    const fresh = newSeat({ x: 10, y: 20, z: 7 }, { harness: "claude", host: "local", label: "planner" });
-    const shape = (node: Node) => {
-      if (node.kind !== "agent") throw new Error("expected a seat");
-      const { id: _id, bindingId: _binding, sessionId: _session, launch: _launch, ...rest } = node;
-      return rest;
-    };
-    expect(shape(fresh)).toEqual(shape(fromDocument));
-  });
 });

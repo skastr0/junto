@@ -1,18 +1,12 @@
 import type { Canvas } from "../src/shared/model";
 import { canvasOf, note, region as modelRegion } from "./support/model-nodes";
 /**
- * Region environment, the pure half: document shape, the ordered plan, the
+ * Region environment, the pure half: the ordered plan, the
  * merge and its report, and what a running seat was launched with.
  */
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
-import {
-  decodeCanvasDoc,
-  serializeCanvas,
-  type CanvasDoc,
-  type EnvSource,
-  type EtherRegionEnvironment,
-} from "../src/shared/canvas";
+import type { EnvSource, RegionEnvironment } from "../src/shared/model";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import {
   EMPTY_LAUNCH_RECORD,
@@ -26,52 +20,11 @@ import {
   type SourceResolution,
 } from "../src/shared/region-environment";
 
-const region = (
-  id: string,
-  rect: readonly [number, number, number, number],
-  environment?: EtherRegionEnvironment,
-  label = id,
-) => ({
-  id,
-  type: "group" as const,
-  x: rect[0],
-  y: rect[1],
-  width: rect[2],
-  height: rect[3],
-  label,
-  ...(environment ? { ether: { region: { environment } } } : {}),
-});
-
-const seat = (id: string, x: number, y: number) => ({
-  id,
-  type: "text" as const,
-  text: id,
-  x,
-  y,
-  width: 50,
-  height: 40,
-});
-
 const value = (id: string, name: string, v: string, extra: object = {}): EnvSource =>
   ({ id, kind: "value", name, value: v, ...extra }) as EnvSource;
 
-/** outer ⊃ inner ⊃ seat `in`; `mid` sits in outer only; `out` in neither. */
-const doc = (
-  outer?: EtherRegionEnvironment,
-  inner?: EtherRegionEnvironment,
-): CanvasDoc => ({
-  nodes: [
-    region("outer", [0, 0, 1000, 1000], outer, "Outer"),
-    region("inner", [100, 100, 400, 400], inner, "Inner"),
-    seat("in", 200, 200),
-    seat("mid", 700, 700),
-    seat("out", 2000, 2000),
-  ],
-  edges: [],
-});
-
-/** The same nesting as a canvas of model nodes, for everything but the document's own shape. */
-const canvas = (outer?: EtherRegionEnvironment, inner?: EtherRegionEnvironment): Canvas =>
+/** outer contains inner; in is inside both, mid inside outer, out outside both. */
+const canvas = (outer?: RegionEnvironment, inner?: RegionEnvironment): Canvas =>
   canvasOf([
     modelRegion("outer", { x: 0, y: 0, width: 1000, height: 1000 }, { label: "Outer" as never, ...(outer ? { environment: outer as never } : {}) }),
     modelRegion("inner", { x: 100, y: 100, width: 400, height: 400 }, { label: "Inner" as never, ...(inner ? { environment: inner as never } : {}) }),
@@ -99,7 +52,7 @@ const outcomesFor = (
       }),
   );
 
-describe("document shape", () => {
+describe("environment schema", () => {
   const every: EnvSource[] = [
     { id: "a", kind: "value", name: "EDITOR", value: "vim" },
     { id: "b", kind: "secret", name: "API_KEY", secretId: "sec_1", required: true },
@@ -110,26 +63,11 @@ describe("document shape", () => {
     { id: "g", kind: "secretsDir", path: "/run/secrets", prefix: "APP_" },
     { id: "h", kind: "command", name: "TOKEN", argv: ["pass", "show", "token"] },
   ];
-  const environment: EtherRegionEnvironment = {
+  const environment: RegionEnvironment = {
     sealed: true,
     sources: every,
     folders: ["~/notes", "/srv/shared"],
   };
-
-  it("round-trips every source kind through the canvas document", () => {
-    const authored = doc(environment);
-    const decoded = decodeCanvasDoc(JSON.parse(serializeCanvas(authored)));
-    expect(Result.isSuccess(decoded)).toBe(true);
-    if (!Result.isSuccess(decoded)) return;
-    expect(decoded.success.nodes[0]).toMatchObject({
-      ether: { region: { environment } },
-    });
-    // Stable once decoded: a second pass through the document changes nothing.
-    const again = decodeCanvasDoc(JSON.parse(serializeCanvas(decoded.success)));
-    expect(Result.isSuccess(again) && serializeCanvas(again.success)).toBe(
-      serializeCanvas(decoded.success),
-    );
-  });
 
   it("round-trips through the overseer node.configure schema", () => {
     const decoded = decodeOverseerArgs("node.configure", {
@@ -142,26 +80,6 @@ describe("document shape", () => {
     expect(decoded.success.change).toMatchObject({ kind: "region", environment });
   });
 
-  const rejects = (source: unknown): boolean =>
-    Result.isFailure(
-      decodeCanvasDoc({
-        nodes: [region("r", [0, 0, 10, 10], { sources: [source as EnvSource] })],
-        edges: [],
-      }),
-    );
-
-  it("decodes strictly", () => {
-    // An id is required: reports, tokenFrom and edits key on it.
-    expect(rejects({ kind: "value", name: "A", value: "1" })).toBe(true);
-    expect(rejects({ id: "", kind: "value", name: "A", value: "1" })).toBe(true);
-    // No value may ride a kind that names a reference.
-    expect(rejects({ id: "x", kind: "keychain", name: "A", service: "s", value: "leak" })).toBe(true);
-    expect(rejects({ id: "x", kind: "secret", name: "A", secretId: "s", secret: "leak" })).toBe(true);
-    expect(rejects({ id: "x", kind: "nope", name: "A" })).toBe(true);
-    expect(rejects({ id: "x", kind: "value", name: "not a name", value: "1" })).toBe(true);
-    expect(rejects({ id: "x", kind: "command", name: "A", argv: [] })).toBe(true);
-    expect(rejects({ id: "x", kind: "value", name: "A", value: "1" })).toBe(false);
-  });
 });
 
 describe("plan", () => {

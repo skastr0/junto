@@ -14,7 +14,7 @@ import {
   launchForManagedSpawn,
   planManagedSpawn,
 } from "../src/main/junto/term/managed-spawn-plan";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { newSeat } from "../src/renderer/lib/model-factories";
 import { firstCascadeColumn } from "../src/renderer/components/node-palette/agent-launch-model";
 import { harnessBinaryInstalled } from "../src/main/junto/term/templates/harness-install";
 import { evaluate } from "../src/main/junto/term/agent-state";
@@ -228,14 +228,14 @@ describe("ensureProvisionedSessionId", () => {
       threadId: "T-00000000-0000-4000-8000-000000000001",
     });
     const store = vi.spyOn(seatSession, "writeSeatSessionId").mockResolvedValue({ ok: true });
-    const node = makeManagedAgentNode(0, 0, { harness: "amp", host: "local", mode: "low" });
+    const node = newSeat({ x: 0, y: 0, z: 0 }, { harness: "amp", host: "local", mode: "low" });
     try {
       expect(await ensureProvisionedSessionId({
         canvasName: "factory",
         nodeId: "n1",
         harness: "amp",
         cwd: "/work",
-        documentLaunch: node.ether?.terminal?.launch,
+        documentLaunch: node.launch,
       })).toEqual({
         ok: true,
         sessionId: "T-00000000-0000-4000-8000-000000000001",
@@ -353,17 +353,17 @@ describe("amp mode survives a wake", () => {
 
 describe("an Amp seat authored from the picker", () => {
   it("stores the picked mode in the node's launch argv", () => {
-    const node = makeManagedAgentNode(0, 0, {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "amp",
       host: "local",
       mode: "ultra",
     });
-    const argv = node.ether?.terminal?.launch?.argv ?? [];
+    const argv = node.launch?.argv ?? [];
     expect(argv.slice(0, 2)).toEqual(["amp", "--no-ide"]);
     expect(argv).toContain("-m");
     expect(argv[argv.indexOf("-m") + 1]).toBe("ultra");
     // The thread is Amp's to mint, so the node carries no session id yet.
-    expect(node.ether?.terminal?.sessionId).toBeUndefined();
+    expect(node.sessionId).toBeUndefined();
   });
 
   it("offers Amp's built-in modes as a fallback, and no model list", () => {

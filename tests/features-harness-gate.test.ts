@@ -10,7 +10,7 @@ import {
   HARNESS_IDS,
   allTemplates,
 } from "../src/shared/managed-terminal-templates";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { newSeat } from "../src/renderer/lib/model-factories";
 import { SHIP_FEATURES } from "../src/shared/feature-catalog";
 import { resolveBuildFeatures } from "../scripts/build-features";
 
@@ -58,8 +58,7 @@ describe("managed harness product gates", () => {
       expect(managedHarnessEnabled("hermes")).toBe(true);
       expect(allTemplates().map((t) => t.harness)).toContain("hermes");
       expect(
-        makeManagedAgentNode(0, 0, { harness: "hermes", host: "local" }).ether
-          ?.terminal?.harness,
+        newSeat({ x: 0, y: 0, z: 0 }, { harness: "hermes", host: "local" }).harness,
       ).toBe("hermes");
     },
   );
@@ -68,7 +67,7 @@ describe("managed harness product gates", () => {
     expect(managedHarnessEnabled("hermes")).toBe(false);
     expect(allTemplates().map((t) => t.harness)).not.toContain("hermes");
     expect(() =>
-      makeManagedAgentNode(0, 0, { harness: "hermes", host: "local" }),
+      newSeat({ x: 0, y: 0, z: 0 }, { harness: "hermes", host: "local" }),
     ).toThrow(/disabled/u);
   });
 
@@ -76,7 +75,7 @@ describe("managed harness product gates", () => {
     expect(managedHarnessEnabled("kimi")).toBe(false);
     expect(allTemplates().map((t) => t.harness)).not.toContain("kimi");
     expect(() =>
-      makeManagedAgentNode(0, 0, { harness: "kimi", host: "local" }),
+      newSeat({ x: 0, y: 0, z: 0 }, { harness: "kimi", host: "local" }),
     ).toThrow(/disabled/u);
   });
 
@@ -84,7 +83,7 @@ describe("managed harness product gates", () => {
     expect(managedHarnessEnabled("muse")).toBe(false);
     expect(allTemplates().map((t) => t.harness)).not.toContain("muse");
     expect(() =>
-      makeManagedAgentNode(0, 0, { harness: "muse", host: "local" }),
+      newSeat({ x: 0, y: 0, z: 0 }, { harness: "muse", host: "local" }),
     ).toThrow(/disabled/u);
   });
 
@@ -94,10 +93,10 @@ describe("managed harness product gates", () => {
       expect(managedHarnessEnabled("prime-agent")).toBe(true);
       expect(allTemplates().map((t) => t.harness)).toContain("prime-agent");
       expect(
-        makeManagedAgentNode(0, 0, {
+        newSeat({ x: 0, y: 0, z: 0 }, {
           harness: "prime-agent",
           host: "local",
-        }).ether?.terminal?.harness,
+        }).harness,
       ).toBe("prime-agent");
     },
   );
@@ -108,7 +107,7 @@ describe("managed harness product gates", () => {
       expect(managedHarnessEnabled("prime-agent")).toBe(false);
       expect(allTemplates().map((t) => t.harness)).not.toContain("prime-agent");
       expect(() =>
-        makeManagedAgentNode(0, 0, { harness: "prime-agent", host: "local" }),
+        newSeat({ x: 0, y: 0, z: 0 }, { harness: "prime-agent", host: "local" }),
       ).toThrow(/disabled/u);
     },
   );

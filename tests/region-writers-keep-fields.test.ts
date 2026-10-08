@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
-import { nodeOfDocument } from "../src/shared/model/from-document";
-import { loadDoc, renameGroup, setNodeColor, setRegionHold } from "../src/renderer/lib/mutations";
+import { asNodeId, type NodeOf } from "../src/shared/model";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { openModelCanvas } from "./support/open-model-canvas";
+import { renameGroup, setNodeColor, setRegionHold } from "../src/renderer/lib/mutations";
 import { state$ } from "../src/renderer/lib/state";
 
 // A region carrying everything a region can carry. Each writer that edits a
@@ -9,54 +10,21 @@ import { state$ } from "../src/renderer/lib/state";
 // a field would lose an operator's briefing, defaults, rules or environment
 // without anyone having asked for it.
 
-const loaded = (): CanvasNode =>
-  ({
-    id: "works",
-    type: "group",
-    label: "Works",
-    x: 900,
-    y: 0,
-    width: 500,
-    height: 320,
-    background: "content://backgrounds/works.png",
-    backgroundStyle: "cover",
-    ether: {
-      region: {
-        hold: false,
-        instruction: "Ship the works. Ask before deleting anything.",
-        defaults: {
-          page: { url: "https://example.com/works", profile: "work" },
-          paths: { local: "/Users/op/works" },
-        },
-        contract: { rules: [{ id: "r1", text: "Tests pass before review." }] },
-        environment: {
-          sealed: true,
-          sources: [{ id: "k1", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "test-region-credential" }],
-          folders: ["/Users/op/works/shared"],
-        },
-      },
-    },
-  }) as unknown as CanvasNode;
-
-const doc = (): CanvasDoc => ({ nodes: [loaded()], edges: [] });
-
-/** The region as the model holds it, which is what every writer must leave whole. */
+const loaded = (): NodeOf<"region"> => ({
+  id: asNodeId("works"), kind: "region", label: "Works", x: 900, y: 0, width: 500, height: 320, z: 0, hold: false,
+  background: "content://backgrounds/works.png", backgroundStyle: "cover", instruction: "Ship the works. Ask before deleting anything.",
+  defaults: { page: { url: "https://example.com/works", profile: "work" }, paths: { local: "/Users/op/works" } },
+  contract: { rules: [{ id: "r1", text: "Tests pass before review." }] },
+  environment: { sealed: true, sources: [{ id: "k1", kind: "keychain", name: "EXAMPLE_AUTH_TOKEN", service: "test-region-credential" }], folders: ["/Users/op/works/shared"] },
+});
 const held = () => {
-  const node = state$.doc.peek().nodes[0]!;
-  const row = nodeOfDocument("works-canvas", node, 0);
+  const row = modelStore.node$("works-canvas", "works").peek();
   if (row?.kind !== "region") throw new Error("the region is no longer a region");
   return row;
 };
-
-const open = (): void => {
-  state$.canvasName.set("works-canvas");
-  loadDoc(doc(), undefined, "works-canvas");
-};
-
-afterEach(() => {
-  state$.error.set("");
-  state$.saveState.set("saved");
-});
+let close: (() => Promise<void>) | undefined;
+const open = (): void => { close = openModelCanvas("works-canvas", [loaded()]); };
+afterEach(async () => { await close?.(); state$.error.set(""); state$.saveState.set("saved"); });
 
 describe("a writer that edits a region changes its own field and nothing else", () => {
   it("starts from a region that carries every field", () => {

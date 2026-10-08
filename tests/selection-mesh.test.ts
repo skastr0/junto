@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasEdge } from "../src/shared/canvas";
-import { loadDoc, undo } from "../src/renderer/lib/mutations";
+import type { Node, Wire } from "../src/shared/model";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { authoring } from "../src/renderer/lib/authoring";
+import { openModelCanvas } from "./support/open-model-canvas";
+import { undo } from "../src/renderer/lib/mutations";
 import {
   connectMesh,
   disconnectWithin,
@@ -13,45 +16,16 @@ import { agentCountLabel, seatIdsAmong } from "../src/renderer/lib/multi-selecti
 import { placeBesideRect } from "../src/renderer/lib/menu-placement";
 import { state$ } from "../src/renderer/lib/state";
 
-const agent = (id: string): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  // A seat: an agent with the session and harness the model requires of one.
-  ether: { entity: { kind: "agent", name: `local:${id}` }, terminal: { bindingId: `bind-${id}`, harness: "claude" } },
-});
-
-const nodes: CanvasDoc["nodes"] = [
-  agent("a"),
-  agent("b"),
-  agent("c"),
-  agent("d"),
-  { id: "region", type: "group", label: "R", x: 0, y: 0, width: 400, height: 200 },
-];
-
-const wire = (id: string, fromNode: string, toNode: string): CanvasEdge => ({
-  id,
-  fromNode,
-  toNode,
-  ether: { verb: "messages" },
-});
+const nodes: ReadonlyArray<Node> = [seat("a"), seat("b"), seat("c"), seat("d"), region("region", { x: 0, y: 0, width: 400, height: 200 }, { label: "R" })];
+const wire = (id: string, from: string, to: string): Wire => modelWire(id, from, to, "messages");
+let close: (() => Promise<void>) | undefined;
+const open = (wires: ReadonlyArray<Wire>) => { close = openModelCanvas("selection-mesh-test", nodes, wires); };
+const wires = () => [...modelStore.canvasOf("selection-mesh-test").wires.values()];
 
 const pairs = (plan: ReturnType<typeof meshPlanOn>) =>
   plan.toAdd.map((c) => [c.fromNode, c.toNode].sort().join("|")).sort();
 
-// No `junto` bridge, so commits stay in memory; confirm accepts deletes.
-(globalThis as unknown as { window: object }).window = {
-  setTimeout: globalThis.setTimeout,
-  confirm: () => true,
-};
-
-afterEach(() => {
-  state$.error.set("");
-});
+afterEach(async () => { await close?.(); state$.error.set(""); });
 
 describe("the same plans asked of the model canvas", () => {
   const canvas = canvasOf(
@@ -100,21 +74,21 @@ describe("meshPlanOn", () => {
 });
 
 describe("connectMesh", () => {
-  it("commits the whole mesh as one undo step", () => {
-    state$.canvasName.set("selection-mesh-test");
-    loadDoc({ nodes, edges: [wire("e1", "a", "b")] });
+  it("commits the whole mesh as one undo step", async () => {
+    open([wire("e1", "a", "b")]);
     const plan = connectMesh(["a", "b", "c"]);
     expect(plan.toAdd).toHaveLength(2);
-    expect(state$.doc.peek().edges).toHaveLength(3);
+    expect(wires()).toHaveLength(3);
+    await authoring.idle();
     undo();
-    expect(state$.doc.peek().edges.map((e) => e.id)).toEqual(["e1"]);
+    await authoring.idle();
+    expect(wires().map((e) => e.id)).toEqual(["e1"]);
   });
 
   it("reports an already-connected selection without writing", () => {
-    state$.canvasName.set("selection-mesh-test");
-    loadDoc({ nodes, edges: [wire("e1", "a", "b")] });
+    open([wire("e1", "a", "b")]);
     connectMesh(["a", "b"]);
-    expect(state$.doc.peek().edges).toHaveLength(1);
+    expect(wires()).toHaveLength(1);
     expect(state$.error.peek()).toBe("Those agents are already connected.");
   });
 });
@@ -122,13 +96,14 @@ describe("connectMesh", () => {
 describe("disconnect within a selection", () => {
   const edges = [wire("in1", "a", "b"), wire("in2", "c", "a"), wire("out", "a", "d")];
 
-  it("removes inside edges in one write and keeps outside ones", () => {
-    state$.canvasName.set("selection-mesh-test");
-    loadDoc({ nodes, edges });
+  it("removes inside edges in one write and keeps outside ones", async () => {
+    open(edges);
     disconnectWithin(["a", "b", "c"]);
-    expect(state$.doc.peek().edges.map((e) => e.id)).toEqual(["out"]);
+    expect(wires().map((e) => e.id)).toEqual(["out"]);
+    await authoring.idle();
     undo();
-    expect(state$.doc.peek().edges).toHaveLength(3);
+    await authoring.idle();
+    expect(wires()).toHaveLength(3);
   });
 });
 

@@ -60,7 +60,6 @@ vi.mock("node:os", async (importOriginal) => {
   return { ...actual, homedir: () => mockCanvasesHome };
 });
 
-vi.mock("@shared/canvas", () => import("../src/shared/canvas"));
 vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
 import { WorkLive, WorkService } from "../src/main/junto/work/service";

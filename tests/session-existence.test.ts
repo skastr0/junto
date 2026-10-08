@@ -16,8 +16,7 @@ import {
   shouldResumeHarnessSession,
 } from "../src/main/junto/term/session-existence";
 import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
-import type { CanvasDoc } from "../src/shared/canvas";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { newSeat } from "../src/renderer/lib/model-factories";
 
 const temps: string[] = [];
 
@@ -432,18 +431,17 @@ describe("harness session existence (external proof)", () => {
 describe("spawn replan resume gate", () => {
   it("resume:true without external proof pins with --session-id", () => {
     delete process.env.JUNTO_HOME;
-    const node = makeManagedAgentNode(0, 0, {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "grok",
       host: "local",
       cwd: "/Users/me/proj",
     });
-    const sid = node.ether!.terminal!.sessionId!;
-    const doc: CanvasDoc = { nodes: [node], edges: [] };
+    const sid = node.sessionId!;
     const { launch } = launchForManagedSpawn({
-      sessionId: node.ether?.terminal?.sessionId,
+      sessionId: node.sessionId,
       nodeId: node.id,
       harness: "grok",
-      documentLaunch: node.ether!.terminal!.launch,
+      documentLaunch: node.launch,
       resume: true,
       cwd: "/Users/me/proj",
     });
@@ -457,22 +455,21 @@ describe("spawn replan resume gate", () => {
     delete process.env.JUNTO_HOME;
     const home = tempHome();
     const cwd = "/Users/me/proj";
-    const node = makeManagedAgentNode(0, 0, {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "grok",
       host: "local",
       cwd,
     });
-    const sid = node.ether!.terminal!.sessionId!;
+    const sid = node.sessionId!;
     mkdirSync(join(home, ".grok", "sessions", encodeGrokSessionCwd(cwd), sid), {
       recursive: true,
     });
     __setSessionExistenceHomeForTest(home);
-    const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
-      sessionId: node.ether?.terminal?.sessionId,
+      sessionId: node.sessionId,
       nodeId: node.id,
       harness: "grok",
-      documentLaunch: node.ether!.terminal!.launch,
+      documentLaunch: node.launch,
       resume: true,
       cwd,
     });

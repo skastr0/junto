@@ -18,7 +18,7 @@ import {
 } from "../src/shared/managed-terminal-templates";
 import { LOCAL_STATION_CAPABILITIES } from "../src/shared/remote-hosts";
 import { actorHostChoicesFromEnrollment } from "../src/renderer/components/node-palette/agent-launch-model";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { newSeat } from "../src/renderer/lib/model-factories";
 
 describe("Hermes integration product gate", () => {
   it("preserves durable decode vocabulary in every profile", () => {
@@ -56,24 +56,24 @@ describe("Hermes integration product gate", () => {
       );
       if (HARNESS_HERMES_ENABLED) {
         expect(
-          makeManagedAgentNode(0, 0, {
+          newSeat({ x: 0, y: 0, z: 0 }, {
             harness: "hermes",
             host: "local",
-          }).ether?.terminal?.harness,
+          }).harness,
         ).toBe("hermes");
       } else {
         expect(() =>
-          makeManagedAgentNode(0, 0, {
+          newSeat({ x: 0, y: 0, z: 0 }, {
             harness: "hermes",
             host: "local",
           }),
         ).toThrow(/disabled/u);
       }
       expect(
-        makeManagedAgentNode(0, 0, {
+        newSeat({ x: 0, y: 0, z: 0 }, {
           harness: "claude",
           host: "local",
-        }).ether?.terminal?.harness,
+        }).harness,
       ).toBe("claude");
       expect(LOCAL_STATION_CAPABILITIES).toContain("hermes");
       expect(productHostCapabilities(["terminal", "hermes"])).toEqual([

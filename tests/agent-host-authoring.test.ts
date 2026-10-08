@@ -3,7 +3,7 @@ import {
   actorHostChoicesFromEnrollment,
   type AgentHostChoice,
 } from "../src/renderer/components/node-palette/agent-launch-model";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { newSeat } from "../src/renderer/lib/model-factories";
 
 const configured: AgentHostChoice = {
   id: "local",
@@ -55,15 +55,15 @@ describe("agent host authoring", () => {
   });
 
   it("stamps the selected host-local path into the stable actor node", () => {
-    const node = makeManagedAgentNode(10, 20, {
+    const node = newSeat({ x: 10, y: 20, z: 0 }, {
       harness: "grok",
       host: "build-box",
       agentHost: "hermes-build-box",
       cwd: "/srv/work/junto",
     });
 
-    expect(node.ether?.host).toBe("build-box");
-    expect(node.ether?.terminal?.launch?.cwd).toBe("/srv/work/junto");
-    expect(node.ether?.entity?.name).toBe("hermes-build-box:grok");
+    expect(node.host).toBe("build-box");
+    expect(node.launch?.cwd).toBe("/srv/work/junto");
+    expect(node.agentKey).toBe("hermes-build-box:grok");
   });
 });

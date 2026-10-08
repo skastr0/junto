@@ -1,41 +1,33 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import { modelStore } from "../src/renderer/lib/use-model";
+import { authoring } from "../src/renderer/lib/authoring";
+import { openModelCanvas } from "./support/open-model-canvas";
+import { note } from "./support/model-nodes";
 import { asCanvasName, asNodeId, type Command } from "../src/shared/model";
-import { commitCommands, loadDoc, redo, undo } from "../src/renderer/lib/mutations";
+import { commitCommands, redo, undo } from "../src/renderer/lib/mutations";
 import { state$ } from "../src/renderer/lib/state";
 
-// No `window.junto` and no open canvas in the store: the commands are applied
-// to the document itself, which is what a rig of a writer asserts on.
+let close: (() => Promise<void>) | undefined;
+const open = (...nodes: Parameters<typeof openModelCanvas>[1]) => { close = openModelCanvas("rig", nodes); };
+const nodeAt = (id: string) => modelStore.node$("rig", id).peek();
 
-const note = (id: string, text: string, x = 0): CanvasNode =>
-  ({ id, type: "text", text, x, y: 0, width: 200, height: 80 }) as CanvasNode;
-const doc = (...nodes: CanvasNode[]): CanvasDoc => ({ nodes, edges: [] });
 const canvas = asCanvasName("rig");
 const retext = (id: string, text: string): Command =>
   ({ _tag: "Edit", canvas, id: asNodeId(id), change: { kind: "note", text } }) as Command;
-const textOf = (id: string): string | undefined => {
-  const node = state$.doc.peek().nodes.find((candidate) => candidate.id === id);
-  return node?.type === "text" ? node.text : undefined;
-};
+const textOf = (id: string): string | undefined => { const node = nodeAt(id); return node?.kind === "note" ? node.text : undefined; };
+afterEach(async () => { await close?.(); state$.error.set(""); state$.saveState.set("saved"); });
 
-afterEach(() => {
-  state$.error.set("");
-  state$.saveState.set("saved");
-});
-
-describe("one act, said as commands, with nothing to send it to", () => {
-  it("applies the commands to the document and keeps the nodes it did not touch", () => {
-    state$.canvasName.set("rig");
-    loadDoc(doc(note("a", "one"), note("b", "two", 300)), undefined, "rig");
-    const untouched = state$.doc.peek().nodes.find((node) => node.id === "b");
+describe("one act, said as commands, on typed rows", () => {
+  it("applies the commands to the store and keeps the nodes it did not touch", () => {
+    open(note("a", "one"), note("b", "two", { x: 300 }));
+    const untouched = nodeAt("b");
     commitCommands(() => [retext("a", "edited")]);
     expect(textOf("a")).toBe("edited");
-    expect(state$.doc.peek().nodes.find((node) => node.id === "b")).toBe(untouched);
+    expect(nodeAt("b")).toBe(untouched);
   });
 
   it("gives the writer the canvas as it stands", () => {
-    state$.canvasName.set("rig");
-    loadDoc(doc(note("a", "one")), undefined, "rig");
+    open(note("a", "one"));
     let seen: ReadonlyArray<string> = [];
     commitCommands((held) => {
       seen = [...held.nodes.keys()];
@@ -44,42 +36,41 @@ describe("one act, said as commands, with nothing to send it to", () => {
     expect(seen).toEqual(["a"]);
   });
 
-  it("is one step back and one step forward, however many commands it was", () => {
-    state$.canvasName.set("rig");
-    loadDoc(doc(note("a", "one"), note("b", "two", 300)), undefined, "rig");
+  it("is one step back and one step forward, however many commands it was", async () => {
+    open(note("a", "one"), note("b", "two", { x: 300 }));
     commitCommands(() => [retext("a", "first"), retext("b", "second")]);
     expect([textOf("a"), textOf("b")]).toEqual(["first", "second"]);
+    await authoring.idle();
     undo();
+    await authoring.idle();
     expect([textOf("a"), textOf("b")]).toEqual(["one", "two"]);
     redo();
+    await authoring.idle();
     expect([textOf("a"), textOf("b")]).toEqual(["first", "second"]);
   });
 
   it("is not remembered when the writer says it is not the operator's to take back", () => {
-    state$.canvasName.set("rig");
-    loadDoc(doc(note("a", "one")), undefined, "rig");
+    open(note("a", "one"));
     commitCommands(() => [retext("a", "scripted")], { remember: false });
     expect(textOf("a")).toBe("scripted");
     expect(state$.canUndo.peek()).toBe(false);
   });
 
   it("does nothing for no commands, and says so when the writer throws", () => {
-    state$.canvasName.set("rig");
-    loadDoc(doc(note("a", "one")), undefined, "rig");
-    const held = state$.doc.peek();
+    open(note("a", "one"));
+    const held = nodeAt("a");
     commitCommands(() => []);
-    expect(state$.doc.peek()).toBe(held);
+    expect(nodeAt("a")).toBe(held);
     commitCommands(() => {
       throw new Error("that wire would close a loop");
     });
-    expect(state$.doc.peek()).toBe(held);
+    expect(nodeAt("a")).toBe(held);
     expect(state$.error.peek()).toContain("that wire would close a loop");
     expect(state$.saveState.peek()).toBe("error");
   });
 
   it("does nothing on a Remote station", () => {
-    state$.canvasName.set("rig");
-    loadDoc(doc(note("a", "one")), undefined, "rig");
+    open(note("a", "one"));
     const role = state$.settings.station.role.peek();
     state$.settings.station.role.set("remote");
     try {

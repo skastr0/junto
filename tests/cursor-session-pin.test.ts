@@ -30,8 +30,7 @@ import {
   reclaimOrphanedHarnessArgv,
 } from "../src/main/junto/term/session-existence";
 import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { newSeat } from "../src/renderer/lib/model-factories";
 
 const temps: string[] = [];
 const originalJuntoHome = process.env.JUNTO_HOME;
@@ -198,16 +197,16 @@ describe("hyphenated model effort slugs", () => {
 
 describe("a cursor seat carries its session from the moment it is authored", () => {
   it("mints a UUID, stores it on the node, and pins it on argv", () => {
-    const node = makeManagedAgentNode(0, 0, {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "cursor",
       host: "local",
       cwd: "/Users/me/proj",
     });
-    const sid = node.ether!.terminal!.sessionId!;
+    const sid = node.sessionId!;
     expect(sid).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
-    const argv = node.ether!.terminal!.launch!.argv!;
+    const argv = node.launch!.argv!;
     expect(argv).toContain("--new-session-id");
     expect(argv[argv.indexOf("--new-session-id") + 1]).toBe(sid);
     expect(argv).not.toContain("--resume");
@@ -216,18 +215,17 @@ describe("a cursor seat carries its session from the moment it is authored", () 
   it("resume:true without proof re-pins instead of resuming a session that is not there", () => {
     delete process.env.JUNTO_HOME;
     __setSessionExistenceHomeForTest(tempHome());
-    const node = makeManagedAgentNode(0, 0, {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "cursor",
       host: "local",
       cwd: "/Users/me/proj",
     });
-    const sid = node.ether!.terminal!.sessionId!;
-    const doc: CanvasDoc = { nodes: [node], edges: [] };
+    const sid = node.sessionId!;
     const { launch } = launchForManagedSpawn({
-      sessionId: node.ether?.terminal?.sessionId,
+      sessionId: node.sessionId,
       nodeId: node.id,
       harness: "cursor",
-      documentLaunch: node.ether!.terminal!.launch,
+      documentLaunch: node.launch,
       resume: true,
       cwd: "/Users/me/proj",
     });
@@ -240,23 +238,22 @@ describe("a cursor seat carries its session from the moment it is authored", () 
   it("resume:true with the chats receipt resumes that exact id, no fork", () => {
     delete process.env.JUNTO_HOME;
     const home = tempHome();
-    const node = makeManagedAgentNode(0, 0, {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "cursor",
       host: "local",
       cwd: "/Users/me/proj",
     });
-    const sid = node.ether!.terminal!.sessionId!;
+    const sid = node.sessionId!;
     seedCursorChat(home, sid);
     __setSessionExistenceHomeForTest(home);
     expect(harnessSessionExists({ harness: "cursor", sessionId: sid })).toBe(
       true,
     );
-    const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
-      sessionId: node.ether?.terminal?.sessionId,
+      sessionId: node.sessionId,
       nodeId: node.id,
       harness: "cursor",
-      documentLaunch: node.ether!.terminal!.launch,
+      documentLaunch: node.launch,
       resume: true,
       cwd: "/Users/me/proj",
     });

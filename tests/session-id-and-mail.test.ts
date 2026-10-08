@@ -6,14 +6,13 @@ import {
   resetSessionIdStoreForTest,
 } from "../src/main/junto/term/session-id-store";
 import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
-import type { CanvasDoc } from "../src/shared/canvas";
 import {
   GROK_MIN_POST_SPAWN_MS,
   ManagedTerminalDrive,
   CR,
   encodeBracketedPaste,
 } from "../src/main/junto/term/drive";
-import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { newSeat } from "../src/renderer/lib/model-factories";
 
 const originalJuntoHome = process.env.JUNTO_HOME;
 
@@ -195,46 +194,45 @@ describe("session id parsing + authorial pin", () => {
   const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  it("makeManagedAgentNode pins UUID sessionId for claude/grok", () => {
+  it("newSeat pins UUID sessionId for claude/grok", () => {
     for (const harness of ["claude", "grok"] as const) {
-      const n = makeManagedAgentNode(0, 0, { harness, host: "local" });
-      const sid = n.ether?.terminal?.sessionId;
+      const n = newSeat({ x: 0, y: 0, z: 0 }, { harness, host: "local" });
+      const sid = n.sessionId;
       expect(sid).toMatch(UUID_RE);
-      expect(n.ether?.terminal?.harness).toBe(harness);
-      expect(n.ether?.terminal?.bindingId).toBeTruthy();
-      const argv = n.ether?.terminal?.launch?.argv ?? [];
+      expect(n.harness).toBe(harness);
+      expect(n.bindingId).toBeTruthy();
+      const argv = n.launch?.argv ?? [];
       expect(argv).toContain("--session-id");
       expect(argv).toContain(sid);
     }
   });
 
-  it("makeManagedAgentNode does not claim a session pin for unsupported harnesses", () => {
+  it("newSeat does not claim a session pin for unsupported harnesses", () => {
     for (const harness of ["codex", "hermes"] as const) {
-      const n = makeManagedAgentNode(0, 0, {
+      const n = newSeat({ x: 0, y: 0, z: 0 }, {
         harness,
         host: "local",
         ...(harness === "hermes" ? { profile: "default" } : {}),
       });
-      expect(n.ether?.terminal?.sessionId).toBeUndefined();
-      const argv = n.ether?.terminal?.launch?.argv ?? [];
+      expect(n.sessionId).toBeUndefined();
+      const argv = n.launch?.argv ?? [];
       expect(argv).not.toContain("--session-id");
     }
   });
 
   it("spawn replan uses a stored authoring pin without implicitly resuming", () => {
     delete process.env.JUNTO_HOME;
-    const node = makeManagedAgentNode(0, 0, {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "claude",
       host: "local",
     });
-    const sid = node.ether!.terminal!.sessionId!;
+    const sid = node.sessionId!;
     expect(sid).toMatch(UUID_RE);
-    const doc: CanvasDoc = { nodes: [node], edges: [] };
     const { launch } = launchForManagedSpawn({
-      sessionId: node.ether?.terminal?.sessionId,
+      sessionId: node.sessionId,
       nodeId: node.id,
       harness: "claude",
-      documentLaunch: node.ether!.terminal!.launch,
+      documentLaunch: node.launch,
     });
     expect(launch?.argv).toBeDefined();
     const argv = launch!.argv ?? [];
@@ -246,18 +244,17 @@ describe("session id parsing + authorial pin", () => {
 
   it("spawn replan resumes only when requested AND external harness state proves the id", () => {
     delete process.env.JUNTO_HOME;
-    const node = makeManagedAgentNode(0, 0, {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "claude",
       host: "local",
     });
-    const sid = node.ether!.terminal!.sessionId!;
-    const doc: CanvasDoc = { nodes: [node], edges: [] };
+    const sid = node.sessionId!;
     // No FS proof → pin path even with resume:true (fail open).
     const unproven = launchForManagedSpawn({
-      sessionId: node.ether?.terminal?.sessionId,
+      sessionId: node.sessionId,
       nodeId: node.id,
       harness: "claude",
-      documentLaunch: node.ether!.terminal!.launch,
+      documentLaunch: node.launch,
       resume: true,
     });
     expect(unproven.launch?.argv).toEqual(
