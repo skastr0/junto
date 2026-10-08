@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { decodeCanvasDoc, type EtherTerminal } from "../src/shared/canvas";
-import type { ManagedAgentNode, ManagedAgentSurface } from "../src/shared/actor-surface";
-import { actorDeliverySurfaceOf } from "../src/shared/actor-surface";
+import { decodeCanvasDoc, type EtherTerminal } from "../src/main/junto/station/frozen-document";
+import type { ManagedAgentNode, ManagedAgentSurface } from "../src/main/junto/station/frozen-actor-surface";
+import { actorDeliverySurfaceOf } from "../src/main/junto/station/frozen-actor-surface";
 import {
   HARNESS_IDS,
   type HarnessId,

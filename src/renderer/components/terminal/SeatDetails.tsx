@@ -693,27 +693,16 @@ function SeatDetails({ node, session }: { readonly node: SeatFace; readonly sess
 type SeatFace = { readonly id: string; readonly bindingId: string };
 
 /**
- * A document node as the last unconverted callers still hold one. Read here
- * only until the terminal surface and the canvas pass model nodes.
- */
-type DocumentSeat = {
-  readonly id: string;
-  readonly ether?: { readonly terminal?: { readonly bindingId?: string } };
-};
-
-/**
  * The one quiet control in the agent modal's header that opens seat details.
  * A signal opened from elsewhere (the canvas seat's badge) opens it too.
  */
 export function SeatDetailsButton({
-  node: given,
+  node,
   session,
 }: {
-  readonly node: SeatFace | DocumentSeat;
+  readonly node: SeatFace;
   readonly session: SeatSession;
 }) {
-  const node: SeatFace =
-    "bindingId" in given ? given : { id: given.id, bindingId: given.ether?.terminal?.bindingId ?? "" };
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [host, setHost] = useState<HTMLSpanElement | null>(null);
   const reveal = use$(sidebarSections$.reveal);

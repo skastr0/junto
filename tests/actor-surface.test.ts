@@ -1,11 +1,11 @@
 import { nodeFromDocument } from "../src/shared/model/from-document";
 import { describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
+import type { CanvasNode } from "../src/main/junto/station/frozen-document";
 import {
   actorDeliverySurfaceOf,
-} from "../src/shared/actor-surface";
+} from "../src/main/junto/station/frozen-actor-surface";
 import { deliveryTargetOf } from "../src/shared/message-delivery";
-import { resolveTerminalBinding } from "../src/shared/terminal";
+import { terminalBindingOf } from "../src/shared/terminal";
 
 const managedAgent = (): CanvasNode => ({
   id: "w1",
@@ -78,7 +78,7 @@ describe("actorDeliverySurfaceOf — kind-discriminated sum", () => {
     expect(actorDeliverySurfaceOf(rawShell())).toBeUndefined();
     expect(deliveryTargetOf(nodeFromDocument("factory", rawShell(), 0))).toBeUndefined();
     // It still resolves as a terminal to attach to — geography hosts a PTY.
-    expect(resolveTerminalBinding(rawShell())).toMatchObject({
+    expect(terminalBindingOf(nodeFromDocument("factory", rawShell(), 0))).toMatchObject({
       kind: "native",
       bindingId: "bind-shell",
     });

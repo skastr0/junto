@@ -75,14 +75,6 @@ export const subscribeSeatOnboarding = (): (() => void) => {
   return activeUnsubscribe;
 };
 
-/**
- * A document node as the last unconverted callers still hold one. Read here
- * only until the terminal surface and the canvas pass model nodes.
- */
-export const useSeatOnboarding = (node: {
-  readonly ether?: { readonly terminal?: { readonly bindingId?: string } };
-}): SeatOnboardingStatus | undefined => useSeatOnboardingOf(node.ether?.terminal?.bindingId);
-
 /** One seat's status by its binding; undefined until main has one for it. */
 export const useSeatOnboardingOf = (bindingId: string | undefined): SeatOnboardingStatus | undefined => {
   useEffect(() => {

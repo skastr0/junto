@@ -7,11 +7,8 @@ import {
   EtherTerminal,
   resolveTerminalOnDelete,
   type CanvasNode,
-} from "../src/shared/canvas";
-import {
-  resolveTerminalBinding,
-  xtermCapabilities,
-} from "../src/shared/terminal";
+} from "./fixtures/frozen-canvas-types";
+import { xtermCapabilities } from "../src/shared/terminal";
 import { resolveNodeHostId } from "../src/shared/station";
 
 const decodeTerminal = Schema.decodeUnknownSync(EtherTerminal);
@@ -60,8 +57,8 @@ describe("EtherTerminal schema", () => {
   });
 });
 
-describe("resolveTerminalBinding", () => {
-  it("resolves native terminal nodes", () => {
+describe("a document terminal node", () => {
+  it("runs on the host it names", () => {
     const node = {
       id: "n1",
       type: "text" as const,
@@ -79,30 +76,9 @@ describe("resolveTerminalBinding", () => {
         },
       },
     } satisfies CanvasNode;
-    const b = resolveTerminalBinding(node);
-    expect(b?.kind).toBe("native");
-    if (b?.kind === "native") {
-      expect(b.bindingId).toBe("bind-1");
-      expect(b.hostId).toBe("remote-a");
-      expect(b.launch?.kind).toBe("command");
-    }
     expect(resolveNodeHostId(node)).toBe("remote-a");
   });
 
-
-  it("does not invent a binding without bindingId", () => {
-    const node = {
-      id: "n3",
-      type: "text" as const,
-      text: "t",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "terminal" } },
-    } satisfies CanvasNode;
-    expect(resolveTerminalBinding(node)).toBeUndefined();
-  });
 });
 
 describe("station + capabilities", () => {
