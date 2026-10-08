@@ -12,7 +12,6 @@ import type {
   TasksContract,
   TextNode,
 } from "@shared/canvas";
-import { resolveBrowserOnDelete } from "@shared/canvas";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch, observe } from "@legendapp/state";
 import type { BindingHint } from "@shared/ipc";
@@ -22,19 +21,15 @@ import { isValidStationHostId } from "@shared/station";
 import { ulid } from "ulid";
 import type { RegionEnvironment } from "./region-environment";
 import { TASKS_ENABLED } from "@shared/features";
-import {
-  flowEdgeRemovalWarnings,
-  readDeletionPolicy,
-  tasksNodeDeletionWarnings,
-} from "./deletion-impact";
-import type { Color, Command, Node } from "@shared/model";
+import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "./deletion-impact";
+import type { Color, Command, Node, NodeOf } from "@shared/model";
 import { authoring } from "./authoring";
 import { documentEdits, UnholdableEdit } from "@shared/model/document-edits";
 import { createDocumentProjection } from "./document-projection";
 import { canvasAfter } from "./model-undo";
 import { inPaintOrder, type Canvas } from "@shared/model/canvas";
-import { canvasFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
-import { recolored, regionEdited, renamed, retexted, sheetWritten, topZ } from "./model-edits";
+import { canvasFromDocument, nodeFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
+import { added, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, sheetWritten, topZ } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -503,7 +498,7 @@ export const parseSide = (handle?: string | null): NodeSide | undefined => {
 // Regions open the folder-paths modal instead of the label editor so the first
 // configure step is host cwd (the main reason to create a region).
 export const addNode = (
-  node: CanvasNode,
+  made: CanvasNode | Node,
   options?: {
     readonly edit?: boolean;
     readonly focus?: boolean;
@@ -515,21 +510,28 @@ export const addNode = (
     state$.edgeFilter.set("");
     // Keep the single/multi selection pair coherent so the RTS command card
     // targets this node only (stale selectedNodeIds would open the multi card).
-    selectNode(node.id);
+    selectNode(made.id);
   });
-  const doc = state$.doc.peek();
-  commitDoc({ ...doc, nodes: [...doc.nodes, node] });
+  // One Add of the node as the canvas holds it, above everything there. A
+  // caller still making a document node has it read here, and a node the
+  // canvas cannot hold is refused whole.
+  let node: Node | undefined;
+  commitCommands((canvas) => {
+    node = "kind" in made ? made : nodeFromDocument(canvas.name, made, topZ(canvas));
+    return added(canvas, [node]);
+  });
+  if (node === undefined) return;
+  const isRegion = node.kind === "region";
   const shouldFocus = options?.focus !== false;
-  // Groups skip label-edit: paths modal is the first configure step.
-  const shouldEdit = options?.edit !== false && node.type !== "group";
-  const shouldOpenPaths =
-    node.type === "group" && options?.regionPaths !== false;
+  // A region skips the label editor: its folder paths are the first step.
+  const shouldEdit = options?.edit !== false && !isRegion;
+  const shouldOpenPaths = isRegion && options?.regionPaths !== false;
   if (!shouldFocus && !shouldEdit && !shouldOpenPaths) return;
   window.setTimeout(() => {
     batch(() => {
-      if (shouldFocus) state$.focusNodeId.set(node.id);
-      if (shouldEdit) state$.editNodeId.set(node.id);
-      if (shouldOpenPaths) state$.regionPathsNodeId.set(node.id);
+      if (shouldFocus) state$.focusNodeId.set(made.id);
+      if (shouldEdit) state$.editNodeId.set(made.id);
+      if (shouldOpenPaths) state$.regionPathsNodeId.set(made.id);
     });
   }, 0);
 };
@@ -619,20 +621,24 @@ const deleteNodesInternal = async (
     state$.error.set("Canvas changed before Stop Page completed; no nodes were deleted.");
     return;
   }
-  const doc = state$.doc.peek();
-  const existingNodes = doc.nodes.filter((node) => removed.has(node.id));
+  // The canvas as it stands when the operator asks: what is to go, and the
+  // wires that go with it.
+  const canvas = canvasAsItStands();
+  const existingNodes = [...canvas.nodes.values()].filter((node) => removed.has(node.id));
   if (existingNodes.length === 0) return;
-  const connectedEdges = doc.edges.filter((edge) => removed.has(edge.fromNode) || removed.has(edge.toNode)).length;
-  const removedEdges = doc.edges.filter(
-    (edge) => removed.has(edge.fromNode) || removed.has(edge.toNode),
+  const removedWires = [...canvas.wires.values()].filter(
+    (wire) => removed.has(wire.from) || removed.has(wire.to),
   );
+  const connectedEdges = removedWires.length;
   const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
   const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
-  const policy = await readDeletionPolicy(canvasName, doc, removed, removedEdges);
-  if (state$.doc.peek() !== doc) return;
+  const policy = await removalPolicy(canvasName, canvas, removed, removedWires);
+  // The canvas changed while the policy was read: the question would be about
+  // a canvas the operator is no longer looking at.
+  if (state$.canvasName.peek() !== canvasName || state$.docEpoch.peek() !== docEpoch) return;
   const impactWarnings = [
-    ...tasksNodeDeletionWarnings(doc, removed, policy),
-    ...flowEdgeRemovalWarnings(doc, removedEdges, policy, removed),
+    ...boardRemovalWarnings(canvas, removed, policy),
+    ...wireRemovalWarnings(canvas, removedWires, policy, removed),
   ];
   const impactCopy =
     impactWarnings.length === 0 ? "" : `\n${impactWarnings.join("\n")}`;
@@ -641,16 +647,15 @@ const deleteNodesInternal = async (
     !confirmDestructive(`Delete ${nodeLabel}?${impactCopy}${relationLabel}`)
   ) return;
 
-  // Page nodes follow their explicit document policy. Default is kill-session
-  // (Phase 5: page delete closes the owned session). Detach remains available
-  // when the operator authorial field says so.
+  // A page follows what it says happens when it is removed: its session is
+  // closed, or left running when the operator chose to detach.
   const pageActions: Array<{ readonly ref: string; readonly stop: boolean }> = [];
   for (const node of existingNodes) {
-    if (node.ether?.entity?.kind !== "page") continue;
+    if (node.kind !== "page") continue;
     try {
       pageActions.push({
         ref: formatNodeRef({ canvasName, nodeId: node.id }),
-        stop: resolveBrowserOnDelete(node.ether.browser) === "kill-session",
+        stop: node.onRemove === "kill-session",
       });
     } catch {
       // Invalid document identity has no safe automation fallback. The node
@@ -701,12 +706,8 @@ const deleteNodesInternal = async (
   // Agent delete: Main-owned lease locks keys, admits chatOpen tombstones,
   // and awaits verified close BEFORE document mutation. Finish releases the
   // fence after commit or abort (TTL is the backstop).
-  const agentNodes = existingNodes.filter(
-    (n) => n.ether?.entity?.kind === "agent",
-  );
-  const agentKeys = agentNodes
-    .map((n) => n.ether?.entity?.name)
-    .filter((name): name is string => typeof name === "string" && name.length > 0);
+  const agentNodes = existingNodes.filter((n): n is NodeOf<"agent"> => n.kind === "agent");
+  const agentKeys = agentNodes.map((n) => n.agentKey);
   // Managed terminal authority is the exact (host, binding) pair, never the
   // agent key. Two cards may temporarily share an agent key while still owning
   // distinct seats, and duplicate references to one seat must stop it once.
@@ -715,12 +716,7 @@ const deleteNodesInternal = async (
     { readonly bindingId: string; readonly hostId: string }
   >();
   for (const node of agentNodes) {
-    const bindingId = node.ether?.terminal?.bindingId?.trim();
-    if (!bindingId) continue;
-    const authoredHost =
-      typeof node.ether?.host === "string" ? node.ether.host.trim() : "";
-    const hostId = authoredHost || "local";
-    managedTerminalBindings.set(`${hostId}\0${bindingId}`, { bindingId, hostId });
+    managedTerminalBindings.set(`${node.host}\0${node.bindingId}`, { bindingId: node.bindingId, hostId: node.host });
   }
   let chatDeleteLeaseId: string | undefined;
   let terminalDeleteLeaseId: string | undefined;
@@ -889,18 +885,14 @@ const deleteNodesInternal = async (
     await Promise.all(sideEffects);
     return;
   }
-  // Re-read doc only if still on the same canvas epoch; filter from the
-  // capture used for identity checks (same epoch ⇒ same doc generation).
-  const liveDoc = state$.doc.peek();
+  // The same canvas generation as when the operator was asked, checked above.
   removeEdgesFromSelection(new Set(
-    liveDoc.edges
-      .filter((edge) => doomed.has(edge.fromNode) || doomed.has(edge.toNode))
-      .map((edge) => edge.id),
+    [...canvasAsItStands().wires.values()]
+      .filter((wire) => doomed.has(wire.from) || doomed.has(wire.to))
+      .map((wire) => wire.id),
   ));
-  commitDoc({
-    nodes: liveDoc.nodes.filter((n) => !doomed.has(n.id)),
-    edges: liveDoc.edges.filter((e) => !doomed.has(e.fromNode) && !doomed.has(e.toNode)),
-  });
+  // One Remove naming the nodes; the wires at either end go with them.
+  commitCommands((now) => nodesRemoved(now, [...doomed]));
   // Release only after the document commit so reopen cannot race the card.
   await finishDeleteLeases("committed");
   await Promise.all(sideEffects);
@@ -926,28 +918,6 @@ export const editText = (id: string, text: string): void => {
   commitCommands((canvas) => {
     const kind = canvas.nodes.get(id as Node["id"])?.kind;
     return kind === "note" || kind === "label" ? retexted(canvas, id, text) : renamed(canvas, id, text);
-  });
-};
-
-/**
- * Replace an agent node's harness seat (new bindingId + launch) in one commit.
- * Caller kills the previous process and may reopen the surface.
- */
-export const applyManagedAgentReseat = (next: TextNode): void => {
-  if (next.ether?.entity?.kind !== "agent") return;
-  const doc = state$.doc.peek();
-  if (!doc.nodes.some((n) => n.id === next.id)) return;
-  commitDoc({
-    ...doc,
-    // A re-seat changes who sits in the seat, never where the seat is. The
-    // node it was worked out from may be a view of the seat that carries no
-    // placement (the bottom bar's is one), so the place, the size and the
-    // colour are the document's own.
-    nodes: doc.nodes.map((n) =>
-      n.id === next.id
-        ? { ...next, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.color === undefined ? {} : { color: n.color }) }
-        : n,
-    ),
   });
 };
 

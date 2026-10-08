@@ -456,7 +456,11 @@ describe("renderer graph mutations", () => {
         y: 0,
         width: 220,
         height: 84,
-        ether: { entity: { kind: "agent", name: "local:default" } },
+        ether: {
+          entity: { kind: "agent", name: "local:default" },
+          host: "local",
+          terminal: { bindingId: "binding-default", harness: "claude" },
+        },
       }],
       edges: [],
     });

@@ -8,7 +8,6 @@ import type { Command } from "../src/shared/model";
 import { authoring } from "../src/renderer/lib/authoring";
 import { flushCanvasEdits, registerCanvasDraftCommit } from "../src/renderer/lib/canvas-editor-flush";
 import {
-  applyManagedAgentReseat,
   clearAbandonedCanvas,
   commitCommands,
   commitDoc,
@@ -229,28 +228,6 @@ describe("the window changes a canvas by sending commands", () => {
     expect(sent().at(-1)).toEqual({ _tag: "Edit", canvas: "alpha", id: "note", change: { kind: "note", text: "base" } });
     expect(shownText()).toBe("base");
     expect(refused).not.toHaveBeenCalled();
-  });
-
-  it("re-seats from a view of the seat that carries no placement, and the seat stays a seat where it was", async () => {
-    open(doc(seat("s", false), note("note", "base")), "alpha-r1");
-    const held = state$.doc.peek().nodes.find((node) => node.id === "s")!;
-    // The bottom bar's view of a seat: everything but where it is.
-    const view = { ...held, x: 0, y: 0, width: 0, height: 0 } as CanvasNode;
-    const reseated = {
-      ...view,
-      ether: {
-        ...view.ether,
-        entity: { kind: "agent", name: "local:codex" },
-        terminal: { bindingId: "binding-new", harness: "codex" },
-      },
-    } as CanvasNode;
-    applyManagedAgentReseat(reseated as never);
-    await flushPendingCanvasSave();
-    expect(sent().map((command) => command._tag)).toEqual(["Reseat"]);
-    expect(sent()[0]).toMatchObject({ _tag: "Reseat", id: "s", agentKey: "local:codex", bindingId: "binding-new", harness: "codex" });
-    const row = modelStore.canvasOf("alpha").nodes.get("s" as never);
-    expect(row).toMatchObject({ kind: "agent", harness: "codex", x: held.x, y: held.y, width: held.width, height: held.height });
-    expect(state$.error.peek()).toBe("");
   });
 
   it("sends nothing and says so when a writer asks for a seat the canvas cannot hold", async () => {
