@@ -32,6 +32,7 @@ export default defineConfig(({ command, mode }) => {
   const resolvedBuildFeatures = resolveBuildFeatures(process.env);
 
   const productDefines = {
+    __JUNTO_PREVIEW_BUILD__: JSON.stringify(process.env.JUNTO_PREVIEW_BUILD === "1"),
     ...updateDefines,
     __JUNTO_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.JUNTO_MAC_SIGNING_IDENTITY ?? ""),
     __JUNTO_MAC_TEAM_ID__: JSON.stringify(process.env.JUNTO_MAC_TEAM_ID ?? ""),

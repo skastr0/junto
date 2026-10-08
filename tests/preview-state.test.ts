@@ -9,10 +9,22 @@ import { checkPreview } from "../scripts/preview-db-check";
 import { migrateCanvasKinds } from "../src/main/junto/model/migrate";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./fixtures/state-v1/canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "./fixtures/domain-cutover/entities-schema";
+import { pinFreshPreviewHome } from "../src/main/junto/preview-home";
 
 const paths: string[] = [];
 const temporary = () => { const p = mkdtempSync(join(tmpdir(), "junto-preview-test-")); paths.push(p); return p; };
 afterEach(() => { for (const p of paths.splice(0)) rmSync(p, { recursive: true, force: true }); });
+
+it("pins a packaged Finder launch to fresh state before product imports and refuses copied homes", () => {
+  const home = temporary(), fresh = join(home, ".junto-preview");
+  const environment = { JUNTO_HOME: home, JUNTO_HOME_OWNS_SESSIONS: "1", JUNTO_WORK_TOKEN: "live" };
+  expect(() => pinFreshPreviewHome(home, environment)).toThrow("fresh home");
+  mkdirSync(fresh); writeFileSync(join(fresh, ".fresh-preview"), "fresh");
+  pinFreshPreviewHome(home, environment);
+  expect(environment).toEqual({ JUNTO_HOME: fresh, JUNTO_PREVIEW: "1" });
+  writeFileSync(join(fresh, "snapshot.json"), "{}");
+  expect(() => pinFreshPreviewHome(home, environment)).toThrow("copied-state launch is refused");
+});
 
 it("backs up committed WAL without a checkpoint, retains a protected baseline and never follows live references", async () => {
   const root = temporary(), source = join(root, "source"), preview = join(root, "preview");

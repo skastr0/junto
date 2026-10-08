@@ -86,9 +86,7 @@ if [[ "$(bun --version)" != "$PINNED_BUN" ]]; then
   export PATH="$BUN_PREFIX/bin:$PATH"
 fi
 if [[ ! -f .preview-build-ready ]]; then
-  # Display identity only, in this detached checkout, before packaging/signing.
-  node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); p.build.mac.extendInfo.CFBundleDisplayName="Junto PREVIEW"; p.build.mac.extendInfo.CFBundleName="Junto PREVIEW"; fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")'
-  bash scripts/build-app.sh --target mac --fast
+  JUNTO_PREVIEW_BUILD=1 bash scripts/build-app.sh --target mac --fast
   printf '%s\n' "$COMMIT" > .preview-build-ready
 fi
 case "$(uname -m)" in arm64) ARCH_DIR=mac-arm64 ;; x86_64) ARCH_DIR=mac ;; *) exit 1 ;; esac

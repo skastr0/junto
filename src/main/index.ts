@@ -1,3 +1,4 @@
+import "./junto/preview-home";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
