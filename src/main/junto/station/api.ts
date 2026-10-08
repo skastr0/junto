@@ -77,7 +77,7 @@ import {
   type ProjectedActorSeat,
 } from "./actor-seat-compiler";
 import { decodeStationPortfolioBody } from "./portfolio";
-import { canvasFromDocument } from "@shared/model/from-document";
+import { canvasFromDocument } from "./frozen-from-document";
 import {
   StationRepository,
   type StationConfigurationRecord,

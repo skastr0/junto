@@ -137,7 +137,7 @@ import {
   padAuthorRuleError,
   stampPadPatchAuthors,
 } from "./pad-rules";
-import { canvasFromDocument } from "@shared/model/from-document";
+import { canvasFromDocument } from "../station/frozen-from-document";
 import { ContentManifest, ContentManifestError } from "../content/manifest";
 import {
   mailboxMessageDeliveryId,

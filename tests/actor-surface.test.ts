@@ -1,4 +1,4 @@
-import { nodeFromDocument } from "../src/shared/model/from-document";
+import { nodeFromDocument } from "../src/main/junto/station/frozen-from-document";
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/main/junto/station/frozen-document";
 import {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasEdge, CanvasNode } from "../src/shared/canvas";
+import type { CanvasEdge, CanvasNode } from "../src/main/junto/station/frozen-document";
 import {
   canvasFromDocument,
   nodeOfDocument,
   wireOfDocument,
-} from "../src/shared/model/from-document";
+} from "../src/main/junto/station/frozen-from-document";
 
 const seat = (id: string, x = 0): CanvasNode =>
   ({

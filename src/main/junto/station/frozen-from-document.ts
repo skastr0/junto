@@ -1,10 +1,10 @@
 /** Temporary window bootstrap; removed with the final document reader. */
-import type { CanvasEdge, CanvasNode, Task } from "../canvas";
-import { asCanvasName } from "./base";
-import type { Canvas } from "./canvas";
-import { convertLegacyRow, wireFromLegacyRow } from "./from-legacy-row";
-import type { Node } from "./kinds";
-import type { Wire } from "./wire";
+import type { CanvasEdge, CanvasNode, Task } from "./frozen-document";
+import { asCanvasName } from "../../../shared/model/base";
+import type { Canvas } from "../../../shared/model/canvas";
+import { convertLegacyRow, wireFromLegacyRow } from "../../../shared/model/from-legacy-row";
+import type { Node } from "../../../shared/model/kinds";
+import type { Wire } from "../../../shared/model/wire";
 
 export const nodeFromDocument = (
   canvas: string,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
-import { canvasFromDocument, nodeOfDocument, nodesFromDocument } from "../src/shared/model/from-document";
+import type { CanvasDoc, CanvasNode } from "../src/main/junto/station/frozen-document";
+import { canvasFromDocument, nodeOfDocument, nodesFromDocument } from "../src/main/junto/station/frozen-from-document";
 import { convertLegacyRow } from "../src/shared/model/from-legacy-row";
 
 const note = (id: string): CanvasNode => ({ id, type: "text", text: id, x: 0, y: 0, width: 200, height: 80 }) as CanvasNode;

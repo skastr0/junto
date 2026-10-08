@@ -110,7 +110,6 @@ import {
 import { WorkErrorDetails, type VerdictPostArgs, type WorkErrorBody } from "@shared/work-control";
 import type { MailSenderStamp, ReviewVerdict, VerdictSubject } from "@shared/crew";
 import { flowDestinations } from "@shared/flow-graph";
-import { wiresFromDocument } from "@shared/model/from-document";
 import { regionStack } from "@shared/model/canvas";
 import { taskCommentRecipient } from "@shared/task-owner";
 import { makeUserMessage, isTerminalTaskState } from "@shared/task";
