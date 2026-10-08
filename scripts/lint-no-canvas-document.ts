@@ -58,14 +58,20 @@ const ALLOWED = new Set([
   "tests/fixtures/frozen-canvas-types.ts",
   "tests/helpers/authorial-material.ts",
   "tests/helpers/canvas-authority-material.ts",
+  // Tests of the frozen copies the station keeps.
+  "tests/actor-surface.test.ts",
+  "tests/harness-id-closed.test.ts",
+  "tests/terminal-contracts.test.ts",
   // Guards that name the old word only to forbid it in output.
+  "tests/overseer-canvas-commands.test.ts",
+  "tests/rts-control-placement.test.tsx",
   "tests/overseer-control.test.ts",
   "tests/overseer-cli.test.ts",
   "tests/terminal-actor-entry-architecture.test.ts",
 ]);
 
 /** Tests of the unhooked station share its name. */
-const ALLOWED_PATTERNS = [/^tests\/station[.-][\w.-]*\.test\.tsx?$/];
+const ALLOWED_PATTERNS = [/^tests\/station(?:[.-][\w.-]*)?\.test\.tsx?$/];
 
 /**
  * Things that stay exactly as they were written, old names included: old
