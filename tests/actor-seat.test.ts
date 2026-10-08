@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { CanvasDoc } from "./fixtures/frozen-canvas-types";
 import { InstallationId } from "../src/shared/installation-id";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
 import {

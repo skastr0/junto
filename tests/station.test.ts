@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasNode } from "../src/shared/canvas";
+import type { CanvasNode } from "./fixtures/frozen-canvas-types";
 import {
   assessSupervisedRuntime,
   resolveNodeHostId,
 } from "../src/shared/station";
 import { defaultSettings, applySettingsPatch } from "../src/shared/settings";
 import {
-  makeManagedAgentNode,
-  makePageNode,
-  makeGaugeNode,
-} from "../src/renderer/lib/node-factories";
+  newSeat,
+  newPage,
+} from "../src/renderer/lib/model-factories";
 
 describe("station role settings", () => {
   it("defaults to unset role and local host id", () => {
@@ -30,34 +29,32 @@ describe("station role settings", () => {
 
 describe("node host assignment", () => {
   it("factories stamp host on executable nodes", () => {
-    const agent = makeManagedAgentNode(0, 0, {
+    const agent = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "claude",
       host: "local",
       profile: "codex",
       label: "codex",
     });
-    const page = makePageNode(0, 0, "https://example.com");
-    const watcher = makeGaugeNode(0, 0, "remote-a");
-    expect(agent.ether?.host).toBe("local");
-    expect(page.ether?.host).toBe("local");
-    expect(watcher.ether?.host).toBe("remote-a");
+    const page = newPage({ x: 0, y: 0, z: 0 }, "https://example.com");
+    expect(agent.host).toBe("local");
+    expect(page.host).toBe("local");
   });
 
   it("separates an actor's placement HostId from its Hermes routing key", () => {
-    const agent = makeManagedAgentNode(0, 0, {
+    const agent = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "hermes",
       host: "box-1",
       agentHost: "hermes-box",
       profile: "operator",
     });
 
-    expect(agent.ether?.host).toBe("box-1");
-    expect(agent.ether?.entity?.name).toBe("hermes-box:operator");
+    expect(agent.host).toBe("box-1");
+    expect(agent.agentKey).toBe("hermes-box:operator");
   });
 
   it("refuses to create an actor without a canonical placement host", () => {
     expect(() =>
-      makeManagedAgentNode(0, 0, {
+      newSeat({ x: 0, y: 0, z: 0 }, {
         harness: "codex",
         host: "",
       }),

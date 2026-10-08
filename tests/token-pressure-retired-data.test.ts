@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeCanvasDoc } from "../src/shared/canvas";
+import { decodeCanvasDoc } from "./fixtures/frozen-canvas-types";
 import { defaultSettings, SETTINGS_VERSION } from "../src/shared/settings";
 import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
 
