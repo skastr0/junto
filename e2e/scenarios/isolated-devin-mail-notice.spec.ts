@@ -11,6 +11,8 @@ import { readSeatMailbox } from "../harness/work-mail";
  * (also on failure). Final evidence is collected after the bounded hold and
  * before teardown. The latest run and its PIDs are in /tmp/isolated-devin-mail-hold.json.
  * This probe never qualifies typed notices or opens the running app database.
+ * Opt-in only: JUNTO_REAL_DEVIN_MAIL=1, on the operator's request. Credentials
+ * and an installed Devin alone never authorize a real paid harness turn.
  */
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -41,6 +43,7 @@ import {
 
 const operatorHome = homedir();
 const operatorCred = join(operatorHome, ISOLATED_DEVIN_CREDENTIAL_REL);
+const OPT_IN = process.env.JUNTO_REAL_DEVIN_MAIL?.trim() === "1";
 const HOLD = process.env.ISOLATED_DEVIN_HOLD === "1";
 const HOLD_MS = Number.parseInt(process.env.ISOLATED_DEVIN_HOLD_MS ?? "90000", 10);
 const READY_MS = 120_000;
@@ -198,6 +201,7 @@ const observed = async <T>(body: () => Promise<T>) => {
 };
 
 test("isolated Devin [real-harness]: delivered mail reaches readAt", async () => {
+  test.skip(!OPT_IN, "opt-in: JUNTO_REAL_DEVIN_MAIL=1, only on the operator's request");
   if (!Number.isFinite(HOLD_MS) || HOLD_MS < 0 || HOLD_MS > 600_000) throw new Error("ISOLATED_DEVIN_HOLD_MS must be between 0 and 600000");
   test.setTimeout((HOLD ? HOLD_MS : 0) + 630_000);
   if (!existsSync(operatorCred)) test.skip(true, "no operator Devin credentials.toml to seed");
