@@ -7,7 +7,6 @@
  * `src/shared/companion-demo.ts`.
  */
 
-import type { HarnessId } from "../managed-terminal-templates";
 import type { AgentSignal } from "./agent-signals";
 import type { CompanionActivity, CompanionMail, CompanionPreamble } from "./companion-protocol";
 import type { ThreadHealthValue } from "./thread-health";
@@ -49,7 +48,7 @@ export type DemoControlState = "idle" | "working" | "attention" | "unknown" | "g
 export type DemoSeat = {
   readonly id: string;
   readonly name: string;
-  readonly harness: HarnessId;
+  readonly harness: "claude" | "codex" | "amp" | "hermes";
   /** Left edge of the seat's region; the seat sits inside it. */
   readonly regionX: number;
   readonly slot: number;
