@@ -278,14 +278,13 @@ describe("native squad and profile gestures", () => {
   let root: Root, host: HTMLDivElement, release: () => void;
   let oldApi: typeof window.junto;
   let oldCanvas: string;
-  let oldDoc: ReturnType<typeof state$.doc.peek>;
   let send: ReturnType<typeof vi.fn>;
   let save: ReturnType<typeof vi.fn>;
   const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    oldApi = window.junto; oldCanvas = state$.canvasName.peek(); oldDoc = state$.doc.peek();
-    state$.canvasName.set(name); state$.doc.set({ nodes: [], edges: [] });
+    oldApi = window.junto; oldCanvas = state$.canvasName.peek();
+    state$.canvasName.set(name);
     release = modelStore.adopt({ canvas: asCanvasName(name), seq: 0, nodes: [...doc.nodes.values()], wires: [...doc.wires.values()] });
     send = vi.fn(async () => ({ seq: 1 }));
     save = vi.fn(async (input: { name: string; body: SquadBody }) => ({ ok: true,
@@ -298,7 +297,7 @@ describe("native squad and profile gestures", () => {
     await act(async () => { root.unmount(); await flush(); }); host.remove();
     closeSaveSquad(); squads$.list.set([]); profiles$.list.set([]); release();
     modelStore.canvas$(name).nodes.set({}); modelStore.canvas$(name).wires.set({});
-    state$.canvasName.set(oldCanvas); state$.doc.set(oldDoc);
+    state$.canvasName.set(oldCanvas);
     (window as unknown as { junto: unknown }).junto = oldApi;
     vi.unstubAllGlobals();
   });
@@ -317,7 +316,6 @@ describe("native squad and profile gestures", () => {
     await act(async () => { document.querySelector("form.squad-dialog")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await flush(); });
     expect(save).toHaveBeenCalledOnce();
     expect(save.mock.calls[0]![0].body.seats.map((seat: SquadSeat) => seat.profile.name)).toEqual(["alpha"]);
-    expect(state$.doc.peek().nodes).toEqual([]);
   });
 
   it("places a native squad as one undoable Add batch with remapped wires", async () => {

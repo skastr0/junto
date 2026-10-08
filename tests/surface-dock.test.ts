@@ -248,7 +248,6 @@ function installMockJunto(overrides: Partial<MockJunto> = {}): MockJunto {
 
 function resetDock(): void {
   modelStore.canvas$(state$.canvasName.peek()).nodes.set({});
-  state$.doc.set({ nodes: [], edges: [] });
   dock$.registry.set(initialWorkbenchState());
   dock$.browserByRef.set({});
   dock$.chatById.set({});
@@ -333,7 +332,6 @@ describe("dock-state", () => {
     const oldCanvas = state$.canvasName.peek();
     state$.canvasName.set("dock-note-save");
     const node = modelNote("note-save", "Focus-safe note", { width: 240, height: 160 });
-    state$.doc.set({ nodes: [], edges: [] });
     const release = modelStore.adopt({ canvas: asCanvasName(state$.canvasName.peek()), seq: 0, nodes: [node], wires: [] });
     openNoteSurface(node);
     const id = noteSurfaceId(node.id);

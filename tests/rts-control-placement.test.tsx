@@ -57,7 +57,6 @@ const move = async (node: Node) => {
 const assertPlacement = () => {
   expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ ...moved, color: frame.color });
   expect(modelStore.node$(canvas, frame.id).peek()?.kind).toBeTruthy();
-  expect(state$.doc.peek().nodes).toEqual([]);
 };
 const agent = { kind: "agent", label: "Worker", agentKey: "local:worker", bindingId: "worker-binding", host: "local", harness: "codex", launch: { kind: "harness", argv: ["codex"] }, overseer: false, onRemove: "detach" };
 
@@ -66,7 +65,6 @@ beforeEach(() => {
   oldApi = window.junto;
   setApi({ modelCommand: async () => ({ seq: 1 }), onWorkSinkChanged: () => () => {}, workAttention: async () => ({ glances: [], items: [] }), hostsList: async () => ({ ok: true, hosts: [{ id: "local", label: "Local" }, { id: "remote-one", label: "Remote" }] }), terminalKill: async () => {}, terminalGet: async () => undefined });
   state$.canvasName.set(canvas); state$.settings.station.role.set("command-center");
-  state$.doc.set({ nodes: [], edges: [] });
   releaseCanvas = modelStore.adopt(Schema.decodeUnknownSync(Opened)({ canvas, seq: 0, nodes: [], wires: [] }));
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   errors = vi.spyOn(console, "error").mockImplementation(() => {});

@@ -31,7 +31,6 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   state$.settings.set(EMPTY_SETTINGS);
   state$.canvasName.set(canvas);
-  state$.doc.set({ nodes: [], edges: [] });
   release = modelStore.adopt({ canvas: asCanvasName(canvas), seq: 0, wires: [], nodes: [
     note("memo", "Window model note"), seat("planner", { label: "Planner", x: 300 }),
     page("web", { url: "https://native.example.com", x: 600 }),
@@ -56,5 +55,4 @@ it("draws the canvas and minimap from model rows while the document stays empty"
   expect(host.textContent).toContain("Native repository");
   await act(async () => { state$.editNodeId.set("memo"); });
   expect(dock$.noteById[noteSurfaceId("memo")].peek()?.draft).toBe("Window model note");
-  expect(state$.doc.peek()).toEqual({ nodes: [], edges: [] });
 });

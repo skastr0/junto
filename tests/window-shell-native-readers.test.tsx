@@ -53,7 +53,6 @@ beforeEach(() => {
   };
   state$.settings.set(EMPTY_SETTINGS);
   state$.canvasName.set(canvas);
-  state$.doc.set({ nodes: [], edges: [] });
   state$.selectedNodeId.set(""); state$.selectedNodeIds.set([]);
   state$.actorRefs.set([]);
   dock$.registry.set(initialWorkbenchState());
@@ -85,7 +84,6 @@ it("inspects a native selected note, follows text changes, and closes when it is
   expect(document.body.textContent).toContain("Body after");
   await act(async () => { modelStore.node$(canvas, "note").delete(); await flush(); });
   expect(document.querySelector(".inspector-panel")).toBeNull();
-  expect(state$.doc.peek().nodes).toEqual([]);
 });
 
 it("messages the native seat's current binding and follows its name and removal", async () => {
@@ -110,7 +108,6 @@ it("messages the native seat's current binding and follows its name and removal"
   await act(async () => { modelStore.node$(canvas, "seat").delete(); await flush(); });
   expect(document.querySelector('[data-testid="seat-message-open"]')).toBeNull();
   expect([...document.querySelectorAll("button")].find(button => button.textContent === "Send")?.disabled).toBe(true);
-  expect(state$.doc.peek().nodes).toEqual([]);
 });
 
 it("budgets the focused terminal's rail from native wires and follows collapse and disconnect", async () => {
@@ -131,5 +128,4 @@ it("budgets the focused terminal's rail from native wires and follows collapse a
   expect(rails()).toBe(`${actorTerminalRailsPx("collapsed")}px`);
   await act(async () => { modelStore.wire$(canvas, "connection").delete(); await flush(); });
   expect(rails()).toBe("0px");
-  expect(state$.doc.peek().nodes).toEqual([]);
 });

@@ -13,10 +13,9 @@ import { canvasCommandGroups } from "./lib/command-groups";
 import {
   canvasMutationsQuiesced,
   clearAbandonedCanvas,
-  followStoreDocument,
-  loadDoc,
+  followStore,
   prepareCanvasRemoval,
-  projectedDocument,
+  showOpenedCanvas,
   replaceActiveActorRefs,
   retrySave,
 } from "./lib/mutations";
@@ -183,7 +182,7 @@ const showHeld = (name: string, held: HeldCanvas): void => {
   state$.canvasName.set(name);
   resetCanvasView();
   batch(() => {
-    loadDoc(projectedDocument(name), undefined, name);
+    showOpenedCanvas(name);
     replaceActiveActorRefs(held.actorRefs);
   });
 };
@@ -504,9 +503,9 @@ export function App() {
   // A view never outlives its node, however the node left the canvas.
   useEffect(() => installRemovedNodeViews(), []);
 
-  // The document is the node store in the old shape, for the readers that
-  // still take one; the actor references follow what main announces.
-  useEffect(() => followStoreDocument(), []);
+  // What is selected follows the node store; the actor references follow
+  // what main announces.
+  useEffect(() => followStore(), []);
   useEffect(
     () =>
       window.junto?.onModelActorRefsChanged((event) => {

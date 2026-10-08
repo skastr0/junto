@@ -1,5 +1,5 @@
 import { batch, observable } from "@legendapp/state";
-import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
+import type { EtherEdgeKind } from "@shared/canvas";
 import type { SnapshotState } from "@shared/entities";
 import type { CanvasSummary, DigestResult, DiscoveredPeer } from "@shared/ipc";
 import type { RegionRollup } from "@shared/region-rollup";
@@ -10,14 +10,13 @@ import type { ActorRef } from "@shared/work-protocol";
 import type { FleetProbeState } from "./fleet-state";
 import type { HotbarSlot } from "./hotbar-slots";
 
-export const EMPTY_DOC: CanvasDoc = { nodes: [], edges: [] };
 export const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
 export const EMPTY_USAGE: UsageState = { snapshots: [] };
 export const EMPTY_SETTINGS: Settings = defaultSettings();
 
-// The renderer holds the live document projection and derived graph state.
-// SQLite authority remains in main. React Flow keeps its own copy for smooth
-// interaction; structural mutations bump `docVersion` to re-sync it.
+// What the window itself holds: what is selected, focused and shown. The
+// canvas is in the node store (model-store.ts), not here. React Flow keeps
+// its own copy for smooth interaction; `docVersion` steps to re-sync it.
 export const state$ = observable({
   canvases: [] as ReadonlyArray<CanvasSummary>,
   canvasName: "",
@@ -71,15 +70,14 @@ export const state$ = observable({
   regionSeverityByNodeId: {} as Readonly<Record<string, string>>,
   // Per-region member tallies (from region rollups), for the overview tier.
   regionCountsByNodeId: {} as Readonly<Record<string, RegionRollup["counts"]>>,
-  doc: EMPTY_DOC as CanvasDoc,
-  // Compiled execution identities for actor nodes in the open canvas.
-  // Projection-only: never written back into the authorial document.
+  // Compiled execution identities for actor nodes in the open canvas, as main
+  // announces them. Never written back.
   actorRefs: [] as ReadonlyArray<ActorRef>,
-  // Incremented on every structural change (add/remove/edit/flag) and on
-  // external reload — NOT on drag, which RF already reflects.
+  // Stepped whenever the open canvas changes in the node store, and when a
+  // canvas is opened.
   docVersion: 0,
-  // Bumped on every commitDoc (including position-only drags) so geometric
-  // region membership can re-poll without forcing a React Flow rebuild.
+  // Stepped with it. A delete in progress reads it to know the canvas is
+  // still the one the operator was asked about.
   docEpoch: 0,
   snapshots: EMPTY_SNAPSHOTS as SnapshotState,
   // Provider usage plane (native sources). Fail-open empty until first quotas.

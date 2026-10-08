@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { ActorRef } from "../src/shared/work-protocol";
 import {
-  loadDoc,
   replaceActiveActorRefs,
 } from "../src/renderer/lib/mutations";
+import { loadDoc } from "./support/open-document";
 import { state$ } from "../src/renderer/lib/state";
 
 const actorRef = Schema.decodeUnknownSync(ActorRef);

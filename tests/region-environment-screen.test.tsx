@@ -747,8 +747,8 @@ describe("copy", () => {
 
 it("the mounted region modal follows native environment edits with no document copy", async () => {
   const canvasName = "native-region-environment";
-  const oldCanvas = state$.canvasName.peek(), oldDoc = state$.doc.peek();
-  state$.canvasName.set(canvasName); state$.doc.set({ nodes: [], edges: [] });
+  const oldCanvas = state$.canvasName.peek();
+  state$.canvasName.set(canvasName);
   const node = region("native-region", { x: 0, y: 0, width: 600, height: 400 }, { label: "Native team", environment: { sources: [plain] } });
   modelStore.node$(canvasName, node.id).set(node);
   try {
@@ -764,6 +764,6 @@ it("the mounted region modal follows native environment edits with no document c
   } finally {
     await act(async () => root.render(null));
     modelStore.canvas$(canvasName).nodes.set({});
-    state$.canvasName.set(oldCanvas); state$.doc.set(oldDoc);
+    state$.canvasName.set(oldCanvas);
   }
 });

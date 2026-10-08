@@ -1,14 +1,7 @@
 import type { SheetGrid } from "@shared/model/sheet";
-import type {
-  CanvasDoc,
-  CanvasEdge,
-  CanvasNode,
-  NodeSide,
-  TextNode,
-} from "@shared/canvas";
+import type { NodeSide } from "@shared/canvas";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch, observe } from "@legendapp/state";
-import type { BindingHint } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
@@ -18,12 +11,8 @@ import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "./dele
 import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, RegionEnvironment } from "@shared/model";
 import type { Ruling, TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
-import { documentEdits, UnholdableEdit } from "@shared/model/document-edits";
-import { createDocumentProjection } from "./document-projection";
-import { canvasAfter } from "./model-undo";
-import { inPaintOrder, type Canvas } from "@shared/model/canvas";
-import { canvasFromDocument, nodeFromDocument, nodeToDocument, wireToDocument } from "@shared/model/from-document";
-import { added, cronEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, sheetWritten, taskBoardEdited, topZ, watcherEdited } from "./model-edits";
+import type { Canvas } from "@shared/model/canvas";
+import { added, cronEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, sheetWritten, taskBoardEdited, watcherEdited } from "./model-edits";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -34,100 +23,73 @@ import {
 } from "./state";
 import { sheetStore } from "./sheet-store";
 
-// Undo is commands (authoring). These two stacks are only what the document
-// looked like before each remembered act, so that a step back or forward shows
-// in the document at once, as the store already shows it; main's copy follows.
-// They are for the open canvas alone and are dropped whenever it is replaced.
-const shownBefore: CanvasDoc[] = [];
-const shownAfter: CanvasDoc[] = [];
-
-/** True when there is a main to send to: not in a test or a view with no bridge. */
-const bridged = (): boolean => typeof window !== "undefined" && Boolean(window.junto);
-
-// --- the document is the node store, in the old shape ----------------------
-//
-// TEMPORARY, with document-projection.ts. When the node store holds the open
-// canvas, `state$.doc` is worked out from it and nothing else writes it: not a
-// read from main, and not the writers below, whose edits reach the document by
-// way of the store. It is written directly only where there is no store to
-// work it out from: a view with no main (the demo) and the unit rigs.
-let projection = createDocumentProjection();
-let projectedName = "";
-
-/** True when the node store holds this canvas, so the document is its projection. */
+/** True when the node store holds this canvas. Nothing is edited on one it does not. */
 const storeHolds = (name: string): boolean =>
   name !== "" && modelStore.canvas$(name).status.peek() === "open";
 
-/** The document of a canvas the store holds, as the store has it now. */
-export const projectedDocument = (name: string): CanvasDoc => {
-  if (projectedName !== name) {
-    projection = createDocumentProjection();
-    projectedName = name;
-  }
-  return projection(modelStore.canvasOf(name));
-};
+// --- following the store ---------------------------------------------------
+//
+// The open canvas is what the node store holds. When it changes, by this
+// window's own edit or by main's word, what the window had selected, focused
+// or open for editing is let go where it is no longer on the canvas, and the
+// two counters the surfaces rebuild on are stepped.
+let followedNodes: unknown;
+let followedWires: unknown;
 
-/** Show the open canvas as the store has it, and let go of what is no longer on it. */
-const showProjected = (name: string): void => {
-  if (!canvasMutationAdmissionOpen || state$.canvasName.peek() !== name) return;
-  const doc = projectedDocument(name);
-  if (doc === state$.doc.peek()) return;
-  const nodeIds = new Set(doc.nodes.map((node) => node.id));
-  const edgeIds = new Set(doc.edges.map((edge) => edge.id));
+const dropWhatLeft = (name: string, reset: boolean): void => {
+  const canvas = modelStore.canvasOf(name);
+  followedNodes = canvas.nodes;
+  followedWires = canvas.wires;
+  const hasNode = (id: string): boolean => !reset && canvas.nodes.has(id as Node["id"]);
+  const hasWire = (id: string): boolean => !reset && canvas.wires.has(id as never);
   batch(() => {
-    state$.doc.set(doc);
     const selected = state$.selectedNodeIds.peek();
-    const kept = selected.filter((id) => nodeIds.has(id));
+    const kept = selected.filter(hasNode);
     const one = state$.selectedNodeId.peek();
     const edge = state$.selectedEdgeId.peek();
-    if (kept.length !== selected.length || (one !== "" && !nodeIds.has(one)) || (edge !== "" && !edgeIds.has(edge))) {
+    if (kept.length !== selected.length || (one !== "" && !hasNode(one)) || (edge !== "" && !hasWire(edge))) {
       replaceSelection({
-        nodeId: nodeIds.has(one) ? one : kept.length === 1 ? (kept[0] ?? "") : "",
+        nodeId: hasNode(one) ? one : kept.length === 1 ? (kept[0] ?? "") : "",
         nodeIds: kept,
-        edgeId: edgeIds.has(edge) ? edge : "",
+        edgeId: hasWire(edge) ? edge : "",
       });
     }
-    if (!nodeIds.has(state$.focusNodeId.peek())) state$.focusNodeId.set("");
-    if (!nodeIds.has(state$.editNodeId.peek())) state$.editNodeId.set("");
+    if (!hasNode(state$.focusNodeId.peek())) state$.focusNodeId.set("");
+    if (!hasNode(state$.editNodeId.peek())) state$.editNodeId.set("");
     state$.docVersion.set(state$.docVersion.peek() + 1);
     state$.docEpoch.set(state$.docEpoch.peek() + 1);
   });
 };
 
-/** Keep the document following the store for the open canvas. Returns the way to stop. */
-export const followStoreDocument = (): (() => void) =>
+/** Follow the store for the open canvas. Returns the way to stop. */
+export const followStore = (): (() => void) =>
   observe(() => {
     const name = state$.canvasName.get();
     if (!name) return;
     const open$ = modelStore.canvas$(name);
     if (open$.status.get() !== "open") return;
-    open$.nodes.get();
-    open$.wires.get();
-    showProjected(name);
+    const nodes = open$.nodes.get();
+    const wires = open$.wires.get();
+    if (!canvasMutationAdmissionOpen || state$.canvasName.peek() !== name) return;
+    if (nodes === followedNodes && wires === followedWires) return;
+    dropWhatLeft(name, false);
   });
 
 const syncHistoryState = (): void => {
   const name = state$.canvasName.peek();
-  state$.canUndo.set(shownBefore.length > 0 || (name !== "" && authoring.canUndo(name)));
-  state$.canRedo.set(shownAfter.length > 0 || (name !== "" && authoring.canRedo(name)));
+  state$.canUndo.set(name !== "" && authoring.canUndo(name));
+  state$.canRedo.set(name !== "" && authoring.canRedo(name));
 };
 authoring.onChange(syncHistoryState);
-
-const forgetShown = (): void => {
-  shownBefore.length = 0;
-  shownAfter.length = 0;
-};
 
 const confirmDestructive = (message: string): boolean =>
   typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(message);
 
 // --- sending edits ---------------------------------------------------------
 //
-// The window changes a canvas by sending commands and saves no document. A
-// writer here still says what the document should become; what goes out is
-// the difference (document-edits.ts), as one act, with its way back
-// remembered. The document the window holds is shown at once and is otherwise
-// only what main last sent.
+// The window changes a canvas by sending commands. A writer says its commands
+// against the canvas the store holds; they go out as one act, shown in the
+// store at once, with the way back remembered.
 
 // Process-lifetime latch. Signal quit closes it once; there is deliberately no
 // reopen API because a later mutation would invalidate the acknowledged final
@@ -138,16 +100,11 @@ const activeCanvasAuthoringOperations = new Set<Promise<void>>();
 // clearAbandonedCanvas (open/create of that name).
 const abandonedNames = new Set<string>();
 
-const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
-  const { [key]: _removed, ...rest } = value;
-  return rest;
-};
-
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 // When main refuses an edit the store is ahead of the canvas: it is read
-// again from main, and the document follows it.
+// again from main.
 const readAgain = (name: string): void => {
   void modelStore.reread(name);
 };
@@ -155,22 +112,6 @@ const readAgain = (name: string): void => {
 const settled = (name: string): void => {
   if (authoring.busy() || state$.canvasName.peek() !== name) return;
   if (state$.saveState.peek() === "saving") state$.saveState.set("saved");
-};
-
-/**
- * The commands for an edit, or nothing when the edit asks for a node the
- * canvas cannot hold: then nothing is sent, and the window says so with the
- * line a refused command shows.
- */
-const editsOrRefusal = (name: string, before: CanvasDoc, next: CanvasDoc): ReadonlyArray<Command> | undefined => {
-  try {
-    return documentEdits(name, before, next, topZ(modelStore.canvasOf(name)));
-  } catch (error) {
-    if (!(error instanceof UnholdableEdit)) throw error;
-    state$.saveState.set("error");
-    state$.error.set(`canvas "${name}" did not take that change: ${error.message}`);
-    return undefined;
-  }
 };
 
 /** Send one act for the open canvas. A refusal is shown and the canvas read again. */
@@ -186,8 +127,7 @@ const sendAct = (name: string, commands: ReadonlyArray<Command>, remember: boole
       if (state$.canvasName.peek() === name) {
         state$.saveState.set("error");
         state$.error.set(`canvas "${name}" did not take that change: ${messageOf(error)}`);
-        // What the document showed before is no longer a step anyone can take.
-        forgetShown();
+        // The refused act is not a step anyone can take back.
         syncHistoryState();
       }
       readAgain(name);
@@ -262,7 +202,6 @@ export const prepareCanvasRemoval = async (name: string): Promise<void> => {
   state$.saveState.set("saved");
   await authoring.idle().catch(() => undefined);
   authoring.forget(name);
-  if (state$.canvasName.peek() === name) forgetShown();
   syncHistoryState();
 };
 
@@ -278,84 +217,12 @@ export const replaceActiveActorRefs = (
   state$.actorRefs.set([...actorRefs]);
 };
 
-// Say what the document should become. It is shown at once, and the
-// difference from what it was is sent as one act. `structural` bumps
-// docVersion; `remember` false is for an act that is not the operator's to
-// take back.
-export const commitDoc = (next: CanvasDoc, structural = true, remember = structural): void => {
-  if (state$.settings.station.role.peek() === "remote") {
-    return;
-  }
-  if (!canvasMutationAdmissionOpen) return;
-  const before = state$.doc.peek();
-  const name = state$.canvasName.peek();
-  if (bridged() && storeHolds(name)) {
-    // The store holds this canvas: the edit goes to it as commands, and the
-    // document shows it by following the store, in this same turn.
-    if (abandonedNames.has(name)) return;
-    const commands = editsOrRefusal(name, before, next);
-    if (commands !== undefined) sendAct(name, commands, remember);
-    return;
-  }
-  // No store to follow: the document is written here. It is checked first all
-  // the same, with or without a main to send to: an edit the canvas cannot
-  // hold is refused before anything shows it.
-  const commands = editsOrRefusal(name, before, next);
-  if (commands === undefined) return;
-  state$.doc.set(next);
-  if (structural) state$.docVersion.set(state$.docVersion.peek() + 1);
-  // Position-only writes still change geometric region membership — the RTS
-  // bar re-polls on docEpoch without forcing a React Flow graph rebuild.
-  state$.docEpoch.set(state$.docEpoch.peek() + 1);
-  if (!bridged()) {
-    // Nothing to send to: the document is all there is, and so is its undo.
-    if (remember) {
-      shownBefore.push(before);
-      shownAfter.length = 0;
-      syncHistoryState();
-    }
-    return;
-  }
-  if (!name || abandonedNames.has(name)) return;
-  if (commands.length === 0) return;
-  if (remember) {
-    shownBefore.push(before);
-    shownAfter.length = 0;
-    syncHistoryState();
-  }
-  sendAct(name, commands, remember);
-};
-
 /**
- * The document after an edit, when there is no store to work it out from: the
- * canvas with the commands applied, in the old shape, keeping the document's
- * own node and edge wherever the edit did not touch the row under it.
+ * The open canvas as it stands, read once from the node store. For a writer
+ * that is not one step, which reads, asks the operator, and only then says
+ * its commands through `commitCommands`.
  */
-const documentAfter = (doc: CanvasDoc, before: Canvas, after: Canvas): CanvasDoc => {
-  const nodeById = new Map(doc.nodes.map((node) => [node.id, node] as const));
-  const edgeById = new Map(doc.edges.map((edge) => [edge.id, edge] as const));
-  return {
-    nodes: inPaintOrder(after).map((row) => {
-      const held = nodeById.get(row.id);
-      return held !== undefined && before.nodes.get(row.id) === row ? held : nodeToDocument(row);
-    }),
-    edges: [...after.wires.values()].map((wire) => {
-      const held = edgeById.get(wire.id);
-      return held !== undefined && before.wires.get(wire.id) === wire ? held : wireToDocument(wire);
-    }),
-  };
-};
-
-/**
- * The open canvas as it stands, read once: what the node store holds when it
- * holds the canvas, else what the document describes. For a writer that is
- * not one step, which reads, asks the operator, and only then says its
- * commands through `commitCommands`.
- */
-export const canvasAsItStands = (): Canvas => {
-  const name = state$.canvasName.peek();
-  return storeHolds(name) ? modelStore.canvasOf(name) : canvasFromDocument(name, state$.doc.peek());
-};
+export const canvasAsItStands = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
 
 /**
  * Do one act on the open canvas, said as commands. This is how a writer
@@ -366,11 +233,9 @@ export const canvasAsItStands = (): Canvas => {
  * removed. A command main refuses shows the refusal line and the canvas is
  * read again.
  *
- * Where the node store holds the canvas, which is always in the app, the
- * commands go to it and the document follows. Where nothing holds it (a view
- * with no main, a unit rig that never opened a canvas) the commands are
- * applied to the document itself, so the same writer works in both and a rig
- * may assert on either.
+ * The commands are shown in the node store at once and handed to main; where
+ * there is no main (the demo, a unit rig) the store is all there is. A canvas
+ * the store does not hold is not edited.
  */
 export const commitCommands = (
   edit: (canvas: Canvas) => ReadonlyArray<Command>,
@@ -381,98 +246,31 @@ export const commitCommands = (
   const name = state$.canvasName.peek();
   if (abandonedNames.has(name)) return;
   const remember = options.remember ?? true;
-  const held = storeHolds(name);
-  const doc = state$.doc.peek();
-  let canvas: Canvas;
+  if (!storeHolds(name)) return;
   let commands: ReadonlyArray<Command>;
   try {
-    canvas = held ? modelStore.canvasOf(name) : canvasFromDocument(name, doc);
-    commands = edit(canvas);
+    commands = edit(modelStore.canvasOf(name));
   } catch (error) {
     state$.saveState.set("error");
     state$.error.set(`canvas "${name}" did not take that change: ${messageOf(error)}`);
     return;
   }
-  if (commands.length === 0) return;
-  if (held && bridged()) {
-    sendAct(name, commands, remember);
-    return;
-  }
-  // No main, or no store: the commands are applied here.
-  const after = commands.reduce((current, command) => canvasAfter(current, command), canvas);
-  if (held) for (const command of commands) modelStore.show(command);
-  batch(() => {
-    state$.doc.set(documentAfter(doc, canvas, after));
-    state$.docVersion.set(state$.docVersion.peek() + 1);
-    state$.docEpoch.set(state$.docEpoch.peek() + 1);
-  });
-  if (remember && !bridged()) {
-    shownBefore.push(doc);
-    shownAfter.length = 0;
-    syncHistoryState();
-  }
-  if (bridged() && name) sendAct(name, commands, remember);
+  sendAct(name, commands, remember);
 };
 
-export interface LoadDocOptions {
-  /**
-   * Same-canvas projections retain interaction state only while its referenced
-   * node or edge still exists. Canvas navigation keeps the reset default.
-   */
-  readonly preserveValidInteraction?: boolean;
-}
-
-// Replace the document from an authoritative source (open / external reload).
-// Always structural; sends nothing (it mirrors what main already holds). Undo
-// is kept: it is commands, and belongs to the canvas, not to this copy of it.
-export const loadDoc = (
-  doc: CanvasDoc,
-  _revision?: string,
-  _name = state$.canvasName.peek(),
-  options: LoadDocOptions = {},
-): void => {
+/**
+ * The window has just been given a canvas to show: what was selected, focused
+ * or being edited belonged to the one before it and is let go. Sends nothing.
+ * Undo is kept: it is commands, and belongs to the canvas.
+ */
+export const showOpenedCanvas = (name = state$.canvasName.peek()): void => {
   if (!canvasMutationAdmissionOpen) return;
-  // What the document showed before belongs to the document it replaces.
-  forgetShown();
-  const nodeIds = options.preserveValidInteraction
-    ? new Set(doc.nodes.map((node) => node.id))
-    : undefined;
-  const edgeIds = options.preserveValidInteraction
-    ? new Set(doc.edges.map((edge) => edge.id))
-    : undefined;
-  const previousSelectedNodeIds = state$.selectedNodeIds.peek();
-  const retainedSelectedNodeIds = nodeIds
-    ? previousSelectedNodeIds.filter((id) => nodeIds.has(id))
-    : [];
-  const selectedNodeIds =
-    retainedSelectedNodeIds.length === previousSelectedNodeIds.length
-      ? previousSelectedNodeIds
-      : retainedSelectedNodeIds;
-  const previousSelectedNodeId = state$.selectedNodeId.peek();
-  const selectedNodeId = nodeIds?.has(previousSelectedNodeId)
-    ? previousSelectedNodeId
-    : selectedNodeIds.length === 1
-      ? selectedNodeIds[0] ?? ""
-      : "";
-  const previousSelectedEdgeId = state$.selectedEdgeId.peek();
-  const selectedEdgeId = edgeIds?.has(previousSelectedEdgeId)
-    ? previousSelectedEdgeId
-    : "";
-  const previousFocusNodeId = state$.focusNodeId.peek();
-  const focusNodeId = nodeIds?.has(previousFocusNodeId) ? previousFocusNodeId : "";
-  const previousEditNodeId = state$.editNodeId.peek();
-  const editNodeId = nodeIds?.has(previousEditNodeId) ? previousEditNodeId : "";
   syncHistoryState();
   state$.saveState.set("saved");
-  state$.doc.set(doc);
-  state$.editNodeId.set(editNodeId);
-  replaceSelection({ nodeId: selectedNodeId, nodeIds: selectedNodeIds, edgeId: selectedEdgeId });
-  state$.focusNodeId.set(focusNodeId);
-  // `loadDoc` without the actor references read with the canvas must fail closed.
-  // App installs the exact compiled refs in the same Legend batch.
+  // The actor references read with the canvas are installed by the caller in
+  // the same batch; without them the window must fail closed.
   state$.actorRefs.set([]);
-  state$.docVersion.set(state$.docVersion.peek() + 1);
-  state$.docEpoch.set(state$.docEpoch.peek() + 1);
+  dropWhatLeft(name, true);
 };
 
 // --- graph queries used by interactions -----------------------------------
@@ -492,7 +290,7 @@ export const parseSide = (handle?: string | null): NodeSide | undefined => {
 // Regions open the folder-paths modal instead of the label editor so the first
 // configure step is host cwd (the main reason to create a region).
 export const addNode = (
-  made: CanvasNode | Node,
+  node: Node,
   options?: {
     readonly edit?: boolean;
     readonly focus?: boolean;
@@ -504,17 +302,10 @@ export const addNode = (
     state$.edgeFilter.set("");
     // Keep the single/multi selection pair coherent so the RTS command card
     // targets this node only (stale selectedNodeIds would open the multi card).
-    selectNode(made.id);
+    selectNode(node.id);
   });
-  // One Add of the node as the canvas holds it, above everything there. A
-  // caller still making a document node has it read here, and a node the
-  // canvas cannot hold is refused whole.
-  let node: Node | undefined;
-  commitCommands((canvas) => {
-    node = "kind" in made ? made : nodeFromDocument(canvas.name, made, topZ(canvas));
-    return added(canvas, [node]);
-  });
-  if (node === undefined) return;
+  // One Add of the node, as its factory made it.
+  commitCommands((canvas) => added(canvas, [node]));
   const isRegion = node.kind === "region";
   const shouldFocus = options?.focus !== false;
   // A region skips the label editor: its folder paths are the first step.
@@ -523,9 +314,9 @@ export const addNode = (
   if (!shouldFocus && !shouldEdit && !shouldOpenPaths) return;
   window.setTimeout(() => {
     batch(() => {
-      if (shouldFocus) state$.focusNodeId.set(made.id);
-      if (shouldEdit) state$.editNodeId.set(made.id);
-      if (shouldOpenPaths) state$.regionPathsNodeId.set(made.id);
+      if (shouldFocus) state$.focusNodeId.set(node.id);
+      if (shouldEdit) state$.editNodeId.set(node.id);
+      if (shouldOpenPaths) state$.regionPathsNodeId.set(node.id);
     });
   }, 0);
 };
@@ -533,52 +324,17 @@ export const addNode = (
 const turnBack = (direction: "undo" | "redo"): void => {
   if (!canvasMutationAdmissionOpen) return;
   const name = state$.canvasName.peek();
-  if (bridged() && storeHolds(name)) {
-    // Undo is commands: the store shows the step and the document follows.
-    if (abandonedNames.has(name)) return;
-    state$.editNodeId.set("");
-    state$.regionPathsNodeId.set("");
-    state$.saveState.set("saving");
-    void authoring[direction](name).then(
-      () => settled(name),
-      (error: unknown) => {
-        if (state$.canvasName.peek() === name) {
-          state$.saveState.set("error");
-          state$.error.set(`canvas "${name}" could not ${direction} that: ${messageOf(error)}`);
-        }
-        readAgain(name);
-      },
-    );
-    return;
-  }
-  const from = direction === "undo" ? shownBefore : shownAfter;
-  const to = direction === "undo" ? shownAfter : shownBefore;
-  const shown = from.pop();
-  if (shown !== undefined) {
-    to.push(state$.doc.peek());
-    state$.editNodeId.set("");
-    state$.regionPathsNodeId.set("");
-    state$.doc.set(shown);
-    state$.docVersion.set(state$.docVersion.peek() + 1);
-    // Generation fence for async delete/teardown continuations (same as commitDoc).
-    state$.docEpoch.set(state$.docEpoch.peek() + 1);
-  }
-  syncHistoryState();
-  if (!bridged() || !name || abandonedNames.has(name)) return;
+  if (!storeHolds(name) || abandonedNames.has(name)) return;
+  // Undo is commands: the store shows the step at once.
+  state$.editNodeId.set("");
+  state$.regionPathsNodeId.set("");
   state$.saveState.set("saving");
   void authoring[direction](name).then(
-    (stepped) => {
-      settled(name);
-      // The document showed a step that the canvas did not have, or the
-      // canvas took one the document could not show: main's copy settles it.
-      if (stepped !== (shown !== undefined)) readAgain(name);
-    },
+    () => settled(name),
     (error: unknown) => {
       if (state$.canvasName.peek() === name) {
         state$.saveState.set("error");
         state$.error.set(`canvas "${name}" could not ${direction} that: ${messageOf(error)}`);
-        forgetShown();
-        syncHistoryState();
       }
       readAgain(name);
     },
@@ -1009,7 +765,7 @@ export const setNodeTimer = (id: string, timer: Pick<NodeOf<"cron">, "expression
 
 // --- task rules and path: authorial contract + flow mutations -------------
 // Work-row ops (promote, transition, board) go through Work IPC channels
-// (preload) — never through commitDoc. These four are the authorial side:
+// (preload), never as a canvas edit. These four are the authorial side:
 // region/board rules and the task-path DAG, all operator-only writes.
 
 /** Collapse an empty claims/rulings bag to `undefined` so the doc stays sparse. */

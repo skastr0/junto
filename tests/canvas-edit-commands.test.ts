@@ -10,18 +10,17 @@ import { flushCanvasEdits, registerCanvasDraftCommit } from "../src/renderer/lib
 import {
   clearAbandonedCanvas,
   commitCommands,
-  commitDoc,
+  editText,
   flushPendingCanvasSave,
   hasPendingCanvasChanges,
-  loadDoc,
-  followStoreDocument,
+  followStore,
   prepareCanvasRemoval,
   redo,
   undo,
 } from "../src/renderer/lib/mutations";
+import { docNow, loadDoc } from "./support/open-document";
 import { state$ } from "../src/renderer/lib/state";
 import { modelStore } from "../src/renderer/lib/use-model";
-import { holdCanvas } from "./support/hold-canvas";
 
 const modelCommand = vi.fn(async (_command: Command) => ({ seq: 1 }));
 // Main, asked for a canvas again, answers with what the store holds: these
@@ -63,7 +62,7 @@ const deferred = <T>() => {
 
 /** The text the document shows for the note. */
 const shownText = (): string | undefined => {
-  const shown = state$.doc.peek().nodes.find((node) => node.id === "note");
+  const shown = docNow().nodes.find((node) => node.id === "note");
   return shown?.type === "text" ? shown.text : undefined;
 };
 
@@ -78,7 +77,7 @@ describe("the window changes a canvas by sending commands", () => {
     modelCommand.mockReset();
     modelCommand.mockImplementation(async () => ({ seq: 1 }));
     refused.mockReset();
-    stopFollowing = followStoreDocument();
+    stopFollowing = followStore();
     for (const name of ["alpha", "beta"]) {
       clearAbandonedCanvas(name);
       authoring.forget(name);
@@ -92,21 +91,15 @@ describe("the window changes a canvas by sending commands", () => {
   afterEach(async () => {
     await flushPendingCanvasSave().catch(() => undefined);
     stopFollowing?.();
-    release?.();
-    release = undefined;
   });
 
   /** Open a document as the app does: the store holds the canvas, the window its document. */
-  let release: (() => void) | undefined;
   const open = (opened: CanvasDoc, revision: string, name = "alpha"): void => {
-    release?.();
-    release = holdCanvas(name, opened.nodes);
     loadDoc(opened, revision, name);
   };
 
   it("shows the new document at once and sends only what differs", async () => {
-    const next = doc(note("note", "edited"));
-    commitDoc(next);
+    editText("note", "edited");
     // The document shows it by following the store, in the same turn.
     expect(shownText()).toBe("edited");
     expect(state$.saveState.peek()).toBe("saving");
@@ -118,19 +111,8 @@ describe("the window changes a canvas by sending commands", () => {
     expect(state$.error.peek()).toBe("");
   });
 
-  it("sends several changes of one commit as one batch", async () => {
-    commitDoc(doc(note("note", "edited", 40), note("extra", "new")));
-    await flushPendingCanvasSave();
-    expect(sent()).toHaveLength(1);
-    expect(sent()[0]).toMatchObject({ _tag: "Batch", canvas: "alpha" });
-  });
-
-  it("sends nothing when the document says the same, or only its work changed", async () => {
-    commitDoc(doc(...state$.doc.peek().nodes));
-    const board = (items: unknown[]): CanvasNode =>
-      ({ id: "tasks", type: "text", text: "tasks", x: 0, y: 0, width: 240, height: 120, ether: { entity: { kind: "task" }, tasks: { items } } }) as CanvasNode;
-    open(doc(board([])), "alpha-r2");
-    commitDoc(doc(board([{ id: "t1", state: "submitted", history: [] }])));
+  it("sends nothing when the edit says what the canvas already holds", async () => {
+    editText("note", "base");
     await flushPendingCanvasSave();
     expect(sent()).toEqual([]);
     expect(state$.saveState.peek()).toBe("saved");
@@ -139,7 +121,7 @@ describe("the window changes a canvas by sending commands", () => {
   it("is pending until main has taken what was sent, and the flush waits for it", async () => {
     const taken = deferred<{ seq: number }>();
     modelCommand.mockImplementationOnce(async () => taken.promise);
-    commitDoc(doc(note("note", "edited")));
+    editText("note", "edited");
     expect(hasPendingCanvasChanges("alpha")).toBe(true);
     let flushed = false;
     const flush = flushPendingCanvasSave().then(() => {
@@ -155,7 +137,7 @@ describe("the window changes a canvas by sending commands", () => {
   });
 
   it("commits an editor's draft, then waits for it, at the quit boundary", async () => {
-    const off = registerCanvasDraftCommit(() => commitDoc(doc(note("note", "draft"))));
+    const off = registerCanvasDraftCommit(() => editText("note", "draft"));
     await flushCanvasEdits("navigation");
     off();
     expect(sent()).toEqual([
@@ -166,29 +148,20 @@ describe("the window changes a canvas by sending commands", () => {
   it("sends an edit to the canvas it was made on, wherever the operator goes next", async () => {
     const taken = deferred<{ seq: number }>();
     modelCommand.mockImplementationOnce(async () => taken.promise);
-    commitDoc(doc(note("note", "for alpha")));
+    editText("note", "for alpha");
     state$.canvasName.set("beta");
     loadDoc(doc(note("other", "beta")), "beta-r1", "beta");
     taken.resolve({ seq: 1 });
     await flushPendingCanvasSave();
     expect(sent().map((command) => command.canvas)).toEqual(["alpha"]);
-    expect(state$.doc.peek().nodes[0]?.id).toBe("other");
-  });
-
-  it("never gives or takes overseer authority, whatever the document says", async () => {
-    open(doc(seat("lead", false)), "alpha-r2");
-    commitDoc(doc(seat("lead", true)));
-    open(doc(seat("lead", true)), "alpha-r3");
-    commitDoc(doc(seat("lead", false)));
-    await flushPendingCanvasSave();
-    expect(sent()).toEqual([]);
+    expect(docNow().nodes[0]?.id).toBe("other");
   });
 
   it("says so when main refuses an edit, and asks for the canvas to be read again", async () => {
     modelCommand.mockImplementationOnce(async () => {
       throw new Error("object does not exist");
     });
-    commitDoc(doc(note("note", "edited")));
+    editText("note", "edited");
     await flushPendingCanvasSave();
     expect(state$.saveState.peek()).toBe("error");
     expect(state$.error.peek()).toContain("object does not exist");
@@ -197,9 +170,7 @@ describe("the window changes a canvas by sending commands", () => {
   });
 
   it("steps back and forward by the commands that reverse an act, and the document follows", async () => {
-    const base = state$.doc.peek();
-    const edited = doc(note("note", "edited"));
-    commitDoc(edited);
+    editText("note", "edited");
     await flushPendingCanvasSave();
     expect(state$.canUndo.peek()).toBe(true);
 
@@ -219,7 +190,7 @@ describe("the window changes a canvas by sending commands", () => {
   });
 
   it("keeps undo when main sends the canvas again", async () => {
-    commitDoc(doc(note("note", "edited")));
+    editText("note", "edited");
     await flushPendingCanvasSave();
     loadDoc(doc(note("note", "edited")), "alpha-r2", "alpha");
     expect(state$.canUndo.peek()).toBe(true);
@@ -228,23 +199,6 @@ describe("the window changes a canvas by sending commands", () => {
     expect(sent().at(-1)).toEqual({ _tag: "Edit", canvas: "alpha", id: "note", change: { kind: "note", text: "base" } });
     expect(shownText()).toBe("base");
     expect(refused).not.toHaveBeenCalled();
-  });
-
-  it("sends nothing and says so when a writer asks for a seat the canvas cannot hold", async () => {
-    open(doc(seat("s", false), note("note", "base")), "alpha-r1");
-    const whole = state$.doc.peek().nodes.find((node) => node.id === "s")!;
-    // A writer that loses the seat's session binding: not something the model holds.
-    const broken = { ...whole, ether: { ...whole.ether, terminal: { harness: "claude" } } } as CanvasNode;
-    commitDoc({ ...state$.doc.peek(), nodes: state$.doc.peek().nodes.map((node) => (node.id === "s" ? broken : node)) });
-    await flushPendingCanvasSave();
-    // No Remove, no command at all; the seat is still on the canvas.
-    expect(sent()).toEqual([]);
-    expect(state$.doc.peek().nodes.map((node) => node.id).sort()).toEqual(["note", "s"]);
-    expect(modelStore.canvasOf("alpha").nodes.has("s" as never)).toBe(true);
-    expect(state$.saveState.peek()).toBe("error");
-    expect(state$.error.peek()).toContain("did not take that change");
-    expect(state$.error.peek()).toContain('"s"');
-    expect(state$.canUndo.peek()).toBe(false);
   });
 
   it("sends a writer's commands as one act, shows them through the store, and takes them back together", async () => {
@@ -257,18 +211,18 @@ describe("the window changes a canvas by sending commands", () => {
     });
     // Shown in the same turn, through the store and the document that follows it.
     expect(shownText()).toBe("by command");
-    expect(state$.doc.peek().nodes.find((node) => node.id === "note")).toMatchObject({ x: 80 });
+    expect(docNow().nodes.find((node) => node.id === "note")).toMatchObject({ x: 80 });
     await flushPendingCanvasSave();
     expect(sent().map((command) => command._tag)).toEqual(["Batch"]);
     expect(state$.canUndo.peek()).toBe(true);
     undo();
     await flushPendingCanvasSave();
     expect(shownText()).toBe("base");
-    expect(state$.doc.peek().nodes.find((node) => node.id === "note")).toMatchObject({ x: 0 });
+    expect(docNow().nodes.find((node) => node.id === "note")).toMatchObject({ x: 0 });
   });
 
   it("does not remember an act that is not the operator's to take back", async () => {
-    commitDoc(doc(note("note", "scripted")), true, false);
+    commitCommands((held) => [{ _tag: "Edit", canvas: held.name, id: "note" as never, change: { kind: "note", text: "scripted" } }], { remember: false });
     await flushPendingCanvasSave();
     expect(sent()).toHaveLength(1);
     expect(state$.canUndo.peek()).toBe(false);
@@ -277,7 +231,7 @@ describe("the window changes a canvas by sending commands", () => {
   it("sends nothing more for a canvas that is being removed, and waits for what is on its way", async () => {
     const taken = deferred<{ seq: number }>();
     modelCommand.mockImplementationOnce(async () => taken.promise);
-    commitDoc(doc(note("note", "one")));
+    editText("note", "one");
     let removed = false;
     const removal = prepareCanvasRemoval("alpha").then(() => {
       removed = true;
@@ -289,13 +243,13 @@ describe("the window changes a canvas by sending commands", () => {
     await removal;
     expect(removed).toBe(true);
 
-    commitDoc(doc(note("note", "two")));
+    editText("note", "two");
     await flushPendingCanvasSave();
     expect(sent()).toHaveLength(1);
     expect(state$.canUndo.peek()).toBe(false);
 
     clearAbandonedCanvas("alpha");
-    commitDoc(doc(note("note", "three")));
+    editText("note", "three");
     await flushPendingCanvasSave();
     expect(sent()).toHaveLength(2);
   });

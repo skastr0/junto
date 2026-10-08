@@ -3,6 +3,7 @@
  * body (face resolved, launch, soul, instructions) without any seat; a closed
  * draft waits for the next open; saving ends it and adds the profile.
  */
+import { modelStore } from "../src/renderer/lib/use-model";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentProfile, ProfileSaveInput } from "../src/shared/agent-profiles";
 import {
@@ -87,7 +88,8 @@ describe("profile draft", () => {
   });
 
   it("saves a new profile or replaces one, ends the draft, and makes no seat", async () => {
-    const nodes = state$.doc.nodes.peek().length;
+    const held = (): number => modelStore.canvasOf(state$.canvasName.peek()).nodes.size;
+    const nodes = held();
     openProfileDraft();
     updateProfileDraft((draft) => ({ ...draft, name: "Scout" }));
     expect(await saveProfileDraft("p-old")).toBe("");
@@ -96,6 +98,6 @@ describe("profile draft", () => {
     expect(profiles$.list.peek().map((profile) => profile.name)).toEqual(["Scout"]);
     expect(profileDraft$.peek()).toBeNull();
     expect(profileDraftOpen$.peek()).toBe(false);
-    expect(state$.doc.nodes.peek().length).toBe(nodes);
+    expect(held()).toBe(nodes);
   });
 });

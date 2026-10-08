@@ -22,13 +22,11 @@ const node = (id: string, text: string) => ({
   z: 0,
 });
 
-const previousDoc = state$.doc.peek();
 const previousSlots = state$.hotbarSlots.peek();
 const previousCanvas = state$.canvasName.peek();
 const canvas = "group-picker-native";
 
 afterEach(() => {
-  state$.doc.set(previousDoc);
   state$.hotbarSlots.set(previousSlots);
   state$.canvasName.set(previousCanvas);
   modelStore.canvas$(canvas).nodes.set({});
@@ -37,7 +35,6 @@ afterEach(() => {
 describe("SaveToGroupPicker", () => {
   it("offers slots 1 to 9 and a new group, and says what each save replaces", () => {
     state$.canvasName.set(canvas);
-    state$.doc.set({ nodes: [], edges: [] });
     for (const input of [node("a", "Scout"), node("b", "Builder"), node("c", "Critic")]) {
       const native = Schema.decodeUnknownSync(Node)(input);
       modelStore.node$(canvas, native.id).set(native);

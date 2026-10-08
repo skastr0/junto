@@ -3,11 +3,12 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import type { Command } from "../src/shared/model";
 import {
   canvasMutationsQuiesced,
-  commitDoc,
+  editText,
+  showOpenedCanvas,
   hasPendingCanvasChanges,
-  loadDoc,
   undo,
 } from "../src/renderer/lib/mutations";
+import { docNow, heldShape, loadDoc } from "./support/open-document";
 import {
   flushCanvasEdits,
   quiesceAndFlushCanvasEdits,
@@ -65,7 +66,7 @@ describe("renderer canvas quiesce boundary", () => {
     loadDoc(note("base"), "alpha-r1", "alpha");
 
     // Ordinary navigation/window flush stays non-quiescing and permits later edits.
-    commitDoc(note("normal-flush"));
+    editText("note", "normal-flush");
     await flushCanvasEdits("navigation");
     expect(canvasMutationsQuiesced()).toBe(false);
     expect(textsSent()).toEqual(["normal-flush"]);
@@ -75,17 +76,17 @@ describe("renderer canvas quiesce boundary", () => {
       finishQueuedSend = resolve;
     });
     modelCommand.mockImplementationOnce(async () => queuedSend);
-    commitDoc(note("queued-before-quiesce"));
-    const unregister = registerCanvasDraftCommit(() => commitDoc(note("final-editor-draft")));
+    editText("note", "queued-before-quiesce");
+    const unregister = registerCanvasDraftCommit(() => editText("note", "final-editor-draft"));
     let finishAuthoringOperation!: () => void;
     const authoringOperationGate = new Promise<void>((resolve) => {
       finishAuthoringOperation = resolve;
     });
     const activeAuthoringOperation = runCanvasAuthoringOperation(async () => {
       await authoringOperationGate;
-      // Models an operation admitted before quiescence whose canvas comes
-      // back from main only after the latch has closed.
-      loadDoc(note("returning-after-quiesce"), "work-r5", "alpha");
+      // Models an operation admitted before quiescence that asks the window
+      // to show its canvas only after the latch has closed.
+      showOpenedCanvas("alpha");
       return "created-before-quiesce";
     });
 
@@ -95,17 +96,16 @@ describe("renderer canvas quiesce boundary", () => {
     // The async function has not crossed its first await yet: admission is
     // already closed and the registered draft is the final accepted revision.
     expect(canvasMutationsQuiesced()).toBe(true);
-    expect(state$.doc.peek()).toEqual(note("final-editor-draft"));
+    expect(docNow()).toEqual(heldShape(note("final-editor-draft")));
     const committedVersion = state$.docVersion.peek();
     const committedEpoch = state$.docEpoch.peek();
 
-    commitDoc(note("late-commit"));
-    loadDoc(note("late-navigation"), "late-r3", "alpha");
+    editText("note", "late-commit");
     undo();
     const lateAuthoringOperation = vi.fn(async () => "late-create");
     await expect(runCanvasAuthoringOperation(lateAuthoringOperation)).resolves.toBeUndefined();
 
-    expect(state$.doc.peek()).toEqual(note("final-editor-draft"));
+    expect(docNow()).toEqual(heldShape(note("final-editor-draft")));
     expect(state$.docVersion.peek()).toBe(committedVersion);
     expect(state$.docEpoch.peek()).toBe(committedEpoch);
     expect(lateAuthoringOperation).not.toHaveBeenCalled();
@@ -119,7 +119,7 @@ describe("renderer canvas quiesce boundary", () => {
     expect(quiesced).toBe(false);
     finishAuthoringOperation();
     await expect(activeAuthoringOperation).resolves.toBe("created-before-quiesce");
-    expect(state$.doc.peek()).toEqual(note("final-editor-draft"));
+    expect(docNow()).toEqual(heldShape(note("final-editor-draft")));
     expect(state$.docVersion.peek()).toBe(committedVersion);
     expect(state$.docEpoch.peek()).toBe(committedEpoch);
 
@@ -138,7 +138,7 @@ describe("renderer canvas quiesce boundary", () => {
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(modelCommand).toHaveBeenCalledTimes(3);
-    expect(state$.doc.peek()).toEqual(note("final-editor-draft"));
+    expect(docNow()).toEqual(heldShape(note("final-editor-draft")));
     expect(state$.docVersion.peek()).toBe(committedVersion);
     expect(state$.docEpoch.peek()).toBe(committedEpoch);
   });

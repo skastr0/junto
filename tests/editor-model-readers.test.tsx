@@ -24,7 +24,6 @@ const canvas = "editor-native-reads";
 const decode = Schema.decodeUnknownSync(Node);
 let root: Root, host: HTMLDivElement;
 const oldCanvas = state$.canvasName.peek();
-const oldDoc = state$.doc.peek();
 const oldSlots = state$.hotbarSlots.peek();
 const publish = (input: unknown) => {
   const node = decode(input);
@@ -39,14 +38,13 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
   state$.canvasName.set(canvas);
   // The native readers must work even when the retired copy has no nodes.
-  state$.doc.set({ nodes: [], edges: [] });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
 afterEach(() => {
   act(() => root.unmount()); host.remove();
   modelStore.canvas$(canvas).nodes.set({});
   modelStore.canvas$(canvas).wires.set({});
-  state$.canvasName.set(oldCanvas); state$.doc.set(oldDoc); state$.hotbarSlots.set(oldSlots);
+  state$.canvasName.set(oldCanvas); state$.hotbarSlots.set(oldSlots);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

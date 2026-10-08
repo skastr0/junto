@@ -58,7 +58,7 @@ beforeEach(() => {
       : { kind, items: [] },
   };
   state$.settings.set(EMPTY_SETTINGS); state$.settings.station.role.set("command-center");
-  state$.canvasName.set(canvas); state$.doc.set({ nodes: [], edges: [] });
+  state$.canvasName.set(canvas);
   state$.error.set(""); state$.saveState.set("saved"); dock$.registry.set(initialWorkbenchState());
   release = modelStore.adopt({ canvas: asCanvasName(canvas), seq: 0, wires: [], nodes: [
     taskBoard("task", { ...place, name: "Backlog" }), requests("requests", { ...place, name: "Decisions" }),
@@ -81,7 +81,6 @@ it("reads work card identities from native rows, and enqueue reads the current b
   await act(async () => { modelStore.node$(canvas, "task").set(taskBoard("task", { ...place, name: "Current board" })); await flush(); });
   await act(async () => { host.querySelector<HTMLButtonElement>('[data-testid="tasks-card-enqueue"]')!.click(); await flush(); });
   expect(dock$.taskCreateById[taskCreateSurfaceId("task")].peek()).toMatchObject({ nodeId: "task", title: "Current board" });
-  expect(state$.doc.peek().nodes).toEqual([]);
   expect(command).not.toHaveBeenCalled();
 });
 

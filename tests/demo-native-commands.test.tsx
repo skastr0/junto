@@ -47,7 +47,7 @@ beforeEach(() => {
     onWorkMailChanged: () => () => {}, workMailPage: async () => ({ items: [] }),
   };
   state$.settings.set(EMPTY_SETTINGS); state$.settings.station.role.set("command-center");
-  state$.canvasName.set(canvas); state$.doc.set({ nodes: [], edges: [] });
+  state$.canvasName.set(canvas);
   state$.selectedNodeId.set(""); state$.selectedNodeIds.set([]); state$.actorRefs.set([]);
   state$.saveState.set("saved"); state$.error.set("");
   release = modelStore.adopt({ canvas: asCanvasName(canvas), seq: 0, nodes: [], wires: [] });

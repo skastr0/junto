@@ -192,7 +192,6 @@ describe("one agent", () => {
 
 describe("a selection with no agent", () => {
   it("renders no row", async () => {
-    state$.doc.set({ nodes: [{ id: "n", type: "text", text: "note", x: 0, y: 0, width: 10, height: 10 }], edges: [] });
     await open(["n"], fakeOps([]).ops);
     expect(host.querySelector("button")).toBeNull();
   });

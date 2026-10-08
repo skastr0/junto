@@ -17,7 +17,6 @@ let root: Root;
 let host: HTMLDivElement;
 let release: () => void = () => undefined;
 const oldCanvas = state$.canvasName.peek();
-const oldDoc = state$.doc.peek();
 
 const hold = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire>): void => {
   release();
@@ -29,7 +28,6 @@ beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = () => {};
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   state$.canvasName.set(canvas);
-  state$.doc.set({ nodes: [], edges: [] });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -41,7 +39,6 @@ afterEach(() => {
   release();
   release = () => undefined;
   state$.canvasName.set(oldCanvas);
-  state$.doc.set(oldDoc);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

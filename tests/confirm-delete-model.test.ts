@@ -8,7 +8,6 @@ import { taskBoard, wire } from "./support/model-nodes";
 
 const canvas = "native-delete-prompts";
 const oldCanvas = state$.canvasName.peek();
-const oldDoc = state$.doc.peek();
 let oldApi: typeof window.junto;
 const read = vi.fn(async () => [{ nodeId: "build", item: { id: "live", state: "working" as const, history: [] } }]);
 beforeEach(() => {
@@ -16,7 +15,6 @@ beforeEach(() => {
   (window as unknown as { junto: unknown }).junto = { workTaskPolicy: read };
   read.mockClear();
   state$.canvasName.set(canvas);
-  state$.doc.set({ nodes: [], edges: [] });
   for (const node of [taskBoard("build", { name: "Build" as never }), taskBoard("review", { name: "Review" as never })]) {
     modelStore.node$(canvas, node.id).set(node);
   }
@@ -26,7 +24,7 @@ beforeEach(() => {
 afterEach(() => {
   answerConfirm(false);
   modelStore.canvas$(canvas).nodes.set({}); modelStore.canvas$(canvas).wires.set({});
-  state$.canvasName.set(oldCanvas); state$.doc.set(oldDoc); (window as unknown as { junto: unknown }).junto = oldApi;
+  state$.canvasName.set(oldCanvas); (window as unknown as { junto: unknown }).junto = oldApi;
 });
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 

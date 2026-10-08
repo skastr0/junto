@@ -11,10 +11,9 @@ const opens = vi.hoisted(() => vi.fn());
 vi.mock("../src/renderer/lib/terminal-actions", () => ({ openTerminal: opens }));
 const canvas = "native-surface-activation";
 const oldCanvas = state$.canvasName.peek();
-const oldDoc = state$.doc.peek();
-beforeEach(() => { state$.canvasName.set(canvas); state$.doc.set({ nodes: [], edges: [] }); opens.mockClear(); });
+beforeEach(() => { state$.canvasName.set(canvas); opens.mockClear(); });
 afterEach(() => {
-  modelStore.canvas$(canvas).nodes.set({}); state$.canvasName.set(oldCanvas); state$.doc.set(oldDoc);
+  modelStore.canvas$(canvas).nodes.set({}); state$.canvasName.set(oldCanvas);
   workDetailOpen$.set({ nodeId: "", itemId: "" });
 });
 const publish = (node: ReturnType<typeof seat> | ReturnType<typeof note> | ReturnType<typeof taskBoard>) => modelStore.node$(canvas, node.id).set(node);

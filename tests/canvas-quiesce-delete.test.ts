@@ -5,8 +5,8 @@ import { cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import {
   canvasMutationsQuiesced,
   deleteNode,
-  loadDoc,
 } from "../src/renderer/lib/mutations";
+import { docNow, heldShape, loadDoc } from "./support/open-document";
 import { quiesceAndFlushCanvasEdits } from "../src/renderer/lib/canvas-editor-flush";
 import { state$ } from "../src/renderer/lib/state";
 
@@ -79,12 +79,12 @@ describe("renderer delete quiesce boundary", () => {
 
     // The destructive call admitted before the latch is terminal, but its
     // returning continuation cannot mutate or save the final document.
-    expect(state$.doc.peek()).toEqual(pageDoc);
+    expect(docNow()).toEqual(heldShape(pageDoc));
     expect(modelCommand).not.toHaveBeenCalled();
 
     deleteNode("page");
     await Promise.resolve();
     expect(browserStop).toHaveBeenCalledTimes(1);
-    expect(state$.doc.peek()).toEqual(pageDoc);
+    expect(docNow()).toEqual(heldShape(pageDoc));
   });
 });

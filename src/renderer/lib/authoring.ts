@@ -1,5 +1,6 @@
 import { ulid } from "ulid";
 import type { Command, NodeId } from "@shared/model";
+import { getJuntoApi } from "./junto-api";
 import { sheetStore } from "./sheet-store";
 import { createAuthoring } from "./model-authoring";
 import { modelStore } from "./use-model";
@@ -21,6 +22,8 @@ export const authoring = createAuthoring({
     return modelStore.show(command);
   },
   deliver: async (command, shown) => {
+    // No main (the demo, a unit rig): the store is all there is.
+    if (getJuntoApi() === undefined) return;
     try {
       await modelStore.deliver(command, shown);
     } catch (error) {
