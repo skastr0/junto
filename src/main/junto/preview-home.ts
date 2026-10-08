@@ -18,6 +18,8 @@ export const pinFreshPreviewHome = (home: string, environment: NodeJS.ProcessEnv
   }
   environment.JUNTO_HOME = fresh;
   environment.JUNTO_PREVIEW = "1";
+  // The fresh home is never seeded, so every session pinned in it is its own.
+  environment.JUNTO_HOME_OWNS_SESSIONS = "1";
 };
 
 if (typeof __JUNTO_PREVIEW_BUILD__ !== "undefined" && __JUNTO_PREVIEW_BUILD__) {

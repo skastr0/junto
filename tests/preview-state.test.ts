@@ -21,7 +21,7 @@ it("pins a packaged Finder launch to fresh state before product imports and refu
   expect(() => pinFreshPreviewHome(home, environment)).toThrow("fresh home");
   mkdirSync(fresh); writeFileSync(join(fresh, ".fresh-preview"), "fresh");
   pinFreshPreviewHome(home, environment);
-  expect(environment).toEqual({ JUNTO_HOME: fresh, JUNTO_PREVIEW: "1" });
+  expect(environment).toEqual({ JUNTO_HOME: fresh, JUNTO_PREVIEW: "1", JUNTO_HOME_OWNS_SESSIONS: "1" });
   writeFileSync(join(fresh, "snapshot.json"), "{}");
   expect(() => pinFreshPreviewHome(home, environment)).toThrow("copied-state launch is refused");
 });
