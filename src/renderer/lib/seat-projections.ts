@@ -1,7 +1,7 @@
 /**
  * One assembled seat fact → named speech acts (card, digit lease, notify, hue).
  *
- * Join key is the canvas node id. Status is never written onto ether.
+ * Join key is the canvas node id. Status is never written onto the node.
  * `terminalActivity` remains the card painter; these functions only decide.
  */
 

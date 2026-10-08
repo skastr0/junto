@@ -225,7 +225,7 @@ const isoMs = (value: string): number | undefined => {
 
 /**
  * Boards the actor is wired to (either edge direction), as glance rows from
- * the ether.board projection. Open topics first, then latest activity first.
+ * the board's Work projection. Open topics first, then latest activity first.
  * Per-seat unread is not in the glance projection; `unread` is the
  * operator-local count when known.
  */

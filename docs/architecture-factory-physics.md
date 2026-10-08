@@ -26,7 +26,7 @@ that reaches that power.
 
 | Plane | Question it answers | Lives in | Mutated by |
 |-------|---------------------|----------|------------|
-| **Capability** | What may this principal reach? | Drawn edges + ports + process-bind; overseer grant is a separate human seat toggle, not an edge | Human draw/delete; admit/release of bound process; human grant/revoke of `ether.overseer` |
+| **Capability** | What may this principal reach? | Drawn edges + ports + process-bind; overseer grant is a separate human seat toggle, not an edge | Human draw/delete; admit/release of bound process; human grant/revoke of the seat's `overseer` flag |
 | **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from the connected sink's claimed item state + live worker/trust state | Recomputed; never authorial input |
 | **Attention / occupancy** | Is the seat empty, busy, or needing a human? | Live runtime state on seats | Process lifecycle, task status, operator focus |
 

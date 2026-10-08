@@ -33,30 +33,6 @@ export const hostIdFromAgentKey = (key: string | undefined): string | undefined 
   return isValidStationHostId(host) ? host : undefined;
 };
 
-/**
- * Resolve the host id a node is assigned to execute on.
- * Precedence:
- *   ether.host (authorial stamp)
- *   → agent key host prefix (hermes `<host>:<profile>`)
- *   → default local
- */
-export const resolveNodeHostId = (node: {
-  readonly ether?: {
-    readonly host?: string;
-    readonly entity?: { readonly kind?: string; readonly name?: string };
-  };
-}): string => {
-  const ether = node.ether;
-  if (!ether) return DEFAULT_STATION_HOST_ID;
-  if (typeof ether.host === "string" && ether.host.length > 0) return ether.host;
-  // Native terminals use ether.host only (binding has no host field).
-  if (ether.entity?.kind === "agent") {
-    const fromKey = hostIdFromAgentKey(ether.entity.name);
-    if (fromKey !== undefined) return fromKey;
-  }
-  return DEFAULT_STATION_HOST_ID;
-};
-
 /** Validate a host id string against the shared HostId pattern without Effect decode. */
 export const isValidStationHostId = (value: string): boolean =>
   value.length > 0 &&

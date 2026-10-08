@@ -9,7 +9,7 @@ import {
   type CanvasNode,
 } from "./fixtures/frozen-canvas-types";
 import { xtermCapabilities } from "../src/shared/terminal";
-import { resolveNodeHostId } from "../src/shared/station";
+import { resolveNodeHostId } from "../src/main/junto/station/frozen-node-host";
 
 const decodeTerminal = Schema.decodeUnknownSync(EtherTerminal);
 const decodeDoc = Schema.decodeUnknownSync(CanvasDoc);

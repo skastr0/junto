@@ -43,10 +43,8 @@ import {
   inboundActorNodeIds,
   padAuthorRuleError,
 } from "../work/pad-rules";
-import {
-  resolveNodeHostId,
-  type StationRole,
-} from "@shared/station";
+import type { StationRole } from "@shared/station";
+import { resolveNodeHostId } from "./frozen-node-host";
 import {
   type CanvasAuthorityMaterialSnapshot,
   type InstalledProjectionCanvasChange,
@@ -77,7 +75,7 @@ import {
   type ProjectedActorSeat,
 } from "./actor-seat-compiler";
 import { decodeStationPortfolioBody } from "./portfolio";
-import { canvasFromDocument } from "./frozen-from-document";
+import { stationCanvasOf } from "./frozen-from-document";
 import {
   StationRepository,
   type StationConfigurationRecord,
@@ -424,7 +422,7 @@ const capturedBasisFor = (
   if (material?.kind !== "authorial-current") return undefined;
   const document = material.authority.documents.get(sink.canvasName);
   if (document === undefined) return undefined;
-  const canvas = canvasFromDocument(sink.canvasName, document);
+  const canvas = stationCanvasOf(sink.canvasName, document);
   return { kind: "canvas", canvasName: canvas.name, seq: canvas.seq };
 };
 
@@ -453,7 +451,7 @@ const admitDependencyScope = (
         const canvas =
           document === undefined
             ? undefined
-            : canvasFromDocument(sink.canvasName, document);
+            : stationCanvasOf(sink.canvasName, document);
         if (
           canvas === undefined ||
           !sameIntentBasis(
@@ -686,7 +684,7 @@ const authorizeActor = (
     );
   }
   const decision = admitWorkTarget(
-    canvasFromDocument(sink.canvasName, document),
+    stationCanvasOf(sink.canvasName, document),
     actor.nodeId,
     sink.nodeId,
     operation,
@@ -1132,7 +1130,7 @@ export const makeStationWorkAdmission = (
             author,
             command.body.patches,
             inboundActorNodeIds(
-              canvasFromDocument(command.item.sink.canvasName, canvas),
+              stationCanvasOf(command.item.sink.canvasName, canvas),
               command.item.sink.nodeId,
             ),
           );

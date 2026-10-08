@@ -15,7 +15,7 @@
  * to routing one by one.
  *
  * Paint and geometry only — nothing here reads or writes grants, ports,
- * physics, or ether fields. Pure: no React / xyflow / observables.
+ * physics, or node fields. Pure: no React / xyflow / observables.
  */
 
 import {

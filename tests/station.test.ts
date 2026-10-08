@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "./fixtures/frozen-canvas-types";
-import {
-  assessSupervisedRuntime,
-  resolveNodeHostId,
-} from "../src/shared/station";
+import { assessSupervisedRuntime } from "../src/shared/station";
+import { resolveNodeHostId } from "../src/main/junto/station/frozen-node-host";
 import { defaultSettings, applySettingsPatch } from "../src/shared/settings";
 import {
   newSeat,

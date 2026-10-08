@@ -33,7 +33,6 @@ import { useCanvas, useNode, useNodeOf, useNodeValue } from "../lib/use-model";
 import { asNodeId as asModelNodeId, wireGrant, wireKinds } from "@shared/model";
 import { LOCAL_HOST } from "@shared/model/base";
 import { titleOf } from "@shared/model/title";
-import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { Chip, Select, type ChipTone } from "./ui";
 import { RegionRules } from "./rules";

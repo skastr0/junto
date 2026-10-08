@@ -923,8 +923,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => Promise<FactoryPauseSetResult>;
   /**
    * Ingest image bytes into the content store. Used by canvas image nodes and
-   * note embeds. Bytes never land in CanvasDoc; only the returned ContentRef
-   * (via content object URL) is authored into the document.
+   * note embeds. Bytes never land on a canvas; only the returned ContentRef
+   * (via content object URL) is authored into the node.
    */
   readonly contentPutImage: (input: {
     readonly bytesBase64: string;

@@ -442,7 +442,7 @@ const ACCESS_VERB_FOR_SINK = {
 const roleOfKind = (kind: WellKnownKind) => KindSpecs[kind].role;
 
 /**
- * Legacy edge ether → the verb it always meant. Deterministic; `undefined`
+ * A legacy edge's stored fields → the verb it always meant. Deterministic; `undefined`
  * means the edge does not survive (geography end, terminal access, a scheduler
  * pairing the grammar never admitted).
  *

@@ -3,7 +3,7 @@
  * only to their own keyed strand and route.
  *
  * Paint and geometry only. Nothing here reads or writes grants, ports,
- * physics, or ether fields.
+ * physics, or node fields.
  */
 import { batch, observable } from "@legendapp/state";
 import {

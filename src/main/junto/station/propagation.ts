@@ -13,7 +13,7 @@ import {
   type StatusResponse,
   type StationProjectionReference,
 } from "@shared/station-api";
-import { resolveNodeHostId } from "@shared/station";
+import { resolveNodeHostId } from "./frozen-node-host";
 import type { StationTopologyObservation } from "@shared/station-status";
 import { resolveSpec, roleOf } from "@shared/physics/kinds";
 import { compileEdgeGrant, edgeKindIndex } from "./frozen-document";
