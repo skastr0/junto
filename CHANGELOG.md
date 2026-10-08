@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## 0.6.0 — 2026-10-08
+
+- Store a canvas as rows, one per seat, region, wire, and every other kind,
+  in place of one saved document. An existing canvas is converted the first
+  time this version opens it. The window changes a canvas by sending
+  commands, and undo reverses those commands, including stacking order,
+  reseats, and batches.
+- Add a Briefing page and a References page in Settings. A seat gets the
+  briefing at onboard and reads named references on demand, a region's
+  references follow its canvas, and an overseer can read and write both.
+- Make the canvas faster: a card renders only when its own facts change, a
+  drag routes no wire and a drop routes only the wires that moved, and the
+  bottom bar, the command group bar, and the minimap follow only what they
+  show.
+- Read mail, the board, and work independently of the canvas, so they stay
+  quick on a large canvas.
+- Shorten the words on every Settings page. Terminal is four titled groups
+  with switches, Keyboard shortcuts says what each shortcut does, Sound
+  names each kind of sound by its own sounds, and Agents has one reset.
+- Find a name in Cmd+K by its letters in order.
+- Draw keyboard focus as one 2px cyan mark across the app.
+- Say a seat's exit reason in plain words, and say in the log why a wake or
+  a mail started no seat.
+- Fix a seat that asks again taking a second row in Needs you.
+- Fix the top bar's actions on the right being pushed out of a narrow
+  window.
+- Fix a wire's detour crossing a card, and shift-clicking the last selected
+  card off leaving it selected.
+- Fix the camera being placed more than once when a canvas opens.
+- Align Amp seats with Amp's own thread lifecycle.
+- The overseer commands now speak the same kinds the canvas stores.
+- State schema moves from 11 to 13.
+
 ## 0.5.0 — 2026-10-07
 
 - Offboard a seat from the app: ask or offboard now, one seat or many, from
