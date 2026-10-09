@@ -3,6 +3,7 @@
  * scenarios.
  */
 import { modelNode } from "./model";
+import { THIS_MACHINE } from "../../tests/support/machines";
 
 /** Eligible agent seat whose live ACP child can be process-bound. */
 export const browserAgentNode = (input: {
@@ -13,7 +14,7 @@ export const browserAgentNode = (input: {
   readonly y?: number;
 }) => modelNode({
   kind: "agent", id: input.id, agentKey: input.agentKey, label: input.label,
-  bindingId: input.agentKey, harness: "codex", host: "local", overseer: false, onRemove: "detach",
+  bindingId: input.agentKey, harness: "codex", host: THIS_MACHINE, overseer: false, onRemove: "detach",
   x: input.x ?? 0, y: input.y ?? 0, width: 240, height: 96, z: 0,
 });
 
@@ -29,6 +30,6 @@ export const browserPageNode = (input: {
   readonly y?: number;
 }) => modelNode({
   kind: "page", id: input.id, url: input.url, profile: input.profile,
-  host: "local", onRemove: "kill-session",
+  host: THIS_MACHINE, onRemove: "kill-session",
   x: input.x ?? 300, y: input.y ?? 0, width: 240, height: 80, z: 0,
 });

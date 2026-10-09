@@ -8,12 +8,15 @@ import {
 import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import type { Task, Artifact } from "../../src/shared/work-model";
+import { THIS_MACHINE } from "../../tests/support/machines";
+import type { SeatSessionObservation } from "../../src/main/junto/seat-sessions/repository";
 
 /** A native fixture contains authored rows; Work is queried separately. */
 export type ModelFixture = {
   readonly nodes: ReadonlyArray<Node>;
   readonly wires: ReadonlyArray<Wire>;
   readonly sheets?: Readonly<Record<string, SheetGrid>>;
+  readonly seatSessions?: ReadonlyArray<SeatSessionObservation>;
 };
 
 const decodeNode = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" });
@@ -29,7 +32,6 @@ export const modelSeat = (input: {
   readonly harness?: Seat["harness"];
   readonly cwd?: string;
   readonly launch?: Seat["launch"];
-  readonly sessionId?: string;
   readonly x?: number;
   readonly y?: number;
   readonly z?: number;
@@ -38,11 +40,10 @@ export const modelSeat = (input: {
   const cwd = input.cwd ?? tmpdir();
   return Schema.decodeUnknownSync(Seat, { onExcessProperty: "error" })({
     kind: "agent", id: input.id, agentKey: input.key ?? `local:${input.id}`, label: input.label ?? input.id,
-    bindingId: input.bindingId ?? input.key ?? `local:${input.id}`, harness, host: input.host ?? "local",
+    bindingId: input.bindingId ?? input.key ?? `local:${input.id}`, harness, host: input.host ?? THIS_MACHINE,
     overseer: false, onRemove: "detach", x: input.x ?? 0, y: input.y ?? 0,
     width: 240, height: 96, z: input.z ?? 0,
     launch: input.launch ?? { ...resolveManagedLaunch(harness, { cwd }, {}), cwd },
-    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
   });
 };
 
@@ -58,7 +59,7 @@ export const modelTerminal = (input: {
   readonly x?: number; readonly y?: number;
 }): Terminal => Schema.decodeUnknownSync(Terminal, { onExcessProperty: "error" })({
   kind: "terminal", id: input.id, bindingId: input.bindingId, label: input.label,
-  host: input.host ?? "local", onRemove: "detach", launch: input.launch ?? { kind: "shell" },
+  host: input.host ?? THIS_MACHINE, onRemove: "detach", launch: input.launch ?? { kind: "shell" },
   x: input.x ?? 0, y: input.y ?? 0, width: 260, height: 110, z: 0,
 });
 

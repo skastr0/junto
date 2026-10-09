@@ -20,6 +20,7 @@ import { IPC_CHANNELS } from "../../src/shared/ipc";
 import { modelSeat, modelFixture, modelNode, modelRegion, modelTerminal, modelNote, modelWire } from "../harness/model";
 import { expect, launchJunto, test } from "../harness/launch";
 import type { Node, Wire } from "../../src/shared/model";
+import { THIS_MACHINE } from "../../tests/support/machines";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -214,7 +215,7 @@ const linkNode = modelNode({
   y: 0,
   width: 240,
   height: 90,
-  host: "local", profile: "personal", onRemove: "kill-session",
+  host: THIS_MACHINE, profile: "personal", onRemove: "kill-session",
 });
 
 const regionNode = modelRegion({

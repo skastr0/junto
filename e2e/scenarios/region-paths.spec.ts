@@ -11,6 +11,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../harness/launch";
+import { THIS_MACHINE } from "../../tests/support/machines";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -19,7 +20,7 @@ const regionEmpty = modelRegion({
 });
 const regionFilled = modelRegion({
   id: "region-paths-2", label: "beacon orbit", x: 40, y: 40, width: 640, height: 360, hold: true,
-  defaults: { paths: { local: "/Users/operator/Projects/junto", "remote-a": "/home/operator/junto" } },
+  defaults: { paths: { [THIS_MACHINE]: "/Users/operator/Projects/junto", "remote-a": "/home/operator/junto" } },
 });
 
 const installBoard = async (page: Page, doc: ModelFixture): Promise<void> => {
@@ -96,7 +97,7 @@ test("region folder paths — multi-host seed + remove", async ({ junto }) => {
 
   let dialog = await openRegionPaths(page, regionFilled.id);
   await expect(dialog.getByRole("listbox", { name: "Machines with a folder" })).toBeVisible();
-  // The picker shows the selected host only — local is the first stored key.
+  // The picker shows the selected host only — this machine is the first stored key.
   await expect(
     dialog.getByRole("combobox", { name: /Working directory for /i }),
   ).toHaveValue("/Users/operator/Projects/junto");

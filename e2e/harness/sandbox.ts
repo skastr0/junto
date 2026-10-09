@@ -13,22 +13,21 @@ import { ModelService } from "../../src/main/junto/model/service";
 import { WorkModelDependentsLive } from "../../src/main/junto/work/model-dependents";
 import { Command } from "../../src/shared/model";
 import { modelSeedCommands, type ModelFixture } from "./model";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../../src/main/junto/seat-sessions/repository";
 import {
   makeStateEngineLive,
 } from "../../src/main/junto/state/engine";
-import {
-  SettingsLive,
-  SettingsService,
-} from "../../src/main/junto/settings/service";
+import { SettingsLive } from "../../src/main/junto/settings/service";
 import type { UsageState } from "../../src/shared/usage";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import {
   WorkRepositoryLive,
 } from "../../src/main/junto/work/repository";
 import {
-  StationRepository,
-  StationRepositoryLive,
-} from "../../src/main/junto/station/repository";
+  MachineRepository,
+  makeMachineRepositoryLive,
+} from "../../src/main/junto/machines/repository";
+import { THIS_MACHINE } from "../../tests/support/machines";
 export interface Sandbox {
   readonly root: string;
   readonly userDataDir: string;
@@ -112,13 +111,24 @@ export const writeFixtureRetiredCommercialState = async (
   }
 };
 
+/** The fixture with every node it placed on THIS_MACHINE placed on `machineName`. */
+const onMachine = (fixture: ModelFixture, machineName: string): ModelFixture =>
+  machineName === THIS_MACHINE
+    ? fixture
+    : {
+        ...fixture,
+        nodes: fixture.nodes.map((node) =>
+          "host" in node && node.host === THIS_MACHINE ? { ...node, host: machineName } : node),
+      };
+
 /** Seed a disposable database through ModelService, then close its owner. */
 export const writeFixtureModel = async (
   sandbox: Sandbox, name: string, fixture: ModelFixture, databasePath?: string,
 ): Promise<void> => {
   const state = makeStateEngineLive(databasePath ?? join(sandbox.homeDir, ".junto", "state", "junto.db"));
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    WorkRepositoryLive, StationRepositoryLive, SettingsLive,
+    WorkRepositoryLive, SettingsLive, makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
+    makeSeatSessionRepositoryLive(join(sandbox.homeDir, ".junto", "seats")),
   ), state);
   const runtime = ManagedRuntime.make(Layer.provideMerge(
     Layer.provide(ModelService.layer, WorkModelDependentsLive), repositories,
@@ -126,16 +136,22 @@ export const writeFixtureModel = async (
   try {
     await runtime.runPromise(Effect.gen(function* () {
       const model = yield* ModelService;
-      const settings = yield* SettingsService;
       const sql = yield* SqlClient.SqlClient;
-      yield* settings.setStationTopology({ role: "command-center", hostId: "local", supervisedPreferred: true });
-      // Reading the installation id creates this installation; a seat's host
-      // resolves only against one that exists.
-      yield* (yield* StationRepository).installationId;
+      const machine = yield* MachineRepository;
+      // A fresh database takes the fixture's machine name, so the seats it
+      // seeds and the app that boots on it agree. A database the app has
+      // already authored on keeps its own name, and the seats move to it.
+      const machineName = yield* machine.configureName(THIS_MACHINE).pipe(
+        Effect.map((stored) => stored.configuration.name),
+        Effect.catch(() => machine.machineName),
+      );
+      const placed = onMachine(fixture, machineName);
       yield* sql.withTransaction(Effect.gen(function* () {
         const exists = (yield* model.listCanvases()).some((canvas) => canvas === name);
         if (exists) yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RemoveCanvas", canvas: name }), "operator");
-        for (const command of modelSeedCommands(name, fixture)) yield* model.command(command, "operator");
+        for (const command of modelSeedCommands(name, placed)) yield* model.command(command, "operator");
+        const sessions = yield* SeatSessionRepository;
+        for (const observation of fixture.seatSessions ?? []) yield* sessions.record(observation);
       }));
     }));
   } finally { await runtime.dispose(); }
