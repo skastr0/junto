@@ -40,10 +40,15 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    is not done.
 2. **One canvas, one editing machine.** Each canvas names the one machine that
    may change it, by installation id. Every other machine holds a read-only
-   copy as ordinary rows. The copy travels whole and replaces the old one when
-   it is newer. It carries everything the operator authors that a seat reads:
-   nodes, wires, each seat's soul and instructions, references, the app
-   briefing, and play or pause. There is no merging of concurrent edits.
+   copy as ordinary rows. The copy travels whole, as one snapshot, and replaces
+   the old one when it is newer. It is cut for its destination. Every machine
+   gets the structure needed to resolve seats, machines, regions and wires,
+   the app briefing, app-wide references, and play or pause. A machine gets a
+   seat's soul and instructions only for its own seats, and a region's
+   briefing, references, folders and environment only for regions that hold
+   one of its seats. The editing machine keeps everything. Whatever a machine
+   once received it may still hold; removal does not take it back. There is
+   no merging of concurrent edits.
    Nothing may assume a second editor can never exist: ids stay global, and a
    canvas travels as rows. A changed or removed wire takes effect on a machine
    when that machine has the new copy; mail written before then still arrives.
@@ -95,6 +100,19 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     it; read a terminal, mail, signals and a machine's state. The window calls
     the same commands. Nothing needs the operator, a click, or the operator's
     running Junto. A slice that can only be exercised by hand is not done.
+
+## Trust
+
+Junto shares the authority of the OS account it runs in. A seat with a shell
+can reach that account's files, credentials and other local mechanisms outside
+Junto. Seat tokens, wires and the check that keeps a seat's process tree off
+the owner-only sockets say who made a Junto call and stop confused use. They
+are not a sandbox. The real boundaries are other users, content an agent
+reads, and another machine at the far end of a link.
+
+Junto never sends a value from its secret store between machines. Text the
+operator writes into a briefing, a note or a launch setting is ordinary canvas
+content and travels with the copy.
 
 ## The exercise
 
