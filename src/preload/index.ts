@@ -58,6 +58,7 @@ import type { PortraitOverrideEvent } from "@shared/portrait-overrides";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { SquadsChanged } from "@shared/squads";
+import type { MachineCommandProgress } from "@shared/machine-progress";
 import type { SeatGuidanceEvent } from "@shared/seat-guidance";
 import type { ReferencesChangedEvent } from "@shared/references";
 import type { SeatOffboardProgress } from "@shared/seat-sessions";
@@ -83,6 +84,12 @@ import type {
 // the main process always wins the race and tears the wedged session down
 // before the renderer's own timeout would fire.
 const IPC_TIMEOUT_MS = 45_000;
+/**
+ * A machine send copies a whole build over SSH and starts it. Main owns that
+ * command's deadline and its plain reason; this only catches a main that
+ * never answers, so it sits past the longest wait an owner command may ask for.
+ */
+const MACHINE_COMMAND_TIMEOUT_MS = 16 * 60_000;
 /** Box-backed host interaction may include provider resume + SSH verification. */
 const HOST_ACTIVATION_IPC_TIMEOUT_MS = 360_000;
 
@@ -938,6 +945,8 @@ const hostsApi: JuntoHostsApi = {
   hostsUpsert: (host: unknown) => invoke(IPC_CHANNELS.hostsUpsert, IPC_TIMEOUT_MS, host),
   hostsRemove: (id: string) => invoke(IPC_CHANNELS.hostsRemove, IPC_TIMEOUT_MS, id),
   hostsTest: (id: string) => invoke(IPC_CHANNELS.hostsTest, IPC_TIMEOUT_MS, id),
+  machineCommand: (request) => invoke(IPC_CHANNELS.machineCommand, MACHINE_COMMAND_TIMEOUT_MS, request),
+  onMachineProgress: (listener) => subscribe<MachineCommandProgress>(IPC_CHANNELS.machineProgress, listener),
 };
 
 // A preload is attached before Chromium has committed a document. Do not hand

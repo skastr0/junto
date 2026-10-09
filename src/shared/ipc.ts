@@ -22,6 +22,8 @@ export type {
 } from "./browser";
 import type { DoctorReport } from "./contracts";
 import type { RemoteHost } from "./remote-hosts";
+import type { OperatorRequestEnvelope, OperatorResponseEnvelope } from "./operator-control";
+import type { MachineCommandProgress } from "./machine-progress";
 import type { WorkMetadata, Task, Part, TaskState, FinishCriteria, CompletionEvidence, TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
 import type {
   SeatCollaborationAskResult,
@@ -308,6 +310,10 @@ export const IPC_CHANNELS = {
   hostsUpsert: "junto:hosts-upsert",
   hostsRemove: "junto:hosts-remove",
   hostsTest: "junto:hosts-test",
+  // The Machines window: one closed owner machine command, and the steps of
+  // a send or an update in flight (main -> renderer).
+  machineCommand: "junto:machine-command",
+  machineProgress: "junto:machine-progress",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "junto:renderer-surface-challenge",
@@ -1181,6 +1187,15 @@ export interface JuntoHostsApi {
   readonly hostsUpsert: (host: unknown) => Promise<HostsOpResult>;
   readonly hostsRemove: (id: string) => Promise<HostsOpResult>;
   readonly hostsTest: (id: string) => Promise<HostsTestResult>;
+  /**
+   * One closed owner machine command, the same one `junto machine` sends.
+   * Main decodes the request and answers in the owner envelope; the window
+   * decodes that answer before it reads it. This is the window's whole reach
+   * over machines: it can do nothing an owner command cannot.
+   */
+  readonly machineCommand: (request: OperatorRequestEnvelope) => Promise<OperatorResponseEnvelope>;
+  /** A step of a send or an update in flight, with the id of the command it belongs to. */
+  readonly onMachineProgress: (listener: (progress: MachineCommandProgress) => void) => () => void;
 }
 
 /** Optional provider-usage product surface. Omitted from preload when disabled. */
