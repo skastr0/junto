@@ -22,7 +22,6 @@ import {
 import { makeRemoteCommand } from "../src/main/junto/ssh/domain";
 import {
   createSshProgramCompiler,
-  daemonHandoff,
   deploymentStream,
   dedicatedStream,
   oneShot,
@@ -397,22 +396,4 @@ describe("SSH policy surface", () => {
     expect(existsSync(ownedControlSocket)).toBe(false);
   });
 
-  it("builds the daemon handoff script only from quoted command tokens", async () => {
-    const calls: Command.StandardCommand[] = [];
-    const layer = await recordingLayer(calls);
-    await runPromise(
-      Effect.gen(function* () {
-        const endpoint = yield* parseSshEndpoint("remote-a");
-        const remote = yield* makeRemoteCommand("hermes", ["--session", "red; echo bad", "server"]);
-        yield* (yield* SshTransport).handoff(
-          daemonHandoff(endpoint, remote),
-          (confirm) => Effect.succeed(confirm("healthy")),
-        );
-      }).pipe(Effect.provide(layer)),
-    );
-
-    const script = calls.map(sshArgs).map((args) => args.at(-1) ?? "").find((arg) => arg.includes("nohup")) ?? "";
-    expect(script).toContain("nohup 'hermes' '--session' 'red; echo bad' 'server'");
-    expect(script).toContain(`printf '%s\\n' "$!"`);
-  });
 });

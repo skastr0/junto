@@ -56,15 +56,10 @@ export interface ForwardProgram {
   readonly [ProgramTypeId]: "forward";
 }
 
-export interface DaemonHandoffProgram {
-  readonly [ProgramTypeId]: "daemonHandoff";
-}
-
 type RemoteInvocation =
   | { readonly _tag: "Argv"; readonly command: RemoteCommand }
   | { readonly _tag: "HomeDirectoryLookup" }
-  | { readonly _tag: "MasterWarm" }
-  | { readonly _tag: "DaemonHandoff"; readonly command: RemoteCommand };
+  | { readonly _tag: "MasterWarm" };
 
 interface OneShotPayload {
   readonly _tag: "OneShot";
@@ -89,15 +84,8 @@ interface ForwardPayload {
   readonly readinessTimeoutMs: number;
 }
 
-interface DaemonPayload {
-  readonly _tag: "DaemonHandoff";
-  readonly target: SshTarget;
-  readonly command: RemoteCommand;
-  readonly readinessTimeoutMs: number;
-}
-
-type ProgramPayload = OneShotPayload | StreamPayload | ForwardPayload | DaemonPayload;
-type SshProgram = OneShotProgram | ScopedStreamProgram | ForwardProgram | DaemonHandoffProgram;
+type ProgramPayload = OneShotPayload | StreamPayload | ForwardPayload;
+type SshProgram = OneShotProgram | ScopedStreamProgram | ForwardProgram;
 
 const payloads = new WeakMap<object, ProgramPayload>();
 
@@ -198,17 +186,6 @@ export const unixForward = (
     readinessTimeoutMs: READINESS_TIMEOUT_MS.fast,
   });
 
-export const daemonHandoff = (
-  target: SshTarget,
-  command: RemoteCommand,
-): DaemonHandoffProgram =>
-  opaque<DaemonHandoffProgram>("daemonHandoff", {
-    _tag: "DaemonHandoff",
-    target,
-    command,
-    readinessTimeoutMs: READINESS_TIMEOUT_MS.fast,
-  });
-
 export interface SshExecutionPolicy {
   readonly controlDir: string;
   readonly envExecutable: string;
@@ -227,12 +204,6 @@ export interface CompiledStream {
   readonly endpoint: SshEndpoint;
   readonly readinessTimeoutMs: number;
   readonly connection: "shared" | "dedicated";
-  readonly command: Command.Command;
-}
-
-export interface CompiledDaemonHandoff {
-  readonly endpoint: SshEndpoint;
-  readonly readinessTimeoutMs: number;
   readonly command: Command.Command;
 }
 
@@ -291,10 +262,7 @@ const invocationText = (invocation: RemoteInvocation): string => {
       return `printf '%s\\n' "$HOME"`;
     case "MasterWarm":
       return "true";
-    case "DaemonHandoff": {
-      const remote = renderRemoteCommand(invocation.command);
-      return `nohup ${remote} </dev/null >/dev/null 2>&1 & printf '%s\\n' "$!"`;
-    }
+
   }
 };
 
@@ -418,20 +386,6 @@ export const createSshProgramCompiler = (policy: SshExecutionPolicy) => {
           payload.target,
           { _tag: "Argv", command: payload.command },
           payload.connection,
-        ),
-      };
-    },
-
-    daemonHandoff(program: DaemonHandoffProgram): CompiledDaemonHandoff {
-      const payload = decode(program, "DaemonHandoff");
-      const route = inspectSshTarget(payload.target);
-      return {
-        endpoint: route.endpoint,
-        readinessTimeoutMs: payload.readinessTimeoutMs,
-        command: normal(
-          payload.target,
-          { _tag: "DaemonHandoff", command: payload.command },
-          "shared",
         ),
       };
     },

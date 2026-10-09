@@ -21,7 +21,6 @@ export {
   type SshTarget,
 } from "./domain";
 export {
-  type DaemonHandoffProgram,
   type ForwardProgram,
   type OneShotProgram,
   type ScopedStreamProgram,

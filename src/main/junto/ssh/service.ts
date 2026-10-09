@@ -27,7 +27,6 @@ import {
   SshTimeoutError,
 } from "./domain";
 import type {
-  DaemonHandoffProgram,
   ForwardProgram,
   OneShotProgram,
   ScopedStreamProgram,
@@ -131,39 +130,9 @@ export class SshTransport extends Context.Service<SshTransport,
         confirm: ConfirmSshReady,
       ) => Effect.Effect<SshReady<A>, E, R>,
     ) => Effect.Effect<A, SshError | E, R | Scope.Scope>;
-    /**
-     * Station negotiation readiness path.
-     *
-     * Unlike `connect`, the transport does not race child exit against the
-     * callback. The callback owns exit observation so it can distinguish a
-     * peer response from helper exit after draining stdout to EOF. A
-     * confirmed live connection is still checked exactly like `connect`.
-     */
-    readonly connectWithExitObservation: <A, E, R>(
-      program: ScopedStreamProgram,
-      awaitReady: (
-        lease: SshLease,
-        confirm: ConfirmSshReady,
-      ) => Effect.Effect<SshReady<A>, E, R>,
-    ) => Effect.Effect<A, SshError | E, R | Scope.Scope>;
-    /**
-     * Runs one finite duplex protocol over one scoped SSH child and requires a
-     * clean remote exit. The callback owns stdin sequencing and must close it
-     * when its protocol has no more frames to send.
-     */
-    readonly transact: <A, E, R>(
-      program: ScopedStreamProgram,
-      use: (lease: SshLease) => Effect.Effect<A, E, R>,
-    ) => Effect.Effect<A, SshError | E, R>;
     readonly forward: (
       program: ForwardProgram,
     ) => Effect.Effect<SshForwardLease, SshError, Scope.Scope>;
-    readonly handoff: <A, E, R>(
-      program: DaemonHandoffProgram,
-      awaitReady: (
-        confirm: ConfirmSshReady,
-      ) => Effect.Effect<SshReady<A>, E, R>,
-    ) => Effect.Effect<A, SshError | E, R>;
     readonly warm: (target: SshTarget) => Effect.Effect<void, SshError>;
     /**
      * Explicit, best-effort `-O exit` against the endpoint's SHARED
@@ -680,7 +649,6 @@ export const SshTransportLayer = Layer.effect(
       });
 
     const connectWithPolicy = <A, E, R>(
-      callbackOwnsExit: boolean,
       program: ScopedStreamProgram,
       awaitReady: (
         lease: SshLease,
@@ -719,12 +687,7 @@ export const SshTransportLayer = Layer.effect(
                       ),
                     ),
                   );
-                const readiness = callbackOwnsExit
-                  ? awaitReady(lease, confirm)
-                  : Effect.raceFirst(
-                      awaitReady(lease, confirm),
-                      exited,
-                    );
+                const readiness = Effect.raceFirst(awaitReady(lease, confirm), exited);
                 return readiness.pipe(
                   Effect.timeoutOrElse({
                     duration: compiled.readinessTimeoutMs,
@@ -760,11 +723,7 @@ export const SshTransportLayer = Layer.effect(
     const connect: SshTransportShape["connect"] = (
       program,
       awaitReady,
-    ) => connectWithPolicy(false, program, awaitReady);
-
-    const connectWithExitObservation: SshTransportShape["connectWithExitObservation"] =
-      (program, awaitReady) =>
-        connectWithPolicy(true, program, awaitReady);
+    ) => connectWithPolicy(program, awaitReady);
 
     const transfer: SshTransportShape["transfer"] = (
       program,
@@ -881,70 +840,6 @@ export const SshTransportLayer = Layer.effect(
                     Effect.ensuring(lease.close),
                   );
                 }),
-              ),
-            ),
-          );
-        }),
-      );
-
-    const transact: SshTransportShape["transact"] = (
-      program,
-      use,
-    ) =>
-      Effect.try({
-        try: () => compiler.stream(program),
-        catch: () =>
-          new SshSetupError({
-            endpoint: "invalid-program",
-            message:
-              "SSH transaction operation was not created by the policy surface",
-          }),
-      }).pipe(
-        Effect.flatMap((compiled) => {
-          const setup =
-            compiled.connection === "shared"
-              ? ensureControlDir(compiled.endpoint)
-              : Effect.void;
-          return withDial(
-            compiled.endpoint,
-            Effect.scoped(
-              setup.pipe(
-                Effect.andThen(
-                  openLease(
-                    compiled.endpoint,
-                    "transaction",
-                    compiled.command,
-                  ),
-                ),
-                Effect.flatMap((lease) =>
-                  Effect.all(
-                    {
-                      value: use(lease),
-                      code: lease.exitCode,
-                    },
-                    { concurrency: "unbounded" },
-                  ).pipe(
-                    Effect.flatMap(({ value, code }) =>
-                      code === 0
-                        ? Effect.succeed(value)
-                        : Effect.fail(
-                            new SshExitError({
-                              endpoint: compiled.endpoint,
-                              operation: "transaction",
-                              code,
-                            }),
-                          ),
-                    ),
-                    Effect.timeoutOrElse({
-                      duration: compiled.readinessTimeoutMs,
-                      orElse: () => Effect.fail(new SshTimeoutError({
-                          endpoint: compiled.endpoint,
-                          operation: "transaction",
-                          timeoutMs: compiled.readinessTimeoutMs,
-                        })),}),
-                    Effect.ensuring(lease.close),
-                  ),
-                ),
               ),
             ),
           );
@@ -1094,54 +989,6 @@ export const SshTransportLayer = Layer.effect(
         );
       }) as Effect.Effect<SshForwardLease, SshError, Scope.Scope>;
 
-    const handoff: SshTransportShape["handoff"] = (
-      program,
-      awaitReady,
-    ) =>
-      Effect.try({
-        try: () => compiler.daemonHandoff(program),
-        catch: () =>
-          new SshSetupError({
-            endpoint: "invalid-program",
-            message: "SSH operation was not created by the policy surface",
-          }),
-      }).pipe(
-        Effect.flatMap((compiled) =>
-          withDial(
-            compiled.endpoint,
-            Effect.gen(function* () {
-              yield* ensureControlDir(compiled.endpoint);
-              const result = yield* runChecked(
-                compiled.endpoint,
-                "daemon-handoff",
-                compiled.command,
-                compiled.readinessTimeoutMs,
-              );
-              if (!/^\d+$/u.test(result.stdout.trim())) {
-                return yield* Effect.fail(
-                  new SshIoError({
-                    endpoint: compiled.endpoint,
-                    operation: "daemon-handoff",
-                    message:
-                      "remote daemon handoff did not return a process receipt",
-                  }),
-                );
-              }
-              const ready = yield* awaitReady(confirm).pipe(
-                Effect.timeoutOrElse({
-                  duration: compiled.readinessTimeoutMs,
-                  orElse: () => Effect.fail(new SshTimeoutError({
-                      endpoint: compiled.endpoint,
-                      operation: "daemon-handoff",
-                      timeoutMs: compiled.readinessTimeoutMs,
-                    })),}),
-              );
-              return ready.value;
-            }),
-          ),
-        ),
-      );
-
     const warm = (target: SshTarget): Effect.Effect<void, SshError> => {
       const endpoint = inspectSshTarget(target).endpoint;
       let lock = warmLocks.get(String(endpoint));
@@ -1185,10 +1032,7 @@ export const SshTransportLayer = Layer.effect(
       run,
       transfer,
       connect,
-      connectWithExitObservation,
-      transact,
       forward,
-      handoff,
       warm,
       teardown,
     });
