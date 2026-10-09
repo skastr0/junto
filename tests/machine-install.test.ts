@@ -35,7 +35,7 @@ vi.mock("../src/main/junto/hosts/install-service", () => ({
   }),
 }));
 
-import { installMachine } from "../src/main/junto/hosts/install";
+import { installMachine, machineServiceLabel } from "../src/main/junto/hosts/install";
 import { uninstallMachine } from "../src/main/junto/hosts/uninstall";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { writeMachineServiceFile } from "../src/main/junto/hosts/install-paths";
@@ -152,7 +152,39 @@ describe("machine install", () => {
     const error = await errorFrom(bundle);
     expect(error.disposition).toBe("activated");
     expect(error.retryable).toBe(false);
+    expect(error.message).toContain("Nothing is running there. Send a fixed build to recover");
+    expect(fixture.definitionRemoved).toBe(true);
     expect(await readlink(join(fixture.root, "current"))).toContain("a".repeat(64));
+    fixture.startFailure = false;
+    expect((await install(await makeBundle("b".repeat(64)))).disposition).toBe("ready");
+  });
+
+  it("stops a timed-out candidate, removes its autostart and reports the bounded service error", async () => {
+    await mkdir(join(fixture.root, "logs"), { recursive: true, mode: 0o700 });
+    // Establish an installation marker before writing a diagnostic fixture.
+    await writeFile(join(fixture.root, "owner.json"), JSON.stringify({ serviceLabel: machineServiceLabel(fixture.root, fixture.home), juntoHome: fixture.home }), { mode: 0o600 });
+    await writeFile(join(fixture.root, "logs/stderr.log"), "Error: fixture core exited at start\n", { mode: 0o600 });
+    let elapsed = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => elapsed += 30_000);
+    const error = await errorFrom(await makeBundle("a".repeat(64)));
+    expect(error.disposition).toBe("activated");
+    expect(error.message).toContain("Nothing is running there");
+    expect(error.message).toContain("fixture core exited at start");
+    expect(fixture.loaded).toBe(false);
+    expect(fixture.pid).toBe(0);
+    expect(fixture.definitionRemoved).toBe(true);
+    expect(await readlink(join(fixture.root, "current"))).toContain("a".repeat(64));
+  });
+
+  it("does not claim nothing is running when failed-candidate shutdown is uncertain", async () => {
+    fixture.stopFailure = true;
+    let elapsed = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => elapsed += 30_000);
+    const error = await errorFrom(await makeBundle("a".repeat(64)));
+    expect(error.disposition).toBe("uncertain");
+    expect(error.message).toContain("stopping it could not be confirmed");
+    expect(error.message).not.toContain("Nothing is running there");
+    expect(fixture.definitionRemoved).toBe(false);
   });
 
   it("refuses writable ancestors and symlinked service files", async () => {

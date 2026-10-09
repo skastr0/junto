@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { cp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { cp, open, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -31,6 +32,19 @@ const verifyGeneration = async (path: string, admitted: MachineBundleManifest): 
   await checkMachineTree(path);
   const installed = await inspectMachineBundle(path);
   if (JSON.stringify(installed) !== JSON.stringify(admitted)) throw new Error("installed bundle differs from the bundle this machine sent");
+};
+
+const serviceErrorTail = async (root: string): Promise<string> => {
+  const path = join(root, "logs/stderr.log");
+  if (!await ownedMachineFile(path)) return "";
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const metadata = await file.stat();
+    if (!metadata.isFile() || metadata.uid !== process.getuid!()) return "";
+    const count = Math.min(metadata.size, 4096), bytes = Buffer.alloc(count);
+    await file.read(bytes, 0, count, metadata.size - count);
+    return bytes.toString("utf8").replace(/\u001b\[[0-9;]*[A-Za-z]/g, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().split("\n").slice(-12).join("\n").slice(-3000);
+  } finally { await file.close(); }
 };
 
 export const installMachine = (input: MachineInstallInput): Effect.Effect<MachineInstallResult, MachineInstallError> => {
@@ -111,25 +125,38 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
       // The candidate can open state from here; errors never roll back or retry.
       disposition = "activated";
       record({ step: "selected", build: manifest.build });
-      await service.start();
-      record({ step: "started" });
-      const deadline = Date.now() + 30_000;
-      let detail = "core has not reported ready";
-      while (Date.now() < deadline) {
+      try {
+        await service.start();
+        record({ step: "started" });
+        const deadline = Date.now() + 30_000;
+        let detail = "core has not reported ready";
+        while (Date.now() < deadline) {
+          try {
+            const status = await readInstalledMachineStatus(directory, juntoHome);
+            const observed = await service.observe();
+            if (status.build !== manifest.build || status.juntoHome !== juntoHome || status.pid !== observed.pid) throw new Error("core build, home, or service process does not match the candidate");
+            if (installationId !== undefined && status.installationId !== installationId) throw new Error("candidate installation identity changed");
+            if (status.ready) {
+              record({ step: "ready", pid: status.pid });
+              return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated, disposition: "ready", installationId: status.installationId, machineName: status.machineName, pid: status.pid, transitions };
+            }
+          } catch (cause) { detail = cause instanceof Error ? cause.message : String(cause); }
+          await sleep(200);
+        }
+        throw new Error(detail);
+      } catch (cause) {
+        disposition = "uncertain";
+        let diagnostics = "";
+        try { diagnostics = await serviceErrorTail(installRoot); } catch { /* Cleanup still runs if diagnostics cannot be read. */ }
         try {
-          const status = await readInstalledMachineStatus(directory, juntoHome);
-          const observed = await service.observe();
-          if (status.build !== manifest.build || status.juntoHome !== juntoHome || status.pid !== observed.pid) throw new Error("core build, home, or service process does not match the candidate");
-          if (installationId !== undefined && status.installationId !== installationId) throw new Error("candidate installation identity changed");
-          if (status.ready) {
-            record({ step: "ready", pid: status.pid });
-            return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated, disposition: "ready", installationId: status.installationId, machineName: status.machineName, pid: status.pid, transitions };
-          }
-        } catch (cause) { detail = cause instanceof Error ? cause.message : String(cause); }
-        await sleep(200);
+          await quiesceMachineService(service, await service.observe(), () => {});
+          await service.removeDefinition();
+        } catch (stopCause) {
+          throw new Error(`Junto did not start, and stopping it could not be confirmed. Check this machine before sending again. ${(stopCause instanceof Error ? stopCause.message : String(stopCause)).slice(0, 800)}${diagnostics ? "\n" + diagnostics : ""}`);
+        }
+        disposition = "activated";
+        throw new Error(`Junto is installed but did not start. Nothing is running there. Send a fixed build to recover.\n${diagnostics || (cause instanceof Error ? cause.message : String(cause)).slice(0, 1000)}`);
       }
-      disposition = "uncertain";
-      throw new Error(`candidate readiness unconfirmed: ${detail}; inspect machine status and recover forward`);
     } finally { await releaseLock(); }
   }, catch: cause => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: disposition === "staged", disposition, transitions }) });
 };
