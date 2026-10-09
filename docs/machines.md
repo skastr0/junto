@@ -366,6 +366,17 @@ together, from one commit of main. `remote-verify` holds the receipts:
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
 
+**Run D, `3363f44bd`: mail passed, signals failed.** With the Preview quit
+on this Mac, a seat on the mini onboarded and mailed the real Amp seat
+there, and Amp mailed this Mac; on return the held mail was delivered and
+Amp's process and generation were unchanged
+(`preview-3363f44bd/live/receipt-d.json`). What failed: Amp's
+`junto feedback` never reached the operator's feed, because a signal lives
+only in the store of the machine where it was written. Ruled: a signal is a
+row like mail, written by the seat's machine and taken by the editing
+machine, and the operator's answer is a row the other way. `remote-work`
+has it; run D repeats with it.
+
 **Run C with a real agent, `3363f44bd`.** A real Amp seat on the Mac mini,
 placed and started from the Preview on this Mac, received mail from a seat
 here with nobody touching the mini, and answered it from the mini with its
