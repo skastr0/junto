@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
-import { migrateStateSchema } from "../src/main/junto/state/migrations";
+import { CURRENT_STATE_SCHEMA_VERSION, migrateStateSchema } from "../src/main/junto/state/migrations";
 import { KIND_TABLES } from "../src/main/junto/model/state-schema";
 
 const baseline = process.env.JUNTO_MODEL_INSTALLED_COPY;
@@ -24,7 +24,7 @@ it.skipIf(!baseline)("migrates a disposable installed copy and preserves all unr
     const wires = Number(db.prepare("SELECT count(*) AS n FROM canvas_edges").get()!.n);
     const facts = Number(db.prepare("SELECT count(*) AS n FROM work_facts").get()!.n);
     const report = migrateStateSchema(db);
-    expect(report.schemaVersion).toBe(13);
+    expect(report.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
     expect(db.prepare("PRAGMA integrity_check").get()!.integrity_check).toBe("ok");
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     for (const [table, hash] of before) expect(digest(db, table), table).toBe(hash);

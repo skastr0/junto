@@ -6506,17 +6506,7 @@ const resultForCommand = Effect.fn("work.resultForCommand")(function* (
       };
     }
     case "message.append": {
-      const authority = yield* canonicalLocalWorkAuthority(writer);
-      if (action.destination.kind === "mailbox") {
-        if (authority.role !== "command-center") {
-          return yield* Effect.fail(
-            authorityError(
-              "authority-mismatch",
-              "actor mailbox messages are Command Center-homed",
-            ),
-          );
-        }
-      } else {
+      if (action.destination.kind !== "mailbox") {
         yield* requireThreadParent(
           writer,
           command.item.sink,
@@ -10428,16 +10418,7 @@ export const WorkRepositoryLive = Layer.effect(
           Effect.gen(function* () {
             const authority = yield* canonicalLocalWorkAuthority(writer);
             const localInstallationId = authority.installationId;
-            if (destination.kind === "mailbox") {
-              if (authority.role !== "command-center") {
-                return yield* Effect.fail(
-                  authorityError(
-                    "authority-mismatch",
-                    "actor mailbox messages are Command Center-homed",
-                  ),
-                );
-              }
-            } else {
+            if (destination.kind !== "mailbox") {
               if (message.taskId !== destination.itemId) {
                 return yield* Effect.fail(
                   authorityError(

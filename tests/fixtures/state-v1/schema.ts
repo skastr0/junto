@@ -12,7 +12,7 @@
  * (1 -> 2), so version 1 is version 2 plus that ledger's DDL, exactly as it
  * shipped. Tests build historical databases from these to prove each step.
  */
-import { STATE_SCHEMA_FRAGMENTS } from "../../../src/main/junto/state/schema";
+import { STATE_SCHEMA_FRAGMENTS, STATE_SCHEMA_SQL } from "../../../src/main/junto/state/schema";
 import {
   AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
   AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
@@ -35,6 +35,29 @@ import { WORK_STATE_SCHEMA_CANVAS_BASIS_SQL } from "../../../src/main/junto/mode
 import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "./work-head-schema";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../domain-cutover/entities-schema";
+
+// Version 14 dropped this trigger (13 -> 14), so version 13 is the current composition with it.
+const MAIL_HOME_TRIGGER_V13_SQL = `
+  CREATE TRIGGER IF NOT EXISTS work_messages_require_cc_home
+  BEFORE INSERT ON work_messages
+  WHEN
+    NOT EXISTS (
+      SELECT 1
+      FROM station_configuration AS configuration
+      JOIN station_installation AS installation
+        ON installation.singleton = configuration.singleton
+      WHERE configuration.singleton = 1
+        AND configuration.role = 'command-center'
+        AND NEW.entity_home = installation.installation_id
+    )
+  BEGIN
+    SELECT RAISE(
+      ABORT,
+      'work mailbox messages must be Command Center-homed'
+    );
+  END;
+`;
+export const STATE_SCHEMA_V13_SQL = `${STATE_SCHEMA_SQL}\n${MAIL_HOME_TRIGGER_V13_SQL}`;
 
 // Frozen pre-cutover composition: later kinds/basis DDL must never change
 // the historical witnesses these migration tests build their databases from.

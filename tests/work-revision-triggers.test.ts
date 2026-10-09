@@ -72,19 +72,6 @@ describe("Work revision triggers", () => {
     try {
       database.exec("PRAGMA foreign_keys = OFF");
       database.exec(STATE_SCHEMA_SQL);
-      // work_messages_require_cc_home refuses a mailbox row that is not homed
-      // on the configured Command Center, so the probe configures one and
-      // homes every synthetic row there.
-      database.exec(`
-        INSERT INTO station_known_installations(installation_id, registered_at)
-        VALUES ('home', '${"2026-08-18T00:00:00.000Z"}');
-        INSERT INTO station_installation(singleton, installation_id, created_at)
-        VALUES (1, 'home', '${"2026-08-18T00:00:00.000Z"}');
-        INSERT INTO station_configuration(
-          singleton, role, host_id, agent_host_id,
-          command_center_installation_id, supervised_preferred, configured_at
-        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, '${"2026-08-18T00:00:00.000Z"}');
-      `);
       const revision = (): number =>
         (
           database

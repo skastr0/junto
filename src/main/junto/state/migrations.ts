@@ -232,7 +232,16 @@ export const STATE_SCHEMA_V13_IDENTITY = {
     "5c7bc7241a4a81d1d0813ac85169b09a83e4c447dcf433670a273d9dc4c4720f",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 13;
+/**
+ * Version 14 drops the trigger that pinned every mailbox row to one machine:
+ * mail lives on its seat's machine, whichever that is.
+ */
+export const STATE_SCHEMA_V14_IDENTITY = {
+  actualSchemaSha256:
+    "d6b5aa2a9f73723d6cfe7cc6f6b527415ef883a82473f6e438a0910828eca276",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 14;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -240,7 +249,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 13;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V13_IDENTITY;
+  STATE_SCHEMA_V14_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -381,6 +390,18 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       migrateCanvasKinds(database);
       migrateWorkFactBasis(database);
+    },
+  },
+  {
+    fromVersion: 13,
+    toVersion: 14,
+    name: "let mail live on any machine",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V13_IDENTITY,
+    // No row changes: the trigger only refused inserts, and nothing replaces it.
+    replacesObjects: ["trigger:work_messages_require_cc_home"],
+    migrate: (database) => {
+      database.exec("DROP TRIGGER work_messages_require_cc_home");
     },
   },
 ];
