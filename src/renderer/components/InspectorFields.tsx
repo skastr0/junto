@@ -51,13 +51,15 @@ export function NodeCapabilityInventory({ nodeId }: { readonly nodeId: string })
   // Who a node reaches depends on every wire and every region, so the canvas
   // is followed whole; this is mounted only while a node is inspected.
   const canvas = useCanvas(use$(state$.canvasName));
+  // The window edits the canvas it has open, so a node that names no machine is on this one.
+  const editingMachine = useThisMachineName();
 
   const inventory = useMemo(() => {
     const self = canvas.nodes.get(asModelNodeId(nodeId));
     if (!self) return null;
     const selfRole = roleOfKind(self.kind);
     if (selfRole !== "actor" && selfRole !== "sink") return null;
-    const view = canvasToCapabilityView(canvas);
+    const view = canvasToCapabilityView(canvas, { editingMachine });
     const neighbors = HashMap.get(view.connected, asNodeId(nodeId));
     if (Option.isNone(neighbors) || HashSet.size(neighbors.value) === 0) {
       return { role: selfRole, rows: [] as CapabilityNeighbor[] };
@@ -78,7 +80,7 @@ export function NodeCapabilityInventory({ nodeId }: { readonly nodeId: string })
     }
     rows.sort((a, b) => a.title.localeCompare(b.title));
     return { role: selfRole, rows };
-  }, [canvas, nodeId]);
+  }, [canvas, nodeId, editingMachine]);
 
   if (!inventory) return null;
 
