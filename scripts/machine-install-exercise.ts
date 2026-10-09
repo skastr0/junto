@@ -5,7 +5,6 @@
  */
 import { randomUUID } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
@@ -176,7 +175,8 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
   if (localManifest.build !== firstBundle.build || localManifest.target !== `${process.platform}-${process.arch}`) {
     return yield* Effect.fail(new Error("provide a native local bundle with the same build as the first remote bundle"));
   }
-  const receipts = yield* attempt(() => mkdtemp(join(tmpdir(), "junto-install-exercise-")));
+  // macOS's per-user tmpdir makes the owner socket path exceed sockaddr_un.
+  const receipts = yield* attempt(() => mkdtemp("/tmp/junto-install-exercise-"));
   const owner = randomUUID();
   yield* attempt(() => writeFile(join(receipts, "exercise-owner"), owner, { mode: 0o600, flag: "wx" }));
   const receipt: { ok: boolean; receipts: string; sshTarget: string; root?: string; steps: Record<string, unknown>; error?: string } = {
