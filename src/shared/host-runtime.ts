@@ -1,12 +1,5 @@
 import { Schema } from "effect";
 
-export const HostProcess = Schema.Literals(["down", "up", "unknown"]);
-export type HostProcess = typeof HostProcess.Type;
-
-/** Folders/terminals (Darwin) or work control (Linux). Sock-on-disk is not Ready. */
-export const HostWorkAttach = Schema.Literals(["down", "up", "unknown"]);
-export type HostWorkAttach = typeof HostWorkAttach.Type;
-
 export const HostRuntimeBlockerKind = Schema.Literals([
   "quit-app",
   "login-session",
