@@ -8,7 +8,6 @@ import {
   type OperatorRequestEnvelope,
   type OperatorResponseEnvelope,
 } from "../src/shared/operator-control";
-import { STATION_API_PROTOCOL } from "../src/shared/station-api";
 import {
   appendAndWipeOperatorBytes,
   startOperatorControlServer,
@@ -34,39 +33,30 @@ const admittedRuntime: OperatorControlServerRuntime = {
   },
 };
 
-const statusRequest = (id = "status-1"): OperatorRequestEnvelope => ({
+const DEVICE = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3";
+
+const helloRequest = (id = "hello-1"): OperatorRequestEnvelope => ({
   protocol: OPERATOR_PROTOCOL_VERSION,
   id,
-  op: "station.status",
-  args: {},
+  op: "companion.hello",
+  args: { deviceId: DEVICE },
 });
 
-const statusResponse = (
+const helloResponse = (
   request: OperatorRequestEnvelope,
 ): OperatorResponseEnvelope => {
   const decoded = decodeOperatorResponse({
     protocol: OPERATOR_PROTOCOL_VERSION,
     id: request.id,
     ok: true,
-    op: "station.status",
+    op: "companion.hello",
     data: {
-      protocol: STATION_API_PROTOCOL,
-      op: "status",
-      installationId: "installation-test",
-      state: "unenrolled",
-      receivedThrough: [],
-      peerAcknowledgedThrough: [],
-      readiness: {
-        database: true,
-        workControl: false,
-        simulation: false,
-        session: false,
-      },
-      observedAt: "2026-07-31T00:00:00.000Z",
+      ok: true,
+      hello: { appVersion: "t", deviceId: DEVICE, deviceName: "Phone", station: "Mac", serverTime: 1 },
     },
   });
   if (Result.isFailure(decoded)) {
-    throw new Error("invalid operator status fixture");
+    throw new Error("invalid operator hello fixture");
   }
   return decoded.success;
 };
@@ -102,7 +92,7 @@ const exchange = async (
 
 const start = async (
   dispatch = async (request: OperatorRequestEnvelope) =>
-    statusResponse(request),
+    helloResponse(request),
   runtime: OperatorControlServerRuntime = admittedRuntime,
 ): Promise<OperatorControlServer> => {
   // Darwin Unix-domain socket paths are capped near 104 bytes.
@@ -142,7 +132,7 @@ describe("operator control server", () => {
 
   it("creates an owner-private directory and socket and serves one frame", async () => {
     const dispatch = vi.fn(async (request: OperatorRequestEnvelope) =>
-      statusResponse(request),
+      helloResponse(request),
     );
     const server = await start(dispatch);
     const directory = await stat(join(server.socketPath, ".."));
@@ -154,7 +144,7 @@ describe("operator control server", () => {
 
     const raw = await exchange(
       server.socketPath,
-      encodeOperatorFrame(statusRequest()),
+      encodeOperatorFrame(helloRequest()),
     );
     const decoded = decodeOperatorResponse(JSON.parse(raw));
     expect(Result.isSuccess(decoded)).toBe(true);
@@ -168,7 +158,7 @@ describe("operator control server", () => {
     const server = await start();
     const raw = await exchange(
       server.socketPath,
-      encodeOperatorFrame(statusRequest("half-close")),
+      encodeOperatorFrame(helloRequest("half-close")),
       true,
     );
     expect(raw).toContain('"id":"half-close"');
@@ -176,7 +166,7 @@ describe("operator control server", () => {
 
   it("fails closed when kernel peer identity is unavailable", async () => {
     const dispatch = vi.fn(async (request: OperatorRequestEnvelope) =>
-      statusResponse(request),
+      helloResponse(request),
     );
     const server = await start(dispatch, {
       admission: {
@@ -186,7 +176,7 @@ describe("operator control server", () => {
     });
     const raw = await exchange(
       server.socketPath,
-      encodeOperatorFrame(statusRequest()),
+      encodeOperatorFrame(helloRequest()),
     );
     expect(raw).toContain('"type":"forbidden"');
     expect(raw).not.toContain("peer-pid-unavailable");
@@ -195,10 +185,10 @@ describe("operator control server", () => {
 
   it("rejects multiple frames and never dispatches either request", async () => {
     const dispatch = vi.fn(async (request: OperatorRequestEnvelope) =>
-      statusResponse(request),
+      helloResponse(request),
     );
     const server = await start(dispatch);
-    const frame = encodeOperatorFrame(statusRequest());
+    const frame = encodeOperatorFrame(helloRequest());
     const raw = await exchange(server.socketPath, `${frame}${frame}`);
     expect(raw).toContain('"type":"protocol_error"');
     expect(dispatch).not.toHaveBeenCalled();
@@ -237,7 +227,7 @@ describe("operator control server", () => {
       shutdownDeadlineMs: 20,
     });
     const socket = await connect(server.socketPath);
-    socket.write(encodeOperatorFrame(statusRequest()));
+    socket.write(encodeOperatorFrame(helloRequest()));
     for (
       let index = 0;
       index < 20 && dispatch.mock.calls.length === 0;
@@ -252,7 +242,7 @@ describe("operator control server", () => {
     expect(retained.clean).toBe(false);
     expect(retained.pendingDispatches).toBe(1);
 
-    resolveDispatch(statusResponse(statusRequest()));
+    resolveDispatch(helloResponse(helloRequest()));
     // Settle like the dispatch wait above: one bare microtask loses the race
     // to the server's pending bookkeeping under a busy suite event loop.
     let clean = await server.close();

@@ -32,7 +32,6 @@ const commands: readonly Entry[] = [
   { name: "sheet", enabled: SHEET_ENABLED, load: async () => (await import("./commands/sheet")).sheetCommand },
   { name: "artifact", enabled: ARTIFACTS_ENABLED, load: async () => (await import("./commands/work")).artifactCommand },
   { name: "overseer", load: async () => (await import("./commands/overseer")).overseerCommand },
-  { name: "station", load: async () => (await import("./commands/operator")).stationOperatorCommand },
 ];
 
 /** Full discovery for root help/errors; a known invocation loads only its family. */
@@ -41,7 +40,7 @@ export const loadRootCommand = async (args: ReadonlyArray<string>) => {
   const selected = enabled.find((entry) => entry.name === args[0]);
   const loaded = await Promise.all((selected ? [selected] : enabled).map((entry) => entry.load()));
   return Command.make(CLI_NAME).pipe(
-    Command.withDescription("Junto agent and direct-operator protocol surfaces (JSON only)"),
+    Command.withDescription("Junto agent protocol surfaces (JSON only)"),
     Command.withSubcommands(loaded),
   );
 };
@@ -56,17 +55,7 @@ export const runCli = (args: ReadonlyArray<string>): Effect.Effect<void, never, 
     }
     const root = yield* Effect.promise(() => loadRootCommand(args));
     const BunServices = yield* Effect.promise(() => import("@effect/platform-bun/BunServices"));
-    const known = commands.some((entry) => entry.name === args[0] && entry.enabled !== false);
-    const operator = args[0] === "station";
-    const transport = yield* Effect.promise(async () => {
-      // Global flags before the command use the complete parser and both services.
-      if (!known) {
-        const [work, directOperator] = await Promise.all([import("./core/socket"), import("./core/operator-socket")]);
-        return Layer.mergeAll(work.WorkSocketLive, directOperator.OperatorSocketLive);
-      }
-      return operator ? (await import("./core/operator-socket")).OperatorSocketLive
-        : (await import("./core/socket")).WorkSocketLive;
-    });
+    const transport = (yield* Effect.promise(() => import("./core/socket"))).WorkSocketLive;
     return yield* Command.runWith(root, { version: CLI_VERSION })(args).pipe(
       Effect.provide(Layer.mergeAll(BunServices.layer, transport)),
     );

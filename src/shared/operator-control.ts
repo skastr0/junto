@@ -1,5 +1,4 @@
 import { Result, Schema } from "effect";
-import { StatusResponse } from "./station-api";
 import {
   CompanionDeviceId,
   CompanionError,
@@ -16,8 +15,7 @@ import { AgentSignal } from "./agent-signals";
  * no bearer token, identity claim, arbitrary command, path, or database
  * access. Main admits the OS peer only while explicitly launched in operator
  * control mode, or while a phone companion is paired, and rejects registered
- * agent process trees. Enabled only for a paired phone, the socket answers the
- * `companion.*` ops alone.
+ * agent process trees. The socket answers the `companion.*` ops alone.
  */
 
 export const OPERATOR_PROTOCOL_VERSION = "junto-operator/v1" as const;
@@ -51,14 +49,10 @@ const Diagnostic = Schema.String.pipe(
   Schema.check(Schema.isMaxLength(4_096)),
 );
 
-export const OperatorOpName = Schema.Literals(["station.status", "station.configure-command-center",
-"companion.hello",
+export const OperatorOpName = Schema.Literals(["companion.hello",
 "companion.call",
 "companion.events",]);
 export type OperatorOpName = typeof OperatorOpName.Type;
-
-export const OperatorEmptyArgs = Schema.Struct({});
-export type OperatorEmptyArgs = typeof OperatorEmptyArgs.Type;
 
 // --- companion relay (junto companion-stdio <-> app) ---------------------------
 
@@ -124,21 +118,11 @@ const request = <
     args,
   });
 
-export const OperatorStationStatusRequest = request(
-  "station.status",
-  OperatorEmptyArgs,
-);
-export const OperatorConfigureCommandCenterRequest = request(
-  "station.configure-command-center",
-  OperatorEmptyArgs,
-);
 export const OperatorCompanionHelloRequest = request("companion.hello", OperatorCompanionHelloArgs);
 export const OperatorCompanionCallRequest = request("companion.call", OperatorCompanionCallArgs);
 export const OperatorCompanionEventsRequest = request("companion.events", OperatorCompanionEventsArgs);
 
-export const OperatorRequestEnvelope = Schema.Union([OperatorStationStatusRequest,
-OperatorConfigureCommandCenterRequest,
-OperatorCompanionHelloRequest,
+export const OperatorRequestEnvelope = Schema.Union([OperatorCompanionHelloRequest,
 OperatorCompanionCallRequest,
 OperatorCompanionEventsRequest,]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
@@ -158,14 +142,6 @@ const response = <
     data,
   });
 
-export const OperatorStationStatusResponse = response(
-  "station.status",
-  StatusResponse,
-);
-export const OperatorConfigureCommandCenterResponse = response(
-  "station.configure-command-center",
-  StatusResponse,
-);
 export const OperatorCompanionHelloResponse = response("companion.hello", OperatorCompanionHelloData);
 export const OperatorCompanionCallResponse = response("companion.call", OperatorCompanionCallData);
 export const OperatorCompanionEventsResponse = response("companion.events", OperatorCompanionEventsData);
@@ -201,25 +177,19 @@ export const OperatorErrorResponse = Schema.Struct({
 });
 export type OperatorErrorResponse = typeof OperatorErrorResponse.Type;
 
-export const OperatorResponseEnvelope = Schema.Union([OperatorStationStatusResponse,
-OperatorConfigureCommandCenterResponse,
-OperatorCompanionHelloResponse,
+export const OperatorResponseEnvelope = Schema.Union([OperatorCompanionHelloResponse,
 OperatorCompanionCallResponse,
 OperatorCompanionEventsResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 
 export interface OperatorArgsByOp {
-  readonly "station.status": OperatorEmptyArgs;
-  readonly "station.configure-command-center": OperatorEmptyArgs;
   readonly "companion.hello": OperatorCompanionHelloArgs;
   readonly "companion.call": OperatorCompanionCallArgs;
   readonly "companion.events": OperatorCompanionEventsArgs;
 }
 
 export interface OperatorDataByOp {
-  readonly "station.status": typeof StatusResponse.Type;
-  readonly "station.configure-command-center": typeof StatusResponse.Type;
   readonly "companion.hello": OperatorCompanionHelloData;
   readonly "companion.call": OperatorCompanionCallData;
   readonly "companion.events": OperatorCompanionEventsData;

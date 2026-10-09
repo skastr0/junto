@@ -107,7 +107,6 @@ export const S7_LIVE_IMPORT_SITES = [
       "src/cli/commands/discovery.ts",
       "src/cli/commands/work.ts",
       "src/cli/commands/content.ts",
-      "src/cli/commands/operator.ts",
     ],
     v4: "Argument / Flag / Command (Args→Argument, Options→Flag)",
   },

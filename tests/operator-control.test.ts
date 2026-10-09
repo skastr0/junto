@@ -50,9 +50,9 @@ describe("operator control contract", () => {
       encodeOperatorFrame(
         {
           protocol: OPERATOR_PROTOCOL_VERSION,
-          id: "status-1",
-          op: "station.status",
-          args: {},
+          id: "hello-1",
+          op: "companion.hello",
+          args: { deviceId: "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3" },
         },
         OPERATOR_MAX_REQUEST_BYTES,
       ).endsWith("\n"),

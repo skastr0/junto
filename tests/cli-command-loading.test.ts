@@ -3,7 +3,6 @@ import { spawnSync } from "node:child_process";
 
 // An unrelated family's initialization must not run during an agent invocation.
 vi.mock("../src/cli/commands/overseer", () => { throw new Error("unrelated overseer catalog initialized"); });
-vi.mock("../src/cli/commands/operator", () => { throw new Error("unrelated operator family initialized"); });
 vi.mock("../src/cli/commands/pad", () => { throw new Error("unrelated pad family initialized"); });
 vi.mock("../src/cli/commands/sheet", () => { throw new Error("unrelated sheet family initialized"); });
 
