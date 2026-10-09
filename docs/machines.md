@@ -368,6 +368,17 @@ together, from one commit of main. `remote-verify` holds the receipts:
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
 
+**On a Mac, the service runs in the graphical session. Operator's decision.**
+Measured on the mini: a process in `gui/<uid>` can use the login keychain,
+the background service in `user/<uid>` and its seats cannot, so a harness
+that keeps its sign-in there (Claude Code) is signed out for every seat on
+a Mac machine. The service moves to `gui/<uid>` when the account has a
+graphical session; with none it installs as before and the machine's status
+says the keychain is not available. A send or an update moves an existing
+install, uninstall finds it in either place. A job in `gui/<uid>` ends with
+that session and starts again with it. Linux is unchanged. `remote-send`
+the lifecycle, `remote-core` the status fact.
+
 **Run D, `3363f44bd`: mail passed, signals failed.** With the Preview quit
 on this Mac, a seat on the mini onboarded and mailed the real Amp seat
 there, and Amp mailed this Mac; on return the held mail was delivered and
