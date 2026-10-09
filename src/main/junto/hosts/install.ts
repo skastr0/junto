@@ -92,7 +92,15 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
       if (await optionalMetadata(directory) === undefined) {
         const stage = join(installRoot, `incoming-${randomUUID()}`);
         try {
-          await cp(input.bundle, stage, { recursive: true, dereference: false, errorOnExist: true, force: false });
+          await cp(input.bundle, stage, {
+            recursive: true, dereference: false, errorOnExist: true, force: false,
+            // Bun creates copied directories with ambient permissions. Mint
+            // each private destination before copying, including nested ones.
+            filter: async (source, destination) => {
+              if ((await optionalMetadata(source))?.isDirectory()) await ensureMachineDirectory(destination);
+              return true;
+            },
+          });
           await verifyGeneration(stage, manifest);
           await rename(stage, directory);
         } finally { await rm(stage, { recursive: true, force: true }); }

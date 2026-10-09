@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
-import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -117,7 +117,7 @@ await release();`;
     const target = join(scratch, "untouched");
     await writeFile(target, "keep", { mode: 0o600 });
     await symlink(target, join(fixture.root, ".install-lock/lease"));
-    await expect(acquireInstallLock(await admitInstallLockRoot(fixture.root, "owned"))).rejects.toThrow("regular file");
+    await expect(acquireInstallLock(await admitInstallLockRoot(fixture.root, "owned"))).rejects.toThrow(/regular file|not writable by others/);
     expect(await readFile(target, "utf8")).toBe("keep");
   });
 
@@ -137,6 +137,24 @@ await release();`;
     expect(second.transitions[1]).toEqual({ step: "quiescent", build: first.build, pid: 71, startKey: "incumbent", service: "unloaded" });
     expect(selectedAtReceipt).toContain(first.build);
     expect(fixture.stopSelections).toEqual([`builds/${"a".repeat(64)}-${process.platform}-${process.arch}`]);
+  });
+
+  it("installs into private directories under a permissive ambient umask", async () => {
+    const bundle = await makeBundle("a".repeat(64));
+    await mkdir(join(bundle, "core/nested/deeper"), { recursive: true, mode: 0o700 });
+    await writeFile(join(bundle, "core/nested/deeper/module.cjs"), "nested\n", { mode: 0o644 });
+    const manifest = JSON.parse(await readFile(join(bundle, "manifest.json"), "utf8"));
+    manifest.files = await machineBundleFiles(bundle);
+    await writeFile(join(bundle, "manifest.json"), JSON.stringify(manifest));
+    const prior = process.umask(0);
+    try {
+      const installed = await install(bundle);
+      expect(installed.disposition).toBe("ready");
+      for (const relative of ["", "bin", "core", "core/nested", "core/nested/deeper"]) {
+        expect((await stat(join(installed.directory, relative))).mode & 0o777).toBe(0o700);
+      }
+      expect((await stat(join(installed.directory, "core/nested/deeper/module.cjs"))).mode & 0o777).toBe(0o644);
+    } finally { process.umask(prior); }
   });
 
   it("verifies bytes on an idempotent resend before accepting the running core", async () => {
@@ -230,7 +248,7 @@ await release();`;
     await writeFile(victim, "keep");
     const service = join(scratch, "service");
     await symlink(victim, service);
-    await expect(writeMachineServiceFile(service, "replace")).rejects.toThrow("regular file");
+    await expect(writeMachineServiceFile(service, "replace")).rejects.toThrow(/regular file|not writable by others/);
     expect(await readFile(victim, "utf8")).toBe("keep");
   });
 
