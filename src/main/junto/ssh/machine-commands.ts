@@ -25,8 +25,22 @@ else
 fi
 [ "$actual" = "$1" ] || { printf '%s\\n' 'package checksum mismatch' >&2; exit 1; }
 mkdir "$stage/package"
-tar -xpzf "$stage/package.tgz" -C "$stage/package"
-"$stage/package/bin/node" -e 'const fs=require("node:fs"); const input=JSON.parse(process.argv[2]); input.bundle=process.argv[1]; fs.writeFileSync(process.argv[3],JSON.stringify(input))' "$stage/package" "$2" "$stage/input.json"
+tar -xzf "$stage/package.tgz" -C "$stage/package"
+"$stage/package/bin/node" -e '
+const fs=require("node:fs"), path=require("node:path"), crypto=require("node:crypto");
+const root=fs.realpathSync(process.argv[1]);
+const manifest=JSON.parse(fs.readFileSync(path.join(root,"manifest.json"),"utf8"));
+if (!Array.isArray(manifest.files) || manifest.files.length>128) throw new Error("Invalid package file inventory");
+for (const file of manifest.files) {
+  if (typeof file.path!=="string" || !/^(?:[A-Za-z0-9._@-]+\\/)*[A-Za-z0-9._@-]+$/.test(file.path) || file.path.split("/").some(part=>part==="." || part==="..") || !Number.isSafeInteger(file.mode) || file.mode<0 || file.mode>511 || !Number.isSafeInteger(file.bytes) || file.bytes<0 || typeof file.sha256!=="string" || !/^[0-9a-f]{64}$/.test(file.sha256)) throw new Error("Invalid package file inventory");
+  const absolute=path.join(root,file.path), metadata=fs.lstatSync(absolute), actual=fs.realpathSync(absolute);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid!==process.getuid() || !actual.startsWith(root+path.sep)) throw new Error("Package file is not owned by this staging directory");
+  const bytes=fs.readFileSync(absolute);
+  if (bytes.length!==file.bytes || crypto.createHash("sha256").update(bytes).digest("hex")!==file.sha256) throw new Error("Package file does not match its inventory");
+  fs.chmodSync(absolute,file.mode);
+}
+const input=JSON.parse(process.argv[2]); input.bundle=root; fs.writeFileSync(process.argv[3],JSON.stringify(input));
+' "$stage/package" "$2" "$stage/input.json"
 "$stage/package/bin/junto" machine install-local "@$stage/input.json"
 `;
 
