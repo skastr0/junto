@@ -34,6 +34,6 @@ agent.
 
 Read `AGENTS.md` and `docs/security-doctrine.md`. Ordinary agents never write
 the canvas. A human-toggled overseer on an existing managed agent seat is the
-narrow exception: closed `overseer` commands, no edges required, Command Center
-authors, pause/play do not apply, no self-delete, no viewport move, no
-propagation, no operator socket.
+narrow exception: closed `overseer` commands, no edges required, the machine
+that edits the canvas authors, pause/play do not apply, no self-delete, no
+viewport move, no propagation, no operator socket.

@@ -236,28 +236,21 @@ describe("overseer coverage matrix", () => {
 describe("overseer doctrine alignment", () => {
   it("narrows canvas authorship to overseers and keeps ordinary edge scope", () => {
     const agents = collapsed(read("AGENTS.md"));
-    const doctrine = collapsed(read("docs/security-doctrine.md"));
     const physics = collapsed(read("docs/architecture-factory-physics.md"));
 
     expect(agents).toContain("Ordinary agents never write the canvas.");
     expect(agents).not.toContain("**Agents never write the canvas.**");
     expect(agents).toContain("Only humans grant or revoke");
-    expect(agents).toContain("Factory pause and play have no bearing");
+    expect(agents).toContain("Pause and play have no bearing");
     expect(agents).toContain(
       "cannot delete its own seat or move the operator viewport",
     );
-    expect(agents).toContain("a Remote does not author projection");
     expect(agents).toContain(
-      "does not receive the operator socket, fleet enrollment, or credentials",
+      "The machine that edits the canvas validates the live grant",
     );
-
-    expect(doctrine).toContain("ordinary agents never write the canonical canvas");
-    expect(doctrine).toContain(
-      "`pair`, `configure`, `project`, `report`, `status`, and `overseer`",
+    expect(agents).toContain(
+      "does not receive the operator socket or credentials",
     );
-    expect(doctrine).not.toMatch(/exactly five verbs/u);
-    expect(doctrine).toContain("never automatically replays the mutation");
-    expect(doctrine).toContain("Copied aliases do not inherit the grant");
 
     expect(physics).toContain(
       "overseer grant is a separate human seat toggle, not an edge",

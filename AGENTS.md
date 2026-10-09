@@ -1,6 +1,6 @@
 # AGENTS.md — Junto
 
-**Junto** is a desktop station (Electron + Effect + React) that
+**Junto** is a desktop app (Electron + Effect + React) that
 renders a **portfolio canvas**: agents, work surfaces, notes, and regions as
 spatial nodes; dependencies/blockers/relationships as edges; named regions as
 geography.
@@ -11,9 +11,9 @@ exchanging mail, and the app is modelled as that. Seats, regions, wires and
 every other kind are their own schemas with their own tables
 (`src/shared/model/`). `CanvasDoc`, `ether`, the generic
 text/file/link/group node, `readCanvas`/`writeCanvas` and document revisions
-are being deleted, not maintained. Do not add to them, read through them in
-new code, or treat any older note that calls the document the product as
-current. See [The model](#the-model).
+are gone, and `bun run lint:no-canvas-document` keeps their names out. Do not
+treat any older note that calls the document the product as current. See
+[The model](#the-model).
 
 ## Product name: Junto
 
@@ -26,21 +26,19 @@ Every public, user-facing, and runtime string uses the name **Junto**.
 ## Security doctrine — read first
 
 [`docs/security-doctrine.md`](docs/security-doctrine.md) is the governing
-product trust model. It defines Junto as a single-operator station,
-attached agents as trusted but fallible, edges as enforceable operator intent
-inside Junto, and Stations as single-home executors of Command Center
-intent. If a review, backlog item, test, or older architecture note conflicts
-with it, the conflict is migration work. Newly emitted traffic has no legacy
-codec or namespace.
+product trust model. It defines Junto as a single-operator app, attached
+agents as trusted but fallible, and edges as enforceable operator intent
+inside Junto. If a review, backlog item, test, or older architecture note
+conflicts with it, the conflict is migration work. Newly emitted traffic has
+no legacy codec or namespace.
 
 [`docs/machines.md`](docs/machines.md) is the contract for one canvas across
-machines. It replaces the Remote station design; the Station protocol and its
-document are gone.
+machines. The summary is under [Machines](#machines).
 
 **Normative direction:** the app is its model: typed rows changed by
 commands, followed by events. Capability-bound tools are the agent API. **Sole
 product store** is `~/.junto/state/junto.db` — canvases, work, content manifests,
-station, settings, and every other product durable fact. That law is about
+settings, and every other product durable fact. That law is about
 **product** durability, not process-internal bookkeeping: install-local
 internals (e.g. backfill ledgers in `~/.junto/state/install-ops.db`, content
 object files under `~/.junto/content/`) may use separate on-disk stores
@@ -48,25 +46,9 @@ owned by the same app runtime. Do not fold migration/backfill completeness
 markers into product rows so seeds and installs cannot lie about local
 walks. Each installation has one sole app runtime process as the normal
 opener of product and install-ops databases, and one `StateEngine`
-connection for `junto.db`: Electron main on Command Center, or the
-displayless packaged Node Remote process on Remote. Renderers, CLIs,
-helpers, and remote callers use IPC/control APIs and never open product or
-install-ops databases. Every app version has one role-independent product
-schema; independently updated installations may temporarily run different
-recognized versions.
-Command Center holds authorial canvases and fleet coordination; a Remote holds
-its replace-only projection and installation-homed work. Both event and entity
-homes are `InstallationId` values; `HostId` is placement, not durable work
-authority. Single-home rows and route-local
-`(event_home, entity_home, seq)` Work identities make station clocks irrelevant
-to correctness.
-A rebuilt Remote must enforce the same-host rule for watcher and timer firing:
-Command Center may target any agent, a Remote only agents on its own host.
-Nothing enforces it today; its last statement in code ran nowhere and was
-removed with the dead document helpers in `src/shared/station.ts`.
-A rebuilt Remote must also decide where a task board's home host lives: the
-model task board carries none, so there is no control for it and no stored
-choice.
+connection for `junto.db`: the Junto core on that machine. Renderers, CLIs,
+helpers, and other machines use IPC, control APIs or a link and never open
+product or install-ops databases.
 Junto writes no canvas file: there is no JSON Canvas export or import, and no
 digest or SVG file beside a canvas.
 
@@ -98,28 +80,7 @@ the work log without its links to them. Never ask an installed system to
 delete `junto.db`; never add a downgrade, an old-schema runtime reader, a dual
 write, or a file-store compatibility path.
 
-**Station skew law:** app release, local SQLite schema, and Station protocol
-are distinct facts. Only the one Station protocol integer selects wire
-behavior. Each release advertises
-`{ preferred, compatibleFrom, warnBelow }`; peers choose the highest common
-exact codec and warn when the result is below either threshold. Remote Stations
-are unreleased, so every Remote-specific contract remains version 1 and the
-current Station policy is `1/1/1`; the release-state gate forbids a bump until
-its exact sentinel declares release. No overlap means explicit `update required`
-while the Remote continues locally under its last projection; it never means
-partial down-conversion. Do not add separate session/API/Work/projection version
-negotiation or capability arrays. After release, a codec retires only after every
-enrolled Station using it is upgraded or explicitly retired and its pending
-records are reconciled.
-
-Semantic compatibility analysis (Exact / Restricted / Unsupported) is
-diagnostic only. Operational admission accepts Exact alone; Restricted and
-Unsupported fail closed without projection, Work, cursor, or ACK movement and
-never widen grants, effects, transitions, operations, or acceptance. They may
-explain what is withheld to the operator, but they are never a partial
-down-conversion.
-
-An older Command Center binary that finds `PRAGMA user_version` ahead of its
+An older binary that finds `PRAGMA user_version` ahead of its
 `CURRENT_STATE_SCHEMA_VERSION` refuses deterministically before opening
 `junto.db` for write: the read-only `schema-version-probe` reports
 `newer-than-supported`, and `startup-schema-recovery` surfaces a plain
@@ -158,20 +119,17 @@ State v3; its prerelease status is not a reason to downgrade it.
 
 ## The agent surface (headless — no GUI needed)
 
-**Ordinary agents never write the canvas.** The canvas is human-authored in
-Command Center. Ordinary agents consume compiled projections and local
-Junto tools under edge-scoped work control.
+**Ordinary agents never write the canvas.** The canvas is human-authored.
+Ordinary agents use Junto tools under edge-scoped work control.
 
 **Overseer exception (narrow).** A human may toggle overseer on an existing
 managed agent seat. That seat keeps the `agent` kind, gains a distinctive UI,
 and may use closed `junto overseer` commands for operator-equivalent
-canvas, node, and work operations without connecting edges. It may occupy
-Command Center or Remote. Command Center validates the live grant and
-authenticated source installation and performs authoring; a Remote does not
-author projection. Only humans grant or revoke; overseers cannot propagate
-authority. Factory pause and play have no bearing on administration. An
-overseer cannot delete its own seat or move the operator viewport. It does
-not receive the operator socket, fleet enrollment, or credentials.
+canvas, node, and work operations without connecting edges. The machine that
+edits the canvas validates the live grant and makes the change. Only humans
+grant or revoke; overseers cannot propagate authority. Pause and play have no
+bearing on administration. An overseer cannot delete its own seat or move the
+operator viewport. It does not receive the operator socket or credentials.
 
 See [`docs/overseer-coverage-matrix.md`](docs/overseer-coverage-matrix.md).
 
@@ -181,7 +139,7 @@ remain strictly read-only for authorial intent. Current headless CLIs:
 
 | command | who | what it does |
 |---|---|---|
-| `bun run digest [name]` | agents + operators | print a deterministic text projection of the board + live hermes snapshot data. Writes no file. |
+| `bun run digest [name]` | agents + operators | print a deterministic text digest of the board + live hermes snapshot data. Writes no file. |
 | `bun run canvas:ls [--json]` | agents + operators | list canvases with node/edge counts. |
 
 To **read the board as an agent**: `bun run digest` (text).
@@ -226,42 +184,40 @@ empty composer.
 Browser control (`junto browser` / `bun run browser`) uses the same process-bind
 identity on protected routes. There is **no enable-grant ceremony** and no client
 capability secret — only a live registered process + human-drawn edges to page
-nodes. Station wire entry is `junto station-stdio`; content transfer is
-`junto content-transfer …`. Packaged installs ship **one** CLI binary
-(`bin/junto`) only.
+nodes. Content transfer is `junto content-transfer …`. Packaged installs ship
+**one** CLI binary (`bin/junto`) only.
 
 Ops go through WorkService (tasks/messages/requests/artifacts/board). That is
-the ordinary agent write path. Freeform canvas authoring remains
-human/Command Center except closed overseer commands from a live granted seat.
+the ordinary agent write path. Freeform canvas authoring remains human,
+except closed overseer commands from a live granted seat.
 
-**Board residency:** board is a **Command Center-homed global sink** (same residency class as actor mailboxes). Sink definition is in the fleet projection; material topics/posts live only on CC. Remote agents enqueue `board.topic.create` / `board.post.append`; Remotes store applied dispositions/events and do **not** rematerialize board rows. List/read the full board on Command Center. `board.mark_read` is install-local. Operator megaphone / edge `wake` is CC UI only; agent posts never wake.
+**Board:** `board.mark_read` is install-local. Operator megaphone / edge `wake` is UI only; agent posts never wake.
 
-**Pad (shared page):** a Command Center-homed work-plane sink (same class as board). Ordinary agents read a picture + IR and patch named boxes and pins. They never write the canvas. Ports are `pad.read` and `pad.patch` only. Ordinary agent ink or image upserts are refused. Mentions must be inbound actor node ids. An overseer uses closed `overseer` pad/canvas ops, not a pad-plane canvas write.
+**Pad (shared page):** a work-plane sink (same class as board). Ordinary agents read a picture + IR and patch named boxes and pins. They never write the canvas. Ports are `pad.read` and `pad.patch` only. Ordinary agent ink or image upserts are refused. Mentions must be inbound actor node ids. An overseer uses closed `overseer` pad/canvas ops, not a pad-plane canvas write.
 
 - Contract and guide: [`docs/pad.md`](docs/pad.md)
 - CLI: `junto pad read`, `patch`, `digest`, `svg`, `look-here`, `get`, `tagged`
 
-### Station roles
+### Machines
 
-- **Command Center** — user-selected. Human authors the canvas; fleet management via host registry. Overseer mutations from any granted seat are authored here.
-- **Remote** — user-selected. Capability host for that machine; applies complete Command Center projections and executes host-local rows. A Remote overseer occupant may send closed `overseer` on the existing Command Center-opened session; it does not author projection.
-- Role is never inferred from hardware or open windows.
-- Doctor service `station` reports role, installation identity, database/work/simulation readiness, projection, and logical cursor state.
+[`docs/machines.md`](docs/machines.md) is the contract. In short:
 
-**Station process mode — hard law:**
-
-- Process mode is Unenrolled | Remote | Command Center. One mode.
-- Enroll door and peer door are mutually exclusive.
-- Unenrolled binds enroll only (`status` / `pair` / `configure`).
-- Remote binds peer only (`status` / `project` / `report` / `overseer`).
-- Command Center binds neither; it is the client.
-- Never both sockets. Re-enroll tears the peer door down first (mode
-  change). Not two live sessions. Not "pause peer."
-- Updating a Remote replaces the package and stays Remote. It does not
-  pass through Unenrolled.
-- The macOS Remote UI is a station face (stats), not the Command Center
-  canvas. No Fleet on Remote.
-- Code: `src/shared/station-mode.ts`.
+- **One program.** Every machine runs the same Junto core; a window is a shell
+  on top. A feature that works for a local seat works for a seat on any
+  machine, or it is not done.
+- **One canvas, one editing machine.** Other machines hold a read-only copy as
+  ordinary rows. There is no merging of concurrent edits.
+- **A seat lives on one machine**, which starts it, holds its terminal, mints
+  its token and stores its mail, signals and sessions. Its `junto` CLI talks
+  only to its own machine.
+- **Mail waits** for a machine that is out of reach and is delivered when a
+  path exists.
+- **An agent can exercise all of it, alone.** Every operation has a command an
+  agent can run and a result it can read, and the window calls the same
+  commands. A slice that can only be exercised by hand is not done. The
+  exercise in `docs/machines.md` is the proof, run on real machines.
+- There is no Command Center, Remote, station or fleet, in code or in copy.
+  The word is machine.
 
 ## The model
 
@@ -338,8 +294,7 @@ the contract.
 
 ## Kernel: cron, relay (+ dormant gauge) — verbs
 
-Region pulse inject is **retired**. An edge into or out of a scheduler authors
-only a **verb**; the watch predicate and fire action it produces are compiled,
+An edge into or out of a scheduler authors only a **verb**; the watch predicate and fire action it produces are compiled,
 never stored. Only schedulers push; actors pull. Connect refused for any pair
 absent from the verb table (sink–sink, geography).
 
@@ -359,9 +314,9 @@ cascade — multi-hop stoppage is a **relay** node, `announces` in and an
 effect verb out, only.
 
 **Scheduler laws**: (1) Sensor truth is derived. (2) Single-home evaluation.
-(3) Interval catch-up ≤1 due tick. (4) **Automate only when station role is
-configured and the canvas is playing** — otherwise project status/`nextFire`
-but do not consume rising-edge memory or durable cron firing slots.
+(3) Interval catch-up ≤1 due tick. (4) **Automate only while the canvas is
+playing** — otherwise show status/`nextFire` but do not consume rising-edge
+memory or durable cron firing slots.
 
 **No operator flags.** A seat raises its own hand (`junto blocked`,
 `junto escalate`); stoppage is derived. Pause is canvas-wide only: there is
@@ -369,23 +324,22 @@ no node or region pause.
 
 ## Sources (read-only adapters)
 
-`src/main/junto/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the model. hermes enumerates profiles on the local machine + remote hosts over ssh.
+`src/main/junto/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the model. hermes enumerates profiles on this machine and on other hosts over ssh.
 
 ## In-app planes
 
-**Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition. Under the target security doctrine, agents consume runtime projections and tools rather than the authorial document.
+**Attached agent chat** — one live ACP session per agent node (`<host>:<profile>`); resumable across app sessions (channels: `chatOpen`, `chatPrompt`, `chatPermission`, `chatSetModel`, `chatClose`). Main process owns the `hermes acp` child; renders in the canvas as inline composition.
 
 **Native terminals** — `terminal` is the default terminal entity. TermPlane owns
 local sessions and app quit stops local sessions only through the sealed
-process-signal capability plane (never bare `process.kill(pid)`); use a Remote
-station when work must survive Command Center quit.
+process-signal capability plane (never bare `process.kill(pid)`).
 
 **Seat occupancy law** — occupancy is independent of process liveness.
 - A seat is vacant or occupied.
 - Occupying a vacant seat and activating an occupied seat are different command families. Create is occupy. Create on an occupied seat is a bug.
 - Stopping still occupies the seat. Exited / missing / unknown is vacant.
 - Resumable / crashed / stalled / paused belong to the occupant process, not the seat.
-- Local and remote share this contract. Placement (local | remote) selects the process Layer. It does not change occupancy.
+- A seat on any machine shares this contract. Its machine selects the process Layer. It does not change occupancy.
 - Pin / unpin / remount must not occupy. They activate (or just keep the view).
 - Code: `src/shared/terminal-seat-occupancy.ts`, `src/main/junto/term/seat-process.ts`.
 
@@ -427,13 +381,12 @@ On Linux, `bun run dev` and `scripts/run-e2e.sh` use an existing X11 or
 Wayland session. In Amp orbs they attach to the active orb Desktop even though
 the agent shell does not inherit its display variables. E2E falls back to
 Xvfb only when no desktop is active; retain that path for CI, OrbStack, and
-other headless Linux hosts. This does not change the packaged Node Remote:
-Remote remains deliberately displayless.
+other headless Linux hosts.
 
 ## Structure
 
 - `src/shared/model/` — **the contract**: kinds, wires, commands, events. Change deliberately; everything depends on it.
-- `src/shared/` — shared pure logic: `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `svg.ts`. `canvas.ts` and `portfolio.ts` are the old document and are being deleted.
+- `src/shared/` — shared pure logic: `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `svg.ts`.
 - `src/main/junto/state/` — the one SQLite engine and composed current schema.
 - `src/main/junto/` — model/work services, data adapters, and IPC/control boundaries.
 - `src/renderer/` — the canvas surface.
@@ -467,7 +420,7 @@ phase, and attention/occupancy are separate planes.
   `geography/"terminal"`; `worker` is reserved for a future native agent UI and
   must not appear as a kind. Geography holds no seat, no ports, no inbox, and no
   work claim — but it *may* display agent state, because display is not a canvas
-  power. Placement (`Cc | Station{hostId}`) is data: it never gates a port.
+  power. A seat's machine is data: it never gates a port.
 - **PR test:** no ordinary work capability without a connected edge, a matching port, and a live generation credential. Browser-protected ops still also require peer process-bind.
 - **Full doctrine:** [`docs/architecture-factory-physics.md`](docs/architecture-factory-physics.md).
 
@@ -480,11 +433,11 @@ phase, and attention/occupancy are separate planes.
   product state: they must not live as product tables that get seeded or
   projected as operator truth.
 - The installation's sole app runtime process is the only normal database
-  opener (product + install-ops): Electron main on Command Center or the
-  displayless packaged Node Remote process on Remote. Other headless and
-  remote surfaces must use app-owned IPC/control/Station APIs.
-- Adapters are read-only. The operator authors intent through Command Center;
-  agents mutate only the work plane through `WorkService`.
+  opener (product + install-ops): the Junto core on that machine. Other
+  headless surfaces and other machines use app-owned IPC, control APIs or a
+  link.
+- Adapters are read-only. The operator authors intent; agents mutate only the
+  work plane through `WorkService`.
 - Board/source IDs and tokens never leak into committed source.
 - `bun run typecheck && bun run test` gate every change.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
