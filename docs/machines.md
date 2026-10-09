@@ -175,7 +175,15 @@ The one interface three seats build against.
   `remote-seats` says so and we add a second session, never a second protocol.
 - A machine is known by the short name the operator gives it, the `host` on a
   seat. The machine list maps that name to its SSH target. Its installation id
-  is learned at the first hello and may not change afterwards.
+  is learned at the first hello, and from then on neither the name nor the id
+  changes, at either end. Setup names a machine that receives Junto; a machine
+  that starts on its own takes its hostname, and may change that only while it
+  has never had a peer and no row names it. A name once pinned stays bound to
+  its installation: the same machine can be removed and added again, another
+  installation under that name is refused. What the operator reads is the
+  label in the machine list, which stays editable.
+- One source each: a machine's own name and its pinned peers live in the core
+  (`machines/`); the machine list (`hosts/`) holds routes and presentation.
 - Who is at the other end. The trust unit is the OS account. The end that
   opens a link trusts the SSH route the operator chose and the installation id
   pinned for it. The end that receives one accepts a first peer id only while
@@ -201,6 +209,8 @@ redesigned. Browser pages are not placed on other machines at all.
   with it, so nothing waits for the operator's own computer.
 - Moving which machine edits a canvas, and editing from another window by
   sending the edit to that machine.
+- Renaming an established machine, and replacing a machine under the same
+  name. One design, with the placement history.
 - A seat reaching past mail to a seat on another machine: reading its
   terminal, waiting on it, prompting it. In the first version these are
   refused with a plain reason when the other seat is on another machine.
@@ -214,9 +224,9 @@ Nothing is kept by default. Each piece earns its place against the rules above
 or goes. The old design is out: the document projection, the task and claim
 protocol, the boot modes and doors, version negotiation, the reduced runtime,
 the Remote screen, Box, the host deployment protocol and the qualification
-tooling, with their tables, documents and tests. Still to go: the two roles,
-the second entry file, and what the Machines window does not keep of the old
-overlay.
+tooling, with their tables, documents and tests. Still to go: what is left of
+the two roles' configuration, the second entry file, and what the Machines
+window does not keep of the old overlay.
 
 Tables may be dropped in a migration; the operator approved that for this
 work. The migration chain stays forward-only, so an installed database must
@@ -291,19 +301,19 @@ git show --stat --oneline HEAD
 | Slice | Owner | State |
 |---|---|---|
 | Review and contract | `remote-lead` | done: `959ec0e98`, `83b1badb7` |
-| Baseline and the exercise | `remote-verify` | baseline at `0e6e55434`; boot exercise passes on the Mac mini and Linux: `db140e741` |
-| Delete the old protocol, then roles, then the split | `remote-core` | entry points cut: `d47e566d2`; frozen protocol, roles and the Node boot next |
-| Work plane cut, then the row exchange | `remote-work` | mail unpinned: `f4fc8e8da`; exchange design approved; slice 1 in progress |
-| SSH review, then send to the Mac mini | `remote-send` | review done; host deployment protocol cut: `883d4746b`, `82927347b`, `0c921a99a` |
-| Leaf cuts, stale documents, the guide | `remote-cut` | `915e9c33a`, `3a50b10f6`, `17dfa2337`, `d7846fa98`, `945f73bd7`; operator contract and CLI next |
-| Security review and the doctrine | `remote-security` | briefed |
-| A seat on another machine | `remote-seats` | staffed; first slice: the session pin leaves the seat row |
-| The Machines window | `remote-window` | not staffed; when the mini runs Junto |
+| The exercise | `remote-verify` | boot exercise passes on the Mac mini and Linux: `db140e741`; install and update driver landed and proven on a clean export: `677138943`, `d52657417`; its live run on the mini waits for the common entry and `machine.status` |
+| One core, two entries | `remote-core` | old protocol and entry points cut: `d47e566d2`; machine name and identity: `6b5c9a21b`, `ef396b505`; role gates gone: `e6258f951`; now the machine repository, the windowless entry, the owner socket with `machine.setup` and `machine.status`, the link socket |
+| The row exchange and the copy | `remote-work` | work plane cut, schema 14 to 19; rows exchanged between three databases: `4aecb797b` through `a4fc42a73`; a machine takes a copy in one transaction: `ff6aeec8a`; next the rest of the copy, the copy frame, the name step (schema 20), three send outcomes |
+| Putting Junto on a machine | `remote-send` | installer with receipts and uninstall: `06a6077a6`, `082270965`; pinned SSH routes: `0486ca08f`, `65aa52716`; bundle copy over SSH: `e223244a9`; next the machine list by name, the owner machine commands, the link relay |
+| Leaf cuts, stale documents, the guide | `remote-cut` | cut closed at `9e80c1edc`; guide rewritten: `6dfa819ae`; e2e sweep under way: `8bedc47ef`; then the ship gate lane by lane and the words left in code |
+| Security review and the doctrine | `remote-security` | doctrine rewritten and agreed by every seat: `fef22553a`, `03cb81f71`; reviews each landing at the boundary |
+| A seat on another machine | `remote-seats` | first slice in progress: the session pin leaves the seat row |
+| The Machines window | `remote-window` | staffed; first slice: the renderer reads machines by name |
 
-**The cut.** Done at `9e80c1edc`: 92,000 lines out since the baseline, with
-typecheck and the whole unit suite green on a clean export of that commit
-(8,485 passed, none failed). From here every landing typechecks and adds no
-failure.
+**The cut.** Closed at `9e80c1edc` with typecheck and the whole unit suite
+green on a clean export of that commit (8,485 passed, none failed). Since the
+baseline `0e6e55434`: 100,000 lines out, 8,000 in. From here every landing
+typechecks and adds no failure.
 
 ## Test machines
 
