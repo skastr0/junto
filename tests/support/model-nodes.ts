@@ -10,9 +10,11 @@ import {
 } from "../../src/shared/model";
 import type { KernelWork } from "../../src/shared/work-kernel";
 import type { World } from "../../src/main/junto/kernel/world";
+import { THIS_MACHINE } from "./machines";
 
 // Model nodes and wires for a test to put on a canvas. Each builder gives the
 // smallest valid node of its kind; a test names only what it cares about.
+// A node that lives on a machine is on THIS_MACHINE unless the test says so.
 
 type Place = Partial<Pick<Node, "x" | "y" | "width" | "height" | "z" | "color">>;
 
@@ -30,7 +32,7 @@ export const seat = (id: string, more: Partial<NodeOf<"agent">> = {}): NodeOf<"a
   ...placed(id),
   agentKey: `local:${id}`,
   label: id,
-  host: "local",
+  host: THIS_MACHINE,
   overseer: false,
   bindingId: `binding-${id}` as NodeOf<"agent">["bindingId"],
   harness: "claude",
@@ -41,7 +43,7 @@ export const seat = (id: string, more: Partial<NodeOf<"agent">> = {}): NodeOf<"a
 export const terminal = (id: string, more: Partial<NodeOf<"terminal">> = {}): NodeOf<"terminal"> => ({
   kind: "terminal",
   ...placed(id),
-  host: "local",
+  host: THIS_MACHINE,
   bindingId: `terminal-${id}` as NodeOf<"terminal">["bindingId"],
   onRemove: "detach",
   ...more,
@@ -60,15 +62,15 @@ export const pad = (id: string, more: Partial<NodeOf<"pad">> = {}): NodeOf<"pad"
 export const sheet = (id: string, more: Partial<NodeOf<"sheet">> = {}): NodeOf<"sheet"> =>
   ({ kind: "sheet", ...placed(id), ...more });
 export const cron = (id: string, more: Partial<NodeOf<"cron">> = {}): NodeOf<"cron"> =>
-  ({ kind: "cron", ...placed(id), host: "local", ...more });
+  ({ kind: "cron", ...placed(id), host: THIS_MACHINE, ...more });
 export const relay = (id: string, more: Partial<NodeOf<"relay">> = {}): NodeOf<"relay"> =>
-  ({ kind: "relay", ...placed(id), host: "local", ...more });
+  ({ kind: "relay", ...placed(id), host: THIS_MACHINE, ...more });
 export const watcher = (id: string, more: Partial<NodeOf<"watcher">> = {}): NodeOf<"watcher"> =>
-  ({ kind: "watcher", ...placed(id), host: "local", ...more });
+  ({ kind: "watcher", ...placed(id), host: THIS_MACHINE, ...more });
 export const page = (id: string, more: Partial<NodeOf<"page">> = {}): NodeOf<"page"> => ({
   kind: "page",
   ...placed(id),
-  host: "local",
+  host: THIS_MACHINE,
   url: "https://example.com/",
   profile: "default",
   onRemove: "kill-session",

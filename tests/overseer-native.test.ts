@@ -34,6 +34,7 @@ import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { StateEngine } from "../src/main/junto/state/service";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
 
 
@@ -81,7 +82,7 @@ const agent = (
   });
 
 const page = (id: string, url = "https://example.com/"): NodeOf<"page"> =>
-  pageNode(id, { url, x: 200, y: 0, width: 100, height: 40, profile: "personal", host: "studio" });
+  pageNode(id, { url, x: 200, y: 0, width: 100, height: 40, profile: "personal", host: THIS_MACHINE });
 
 const git = (id: string, cwd: string): NodeOf<"git"> => ({
   kind: "git", id: asNodeId(id), x: 0, y: 160, z: 0, width: 120, height: 40, cwd,
@@ -107,7 +108,7 @@ const makeTermPlane = (overrides: {
 } = {}): TermPlane => {
   const router = {
     isLocalHostId: (hostId: string | undefined | null) =>
-      hostId === undefined || hostId === null || hostId.trim() === "" || hostId === "local",
+      hostId === undefined || hostId === null || hostId.trim() === "" || hostId === THIS_MACHINE,
     attach: overrides.attach ?? vi.fn(async () => ({ ok: false, message: "no attach in test" })),
     release: overrides.release ?? vi.fn(async () => undefined),
     write: vi.fn(async () => false),
@@ -116,7 +117,7 @@ const makeTermPlane = (overrides: {
     kill: overrides.kill ?? (async () => true),
     create: overrides.create ?? (async (input: { bindingId: string }) => ({
       bindingId: input.bindingId,
-      hostId: "local",
+      hostId: THIS_MACHINE,
       status: "running",
       epoch: "e1",
       detached: true,
@@ -342,7 +343,7 @@ describe("overseer native adapters", () => {
         data: { sessionId, owner, url: "https://example.com/" },
       }),
       gotoForOwner,
-      admitAutomationHost: () => ({ ok: true, host: { id: "local" } }),
+      admitAutomationHost: () => ({ ok: true, host: { id: THIS_MACHINE } }),
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: board }], { pages });
     const got = await run(native, "page.get", { nodeId: "p1" });
@@ -371,7 +372,7 @@ describe("overseer native adapters", () => {
       return { ok: true as const, data: { sessionId: "sess-1", url: target.url } };
     });
     const pages = {
-      admitAutomationHost: () => ({ ok: true, host: { id: "local" } }),
+      admitAutomationHost: () => ({ ok: true, host: { id: THIS_MACHINE } }),
       openForOwner,
       sessionIdForRefForOwner: () => undefined,
       sessionIdForRef: () => undefined,
@@ -402,7 +403,7 @@ describe("overseer native adapters", () => {
     expect(admission._tag).toBe("ActivateOccupiedSeat");
     const occupySpy = vi.fn(async (spec: { bindingId: string; hostId?: string }) => {
       expect(spec.bindingId).toBe("bind-a1");
-      expect(spec.hostId).toBe("local");
+      expect(spec.hostId).toBe(THIS_MACHINE);
       expect(seatAdmission(occupied)._tag).toBe("ActivateOccupiedSeat");
       return true;
     });
@@ -414,16 +415,16 @@ describe("overseer native adapters", () => {
     expect(occupySpy).toHaveBeenCalledTimes(1);
     expect(occupySpy.mock.calls[0]?.[0]).toMatchObject({
       bindingId: "bind-a1",
-      hostId: "local",
+      hostId: THIS_MACHINE,
       canvasName: "factory",
       nodeId: "a1",
     });
   });
 
   it("reads remote agent output via router observe attach, not the local observer", async () => {
-    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: "studio" };
+    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: OTHER_MACHINE };
     const attach = vi.fn(async (input: { hostId?: string; mode: string }) => {
-      expect(input.hostId).toBe("studio");
+      expect(input.hostId).toBe(OTHER_MACHINE);
       expect(input.mode).toBe("observe");
       return {
         ok: true,
@@ -443,9 +444,9 @@ describe("overseer native adapters", () => {
   });
 
   it("starts a Remote-hosted agent via occupy hostId, never CC-derived seat identity", async () => {
-    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: "studio" };
+    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: OTHER_MACHINE };
     const occupySpy = vi.fn(async (spec: { hostId?: string; bindingId: string }) => {
-      expect(spec.hostId).toBe("studio");
+      expect(spec.hostId).toBe(OTHER_MACHINE);
       expect(spec.bindingId).toBe("bind-remote");
       return true;
     });
@@ -455,7 +456,7 @@ describe("overseer native adapters", () => {
     const started = await run(native, "agent.start", { nodeId: "remote-a" });
     expect(started.ok).toBe(true);
     if (!started.ok) return;
-    expect((started.data as { hostId: string }).hostId).toBe("studio");
+    expect((started.data as { hostId: string }).hostId).toBe(OTHER_MACHINE);
     expect(occupySpy).toHaveBeenCalled();
   });
 
@@ -505,7 +506,7 @@ describe("overseer native adapters", () => {
     });
     const reseated = await run(native, "agent.reseat", { nodeId: "a1", harness: "claude" });
     expect(reseated.ok).toBe(true);
-    expect(kill).toHaveBeenCalledWith("bind-a1", "local");
+    expect(kill).toHaveBeenCalledWith("bind-a1", THIS_MACHINE);
     expect(commitAgentReseat).toHaveBeenCalledWith(
       expect.objectContaining({
         caller: { canvasName: "factory", nodeId: "overseer-1" },
@@ -543,7 +544,7 @@ describe("overseer native adapters", () => {
       lease: { leaseId: "ctl", bindingId: "bind-remote", epoch: "e", mode: "control" as const },
     }));
     const release = vi.fn(async () => undefined);
-    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: "studio" };
+    const remoteAgent = { ...agent("remote-a", { bindingId: "bind-remote" }), host: OTHER_MACHINE };
     const plane = makeTermPlane({ attach, release });
     (plane.router as unknown as { managedPrompt: unknown }).managedPrompt = managedPrompt;
     const native = live([{ name: "factory", doc: doc([remoteAgent]) }], {
@@ -747,15 +748,15 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     });
     const chats = makeChats();
     const native = live([{ name: "factory", doc: doc([agent("a1")]) }], { termPlane, chats });
-    const admitted = termPlane.nodeDelete.admitCreate("bind-a1", "local");
+    const admitted = termPlane.nodeDelete.admitCreate("bind-a1", THIS_MACHINE);
     const prepared = await native.prepareOverseerNodeDelete([
-      { kind: "terminal", bindingId: "bind-a1", hostId: "local" },
+      { kind: "terminal", bindingId: "bind-a1", hostId: THIS_MACHINE },
     ]);
     expect(prepared.ok).toBe(true);
     expect(() => termPlane.nodeDelete.assertCreate(admitted)).toThrow(/revoked by node deletion/u);
     if (!prepared.ok) return;
     expect(native.finishOverseerNodeDelete(prepared.leaseId, "committed")).toEqual({ ok: true });
-    expect(termPlane.nodeDelete.isLocked("bind-a1", "local")).toBe(false);
+    expect(termPlane.nodeDelete.isLocked("bind-a1", THIS_MACHINE)).toBe(false);
   });
 
   it("reuses ChatService.nodeDelete rather than constructing a second fence", async () => {
@@ -923,7 +924,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     const prepared = await native.prepareOverseerNodeDelete([
       { kind: "page", canvasName: "factory", nodeId: "p1" },
       { kind: "agent", agentKey: "local:a1" },
-      { kind: "terminal", bindingId: "bind-a1", hostId: "local" },
+      { kind: "terminal", bindingId: "bind-a1", hostId: THIS_MACHINE },
     ]);
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
@@ -931,7 +932,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       { sessionId: "sess-1", stopped: false, error: "view still destroying" },
     ]);
     expect(chats.nodeDelete.isLocked("local:a1")).toBe(false);
-    expect(termPlane.nodeDelete.isLocked("bind-a1", "local")).toBe(false);
+    expect(termPlane.nodeDelete.isLocked("bind-a1", THIS_MACHINE)).toBe(false);
   });
 
   it("holds a pending open and a new open across prepare-to-finish without a late view", async () => {
@@ -990,7 +991,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       ref: "junto://canvas/factory?node=p1",
       nodeId: "p1",
       url: "https://p1.example.com",
-      hostId: "studio",
+      hostId: THIS_MACHINE,
       profile: "personal",
     };
     const pending = pages.openForOwner("job-a", deleted);
@@ -1010,7 +1011,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       ref: "junto://canvas/factory?node=p-sibling",
       nodeId: "p-sibling",
       url: "https://sibling.example.com",
-      hostId: "studio",
+      hostId: THIS_MACHINE,
       profile: "work",
     });
     expect(sibling.ok).toBe(true);
@@ -1075,7 +1076,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
         ref: "junto://canvas/factory?node=p1",
         nodeId: "p1",
         url: "https://p1.example.com",
-        hostId: "studio",
+        hostId: THIS_MACHINE,
         profile: "personal",
       });
       expect(opened.ok).toBe(true);

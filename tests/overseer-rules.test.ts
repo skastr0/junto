@@ -13,6 +13,7 @@ import {
 import type { OverseerCanvasBatchStep } from "../src/shared/overseer-control";
 import type { NodeOf } from "../src/shared/model";
 import { canvasOf, note, page, region, seat, wire } from "./support/model-nodes";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 // The overseer's rules as pure checks over the model: what a batch of steps
 // becomes, and what is refused before anything is sent.
@@ -98,20 +99,20 @@ describe("planning an overseer's steps", () => {
     expect(planned.ok).toBe(true);
     if (!planned.ok) return;
     const made = (planned.results[0] as { node: NodeOf<"agent"> }).node;
-    expect(made).toMatchObject({ kind: "agent", overseer: false, host: "local", harness: "claude" });
+    expect(made).toMatchObject({ kind: "agent", overseer: false, host: THIS_MACHINE, harness: "claude" });
     expect(made.bindingId).not.toBe("bind-boss");
     expect(made.launch?.kind).toBe("harness");
     // A terminal may not be put on an overseer's session, here or on another canvas.
     for (const canvas of ["ops", "other"]) {
       expect(refusal([{
         operation: "node.create",
-        node: { kind: "terminal", x: 0, y: 0, width: 10, height: 10, host: "local", onRemove: "detach", bindingId: "bind-boss" },
+        node: { kind: "terminal", x: 0, y: 0, width: 10, height: 10, host: THIS_MACHINE, onRemove: "detach", bindingId: "bind-boss" },
       }], canvas).type).toBe("Forbidden");
     }
   });
 
   it("keeps what a seat runs out of an edit", () => {
-    for (const change of [{ kind: "agent", harness: "codex" }, { kind: "agent", host: "studio" }]) {
+    for (const change of [{ kind: "agent", harness: "codex" }, { kind: "agent", host: OTHER_MACHINE }]) {
       expect(refusal([{ operation: "node.configure", nodeId: "peer", change }]))
         .toMatchObject({ type: "Forbidden", message: expect.stringContaining("agent reseat") });
     }
@@ -159,7 +160,7 @@ describe("what an overseer may not remove", () => {
       { canvasName: "nowhere", nodeIds: new Set(["peer"]) },
     ])).toEqual([
       { kind: "agent", agentKey: "local:peer" },
-      { kind: "terminal", bindingId: "bind-peer", hostId: "local" },
+      { kind: "terminal", bindingId: "bind-peer", hostId: THIS_MACHINE },
       { kind: "page", canvasName: "ops", nodeId: "web" },
     ]);
   });
