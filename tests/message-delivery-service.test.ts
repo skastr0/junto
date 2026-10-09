@@ -141,7 +141,7 @@ describe("mail delivery", () => {
     it("is not typed, and does not start the seat or stamp a receipt", async () => {
       const away = rig({ canvas: elsewhere, live: true, wake: () => true });
       away.append(mail("01A", "for the other machine"));
-      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("held");
       await settle();
       expect(away.writes).toEqual([]);
       expect(away.wakes).toEqual([]);
@@ -171,7 +171,7 @@ describe("mail delivery", () => {
       away.append(mail("01A", "for the other machine"));
       // Mail for another machine is no fault here: nothing is reported as one.
       const faults = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("held");
       expect(faults).not.toHaveBeenCalled();
       faults.mockRestore();
       await away.service.onBooted();
@@ -181,10 +181,27 @@ describe("mail delivery", () => {
       expect(away.messages[0]!.metadata?.deliveredAt).toBeUndefined();
     });
 
+    it("tells its sender it was handed to a link when one is open on its way, and held when none is", async () => {
+      const away = rig({ canvas: elsewhere, live: true, wake: () => true });
+      away.append(mail("01A", "for the other machine"));
+      away.append(mail("01B", "for the other machine"));
+      const asked: string[] = [];
+      let open = true;
+      away.service.followLinks(async (askedCanvas, askedNode) => {
+        asked.push(`${askedCanvas}/${askedNode}`);
+        return open;
+      });
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("handed");
+      open = false;
+      expect(await away.service.deliver(canvas, nodeId, "01B")).toBe("held");
+      expect(asked).toEqual([`${canvas}/${nodeId}`, `${canvas}/${nodeId}`]);
+      expect(away.writes).toEqual([]);
+    });
+
     it("is typed once the seat is on this machine", async () => {
       const away = rig({ canvas: elsewhere, live: true });
       away.append(mail("01A", "for whoever runs the seat"));
-      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("held");
       const here = rig({ live: true });
       here.append(mail("01A", "for whoever runs the seat"));
       expect(await here.service.deliver(canvas, nodeId, "01A")).toBe("delivered");

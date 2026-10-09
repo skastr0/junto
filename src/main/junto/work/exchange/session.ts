@@ -356,6 +356,18 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
     committed: (canvasName: string) => committed(canvasName),
     /** Is a link open to that machine right now. */
     linked: (peer: InstallationId): boolean => links.has(peer),
+    /**
+     * Does mail for that seat of another machine leave on an open link: one to
+     * the seat's machine, or to the machine that edits the canvas and passes
+     * it on. False for a seat of this machine, and for a canvas not held.
+     */
+    routed: (canvasName: string, nodeId: string): Effect.Effect<boolean> =>
+      Effect.gen(function* () {
+        const placement = yield* deps.placement(canvasName);
+        const seat = placement?.seatOf(nodeId);
+        if (placement === undefined || seat === undefined || seat.machine === deps.self) return false;
+        return links.has(seat.machine) || (placement.editor !== deps.self && links.has(placement.editor));
+      }),
     /** Whether entitled rows have not yet been handed to this live link. */
     waiting: (canvasName: string, peer: InstallationId): Effect.Effect<boolean, ExchangeClosed> => Effect.gen(function* () {
       const state = links.get(peer);

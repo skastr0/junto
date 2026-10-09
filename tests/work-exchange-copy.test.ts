@@ -254,6 +254,7 @@ describe("a canvas and its mail between two machines", () => {
 
   it("holds mail written while no link is open, and hands it over when one opens", async () => {
     const { macbook, mini } = await pair();
+    expect(await macbook.runtime.runPromise(macbook.exchange.routed("factory", "peer"))).toBe(false);
     await mail(macbook, { id: "lead", bindingId: "binding-lead" }, "peer", "written-before-the-link");
     expect(queue).toEqual([]);
     await link(macbook, mini);
@@ -449,6 +450,11 @@ describe("mail a seat sends from the machine it lives on", () => {
     try {
       await link(macbook, mini);
       await settle();
+
+      // Each end has an open link its mail for the other leaves on; mail for its own seat leaves on none.
+      const routed = (on: Machine, nodeId: string) => on.runtime.runPromise(on.exchange.routed("factory", nodeId));
+      expect([await routed(mini, "lead"), await routed(macbook, "peer")]).toEqual([true, true]);
+      expect([await routed(mini, "peer"), await routed(macbook, "lead")]).toEqual([false, false]);
 
       // The seat on the mini mails the macbook's seat, a peer on the mini's copy.
       expect(await send(mini, "peer", "lead", "from-the-mini")).toMatchObject({ ok: true });

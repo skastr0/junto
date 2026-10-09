@@ -64,7 +64,16 @@ import {
 export const MAIL_HELD_RETRY_MS = 60_000;
 
 /** Whether a message reached its seat now, or waits for the seat to come up. */
-export type MailDeliveryState = "delivered" | "waiting";
+/**
+ * What became of mail, as its sender is told. `delivered` and `waiting` are
+ * for a seat of this machine: typed into it, or kept until it can be. For a
+ * seat of another machine the mail is `handed` to an open link on its way
+ * there, or `held` here until a link opens.
+ */
+export type MailDeliveryState = "delivered" | "waiting" | "handed" | "held";
+
+/** Is a link open that mail for this seat of another machine leaves on. */
+export type MailLinkRoute = (canvas: string, nodeId: string) => Promise<boolean>;
 
 export type MessageDeliveryTransport = {
   /** The seat's terminal is up and ready to take a paste. */
@@ -179,6 +188,12 @@ export class MessageDeliveryService {
 
   private transport: MessageDeliveryTransport | undefined;
   private store: MessageDeliveryStore | undefined;
+  private linkRoute: MailLinkRoute | undefined;
+
+  /** The core's links: without them, mail for another machine is always held. */
+  followLinks(route: MailLinkRoute | undefined): void {
+    this.linkRoute = route;
+  }
   private suspended = false;
   private lifecycleGeneration = 0;
   /** Mail waiting for its seat, by message. */
@@ -335,7 +350,11 @@ export class MessageDeliveryService {
     const target = node === undefined ? undefined : this.targetHere(node);
     if (target === "elsewhere") {
       this.waiting.delete(key);
-      return waiting("the seat runs on another machine");
+      const handed = (await this.linkRoute?.(canvas, nodeId).catch(() => false)) ?? false;
+      console.info(
+        `[delivery] ${canvas}/${nodeId}/${messageId}: the seat runs on another machine, mail ${handed ? "handed to a link" : "held until a link opens"}`,
+      );
+      return handed ? "handed" : "held";
     }
     if (!node || !message || !target) {
       // No seat to write into: the node is gone or holds no agent seat.
