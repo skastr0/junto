@@ -32,7 +32,14 @@ const basis = { kind: "canvas" as const, canvasName: "factory", seq: 1 };
 const homes: Record<string, InstallationId> = { lead: EDITOR, peer: MINI, "peer-two": MINI, far: OTHER };
 const placement: CanvasPlacement = {
   editor: EDITOR,
+  holds: (machine) => machine === EDITOR || Object.values(homes).includes(machine),
   seatOf: (nodeId) => (homes[nodeId] === undefined ? undefined : { seatId: actor(nodeId).seatId, machine: homes[nodeId]! }),
+};
+/** A second canvas that only the editing machine holds: its one seat is `lead`. */
+const privatePlacement: CanvasPlacement = {
+  editor: EDITOR,
+  holds: (machine) => machine === EDITOR,
+  seatOf: (nodeId) => (nodeId === "lead" ? { seatId: actor("lead").seatId, machine: EDITOR } : undefined),
 };
 const actor = (nodeId: string): ActorRef => ({
   seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${(Object.keys(homes).indexOf(nodeId) + 1).toString().repeat(64)}`),
@@ -78,7 +85,8 @@ const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["fa
     self,
     repository,
     canvases: Effect.succeed(canvases),
-    placement: (canvasName) => Effect.succeed(canvases.includes(canvasName) ? placement : undefined),
+    placement: (canvasName) =>
+      Effect.succeed(!canvases.includes(canvasName) ? undefined : canvasName === "private" ? privatePlacement : placement),
     mailArrived: (_canvas, nodeId, message: Message) => arrived.push({ nodeId, messageId: message.messageId }),
   });
   const machine: Machine = { self, root, runtime, repository, exchange, arrived };
@@ -164,7 +172,7 @@ let mini: Machine;
 let other: Machine;
 
 beforeAll(async () => {
-  editor = await boot(EDITOR);
+  editor = await boot(EDITOR, ["factory", "private"]);
   mini = await boot(MINI);
   other = await boot(OTHER);
 });
@@ -271,6 +279,29 @@ describe("mail between machines", () => {
     expect((await cursors(other)).map((cursor) => cursor.writer).sort()).toEqual([EDITOR, MINI].sort());
     expect(await inbox(other, "peer-two")).toEqual([]);
     expect((await counts(other)).mail).toBe(1);
+  });
+});
+
+describe("a canvas a machine does not hold", () => {
+  it("is never named to that machine, and never offered to it", async () => {
+    unlink(editor, mini);
+    queue.length = 0;
+    await link(editor, mini);
+    const said = queue.filter((queued) => queued.from === EDITOR).map((queued) => JSON.stringify(queued.frame));
+    expect(said.length).toBeGreaterThan(0);
+    for (const frame of said) expect(frame).not.toContain("private");
+    await settle();
+
+    // The mini claims the canvas anyway: it is offered nothing of it.
+    await editor.runtime.runPromise(
+      editor.exchange.receive(MINI, { kind: "have", canvases: [{ canvasName: "private", writers: [] }, { canvasName: "factory", writers: [] }] }),
+    );
+    for (const queued of queue) expect(JSON.stringify(queued.frame)).not.toContain("private");
+    await settle();
+  });
+
+  it("takes no rows for it from that machine, not even an empty frame", async () => {
+    await refused(editor, MINI, { kind: "rows", canvasName: "private", writer: MINI, facts: [], through: "9" });
   });
 });
 

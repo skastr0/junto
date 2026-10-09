@@ -25,6 +25,7 @@ const seat = (digit: string) => Schema.decodeUnknownSync(ActorSeatId)(`seat_${di
 /** `lead` lives on the editing machine, `peer` on the mini, `far` on a third machine. */
 const placement: CanvasPlacement = {
   editor,
+  holds: (machine) => machine === editor || machine === mini || machine === other,
   seatOf: (nodeId) =>
     ({
       lead: { seatId: seat("1"), machine: editor },
@@ -160,6 +161,9 @@ describe("who may hand a row over, and who wrote it", () => {
     expect(peerMayPassOn(editor, mini, placement)).toBe(true);
     expect(peerMayPassOn(mini, editor, placement)).toBe(false);
     expect(peerMayPassOn(other, mini, placement)).toBe(false);
+    // A machine with no seat on the canvas passes on nothing, not even its own rows.
+    const stranger = id("stranger");
+    expect(peerMayPassOn(stranger, stranger, placement)).toBe(false);
   });
 
   it("holds a seat's mail and receipts to that seat's machine", () => {

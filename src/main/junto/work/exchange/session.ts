@@ -69,13 +69,17 @@ const closed = (cause: unknown): ExchangeClosed =>
 export const makeRowExchange = (deps: RowExchangeDeps) => {
   const links = new Map<InstallationId, LinkState>();
 
-  const haveFrame: Effect.Effect<HaveFrame, ExchangeClosed> = Effect.gen(function* () {
-    const canvases = [];
-    for (const canvasName of yield* deps.canvases) {
-      canvases.push({ canvasName, writers: yield* deps.repository.exchangeHave(canvasName) });
-    }
-    return { kind: "have" as const, canvases };
-  }).pipe(Effect.mapError(closed));
+  /** How far this machine is caught up, on the canvases that peer holds too and no other. */
+  const haveFrameFor = (peer: InstallationId): Effect.Effect<HaveFrame, ExchangeClosed> =>
+    Effect.gen(function* () {
+      const canvases = [];
+      for (const canvasName of yield* deps.canvases) {
+        const placement = yield* deps.placement(canvasName);
+        if (placement === undefined || !placement.holds(peer)) continue;
+        canvases.push({ canvasName, writers: yield* deps.repository.exchangeHave(canvasName) });
+      }
+      return { kind: "have" as const, canvases };
+    }).pipe(Effect.mapError(closed));
 
   /** Send a peer everything of one writer and canvas it lacks and is entitled to. */
   const sendWriter = (
@@ -103,12 +107,16 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       }
     });
 
-  /** Offer one canvas to a peer that holds it: this machine's rows, and every writer's when it edits the canvas. */
+  /**
+   * Offer one canvas to a peer that holds it: this machine's rows, and every
+   * writer's when it edits the canvas. A peer naming a canvas it does not hold
+   * is offered nothing.
+   */
   const offer = (state: LinkState, canvasName: string): Effect.Effect<void, ExchangeClosed> =>
     Effect.gen(function* () {
       if (!state.have.has(canvasName)) return;
       const placement = yield* deps.placement(canvasName);
-      if (placement === undefined) return;
+      if (placement === undefined || !placement.holds(state.link.peer)) return;
       const writers =
         placement.editor === deps.self
           ? [...new Set([deps.self, ...(yield* deps.repository.exchangeWriters(canvasName).pipe(Effect.mapError(closed)))])]
@@ -164,7 +172,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
     opened: (link: ExchangeLink): Effect.Effect<void, ExchangeClosed> =>
       Effect.gen(function* () {
         links.set(link.peer, { link, have: new Map(), turn: Semaphore.makeUnsafe(1) });
-        yield* link.send(yield* haveFrame);
+        yield* link.send(yield* haveFrameFor(link.peer));
       }),
     closed: (peer: InstallationId): void => {
       links.delete(peer);

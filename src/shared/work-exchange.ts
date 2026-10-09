@@ -98,6 +98,8 @@ export const decodeExchangeFrame = Schema.decodeUnknownResult(ExchangeFrame, { o
 export type CanvasPlacement = {
   /** The machine that may change the canvas; it keeps all of it. */
   readonly editor: InstallationId;
+  /** Does this machine hold the canvas: it edits it, or one of its seats is on it. */
+  readonly holds: (machine: InstallationId) => boolean;
   /** The seat at a node: its identity and the machine it lives on. Undefined for a node that is no seat. */
   readonly seatOf: (
     nodeId: string,
@@ -112,14 +114,15 @@ const authorOf = (fact: ExchangeFact): { readonly seatId: ActorSeatId; readonly 
 };
 
 /**
- * May this peer hand over rows written by this writer for this canvas? Only
- * the writer itself, or the machine that edits that exact canvas.
+ * May this peer hand over rows written by this writer for this canvas? Only a
+ * machine that holds the canvas, and then only the writer itself or the
+ * machine that edits that exact canvas.
  */
 export const peerMayPassOn = (
   peer: InstallationId,
   writer: InstallationId,
   placement: CanvasPlacement,
-): boolean => peer === writer || peer === placement.editor;
+): boolean => placement.holds(peer) && (peer === writer || peer === placement.editor);
 
 /**
  * Was this row written where its author lives? Mail and receipts of a seat
