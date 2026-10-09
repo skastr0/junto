@@ -21,7 +21,7 @@ import {
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
 import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V13_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V13_SQL, STATE_SCHEMA_V14_SQL } from "./fixtures/state-v1/schema";
 
 const TRIGGER = "work_messages_require_cc_home";
 
@@ -91,7 +91,7 @@ const versionThirteenPlan = {
 describe("state migration 13 -> 14 (mail is not pinned to one machine)", () => {
   it("freezes the version-thirteen witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V13_SQL)).toEqual(STATE_SCHEMA_V13_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V14_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V14_SQL)).toEqual(STATE_SCHEMA_V14_IDENTITY);
     expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
   });
 

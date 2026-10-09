@@ -1,42 +1,51 @@
 /**
- * The frozen version-1 through version-9 state schemas. Version 10 added seat
- * session drains (9 -> 10), so version 9 is the current composition without
- * that fragment. Version 9 added signal attachments (8 -> 9), so version 8 is
- * version 9 without that fragment. Version 8 added seat sessions (7 -> 8), so version 7 is version 8
- * without that fragment. Version 7 added seat guidance and agent profiles (6 -> 7), so
- * version 6 is version 7 without those two fragments. Version 6 added companion devices
- * (5 -> 6), so version 5 is version 6 without that fragment. Version 5 added portrait overrides (4 -> 5), so
- * version 4 is version 5 without that fragment. Version 4 added squads (3 -> 4), so version 3 is
- * version 4 without that fragment. Version 3 added agent signals (2 -> 3), so version 2 is
- * version 3 without that fragment. Version 2 dropped the mail delivery ledger
- * (1 -> 2), so version 1 is version 2 plus that ledger's DDL, exactly as it
- * shipped. Tests build historical databases from these to prove each step.
+ * The frozen state schemas, version 1 through version 14, built only from
+ * frozen text so no later schema change can move a historical witness.
+ * Version 14 is its frozen fragments. Each earlier version is the next one
+ * with that step undone: a later fragment left out, the mail trigger of
+ * version 13 put back, the canvas and work tables of version 12 put back, and
+ * for version 1 the mail delivery ledger put back. Tests build historical
+ * databases from these to prove each step.
  */
-import { STATE_SCHEMA_FRAGMENTS, STATE_SCHEMA_SQL } from "../../../src/main/junto/state/schema";
 import {
-  AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
-  AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
-  AGENT_SIGNALS_STATE_SCHEMA_SQL,
-} from "../../../src/main/junto/signals/state-schema";
-import { SQUADS_STATE_SCHEMA_SQL } from "../../../src/main/junto/squads/state-schema";
-import { PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL } from "../../../src/main/junto/portraits/state-schema";
-import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../../../src/main/junto/companion/state-schema";
-import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../../../src/main/junto/seat-guidance/state-schema";
-import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../../../src/main/junto/profiles/state-schema";
-import {
-  SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
-  SEAT_SESSIONS_STATE_SCHEMA_SQL,
-} from "../../../src/main/junto/seat-sessions/state-schema";
-import { APP_TEXTS_STATE_SCHEMA_SQL } from "../../../src/main/junto/references/state-schema";
-import { withoutProposalStorage } from "../../../src/main/junto/work/state-schema";
-
-import { MODEL_STATE_SCHEMA_SQL } from "../../../src/main/junto/model/state-schema";
-import { WORK_STATE_SCHEMA_CANVAS_BASIS_SQL } from "../../../src/main/junto/model/work-basis-schema";
+  PROPOSAL_STORAGE_V14_TEXTS,
+  STATE_SCHEMA_V14_FRAGMENTS,
+} from "./v14-fragments";
 import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "./work-head-schema";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../domain-cutover/entities-schema";
 
-// Version 14 dropped this trigger (13 -> 14), so version 13 is the current composition with it.
+const {
+  model: MODEL_STATE_SCHEMA_SQL,
+  work: WORK_STATE_SCHEMA_CANVAS_BASIS_SQL,
+  signals: AGENT_SIGNALS_STATE_SCHEMA_SQL,
+  squads: SQUADS_STATE_SCHEMA_SQL,
+  portraits: PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
+  companion: COMPANION_DEVICES_STATE_SCHEMA_SQL,
+  seatGuidance: SEAT_GUIDANCE_STATE_SCHEMA_SQL,
+  profiles: AGENT_PROFILES_STATE_SCHEMA_SQL,
+  seatSessions: SEAT_SESSIONS_STATE_SCHEMA_SQL,
+  signalAttachments: AGENT_SIGNAL_ATTACHMENTS_STATE_SCHEMA_SQL,
+  seatSessionDrains: SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
+  signalParts: AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
+  appTexts: APP_TEXTS_STATE_SCHEMA_SQL,
+} = STATE_SCHEMA_V14_FRAGMENTS;
+
+const STATE_SCHEMA_FRAGMENTS: ReadonlyArray<string> = Object.values(STATE_SCHEMA_V14_FRAGMENTS);
+
+/** Every composition leaves the proposal storage out, by exact text. */
+const withoutProposalStorage = (sql: string): string => {
+  let corrected = sql;
+  for (const text of PROPOSAL_STORAGE_V14_TEXTS) {
+    if (!corrected.includes(text)) throw new Error("frozen schema composition lost a proposal storage text");
+    corrected = corrected.replace(text, "");
+  }
+  return corrected;
+};
+
+export const STATE_SCHEMA_V14_SQL = withoutProposalStorage(STATE_SCHEMA_FRAGMENTS.join("\n"));
+
+// Version 14 dropped this trigger (13 -> 14), so version 13 is version 14 with it.
 const MAIL_HOME_TRIGGER_V13_SQL = `
   CREATE TRIGGER IF NOT EXISTS work_messages_require_cc_home
   BEFORE INSERT ON work_messages
@@ -57,10 +66,10 @@ const MAIL_HOME_TRIGGER_V13_SQL = `
     );
   END;
 `;
-export const STATE_SCHEMA_V13_SQL = `${STATE_SCHEMA_SQL}\n${MAIL_HOME_TRIGGER_V13_SQL}`;
+export const STATE_SCHEMA_V13_SQL = `${STATE_SCHEMA_V14_SQL}\n${MAIL_HOME_TRIGGER_V13_SQL}`;
 
-// Frozen pre-cutover composition: later kinds/basis DDL must never change
-// the historical witnesses these migration tests build their databases from.
+// Version 13 replaced the canvas tables and the work fact basis (12 -> 13), so
+// version 12 is version 13 with the earlier canvas, entity and work DDL.
 const LEGACY_STATE_SCHEMA_FRAGMENTS = [
   ...STATE_SCHEMA_FRAGMENTS.map((fragment) => fragment === MODEL_STATE_SCHEMA_SQL
     ? CANVAS_AUTHORITY_SCHEMA_SQL : fragment === WORK_STATE_SCHEMA_CANVAS_BASIS_SQL
@@ -74,7 +83,7 @@ const composedWithout = (retired: ReadonlyArray<string>): string =>
     LEGACY_STATE_SCHEMA_FRAGMENTS.filter((fragment) => !retired.includes(fragment)).join("\n"),
   );
 
-// Version 12 added app texts (11 -> 12), so version 11 is the current composition without it.
+// Version 12 added app texts (11 -> 12), so version 11 is version 12 without it.
 const V12_FRAGMENTS = [APP_TEXTS_STATE_SCHEMA_SQL];
 
 export const STATE_SCHEMA_V11_SQL = composedWithout(V12_FRAGMENTS);
