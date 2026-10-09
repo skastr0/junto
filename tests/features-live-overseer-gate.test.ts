@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import { Effect } from "effect";
 import { resolveBuildFeatures } from "../scripts/build-features";
 import { LIVE_OVERSEER_ENABLED, managedHarnessEnabled } from "../src/shared/features";
@@ -48,7 +49,7 @@ describe("Live Overseer product gate", () => {
   });
 
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses new native seats and the executable entry point", () => {
-    expect(() => newSeat({ x: 0, y: 0, z: 0 }, { harness: "junto-overseer", host: "local" })).toThrow(/disabled/u);
+    expect(() => newSeat({ x: 0, y: 0, z: 0 }, { harness: "junto-overseer", host: THIS_MACHINE })).toThrow(/disabled/u);
     const process = spawnSync("bun", ["src/cli/main.ts", "overseer-host"], {
       encoding: "utf8",
       timeout: 15_000,
@@ -60,7 +61,7 @@ describe("Live Overseer product gate", () => {
   });
 
   it.runIf(LIVE_OVERSEER_ENABLED)("allows explicitly enabled managed seats", () => {
-    const node = newSeat({ x: 0, y: 0, z: 0 }, { harness: "junto-overseer", host: "local" });
+    const node = newSeat({ x: 0, y: 0, z: 0 }, { harness: "junto-overseer", host: THIS_MACHINE });
     expect(canStartOverseerLive(node)).toBe(false);
     expect(canStartOverseerLive({ ...node, overseer: true })).toBe(true);
   });
@@ -68,7 +69,7 @@ describe("Live Overseer product gate", () => {
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses internal occupation of an existing native seat before spawning", async () => {
     const fake = makeFakeTerminalProcessAuthority();
     const host = new LocalSessionHost(fake.authority);
-    const command = occupyVacantSeat(occupancyFromSession("live-seat", undefined, "local"));
+    const command = occupyVacantSeat(occupancyFromSession("live-seat", undefined, THIS_MACHINE));
     if (command._tag !== "Success") throw new Error("expected vacant seat");
     await expect(Effect.runPromise(makeLocalSeatProcess(host, noSeatEnvironment).occupy(command.success, {
       bindingId: "live-seat",
