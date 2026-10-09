@@ -29,6 +29,7 @@ import { PRODUCT_NAME } from "@shared/product-name";
 import { keyboardSettings, type Settings } from "@shared/settings";
 import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
+import type { AgentSignal } from "@shared/agent-signals";
 import {
   resolveJuntoHome,
   shouldPinUnpackagedElectronUserData,
@@ -373,6 +374,15 @@ const currentTrustedMainWindow = (): BrowserWindow | undefined => {
   if (!candidate.isDestroyed()) return candidate;
   trustedMainWindow = undefined;
   return undefined;
+};
+const sendAgentSignal = (signal: AgentSignal): void => {
+  const window = currentTrustedMainWindow();
+  if (
+    window === undefined ||
+    window.webContents.isDestroyed() ||
+    !isTrustedMainWebContents(window.webContents)
+  ) return;
+  window.webContents.send(IPC_CHANNELS.agentSignal, signal);
 };
 const browserViewAttachmentTarget = makeElectronBrowserViewAttachmentTarget();
 const browserCompositionHost = makeBrowserCompositionHost({
@@ -1470,6 +1480,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     try {
       const [link, machineStatus, rows, seats] = await AppRuntime.runPromise(Effect.all([MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats]));
+      rows.onSignalTaken(sendAgentSignal);
       await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, seats: seats.handler }));
       machineLinkListener = await AppRuntime.runPromise(link.listen(termControlHome));
       if (shutdownAdmissionClosed) machineLinkListener.beginShutdown();
@@ -1611,13 +1622,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         },
         onAgentSignal: (signal) => {
           raisedHands.note(signal);
-          const window = currentTrustedMainWindow();
-          if (
-            window === undefined ||
-            window.webContents.isDestroyed() ||
-            !isTrustedMainWebContents(window.webContents)
-          ) return;
-          window.webContents.send(IPC_CHANNELS.agentSignal, signal);
+          sendAgentSignal(signal);
         },
         onOverseer: overseerComposition.onOverseer,
         onOverseerLive: overseerLive?.onHost,

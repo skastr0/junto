@@ -29,6 +29,7 @@ import { mainAuthoringGate } from "./junto/main-authoring-gate";
 import { KernelService, type KernelHost } from "./junto/kernel/service";
 import { PausePlane } from "./junto/pause-plane";
 import { pauseWasResumed } from "@shared/pause";
+import type { AgentSignal } from "@shared/agent-signals";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -49,6 +50,7 @@ export class MachineCoreStatus extends Context.Service<MachineCoreStatus, {
 export class MachineCoreRows extends Context.Service<MachineCoreRows, {
   readonly exchange: RowExchange;
   readonly handler: LinkChannelHandler;
+  readonly onSignalTaken: (notify: (signal: AgentSignal) => void) => void;
 }>()("@junto/MachineCoreRows") {}
 
 export class MachineCoreSeats extends Context.Service<MachineCoreSeats, {
@@ -108,8 +110,10 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   const machines = yield* MachineRepository;
   const links = yield* MachineLink;
   const context = yield* Effect.context<never>();
+  let notifySignal: ((signal: AgentSignal) => void) | undefined;
   const exchange = yield* makeLiveRowExchange({
     mailArrived: (canvas, nodeId, message) => messageDelivery.notifyAppended(canvas, nodeId, message),
+    signalTaken: signal => notifySignal?.(signal),
     linkFailed: (peer) => {
       void Effect.runPromiseWith(context)(Effect.gen(function* () {
         const machine = (yield* machines.peers).find(machine => machine.installationId === peer);
@@ -121,9 +125,10 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   const stopFollowing = yield* followLocalCommits(exchange);
   yield* Effect.addFinalizer(() => Effect.sync(() => {
     stopFollowing();
+    notifySignal = undefined;
     messageDelivery.followLinks(undefined);
   }));
-  return { exchange, handler: makeRowsChannel(exchange) };
+  return { exchange, handler: makeRowsChannel(exchange), onSignalTaken: notify => { notifySignal = notify; } };
 }));
 
 export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.effect(MachineCoreStatus, Effect.gen(function* () {
