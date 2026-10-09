@@ -24,13 +24,6 @@ case "$platform" in
     case "$version" in 'glibc '*) meets_version "$(printf '%s' "$version" | cut -d ' ' -f 2)" 2 34 || problem 'This Linux machine needs glibc 2.34 or later' ;;
       *) problem 'This Linux machine needs glibc 2.34 or later' ;; esac ;;
 esac
-python=""
-for candidate in /usr/bin/python3 /bin/python3; do
-  if [ -x "$candidate" ]; then python=$candidate; break; fi
-done
-if [ -z "$python" ] || ! "$python" -c 'import fcntl, os, sys; sys.exit(sys.version_info.major != 3)' >/dev/null 2>&1; then
-  problem 'Install Python 3 on this machine'
-fi
 home=$3
 [ -n "$home" ] || home=$HOME
 root=$4

@@ -1,3 +1,6 @@
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { readlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -62,7 +65,12 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); await rm(scratch, { recursive: true, force: true }); });
 
-describe("machine install", () => {
+// Installation runs in the packaged Bun CLI. The Node test runner launches
+// that runtime to exercise these cases rather than mocking the kernel lease.
+if (typeof Bun === "undefined") it("exercises the installer in its packaged CLI runtime", async () => {
+  await promisify(execFile)("bun", ["--bun", "node_modules/vitest/vitest.mjs", "run", "tests/machine-install.test.ts"], { cwd: process.cwd(), timeout: 30_000, maxBuffer: 256 * 1024 });
+}, 35_000);
+else describe("machine install", () => {
   it("serializes sends with a kernel lease and reuses an abandoned empty lock directory", async () => {
     await mkdir(join(fixture.root, ".install-lock"), { recursive: true, mode: 0o700 });
     await writeFile(join(fixture.root, "owner.json"), "owned", { mode: 0o600 });
@@ -75,6 +83,32 @@ describe("machine install", () => {
     await (await acquireInstallLock(handle))();
     await expect(acquireInstallLock({} as OwnedInstallLockRoot)).rejects.toThrow("owned installation");
     await expect(admitInstallLockRoot(fixture.root, "other")).rejects.toThrow("another Junto installation");
+  });
+
+  it("releases the kernel lease when the installer exits without cleanup", async () => {
+    await mkdir(fixture.root, { mode: 0o700 });
+    await writeFile(join(fixture.root, "owner.json"), "owned", { mode: 0o600 });
+    const leaseModule = pathToFileURL(join(process.cwd(), "src/main/junto/hosts/install-lock.ts")).href;
+    const source = `import {acquireInstallLock, admitInstallLockRoot} from ${JSON.stringify(leaseModule)};
+const release = await acquireInstallLock(await admitInstallLockRoot(${JSON.stringify(fixture.root)}, "owned"));
+console.log("locked");
+if (process.argv.at(-1) === "hold") { for await (const _ of process.stdin) {} process.exit(17); }
+await release();`;
+    const environment = { ...process.env, HOME: fixture.home };
+    const child = spawn(process.execPath, ["--eval", source, "hold"], { env: environment, stdio: ["pipe", "pipe", "pipe"] });
+    const closed = new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+    const ready = new Promise<void>((resolve, reject) => {
+      let output = "", detail = "";
+      child.stdout.on("data", bytes => { output += String(bytes); if (output === "locked\n") resolve(); });
+      child.stderr.on("data", bytes => { detail += String(bytes); });
+      void closed.then(() => reject(new Error(detail || "lease process exited before admission")), reject);
+    });
+    try {
+      await ready;
+      await expect(promisify(execFile)(process.execPath, ["--eval", source, "once"], { env: environment })).rejects.toThrow("already being sent");
+    } finally { child.stdin.end(); await closed; }
+    expect(await closed).toBe(17);
+    expect((await promisify(execFile)(process.execPath, ["--eval", source, "once"], { env: environment })).stdout).toBe("locked\n");
   });
 
   it("refuses a linked lease without touching its target", async () => {

@@ -32,6 +32,7 @@ Module._resolveFilename = function (...args) {
   for (const [name, value] of Object.entries(process.env)) {
     if (!name.startsWith("JUNTO_") && !["NODE_PATH", "NODE_OPTIONS", "ELECTRON_RUN_AS_NODE"].includes(name)) environment[name] = value;
   }
+  environment.PATH = join(relocated, "bin");
   environment.JUNTO_HOME = home;
   const core = spawnServiceChild({ source: "machine.bundle-boot", purpose: "relocated bundle build check",
     command: join(relocated, "bin/node"), args: ["--require", guard, join(relocated, "core/junto.cjs")], cwd: relocated, env: environment });
@@ -53,7 +54,7 @@ Module._resolveFilename = function (...args) {
     const result = await exec(join(relocated, "bin/junto"), ["machine", "status", "{}"], { env: environment, cwd: relocated, timeout: 5_000, maxBuffer: 64 * 1024 });
     const status = Schema.decodeUnknownSync(Schema.fromJsonString(Status), { onExcessProperty: "error" })(result.stdout.trim()).data;
     if (!status.ready || status.build !== build || status.juntoHome !== home) throw new Error("Relocated Junto core did not prove its build and isolated home");
-    process.stderr.write(JSON.stringify({ event: "machine-bundle-boot", build, ready: true, relocated: true }) + "\n");
+    process.stderr.write(JSON.stringify({ event: "machine-bundle-boot", build, ready: true, relocated: true, payloadOnlyPath: true }) + "\n");
   } finally {
     clearTimeout(timer);
     const stopped = await core.terminateAndWaitForClose();

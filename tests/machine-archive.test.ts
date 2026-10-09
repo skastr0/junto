@@ -37,10 +37,9 @@ it.each([false, true])("receives exact inventoried modes with lost archive execu
       process.stdout.write("accepted\\n");
     `;
     await writeFile(join(bundle, "bin/junto"), `#!/bin/sh\nexec ${quote(process.execPath)} -e ${quote(inspect)} "$@"\n`);
-    await writeFile(join(bundle, "bin/unix-peer-pid.py"), "helper\n");
     await writeFile(join(bundle, "core/junto.cjs"), "core\n");
     for (const file of ["bin/node", "bin/junto"]) await chmod(join(bundle, file), 0o755);
-    for (const file of ["bin/unix-peer-pid.py", "core/junto.cjs"]) await chmod(join(bundle, file), 0o644);
+    for (const file of ["core/junto.cjs"]) await chmod(join(bundle, file), 0o644);
     await writeFile(join(bundle, "manifest.json"), JSON.stringify({ files: await machineBundleFiles(bundle) }));
     if (lostExecuteBits) for (const file of ["bin/node", "bin/junto"]) await chmod(join(bundle, file), 0o644);
     const archive = join(root, "package.tgz");
