@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { Effect, Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -45,7 +44,6 @@ vi.mock("../src/main/junto/process-signal", async (importOriginal) => {
   };
 });
 
-import { CodexLive, CodexService } from "../src/main/services/codex";
 import {
   quiesceServiceChildrenOnQuit,
   runProcess,
@@ -70,11 +68,6 @@ class FakeChild extends EventEmitter {
   readonly kill = vi.fn((_signal?: NodeJS.Signals) => true);
   readonly pid = nextFakePid++;
 }
-
-const probeCodexAppServer = Effect.gen(function* () {
-  const codex = yield* CodexService;
-  return yield* codex.probeAppServer;
-}).pipe(Effect.provide(CodexLive));
 
 const capturedHandle = (): OwnedProcess => {
   const handle = mocks.handles.at(-1);
@@ -313,316 +306,21 @@ describe("central service child authority", () => {
     expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
   });
 
-  it("terminates and releases the Codex app-server after its handshake", async () => {
-    const child = new FakeChild();
-    child.kill.mockImplementation((signal) => {
-      if (signal === "SIGTERM") closeChild(child, null, "SIGTERM");
-      return true;
-    });
-    mocks.spawn.mockReturnValue(child);
-
-    const resultPromise = Effect.runPromise(probeCodexAppServer);
-    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
-    child.stdout.write('{"id":0,"result":{"protocol":"ok"}}\n');
-
-    await expect(resultPromise).resolves.toMatchObject({
-      id: "codex-app-server",
-      status: "ok",
-    });
-    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-    expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
-    expect(child.kill).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not report Codex success without a bounded close witness", async () => {
-    vi.useFakeTimers();
-    const child = new FakeChild();
-    child.kill.mockReturnValue(false);
-    mocks.spawn.mockReturnValue(child);
-
-    const resultPromise = Effect.runPromise(
-      probeCodexAppServer.pipe(Effect.result),
-    );
-    await vi.advanceTimersByTimeAsync(0);
-    child.stdout.write('{"id":0,"result":{"protocol":"ok"}}\n');
-
-    await vi.advanceTimersByTimeAsync(1_250);
-    const result = await resultPromise;
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.message).toBe(
-        "codex app-server did not close after initialize response",
-      );
-    }
-    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    expect(vi.getTimerCount()).toBe(0);
-
-    const retry = await Effect.runPromise(
-      probeCodexAppServer.pipe(Effect.result),
-    );
-    expect(Result.isFailure(retry)).toBe(true);
-    if (Result.isFailure(retry)) {
-      expect(retry.failure.message).toBe(SERVICE_CHILD_TEARDOWN_PENDING_ERROR);
-    }
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-    child.emit("close", null, "SIGKILL");
-  });
-
-  it("coalesces concurrent Codex app-server probes", async () => {
-    const child = new FakeChild();
-    child.kill.mockImplementation((signal) => {
-      if (signal === "SIGTERM") closeChild(child, null, "SIGTERM");
-      return true;
-    });
-    mocks.spawn.mockReturnValue(child);
-
-    const first = Effect.runPromise(probeCodexAppServer);
-    const second = Effect.runPromise(probeCodexAppServer);
-    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
-    child.stdout.write('{"id":0,"result":{"coalesced":true}}\n');
-
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      expect.objectContaining({ status: "ok" }),
-      expect.objectContaining({ status: "ok" }),
-    ]);
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-    expect(child.kill).toHaveBeenCalledTimes(1);
-  });
-
-  it("records Codex exit and fails when close confirms no initialize response", async () => {
-    vi.useFakeTimers();
-    const child = new FakeChild();
-    mocks.spawn.mockReturnValue(child);
-
-    let probeSettled = false;
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result)).then(
-      (result) => {
-        probeSettled = true;
-        return result;
-      },
-    );
-    await vi.advanceTimersByTimeAsync(0);
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-
-    child.stderr.write("startup rejected\n");
-    child.emit("exit", 17, null);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(probeSettled).toBe(false);
-    expect(vi.getTimerCount()).toBe(1);
-
-    // Node normally follows exit with close; the second terminal event must
-    // neither replace the original diagnostic nor trigger another teardown.
-    child.emit("close", 17, null);
-    const result = await resultPromise;
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.message).toBe(
-        "codex app-server exited before initialize response (code 17): startup rejected",
-      );
-    }
-    expect(vi.getTimerCount()).toBe(0);
-    expect(child.kill).not.toHaveBeenCalled();
-    expect(signalOwned(capturedHandle(), "SIGKILL").attempted).toBe(false);
-  });
-
-  it("accepts an initialize response drained between Codex exit and close", async () => {
-    vi.useFakeTimers();
-    const child = new FakeChild();
-    mocks.spawn.mockReturnValue(child);
-
-    const resultPromise = Effect.runPromise(probeCodexAppServer);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-
-    child.emit("exit", 0, null);
-    child.stdout.write('{"id":0,"result":{"drained":true}}\n');
-    child.emit("close", 0, null);
-
-    await expect(resultPromise).resolves.toMatchObject({
-      id: "codex-app-server",
-      status: "ok",
-      metadata: { result: '{"drained":true}' },
-    });
-    expect(vi.getTimerCount()).toBe(0);
-    expect(child.kill).not.toHaveBeenCalled();
-  });
-
-  it("fails promptly when Codex closes before the initialize response", async () => {
-    vi.useFakeTimers();
-    const child = new FakeChild();
-    mocks.spawn.mockReturnValue(child);
-
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-
-    child.stderr.write("transport lost\n");
-    child.emit("close", null, "SIGKILL");
-    const result = await resultPromise;
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.message).toBe(
-        "codex app-server closed before initialize response (signal SIGKILL): transport lost",
-      );
-    }
-    expect(vi.getTimerCount()).toBe(0);
-    expect(child.kill).not.toHaveBeenCalled();
-    expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
-  });
-
-  it("retains Codex authority after child error until bounded teardown", async () => {
-    vi.useFakeTimers();
-    const child = new FakeChild();
-    mocks.spawn.mockReturnValue(child);
-
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
-    await vi.advanceTimersByTimeAsync(0);
-    child.emit("error", new Error("spawn channel failed"));
-    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    child.emit("close", null, "SIGKILL");
-    const result = await resultPromise;
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.message).toBe(
-        "codex app-server child failed before initialize response: spawn channel failed",
-      );
-    }
-    expect(vi.getTimerCount()).toBe(0);
-    expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
-  });
-
-  it("does not let a Codex child error during TERM cancel escalation", async () => {
-    vi.useFakeTimers();
-    const child = new FakeChild();
-    child.kill.mockImplementation((signal) => {
-      if (signal === "SIGTERM") child.emit("error", new Error("kill raced with child"));
-      return true;
-    });
-    mocks.spawn.mockReturnValue(child);
-
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
-    await vi.advanceTimersByTimeAsync(6_000);
-    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    expect(child.kill).toHaveBeenCalledTimes(2);
-    child.emit("close", null, "SIGKILL");
-    const result = await resultPromise;
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.message).toContain("initialize timed out");
-    }
-    expect(vi.getTimerCount()).toBe(0);
-    expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
-  });
-
-  it("contains Codex stdin EPIPE and completes bounded teardown", async () => {
-    vi.useFakeTimers();
-    const child = new FakeChild();
-    child.stdin.write.mockImplementationOnce(() => {
-      child.stdin.emit("error", new Error("write EPIPE"));
-      return false;
-    });
-    mocks.spawn.mockReturnValue(child);
-
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(child.stdin.write).toHaveBeenCalledTimes(1);
-    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    child.emit("close", null, "SIGKILL");
-    const result = await resultPromise;
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.message).toBe(
-        "codex app-server stdin failed before initialize response: write EPIPE",
-      );
-    }
-    expect(vi.getTimerCount()).toBe(0);
-    expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
-  });
-
-  it.each([
-    ["stdout", "codex app-server unterminated JSONL exceeded 262144 bytes"],
-    ["stderr", "codex app-server stderr exceeded 262144 bytes"],
-  ] as const)(
-    "bounds Codex %s accumulation and tears down the exact child",
-    async (channel, expectedMessage) => {
-      vi.useFakeTimers();
-      const child = new FakeChild();
-      mocks.spawn.mockReturnValue(child);
-
-      const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
-      await vi.advanceTimersByTimeAsync(0);
-      child[channel].write(Buffer.alloc(262_145, "x"));
-      expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-      expect(child.stdout.listenerCount("data")).toBe(0);
-      expect(child.stderr.listenerCount("data")).toBe(0);
-      expect(child.stdout.destroyed).toBe(true);
-      expect(child.stderr.destroyed).toBe(true);
-
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-      child.emit("close", null, "SIGKILL");
-      const result = await resultPromise;
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.message).toBe(expectedMessage);
-      }
-      expect(vi.getTimerCount()).toBe(0);
-      expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
-    },
-  );
-
-  it("bounds a non-responsive Codex app-server probe and releases authority", async () => {
-    vi.useFakeTimers();
-    const child = new FakeChild();
-    mocks.spawn.mockReturnValue(child);
-
-    const resultPromise = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(mocks.spawn).toHaveBeenCalledOnce();
-
-    await vi.advanceTimersByTimeAsync(6_000);
-    expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    child.emit("close", null, "SIGKILL");
-    const result = await resultPromise;
-    expect(Result.isFailure(result)).toBe(true);
-    expect(signalOwned(capturedHandle(), "SIGTERM").attempted).toBe(false);
-    expect(child.kill).toHaveBeenCalledTimes(2);
-  });
-
   it("coalesces quit, drains in-flight services, rejects late spawns, and reports refusal", async () => {
     vi.useFakeTimers();
     const resistantRun = new FakeChild();
     resistantRun.kill.mockReturnValue(false);
-    const closingCodex = new FakeChild();
-    closingCodex.kill.mockImplementation((signal) => {
-      if (signal === "SIGTERM") closeChild(closingCodex, null, "SIGTERM");
+    const closingRun = new FakeChild();
+    closingRun.kill.mockImplementation((signal) => {
+      if (signal === "SIGTERM") closeChild(closingRun, null, "SIGTERM");
       return true;
     });
     mocks.spawn
       .mockReturnValueOnce(resistantRun)
-      .mockReturnValueOnce(closingCodex);
+      .mockReturnValueOnce(closingRun);
 
     const runningProcess = runProcess("resistant-service", []).catch((error) => error);
-    const runningCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
+    const closingProcess = runProcess("closing-service", []).catch((error) => error);
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
 
@@ -631,29 +329,17 @@ describe("central service child authority", () => {
     expect(second).toBe(first);
 
     const lateProcess = runProcess("late-service", []).catch((error) => error);
-    const lateCodex = Effect.runPromise(probeCodexAppServer.pipe(Effect.result));
     await vi.advanceTimersByTimeAsync(0);
 
-    const runningCodexResult = await runningCodex;
-    expect(Result.isFailure(runningCodexResult)).toBe(true);
-    if (Result.isFailure(runningCodexResult)) {
-      expect(runningCodexResult.failure.message).toBe(
-        SERVICE_CHILD_PLANE_QUIESCING_ERROR,
-      );
-    }
+    expect(await closingProcess).toEqual(
+      new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR),
+    );
     expect(await lateProcess).toEqual(
       new Error(SERVICE_CHILD_PLANE_QUIESCING_ERROR),
     );
-    const lateCodexResult = await lateCodex;
-    expect(Result.isFailure(lateCodexResult)).toBe(true);
-    if (Result.isFailure(lateCodexResult)) {
-      expect(lateCodexResult.failure.message).toBe(
-        SERVICE_CHILD_PLANE_QUIESCING_ERROR,
-      );
-    }
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
-    expect(closingCodex.kill).toHaveBeenCalledTimes(1);
-    expect(closingCodex.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(closingRun.kill).toHaveBeenCalledTimes(1);
+    expect(closingRun.kill).toHaveBeenCalledWith("SIGTERM");
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(resistantRun.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
@@ -682,8 +368,8 @@ describe("central service child authority", () => {
     expect(resistantRun.stderr.destroyed).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
 
-    const codexHandle = mocks.handles[1] as OwnedProcess;
-    expect(signalOwned(codexHandle, "SIGTERM").decision).toMatchObject({
+    const closingHandle = mocks.handles[1] as OwnedProcess;
+    expect(signalOwned(closingHandle, "SIGTERM").decision).toMatchObject({
       ok: false,
       reason: "handle-not-registered",
     });
