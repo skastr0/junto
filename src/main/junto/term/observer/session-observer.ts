@@ -31,7 +31,9 @@ import type {
   SessionObserverOptions,
 } from "./types";
 
-const require = createRequire(import.meta.url);
+// CommonJS bundles must resolve from their installed location. A bundler can
+// replace import.meta.url with the build machine's source path.
+const require = createRequire(typeof __filename === "string" ? __filename : import.meta.url);
 // CJS package: require() returns { Terminal }. Do not use ESM named import.
 // Structural typing only — full @xterm/headless types are ESM-named and break
 // the Electron main link when imported.
