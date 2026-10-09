@@ -9,10 +9,10 @@ import {
 } from "../src/shared/junto-docs";
 
 describe("junto docs catalog", () => {
-  it("agent kind doc carries mail and process-bind identity", () => {
+  it("agent kind doc carries mail and seat credential identity", () => {
     const agent = buildNodeKindDoc("agent")!;
     expect(agent).toContain("msg.list");
-    expect(agent).toContain("process-bind");
+    expect(agent).toContain("seat credential");
   });
 
   it.each([
@@ -41,7 +41,7 @@ describe("junto docs catalog", () => {
     const doc = buildDoctrineDoc();
     expect(doc).toContain("Junto — full doctrine");
     expect(doc).toContain("### Why edges are permissions");
-    expect(doc).toContain("### Why identity is process-bind");
+    expect(doc).toContain("### Why identity is a seat credential");
     expect(doc).toContain("### Why the CLI is the tool surface");
     expect(doc).toContain("junto onboard");
   });

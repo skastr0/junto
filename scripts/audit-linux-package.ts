@@ -19,7 +19,6 @@ export const LINUX_RUNTIME_REQUIRED_FILES = [
   "junto",
   "resources/app.asar",
   "resources/bin/junto",
-  "resources/bin/unix-peer-pid.py",
 ] as const;
 
 const FORBIDDEN_SEGMENTS = new Set([

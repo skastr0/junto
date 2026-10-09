@@ -23,7 +23,6 @@ import { isManagedTerminalReady } from "./junto/term/drive/readiness";
 import { evaluateSchemaCompatibility } from "./junto/state/schema-version-probe";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import { resolveControlHome } from "./junto/control-home";
-import { configurePeerPidHelperRoots } from "./junto/process-identity";
 import { resolvedSpawnEnv } from "./junto/adapters/exec";
 import {
   INSTALL_USER_SERVICE_SWITCH,
@@ -195,33 +194,6 @@ const runProductBoot = async (): Promise<void> => {
       1,
       `[schema] installed state schema ${compatibility.userVersion} is newer than supported ${compatibility.supportedVersion}`,
     );
-  }
-
-  {
-    const roots: string[] = [];
-    if (
-      typeof process.resourcesPath === "string" &&
-      process.resourcesPath.length > 0
-    ) {
-      roots.push(join(process.resourcesPath, "bin"));
-    }
-    try {
-      const releaseRoot = resolveReleaseDirectoryFromRemoteBinary(
-        resolveBinaryPath(),
-      );
-      roots.push(join(releaseRoot, "resources/bin"));
-    } catch {
-      // unpackaged / non-release tree
-    }
-    if (!isRemotePackaged(resolveBinaryPath())) {
-      try {
-        const here = dirname(fileURLToPath(import.meta.url));
-        roots.push(resolve(here, "../../scripts"));
-      } catch {
-        // ignore
-      }
-    }
-    configurePeerPidHelperRoots(roots);
   }
 
   const controlHome = resolveControlHome({

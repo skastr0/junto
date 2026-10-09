@@ -1,11 +1,9 @@
 import type { AppProcessLease } from "../src/main/junto/app-process-plane";
 import { bindLocalAcpProcessIdentity } from "../src/main/junto/hermes/plane";
-import { admitOperatorPeer } from "../src/main/junto/operator-control/admission";
 import {
   makeProcessIdentityMap,
   type ProcessIdentityMap,
 } from "../src/main/junto/process-identity";
-import type { Socket } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 
 const leaseWith = (
@@ -20,7 +18,7 @@ const leaseWith = (
   }) as unknown as AppProcessLease;
 
 describe("attached ACP operator isolation", () => {
-  it("binds the local ACP generation so its descendants are denied", () => {
+  it("binds the local ACP generation to its agent key", () => {
     const processMap = makeProcessIdentityMap({
       processAlive: () => true,
       readProcessStartKey: () => "acp-epoch",
@@ -32,18 +30,7 @@ describe("attached ACP operator isolation", () => {
       processMap,
     );
 
-    const parents = new Map([
-      [410, 320],
-      [320, 20],
-      [20, 1],
-    ]);
-    expect(
-      admitOperatorPeer({} as Socket, {
-        processMap,
-        readPeerPid: () => 410,
-        readParentPid: (pid) => parents.get(pid),
-      }),
-    ).toEqual({ ok: false, reason: "registered-process-tree" });
+    expect(processMap.resolve(320)).toEqual({ agentKey: "local:default" });
   });
 
   it.each([undefined, 320])(

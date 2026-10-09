@@ -99,7 +99,6 @@ import {
 } from "./junto/canvas-control";
 import { KernelService } from "./junto/kernel/service";
 import { makeEdgeGrantService } from "./junto/browser/edge-grant";
-import { configurePeerPidHelperRoots } from "./junto/process-identity";
 import { evaluateSchemaCompatibility } from "./junto/state/schema-version-probe";
 import { runStartupStateFailureDialog } from "./junto/state/startup-state-failure-dialog";
 import { ensureSchemaCompatibleOrRecover } from "./junto/update/startup-schema-recovery";
@@ -1384,20 +1383,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           return;
         }
       }
-    }
-
-    // Seal process-bind peer-PID helper roots before any UDS control server starts.
-    // Packaged: electron-builder extraResources → resources/bin/unix-peer-pid.py
-    // Dev: never cwd — only explicit absolute repo scripts/ path.
-    {
-      const roots: string[] = [];
-      if (typeof process.resourcesPath === "string" && process.resourcesPath.length > 0) {
-        roots.push(join(process.resourcesPath, "bin"));
-      }
-      if (!app.isPackaged) {
-        roots.push(join(app.getAppPath(), "scripts"));
-      }
-      configurePeerPidHelperRoots(roots);
     }
 
     // Control sockets must never land under the real operator home when E2E /

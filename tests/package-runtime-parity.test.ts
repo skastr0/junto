@@ -619,7 +619,6 @@ describe("packaged runtime exact parity", () => {
       for (const relative of [
         "junto",
         "resources/bin/junto",
-        "resources/bin/unix-peer-pid.py",
       ]) {
         await writeFile(path.join(candidate.runtimeRoot, relative), `mutated ${relative}\n`);
         const changed = await collectLinuxRuntimeInventory(candidate.runtimeRoot);

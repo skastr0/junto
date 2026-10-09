@@ -306,10 +306,6 @@ describe("Prime Agent two-seat real-process integration", () => {
       expect(identities.size()).toBe(4);
       expect(identities.resolve(toolPidA)).toBeUndefined();
       expect(identities.resolve(toolPidB)).toBeUndefined();
-      expect(identities.resolveInTree(toolPidA)).toEqual(principalA);
-      expect(identities.resolveInTree(toolPidB)).toEqual(principalB);
-      expect(identities.resolveInTree(workerA.pid)).toEqual(principalA);
-      expect(identities.resolveInTree(workerB.pid)).toEqual(principalB);
       expect(
         identities.snapshot().filter((entry) => entry.principal.agentKey === agentKeyA),
       ).toHaveLength(2);
@@ -332,8 +328,6 @@ describe("Prime Agent two-seat real-process integration", () => {
       expect(
         identities.snapshot().every((entry) => entry.principal.agentKey === agentKeyB),
       ).toBe(true);
-      expect(identities.resolveInTree(toolPidA)).toBeUndefined();
-      expect(identities.resolveInTree(toolPidB)).toEqual(principalB);
       expect(host.get(bindingB)?.status).toBe("running");
 
       await waitFor("scoped seat A root, terminal, daemon, and directory cleanup", () => {
@@ -376,7 +370,6 @@ describe("Prime Agent two-seat real-process integration", () => {
       expect(host.get(bindingB)?.status).toBe("running");
       expect(host.runningCount()).toBe(1);
       expect(identities.size()).toBe(2);
-      expect(identities.resolveInTree(toolPidB)).toEqual(principalB);
 
       const hostReceipt = await host.shutdownAll("two_seat_integration_shutdown");
       hostShutdown = true;

@@ -19,7 +19,6 @@ describe("Linux userland runtime audit", () => {
         "junto",
         "resources/app.asar",
         "resources/bin/junto",
-        "resources/bin/unix-peer-pid.py",
       ]) await writeFile(path.join(runtime, file), "fixture");
       await writeFile(path.join(runtime, "chrome-sandbox"), "forbidden");
       await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow(/privileged packaging residue/u);

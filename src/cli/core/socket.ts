@@ -159,7 +159,7 @@ const ndjsonCall = (
     }
 
     socket.on("connect", () => {
-      // Identity is process-bind (peer PID). No client-supplied nodeRef.
+      // Identity is the seat generation credential in the frame. No client-supplied nodeRef.
       try {
         const frame = encodeWorkFrame({
           token,

@@ -30,7 +30,7 @@ description: "Runs Junto overseer operations from a process-bound granted seat. 
 
 JSON-only CLI for a managed agent seat whose operator turned on overseer with the human-only toggle. Ordinary agents stay edge-scoped. Overseers do not need edges.
 
-Identity is process-bind (Unix peer PID). Never send a nodeRef, actor claim, or operator seat id.
+Identity is the seat credential Junto gave this seat at spawn (JUNTO_WORK_TOKEN). Never send a nodeRef, actor claim, or operator seat id.
 
 ## Offline vs live
 

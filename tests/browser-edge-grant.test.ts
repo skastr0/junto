@@ -504,7 +504,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const generation = processMap.bindGeneration(process.pid, terminalPrincipal);
     expect(generation).toBeDefined();
     await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({ ok: true });
-    expect(processMap.offboardGeneration(generation!)).toBe(true);
+    expect(processMap.unbindGeneration(generation!)).toBe(true);
     await expect(edgeGrant.admitSocket({} as Socket)).resolves.toMatchObject({
       ok: false,
       denial: "process_unbound",

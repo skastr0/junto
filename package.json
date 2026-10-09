@@ -173,10 +173,6 @@
         "to": "bin/junto"
       },
       {
-        "from": "scripts/unix-peer-pid.py",
-        "to": "bin/unix-peer-pid.py"
-      },
-      {
         "from": "dist/machines",
         "to": "machines"
       }

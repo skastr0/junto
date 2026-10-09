@@ -2215,7 +2215,7 @@ export class LocalSessionHost extends EventEmitter {
     rec.ptyIdentityBinding = undefined;
     for (const binding of bindings) {
       try {
-        identities.offboardGeneration(binding);
+        identities.unbindGeneration(binding);
       } catch (error) {
         console.error(`[term] identity offboard failed for ${rec.bindingId}@${rec.epoch}:`, error);
       }

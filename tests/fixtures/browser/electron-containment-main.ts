@@ -43,7 +43,6 @@ import {
 } from "../../../src/main/junto/browser/web-policy";
 import {
   makeProcessIdentityMap,
-  readParentPid,
   type ProcessPrincipal,
 } from "../../../src/main/junto/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
@@ -697,10 +696,7 @@ void app.whenReady().then(async () => {
   // whose parent is this probe. Register that observed, live launcher process
   // in the same main-owned map production uses for ACP children. No PID,
   // node ref, host, or capability is accepted from a control request.
-  const probePeerPid = readParentPid(process.ppid);
-  if (probePeerPid === undefined) {
-    throw new Error("dedicated browser probe could not resolve its live launcher process");
-  }
+  const probePeerPid = process.ppid;
   const processBoundPrincipal: ProcessPrincipal = Object.freeze({ agentKey: "browser-containment-probe",
     canvasName,
     nodeId: "probe-agent",

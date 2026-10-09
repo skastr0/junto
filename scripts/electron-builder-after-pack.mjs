@@ -38,9 +38,7 @@ const LINUX_FIXED_MODE_DIRECTORIES = [
   "resources",
   "resources/bin",
 ];
-const LINUX_FIXED_MODE_FILES = new Map([
-  ["resources/bin/unix-peer-pid.py", 0o755],
-]);
+const LINUX_FIXED_MODE_FILES = new Map();
 
 const libraryFuseNames = () =>
   Object.keys(FuseV1Options)
@@ -706,10 +704,7 @@ export default async function afterPack(context) {
         "Resources",
         "bin",
       );
-      for (const name of [
-        "junto",
-        "unix-peer-pid.py",
-      ]) {
+      for (const name of ["junto"]) {
         const resource = path.join(resourceDirectory, name);
         await access(resource);
         await chmod(resource, 0o755);

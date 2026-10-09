@@ -56,7 +56,6 @@ const makeSyntheticIdentityMap = () => makeProcessIdentityMap({
   processAlive: (pid) => pid === process.pid || syntheticEpochs.has(pid),
   readProcessStartKey: (pid) =>
     pid === process.pid ? `self-${pid}` : syntheticEpochs.get(pid),
-  readParentPid: () => undefined,
 });
 
 beforeEach(() => {
