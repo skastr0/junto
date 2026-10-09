@@ -18,7 +18,7 @@
   flex-direction: column;
   align-items: flex-start;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   padding: 6px 10px 10px;
   text-align: left;
 }
@@ -53,7 +53,7 @@
   margin-top: 2px;
   color: var(--color-dim);
   font-size: var(--text-body);
-  line-height: 1.35;
+  line-height: var(--leading-dense);
 }
 
 /* The line turns amber when the machine needs the operator. */
@@ -68,11 +68,11 @@
   align-content: center;
   gap: 6px;
   border: 1px solid var(--color-stroke);
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   padding: 12px;
   color: var(--color-dim);
   font-size: var(--text-body);
-  line-height: 1.4;
+  line-height: var(--leading-body);
   text-align: center;
 }
 
@@ -80,7 +80,7 @@
   content: "+";
   color: var(--color-faint);
   font-family: var(--font-display);
-  font-size: 44px;
+  font-size: var(--text-hero);
   line-height: 1;
 }
 
@@ -123,7 +123,7 @@
   color: var(--color-dim);
   font-family: var(--font-mono);
   font-size: var(--text-label);
-  letter-spacing: 0.16em;
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 
@@ -132,9 +132,9 @@
   overflow: hidden;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 40px;
+  font-size: var(--text-hero);
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-label);
   line-height: 1;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -143,7 +143,7 @@
 
 .machine-stage__headline {
   color: var(--color-ink);
-  font-size: 14px;
+  font-size: var(--text-title);
 }
 
 .machine-stage__advice {
@@ -151,7 +151,7 @@
   margin-top: 6px;
   color: var(--color-dim);
   font-size: var(--text-body-lg);
-  line-height: 1.5;
+  line-height: var(--leading-body);
 }
 
 .machine-stage__actions {
@@ -176,7 +176,7 @@
   height: 8px;
   margin-bottom: 8px;
   border: 1.5px solid var(--color-dim);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .machine-steps small {

@@ -320,7 +320,7 @@ function AddMachineDialog({ onClose, onAdded }: { readonly onClose: () => void; 
           />
         </FieldLabel>
         {error ? (
-          <p className="text-body text-crimson" role="alert" data-testid="machine-add-error">
+          <p className="text-body text-crimson-fg" role="alert" data-testid="machine-add-error">
             {error}
           </p>
         ) : null}
@@ -368,7 +368,7 @@ function RemoveMachineDialog({ item, onClose }: { readonly item: MachineListItem
         Junto stays installed on {label}.
       </p>
       {error ? (
-        <p className="mt-2 text-crimson" role="alert" data-testid="machine-remove-error">
+        <p className="mt-2 text-crimson-fg" role="alert" data-testid="machine-remove-error">
           {error}
         </p>
       ) : null}
@@ -427,7 +427,7 @@ function MachinesWindowOpen() {
         }
       />
       {error ? (
-        <p className="border-b border-stroke px-4 py-2 text-body text-crimson" role="alert" data-testid="machines-error">
+        <p className="border-b border-stroke px-4 py-2 text-body text-crimson-fg" role="alert" data-testid="machines-error">
           {error}
         </p>
       ) : null}
