@@ -30,6 +30,8 @@ import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { makeRowsChannel, type RowsChannelContext } from "../src/main/junto/work/exchange/channel";
 import { followLocalCommits, makeLiveRowExchange } from "../src/main/junto/work/exchange/live";
 import type { RowExchange } from "../src/main/junto/work/exchange/session";
+import { MessageDeliveryService } from "../src/main/junto/work/message-delivery";
+import { makeMessageDeliveryStore } from "../src/main/junto/work/message-delivery-store";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
 import { Command, asCanvasName, type Node } from "../src/shared/model";
@@ -423,24 +425,24 @@ describe("a local commit", () => {
   });
 });
 
-describe("mail a seat sends from the machine it lives on", () => {
-  /** `junto msg send` as the work service runs it: the seat's own identity, the canvas as its machine holds it. */
-  const send = (on: Machine, from: string, to: string, messageId: string) =>
-    on.runtime.runPromise(
-      Effect.gen(function* () {
-        const work = yield* WorkService;
-        const sender = (yield* (yield* ModelActorRefs).read("factory")).find((actor) => actor.nodeId === from);
-        if (sender === undefined) throw new Error(`no seat at ${from}`);
-        return yield* work.workMessageAppend(
-          "factory",
-          to,
-          null,
-          { messageId, role: "user", parts: [{ kind: "text", text: `from ${from}` }] },
-          sender,
-        );
-      }),
-    );
+/** `junto msg send` as the work service runs it: the seat's own identity, the canvas as its machine holds it. */
+const send = (on: Machine, from: string, to: string, messageId: string) =>
+  on.runtime.runPromise(
+    Effect.gen(function* () {
+      const work = yield* WorkService;
+      const sender = (yield* (yield* ModelActorRefs).read("factory")).find((actor) => actor.nodeId === from);
+      if (sender === undefined) throw new Error(`no seat at ${from}`);
+      return yield* work.workMessageAppend(
+        "factory",
+        to,
+        null,
+        { messageId, role: "user", parts: [{ kind: "text", text: `from ${from}` }] },
+        sender,
+      );
+    }),
+  );
 
+describe("mail a seat sends from the machine it lives on", () => {
   it("goes to a peer from a copy, and comes back the other way", async () => {
     const { macbook, mini } = await pair();
     const stop = [
@@ -470,6 +472,49 @@ describe("mail a seat sends from the machine it lives on", () => {
       expect(mini.arrived).toEqual(["peer from-the-macbook"]);
     } finally {
       for (const off of stop) off();
+    }
+  });
+});
+
+describe("delivery on a machine with no window", () => {
+  it("types arriving mail into its seat with a receipt, and tells its own seat its mail was handed on", async () => {
+    const { macbook, mini } = await pair();
+    await link(macbook, mini);
+    await settle();
+    const typed: string[] = [];
+    const delivery = new MessageDeliveryService(() => "mini");
+    delivery.configure({
+      store: await mini.runtime.runPromise(makeMessageDeliveryStore),
+      transport: {
+        seatLive: (bindingId) => bindingId === "binding-peer",
+        wakeSeat: async () => true,
+        writeMail: async (bindingId, text) => {
+          typed.push(`${bindingId}: ${text}`);
+          return "written";
+        },
+      },
+    });
+    delivery.followLinks((canvas, nodeId) => mini.runtime.runPromise(mini.exchange.routed(canvas, nodeId)));
+    try {
+      await send(macbook, "lead", "peer", "typed-on-the-mini");
+      await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+      await settle();
+      expect(await delivery.deliver("factory", "peer", "typed-on-the-mini")).toBe("delivered");
+      expect(typed).toHaveLength(1);
+      expect(typed[0]).toContain("binding-peer: ");
+      const stamped = await mini.runtime.runPromise(
+        Effect.flatMap(WorkRepository, (repository) => repository.mailMessage("factory", "peer", "typed-on-the-mini")),
+      );
+      expect(stamped?.metadata?.deliveredAt).toBeDefined();
+
+      await send(mini, "peer", "lead", "handed-on");
+      expect(await delivery.deliver("factory", "lead", "handed-on")).toBe("handed");
+      open.clear();
+      mini.exchange.closed(MACBOOK);
+      await send(mini, "peer", "lead", "held-here");
+      expect(await delivery.deliver("factory", "lead", "held-here")).toBe("held");
+    } finally {
+      delivery.suspend();
     }
   });
 });
