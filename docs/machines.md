@@ -1,8 +1,7 @@
 # Machines
 
 The build contract for one canvas across many machines. Decided with the
-operator on 2026-10-09. It replaces the Remote station design; the reasons are
-in [remote-station-review.md](remote-station-review.md).
+operator on 2026-10-09. It replaced the Remote station design.
 
 When a rule here changes, change this file in the same commit. Write no other
 design document for this work.
@@ -205,16 +204,16 @@ redesigned. Browser pages are not placed on other machines at all.
 ## Cutting
 
 Nothing is kept by default. Each piece earns its place against the rules above
-or goes. Known to go: the document projection, the task and claim protocol,
-roles, the three boot modes and two doors, version negotiation and its frozen
-fixtures, the reduced runtime, the Remote screen, Box, the fleet update
-executor, the Linux Remote deploy and release tooling, the qualification
-tooling, the browser's remote pieces, and the documents and tests that describe
-them.
+or goes. The old design is out: the document projection, the task and claim
+protocol, the boot modes and doors, version negotiation, the reduced runtime,
+the Remote screen, Box, the host deployment protocol and the qualification
+tooling, with their tables, documents and tests. Still to go: the two roles,
+the second entry file, and what the Machines window does not keep of the old
+overlay.
 
-Tables from the old design may be dropped in a migration; the operator approved
-that for this work. The migration chain stays forward-only, so an installed
-database must still open.
+Tables may be dropped in a migration; the operator approved that for this
+work. The migration chain stays forward-only, so an installed database must
+still open.
 
 ## Seats
 
@@ -294,21 +293,10 @@ git show --stat --oneline HEAD
 | A seat on another machine | `remote-seats` | not staffed; when the mini runs Junto |
 | The Machines window | `remote-window` | not staffed; when the mini runs Junto |
 
-**Cut window.** Open since `945f73bd7`: owned cuts land as checkpoints while
-typecheck is red at seams, then the seams are closed. It ends when
-`remote-verify` reports typecheck and the unit suite green at one hash. Main is
-44,633 deleted lines past the baseline at `0c921a99a`.
-
-**Baseline** (`0e6e55434`): typecheck clean; unit suite 9,204 passed, 3 failed,
-59 skipped. A landing adds no failure beyond those three:
-`effect-runpromise-boundary` (fixed in `d47e566d2`) and two cases in
-`packaged-runtime-smoke` (a stale mock, fixed in `363554a12`). Three more reds
-in the ship gate predated us and were fixed in `ef851266b`. Each fix has its
-owner's agreement.
-
-**Found by running:** the old windowless entry cannot boot. It exits at once
-because an Electron import reaches it through `term/ensure-managed-seat.ts`.
-Fixing that is the first step of the split.
+**The cut.** Done at `9e80c1edc`: 92,000 lines out since the baseline, with
+typecheck and the whole unit suite green on a clean export of that commit
+(8,485 passed, none failed). From here every landing typechecks and adds no
+failure.
 
 ## Test machine
 
