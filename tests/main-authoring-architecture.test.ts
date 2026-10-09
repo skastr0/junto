@@ -40,13 +40,20 @@ const stringArgumentsForCalls = (
 describe("main authoring architecture", () => {
   it("classifies every renderer, model, and delivery mutation ingress", () => {
     const ipcPath = join(mainRoot, "junto", "ipc.ts");
-    const labels = stringArgumentsForCalls(
-      ipcPath,
-      new Set([
-        "runMainAuthoring",
-        "runRendererWorkAuthoring",
-      ]),
-    );
+    const labels = [
+      ...stringArgumentsForCalls(
+        ipcPath,
+        new Set([
+          "runMainAuthoring",
+          "runRendererWorkAuthoring",
+        ]),
+      ),
+      // Mail receipt admission belongs to the core both shells construct.
+      ...stringArgumentsForCalls(
+        join(mainRoot, "core-runtime.ts"),
+        new Set(["mainAuthoringGate.run"]),
+      ),
+    ];
     expect([...labels].sort()).toEqual([
       "delivery.message-stamp",
       "ipc.model.command",
