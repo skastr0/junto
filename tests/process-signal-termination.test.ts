@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -73,6 +74,32 @@ const runSignalChild = async (
 };
 
 describe("process signal termination", () => {
+  it("rebinds only its own listeners after native startup and keeps the bounded exit", async () => {
+    vi.useFakeTimers();
+    const processTarget = new EventEmitter();
+    const foreign = vi.fn();
+    processTarget.on("SIGTERM", foreign);
+    const cleanup = vi.fn();
+    const quit = vi.fn();
+    const exit = vi.fn();
+    const installed = installProcessSignalTermination({
+      app: { quit, exit }, cleanup, processTarget, exitGraceMs: 10,
+    });
+    const owned = processTarget.listeners("SIGTERM")[1];
+    installed.rebind();
+    expect(processTarget.listeners("SIGTERM")).toEqual([foreign, owned]);
+    processTarget.emit("SIGTERM");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cleanup).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+    expect(quit).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+    installed.dispose();
+    installed.rebind();
+    expect(processTarget.listeners("SIGTERM")).toEqual([foreign]);
+    expect(processTarget.listeners("SIGINT")).toEqual([]);
+  });
+
   it("turns SIGTERM into one orderly quit and exits without escalation", async () => {
     const result = await runSignalChild("normal");
 

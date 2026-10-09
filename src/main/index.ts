@@ -2411,7 +2411,7 @@ app.on("will-quit", () => {
 // Registered SIGTERM/SIGINT listeners suppress Node's default process exit.
 // Detach authority first, request Electron's normal quit sequence, and retain
 // a bounded hard-exit fallback if another listener prevents that sequence.
-installProcessSignalTermination({
+const processSignalTermination = installProcessSignalTermination({
   app,
   cleanup: async (signal) => {
     quitPhases.mark(`signal ${signal}`);
@@ -2500,3 +2500,7 @@ installProcessSignalTermination({
     return allowed;
   },
 });
+// Electron installs its native POSIX route after loading main. Restore our
+// owned listeners after readiness so SIGTERM takes the bounded forced quit
+// path instead of opening the ordinary live-work confirmation.
+void app.whenReady().then(() => processSignalTermination.rebind());

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
+import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Result, Schema } from "effect";
@@ -16,14 +17,18 @@ import { Command } from "../src/shared/model";
 import { MachineRepository } from "../src/main/junto/machines/repository";
 import { MachinePeerIdentity } from "../src/shared/machine-control";
 import { coreControlSocketPath } from "../src/main/junto/link/listener";
+import { makeLinkSession } from "../src/main/junto/link/session";
+import { decodeRowsEvent } from "../src/main/junto/work/exchange/channel";
+import type { LinkSession } from "../src/main/junto/link/types";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath } from "../src/shared/operator-control";
 import { decodeWorkResponse, encodeWorkFrame, workControlDir, workControlSocketPath } from "../src/shared/work-control";
 
-it("starts the core, answers machine.status and configures mail without a window", async () => {
+it("starts the core and closes within the bound with a link open and mail in flight", async () => {
   const home = await mkdtemp("/tmp/junto-core-");
   const build = "a".repeat(64);
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
+  let peer: LinkSession | undefined;
   try {
     core = await startCore({ home, build, bundles: {} });
     expect(core.ready()).toBe(true);
@@ -69,9 +74,10 @@ it("starts the core, answers machine.status and configures mail without a window
     } finally { database.close(); }
     const model = await core.runtime.runPromise(ModelService);
     const machines = await core.runtime.runPromise(MachineRepository);
-    await core.runtime.runPromise(machines.pinPeer(Schema.decodeUnknownSync(MachinePeerIdentity)({
+    const peerIdentity = Schema.decodeUnknownSync(MachinePeerIdentity)({
       machineName: "other-mail-core", installationId: "other-mail-installation",
-    })));
+    });
+    await core.runtime.runPromise(machines.pinPeer(peerIdentity));
     const command = Schema.decodeUnknownSync(Command);
     await core.runtime.runPromise(model.command(command({ _tag: "CreateCanvas", canvas: "delivery" }), "operator"));
     await core.runtime.runPromise(model.command(command({ _tag: "Add", canvas: "delivery", nodes: [{
@@ -91,17 +97,54 @@ it("starts the core, answers machine.status and configures mail without a window
     // A configured core reports the real route. An unconfigured core returned
     // "waiting" before it ever looked at the destination's machine.
     expect(await messageDelivery.deliver("delivery", "peer-seat", "headless-mail")).toBe("held");
+    let mailEntered!: () => void;
+    let mailExited!: () => void;
+    const mailInFlight = new Promise<void>(resolve => { mailEntered = resolve; });
+    const mailStopped = new Promise<void>(resolve => { mailExited = resolve; });
+    const socket = createConnection(coreControlSocketPath(home));
+    await once(socket, "connect");
+    peer = makeLinkSession({
+      readable: socket, writable: socket,
+      self: { ...peerIdentity, build },
+      admit: async () => undefined,
+      run: effect => Effect.runPromise(effect),
+      channels: { rows: {
+        decodeRequest: () => { throw new Error("events only"); },
+        decodeResponse: () => { throw new Error("events only"); },
+        decodeEvent: decodeRowsEvent,
+        handleEvent: (context, input) => {
+          const frame = decodeRowsEvent(input);
+          if (frame.kind === "copy") return context.sendEvent("rows", {
+            kind: "have", canvases: [{ canvasName: frame.copy.canvasName, canvasId: frame.copy.canvasId, writers: [] }],
+          });
+          if (frame.kind === "rows" && frame.facts.some(fact =>
+            fact.body.operation === "message.append" && fact.body.message.messageId === "headless-mail")) {
+            mailEntered();
+            return Effect.never.pipe(Effect.onExit(() => Effect.sync(mailExited)));
+          }
+          return Effect.void;
+        },
+      } },
+    });
+    await peer.ready;
+    await mailInFlight;
     for (const path of [operatorControlSocketPath(home), coreControlSocketPath(home), workPath]) {
       expect((await lstat(path)).mode & 0o777).toBe(0o600);
       expect((await lstat(dirname(path))).mode & 0o777).toBe(0o700);
     }
+    const closingAt = performance.now();
     await core.close();
+    expect(performance.now() - closingAt).toBeLessThan(5_000);
+    await peer.closed;
+    await mailStopped;
+    expect(socket.destroyed).toBe(true);
     expect(core.ready()).toBe(false);
     await expect(coreRunner.runPromise(listCanvases)).rejects.toThrow("Junto core is not running");
     expect(existsSync(operatorControlSocketPath(home))).toBe(false);
     expect(existsSync(coreControlSocketPath(home))).toBe(false);
     expect(existsSync(workPath)).toBe(false);
   } finally {
+    await peer?.close();
     await core?.close();
     await rm(home, { recursive: true, force: true });
   }

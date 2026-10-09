@@ -28,6 +28,8 @@ export interface ProcessSignalTerminationOptions {
 
 export interface ProcessSignalTermination {
   readonly dispose: () => void;
+  /** Restore these listeners after Electron installs its native signal route. */
+  readonly rebind: () => void;
   /** Revoke the current attempt without uninstalling signal listeners. */
   readonly cancel: () => void;
   readonly requested: () => boolean;
@@ -384,6 +386,13 @@ export const installProcessSignalTermination = (
   processTarget.on("SIGINT", onSigint);
 
   return {
+    rebind: () => {
+      if (disposed) return;
+      processTarget.off("SIGTERM", onSigterm);
+      processTarget.off("SIGINT", onSigint);
+      processTarget.on("SIGTERM", onSigterm);
+      processTarget.on("SIGINT", onSigint);
+    },
     dispose: () => {
       if (disposed) return;
       disposed = true;
