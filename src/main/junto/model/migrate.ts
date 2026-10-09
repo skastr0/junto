@@ -9,6 +9,7 @@ import {
   type LegacyWireRow,
 } from "@shared/model/from-legacy-row";
 import { KINDS_V13_STATE_SCHEMA_SQL } from "./migrate-kinds-schema";
+import { machineNameAtMigration } from "../state/machine-name-at-migration";
 import {
   nodeFromRow,
   nodeToRow,
@@ -66,6 +67,7 @@ const legacySessionOf = (ether: string | null | undefined): string | undefined =
 /** Copy forward and prove each domain row, without constructing a document. */
 export const migrateCanvasKinds = (
   database: StateSchemaMigrationDatabase,
+  thisMachine: string = machineNameAtMigration(database),
 ): void => {
   const oldNodes = database
     .prepare(
@@ -103,13 +105,13 @@ export const migrateCanvasKinds = (
     .run(initialSeq);
   const bindings = new Map<string, Set<string>>();
   for (const old of oldNodes) {
-    let { node, downgraded } = convertLegacyRow(old);
+    let { node, downgraded } = convertLegacyRow(old, thisMachine);
     if (node.kind === "agent" || node.kind === "terminal") {
       const occupied = bindings.get(old.canvas_name) ?? new Set<string>();
       if (occupied.has(node.bindingId)) {
         downgraded = { canvas: old.canvas_name, id: node.id, storedType: node.kind,
           reason: "session binding already belongs to an earlier node; preserved as a note" };
-        node = convertLegacyRow({ ...old, type: "text", ether_json: null }).node;
+        node = convertLegacyRow({ ...old, type: "text", ether_json: null }, thisMachine).node;
       } else occupied.add(node.bindingId);
       bindings.set(old.canvas_name, occupied);
     }

@@ -788,8 +788,38 @@ const present = <T>(
 ): Record<string, T> =>
   value === null || value === undefined ? {} : { [key]: value };
 
+/** A stored row said `local` for the machine it was written on; a row of the model names that machine. */
+const STORED_THIS_MACHINE = "local";
+
+const named = (host: string | undefined, thisMachine: string): string =>
+  host === undefined || host === STORED_THIS_MACHINE ? thisMachine : host;
+
+const namedDefaults = (defaults: EtherRegionDefaults | undefined, thisMachine: string) =>
+  defaults === undefined
+    ? undefined
+    : {
+        ...defaults,
+        ...(defaults.page?.host === undefined ? {} : { page: { ...defaults.page, host: named(defaults.page.host, thisMachine) } }),
+        ...(defaults.paths === undefined
+          ? {}
+          : { paths: Object.fromEntries(Object.entries(defaults.paths).map(([host, path]) => [named(host, thisMachine), path])) }),
+      };
+
+const namedEnvironment = <E extends { readonly sources?: ReadonlyArray<{ readonly host?: string }> }>(
+  environment: E | undefined,
+  thisMachine: string,
+) =>
+  environment?.sources === undefined
+    ? environment
+    : {
+        ...environment,
+        sources: environment.sources.map((source) =>
+          source.host === undefined ? source : { ...source, host: named(source.host, thisMachine) },
+        ),
+      };
+
 /** Pure conversion, validates the new kind and never reads or projects Work. */
-const decodeStoredKind = (row: LegacyNodeRow): Node => {
+const decodeStoredKind = (row: LegacyNodeRow, thisMachine: string): Node => {
   const old =
     row.ether_json == null ? undefined : decodeExtension(row.ether_json);
   const base = {
@@ -808,7 +838,7 @@ const decodeStoredKind = (row: LegacyNodeRow): Node => {
     ...base,
     ...(firstLine === "" ? {} : { label: firstLine }),
   };
-  const host = old?.host ?? "local";
+  const host = named(old?.host, thisMachine);
   if (row.type === "group")
     return decodeNode({
       ...base,
@@ -816,9 +846,9 @@ const decodeStoredKind = (row: LegacyNodeRow): Node => {
       ...present("label", row.group_label),
       hold: old?.region?.hold ?? false,
       ...present("instruction", old?.region?.instruction),
-      ...present("defaults", old?.region?.defaults),
+      ...present("defaults", namedDefaults(old?.region?.defaults, thisMachine)),
       ...present("contract", old?.region?.contract),
-      ...present("environment", old?.region?.environment),
+      ...present("environment", namedEnvironment(old?.region?.environment, thisMachine)),
       ...present("background", row.group_background),
       ...present("backgroundStyle", row.group_background_style),
     });
@@ -943,9 +973,9 @@ export interface StoredNodeConversion {
 }
 
 /** Invalid retired descriptors keep their identity and text as a note. */
-export const convertLegacyRow = (row: LegacyNodeRow): StoredNodeConversion => {
+export const convertLegacyRow = (row: LegacyNodeRow, thisMachine: string): StoredNodeConversion => {
   try {
-    const node = decodeStoredKind(row);
+    const node = decodeStoredKind(row, thisMachine);
     const descriptor =
       row.ether_json == null ? undefined : decodeExtension(row.ether_json);
     const reason = node.kind === "note" && descriptor?.entity?.kind !== undefined
@@ -987,8 +1017,8 @@ export const convertLegacyRow = (row: LegacyNodeRow): StoredNodeConversion => {
     };
   }
 };
-export const nodeFromLegacyRow = (row: LegacyNodeRow): Node =>
-  convertLegacyRow(row).node;
+export const nodeFromLegacyRow = (row: LegacyNodeRow, thisMachine: string): Node =>
+  convertLegacyRow(row, thisMachine).node;
 
 const decodeGrid = Schema.decodeUnknownSync(SheetGrid);
 

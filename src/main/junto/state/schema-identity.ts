@@ -41,9 +41,10 @@ const sha256 = (value: string): string =>
 /**
  * Tokenize stored DDL so formatting and keyword case are not schema identity.
  * Quoted values remain byte-exact because their whitespace and case can be
- * semantic (CHECK expressions and trigger messages in particular).
+ * semantic (CHECK expressions and trigger messages in particular), except a
+ * plain name in double quotes, which is that name.
  */
-const normalizeSchemaSql = (sql: string): string => {
+export const normalizeSchemaSql = (sql: string): string => {
   const tokens: string[] = [];
   let index = 0;
 
@@ -63,7 +64,10 @@ const normalizeSchemaSql = (sql: string): string => {
       }
       break;
     }
-    tokens.push(token);
+    // SQLite quotes a table's name when it renames the table. A plain name is
+    // the same name quoted or bare, so both are one token.
+    const plain = opener === '"' ? /^"([A-Za-z_][A-Za-z0-9_]*)"$/u.exec(token) : null;
+    tokens.push(plain === null ? token : plain[1]!.toLowerCase());
   };
 
   while (index < sql.length) {

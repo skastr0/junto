@@ -157,7 +157,7 @@ describe("kind storage copy-forward", () => {
         )
         .run(JSON.stringify({ verb: "contributes", mask: ["tasks.list"] }), at);
 
-      migrateCanvasKinds(database);
+      migrateCanvasKinds(database, "macbook");
       expect(
         database.prepare("SELECT count(*) AS n FROM canvases").get()!.n,
       ).toBe(1);
@@ -259,7 +259,7 @@ describe("kind storage copy-forward", () => {
     const database = open();
     try {
       add(database, "empty-region", "region", { region: { defaults: { page: {} }, contract: {} } }, "group");
-      migrateCanvasKinds(database);
+      migrateCanvasKinds(database, "macbook");
       expect(database.prepare("SELECT hold,page_url,paths_json,rules_json,rulings_json FROM regions").get()).toEqual({ hold: 0, page_url: null, paths_json: null, rules_json: null, rulings_json: null });
     } finally { database.close(); }
   });
@@ -270,7 +270,7 @@ describe("kind storage copy-forward", () => {
     try {
       add(database, "seat", "agent", { terminal: { bindingId: "shared", harness: "codex" } });
       add(database, "terminal", "terminal", { terminal: { bindingId: "shared" } });
-      migrateCanvasKinds(database);
+      migrateCanvasKinds(database, "macbook");
       expect(database.prepare("SELECT id FROM seats").all()).toEqual([{ id: "seat" }]);
       expect(database.prepare("SELECT id,text,x,y,width,height,z_index FROM notes").get()).toEqual({ id: "terminal", text: "body-terminal", x: 17.5, y: -20, width: 220, height: 90, z_index: 4 });
       expect(database.prepare("SELECT count(*) AS n FROM terminals").get()!.n).toBe(0);
@@ -285,7 +285,7 @@ describe("kind storage copy-forward", () => {
       add(database, "first", "agent", { terminal: { bindingId: "duplicate", harness: "codex" } });
       add(database, "second", "agent", { terminal: { bindingId: "duplicate", harness: "codex" } });
       add(database, "timer", "timer", { timer: { everyMinutes: 90 } });
-      migrateCanvasKinds(database);
+      migrateCanvasKinds(database, "macbook");
       expect(database.prepare("SELECT id FROM seats").all()).toEqual([{ id: "first" }]);
       expect(database.prepare("SELECT id,text FROM notes").all()).toEqual([{ id: "second", text: "body-second" }]);
       expect(database.prepare("SELECT id,expression FROM crons").get()).toEqual({ id: "timer", expression: null });
@@ -302,7 +302,7 @@ describe("kind storage copy-forward", () => {
       add(database, "seat", "agent", { terminal: { bindingId: "binding", harness: "codex" } });
       database.exec("BEGIN IMMEDIATE");
       database.setAuthorizer((action, table) => action === 18 && table === "seats" ? 1 : 0);
-      expect(() => migrateCanvasKinds(database)).toThrow();
+      expect(() => migrateCanvasKinds(database, "macbook")).toThrow();
       database.setAuthorizer(null);
       database.exec("ROLLBACK");
       expect(database.prepare("SELECT node_id FROM canvas_nodes").get()!.node_id).toBe("seat");

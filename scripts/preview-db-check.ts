@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { KIND_TABLES_V13 } from "../src/main/junto/model/migrate";
+import { machineNameAtMigration } from "../src/main/junto/state/machine-name-at-migration";
 import { convertLegacyRow, type LegacyNodeRow } from "../src/shared/model/from-legacy-row";
 import { fileSha256 } from "./preview-snapshot";
 
@@ -29,13 +30,14 @@ export const checkPreview = (home: string) => {
     const bindings = new Map<string, Set<string>>();
     const downgraded: Array<{ canvas: string; id: string; storedType: string; reason: string }> = [];
     const seatChanges: Array<{ canvas: string; id: string; changes: Record<string, unknown> }> = [];
+    const thisMachine = machineNameAtMigration(before);
     for (const row of legacy) {
-      let { node, downgraded: downgrade } = convertLegacyRow(row);
+      let { node, downgraded: downgrade } = convertLegacyRow(row, thisMachine);
       if (node.kind === "agent" || node.kind === "terminal") {
         const seen = bindings.get(row.canvas_name) ?? new Set<string>();
         if (seen.has(node.bindingId)) {
           downgrade = { canvas: row.canvas_name, id: row.node_id, storedType: node.kind, reason: "session binding already belongs to an earlier node; preserved as a note" };
-          node = convertLegacyRow({ ...row, type: "text", ether_json: null }).node;
+          node = convertLegacyRow({ ...row, type: "text", ether_json: null }, thisMachine).node;
         } else seen.add(node.bindingId);
         bindings.set(row.canvas_name, seen);
       }

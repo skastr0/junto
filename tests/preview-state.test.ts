@@ -71,7 +71,7 @@ it("reports preservation, fallback reasons and detects a changed session while t
   const migrated = new DatabaseSync(join(preview, ".junto", "state", "junto.db"));
   try {
     migrated.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON");
-    migrateCanvasKinds(migrated);
+    migrateCanvasKinds(migrated, "macbook");
     migrated.exec("PRAGMA user_version=13");
     const good = checkPreview(preview);
     expect(good.ok).toBe(true);

@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { Node, Wire } from "../src/shared/model";
 import {
-  nodeFromLegacyRow,
+  nodeFromLegacyRow as nodeFromLegacyRowOn,
   sheetGridFromLegacyRow,
   wireFromLegacyRow,
   type LegacyNodeRow,
   type LegacyWireRow,
 } from "../src/shared/model/from-legacy-row";
+
+/** A stored row said `local` for the machine it was written on; here that machine is the macbook. */
+const nodeFromLegacyRow = (row: LegacyNodeRow) => nodeFromLegacyRowOn(row, "macbook");
 
 const base: LegacyNodeRow = {
   canvas_name: "factory",
@@ -56,7 +59,7 @@ describe("pure old-row conversion", () => {
       z: 5,
       agentKey: "local:worker",
       label: "hello",
-      host: "local",
+      host: "macbook",
       overseer: false,
       bindingId: "bound",
       harness: "codex",
@@ -86,7 +89,8 @@ describe("pure old-row conversion", () => {
       label: "region",
       hold: false,
       instruction: "brief",
-      defaults: region.defaults,
+      // The stored folder of `local` is this machine's folder.
+      defaults: { paths: { macbook: "/project" } },
       environment: region.environment,
       background: "image.png",
       backgroundStyle: "repeat",
