@@ -119,10 +119,13 @@ not detection of secrets hidden in arbitrary prose.
 ## Links
 
 The first version uses the operator's chosen OpenSSH routes. Only the editing
-machine opens links. At that end, the connection is bound to the selected route
-and its pinned installation id. At the receiving end, the first peer id is accepted
-only during explicit machine setup. A hello cannot enroll itself or select an
-existing peer. Changed ids or names are refused.
+machine opens links. During explicit first setup, the opening end creates its
+pin only from the checked hello on the selected route, never from an install
+receipt or status. Before that hello, the receiving end stores the expected
+opener's identity through the owner's setup command over that SSH account.
+It admits no channel until a hello matches the pin exactly. That pin records
+who may link even if no hello arrives. A hello cannot enroll itself or select
+an existing peer. Changed ids or names are refused.
 
 Each identity fact has one source: this machine's name in
 `machine_configuration`, and peer name-to-installation bindings in
@@ -143,9 +146,9 @@ explicit design.
 Bindings from the retired Station protocol are discarded, not imported as
 pins for this protocol. Existing installation identities needed by durable
 rows are preserved; membership in `known_installations` grants no link
-authority. Every first pin comes from an explicit owner setup and a validated
-hello of this protocol. Migration, discovery and ordinary reconnect cannot
-authorize that setup.
+authority. Every first pin requires explicit owner setup in the order above.
+Migration and discovery cannot authorize setup. Update and ordinary reconnect
+never create or revive a pin.
 
 SSH authenticates a host and an account. The incoming installation id is an
 assertion authorized by that account, not cryptographic proof of a particular
