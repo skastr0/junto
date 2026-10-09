@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -62,4 +62,10 @@ export const writeMachineServiceFile = async (file: string, body: string): Promi
     return;
   }
   await writeFile(file, body, { mode: 0o600, flag: "wx" });
+};
+
+export const removeMachineServiceFile = async (file: string, body: string): Promise<void> => {
+  if (!await ownedMachineFile(file)) return;
+  if (await readFile(file, "utf8") !== body) throw new Error("service definition changed; cleanup refused");
+  await unlink(file);
 };

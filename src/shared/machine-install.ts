@@ -33,6 +33,21 @@ export const MachineInstallInput = Schema.Struct({
 });
 export type MachineInstallInput = typeof MachineInstallInput.Type;
 
+export const MachineLocalPaths = Schema.Struct({
+  juntoHome: Schema.optionalKey(MachineAbsolutePath),
+  installRoot: Schema.optionalKey(MachineAbsolutePath),
+});
+export type MachineLocalPaths = typeof MachineLocalPaths.Type;
+
+export const MachineInstallTransition = Schema.Struct({
+  step: Schema.Literals(["verified", "quiescent", "selected", "started", "ready"]),
+  build: Schema.optionalKey(Schema.String),
+  pid: Schema.optionalKey(Schema.Number),
+  startKey: Schema.optionalKey(Schema.String),
+  service: Schema.optionalKey(Schema.Literals(["absent", "unloaded", "inactive"])),
+});
+export type MachineInstallTransition = typeof MachineInstallTransition.Type;
+
 export const MachineInstallResult = Schema.Struct({
   build: Schema.String,
   juntoHome: MachineAbsolutePath,
@@ -45,13 +60,25 @@ export const MachineInstallResult = Schema.Struct({
   installationId: InstallationId,
   machineName: Schema.String,
   pid: Schema.Number,
+  transitions: Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(5))),
 });
 export type MachineInstallResult = typeof MachineInstallResult.Type;
+
+export const MachineUninstallResult = Schema.Struct({
+  juntoHome: MachineAbsolutePath,
+  installRoot: MachineAbsolutePath,
+  serviceLabel: Schema.String,
+  disposition: Schema.Literal("stopped"),
+  definitionRemoved: Schema.Literal(true),
+  transitions: Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(1))),
+});
+export type MachineUninstallResult = typeof MachineUninstallResult.Type;
 
 export class MachineInstallError extends Schema.TaggedError<MachineInstallError>()("MachineInstallError", {
   message: Schema.String,
   retryable: Schema.Boolean,
   disposition: Schema.Literals(["staged", "activated", "uncertain"]),
+  transitions: Schema.optionalKey(Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(5)))),
 }) {}
 
 export const MachineSendInput = Schema.Struct({

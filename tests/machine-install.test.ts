@@ -1,10 +1,11 @@
-import { chmod, cp, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ home: "", root: "", loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", stopSelections: [] as string[], starts: 0 }));
+const fixture = vi.hoisted(() => ({ home: "", root: "", loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", stopSelections: [] as string[], starts: 0, definitionRemoved: false }));
 vi.mock("node:os", async original => ({ ...await original<typeof import("node:os")>(), homedir: () => fixture.home }));
 vi.mock("node:fs/promises", async original => {
   const fs = await original<typeof import("node:fs/promises")>();
@@ -30,10 +31,12 @@ vi.mock("../src/main/junto/hosts/install-service", () => ({
       const manifest = JSON.parse(await readFile(join(fixture.root, generation, "manifest.json"), "utf8"));
       await writeFile(join(fixture.home, ".status.json"), JSON.stringify({ ok: true, command: "machine status", data: { build: manifest.build, installationId: "install-one", machineName: "mini", juntoHome: fixture.home, pid: 71, ready: true } }));
     },
+    removeDefinition: async () => { fixture.definitionRemoved = true; },
   }),
 }));
 
 import { installMachine } from "../src/main/junto/hosts/install";
+import { uninstallMachine } from "../src/main/junto/hosts/uninstall";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { writeMachineServiceFile } from "../src/main/junto/hosts/install-paths";
 
@@ -53,17 +56,27 @@ const errorFrom = async (bundle: string) => Effect.runPromise(installMachine({ b
 
 beforeEach(async () => {
   scratch = await realpath(await mkdtemp(join(tmpdir(), "junto-install-test-")));
-  Object.assign(fixture, { home: scratch, root: join(scratch, "install"), loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", stopSelections: [], starts: 0 });
+  Object.assign(fixture, { home: scratch, root: join(scratch, "install"), loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", stopSelections: [], starts: 0, definitionRemoved: false });
+  vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
-afterEach(async () => { await rm(scratch, { recursive: true, force: true }); });
+afterEach(async () => { vi.restoreAllMocks(); await rm(scratch, { recursive: true, force: true }); });
 
 describe("machine install", () => {
   it("verifies readiness and stops the incumbent before selecting the next build", async () => {
     const first = await install(await makeBundle("a".repeat(64)));
     expect(first.disposition).toBe("ready");
+    let selectedAtReceipt = "";
+    vi.mocked(process.stderr.write).mockImplementation(chunk => {
+      const event = JSON.parse(String(chunk));
+      if (event.step === "quiescent") selectedAtReceipt = readlinkSync(join(fixture.root, "current"));
+      return true;
+    });
     const second = await install(await makeBundle("b".repeat(64)));
     expect(second.installationId).toBe(first.installationId);
     expect(second.build).toBe("b".repeat(64));
+    expect(second.transitions.map(event => event.step)).toEqual(["verified", "quiescent", "selected", "started", "ready"]);
+    expect(second.transitions[1]).toEqual({ step: "quiescent", build: first.build, pid: 71, startKey: "incumbent", service: "unloaded" });
+    expect(selectedAtReceipt).toContain(first.build);
     expect(fixture.stopSelections).toEqual([`builds/${"a".repeat(64)}-${process.platform}-${process.arch}`]);
   });
 
@@ -128,5 +141,24 @@ describe("machine install", () => {
     await symlink(victim, service);
     await expect(writeMachineServiceFile(service, "replace")).rejects.toThrow("regular file");
     expect(await readFile(victim, "utf8")).toBe("keep");
+  });
+
+  it("uninstalls only the quiesced owned service and retains package and home bytes", async () => {
+    const installed = await install(await makeBundle("a".repeat(64)));
+    const result = await Effect.runPromise(uninstallMachine({ juntoHome: fixture.home, installRoot: fixture.root }));
+    expect(result.disposition).toBe("stopped");
+    expect(result.transitions[0]).toMatchObject({ step: "quiescent", pid: 71, startKey: "incumbent", service: "unloaded" });
+    expect(fixture.definitionRemoved).toBe(true);
+    expect(await readFile(join(installed.directory, "core/junto.cjs"), "utf8")).toBe("fixture\n");
+    expect(await readFile(join(fixture.home, ".status.json"), "utf8")).toContain("install-one");
+  });
+
+  it("leaves the service definition alone when uninstall stop is uncertain", async () => {
+    await install(await makeBundle("a".repeat(64)));
+    fixture.stopFailure = true;
+    const error = await Effect.runPromise(uninstallMachine({ juntoHome: fixture.home, installRoot: fixture.root }).pipe(Effect.flip));
+    expect(error.disposition).toBe("uncertain");
+    expect(error.retryable).toBe(false);
+    expect(fixture.definitionRemoved).toBe(false);
   });
 });

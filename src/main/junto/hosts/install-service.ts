@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { ensureMachineDirectory, ownedMachineFile, writeMachineServiceFile } from "./install-paths";
+import { ensureMachineDirectory, ownedMachineFile, removeMachineServiceFile, writeMachineServiceFile } from "./install-paths";
 
 const exec = promisify(execFile);
 const run = async (command: string, args: string[]): Promise<string> =>
@@ -16,6 +16,7 @@ export interface MachineService {
   readonly observe: () => Promise<{ loaded: boolean; pid: number }>;
   readonly stop: () => Promise<void>;
   readonly start: () => Promise<void>;
+  readonly removeDefinition: () => Promise<void>;
 }
 
 /** Only the install's exact service name and definition can be acted on. */
@@ -53,6 +54,7 @@ export const machineService = async (root: string, home: string, label: string):
         await run("/bin/launchctl", ["bootstrap", domain, file]);
         await run("/bin/launchctl", ["kickstart", target]);
       },
+      removeDefinition: async () => { await removeMachineServiceFile(file, body); },
     };
   }
   if (process.platform !== "linux") throw new Error("machine services support macOS and Linux");
@@ -78,6 +80,15 @@ export const machineService = async (root: string, home: string, label: string):
       await run("/usr/bin/systemctl", ["--user", "daemon-reload"]);
       await run("/usr/bin/systemctl", ["--user", "enable", name]);
       await run("/usr/bin/systemctl", ["--user", "start", name]);
+    },
+    removeDefinition: async () => {
+      // Refuse a changed file before asking systemd to alter its links.
+      if (await ownedMachineFile(file)) {
+        if (await readFile(file, "utf8") !== body) throw new Error("service definition changed; cleanup refused");
+        await run("/usr/bin/systemctl", ["--user", "disable", name]);
+        await removeMachineServiceFile(file, body);
+        await run("/usr/bin/systemctl", ["--user", "daemon-reload"]);
+      }
     },
   };
 };
