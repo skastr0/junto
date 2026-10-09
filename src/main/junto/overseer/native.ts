@@ -1524,5 +1524,3 @@ export const makeOverseerNativeLive = (
     finishOverseerNodeDelete: hooks.finishOverseerNodeDelete,
   };
 };
-
-export const OVERSEER_PAGE_SESSION_OWNER = OVERSEER_PAGE_OWNER;
