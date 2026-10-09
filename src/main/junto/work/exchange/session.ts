@@ -61,9 +61,9 @@ export type RowExchangeDeps = {
    */
   readonly copySent: (copy: CanvasCopy) => Effect.Effect<void, unknown>;
   /**
-   * Take a copy from the machine that edits the canvas. `refused` when this
-   * machine already has a canvas of that name which is not this one. Fails
-   * for a copy no honest machine sends.
+   * Take a copy from the machine that edits the canvas, with the texts and
+   * play state it carries. `refused` when this machine already has a canvas of
+   * that name which is not this one. Fails for a copy no honest machine sends.
    */
   readonly installCopy: (copy: CanvasCopy) => Effect.Effect<CopyInstalled, unknown>;
   /** A push to a linked machine failed: the exchange on that link is over. */
@@ -99,13 +99,21 @@ type LinkState = {
   readonly link: ExchangeLink;
   /** `canvas`, then `writer`, to the sequence the peer is caught up through. */
   readonly have: Map<string, Map<InstallationId, string>>;
-  /** The copy last sent on this link, by canvas. */
-  readonly copies: Map<string, { readonly canvasId: string; readonly seq: number }>;
+  /** The copy last sent on this link, by canvas, and the texts and play state it carried. */
+  readonly copies: Map<string, { readonly canvasId: string; readonly seq: number; readonly carried: string }>;
   /** What the peer would not take, by canvas. */
   readonly refused: Map<string, Omit<CopyRefusedFrame, "kind">>;
   readonly rows: Map<string, { sent: number; taken: number }>;
   readonly turn: Semaphore.Semaphore;
 };
+
+/**
+ * What a copy carries beside the canvas rows: guidance, the briefing,
+ * references, play or pause. None of it moves the canvas count, so a copy at
+ * the count already sent goes again when this differs.
+ */
+const carriedBy = (copy: CanvasCopy): string =>
+  JSON.stringify([copy.guidance, copy.briefing ?? null, copy.references, copy.playing]);
 
 const closed = (cause: unknown): ExchangeClosed =>
   new ExchangeClosed(cause instanceof Error ? cause.message : String(cause));
@@ -134,17 +142,21 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
 
   /**
    * Send a peer this machine's copy of one canvas, when there is one for it
-   * and it is not the one already sent on this link. True when a copy went.
+   * and it is not the one already sent on this link: a newer count, or the
+   * same count carrying other texts or play state. True when a copy went.
    */
   const sendCopy = (state: LinkState, canvasName: string): Effect.Effect<boolean, ExchangeClosed> =>
     Effect.gen(function* () {
       const copy = yield* deps.cutCopy(canvasName, state.link.peer).pipe(Effect.mapError(closed));
       if (copy === undefined) return false;
       const sent = state.copies.get(canvasName);
-      if (sent !== undefined && sent.canvasId === copy.canvasId && sent.seq >= copy.seq) return false;
+      const carried = carriedBy(copy);
+      if (sent !== undefined && sent.canvasId === copy.canvasId) {
+        if (sent.seq > copy.seq || (sent.seq === copy.seq && sent.carried === carried)) return false;
+      }
       yield* deps.copySent(copy).pipe(Effect.mapError(closed));
       yield* send(state, { kind: "copy", copy });
-      state.copies.set(canvasName, { canvasId: copy.canvasId, seq: copy.seq });
+      state.copies.set(canvasName, { canvasId: copy.canvasId, seq: copy.seq, carried });
       state.refused.delete(canvasName);
       return true;
     });
@@ -373,7 +385,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         caughtUp: [...state.have].flatMap(([canvasName, writers]) =>
           [...writers].map(([writer, through]) => ({ canvasName, writer, through })),
         ),
-        copies: [...state.copies].map(([canvasName, sent]) => ({ canvasName, ...sent })),
+        copies: [...state.copies].map(([canvasName, sent]) => ({ canvasName, canvasId: sent.canvasId, seq: sent.seq })),
         refused: [...state.refused.values()],
         rows: [...state.rows].map(([canvasName, counts]) => ({ canvasName, ...counts })),
       })),

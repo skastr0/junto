@@ -15,6 +15,11 @@ import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelRecords } from "../src/main/junto/model/records";
 import { ModelService } from "../src/main/junto/model/service";
+import { PausePlane, PausePlaneLive } from "../src/main/junto/pause-plane";
+import { FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
+import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
+import { onboardReferenceFields } from "../src/main/junto/references/seat-reads";
+import { SeatGuidanceRepository, SeatGuidanceRepositoryLive } from "../src/main/junto/seat-guidance/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeRowsChannel, type RowsChannelContext } from "../src/main/junto/work/exchange/channel";
 import { followLocalCommits, makeLiveRowExchange } from "../src/main/junto/work/exchange/live";
@@ -38,6 +43,9 @@ const makeRuntime = (root: string, name: string, installation: InstallationId) =
       Layer.provideMerge(
         Layer.mergeAll(
           WorkRepositoryLive,
+          SeatGuidanceRepositoryLive,
+          ReferencesRepositoryLive,
+          Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
           makeMachineRepositoryLive({ defaultName: () => name, makeInstallationId: () => installation }),
         ),
         makeStateEngineLive(join(root, "junto.db")),
@@ -401,6 +409,102 @@ describe("a local commit", () => {
     expect(macbook.exchange.linked(MINI)).toBe(false);
     // The mail is still in the log, for the next link.
     expect(await inbox(macbook, "peer")).toEqual(["never-leaves"]);
+  });
+});
+
+describe("what a seat needs to onboard", () => {
+  const remote = { kind: "region" as const, canvasName: "factory", regionId: "remote" };
+  const app = { kind: "app" as const };
+
+  /** What the seat's own machine would answer it at onboard. */
+  const onboard = (on: Machine, nodeId: string) =>
+    on.runtime.runPromise(
+      Effect.gen(function* () {
+        const guidance = yield* SeatGuidanceRepository;
+        const pause = yield* PausePlane;
+        return {
+          guidance: yield* guidance.get(nodeId),
+          ...(yield* onboardReferenceFields({ canvasName: "factory", nodeId })),
+          playing: pause.stateFor("factory").playing,
+        };
+      }),
+    );
+  const texts = <A>(on: Machine, use: (store: ReferencesRepository["Service"]) => Effect.Effect<A, unknown>) =>
+    on.runtime.runPromise(Effect.flatMap(ReferencesRepository, use));
+  const guide = (on: Machine, nodeId: string, guidance: unknown) =>
+    on.runtime.runPromise(Effect.flatMap(SeatGuidanceRepository, (store) => store.set(nodeId, guidance)));
+  const play = (on: Machine, playing: boolean) =>
+    on.runtime.runPromise(Effect.flatMap(PausePlane, (pause) => pause.setPlaying("factory", playing)));
+
+  it("rides the copy: its guidance, the briefing, the references in its scope, and play", async () => {
+    const { macbook, mini } = await pair();
+    await guide(macbook, "peer", { soul: "Careful.", instructions: "Run the suite first." });
+    await guide(macbook, "lead", { instructions: "Only the macbook's seat reads this." });
+    await texts(macbook, (store) => store.briefingWrite("One canvas, many machines.", "operator"));
+    await texts(macbook, (store) => store.write(app, { name: "glossary", description: "Words", body: "A seat." }, "operator"));
+    await texts(macbook, (store) => store.write(remote, { name: "contract", body: "docs/machines.md" }, "operator"));
+    await play(macbook, true);
+    await link(macbook, mini);
+    await settle();
+
+    expect(await onboard(mini, "peer")).toEqual({
+      guidance: { soul: "Careful.", instructions: "Run the suite first." },
+      briefing: "One canvas, many machines.",
+      references: [
+        expect.objectContaining({ name: "glossary", scope: "app", description: "Words" }),
+        expect.objectContaining({ name: "contract", scope: "region" }),
+      ],
+      playing: true,
+    });
+    // The other machine's seat is a peer there: none of its guidance came along.
+    expect((await onboard(mini, "lead")).guidance).toBeNull();
+  });
+
+  it("follows the editing machine without the canvas changing: pause, guidance, a reference taken away", async () => {
+    const { macbook, mini } = await pair();
+    await guide(macbook, "peer", { instructions: "First." });
+    await texts(macbook, (store) => store.write(remote, { name: "contract", body: "old" }, "operator"));
+    await play(macbook, true);
+    const stop = await macbook.runtime.runPromise(followLocalCommits(macbook.exchange));
+    try {
+      await link(macbook, mini);
+      await settle();
+      const count = (await header(mini))!.seq;
+      expect((await onboard(mini, "peer")).playing).toBe(true);
+
+      await play(macbook, false);
+      await guide(macbook, "peer", { instructions: "Second." });
+      await texts(macbook, (store) => store.remove(remote, "contract"));
+      await texts(macbook, (store) => store.write(remote, { name: "plan", body: "new" }, "operator"));
+      await pushed();
+      await settle();
+
+      expect((await header(mini))!.seq).toBe(count);
+      const now = await onboard(mini, "peer");
+      expect(now.playing).toBe(false);
+      expect(now.guidance).toEqual({ instructions: "Second." });
+      expect(now.references?.map((reference) => reference.name)).toEqual(["plan"]);
+
+      await guide(macbook, "peer", null);
+      await pushed();
+      await settle();
+      expect((await onboard(mini, "peer")).guidance).toBeNull();
+    } finally {
+      stop();
+    }
+  });
+
+  it("does not send the same copy twice, and leaves this machine's own briefing when the copy has none", async () => {
+    const { macbook, mini } = await pair();
+    await texts(mini, (store) => store.briefingWrite("The mini's own.", "operator"));
+    await texts(mini, (store) => store.write(app, { name: "local", body: "kept" }, "operator"));
+    await link(macbook, mini);
+    await settle();
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    expect(queue.filter((frame) => (frame.payload as { kind?: string }).kind === "copy")).toEqual([]);
+    const held = await onboard(mini, "peer");
+    expect(held.briefing).toBe("The mini's own.");
+    expect(held.references?.map((reference) => reference.name)).toEqual(["local"]);
   });
 });
 

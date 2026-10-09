@@ -6,6 +6,7 @@ import {
   type SeatGuidanceMap,
 } from "@shared/seat-guidance";
 import { StateTransactionOperation } from "../state/service";
+import { emitSeatGuidanceChanged } from "./changes";
 
 export class SeatGuidancePersistenceError extends Schema.TaggedError<SeatGuidancePersistenceError>()(
   "SeatGuidancePersistenceError",
@@ -86,7 +87,7 @@ export const SeatGuidanceRepositoryLive: Layer.Layer<SeatGuidanceRepository, nev
         return Option.isNone(row) ? null : fromRow(row.value);
       }, Effect.mapError(persistence("get")));
 
-      const set = Effect.fn("seat-guidance.set")(function* (seatId: string, guidance: unknown) {
+      const store = Effect.fn("seat-guidance.set")(function* (seatId: string, guidance: unknown) {
         const normalized = normalizeSeatGuidance(guidance);
         if (!normalized.ok) return yield* new SeatGuidanceRefused({ message: normalized.message });
         if (normalized.guidance === null) {
@@ -103,6 +104,10 @@ export const SeatGuidanceRepositoryLive: Layer.Layer<SeatGuidanceRepository, nev
         `;
         return normalized.guidance;
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-guidance.set"), Effect.mapError(persistence("set")));
+
+      // Listeners hear of a write once it is committed, never from inside it.
+      const set = (seatId: string, guidance: unknown) =>
+        store(seatId, guidance).pipe(Effect.tap(() => Effect.sync(() => emitSeatGuidanceChanged(seatId))));
 
       return SeatGuidanceRepository.of({ list, get, set });
     }),
