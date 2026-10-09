@@ -167,8 +167,16 @@ canvas, never on which end opened the connection:
   or PID. Terminal handles and subsequent input, resize, stop and output are
   bound to the admitted peer, canvas, seat and occupant generation.
 - `status` returns bounded availability and missing-secret metadata for the
-  shared scope. It is not arbitrary shell inspection, environment export or
-  a transcript reader.
+  shared scope. It may include a machine form: `macbook`, `mac-mini`,
+  `mac-studio`, `mac` or `linux`, derived on that machine. The raw hardware
+  string never travels. Status is not arbitrary shell inspection, environment
+  export or a transcript reader.
+
+Each channel decodes its payload with its own closed runtime schema before
+use. Decoding the common envelope or trusting a TypeScript type does not
+establish that payload's shape. The machine list derives update-needed state
+from the build observed in that peer's hello; a mismatch never admits its
+channels, and an unobserved build is not known compatible.
 
 Responses must match the requesting session. A peer cannot gain another
 channel's authority by wrapping a request in a response or naming its handle.
