@@ -20,19 +20,6 @@ import {
   WORK_PROTOCOL_VERSION,
   encodeWorkFrame,
 } from "../src/shared/work-control";
-import {
-  STATION_CONTROL_PROTOCOL,
-} from "../src/shared/station-api-envelope";
-import {
-  STATION_API_PROTOCOL,
-} from "../src/shared/station-api";
-import {
-  STATION_SESSION_PROTOCOL,
-} from "../src/shared/station-session";
-import {
-  STATION_CONTROL_MAX_FRAME_BYTES,
-  encodeStationControlFrame,
-} from "../src/shared/station-ssh-control";
 
 const succeeds = (result: Result.Result<unknown, unknown>): void => {
   expect(Result.isSuccess(result)).toBe(true);
@@ -386,32 +373,7 @@ describe("overseer command contract", () => {
       WORK_MAX_FRAME_BYTES,
     );
 
-    // This is the closed Station overseer response nested in the existing
-    // control and session envelopes. The Station contract owns the schemas;
-    // this test owns the cross-transport byte-budget invariant.
-    const stationFrame = encodeStationControlFrame({
-      protocol: STATION_SESSION_PROTOCOL,
-      frame: "response",
-      requestId: "r".repeat(64),
-      envelope: {
-        protocol: STATION_CONTROL_PROTOCOL,
-        ok: true,
-        response: {
-          protocol: STATION_API_PROTOCOL,
-          op: "overseer",
-          senderInstallationId: "s".repeat(128),
-          targetInstallationId: "t".repeat(128),
-          caller: {
-            canvasName: "c".repeat(64),
-            nodeId: "n".repeat(256),
-          },
-          result,
-        },
-      },
-    });
-    expect(Buffer.byteLength(stationFrame, "utf8")).toBeLessThanOrEqual(
-      STATION_CONTROL_MAX_FRAME_BYTES,
-    );
+
   });
 
   it("accepts ContentService-compatible expected identity on bounded ingest", () => {

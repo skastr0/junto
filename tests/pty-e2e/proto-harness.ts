@@ -20,7 +20,6 @@ import {
 import { WorkLive, WorkService } from "../../src/main/junto/work/service";
 import { StationRepositoryLive } from "../../src/main/junto/station/repository";
 import { StationFleetTargetRepositoryLive } from "../../src/main/junto/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../../src/main/junto/station/session-registry";
 import { SettingsLive, SettingsService } from "../../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../../src/main/junto/install-ops/engine";
@@ -53,7 +52,7 @@ export const makeProtoRuntime = (root: string) => {
   const modelLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(
     WorkLive,
-    Layer.mergeAll(modelLive, StationLivePeerRegistryLive),
+    modelLive,
   );
   const pauseLive = Layer.provideMerge(PausePlaneLive, repositoriesLive);
   return ManagedRuntime.make(Layer.mergeAll(workLive, pauseLive));

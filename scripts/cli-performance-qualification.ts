@@ -13,14 +13,14 @@ const [, , mode, ...args] = process.argv;
 const serve = async (root: string) => {
   const [{ makeStateEngineLive }, { makeInstallOpsLive }, { ModelLive },
     { WorkLive }, { WorkRepositoryLive }, { CrewRepositoryLive }, { AgentSignalRepositoryLive },
-    { StationRepositoryLive }, { StationFleetTargetRepositoryLive }, { StationLivePeerRegistryLive },
+    { StationRepositoryLive }, { StationFleetTargetRepositoryLive },
     { SettingsLive, SettingsService }, { makeContentServiceLive }, { PausePlaneAllPlaying },
     { startWorkControlServer }, { makeSeatCredentialRegistry, mintSeatCredential }, { makeProcessIdentityMap }] = await Promise.all([
     import("../src/main/junto/state/engine"), import("../src/main/junto/install-ops/engine"),
     import("../src/main/junto/model/layer"), import("../src/main/junto/work/service"),
     import("../src/main/junto/work/repository"), import("../src/main/junto/work/crew-repository"),
     import("../src/main/junto/signals/repository"), import("../src/main/junto/station/repository"),
-    import("../src/main/junto/station/fleet-target-repository"), import("../src/main/junto/station/session-registry"),
+    import("../src/main/junto/station/fleet-target-repository"),
     import("../src/main/junto/settings/service"), import("../src/main/junto/content/service"),
     import("../src/main/junto/pause-plane"), import("../src/main/junto/work/control"),
     import("../src/main/junto/work/seat-credentials"), import("../src/main/junto/process-identity"),
@@ -34,8 +34,7 @@ const serve = async (root: string) => {
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state", "junto.db")), makeInstallOpsLive(join(root, "state", "install-ops.db"))));
   const canvases = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), repositories);
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive,
-    Layer.mergeAll(canvases, StationLivePeerRegistryLive)), PausePlaneAllPlaying));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.provideMerge(WorkLive, canvases), PausePlaneAllPlaying));
   const settings = await runtime.runPromise(SettingsService);
   await runtime.runPromise(settings.setStationTopology({ role: "command-center", hostId: "local", supervisedPreferred: true }));
   const model = await runtime.runPromise(ModelService);

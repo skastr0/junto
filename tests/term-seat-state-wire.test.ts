@@ -114,7 +114,6 @@ describe("term seat-state placement wiring", () => {
     expect(ipc).toContain(
       "mergeSeatStateSnapshot(seatStateRuntime.currentEvents())",
     );
-    expect(ipc).toContain("ensureHostAvailable: ensureBoxHostAvailable,\n    broadcast,");
   });
 
   it("fans Mini seat-state to authed clients and validates on the hop", () => {

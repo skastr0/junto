@@ -57,9 +57,6 @@ import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
   StationFleetTargetRepositoryLive,
 } from "../src/main/junto/station/fleet-target-repository";
-import {
-  StationLivePeerRegistryLive,
-} from "../src/main/junto/station/session-registry";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
@@ -431,7 +428,7 @@ export const runWorkCliAcceptance = async () => {
   const canvasesLive = Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), repositoriesLive);
   const workLive = Layer.provideMerge(
     WorkLive,
-    Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
+    canvasesLive,
   );
   const runtime = ManagedRuntime.make((
     Layer.mergeAll(workLive, PausePlaneAllPlaying) as never),

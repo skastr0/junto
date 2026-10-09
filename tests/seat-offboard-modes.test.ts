@@ -27,7 +27,6 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
@@ -58,7 +57,7 @@ const makeRuntime = (root: string) => {
     ),
   );
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
-  const workLive = Layer.provideMerge(WorkLive, Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive));
+  const workLive = Layer.provideMerge(WorkLive, canvasesLive);
   return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneAllPlaying));
 };
 

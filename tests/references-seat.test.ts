@@ -25,7 +25,6 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { PausePlane } from "../src/main/junto/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
@@ -64,7 +63,7 @@ const makeRuntime = (root: string, withStore: boolean) => {
   const canvasesOnly = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   // The app composes the follower beside the store; here it sits above the model the same way.
   const canvasesLive = withStore ? Layer.provideMerge(ReferencesFollowCanvasLive, canvasesOnly) : canvasesOnly;
-  const workLive = Layer.provideMerge(WorkLive, Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive));
+  const workLive = Layer.provideMerge(WorkLive, canvasesLive);
   return ManagedRuntime.make(Layer.mergeAll(workLive, PausePlaneSwitchable));
 };
 

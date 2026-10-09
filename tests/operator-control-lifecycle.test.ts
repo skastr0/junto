@@ -34,25 +34,6 @@ describe("operator control main lifecycle", () => {
     expect(secondInstance).not.toContain(OPERATOR_CONTROL_SWITCH);
   });
 
-  it("opens explicit bootstrap before the unconfigured headless return", () => {
-    const coordinatorStart = source.indexOf(
-      "const coordinator = makeOperatorCoordinator",
-    );
-    const operatorStart = source.indexOf(
-      "operatorControl = await startOperatorControlServer",
-    );
-    const bootstrapReturn = source.indexOf(
-      'if (stationDoor === "enroll")',
-      operatorStart,
-    );
-    expect(coordinatorStart).toBeGreaterThanOrEqual(0);
-    expect(operatorStart).toBeGreaterThanOrEqual(0);
-    expect(operatorStart).toBeLessThan(bootstrapReturn);
-    expect(source.slice(coordinatorStart, bootstrapReturn)).toContain(
-      "fleetReady:",
-    );
-  });
-
   it("cuts operator admission on shutdown", () => {
     const shutdownStart = source.indexOf("const beginShutdownAdmission");
     const shutdownEnd = source.indexOf(

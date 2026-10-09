@@ -45,9 +45,6 @@ import {
   StationFleetTargetRepositoryLive,
 } from "../src/main/junto/station/fleet-target-repository";
 import {
-  StationLivePeerRegistryLive,
-} from "../src/main/junto/station/session-registry";
-import {
   SettingsLive,
   SettingsService,
 } from "../src/main/junto/settings/service";
@@ -104,7 +101,7 @@ const makeWorkTestRuntime = (root: string) => {
   const canvasesLive = Layer.provideMerge(ModelStoresLive, repositoriesLive);
   const workLive = Layer.provideMerge(
     WorkLive,
-    Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive),
+    canvasesLive,
   );
   return ManagedRuntime.make(
     Layer.mergeAll(workLive, PausePlaneAllPlaying),
