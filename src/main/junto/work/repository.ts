@@ -67,7 +67,7 @@ import {
   SinkRef,
   WORK_PROTOCOL,
   IntentFactBasis,
-  WorkRecord,
+  WorkFact,
   WorkSha256,
   type ActorRef,
   type DeliveryReceipt,
@@ -76,15 +76,10 @@ import {
   type IntentFactBasis as IntentFactBasisValue,
   type LogicalSequence as LogicalSequenceValue,
   type MessageAppendDestination,
-  type RouteCursor as RouteCursorValue,
   type SinkRef as SinkRefValue,
-  type WorkAction as WorkActionValue,
-  type WorkCommand as WorkCommandValue,
-  type WorkDisposition as WorkDispositionValue,
   type WorkFact as WorkFactValue,
   type WorkItemRef,
   type WorkOperation,
-  type WorkRecord as WorkRecordValue,
   type WorkRecordId,
   type WorkRejectionReason,
   type WorkResult,
@@ -498,13 +493,6 @@ const StoredTaskStateRow = Schema.Struct({
 });
 const NextPositionRow = Schema.Struct({ next_position: Schema.Number });
 const TaskIdRow = Schema.Struct({ task_id: Schema.String });
-const ItemIdRow = Schema.Struct({ item_id: Schema.String });
-const ClaimReservationRow = Schema.Struct({
-  event_home: Schema.String,
-  entity_home: Schema.String,
-  seq: Schema.String,
-  claim_actor_seat_id: Schema.Union([Schema.Null, Schema.String]),
-});
 const BoardStateRow = Schema.Struct({ state: Schema.String });
 const MaxPositionRow = Schema.Struct({
   m: Schema.Union([Schema.Null, Schema.Number]),
@@ -724,25 +712,6 @@ const inspectTaskDependencyScopeCapability = (
     : undefined;
 };
 
-/** Exact sink host derived from the authenticated canonical graph. */
-export const taskDependencyScopeCapabilitySinkHostId = (
-  capability: TaskDependencyScopeCapability,
-  sink: SinkRefValue,
-): string | undefined =>
-  inspectTaskDependencyScopeCapability(sink, capability)?.sinkHostId;
-
-/** Exact actor grant derived from the authenticated canonical graph. */
-export const taskDependencyScopeCapabilityAllowsActor = (
-  capability: TaskDependencyScopeCapability,
-  sink: SinkRefValue,
-  actorNodeId: string,
-  grant: "tasks.create" | "tasks.claim",
-): boolean =>
-  inspectTaskDependencyScopeCapability(sink, capability)?.actorGrants.some(
-    (entry) =>
-      entry.actorNodeId === actorNodeId && entry.grants.includes(grant),
-  ) ?? false;
-
 const now = (): DisplayTimestampValue =>
   Schema.decodeUnknownSync(DisplayTimestamp)(new Date().toISOString());
 
@@ -764,27 +733,24 @@ const sha256 = (value: string): WorkSha256Value =>
 export const workRecordContentSha256 = (
   record: WorkRecordSemantic,
 ): WorkSha256Value => {
-  if (record.recordType === "fact" && record.basis.kind === "historical") {
+  if (record.basis.kind === "historical") {
     throw new Error("historical Work hashes are retained provenance and cannot be recomputed");
   }
   return sha256(canonicalJson(record));
 };
 
-type WorkRecordSemantic =
-  | Omit<WorkCommandValue, "contentSha256" | "originAt">
-  | Omit<WorkFactValue, "contentSha256" | "originAt">
-  | Omit<WorkDispositionValue, "contentSha256" | "originAt">;
+type WorkRecordSemantic = Omit<WorkFactValue, "contentSha256" | "originAt">;
 
 const recordWithHash = (
   semantic: WorkRecordSemantic,
   originAt: DisplayTimestampValue,
-): WorkRecordValue => {
+): WorkFactValue => {
   const candidate = {
     ...semantic,
     contentSha256: workRecordContentSha256(semantic),
     originAt,
   };
-  return Schema.decodeUnknownSync(WorkRecord, strictDecode)(candidate);
+  return Schema.decodeUnknownSync(WorkFact, strictDecode)(candidate);
 };
 
 /** Force every seed post author to the admitted writer (anti-forgery). */
@@ -1062,26 +1028,6 @@ export type ApplyPadPatchInput = LocalWorkInput & {
   readonly overseer?: boolean;
 };
 
-export type ReserveRemoteTaskClaimInput = WorkRepositoryInput & {
-  /** Exact current intent and process-local topology authority for reservation. */
-  readonly basis: IntentFactBasisValue;
-  readonly dependencyScope: TaskDependencyScopeCapability;
-  readonly taskId: string;
-  readonly actor: ActorRef;
-  readonly targetInstallationId: InstallationId;
-  /** Exact live overseer origin for an administrative assignment. */
-  readonly authorizedBy?: ActorRef;
-};
-
-export type EnqueueRemoteCommandInput = WorkRepositoryInput & {
-  readonly targetInstallationId: InstallationId;
-  readonly item: WorkItemRef;
-  readonly action: Exclude<
-    WorkActionValue,
-    { readonly operation: "task.claim" }
-  >;
-};
-
 export type LocalFactResult<A> = {
   readonly value: A;
   readonly record: WorkFactValue;
@@ -1091,27 +1037,6 @@ export type LocalFactResult<A> = {
    * commit succeeds; a rolled-back transaction returns none.
    */
   readonly reviewReceipts?: ReadonlyArray<ReviewReceiptRecord>;
-};
-
-export type RecordsAfterInput = {
-  readonly route: {
-    readonly eventHome: InstallationId;
-    readonly entityHome: InstallationId;
-  };
-  /** Absence is the only representation of sequence zero. */
-  readonly after?: LogicalSequenceValue;
-  readonly limit?: number;
-};
-
-export type PendingCommand = {
-  readonly command: WorkCommandValue;
-  readonly resolution:
-    | {
-        readonly status: "applied" | "rejected";
-        readonly disposition: WorkRecordId;
-        readonly resolvedAt: DisplayTimestampValue;
-      }
-    | undefined;
 };
 
 export type WorkCommandAuthorization =
@@ -1125,58 +1050,6 @@ export type WorkCommandAuthorization =
       readonly reason: WorkRejectionReason;
       readonly message: string;
     };
-
-export type WorkFactAuthorization = WorkCommandAuthorization;
-
-export type WorkResponseAdmission =
-  | { readonly _tag: "admitted" }
-  | {
-      readonly _tag: "rejected";
-      readonly message: string;
-    };
-
-export type WorkResponseCandidate = {
-  readonly emitted: ReadonlyArray<WorkRecordValue>;
-  readonly acknowledge: ReadonlyArray<RouteCursorValue>;
-};
-
-export type AcceptRecordsInput = {
-  /** Identity already authenticated by the Station transport. */
-  readonly senderInstallationId: InstallationId;
-  readonly records: ReadonlyArray<WorkRecordValue>;
-  /**
-   * Cumulative acknowledgement of records emitted by this installation.
-   * These cursors commit in the exact transaction that accepts `records`.
-   */
-  readonly peerAcknowledgements: ReadonlyArray<RouteCursorValue>;
-  readonly receivedAt?: string;
-  /**
-   * Pure capability/projection admission. It executes inside the SQLite
-   * transaction and therefore must never yield, open a nested repository
-   * transaction, or perform I/O.
-   */
-  readonly authorizeCommand: (
-    command: WorkCommandValue,
-  ) => WorkCommandAuthorization;
-  /** Pure projection/locality admission; denied facts roll back without ACK. */
-  readonly authorizeFact: (fact: WorkFactValue) => WorkFactAuthorization;
-  /**
-   * Transport-neutral capacity gate. A rejected mandatory response aborts the
-   * transaction, including materialization and receive-cursor advancement.
-   */
-  readonly admitResponse: (
-    response: WorkResponseCandidate,
-  ) => WorkResponseAdmission;
-};
-
-export type AcceptRecordsResult = {
-  readonly accepted: number;
-  readonly idempotent: number;
-  readonly rejected: number;
-  readonly acknowledge: ReadonlyArray<RouteCursorValue>;
-  /** Newly committed facts/dispositions, plus prior outcomes on command replay. */
-  readonly emitted: ReadonlyArray<WorkRecordValue>;
-};
 
 type RecentSeatOpRow = {
   readonly operation: WorkSeatRecentOpValue["operation"];
@@ -4931,82 +4804,6 @@ const activeTaskForActor = Effect.fn("work.activeTaskForActor")(function* (
   })([actorSeatId]).pipe(Effect.map(Option.getOrUndefined)))?.task_id;
 });
 
-const pendingClaimForActor = Effect.fn("work.pendingClaimForActor")(function* (
-  reader: SqlClient.SqlClient,
-  actorSeatId: ActorSeatId,
-): Effect.fn.Return<string | undefined, WorkSqlFailure> {
-  return (yield* SqlSchema.findOneOption({
-    Request: WorkSqlBindings,
-    Result: ItemIdRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-      SELECT item_id
-      FROM work_pending_commands
-      WHERE operation = 'task.claim'
-        AND claim_actor_seat_id = ?
-        AND resolution_event_home IS NULL
-      LIMIT 1
-    `,
-        bindings,
-      ),
-  })([actorSeatId]).pipe(Effect.map(Option.getOrUndefined)))?.item_id;
-});
-
-type PendingTaskClaimReservation = {
-  readonly event_home: string;
-  readonly entity_home: string;
-  readonly seq: string;
-  readonly claim_actor_seat_id: string | null;
-};
-
-const pendingTaskClaimReservation = Effect.fn(
-  "work.pendingTaskClaimReservation",
-)(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-  taskId: string,
-): Effect.fn.Return<PendingTaskClaimReservation | undefined, WorkSqlFailure> {
-  return yield* SqlSchema.findOneOption({
-    Request: WorkSqlBindings,
-    Result: ClaimReservationRow,
-    execute: (bindings) =>
-      reader.unsafe(
-        `
-      SELECT event_home, entity_home, seq, claim_actor_seat_id
-      FROM work_pending_commands
-      WHERE operation = 'task.claim'
-        AND item_canvas_name = ?
-        AND item_node_id = ?
-        AND item_id = ?
-        AND resolution_event_home IS NULL
-      LIMIT 1
-    `,
-        bindings,
-      ),
-  })([sink.canvasName, sink.nodeId, taskId]).pipe(
-    Effect.map(Option.getOrUndefined),
-  );
-});
-
-const assertTaskHasNoPendingClaimReservation = Effect.fn(
-  "work.assertTaskHasNoPendingClaimReservation",
-)(function* (
-  reader: SqlClient.SqlClient,
-  sink: SinkRefValue,
-  taskId: string,
-): Effect.fn.Return<void, WorkSqlFailure> {
-  const reservation = yield* pendingTaskClaimReservation(reader, sink, taskId);
-  if (reservation !== undefined) {
-    return yield* Effect.fail(
-      authorityError(
-        "claim-contention",
-        `task ${JSON.stringify(taskId)} already has an unresolved Remote claim reservation`,
-      ),
-    );
-  }
-});
-
 const assertActorAvailable = Effect.fn("work.assertActorAvailable")(function* (
   reader: SqlClient.SqlClient,
   actorSeatId: ActorSeatId,
@@ -5018,15 +4815,6 @@ const assertActorAvailable = Effect.fn("work.assertActorAvailable")(function* (
       authorityError(
         "claim-contention",
         `actor seat "${actorSeatId}" already owns active task "${active}"`,
-      ),
-    );
-  }
-  const pending = yield* pendingClaimForActor(reader, actorSeatId);
-  if (pending !== undefined && pending !== exceptTaskId) {
-    return yield* Effect.fail(
-      authorityError(
-        "claim-contention",
-        `actor seat "${actorSeatId}" already has pending claim "${pending}"`,
       ),
     );
   }
@@ -5046,7 +4834,7 @@ const makeFact = Effect.fn("work.makeFact")(function* (
     localInstallationId,
     localInstallationId,
   );
-  return (yield* Effect.try(
+  return yield* Effect.try(
     recordWithHash.bind(
       undefined,
       {
@@ -5067,7 +4855,7 @@ const makeFact = Effect.fn("work.makeFact")(function* (
       },
       originAt,
     ),
-  )) as WorkFactValue;
+  );
 });
 
 const commitLocalFact = Effect.fn("work.commitLocalFact")(function* <A>(
@@ -6058,11 +5846,6 @@ export const WorkRepositoryLive = Layer.effect(
                 ),
               );
             }
-            yield* assertTaskHasNoPendingClaimReservation(
-              writer,
-              input.sink,
-              input.taskId,
-            );
             yield* Effect.try(
               assertTaskAdmissionReady.bind(
                 undefined,
