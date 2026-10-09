@@ -56,7 +56,9 @@ export const runCli = (args: ReadonlyArray<string>): Effect.Effect<void, never, 
     }
     const root = yield* Effect.promise(() => loadRootCommand(args));
     const BunServices = yield* Effect.promise(() => import("@effect/platform-bun/BunServices"));
-    const transport = (yield* Effect.promise(() => import("./core/socket"))).WorkSocketLive;
+    const transport = args[0] === "machine"
+      ? (yield* Effect.promise(() => import("./core/operator-socket"))).OperatorSocketLive
+      : (yield* Effect.promise(() => import("./core/socket"))).WorkSocketLive;
     return yield* Command.runWith(root, { version: CLI_VERSION })(args).pipe(
       Effect.provide(Layer.mergeAll(BunServices.layer, transport)),
     );

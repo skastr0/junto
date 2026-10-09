@@ -28,7 +28,7 @@ const runtimeDown = () =>
   new RuntimeDown({
     message: "Junto operator control is unavailable",
     next_step:
-      "launch Junto with `--junto-operator-control`, then retry this command",
+      "start Junto for this home, then retry this command",
   });
 
 const appendBounded = (
@@ -93,7 +93,7 @@ const ndjsonCall = (
           new WireError({
             type: "ProtocolError",
             message: `operator request timed out after ${timeoutMs}ms`,
-            details: { retryable: true },
+            details: { retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" || request.op.startsWith("companion.") },
           }),
         ),
       );

@@ -7,16 +7,16 @@ import {
   CompanionResponseFrame,
 } from "./companion-protocol";
 import { AgentSignal } from "./agent-signals";
+import {
+  MachineOpName, MachineAddInput, MachineEmptyInput, MachineCopyInput, MachineStatusInput,
+  MachineTargetInput, MachinePeerIdentity, MachineConfigured, MachinePeerPin,
+  MachineListData, MachineStatusData, MachineRemoved, MachineHarnesses,
+  type MachineArgsByOp, type MachineDataByOp,
+} from "./machine-control";
+import { MachineInstallResult } from "./machine-install";
+import { RemoteHost } from "./remote-hosts";
 
-/**
- * Direct-operator control contract.
- *
- * This owner-local socket is separate from every agent control plane. It has
- * no bearer token, identity claim, arbitrary command, path, or database
- * access. Main admits the OS peer only while explicitly launched in operator
- * control mode, or while a phone companion is paired, and rejects registered
- * agent process trees. The socket answers the `companion.*` ops alone.
- */
+/** Owner-local control, admitted by OS peer ancestry rather than seat tokens. */
 
 export const OPERATOR_PROTOCOL_VERSION = "junto-operator/v1" as const;
 export const OPERATOR_DEFAULT_TIMEOUT_MS = 30_000;
@@ -51,7 +51,7 @@ const Diagnostic = Schema.String.pipe(
 
 export const OperatorOpName = Schema.Literals(["companion.hello",
 "companion.call",
-"companion.events",]);
+"companion.events", ...MachineOpName.literals]);
 export type OperatorOpName = typeof OperatorOpName.Type;
 
 // --- companion relay (junto companion-stdio <-> app) ---------------------------
@@ -122,9 +122,29 @@ export const OperatorCompanionHelloRequest = request("companion.hello", Operator
 export const OperatorCompanionCallRequest = request("companion.call", OperatorCompanionCallArgs);
 export const OperatorCompanionEventsRequest = request("companion.events", OperatorCompanionEventsArgs);
 
+export const OperatorMachineAddRequest = request("machine.add", MachineAddInput);
+export const OperatorMachineListRequest = request("machine.list", MachineEmptyInput);
+export const OperatorMachineSendRequest = request("machine.send", MachineCopyInput);
+export const OperatorMachineStatusRequest = request("machine.status", MachineStatusInput);
+export const OperatorMachineUpdateRequest = request("machine.update", MachineCopyInput);
+export const OperatorMachineRemoveRequest = request("machine.remove", MachineTargetInput);
+export const OperatorMachineHarnessesRequest = request("machine.harnesses", MachineStatusInput);
+export const OperatorMachineConfigureRequest = request("machine.configure", MachineTargetInput);
+export const OperatorMachineSetupRequest = request("machine.setup", MachinePeerIdentity);
+
 export const OperatorRequestEnvelope = Schema.Union([OperatorCompanionHelloRequest,
 OperatorCompanionCallRequest,
-OperatorCompanionEventsRequest,]);
+OperatorCompanionEventsRequest,
+OperatorMachineAddRequest,
+OperatorMachineListRequest,
+OperatorMachineSendRequest,
+OperatorMachineStatusRequest,
+OperatorMachineUpdateRequest,
+OperatorMachineRemoveRequest,
+OperatorMachineHarnessesRequest,
+OperatorMachineConfigureRequest,
+OperatorMachineSetupRequest,
+]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
 const response = <
@@ -145,6 +165,16 @@ const response = <
 export const OperatorCompanionHelloResponse = response("companion.hello", OperatorCompanionHelloData);
 export const OperatorCompanionCallResponse = response("companion.call", OperatorCompanionCallData);
 export const OperatorCompanionEventsResponse = response("companion.events", OperatorCompanionEventsData);
+
+export const OperatorMachineAddResponse = response("machine.add", RemoteHost);
+export const OperatorMachineListResponse = response("machine.list", MachineListData);
+export const OperatorMachineSendResponse = response("machine.send", MachineInstallResult);
+export const OperatorMachineStatusResponse = response("machine.status", MachineStatusData);
+export const OperatorMachineUpdateResponse = response("machine.update", MachineInstallResult);
+export const OperatorMachineRemoveResponse = response("machine.remove", MachineRemoved);
+export const OperatorMachineHarnessesResponse = response("machine.harnesses", MachineHarnesses);
+export const OperatorMachineConfigureResponse = response("machine.configure", MachineConfigured);
+export const OperatorMachineSetupResponse = response("machine.setup", MachinePeerPin);
 
 export const OperatorErrorType = Schema.Literals(["validation", "not_found",
 "conflict",
@@ -180,16 +210,25 @@ export type OperatorErrorResponse = typeof OperatorErrorResponse.Type;
 export const OperatorResponseEnvelope = Schema.Union([OperatorCompanionHelloResponse,
 OperatorCompanionCallResponse,
 OperatorCompanionEventsResponse,
+OperatorMachineAddResponse,
+OperatorMachineListResponse,
+OperatorMachineSendResponse,
+OperatorMachineStatusResponse,
+OperatorMachineUpdateResponse,
+OperatorMachineRemoveResponse,
+OperatorMachineHarnessesResponse,
+OperatorMachineConfigureResponse,
+OperatorMachineSetupResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 
-export interface OperatorArgsByOp {
+export interface OperatorArgsByOp extends MachineArgsByOp {
   readonly "companion.hello": OperatorCompanionHelloArgs;
   readonly "companion.call": OperatorCompanionCallArgs;
   readonly "companion.events": OperatorCompanionEventsArgs;
 }
 
-export interface OperatorDataByOp {
+export interface OperatorDataByOp extends MachineDataByOp {
   readonly "companion.hello": OperatorCompanionHelloData;
   readonly "companion.call": OperatorCompanionCallData;
   readonly "companion.events": OperatorCompanionEventsData;

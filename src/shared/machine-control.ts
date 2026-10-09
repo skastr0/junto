@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 import { InstallationId } from "./installation-id";
-import { MachineAbsolutePath } from "./machine-install";
+import { MachineAbsolutePath, type MachineInstallResult } from "./machine-install";
+import { RemoteHost, HostLabel, HostSshEndpoint } from "./remote-hosts";
+import { HarnessId } from "./managed-terminal-templates";
 import { isValidMachineName } from "./machine-identity";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
@@ -13,3 +15,76 @@ export const MachineOwnStatus = Schema.Struct({
   ready: Schema.Boolean,
 });
 export type MachineOwnStatus = typeof MachineOwnStatus.Type;
+
+export const MachineStatusInput = Schema.Struct({ name: Schema.optionalKey(MachineName) });
+export type MachineStatusInput = typeof MachineStatusInput.Type;
+export const MachineTargetInput = Schema.Struct({ name: MachineName });
+export type MachineTargetInput = typeof MachineTargetInput.Type;
+export const MachinePeerIdentity = Schema.Struct({ machineName: MachineName, installationId: InstallationId });
+export type MachinePeerIdentity = typeof MachinePeerIdentity.Type;
+export const MachineConfigured = MachinePeerIdentity;
+export const MachinePeerPin = Schema.Struct({ ...MachinePeerIdentity.fields, boundAt: Schema.String });
+export type MachinePeerPin = typeof MachinePeerPin.Type;
+export const MachineHarness = Schema.Struct({ harness: HarnessId, installed: Schema.Boolean });
+export type MachineHarness = typeof MachineHarness.Type;
+export const MachineHarnesses = Schema.Struct({
+  machineName: MachineName, reachable: Schema.Boolean,
+  harnesses: Schema.Array(MachineHarness).pipe(Schema.check(Schema.isMaxLength(32))),
+});
+export type MachineHarnesses = typeof MachineHarnesses.Type;
+export const MachinePeerStatus = Schema.Struct({
+  ...MachineHarnesses.fields,
+  installationId: Schema.optionalKey(InstallationId),
+  missingSecrets: Schema.Array(Schema.String.pipe(Schema.check(Schema.isMaxLength(128)))).pipe(Schema.check(Schema.isMaxLength(256))),
+  detail: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(1024)))),
+});
+export type MachinePeerStatus = typeof MachinePeerStatus.Type;
+export const MachineStatusData = Schema.Union([MachineOwnStatus, MachinePeerStatus]);
+export type MachineStatusData = typeof MachineStatusData.Type;
+export const MachineListData = Schema.Struct({
+  machines: Schema.Array(Schema.Struct({ machine: RemoteHost, setUp: Schema.Boolean, installationId: Schema.optionalKey(InstallationId) })).pipe(Schema.check(Schema.isMaxLength(32))),
+});
+export type MachineListData = typeof MachineListData.Type;
+export const MachineAddInput = Schema.Struct({
+  name: MachineName, label: Schema.optionalKey(HostLabel), sshTarget: HostSshEndpoint,
+  sshPort: RemoteHost.fields.sshPort,
+  sshIdentityFile: RemoteHost.fields.sshIdentityFile,
+  sshKnownHostsFile: RemoteHost.fields.sshKnownHostsFile,
+  sshHostKeyAlias: RemoteHost.fields.sshHostKeyAlias,
+  juntoHome: Schema.optionalKey(MachineAbsolutePath),
+  installRoot: Schema.optionalKey(MachineAbsolutePath),
+});
+export type MachineAddInput = typeof MachineAddInput.Type;
+export const MachineCopyInput = Schema.Struct({ name: MachineName, bundle: MachineAbsolutePath });
+export type MachineCopyInput = typeof MachineCopyInput.Type;
+export const MachineRemoved = Schema.Struct({ machineName: MachineName, removed: Schema.Literal(true) });
+export type MachineRemoved = typeof MachineRemoved.Type;
+export const MachineEmptyInput = Schema.Struct({});
+
+export const MachineOpName = Schema.Literals([
+  "machine.add", "machine.list", "machine.send", "machine.status", "machine.update",
+  "machine.remove", "machine.harnesses", "machine.configure", "machine.setup",
+]);
+export type MachineOpName = typeof MachineOpName.Type;
+export interface MachineArgsByOp {
+  readonly "machine.add": MachineAddInput;
+  readonly "machine.list": typeof MachineEmptyInput.Type;
+  readonly "machine.send": MachineCopyInput;
+  readonly "machine.status": MachineStatusInput;
+  readonly "machine.update": MachineCopyInput;
+  readonly "machine.remove": MachineTargetInput;
+  readonly "machine.harnesses": MachineStatusInput;
+  readonly "machine.configure": MachineTargetInput;
+  readonly "machine.setup": MachinePeerIdentity;
+}
+export interface MachineDataByOp {
+  readonly "machine.add": RemoteHost;
+  readonly "machine.list": MachineListData;
+  readonly "machine.send": MachineInstallResult;
+  readonly "machine.status": MachineStatusData;
+  readonly "machine.update": MachineInstallResult;
+  readonly "machine.remove": MachineRemoved;
+  readonly "machine.harnesses": MachineHarnesses;
+  readonly "machine.configure": typeof MachineConfigured.Type;
+  readonly "machine.setup": MachinePeerPin;
+}
