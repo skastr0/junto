@@ -201,6 +201,9 @@ redesigned. Browser pages are not placed on other machines at all.
   with it, so nothing waits for the operator's own computer.
 - Moving which machine edits a canvas, and editing from another window by
   sending the edit to that machine.
+- A seat reaching past mail to a seat on another machine: reading its
+  terminal, waiting on it, prompting it. In the first version these are
+  refused with a plain reason when the other seat is on another machine.
 - Boat (boat.dev, formerly Box): a provider that creates a machine and sends
   Junto to it. The old provider code leaves the tree and is kept intact at the
   tag `archive/box-provider`.
