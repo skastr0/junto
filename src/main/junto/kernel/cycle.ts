@@ -6,17 +6,13 @@
 // phase to write.
 
 import type { WirePhase } from "@shared/model";
+import { isThisMachine } from "@shared/machine-identity";
 import type { NodeId } from "@shared/model/base";
 import { nodesOf } from "@shared/model/canvas";
 import {
   deriveExecutionGraph,
   type BlockedReason,
 } from "@shared/execution-graph";
-import {
-  DEFAULT_STATION_HOST_ID,
-  isStationRole,
-  type StationRole,
-} from "@shared/station";
 import type { ActorRefResolver } from "@shared/attention";
 import {
   detectPulses,
@@ -197,47 +193,9 @@ export const getKernelSnapshot = (): KernelSnapshot => {
   return { canvases };
 };
 
-// --- station scope (Command Center / Remote) ---------------------------------
-// Host-scoped execution: this station only evaluates executable nodes stamped
-// for its hostId. Role is user-selected (settings); never inferred.
-
-/**
- * Runtime station scope. Doctrine fail-closed: unknown/empty role is "unset",
- * never inferred as Command Center. Unset refuses both CC authoring power and
- * Remote host-scoped execution fan-out that would assume a valid role.
- */
-export type StationScopeRole = StationRole | "unset";
-
-let stationHostId: string = DEFAULT_STATION_HOST_ID;
-let stationRole: StationScopeRole = "unset";
-
-export const __setStationScopeForTest = (input: {
-  readonly hostId: string;
-  readonly role: StationScopeRole;
-}): void => {
-  stationHostId = input.hostId;
-  stationRole = input.role;
-};
-
-export const getStationScope = (): {
-  readonly hostId: string;
-  readonly role: StationScopeRole;
-} => ({
-  hostId: stationHostId,
-  role: stationRole,
-});
-
-export const setStationScope = (input: {
-  readonly hostId: string;
-  readonly role: string;
-}): void => {
-  stationHostId =
-    typeof input.hostId === "string" && input.hostId.length > 0
-      ? input.hostId
-      : DEFAULT_STATION_HOST_ID;
-  // Fail closed: invalid or empty role is not Command Center (security doctrine).
-  stationRole = isStationRole(input.role) ? input.role : "unset";
-};
+let machineName: string | undefined;
+export const setMachineName = (name: string | undefined): void => { machineName = name; };
+export const __setMachineNameForTest = setMachineName;
 
 // Per-canvas derived execution graphs (recomputed each evaluation cycle).
 const executionByCanvas = new Map<string, ExecutionSnapshot>();
@@ -290,8 +248,8 @@ export const runEvaluationCycle = async (): Promise<void> => {
       if (RELAY_ENABLED) for (const { nodeId, watch, result } of detectPulses(canvasName, canvas, snapshots, {
         consumeEdge: automate,
       })) {
-        // Host-scoped: this station only runs the schedulers assigned to it.
-        if (watch.host !== stationHostId) continue;
+        // A scheduler runs only on the machine named by its placement.
+        if (machineName === undefined || !isThisMachine(watch.host, machineName)) continue;
         const watcherKey = `${canvasName}::${nodeId}`;
         const previous = watchers.get(watcherKey);
         const nextRuntime: WatcherRuntimeState = {
@@ -338,7 +296,7 @@ export const runEvaluationCycle = async (): Promise<void> => {
 
       // Relay: watch is sink → relay wires only (`when` / default completes).
       for (const node of nodesOf(canvas, "relay")) {
-        if (node.host !== stationHostId) continue;
+        if (machineName === undefined || !isThisMachine(node.host, machineName)) continue;
         const watchEdges = collectWatchEdgesInto(canvas, node.id);
         const evaluation =
           watchEdges.length > 0
@@ -394,13 +352,14 @@ export const runEvaluationCycle = async (): Promise<void> => {
 export const checkTimers = async (
   nowEpochMs = Date.now(),
 ): Promise<void> => {
+  if (machineName === undefined) return;
   if (!CRON_ENABLED) {
     nextFire.clear();
     return;
   }
   const crons = [...worlds.entries()].flatMap(([canvasName, { canvas }]) =>
     nodesOf(canvas, "cron")
-      .filter((node) => node.host === stationHostId)
+      .filter((node) => isThisMachine(node.host, machineName!))
       .map((node) => ({ canvasName, canvas, node, timerKey: `${canvasName}::${node.id}` })),
   );
   const activeTimerKeys = crons.map(({ timerKey }) => timerKey);
@@ -417,7 +376,7 @@ export const checkTimers = async (
 
   try {
     await timerSchedulerDeps.reconcileHome(
-      stationHostId,
+      machineName,
       activeTimerKeys,
     );
   } catch (error) {

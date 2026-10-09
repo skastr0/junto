@@ -68,7 +68,7 @@ const remoteHermesRoutes = (
     hosts
       .filter(
         (host) =>
-          host.kind === "remote" &&
+          !host.isThisMachine &&
           host.sshEndpoint !== undefined &&
           hostHasCapability(host, "hermes"),
       )
@@ -235,7 +235,7 @@ export class ChatService {
 
   /**
    * Revoke sessions whose host crossed the local/remote boundary after a
-   * station identity change. Both directions close: an old self key must lose
+   * machine identity change. Both directions close: an old self key must lose
    * process-bound authority, and a newly local key must shed any SSH child
    * before its next open can spawn directly.
    */

@@ -5,7 +5,7 @@ import {
   canonicalLocalAgentKey,
   parseHermesProfileName,
   type HermesHostId,
-  type HermesStationIdentity,
+  type HermesMachineIdentity,
 } from "../hermes/domain";
 import { hostsSnapshot } from "../hosts/snapshot";
 import type { CliResult } from "./exec";
@@ -33,16 +33,16 @@ export interface HermesFleetOperations {
 }
 
 const listHermesHosts = (
-  station: HermesStationIdentity,
+  machine: HermesMachineIdentity,
 ): ReadonlyArray<HermesHost> =>
   hostsSnapshot()
     .filter((host) => hostHasCapability(host, "hermes"))
     .map((host) => ({
-      transportId: (host.kind === "local" ? "local" : hermesKeyFor(host)) as HermesHostId,
-      agentHostId: (host.kind === "local"
-        ? station.agentHostId
+      transportId: (hermesKeyFor(host)) as HermesHostId,
+      agentHostId: (host.isThisMachine
+        ? machine.agentHostId
         : hermesKeyFor(host)) as HermesHostId,
-      hostId: host.kind === "local" ? station.hostId : host.id,
+      hostId: host.isThisMachine ? machine.hostId : host.id,
       label: host.label,
     }));
 
@@ -132,11 +132,11 @@ const fetchHost = async (
 
 export const fetchHermesBundle = async (
   operations: HermesFleetOperations,
-  station: HermesStationIdentity,
+  machine: HermesMachineIdentity,
   signal?: AbortSignal,
 ): Promise<SnapshotBundle> => {
   const fetchedAt = new Date().toISOString();
-  const hosts = listHermesHosts(station);
+  const hosts = listHermesHosts(machine);
   const perHost = await Promise.all(
     hosts.map((host) =>
       fetchHost(operations, host, signal).catch((error: unknown): HermesHostFetch => {

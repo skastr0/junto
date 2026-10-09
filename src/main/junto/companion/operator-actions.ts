@@ -25,7 +25,6 @@ import { ulid } from "ulid";
 import { AppRuntime } from "../../runtime";
 import { ModelService } from "../model/service";
 import { mainAuthoringGate } from "../main-authoring-gate";
-import { SettingsService } from "../settings/service";
 import { AgentSignalRepository } from "../signals/repository";
 import { answerAgentSignal, dismissAgentSignal } from "../signals/operator";
 import { raisedHands } from "../signals/raised-hands";
@@ -132,10 +131,6 @@ export const sendOperatorMail = async (
     .run("companion.mail-send", () =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          const settings = yield* SettingsService;
-          if ((yield* settings.get).station.role === "remote") {
-            return { ok: false as const, reason: "invalid" as const, message: "Mail is sent from the Command Center." };
-          }
           const model = yield* ModelService;
           const read = yield* Effect.result(model.canvas(canvasName));
           if (read._tag === "Failure") return { ok: false as const, reason: "not-found" as const, message: "No such canvas." };

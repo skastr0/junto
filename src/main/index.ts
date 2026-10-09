@@ -65,11 +65,7 @@ import {
 } from "./junto/browser/composition";
 import { makeBrowserCompositionHost } from "./junto/browser/composition-host";
 import { makeElectronBrowserViewAttachmentTarget } from "./junto/browser/view-adapter";
-import { makeElectronBrowserReadinessProductPath } from "./junto/browser/readiness-product-path";
-import { makeBrowserProductPathProbe } from "./junto/browser/readiness-probe";
-import { installBrowserProductPathProbe } from "./junto/station-readiness";
-import { findHostById, hostsSnapshot, subscribeHostsSnapshot } from "./junto/hosts/snapshot";
-import { hostHasCapability } from "@shared/remote-hosts";
+import { hostsSnapshot, subscribeHostsSnapshot } from "./junto/hosts/snapshot";
 import { applyInterfaceScale, followInterfaceScale, refitInterfaceScale } from "./junto/interface-scale";
 import {
   BROWSER_ENABLED,
@@ -386,7 +382,6 @@ const browserCompositionHost = makeBrowserCompositionHost({
 let trustedRendererOrigin: TrustedRendererOrigin | undefined;
 let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
-let uninstallBrowserReadinessProbe: (() => void) | undefined;
 let workControl: WorkControlServer | undefined;
 let overseerComposition: OverseerComposition | undefined;
 let overseerLive: Awaited<ReturnType<typeof composeOverseerLive>> | undefined;
@@ -1179,25 +1174,10 @@ const recoverRendererSurface = (
 // MainPID ever becomes process-signal authority in this process.
 const ensureSupervised = async (): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
-  // The Linux unit is a Remote/headless facility, never a role inference.
-  // Read the canonical SQLite topology through the same typed settings
-  // component and the one app runtime before deciding whether this process
-  // belongs to the Remote supervisor.
-  if (process.platform === "linux") {
-    try {
-      const station = (
-        await AppRuntime.runPromise(
-          Effect.flatMap(SettingsService, (settings) => settings.get),
-        )
-      ).station;
-      if (
-        station.role !== "remote" ||
-        station.supervisedPreferred !== true
-      ) return true;
-    } catch {
-      return true;
-    }
-  }
+  try {
+    const machine = (await AppRuntime.runPromise(Effect.flatMap(SettingsService, (settings) => settings.get))).machine;
+    if (!machine.supervisedPreferred) return true;
+  } catch { return true; }
   const supervisor = await loadStationSupervisor();
   const observation = await supervisor.observe();
   if (observation.state === "absent" || observation.state === "unsupported" ||
@@ -1722,7 +1702,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             capabilities: composition.registry,
             resolvePageTarget: resolveBrowserPageTarget,
             listCanvasModels,
-            station: () => composition.sessions.stationIdentity(),
+            machineName: () => composition.sessions.machineName(),
             admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
             // Edge-delete (I10): same destroy path as capability terminate, but
             // keyed by (owner, page-ref) so sibling edges stay live.
@@ -1767,31 +1747,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             edgeGrant,
             listCanvasModels,
           });
-          const productPath = makeElectronBrowserReadinessProductPath({
-            compositionHost: browserCompositionHost,
-            viewAdapter: browserViewAttachmentTarget.adapter,
-          });
-          uninstallBrowserReadinessProbe?.();
-          uninstallBrowserReadinessProbe = installBrowserProductPathProbe(
-            makeBrowserProductPathProbe({
-              station: () => {
-                const identity = composition.sessions.stationIdentity();
-                const host = identity === undefined ? undefined : findHostById(identity.hostId);
-                const hostId = identity?.hostId ?? "";
-                return {
-                  role: identity?.role ?? "",
-                  hostId,
-                  browserCapabilityDeclared: host !== undefined && hostHasCapability(host, "browser"),
-                  controlReady: browserControl !== undefined,
-                  controlHostId: browserControl === undefined ? "" : hostId,
-                  registeredRemoteHostId: host?.kind === "remote" ? host.id : "",
-                  sandboxReady: !app.commandLine.hasSwitch("no-sandbox") && !app.commandLine.hasSwitch("disable-setuid-sandbox"),
-                  displayReady: browserCompositionHost.current() !== undefined,
-                };
-              },
-              productPath,
-            }),
-          );
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
           overseerComposition?.bindPages(composition.sessions);
@@ -2011,8 +1966,6 @@ const requireCleanBrowserShutdown = async (reason: string): Promise<void> => {
       );
     }
     browserControl = undefined;
-    uninstallBrowserReadinessProbe?.();
-    uninstallBrowserReadinessProbe = undefined;
     browserComposition = undefined;
     unsubscribeCanvasEdgeGrants?.();
     unsubscribeCanvasEdgeGrants = undefined;

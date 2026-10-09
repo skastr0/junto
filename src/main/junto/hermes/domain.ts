@@ -4,11 +4,7 @@ export type HermesProfileName = string & {
   readonly [HermesProfileNameTypeId]: typeof HermesProfileNameTypeId;
 };
 
-/**
- * Hermes host ids are canonical agent-key prefixes. The configured station
- * self id and every enrolled remote's exact hermesKeyFor(host) are identities,
- * not aliases for one another.
- */
+/** Hermes host ids are the registry's exact agent-key prefixes. */
 export type HermesHostId = string;
 
 export interface ParsedAgentKey {
@@ -16,43 +12,21 @@ export interface ParsedAgentKey {
   readonly profile: HermesProfileName;
 }
 
-/** Durable physical + Hermes self identity loaded from settings.station. */
-export interface HermesStationIdentity {
+/** Physical placement and the registry's Hermes prefix are separate facts. */
+export interface HermesMachineIdentity {
   readonly hostId: string;
   readonly agentHostId: HermesHostId;
 }
 
-export const resolveHermesStationIdentity = (station: {
-  readonly role: string;
-  readonly hostId: string;
-  readonly agentHostId?: string;
-}): HermesStationIdentity => {
-  if (station.role === "remote" && station.agentHostId === undefined) {
-    throw new Error("Remote station is missing its canonical Hermes host identity");
-  }
-  return {
-    hostId: station.hostId,
-    // Command Center and pre-configuration identity is the physical station
-    // host id. A Remote's separately configured Hermes id is mandatory above.
-    agentHostId:
-      station.role === "remote" ? station.agentHostId! : station.hostId,
-  };
-};
-
-/**
- * A Hermes key is local only when its host prefix is the station's exact
- * configured self identity. The string `local` has no special meaning here:
- * it is local only for a station whose canonical identity is literally local.
- */
 export const isLocalHermesHost = (
   host: HermesHostId,
-  station: HermesStationIdentity,
-): boolean => host === station.agentHostId;
+  machine: HermesMachineIdentity,
+): boolean => host === machine.agentHostId;
 
 export const canonicalLocalAgentKey = (
-  station: HermesStationIdentity,
+  machine: HermesMachineIdentity,
   profile: HermesProfileName,
-): string => `${station.agentHostId}:${profile}`;
+): string => `${machine.agentHostId}:${profile}`;
 
 const PROFILE_NAME_RE = /^[A-Za-z0-9_-]+$/;
 

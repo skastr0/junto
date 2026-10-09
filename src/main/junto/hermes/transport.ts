@@ -130,9 +130,9 @@ export const HermesTransportLive = Layer.effect(
       budget: OneShotBudget,
       localTimeoutMs: number,
     ): Effect.Effect<CliResult> => {
-      if (host === "local") return local(args, localTimeoutMs);
       const resolved = resolveHermesRemoteHost(host);
-      if (!resolved || resolved.kind !== "remote" || !resolved.sshEndpoint) {
+      if (resolved?.isThisMachine) return local(args, localTimeoutMs);
+      if (!resolved || !resolved.sshEndpoint) {
         return Effect.succeed({
           ok: false,
           stdout: "",
@@ -156,7 +156,7 @@ export const HermesTransportLive = Layer.effect(
       profile,
       awaitReady,
     ) => {
-      if (host === "local") {
+      if (resolveHermesRemoteHost(host)?.isThisMachine) {
         return Effect.fail(
           new SshInputError({
             message: "HermesTransport.connectAcp is reserved for remote hosts",

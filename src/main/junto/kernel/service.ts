@@ -32,10 +32,6 @@ import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { ActorRefResolver } from "@shared/attention";
 import { seatIdentityHints } from "@shared/connections";
 import type { ServiceCheck } from "@shared/contracts";
-import {
-  DEFAULT_STATION_HOST_ID,
-  type StationRole,
-} from "@shared/station";
 import { buildFactoryClaimPrompt } from "@shared/factory-claim-prompt";
 import {
   claimedByOf,
@@ -48,8 +44,6 @@ import type { Task } from "@shared/work-model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorSeatId } from "@shared/actor-seat";
 import {
-  HostId,
-  type HostId as HostIdValue,
 } from "@shared/remote-hosts";
 import {
   type ActorRef,
@@ -64,9 +58,7 @@ import { ModelService } from "../model/service";
 import { SnapshotsService } from "../snapshots";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
-import { deriveActorSeatId } from "../actor-seat-id";
-import { StationFleetTargetRepository } from "../station/fleet-target-repository";
-import { StationRepository } from "../station/repository";
+import { MachineRepository } from "../machines/repository";
 import {
   actorsNeedingWake,
   selectFactoryClaims,
@@ -96,7 +88,7 @@ import {
   runEvaluationCycle,
   setActorRefResolver,
   setWorlds,
-  setStationScope,
+  setMachineName,
   __setAutomationGateForTest,
   __setSnapshotsForTest,
   __setTimerSchedulerForTest,
@@ -387,10 +379,7 @@ type ActorRefsShape = Context.Service.Shape<typeof ModelActorRefs>;
 type SnapshotsShape = Context.Service.Shape<typeof SnapshotsService>;
 type PauseShape = Context.Service.Shape<typeof PausePlane>;
 type SchedulerShape = Context.Service.Shape<typeof SchedulerRepository>;
-type FleetTargetsShape = Context.Service.Shape<
-  typeof StationFleetTargetRepository
->;
-type StationsShape = Context.Service.Shape<typeof StationRepository>;
+type MachinesShape = Context.Service.Shape<typeof MachineRepository>;
 type WorkShape = Context.Service.Shape<typeof WorkService>;
 type WorkRepositoryShape = Context.Service.Shape<typeof WorkRepository>;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
@@ -407,56 +396,24 @@ export type KernelHost = {
   readonly runFork: <A, E>(effect: Effect.Effect<A, E>) => void;
 };
 
-/** @deprecated Prefer KernelHost — kept for call-site migration clarity only. */
-export type KernelHostRun = KernelHost["runPromise"];
+type ActiveMachineScope =
+  | { readonly ready: false }
+  | { readonly ready: true; readonly machineName: string; readonly installationId: InstallationId };
 
-type ActiveStationScope =
-  | {
-      readonly role: "";
-      readonly hostId: typeof DEFAULT_STATION_HOST_ID;
-    }
-  | {
-      readonly role: StationRole;
-      readonly hostId: string;
-      readonly installationId: InstallationId;
-    };
-
-const refreshStationScope = (
-  stations: StationsShape,
+const refreshMachineScope = (
+  machines: MachinesShape,
   commit: () => boolean = () => true,
-): Effect.Effect<ActiveStationScope> =>
-  Effect.gen(function* () {
-    const current = yield* Effect.result(
-      Effect.all({
-        installationId: stations.installationId,
-        configuration: stations.configuration,
-      }),
-    );
-    if (current._tag === "Failure") {
-      // Fail closed: unreadable settings never mint Command Center authority.
-      const scope = {
-        hostId: DEFAULT_STATION_HOST_ID,
-        role: "",
-      } satisfies ActiveStationScope;
-      if (commit()) setStationScope(scope);
-      return scope;
-    }
-    if (current.success.configuration === undefined) {
-      const scope = {
-        hostId: DEFAULT_STATION_HOST_ID,
-        role: "",
-      } satisfies ActiveStationScope;
-      if (commit()) setStationScope(scope);
-      return scope;
-    }
-    const scope = {
-      installationId: current.success.installationId,
-      hostId: current.success.configuration.configuration.hostId,
-      role: current.success.configuration.configuration.role,
-    } satisfies ActiveStationScope;
-    if (commit()) setStationScope(scope);
-    return scope;
-  });
+): Effect.Effect<ActiveMachineScope> => Effect.gen(function* () {
+  const current = yield* Effect.result(Effect.all({
+    installationId: machines.installationId,
+    machineName: machines.machineName,
+  }));
+  const scope: ActiveMachineScope = current._tag === "Failure"
+    ? { ready: false }
+    : { ready: true, ...current.success };
+  if (commit()) setMachineName(scope.ready ? scope.machineName : undefined);
+  return scope;
+});
 
 const actorRefKey = (canvasName: string, nodeId: string): string =>
   `${canvasName}\u0000${nodeId}`;
@@ -511,75 +468,33 @@ export const activeActorRegistry = (
 };
 
 const runtimeAuthority = (
-  scope: ActiveStationScope,
+  scope: ActiveMachineScope,
   registry: ActiveActorRegistry,
   canvasName: string,
   node: { readonly id: string },
 ): ManagedSeatRuntimeAuthority | undefined => {
-  if (scope.role === "") return undefined;
+  if (!scope.ready) return undefined;
   const actor = registry.resolve({ canvasName, nodeId: node.id });
   return actor === undefined
     ? undefined
     : {
         actor,
         installationId: scope.installationId,
-        hostId: scope.hostId,
+        hostId: scope.machineName,
       };
 };
 
-type ActorAvailability = {
-  readonly isLocalSeatReady: (bindingId: string) => boolean;
-  readonly installationForHost: (
-    hostId: HostIdValue,
-  ) => Effect.Effect<InstallationId | undefined, unknown>;
-  readonly isLive: (
-    hostId: HostIdValue,
-    installationId: InstallationId,
-  ) => Effect.Effect<boolean, unknown>;
-};
-
-/**
- * Selection admission is deliberately stricter than eventual delivery:
- * Command Center never picks an offline Remote actor and queues future work.
- * The later WorkService reservation still holds a live-session witness across
- * its SQLite transaction, closing the check/use race at the authority seam.
- */
+/** Tasks stay on this machine; a peer never enters local claim selection. */
 export const actorSeatSelectableNow = (
   canvasName: string,
   seat: Seat,
   actor: ActorRef,
-  scope: Exclude<ActiveStationScope, { readonly role: "" }>,
-  availability: ActorAvailability,
-): Effect.Effect<boolean> =>
-  Effect.gen(function* () {
-    const localAuthority = {
-      actor,
-      installationId: scope.installationId,
-      hostId: scope.hostId,
-    } satisfies ManagedSeatRuntimeAuthority;
-    if (isManagedSeatRuntimeLocal(canvasName, seat, localAuthority)) {
-      return availability.isLocalSeatReady(seat.bindingId);
-    }
-    if (scope.role !== "command-center") return false;
-
-    const decodedHost = Schema.decodeUnknownResult(HostId)(seat.host);
-    if (decodedHost._tag === "Failure") return false;
-    const installationResult = yield* Effect.result(
-      availability.installationForHost(decodedHost.success),
-    );
-    if (installationResult._tag === "Failure") return false;
-    const installationId = installationResult.success;
-    if (
-      installationId === undefined ||
-      deriveActorSeatId(installationId, seat.bindingId) !== actor.seatId
-    ) {
-      return false;
-    }
-    const liveResult = yield* Effect.result(
-      availability.isLive(decodedHost.success, installationId),
-    );
-    return liveResult._tag === "Success" && liveResult.success;
-  });
+  scope: Extract<ActiveMachineScope, { readonly ready: true }>,
+  isLocalSeatReady: (bindingId: string) => boolean,
+): Effect.Effect<boolean> => Effect.sync(() =>
+  isManagedSeatRuntimeLocal(canvasName, seat, {
+    actor, installationId: scope.installationId, hostId: scope.machineName,
+  }) && isLocalSeatReady(seat.bindingId));
 
 /** Stable restart-safe identity for one managed task-start prompt. */
 export const managedTaskDeliveryId = (
@@ -612,8 +527,7 @@ const makeKernelService = (
   snapshots: SnapshotsShape,
   pause: PauseShape,
   scheduler: SchedulerShape,
-  fleetTargets: FleetTargetsShape,
-  stations: StationsShape,
+  machines: MachinesShape,
   work: WorkShape,
   workRepository: WorkRepositoryShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
@@ -818,7 +732,7 @@ const makeKernelService = (
    * other start authority, and it does not route through here.
    */
   const startManagedSeats = (
-    scope: ActiveStationScope,
+    scope: ActiveMachineScope,
     registry: ActiveActorRegistry,
     generation: number,
   ): Effect.Effect<void> =>
@@ -881,12 +795,12 @@ const makeKernelService = (
 
   // V4-PROGRAM: factory control path is Effect, not async Promise chains.
   const runClaimTicks = (
-    scope: ActiveStationScope,
+    scope: ActiveMachineScope,
     registry: ActiveActorRegistry,
     generation: number,
   ): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
-      if (scope.role === "" || !generationIsActive(generation)) return;
+      if (!scope.ready || !generationIsActive(generation)) return;
       const uniqueActors = new Map<
         ActorSeatId,
         {
@@ -914,15 +828,7 @@ const makeKernelService = (
               candidate.node,
               candidate.actor,
               scope,
-              {
-                isLocalSeatReady: localManagedSeatReadyForClaim,
-                installationForHost: (hostId) =>
-                  Effect.map(
-                    fleetTargets.get(hostId),
-                    (row) => row?.stationInstallationId,
-                  ),
-                isLive: () => Effect.succeed(false),
-              },
+              localManagedSeatReadyForClaim,
             );
             if (selectable && generationIsActive(generation)) {
               selectableActorSeatIds.add(seatId);
@@ -1020,12 +926,12 @@ const makeKernelService = (
   // this is only its local managed-seat wake-up. Failed idle-gated writes are
   // retried when that seat becomes deliverable; the safety cycle is repair.
   const deliverWorkingClaims = (
-    scope: ActiveStationScope,
+    scope: ActiveMachineScope,
     registry: ActiveActorRegistry,
     generation: number,
   ): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
-      if (scope.role === "" || !generationIsActive(generation)) return;
+      if (!scope.ready || !generationIsActive(generation)) return;
       for (const [canvasName, world] of worlds) {
         if (!generationIsActive(generation)) return;
         const state = pause.stateFor(canvasName);
@@ -1148,12 +1054,12 @@ const makeKernelService = (
   const runCycle: Effect.Effect<void, unknown> = Effect.gen(function* () {
     const generation = activeGeneration();
     if (!generationIsActive(generation)) return;
-    const scope = yield* refreshStationScope(stations, () =>
+    const scope = yield* refreshMachineScope(machines, () =>
       generationIsActive(generation),
     );
     if (!generationIsActive(generation)) return;
     const registry =
-      scope.role === ""
+      !scope.ready
         ? activeActorRegistry([])
         : activeActorRegistry(yield* actorRefs.read());
     if (!generationIsActive(generation)) return;
@@ -1234,11 +1140,11 @@ const makeKernelService = (
         return refuse("node is not on the canvas");
       }
 
-      const scope = yield* refreshStationScope(stations, () =>
+      const scope = yield* refreshMachineScope(machines, () =>
         generationIsActive(generation),
       );
       if (!generationIsActive(generation)) return false;
-      if (scope.role === "") return refuse("station scope unavailable");
+      if (!scope.ready) return refuse("machine identity unavailable");
 
       const refs = yield* Effect.result(actorRefs.read());
       if (!generationIsActive(generation)) return false;
@@ -1588,8 +1494,7 @@ export const KernelLive = Layer.effect(
     const snapshots = yield* SnapshotsService;
     const pause = yield* PausePlane;
     const scheduler = yield* SchedulerRepository;
-    const fleetTargets = yield* StationFleetTargetRepository;
-    const stations = yield* StationRepository;
+    const machines = yield* MachineRepository;
     const work = yield* WorkService;
     const workRepository = yield* WorkRepository;
     const actorSeatOccupy = yield* ActorSeatOccupy;
@@ -1601,8 +1506,7 @@ export const KernelLive = Layer.effect(
       snapshots,
       pause,
       scheduler,
-      fleetTargets,
-      stations,
+      machines,
       work,
       workRepository,
       actorSeatOccupy,

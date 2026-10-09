@@ -17,7 +17,7 @@ import type { ModelService } from "../model/service";
 import { ChatServiceContext } from "../chat/service";
 import { ActorSeatOccupy } from "../term/actor-seat-occupy";
 import { termPlane } from "../term/plane";
-import { StationRepository } from "../station/repository";
+import { MachineRepository } from "../machines/repository";
 import type { BrowserSessionService } from "../browser/sessions";
 import {
   mainAuthoringGate,
@@ -47,7 +47,7 @@ type OverseerServices =
   | OverseerStores
   | ChatServiceContext
   | ActorSeatOccupy
-  | StationRepository
+  | MachineRepository
   | ContentService
   | WorkService;
 
@@ -162,7 +162,7 @@ export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "in
  * originating async context, so process-global / ALS stores are not enough.
  */
 export const createDispatchGrant = (
-  run: <A, E>(effect: Effect.Effect<A, E, ModelService | ModelActorRefs | StationRepository>) => Promise<A>,
+  run: <A, E>(effect: Effect.Effect<A, E, ModelService | ModelActorRefs | MachineRepository>) => Promise<A>,
   sourceInstallationId: InstallationId | undefined,
   live?: OverseerLiveExecutionConstraint,
 ): ((caller: OverseerCaller) => Promise<boolean>) =>
@@ -215,19 +215,6 @@ export const composeOverseer = async (input: {
   const actorSeatOccupy = await input.run(Effect.gen(function* () {
     return yield* ActorSeatOccupy;
   }));
-  const scope = await input.run(
-    Effect.gen(function* () {
-      const stations = yield* StationRepository;
-      const installationId = yield* stations.installationId;
-      const configuration = yield* stations.configuration;
-      return {
-        hostId: configuration?.configuration.hostId ?? "local",
-        installationId,
-        role: configuration?.configuration.role ?? "unconfigured",
-      };
-    }),
-  );
-
   const pagesHolder: { current: BrowserSessionService | undefined } = {
     current: input.pages,
   };
@@ -275,7 +262,6 @@ export const composeOverseer = async (input: {
     managedDrive: lateBoundDrive(),
     commitAgentReseat: commitReseatHook,
     applySchedulerConfigure: applySchedulerHook,
-    stationScope: () => scope,
   });
 
   setOverseerNativeDeleteHooks({
@@ -351,7 +337,6 @@ export const composeOverseer = async (input: {
                 return runCanvasHook(input.run, live === undefined ? effect :
                   Effect.provideService(effect, OverseerLiveExecution, live), commitSignal);
               },
-              stationScope: () => scope,
             }).execute(nativeCaller, nativeRequest),
         }, sourceInstallationId).pipe((effect) => live === undefined ? effect :
           Effect.provideService(effect, OverseerLiveExecution, live)),

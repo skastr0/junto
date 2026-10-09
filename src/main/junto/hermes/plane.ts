@@ -1,3 +1,5 @@
+import { hermesKeyFor } from "@shared/remote-hosts";
+import { hostsSnapshot, subscribeHostsSnapshot } from "../hosts/snapshot";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { AgentReply } from "@shared/ipc";
@@ -29,12 +31,10 @@ import { makeScopedPromiseRunner, type SshLease } from "../ssh";
 import {
   isLocalHermesHost,
   isDefaultHermesProfile,
-  resolveHermesStationIdentity,
   type HermesProfileName,
-  type HermesStationIdentity,
+  type HermesMachineIdentity,
 } from "./domain";
 import { HermesTransport } from "./transport";
-import { SettingsService } from "../settings/service";
 import {
   getProcessIdentityMap,
   type ProcessIdentityMap,
@@ -411,30 +411,17 @@ export const HermesPlaneLive = Layer.effect(
   HermesPlane,
   Effect.gen(function* () {
     const transport = yield* HermesTransport;
-    const settings = yield* SettingsService;
     const owner = yield* Scope.Scope;
     const runtime = yield* Effect.context<never>();
     const runPromise: RunPromise = (effect) =>
       Effect.runPromiseWith(runtime)(effect);
     const runOwned = makeScopedPromiseRunner(runtime, owner);
-    let observedIdentity: HermesStationIdentity | undefined;
-    let observedUpdate = false;
-    let applyStationIdentity:
-      ((next: HermesStationIdentity) => void) | undefined;
-    const unsubscribeSettings = settings.subscribe((next) => {
-      const identity = resolveHermesStationIdentity(next.station);
-      observedUpdate = true;
-      observedIdentity = identity;
-      applyStationIdentity?.(identity);
-    });
-    yield* Effect.addFinalizer(() => Effect.sync(unsubscribeSettings));
-    const initialSettings = yield* settings.get;
-    // Subscribe-before-read closes the hydration gap. A complete transaction
-    // observed while settings.get is pending wins over the older load result.
-    let stationIdentity: HermesStationIdentity =
-      observedUpdate && observedIdentity !== undefined
-        ? observedIdentity
-        : resolveHermesStationIdentity(initialSettings.station);
+    const identity = (): HermesMachineIdentity => {
+      const own = hostsSnapshot().filter((host) => host.isThisMachine);
+      if (own.length !== 1) throw new Error("this machine is not hydrated in the host registry");
+      return { hostId: own[0]!.id, agentHostId: hermesKeyFor(own[0]!) };
+    };
+    identity();
 
     const operations: HermesFleetOperations = {
       profiles: (host, signal) =>
@@ -444,9 +431,9 @@ export const HermesPlaneLive = Layer.effect(
     };
 
     const spawnAcp: SpawnFn = (target: AcpSpawnTarget) => {
-      // Only this station's exact configured Hermes self key is a direct
+      // Only this machine's exact Hermes prefix is a direct
       // child. Every other key remains registry/SSH-backed.
-      if (!isLocalHermesHost(target.host, stationIdentity)) {
+      if (!isLocalHermesHost(target.host, identity())) {
         const child = new EffectAcpChild(
           runPromise,
           transport,
@@ -477,28 +464,20 @@ export const HermesPlaneLive = Layer.effect(
     };
 
     const chat = new ChatService(spawnAcp, (host) =>
-      isLocalHermesHost(host, stationIdentity),
+      isLocalHermesHost(host, identity()),
     );
-    applyStationIdentity = (nextIdentity) => {
-      const previousIdentity = stationIdentity;
-      if (
-        previousIdentity.hostId === nextIdentity.hostId &&
-        previousIdentity.agentHostId === nextIdentity.agentHostId
-      ) {
-        return;
-      }
-      stationIdentity = nextIdentity;
-      chat.reconcileHostLocality((host) =>
-        isLocalHermesHost(host, previousIdentity),
-      );
-    };
+    const unsubscribeHosts = subscribeHostsSnapshot((_next, previous) => {
+      const own = previous.find((host) => host.isThisMachine);
+      chat.reconcileHostLocality((host) => own !== undefined && host === hermesKeyFor(own));
+    });
+    yield* Effect.addFinalizer(() => Effect.sync(unsubscribeHosts));
     const shutdown = makeHermesShutdownPort(chat);
     yield* Effect.addFinalizer(() => finalizeHermesShutdown(shutdown));
 
     return HermesPlane.of({
       chat,
       shutdown,
-      fetchBundle: (signal) => fetchHermesBundle(operations, stationIdentity, signal),
+      fetchBundle: (signal) => fetchHermesBundle(operations, identity(), signal),
       fetchAgentMessage: (key, text) => chat.agentMessage(key, text),
     });
   }),

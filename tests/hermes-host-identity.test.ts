@@ -6,16 +6,14 @@ import { buildConnectionIndex } from "../src/shared/connections";
 import {
   isLocalHermesHost,
   parseAgentKey,
-  resolveHermesStationIdentity,
 } from "../src/main/junto/hermes/domain";
 
-const station = resolveHermesStationIdentity({
-  role: "remote",
+const machine = {
   hostId: "studio",
   agentHostId: "fleet-studio",
-});
+};
 
-describe("canonical Hermes station identity", () => {
+describe("canonical Hermes machine identity", () => {
   it("keeps successful Hermes facts visible when another fleet host made the bundle partial", () => {
     const state = {
       bundles: [{
@@ -40,15 +38,15 @@ describe("canonical Hermes station identity", () => {
       .toMatchObject({ stale: false });
   });
 
-  it("routes a Remote watcher only to its canonical same-host agent", () => {
+  it("recognizes only the exact configured Hermes prefix", () => {
     const parsed = parseAgentKey("fleet-studio:default");
-    expect(parsed && isLocalHermesHost(parsed.host, station)).toBe(true);
-    expect(isLocalHermesHost("local", station)).toBe(false);
+    expect(parsed && isLocalHermesHost(parsed.host, machine)).toBe(true);
+    expect(isLocalHermesHost("local", machine)).toBe(false);
   });
 
-  it("keeps Command Center cross-host route keys on the non-local fleet agent", () => {
+  it("keeps other machines on their exact agent-key prefix", () => {
     const parsed = parseAgentKey("fleet-render:default");
-    expect(parsed && isLocalHermesHost(parsed.host, station)).toBe(false);
+    expect(parsed && isLocalHermesHost(parsed.host, machine)).toBe(false);
   });
 
   it("has no source-level local alias or canonical-to-local rewrite seam", () => {

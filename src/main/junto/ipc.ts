@@ -930,15 +930,6 @@ export const registerJuntoIpc = (): void => {
     ) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          const settings = yield* SettingsService;
-          const current = yield* settings.get;
-          if (current.station.role === "remote") {
-            return {
-              ok: false as const,
-              error:
-                "Image authoring is available only on the Command Center.",
-            };
-          }
           if (
             input === null ||
             typeof input !== "object" ||
@@ -1002,20 +993,6 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
-  const denyRemoteWork = Effect.gen(function* () {
-    const settings = yield* SettingsService;
-    const current = yield* settings.get;
-    if (current.station.role === "remote") {
-      return {
-        ok: false as const,
-        code: "invalid" as const,
-        message:
-          "Operator work authoring is available only on the Command Center.",
-      };
-    }
-    return null;
-  });
-
   if (TASKS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workTaskCreate,
     (
@@ -1035,8 +1012,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.task-create",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workTaskCreate(
               canvas,
@@ -1061,8 +1036,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.task-describe",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workTaskDescribe(canvas, nodeId, taskId, brief);
           }),
@@ -1085,8 +1058,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.task-transition",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workTaskTransition(
               canvas,
@@ -1109,8 +1080,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.task-promote",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workTaskPromote(canvas, nodeId, taskId, note);
           }),
@@ -1124,8 +1093,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.task-comment",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const body = text.trim();
             if (!body) {
               return {
@@ -1169,8 +1136,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.task-respond",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workTaskRespond(
               canvas,
@@ -1197,8 +1162,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.request-resolve",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workRequestResolve(
               canvas,
@@ -1225,8 +1188,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.artifact-archive",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workArtifactArchive(
               canvas,
@@ -1251,8 +1212,6 @@ export const registerJuntoIpc = (): void => {
         "ipc.work.artifact-delete",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workArtifactDelete(canvas, nodeId, artifactId);
           }),
@@ -1311,8 +1270,6 @@ export const registerJuntoIpc = (): void => {
     ) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workSeatRecentOps(canvas, nodeId, limit);
         }),
@@ -1329,8 +1286,6 @@ export const registerJuntoIpc = (): void => {
     ) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
           const work = yield* WorkService;
           return yield* work.workBoardList(canvas, nodeId, topicId);
         }),
@@ -1352,8 +1307,6 @@ export const registerJuntoIpc = (): void => {
         () =>
           AppRuntime.runPromise(
             Effect.gen(function* () {
-              const denied = yield* denyRemoteWork;
-              if (denied) return denied;
               const work = yield* WorkService;
               const result = yield* work.workBoardCreateTopic(
                 canvas,
@@ -1400,8 +1353,6 @@ export const registerJuntoIpc = (): void => {
         () =>
           AppRuntime.runPromise(
             Effect.gen(function* () {
-              const denied = yield* denyRemoteWork;
-              if (denied) return denied;
               const work = yield* WorkService;
               return yield* work.workBoardPost(
                 canvas,
@@ -1423,8 +1374,6 @@ export const registerJuntoIpc = (): void => {
         () =>
           AppRuntime.runPromise(
             Effect.gen(function* () {
-              const denied = yield* denyRemoteWork;
-              if (denied) return denied;
               const work = yield* WorkService;
               return yield* work.workBoardMarkRead(
                 canvas,
@@ -1446,8 +1395,6 @@ export const registerJuntoIpc = (): void => {
         () =>
           AppRuntime.runPromise(
             Effect.gen(function* () {
-              const denied = yield* denyRemoteWork;
-              if (denied) return denied;
               const work = yield* WorkService;
               // Validate the board/topic before waking so a bad request never
               // reaches a transport, and compose the wake from canonical data.
@@ -1490,8 +1437,6 @@ export const registerJuntoIpc = (): void => {
     (_event, canvas: string, nodeId: string, pinId?: string) =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
-          const denied = yield* denyRemoteWork;
-          if (denied) return denied;
           const work = yield* WorkService;
           const result = yield* work.workPadRead(canvas, nodeId, pinId);
           // Mark read only when the requested pin actually resolved — a
@@ -1523,8 +1468,6 @@ export const registerJuntoIpc = (): void => {
         () =>
           AppRuntime.runPromise(
             Effect.gen(function* () {
-              const denied = yield* denyRemoteWork;
-              if (denied) return denied;
               const work = yield* WorkService;
               return yield* work.workPadPatch(
                 canvas,
@@ -1559,16 +1502,11 @@ export const registerJuntoIpc = (): void => {
       const kernel = yield* KernelService;
       const pause = yield* PausePlane;
       const settingsForSeed = yield* SettingsService;
-      const stationForSeed = yield* settingsForSeed.get;
-      if (stationForSeed.station.role !== "remote") {
-        yield* Effect.tryPromise({
-          try: () =>
-            runMainAuthoring("startup.canvas.ensure-seed", () =>
-              AppRuntime.runPromise(modelForBoot.ensureSeed),
-            ),
-          catch: () => undefined,
-        }).pipe(Effect.catch(() => Effect.void));
-      }
+      const settingsAtBoot = yield* settingsForSeed.get;
+      yield* Effect.tryPromise({
+        try: () => runMainAuthoring("startup.canvas.ensure-seed", () => AppRuntime.runPromise(modelForBoot.ensureSeed)),
+        catch: () => undefined,
+      }).pipe(Effect.catch(() => Effect.void));
       const mailRepository = yield* WorkRepository;
       mailRepository.subscribeChanges((canvasName, nodeId, kind) => {
         if (kind === "mail") broadcast(IPC_CHANNELS.workMailChanged, { canvasName, nodeId });
@@ -1634,7 +1572,7 @@ export const registerJuntoIpc = (): void => {
       seatAwarenessPlane.subscribe((event) =>
         broadcast(IPC_CHANNELS.seatAwarenessChanged, event),
       );
-      const applySeatAwareness = (settings: typeof stationForSeed): void => {
+      const applySeatAwareness = (settings: typeof settingsAtBoot): void => {
         if (!SEAT_AWARENESS_COMPILED) return;
         const on = resolveSeatAwarenessGate({
           env: process.env[SEAT_AWARENESS_ENV],
@@ -1644,7 +1582,7 @@ export const registerJuntoIpc = (): void => {
         seatAwarenessPlane.stop();
         if (on) seatAwarenessPlane.start({ enabled: true, apiKey: seatAwarenessApiKey() });
       };
-      applySeatAwareness(stationForSeed);
+      applySeatAwareness(settingsAtBoot);
       settingsForSeed.subscribe(applySeatAwareness);
       // Mail waits for each generation's TUI to come up (bracketed paste on,
       // settled idle) before its first paste; see mail-readiness.
@@ -1870,8 +1808,6 @@ export const registerJuntoIpc = (): void => {
               () =>
                 AppRuntime.runPromise(
                   Effect.gen(function* () {
-                    const denied = yield* denyRemoteWork;
-                    if (denied) return denied;
                     const model = yield* ModelService;
                     const canvas = yield* model.canvas(canvasName);
                     const node = canvas.nodes.get(asNodeId(nodeId));
@@ -2428,11 +2364,11 @@ export const registerJuntoIpc = (): void => {
         write: (effect) => runMainAuthoring("review.checkout", () => AppRuntime.runPromise(effect)),
         onError: (error) => console.error("[checkout-watch]", error),
       });
-      const syncCheckoutWatch = (role: string): void => {
-        if (!productAutomationSuspended && role === "command-center") checkoutWatch?.start();
+      const syncCheckoutWatch = (): void => {
+        if (!productAutomationSuspended) checkoutWatch?.start();
         else checkoutWatch?.stop();
       };
-      syncCheckoutWatch((yield* settingsForSeed.get).station.role);
+      syncCheckoutWatch();
 
       snapshots.start();
       // First usage fetch is fire-and-forget off the boot critical path;
@@ -2446,7 +2382,7 @@ export const registerJuntoIpc = (): void => {
       });
 
       settingsForSeed.subscribe((settings) => {
-        syncCheckoutWatch(settings.station.role);
+        syncCheckoutWatch();
       });
     }),
   );

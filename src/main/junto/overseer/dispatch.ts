@@ -223,7 +223,7 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
           actor: authority.actor,
           installationId: authority.installationId,
           authorialInstallationId: authority.localInstallationId,
-          role: authority.configuration.role,
+          machineName: authority.configuration.name,
           scope: "portfolio",
           humanDelegationOnly: true,
           affectedByPause: false,

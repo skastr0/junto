@@ -26,11 +26,6 @@ import { SshTransportLive } from "./junto/ssh";
 import { StateEngineLive } from "./junto/state/engine";
 import { MachineRepositoryLive } from "./junto/machines/repository";
 import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
-import { StationFleetTargetRepositoryLive } from "./junto/station/fleet-target-repository";
-import {
-  StationRepositoryLive,
-} from "./junto/station/repository";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
 import {
   resolveCandidateRuntimeRootFromRemoteBinary,
@@ -85,7 +80,7 @@ export const remoteAppVersion = (): string => {
 
 // One shared settings layer reference: the usage plane's operator-credential
 // reader and every other consumer get the same memoized SettingsService.
-const RemoteSettingsLive = makeSettingsLive({ ensureDefaultCommandCenter: false });
+const RemoteSettingsLive = makeSettingsLive();
 
 const StateRepositoriesLive = Layer.provideMerge(
   Layer.mergeAll(
@@ -96,10 +91,8 @@ const StateRepositoriesLive = Layer.provideMerge(
     Layer.provideMerge(UsageLive, RemoteSettingsLive),
     RemoteSettingsLive,
     SchedulerRepositoryLive,
-    StationRepositoryLive,
     MachineRepositoryLive,
     SeatSessionRepositoryLive,
-    StationFleetTargetRepositoryLive,
     makeContentServiceLive(),
   ),
   Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(StateEngineLive, InstallOpsLive)),
@@ -142,7 +135,7 @@ const BaseLayer = Layer.mergeAll(
 
 const BaseWithPauseLive = Layer.provideMerge(PausePlaneLive, BaseLayer);
 
-// Base owns StationRepository; provide it into the per-call actor WHEN while
+// The base provides this machine identity to the per-call actor admission while
 // retaining ActorSeatOccupy as a root service for KernelLive and other ingress.
 const BaseWithActorSeatOccupyLive = Layer.provideMerge(
   ActorSeatOccupyLive,

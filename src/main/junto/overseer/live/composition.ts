@@ -1,3 +1,4 @@
+import { isThisMachine } from "@shared/machine-identity";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { asNodeId, type Canvas, type Seat } from "@shared/model";
@@ -7,7 +8,7 @@ import { getProcessIdentityMap } from "../../process-identity";
 import { SettingsService } from "../../settings/service";
 import { StateEngine } from "../../state/service";
 import { withSqlRead } from "../../state/sql-read";
-import { StationRepository } from "../../station/repository";
+import { MachineRepository } from "../../machines/repository";
 import { WorkRevisions, WorkRepository } from "../../work/repository";
 import { admitOverseer } from "../admission";
 import type { OverseerHostIdentity } from "./execution";
@@ -15,7 +16,7 @@ import { buildLiveContext, type LiveCanvasRead } from "./context";
 import { makeLiveRepository } from "./repository";
 import { createLiveSessionService } from "./service";
 
-type Services = ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | WorkRevisions | WorkRepository;
+type Services = ModelService | ModelActorRefs | SettingsService | StateEngine | SqlClient.SqlClient | MachineRepository | WorkRevisions | WorkRepository;
 export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
 
 /** A canvas revision as the live journal keeps it: the sequence, as text. */
@@ -76,9 +77,7 @@ export const composeOverseerLive = async (run: LiveRun) => {
   const resolveOccupant = async (canvasName: string, nodeId: string): Promise<OverseerHostIdentity | undefined> => {
     try {
       const authority = await run(admitOverseer({ canvasName, nodeId }));
-      // Voice lives on Command Center. Remote administration retains its Station owner.
-      if (authority.configuration.role !== "command-center" ||
-        authority.hostId !== authority.configuration.hostId) return undefined;
+      if (!isThisMachine(authority.hostId, authority.configuration.name)) return undefined;
       const node = voiceSeatOf((await run(model.canvas(canvasName))).nodes.get(asNodeId(nodeId)));
       if (node === undefined) return undefined;
       const matches = processMap.snapshot().filter((entry) => {

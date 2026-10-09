@@ -7,7 +7,7 @@ import type { WorkErrorBody } from "@shared/work-control";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
 import { deriveActorSeatId } from "../actor-seat-id";
-import { StationRepository } from "../station/repository";
+import { MachineRepository } from "../machines/repository";
 
 /** One canvas as the model holds it, with the actor references compiled for it. */
 export type OverseerSeatRead = {
@@ -60,21 +60,16 @@ export const admitOverseer = Effect.fn("overseer.admit")(function* (
 ) {
   const model = yield* ModelService;
   const actors = yield* ModelActorRefs;
-  const stations = yield* StationRepository;
-  const configuration = yield* stations.configuration.pipe(
+  const machines = yield* MachineRepository;
+  const configuration = yield* machines.configuration.pipe(
     Effect.mapError((error): WorkErrorBody => ({ type: "RuntimeDown", message: error.message })),
   );
-  if (configuration === undefined) {
-    return yield* Effect.fail<WorkErrorBody>({
-      type: "RuntimeDown", message: "configure this installation before using overseer commands",
-    });
-  }
-  const localInstallationId = yield* stations.installationId.pipe(
+  const localInstallationId = yield* machines.installationId.pipe(
     Effect.mapError((error): WorkErrorBody => ({ type: "RuntimeDown", message: error.message })),
   );
-  if (sourceInstallationId !== undefined && configuration.configuration.role !== "command-center") {
+  if (sourceInstallationId !== undefined && sourceInstallationId !== localInstallationId) {
     return yield* Effect.fail<WorkErrorBody>({
-      type: "ScopeError", message: "only Command Center accepts Remote overseer commands",
+      type: "ScopeError", message: "Overseer commands require an occupant on this machine.",
     });
   }
   const installationId = sourceInstallationId ?? localInstallationId;
@@ -106,7 +101,7 @@ export const watchOverseerRevocation = (
   caller: OverseerCaller,
   expectedActor: ActorRef,
   sourceInstallationId?: InstallationId,
-): Effect.Effect<never, WorkErrorBody, ModelService | ModelActorRefs | StationRepository> =>
+): Effect.Effect<never, WorkErrorBody, ModelService | ModelActorRefs | MachineRepository> =>
   Effect.scoped(Effect.gen(function* () {
     const model = yield* ModelService;
     const changes = yield* Queue.dropping<void>(1);

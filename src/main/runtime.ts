@@ -47,13 +47,6 @@ import { SshTransportLive } from "./junto/ssh";
 import { primeHostsSnapshot } from "./junto/hosts/snapshot";
 import { StateEngineLive } from "./junto/state/engine";
 import { MachineRepositoryLive } from "./junto/machines/repository";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
-import {
-  StationFleetTargetRepositoryLive,
-} from "./junto/station/fleet-target-repository";
-import {
-  StationRepositoryLive,
-} from "./junto/station/repository";
 import { WorkModelDependentsLive } from "./junto/work/model-dependents";
 import { ModelLive } from "./junto/model/layer";
 import {
@@ -91,9 +84,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     Layer.provideMerge(UsageLive, SettingsLive),
     SettingsLive,
     SchedulerRepositoryLive,
-    StationRepositoryLive,
     MachineRepositoryLive,
-    StationFleetTargetRepositoryLive,
     makeContentServiceLive(),
   ),
   Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(StateEngineLive, InstallOpsLive)),
@@ -176,7 +167,7 @@ const BaseLayer = Layer.mergeAll(
 // Every canvas played before comes back playing (pause-plane.ts LAUNCH).
 const BaseWithPauseLive = Layer.provideMerge(PausePlaneLaunchPlayingLive, BaseLayer);
 
-// Base owns StationRepository; provide it into the per-call actor WHEN while
+// The base provides this machine identity to the per-call actor admission while
 // retaining ActorSeatOccupy as a root service for KernelLive and other ingress.
 const BaseWithActorSeatOccupyLive = Layer.provideMerge(
   ActorSeatOccupyLive,

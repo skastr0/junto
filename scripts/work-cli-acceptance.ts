@@ -53,10 +53,7 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import {
-  StationFleetTargetRepositoryLive,
-} from "../src/main/junto/station/fleet-target-repository";
+import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
@@ -314,7 +311,7 @@ const seed = () => Schema.decodeUnknownSync(Command)({
   _tag: "Add", canvas: CANVAS,
   nodes: [
     { kind: "agent", id: AGENT, x: 40, y: 40, width: 140, height: 56, z: 0,
-      label: "agent", agentKey: "local:default", host: "local", overseer: false,
+      label: "agent", agentKey: "local:default", host: "acceptance", overseer: false,
       bindingId: "work-acceptance-agent", harness: "claude", onRemove: "detach" },
     { kind: "task", id: TASKS, x: 240, y: 40, width: 160, height: 80, z: 1 },
     { kind: "requests", id: REQS, x: 440, y: 40, width: 160, height: 80, z: 2 },
@@ -412,8 +409,7 @@ export const runWorkCliAcceptance = async () => {
       WorkRepositoryLive,
       CrewRepositoryLive,
       AgentSignalRepositoryLive,
-      StationRepositoryLive,
-      StationFleetTargetRepositoryLive,
+      MachineRepositoryLive,
       SettingsLive,
       makeContentServiceLive({
         root: join(root, "content"),
@@ -433,15 +429,11 @@ export const runWorkCliAcceptance = async () => {
   const runtime = ManagedRuntime.make((
     Layer.mergeAll(workLive, PausePlaneAllPlaying) as never),
   );
-  // Establish the same canonical role and topology services used in the app.
+  // Name the disposable machine before authoring its canvas.
   const settings = await runtime.runPromise(SettingsService);
-  await runtime.runPromise(
-    settings.setStationTopology({
-      role: "command-center",
-      hostId: "local",
-      supervisedPreferred: true,
-    }),
-  );
+  const machines = await runtime.runPromise(MachineRepository);
+  await runtime.runPromise(machines.configureName("acceptance"));
+  await runtime.runPromise(settings.setMachinePreferences({ supervisedPreferred: true }));
 
   // Author only topology, then seed fixed acceptance work through explicit
   // WorkRepository verbs. The canvas never carries a durable work projection.
