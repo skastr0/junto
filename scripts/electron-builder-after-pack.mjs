@@ -37,12 +37,9 @@ const LINUX_ARTIFACT_ROOT_SHAPE = `${LINUX_RELEASE_ROOT}/.junto-package-attempt-
 const LINUX_FIXED_MODE_DIRECTORIES = [
   "resources",
   "resources/bin",
-  "resources/systemd",
 ];
 const LINUX_FIXED_MODE_FILES = new Map([
   ["resources/bin/unix-peer-pid.py", 0o755],
-  ["resources/systemd/junto-remote-launch", 0o755],
-  ["resources/systemd/junto-remote.service.template", 0o644],
 ]);
 
 const libraryFuseNames = () =>

@@ -1,7 +1,7 @@
 /**
  * Architecture cement: the Node-only Remote entry and its runtime seed must
  * not pull Electron, window hosts, renderer, or browser host modules into the
- * static import graph (or the emitted remote bundle).
+ * static import graph.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -42,7 +42,7 @@ describe("junto-remote closure", () => {
       if (FORBIDDEN_REQUIRE.test(source)) {
         violations.push(`${rel}: require(electron)`);
       }
-      if (rel !== "scripts/build-junto-remote.ts" && FORBIDDEN_BROWSER_WINDOW.test(source)) {
+      if (FORBIDDEN_BROWSER_WINDOW.test(source)) {
         violations.push(`${rel}: window host symbol`);
       }
       if (FORBIDDEN_BROWSER_COMPOSITION.test(source)) {
@@ -70,27 +70,6 @@ describe("junto-remote closure", () => {
     expect(seed).not.toMatch(/from\s+["']\.\/runtime["']/u);
     expect(entry).not.toMatch(/\bAppRuntime\b/u);
     expect(seed).not.toMatch(/\bAppRuntime\b/u);
-  });
-
-  it("remote:build output forbids electron and browser composition when present", () => {
-    const bundle = join(root, "out/remote/junto-remote.js");
-    if (!existsSync(bundle)) {
-      // Bundle is produced by `bun run remote:build`. Absence is not a red
-      // for unit CI that did not build; the build script itself rejects
-      // forbidden symbols before writing.
-      expect(existsSync(join(root, "scripts/build-junto-remote.ts"))).toBe(
-        true,
-      );
-      return;
-    }
-    const body = readFileSync(bundle, "utf8");
-    expect(body).not.toMatch(/from\s+["']electron["']/u);
-    expect(body).not.toMatch(/(?:__require|require)\s*\(\s*["']electron["']\s*\)/u);
-    expect(body).not.toMatch(/\bBrowserWindow\b/u);
-    expect(body).not.toMatch(/startBrowserComposition|browser\/composition/u);
-    // UnsetEnvironment may list ELECTRON_RUN_AS_NODE to scrub it; forbidding
-    // assignment is the product contract.
-    expect(body).not.toMatch(/ELECTRON_RUN_AS_NODE\s*=\s*["']?1/u);
   });
 
   it("install-user-service switch is wired in the entry", () => {

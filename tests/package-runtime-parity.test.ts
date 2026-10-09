@@ -1,7 +1,6 @@
 import { createPackage } from "@electron/asar";
 import { spawnSync } from "node:child_process";
 import {
-  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -21,7 +20,6 @@ import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
   PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
-  REMOTE_PROVENANCE_SOURCE_RELATIVE,
   RUNTIME_BUILD_IDENTITY_SCHEMA,
   assertExactCommittedCheckout,
   embedRuntimeBuildIdentity,
@@ -32,7 +30,6 @@ import {
   preparePackageRuntimes,
   readPackageSchemaFacts,
   readPackageSourceFacts,
-  resetOwnedRemoteOutput,
   validateRawAsarArchive,
   validateRawAsarHeader,
   verifyPackagedRuntimeParity,
@@ -42,29 +39,14 @@ import {
   type RuntimeBuildIdentity,
 } from "../scripts/package-runtime-provenance";
 import {
-  PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA,
-  cloneExactCommit,
-  decodePackageRuntimeParityReceipt,
-  readLinuxX64ExecutionFacts,
-  withQualificationReceiptAttempt,
-} from "../scripts/qualify-package-runtime-parity";
-import {
-  LINUX_NODE_PTY_RUNTIME_FILES,
-  REMOTE_ENTRY_SOURCE_RELATIVE,
-  installLinuxRemoteRuntime,
-} from "../scripts/build-linux-remote-runtime";
-import {
-  LINUX_REMOTE_APP_EXACT_FILES,
   LINUX_RUNTIME_AUDIT_SCHEMA,
+  LINUX_RUNTIME_REQUIRED_FILES,
   collectLinuxRuntimeInventory,
   decodeLinuxRuntimeAuditReceipt,
-  linuxRemoteClosureRoot,
-  requireExactLinuxRemoteClosure,
 } from "../scripts/audit-linux-package";
 import {
   finalizeLinuxRuntimeArtifact,
   linuxRuntimeArchiveName,
-  linuxRuntimeArtifactName,
   publishPackageAttempt,
 } from "../scripts/finalize-linux-package";
 
@@ -112,100 +94,37 @@ const writeProvenance = async (input: {
 
 const writeSourceCohort = async (
   root: string,
-): Promise<{ readonly main: Buffer; readonly remote: Buffer }> => {
+): Promise<{ readonly main: Buffer }> => {
   const main = compiled("electron-main", "console.log('fresh schema-20 main');\n");
-  const remote = compiled(
-    "linux-remote",
-    "console.log('fresh schema-20 remote');\n",
-  );
   await mkdir(path.join(root, "out/main"), { recursive: true });
-  await mkdir(path.join(root, "out/remote"), { recursive: true });
   await writeFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE), main);
-  await writeFile(path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE), remote);
   await writeProvenance({
     runtime: "electron-main",
     payload: main,
     file: path.join(root, MAIN_PROVENANCE_SOURCE_RELATIVE),
   });
-  await writeProvenance({
-    runtime: "linux-remote",
-    payload: remote,
-    file: path.join(root, REMOTE_PROVENANCE_SOURCE_RELATIVE),
-  });
-  return { main, remote };
+  return { main };
 };
 
-const writeExactRemoteClosure = async (
-  runtimeRoot: string,
-  remote: Buffer,
-): Promise<void> => {
-  const ordinaryFiles = [
-    "junto",
-    "resources/bin/junto",
-    "resources/bin/unix-peer-pid.py",
-    "resources/bin/node",
-    "resources/bin/junto-remote",
-    "resources/systemd/junto-remote-launch",
-  ];
-  for (const relative of ordinaryFiles) {
+const writeLinuxRuntimeFiles = async (runtimeRoot: string): Promise<void> => {
+  for (const relative of LINUX_RUNTIME_REQUIRED_FILES) {
+    if (relative === "resources/app.asar") continue;
     await mkdir(path.dirname(path.join(runtimeRoot, relative)), {
       recursive: true,
     });
     await writeFile(path.join(runtimeRoot, relative), `fixture ${relative}\n`);
-  }
-  await writeFile(
-    path.join(
-      runtimeRoot,
-      "resources/systemd/junto-remote.service.template",
-    ),
-    "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\n",
-  );
-  await mkdir(path.join(runtimeRoot, "resources/app-remote"), {
-    recursive: true,
-  });
-  await writeFile(
-    path.join(runtimeRoot, "resources/app-remote/junto-remote.js"),
-    remote,
-  );
-  await writeFile(
-    path.join(runtimeRoot, "resources/app-remote/package.json"),
-    `${JSON.stringify({ name: "junto-app-remote", private: true, main: "junto-remote.js" })}\n`,
-  );
-  await writeProvenance({
-    runtime: "linux-remote",
-    payload: remote,
-    file: path.join(
-      runtimeRoot,
-      "resources/app-remote/package-runtime-provenance.json",
-    ),
-  });
-  for (const relative of LINUX_NODE_PTY_RUNTIME_FILES) {
-    const destination = path.join(
-      runtimeRoot,
-      "resources/app-remote/node_modules/node-pty",
-      relative,
-    );
-    await mkdir(path.dirname(destination), { recursive: true });
-    await writeFile(
-      destination,
-      relative === "package.json"
-        ? `${JSON.stringify({ name: "node-pty", version: "1.1.0" })}\n`
-        : `stock node-pty ${relative}\n`,
-    );
   }
 };
 
 const createSyntheticLinuxRuntime = async (input: {
   readonly root: string;
   readonly packagedMain?: Buffer;
-  readonly includeAsarRemote?: boolean;
 }): Promise<{
   readonly runtimeRoot: string;
   readonly appStage: string;
   readonly main: Buffer;
-  readonly remote: Buffer;
 }> => {
-  const { main, remote } = await writeSourceCohort(input.root);
+  const { main } = await writeSourceCohort(input.root);
   const appStage = path.join(input.root, "app-stage");
   const runtimeRoot = path.join(input.root, "runtime");
   const packagedMain = input.packagedMain ?? main;
@@ -220,39 +139,10 @@ const createSyntheticLinuxRuntime = async (input: {
     payload: packagedMain,
     file: path.join(appStage, MAIN_PROVENANCE_SOURCE_RELATIVE),
   });
-  if (input.includeAsarRemote === true) {
-    await mkdir(path.join(appStage, "out/remote"), { recursive: true });
-    await writeFile(
-      path.join(appStage, "out/remote/junto-remote.js"),
-      "forbidden Remote\n",
-    );
-  }
   await mkdir(path.join(runtimeRoot, "resources"), { recursive: true });
   await createPackage(appStage, path.join(runtimeRoot, "resources/app.asar"));
-  await writeExactRemoteClosure(runtimeRoot, remote);
-  return { runtimeRoot, appStage, main, remote };
-};
-
-const createSyntheticMacBundle = async (
-  root: string,
-): Promise<{ readonly app: string }> => {
-  const { main } = await writeSourceCohort(root);
-  const stage = path.join(root, "mac-stage");
-  const app = path.join(root, "Junto.app");
-  await mkdir(path.join(stage, "out/main"), { recursive: true });
-  await writeFile(path.join(stage, "out/main/index.js"), main);
-  await writeFile(
-    path.join(stage, "package.json"),
-    `${JSON.stringify({ version: source.appVersion })}\n`,
-  );
-  await writeProvenance({
-    runtime: "electron-main",
-    payload: main,
-    file: path.join(stage, MAIN_PROVENANCE_SOURCE_RELATIVE),
-  });
-  await mkdir(path.join(app, "Contents/Resources"), { recursive: true });
-  await createPackage(stage, path.join(app, "Contents/Resources/app.asar"));
-  return { app };
+  await writeLinuxRuntimeFiles(runtimeRoot);
+  return { runtimeRoot, appStage, main };
 };
 
 const git = (cwd: string, args: ReadonlyArray<string>): string => {
@@ -373,11 +263,10 @@ afterAll(async () => {
 });
 
 describe("fresh compiler cohort provenance", () => {
-  it("removes stale main and Remote before both compilers and stamps one identity", async () => {
+  it("removes stale main before the compiler and stamps its identity", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "junto-cohort-build-"));
     try {
       await mkdir(path.join(root, "out/main"), { recursive: true });
-      await mkdir(path.join(root, "out/remote"), { recursive: true });
       const stale = compiled(
         "electron-main",
         "var CURRENT_STATE_SCHEMA_VERSION=1; var APP_VERSION='0.0.0-stale';\n",
@@ -388,10 +277,8 @@ describe("fresh compiler cohort provenance", () => {
         payload: stale,
         file: path.join(root, MAIN_PROVENANCE_SOURCE_RELATIVE),
       });
-      await writeFile(path.join(root, "out/remote/stale"), "stale\n");
       await writeFile(path.join(root, "out/sibling"), "preserve\n");
       let mainWasAbsent = false;
-      let remoteWasAbsent = false;
       await preparePackageRuntimes({
         repoRoot: root,
         target: "linux",
@@ -407,19 +294,8 @@ describe("fresh compiler cohort provenance", () => {
             "fresh main compiler bytes\n",
           );
         },
-        buildRemote: async (candidate) => {
-          remoteWasAbsent =
-            (await lstat(path.join(candidate, "out/remote/stale")).catch(
-              () => undefined,
-            )) === undefined;
-          await writeFile(
-            path.join(candidate, REMOTE_ENTRY_SOURCE_RELATIVE),
-            "fresh remote compiler bytes\n",
-          );
-        },
       });
       expect(mainWasAbsent).toBe(true);
-      expect(remoteWasAbsent).toBe(true);
       await expect(readFile(path.join(root, "out/sibling"), "utf8")).resolves.toBe(
         "preserve\n",
       );
@@ -429,48 +305,11 @@ describe("fresh compiler cohort provenance", () => {
         expected: source,
       });
       expect(verified.cohortNonce).toBe(cohortNonce);
-      expect(verified.compiledRuntimes.linuxRemote).toBeDefined();
       expect(
         extractRuntimeBuildIdentity(
           await readFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE)),
         ).cohortNonce,
       ).toBe(cohortNonce);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("does not compile an unshipped Linux Remote for mac packages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-mac-cohort-build-"));
-    try {
-      await mkdir(path.join(root, "out/remote"), { recursive: true });
-      await writeFile(path.join(root, "out/remote/stale"), "stale\n");
-      let remoteCompilerCalled = false;
-      const prepared = await preparePackageRuntimes({
-        repoRoot: root,
-        target: "mac",
-        source,
-        cohortNonce,
-        buildMain: async (candidate) => {
-          await writeFile(
-            path.join(candidate, MAIN_PAYLOAD_SOURCE_RELATIVE),
-            "fresh main compiler bytes\n",
-          );
-        },
-        buildRemote: async () => {
-          remoteCompilerCalled = true;
-        },
-      });
-      expect(remoteCompilerCalled).toBe(false);
-      expect(prepared.remote).toBeUndefined();
-      await expect(lstat(path.join(root, "out/remote/stale"))).rejects.toThrow();
-
-      const verified = await verifyPreparedPackageRuntimes({
-        repoRoot: root,
-        target: "mac",
-        expected: source,
-      });
-      expect(verified.compiledRuntimes.linuxRemote).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -488,7 +327,6 @@ describe("fresh compiler cohort provenance", () => {
           source,
           cohortNonce,
           buildMain: async () => {},
-          buildRemote: async () => {},
         }),
       ).rejects.toThrow(/fresh compiler output/u);
     } finally {
@@ -496,27 +334,6 @@ describe("fresh compiler cohort provenance", () => {
     }
   });
 
-  it("removes only the owned Remote output and refuses its symlink", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-owned-output-"));
-    try {
-      await mkdir(path.join(root, "out/remote"), { recursive: true });
-      await writeFile(path.join(root, "out/remote/stale"), "old\n");
-      await writeFile(path.join(root, "out/sibling"), "keep\n");
-      await resetOwnedRemoteOutput(root);
-      await expect(readFile(path.join(root, "out/sibling"), "utf8")).resolves.toBe(
-        "keep\n",
-      );
-      await rm(path.join(root, "out/remote"), { recursive: true });
-      await writeFile(path.join(root, "outside"), "safe\n");
-      await symlink(path.join(root, "outside"), path.join(root, "out/remote"));
-      await expect(resetOwnedRemoteOutput(root)).rejects.toThrow(/symlink/u);
-      await expect(readFile(path.join(root, "outside"), "utf8")).resolves.toBe(
-        "safe\n",
-      );
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("exact committed source admission", () => {
@@ -552,28 +369,6 @@ describe("exact committed source admission", () => {
     }
   });
 
-  it("clones exact commit bytes without local alternates", async () => {
-    const fixture = await createSourceRepository();
-    const work = await mkdtemp(path.join(tmpdir(), "junto-exact-clone-"));
-    const clone = path.join(work, "clone");
-    try {
-      const result = await cloneExactCommit({
-        sourceRoot: fixture.root,
-        cloneRoot: clone,
-        commit: fixture.commit,
-      });
-      expect(result.commit).toBe(fixture.commit);
-      expect(
-        await lstat(path.join(clone, ".git/objects/info/alternates")).catch(
-          () => undefined,
-        ),
-      ).toBeUndefined();
-      expect(git(clone, ["count-objects", "-v"])).not.toMatch(/^alternate:/mu);
-    } finally {
-      await rm(fixture.root, { recursive: true, force: true });
-      await rm(work, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("package source facts", () => {
@@ -762,8 +557,8 @@ describe("package source facts", () => {
   });
 });
 
-describe("packaged runtime exact parity and closure", () => {
-  it("accepts exact packaged outputs and binds the full Linux closure", async () => {
+describe("packaged runtime exact parity", () => {
+  it("accepts exact packaged outputs", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "junto-package-parity-"));
     try {
       const candidate = await createSyntheticLinuxRuntime({ root });
@@ -774,11 +569,8 @@ describe("packaged runtime exact parity and closure", () => {
         expected: source,
       });
       expect(receipt.cohortNonce).toBe(cohortNonce);
-      expect(receipt.runtimes.linuxRemote?.payloadSha256).toBe(
-        receipt.compiledRuntimes.linuxRemote?.payloadSha256,
-      );
-      expect(receipt.linuxRuntimeClosure?.remoteEntries.map((entry) => entry.path)).toEqual(
-        [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/junto-remote", "resources/systemd/junto-remote-launch", "resources/systemd/junto-remote.service.template"].sort(),
+      expect(receipt.runtimes.electronMain.payloadSha256).toBe(
+        receipt.compiledRuntimes.electronMain.payloadSha256,
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -809,168 +601,25 @@ describe("packaged runtime exact parity and closure", () => {
     }
   });
 
-  it("rejects alternate or excess Remote copies anywhere in Linux runtime", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-package-duplicate-"));
-    try {
-      const candidate = await createSyntheticLinuxRuntime({ root });
-      await mkdir(path.join(candidate.runtimeRoot, "resources/alternate"), {
-        recursive: true,
-      });
-      await writeFile(
-        path.join(
-          candidate.runtimeRoot,
-          "resources/alternate/junto-remote.js",
-        ),
-        "duplicate\n",
-      );
-      await expect(
-        verifyPackagedRuntimeParity({
-          repoRoot: root,
-          target: "linux",
-          runtimeRoot: candidate.runtimeRoot,
-          expected: source,
-        }),
-      ).rejects.toThrow(/alternate Linux Remote copy/u);
-      await rm(path.join(candidate.runtimeRoot, "resources/alternate"), {
-        recursive: true,
-      });
-      await mkdir(
-        path.join(
-          candidate.runtimeRoot,
-          "resources/app.asar.unpacked/out/remote",
-        ),
-        { recursive: true },
-      );
-      await writeFile(
-        path.join(
-          candidate.runtimeRoot,
-          "resources/app.asar.unpacked/out/remote/stale.js",
-        ),
-        "duplicate\n",
-      );
-      await expect(
-        verifyPackagedRuntimeParity({
-          repoRoot: root,
-          target: "linux",
-          runtimeRoot: candidate.runtimeRoot,
-          expected: source,
-        }),
-      ).rejects.toThrow(/alternate Linux Remote copy/u);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("forbids Remote-only resources in mac app.asar.unpacked", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-package-mac-remote-"));
-    try {
-      const candidate = await createSyntheticMacBundle(root);
-      await mkdir(
-        path.join(
-          candidate.app,
-          "Contents/Resources/app.asar.unpacked/out/remote",
-        ),
-        { recursive: true },
-      );
-      await writeFile(
-        path.join(
-          candidate.app,
-          "Contents/Resources/app.asar.unpacked/out/remote/stale.js",
-        ),
-        "stale\n",
-      );
-      await expect(
-        verifyPackagedRuntimeParity({
-          repoRoot: root,
-          target: "mac",
-          appBundle: candidate.app,
-          expected: source,
-        }),
-      ).rejects.toThrow(/Remote-only resource/u);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("whole-directory Remote staging removes stale files and preserves siblings", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-remote-replace-"));
-    const runtime = path.join(root, "runtime");
-    try {
-      await mkdir(path.join(root, "out/remote"), { recursive: true });
-      await writeFile(
-        path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE),
-        "fresh remote entry\n",
-      );
-      await mkdir(path.join(runtime, "resources/app-remote"), { recursive: true });
-      await writeFile(
-        path.join(runtime, "resources/app-remote/stale-extra.js"),
-        "stale\n",
-      );
-      await writeFile(path.join(runtime, "preserve"), "keep\n");
-      await installLinuxRemoteRuntime({
-        repoRoot: root,
-        runtimeRoot: runtime,
-        skipNativeRebuild: true,
-      });
-      const inventory = await collectLinuxRuntimeInventory(runtime);
-      expect(
-        inventory.entries
-          .map((entry) => entry.path)
-          .filter((entry) => entry.startsWith("resources/app-remote/")),
-      ).toEqual([
-        "resources/app-remote/junto-remote.js",
-        "resources/app-remote/package.json",
-      ]);
-      await expect(readFile(path.join(runtime, "preserve"), "utf8")).resolves.toBe(
-        "keep\n",
-      );
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("runtime inventory changes for Node, wrapper, launcher, and node-pty", async () => {
+  it("the audit receipt decodes and the inventory root follows every runtime file", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "junto-runtime-inventory-"));
     try {
       const candidate = await createSyntheticLinuxRuntime({ root });
       const initial = await collectLinuxRuntimeInventory(candidate.runtimeRoot);
-      const remoteClosure = requireExactLinuxRemoteClosure(initial);
-      const byPath = new Map(initial.entries.map((entry) => [entry.path, entry]));
       expect(
         decodeLinuxRuntimeAuditReceipt({
           schema: LINUX_RUNTIME_AUDIT_SCHEMA,
           ok: true,
           artifact: "fixture",
           inventory: initial,
-          remoteClosure: {
-            exact: true,
-            entries: remoteClosure,
-            rootSha256: linuxRemoteClosureRoot(remoteClosure),
-          },
           nativeObjects: [],
           chromeSandbox: "absent",
-          stockNode: {
-            source: "pinned-official-nodejs-linux-x64-archive",
-            version: "26.5.1",
-            moduleAbi: "147",
-            officialArchiveSha256:
-              "2b07f09c218d473a26442bff5a90151f53f7b7c0a23bad244eda2c26303a2ba7",
-            binarySha256: byPath.get("resources/bin/node")?.sha256,
-          },
-          nodePty: {
-            version: "1.1.0",
-            execution: "functional",
-            nativeModuleSha256: byPath.get(
-              "resources/app-remote/node_modules/node-pty/build/Release/pty.node",
-            )?.sha256,
-          },
         }),
       ).toMatchObject({ schema: LINUX_RUNTIME_AUDIT_SCHEMA, ok: true });
       for (const relative of [
-        "resources/bin/node",
-        "resources/bin/junto-remote",
-        "resources/systemd/junto-remote-launch",
-        "resources/app-remote/node_modules/node-pty/lib/index.js",
+        "junto",
+        "resources/bin/junto",
+        "resources/bin/unix-peer-pid.py",
       ]) {
         await writeFile(path.join(candidate.runtimeRoot, relative), `mutated ${relative}\n`);
         const changed = await collectLinuxRuntimeInventory(candidate.runtimeRoot);
@@ -1143,107 +792,12 @@ describe("attempt-owned publication", () => {
   });
 });
 
-describe("qualification receipt lifecycle", () => {
-  it("a failed attempt supersedes an older success receipt immediately", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-stale-receipt-"));
-    const receiptPath = path.join(root, "receipt.json");
-    try {
-      await writeFile(receiptPath, '{"old-success":true,"commit":"deadbeef"}\n');
-      await expect(
-        withQualificationReceiptAttempt({
-          receiptPath,
-          body: async () => {
-            throw new Error("forced attempt failure");
-          },
-        }),
-      ).rejects.toThrow(/forced attempt failure/u);
-      const marker = JSON.parse(await readFile(receiptPath, "utf8")) as {
-        schema: string;
-        status: string;
-        nonce: string;
-      };
-      expect(marker.schema).toBe(PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA);
-      expect(marker.status).toBe("failed");
-      expect(marker.nonce).toMatch(/^[0-9a-f-]{36}$/u);
-      expect(await readFile(receiptPath, "utf8")).not.toContain("old-success");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("strict receipt decode rejects a plausible two-payload receipt with no runtime audit", () => {
-    const verified = (runtime: PackageRuntime) => ({
-      runtime,
-      manifestSha256: "b".repeat(64),
-      payloadSha256: "c".repeat(64),
-      payloadBytes: 42,
-      packagedPath:
-        runtime === "electron-main"
-          ? "out/main/index.js"
-          : "resources/app-remote/junto-remote.js",
-      buildIdentity: identity(runtime),
-    });
-    expect(() =>
-      decodePackageRuntimeParityReceipt({
-        schema: "junto/package-runtime-parity-receipt/v2",
-        product: "Junto",
-        qualification: "fresh-isolated-linux-x64-execution",
-        externalCandidatePublished: false,
-        qualifiedAt: new Date().toISOString(),
-        attempt: {
-          nonce: cohortNonce,
-          startedAt: new Date().toISOString(),
-          completedAt: new Date().toISOString(),
-          sourceCommit: source.sourceCommit,
-        },
-        execution: {
-          architectureClaim: "linux-x64-process",
-        },
-        source: { commit: source.sourceCommit },
-        candidateArchive: { sha256: "d".repeat(64) },
-        compilerCohort: {
-          nonce: cohortNonce,
-          runtimes: {
-            electronMain: verified("electron-main"),
-            linuxRemote: verified("linux-remote"),
-          },
-        },
-        packagedRuntimes: {
-          electronMain: verified("electron-main"),
-          linuxRemote: verified("linux-remote"),
-        },
-      }),
-    ).toThrow(/runtime audit/i);
-  });
-
-  it("records Linux x64 execution without claiming physical amd64", () => {
-    const facts = readLinuxX64ExecutionFacts({
-      platform: "linux",
-      arch: "x64",
-      kernelSystem: "Linux",
-      kernelMachine: "aarch64",
-      kernelRelease: "fixture",
-      env: {},
-      bunVersion: "1.3.14",
-      nodeVersion: "v26.5.1",
-      executable: "/runner/bun",
-    });
-    expect(facts.architectureClaim).toBe("linux-x64-process");
-    expect(facts.emulation.status).toBe("observed");
-    expect(JSON.stringify(facts)).not.toMatch(/physical amd64/iu);
-  });
-});
-
 describe("official wiring", () => {
   it("builds once and verifies package drafts before publication", async () => {
-    const [buildApp, macPackage, linuxPackage, qualifier] = await Promise.all([
+    const [buildApp, macPackage, linuxPackage] = await Promise.all([
       readFile(path.join(repoRoot, "scripts/build-app.sh"), "utf8"),
       readFile(path.join(repoRoot, "scripts/package-app-macos.sh"), "utf8"),
       readFile(path.join(repoRoot, "scripts/package-app-linux.sh"), "utf8"),
-      readFile(
-        path.join(repoRoot, "scripts/qualify-package-runtime-parity.ts"),
-        "utf8",
-      ),
     ]);
     expect(buildApp).toContain('prepare --target "$TARGET"');
     expect(buildApp).not.toContain("--runtime-cohort-only");
@@ -1256,9 +810,6 @@ describe("official wiring", () => {
         script.indexOf("publish-attempt"),
       );
     }
-    expect(qualifier).toContain('"--no-local"');
-    expect(qualifier).toContain('"--dissociate"');
-    expect(qualifier).not.toContain("native Linux x64");
     expect(PACKAGE_RUNTIME_PROVENANCE_SCHEMA).toContain("v2");
   });
 });

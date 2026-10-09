@@ -2,7 +2,7 @@ import { chmod, lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { auditLinuxRuntime, validateBundledNodeRuntimeIdentity, validateBundledNodeVersion, validateElfX64, validateUserServiceTemplate } from "../scripts/audit-linux-package";
+import { auditLinuxRuntime, validateElfX64 } from "../scripts/audit-linux-package";
 import { linuxRuntimeArtifactName } from "../scripts/finalize-linux-package";
 
 describe("Linux userland runtime audit", () => {
@@ -10,50 +10,17 @@ describe("Linux userland runtime audit", () => {
     const elf = new Uint8Array(20); elf.set([0x7f, 0x45, 0x4c, 0x46, 2, 1]); elf[18] = 0xb7;
     expect(() => validateElfX64(elf, "native")).toThrow(/x86-64/u);
   });
-  it("accepts only the reviewed bundled Node runtime", () => {
-    expect(validateBundledNodeVersion("v26.5.1\n")).toBe("26.5.1");
-    expect(() => validateBundledNodeVersion("v26.4.1\n")).toThrow(
-      /bundled Node version mismatch/u,
-    );
-    expect(() => validateBundledNodeVersion("v27.0.0\n")).toThrow(
-      /bundled Node version mismatch/u,
-    );
-    expect(
-      validateBundledNodeRuntimeIdentity(
-        JSON.stringify({ node: "26.5.1", modules: "147" }),
-      ),
-    ).toEqual({ nodeVersion: "26.5.1", moduleAbi: "147" });
-    expect(() =>
-      validateBundledNodeRuntimeIdentity(
-        JSON.stringify({ node: "26.5.1", modules: "146" }),
-      ),
-    ).toThrow(/module ABI mismatch/u);
-    expect(() => validateBundledNodeRuntimeIdentity("not-json")).toThrow(
-      /invalid JSON/u,
-    );
-  });
-  it("requires a relocatable service placeholder and rejects privilege directives", () => {
-    expect(() => validateUserServiceTemplate("ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\n")).not.toThrow();
-    expect(() => validateUserServiceTemplate("User=root\nExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\n")).toThrow(/privileged/u);
-  });
   it("fails closed on chrome sandbox and privileged mode residue", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "junto-runtime-audit-"));
     const runtime = path.join(root, linuxRuntimeArtifactName({ version: "0.1.0", arch: "x64" }));
     try {
       await mkdir(path.join(runtime, "resources/bin"), { recursive: true });
-      await mkdir(path.join(runtime, "resources/app-remote"), { recursive: true });
-      await mkdir(path.join(runtime, "resources/systemd"), { recursive: true });
       for (const file of [
         "junto",
         "resources/app.asar",
         "resources/bin/junto",
         "resources/bin/unix-peer-pid.py",
-        "resources/bin/node",
-        "resources/bin/junto-remote",
-        "resources/app-remote/junto-remote.js",
-        "resources/systemd/junto-remote-launch",
       ]) await writeFile(path.join(runtime, file), "fixture");
-      await writeFile(path.join(runtime, "resources/systemd/junto-remote.service.template"), "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\nConditionFileIsExecutable=@JUNTO_RUNTIME_ROOT@/resources/bin/junto-remote\n");
       await writeFile(path.join(runtime, "chrome-sandbox"), "forbidden");
       await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow(/privileged packaging residue/u);
       await rm(path.join(runtime, "chrome-sandbox"));

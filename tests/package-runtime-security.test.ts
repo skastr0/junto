@@ -66,8 +66,8 @@ const runtimeBundleAuditObjectKeys = (source: string): ReadonlyArray<string> => 
 /** Rootless Linux audit is a top-level auditLinuxRuntime({ runtimePath, version }). */
 const linuxRuntimeAuditPresent = (source: string): boolean =>
   /\bexport const auditLinuxRuntime\b/u.test(source) &&
-  /resources\/bin\/junto-remote/u.test(source) &&
-  /resources\/bin\/node/u.test(source);
+  /"resources\/bin\/junto"/u.test(source) &&
+  /"resources\/app\.asar"/u.test(source);
 
 describe("macOS packaged runtime policy", () => {
   it("pins 24 Mach-O objects and only the four exact Electron JIT roles", () => {

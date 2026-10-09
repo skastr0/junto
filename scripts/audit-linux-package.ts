@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import {
-  chmod,
   lstat,
   readFile,
   readdir,
@@ -13,44 +12,14 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { linuxRuntimeArtifactName } from "./finalize-linux-package";
-import {
-  DEFAULT_NODE_REMOTE_MODULE_ABI,
-  DEFAULT_NODE_REMOTE_VERSION,
-  LINUX_NODE_PTY_RUNTIME_FILES,
-  PINNED_NODE_LINUX_X64_ARCHIVE_SHA256,
-} from "./build-linux-remote-runtime";
 
 export const LINUX_RUNTIME_AUDIT_SCHEMA =
-  "junto/linux-runtime-audit/v2" as const;
+  "junto/linux-runtime-audit/v3" as const;
 export const LINUX_RUNTIME_REQUIRED_FILES = [
   "junto",
   "resources/app.asar",
   "resources/bin/junto",
-  "resources/bin/junto-remote",
-  "resources/bin/node",
   "resources/bin/unix-peer-pid.py",
-  "resources/app-remote/junto-remote.js",
-  "resources/app-remote/package.json",
-  "resources/app-remote/package-runtime-provenance.json",
-  "resources/systemd/junto-remote-launch",
-  "resources/systemd/junto-remote.service.template",
-] as const;
-
-export const LINUX_REMOTE_APP_EXACT_FILES = [
-  "resources/app-remote/junto-remote.js",
-  "resources/app-remote/package.json",
-  "resources/app-remote/package-runtime-provenance.json",
-  ...LINUX_NODE_PTY_RUNTIME_FILES.map(
-    (file) => `resources/app-remote/node_modules/node-pty/${file}`,
-  ),
-] as const;
-
-export const LINUX_REMOTE_CLOSURE_EXACT_FILES = [
-  "resources/bin/node",
-  "resources/bin/junto-remote",
-  ...LINUX_REMOTE_APP_EXACT_FILES,
-  "resources/systemd/junto-remote-launch",
-  "resources/systemd/junto-remote.service.template",
 ] as const;
 
 const FORBIDDEN_SEGMENTS = new Set([
@@ -199,84 +168,15 @@ export const collectLinuxRuntimeInventory = async (
   };
 };
 
-const isAlternateRemotePath = (candidate: string): boolean => {
-  const parts = candidate.split("/");
-  const basename = parts.at(-1) ?? "";
-  if (parts.includes("app-remote") && !candidate.startsWith("resources/app-remote/")) {
-    return true;
-  }
-  if (
-    basename === "junto-remote.js" &&
-    candidate !== "resources/app-remote/junto-remote.js"
-  ) {
-    return true;
-  }
-  if (
-    basename === "junto-remote" &&
-    candidate !== "resources/bin/junto-remote"
-  ) {
-    return true;
-  }
-  if (
-    basename === "package-runtime-provenance.json" &&
-    candidate !== "resources/app-remote/package-runtime-provenance.json"
-  ) {
-    return true;
-  }
-  if (
-    basename === "junto-remote-launch" &&
-    candidate !== "resources/systemd/junto-remote-launch"
-  ) {
-    return true;
-  }
-  if (
-    basename === "junto-remote.service.template" &&
-    candidate !== "resources/systemd/junto-remote.service.template"
-  ) {
-    return true;
-  }
-  return parts.some(
-    (part, index) => part === "out" && parts[index + 1] === "remote",
-  );
-};
-
-export const requireExactLinuxRemoteClosure = (
+export const requireLinuxRuntimeFiles = (
   inventory: LinuxRuntimeInventory,
-): ReadonlyArray<LinuxRuntimeInventoryEntry> => {
-  const byPath = new Map(inventory.entries.map((entry) => [entry.path, entry]));
+): void => {
+  const paths = new Set(inventory.entries.map((entry) => entry.path));
   for (const required of LINUX_RUNTIME_REQUIRED_FILES) {
-    if (!byPath.has(required)) {
+    if (!paths.has(required)) {
       throw new Error(`runtime required file missing: ${required}`);
     }
   }
-  const actualAppRemote = inventory.entries
-    .map((entry) => entry.path)
-    .filter((entry) => entry.startsWith("resources/app-remote/"));
-  const expectedAppRemote = [...LINUX_REMOTE_APP_EXACT_FILES].sort(byCodePoint);
-  if (
-    actualAppRemote.length !== expectedAppRemote.length ||
-    !actualAppRemote.every((entry, index) => entry === expectedAppRemote[index])
-  ) {
-    const extra = actualAppRemote.find((entry) => !expectedAppRemote.includes(entry));
-    const missing = expectedAppRemote.find((entry) => !actualAppRemote.includes(entry));
-    throw new Error(
-      `Linux app-remote closure is not exact${extra === undefined ? "" : `; extra ${extra}`}${missing === undefined ? "" : `; missing ${missing}`}`,
-    );
-  }
-  const alternate = inventory.entries.find((entry) =>
-    isAlternateRemotePath(entry.path),
-  );
-  if (alternate !== undefined) {
-    throw new Error(`alternate Linux Remote copy is forbidden: ${alternate.path}`);
-  }
-  const closure = LINUX_REMOTE_CLOSURE_EXACT_FILES.map((file) => {
-    const entry = byPath.get(file);
-    if (entry === undefined) {
-      throw new Error(`Linux Remote closure file missing: ${file}`);
-    }
-    return entry;
-  });
-  return [...closure].sort((left, right) => byCodePoint(left.path, right.path));
 };
 
 const asRecord = (value: unknown, label: string): Record<string, unknown> => {
@@ -367,79 +267,11 @@ export const decodeLinuxRuntimeAuditReceipt = (
   if (record.schema !== LINUX_RUNTIME_AUDIT_SCHEMA || record.ok !== true) {
     throw new Error("invalid Linux runtime audit receipt schema");
   }
-  const inventory = validateLinuxRuntimeInventory(record.inventory);
-  const expectedRemote = requireExactLinuxRemoteClosure(inventory);
-  const remote = asRecord(record.remoteClosure, "Linux Remote closure");
-  if (remote.exact !== true || !Array.isArray(remote.entries)) {
-    throw new Error("Linux Remote closure is not exact");
-  }
-  const remoteInventory = validateLinuxRuntimeInventory({
-    schema: "junto/linux-runtime-inventory/v1",
-    fileCount: remote.entries.length,
-    totalBytes: remote.entries.reduce((sum: number, raw: unknown) => {
-      const item = asRecord(raw, "Linux Remote closure entry");
-      return sum + asInteger(item.bytes, "Linux Remote closure bytes");
-    }, 0),
-    rootSha256: linuxRuntimeInventoryRoot(
-      remote.entries.map((raw: unknown) => {
-        const item = asRecord(raw, "Linux Remote closure entry");
-        return {
-          path: asString(item.path, "Linux Remote closure path"),
-          bytes: asInteger(item.bytes, "Linux Remote closure bytes"),
-          mode: asInteger(item.mode, "Linux Remote closure mode"),
-          sha256: asString(item.sha256, "Linux Remote closure SHA-256"),
-        };
-      }),
-    ),
-    entries: remote.entries,
-  });
-  if (
-    JSON.stringify(remoteInventory.entries) !== JSON.stringify(expectedRemote) ||
-    asString(remote.rootSha256, "Linux Remote closure root") !==
-      linuxRemoteClosureRoot(expectedRemote)
-  ) {
-    throw new Error("Linux Remote closure receipt does not match runtime inventory");
-  }
-  const stockNode = asRecord(record.stockNode, "stock Node audit");
-  const nodePty = asRecord(record.nodePty, "node-pty audit");
-  if (
-    stockNode.source !== "pinned-official-nodejs-linux-x64-archive" ||
-    stockNode.version !== DEFAULT_NODE_REMOTE_VERSION ||
-    stockNode.moduleAbi !== DEFAULT_NODE_REMOTE_MODULE_ABI ||
-    nodePty.execution !== "functional"
-  ) {
-    throw new Error("Linux runtime execution audit facts are incomplete");
-  }
-  for (const [label, value] of [
-    ["official Node archive", stockNode.officialArchiveSha256],
-    ["bundled Node binary", stockNode.binarySha256],
-    ["node-pty native module", nodePty.nativeModuleSha256],
-  ] as const) {
-    if (typeof value !== "string" || !SHA256.test(value)) {
-      throw new Error(`invalid ${label} SHA-256`);
-    }
-  }
+  requireLinuxRuntimeFiles(validateLinuxRuntimeInventory(record.inventory));
   if (!Array.isArray(record.nativeObjects) || record.chromeSandbox !== "absent") {
     throw new Error("Linux native audit facts are incomplete");
   }
   return record as unknown as LinuxRuntimeAuditReceipt;
-};
-
-export const validateUserServiceTemplate = (input: string): void => {
-  if (
-    !input.includes(
-      "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\n",
-    )
-  ) {
-    throw new Error("user service must retain the runtime-root placeholder");
-  }
-  if (
-    /^\s*(?:User|Group|CapabilityBoundingSet|AmbientCapabilities|NoNewPrivileges)=/mu.test(
-      input,
-    )
-  ) {
-    throw new Error("user service contains privileged directives");
-  }
 };
 
 const requireLoadable = (file: string): void => {
@@ -455,142 +287,13 @@ const requireLoadable = (file: string): void => {
   }
 };
 
-export const validateBundledNodeVersion = (output: string): string => {
-  const actual = output.trim();
-  const expected = `v${DEFAULT_NODE_REMOTE_VERSION}`;
-  if (actual !== expected) {
-    throw new Error(
-      `bundled Node version mismatch: expected ${expected}, got ${actual || "empty"}`,
-    );
-  }
-  return DEFAULT_NODE_REMOTE_VERSION;
-};
-
-export type BundledNodeRuntimeIdentity = {
-  readonly nodeVersion: string;
-  readonly moduleAbi: string;
-};
-
-export const validateBundledNodeRuntimeIdentity = (
-  output: string,
-): BundledNodeRuntimeIdentity => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(output);
-  } catch {
-    throw new Error("bundled Node identity probe returned invalid JSON");
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("node" in parsed) ||
-    !("modules" in parsed) ||
-    typeof parsed.node !== "string" ||
-    typeof parsed.modules !== "string"
-  ) {
-    throw new Error("bundled Node identity probe returned the wrong shape");
-  }
-  const nodeVersion = validateBundledNodeVersion(`v${parsed.node}`);
-  if (parsed.modules !== DEFAULT_NODE_REMOTE_MODULE_ABI) {
-    throw new Error(
-      `bundled Node module ABI mismatch: expected ${DEFAULT_NODE_REMOTE_MODULE_ABI}, got ${parsed.modules}`,
-    );
-  }
-  return { nodeVersion, moduleAbi: parsed.modules };
-};
-
-const requireBundledNodeRuntimeIdentity = (
-  file: string,
-): BundledNodeRuntimeIdentity => {
-  const result = spawnSync(
-    file,
-    [
-      "-p",
-      "JSON.stringify({node:process.versions.node,modules:process.versions.modules})",
-    ],
-    { encoding: "utf8", shell: false, timeout: 5_000 },
-  );
-  if (result.status !== 0 || result.error !== undefined) {
-    throw new Error(`bundled Node identity probe failed: ${file}`);
-  }
-  return validateBundledNodeRuntimeIdentity(result.stdout);
-};
-
-const requireRemoteNodePty = (input: {
-  readonly node: string;
-  readonly nodePtyRoot: string;
-}): void => {
-  const probe = `
-const pty = require(process.argv[1]);
-const child = pty.spawn("/bin/sh", ["-lc", "printf remote-node-pty-ok"], {
-  name: "xterm-256color",
-  cols: 80,
-  rows: 24,
-  cwd: "/tmp",
-  env: { PATH: "/usr/bin:/bin", TERM: "xterm-256color" },
-});
-let output = "";
-const timer = setTimeout(() => { child.kill(); process.exitCode = 1; }, 5000);
-child.onData((chunk) => { output += chunk; });
-child.onExit((event) => {
-  clearTimeout(timer);
-  process.stdout.write(JSON.stringify({ output, exitCode: event.exitCode }));
-  process.exitCode = event.exitCode === 0 && output.includes("remote-node-pty-ok") ? 0 : 1;
-});
-`;
-  const result = spawnSync(input.node, ["-e", probe, input.nodePtyRoot], {
-    encoding: "utf8",
-    shell: false,
-    timeout: 10_000,
-  });
-  if (
-    result.status !== 0 ||
-    result.error !== undefined ||
-    !result.stdout.includes("remote-node-pty-ok")
-  ) {
-    throw new Error(
-      `bundled Node node-pty probe failed: ${`${result.stderr || result.stdout || result.error?.message || "no output"}`.trim().slice(0, 1_000)}`,
-    );
-  }
-};
-
 export type LinuxRuntimeAuditReceipt = {
   readonly schema: typeof LINUX_RUNTIME_AUDIT_SCHEMA;
   readonly ok: true;
   readonly artifact: string;
   readonly inventory: LinuxRuntimeInventory;
-  readonly remoteClosure: {
-    readonly exact: true;
-    readonly entries: ReadonlyArray<LinuxRuntimeInventoryEntry>;
-    readonly rootSha256: string;
-  };
   readonly nativeObjects: ReadonlyArray<string>;
   readonly chromeSandbox: "absent";
-  readonly stockNode: {
-    readonly source: "pinned-official-nodejs-linux-x64-archive";
-    readonly version: string;
-    readonly moduleAbi: string;
-    readonly officialArchiveSha256: string;
-    readonly binarySha256: string;
-  };
-  readonly nodePty: {
-    readonly version: string;
-    readonly execution: "functional";
-    readonly nativeModuleSha256: string;
-  };
-};
-
-export const linuxRemoteClosureRoot = (
-  entries: ReadonlyArray<LinuxRuntimeInventoryEntry>,
-): string => {
-  const hash = createHash("sha256");
-  hash.update("junto/linux-remote-closure/v1\0");
-  for (const entry of entries) {
-    hash.update(
-      `${entry.path}\0${String(entry.bytes)}\0${entry.mode.toString(8)}\0${entry.sha256}\n`,
-    );
-  }
-  return hash.digest("hex");
 };
 
 export const auditLinuxRuntime = async ({
@@ -620,7 +323,7 @@ export const auditLinuxRuntime = async ({
       throw new Error(`runtime has privileged mode bits: ${file.path}`);
     }
   }
-  const remoteClosure = requireExactLinuxRemoteClosure(inventory);
+  requireLinuxRuntimeFiles(inventory);
   const nativeObjects: string[] = [];
   for (const file of inventory.entries) {
     const absolute = path.join(root, file.path);
@@ -638,73 +341,13 @@ export const auditLinuxRuntime = async ({
       requireLoadable(absolute);
     }
   }
-  validateUserServiceTemplate(
-    await readFile(
-      path.join(
-        root,
-        "resources/systemd/junto-remote.service.template",
-      ),
-      "utf8",
-    ),
-  );
-  const node = path.join(root, "resources/bin/node");
-  const nodeIdentity = requireBundledNodeRuntimeIdentity(node);
-  requireRemoteNodePty({
-    node,
-    nodePtyRoot: path.join(root, "resources/app-remote/node_modules/node-pty"),
-  });
-  const nodePtyPackage = JSON.parse(
-    await readFile(
-      path.join(
-        root,
-        "resources/app-remote/node_modules/node-pty/package.json",
-      ),
-      "utf8",
-    ),
-  ) as { readonly version?: unknown };
-  if (
-    typeof nodePtyPackage.version !== "string" ||
-    nodePtyPackage.version.length === 0
-  ) {
-    throw new Error("packaged node-pty has no version");
-  }
-  const byPath = new Map(inventory.entries.map((entry) => [entry.path, entry]));
-  const nodeEntry = byPath.get("resources/bin/node");
-  const ptyEntry = byPath.get(
-    "resources/app-remote/node_modules/node-pty/build/Release/pty.node",
-  );
-  if (nodeEntry === undefined || ptyEntry === undefined) {
-    throw new Error("Linux runtime inventory lost an audited native component");
-  }
-  const officialArchiveSha256 =
-    PINNED_NODE_LINUX_X64_ARCHIVE_SHA256[DEFAULT_NODE_REMOTE_VERSION];
-  if (officialArchiveSha256 === undefined || !SHA256.test(officialArchiveSha256)) {
-    throw new Error("reviewed stock Node archive digest is missing");
-  }
   return {
     schema: LINUX_RUNTIME_AUDIT_SCHEMA,
     ok: true,
     artifact: path.basename(root),
     inventory,
-    remoteClosure: {
-      exact: true,
-      entries: remoteClosure,
-      rootSha256: linuxRemoteClosureRoot(remoteClosure),
-    },
     nativeObjects,
     chromeSandbox: "absent",
-    stockNode: {
-      source: "pinned-official-nodejs-linux-x64-archive",
-      version: nodeIdentity.nodeVersion,
-      moduleAbi: nodeIdentity.moduleAbi,
-      officialArchiveSha256,
-      binarySha256: nodeEntry.sha256,
-    },
-    nodePty: {
-      version: nodePtyPackage.version,
-      execution: "functional",
-      nativeModuleSha256: ptyEntry.sha256,
-    },
   };
 };
 

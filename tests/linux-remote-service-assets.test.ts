@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { validateUserServiceTemplate } from "../scripts/audit-linux-package";
 
 describe("Linux Remote userland assets", () => {
   it("uses a self-locating launcher with no privileged installation surface", async () => {
@@ -12,7 +11,6 @@ describe("Linux Remote userland assets", () => {
   });
   it("ships a displayless unit template pinned to junto-remote", async () => {
     const unit = await readFile(new URL("../build/linux/junto-remote.service.template", import.meta.url), "utf8");
-    expect(() => validateUserServiceTemplate(unit)).not.toThrow();
     expect(unit).toContain("ConditionFileIsExecutable=@JUNTO_RUNTIME_ROOT@/resources/bin/junto-remote");
     expect(unit).toContain("ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch");
     expect(unit).toContain("UnsetEnvironment=");

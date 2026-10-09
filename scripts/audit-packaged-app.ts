@@ -27,10 +27,7 @@ import { resolveMacSigningConfig, type MacSigningConfig } from "./mac-signing-co
 import rawPolicy from "./package-security-policy.json";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 import { auditRetiredStateRuntimeBundle } from "./audit-retired-state-signatures";
-import {
-  assertMacHasNoRemoteResources,
-  validateRawAsarArchive,
-} from "./package-runtime-provenance";
+import { validateRawAsarArchive } from "./package-runtime-provenance";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -946,7 +943,6 @@ export const auditPackagedApp = async (
   await requireRegularFile(appAsarPath);
   await requireExecutable(workCliPath);
   await validateRawAsarArchive(appAsarPath);
-  await assertMacHasNoRemoteResources(appPath);
   await auditRetiredStateRuntimeBundle({
     asarPath: appAsarPath,
     workCliPath,
@@ -1007,7 +1003,6 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   const workCliPath = path.join(appPath, "Contents", "Resources", "bin", "junto");
   await requireExecutable(workCliPath);
   await validateRawAsarArchive(asarPath);
-  await assertMacHasNoRemoteResources(appPath);
   await auditRetiredStateRuntimeBundle({ asarPath, workCliPath });
   const plist = JSON.parse(runFixedCommand("/usr/bin/plutil", [
     "-convert", "json", "-o", "-", path.join(appPath, "Contents", "Info.plist"),

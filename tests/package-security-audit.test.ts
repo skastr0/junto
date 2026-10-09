@@ -300,50 +300,6 @@ describe("electron-builder fitness", () => {
     ]);
   });
 
-  it("hardens the canonical Linux systemd resources staged by electron-builder", async () => {
-    const packageJson = JSON.parse(
-      await readFile(new URL("../package.json", import.meta.url), "utf8"),
-    ) as {
-      build: {
-        linux: {
-          extraResources: Array<{ to: string }>;
-        };
-      };
-    };
-    const stagedSystemdPaths = packageJson.build.linux.extraResources
-      .map(({ to }) => `resources/${to}`)
-      .filter((resource) => resource.startsWith("resources/systemd/"));
-    expect(stagedSystemdPaths).toEqual([
-      "resources/systemd/junto-remote-launch",
-      "resources/systemd/junto-remote.service.template",
-    ]);
-
-    const afterPackSource = await readFile(
-      new URL("../scripts/electron-builder-after-pack.mjs", import.meta.url),
-      "utf8",
-    );
-    const fixedSystemdModes = Array.from(
-      afterPackSource.matchAll(
-        /\["(resources\/systemd\/[^"]+)", (0o[0-7]+)\]/gu,
-      ),
-      ([, resource, mode]) => ({ resource, mode }),
-    );
-    expect(fixedSystemdModes).toEqual([
-      {
-        resource: "resources/systemd/junto-remote-launch",
-        mode: "0o755",
-      },
-      {
-        resource:
-          "resources/systemd/junto-remote.service.template",
-        mode: "0o644",
-      },
-    ]);
-    expect(fixedSystemdModes.map(({ resource }) => resource)).toEqual(
-      stagedSystemdPaths,
-    );
-  });
-
   it("keeps public packaging independent of a maintainer identity", async () => {
     const packageJson = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),

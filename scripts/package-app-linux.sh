@@ -76,15 +76,6 @@ bunx --no-install electron-builder --linux dir --x64 --publish never \
   "${ELECTRON_DIST_ARGS[@]}" \
   --config.linux.icon="$PACKAGE_ICON"
 
-DRAFT_RUNTIME="$ATTEMPT_DIR/linux-unpacked"
-# Atomically replace the complete app-remote directory. The staging command
-# includes the fresh provenance and rejects stale/excess Remote closure files.
-printf 'junto: staging exact Linux Remote closure …\n'
-bun "$SCRIPT_DIR/build-linux-remote-runtime.ts" \
-  --runtime "$DRAFT_RUNTIME" \
-  --repo "$REPO_ROOT" \
-  --no-build-entry >/dev/null
-
 # Final-shaped names exist only under the private attempt. Parity and dynamic
 # audit run before any release/ final is published.
 DRAFT_JSON="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" draft --attempt-dir "$ATTEMPT_DIR")"

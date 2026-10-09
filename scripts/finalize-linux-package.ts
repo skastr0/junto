@@ -118,10 +118,7 @@ export const validateLinuxRuntimeArchive = ({
 const executableNames = new Set([
   "junto",
   "resources/bin/junto",
-  "resources/bin/junto-remote",
-  "resources/bin/node",
   "resources/bin/unix-peer-pid.py",
-  "resources/systemd/junto-remote-launch",
 ]);
 
 const normalizeModes = async (root: string, relative = ""): Promise<void> => {

@@ -11,7 +11,6 @@ import {
   mkdir,
   readFile,
   readlink,
-  readdir,
   rename,
   rm,
   writeFile,
@@ -19,16 +18,6 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, getRawHeader, uncache } from "@electron/asar";
-import {
-  REMOTE_ENTRY_SOURCE_RELATIVE,
-  buildRemoteEntryBundle,
-} from "./build-linux-remote-runtime";
-import {
-  collectLinuxRuntimeInventory,
-  requireExactLinuxRemoteClosure,
-  type LinuxRuntimeInventory,
-  type LinuxRuntimeInventoryEntry,
-} from "./audit-linux-package";
 
 export const PACKAGE_RUNTIME_PROVENANCE_SCHEMA =
   "junto/package-runtime-provenance/v2" as const;
@@ -36,16 +25,10 @@ export const RUNTIME_BUILD_IDENTITY_SCHEMA =
   "junto/runtime-build-identity/v1" as const;
 export const MAIN_PROVENANCE_SOURCE_RELATIVE =
   "out/package-runtime-provenance.json" as const;
-export const REMOTE_PROVENANCE_SOURCE_RELATIVE =
-  "out/remote/package-runtime-provenance.json" as const;
 export const MAIN_PAYLOAD_SOURCE_RELATIVE = "out/main/index.js" as const;
 export const MAIN_PROVENANCE_PACKAGED_RELATIVE =
   "out/package-runtime-provenance.json" as const;
 export const MAIN_PAYLOAD_PACKAGED_RELATIVE = "out/main/index.js" as const;
-export const REMOTE_PROVENANCE_PACKAGED_RELATIVE =
-  "resources/app-remote/package-runtime-provenance.json" as const;
-export const REMOTE_PAYLOAD_PACKAGED_RELATIVE =
-  "resources/app-remote/junto-remote.js" as const;
 
 const PRODUCT_NAME = "Junto" as const;
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
@@ -59,7 +42,7 @@ const SEMVER =
 const BUILD_MARKER =
   /\/\* JUNTO_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]+) \*\//gu;
 
-export type PackageRuntime = "electron-main" | "linux-remote";
+export type PackageRuntime = "electron-main";
 export type PackageTarget = "mac" | "linux";
 
 export type PackageSchemaFacts = {
@@ -117,15 +100,9 @@ export type PackageRuntimeParityVerification = {
   readonly state: PackageSchemaFacts;
   readonly compiledRuntimes: {
     readonly electronMain: VerifiedRuntimeProvenance;
-    readonly linuxRemote?: VerifiedRuntimeProvenance;
   };
   readonly runtimes: {
     readonly electronMain: VerifiedRuntimeProvenance;
-    readonly linuxRemote?: VerifiedRuntimeProvenance;
-  };
-  readonly linuxRuntimeClosure?: {
-    readonly inventory: LinuxRuntimeInventory;
-    readonly remoteEntries: ReadonlyArray<LinuxRuntimeInventoryEntry>;
   };
 };
 
@@ -163,7 +140,7 @@ const requiredRecord = (
 };
 
 const requireRuntime = (value: unknown): PackageRuntime => {
-  if (value !== "electron-main" && value !== "linux-remote") {
+  if (value !== "electron-main") {
     throw new Error("invalid package runtime");
   }
   return value;
@@ -652,11 +629,6 @@ export const assertPackageSourceFactsEqual = (
   return { root: rootFacts, clone: cloneFacts };
 };
 
-const runtimePackagedPath = (runtime: PackageRuntime): string =>
-  runtime === "electron-main"
-    ? MAIN_PAYLOAD_PACKAGED_RELATIVE
-    : REMOTE_PAYLOAD_PACKAGED_RELATIVE;
-
 const decodeRuntimeBuildIdentity = (input: unknown): RuntimeBuildIdentity => {
   const record = requiredRecord(input, "runtime build identity");
   if (record.schema !== RUNTIME_BUILD_IDENTITY_SCHEMA) {
@@ -746,7 +718,7 @@ export const makePackageRuntimeProvenance = (input: {
       migrationIdentitySha256: input.source.migrationIdentitySha256,
     },
     payload: {
-      packagedPath: runtimePackagedPath(input.runtime),
+      packagedPath: MAIN_PAYLOAD_PACKAGED_RELATIVE,
       bytes: input.payload.byteLength,
       sha256: sha256(input.payload),
     },
@@ -806,7 +778,7 @@ export const decodePackageRuntimeProvenance = (
     },
   };
   if (
-    decoded.payload.packagedPath !== runtimePackagedPath(runtime) ||
+    decoded.payload.packagedPath !== MAIN_PAYLOAD_PACKAGED_RELATIVE ||
     decoded.buildIdentity.runtime !== runtime ||
     decoded.buildIdentity.sourceCommit !== decoded.sourceCommit
   ) {
@@ -850,16 +822,8 @@ const writeRuntimeProvenance = async (input: {
   readonly runtime: PackageRuntime;
   readonly source: PackageSourceFacts;
 }): Promise<PackageRuntimeProvenance> => {
-  const payloadRelative =
-    input.runtime === "electron-main"
-      ? MAIN_PAYLOAD_SOURCE_RELATIVE
-      : REMOTE_ENTRY_SOURCE_RELATIVE;
-  const provenanceRelative =
-    input.runtime === "electron-main"
-      ? MAIN_PROVENANCE_SOURCE_RELATIVE
-      : REMOTE_PROVENANCE_SOURCE_RELATIVE;
-  const payloadPath = path.join(input.repoRoot, payloadRelative);
-  const provenancePath = path.join(input.repoRoot, provenanceRelative);
+  const payloadPath = path.join(input.repoRoot, MAIN_PAYLOAD_SOURCE_RELATIVE);
+  const provenancePath = path.join(input.repoRoot, MAIN_PROVENANCE_SOURCE_RELATIVE);
   await requireRegularFile(payloadPath, `${input.runtime} payload`);
   const provenance = makePackageRuntimeProvenance({
     runtime: input.runtime,
@@ -872,7 +836,7 @@ const writeRuntimeProvenance = async (input: {
 
 const resetOwnedOutputDirectory = async (
   repoRoot: string,
-  relative: "out/main" | "out/remote",
+  relative: "out/main",
 ): Promise<void> => {
   const root = path.resolve(repoRoot);
   await requireDirectory(root, "repository root");
@@ -898,27 +862,19 @@ const resetOwnedOutputDirectory = async (
   await mkdir(owned, { mode: 0o755 });
 };
 
-/** Remove exactly out/remote and preserve every sibling. */
-export const resetOwnedRemoteOutput = async (repoRoot: string): Promise<void> =>
-  resetOwnedOutputDirectory(repoRoot, "out/remote");
-
 const stampRuntimePayload = async (input: {
   readonly repoRoot: string;
   readonly runtime: PackageRuntime;
   readonly identity: RuntimeBuildIdentity;
 }): Promise<void> => {
-  const relative =
-    input.runtime === "electron-main"
-      ? MAIN_PAYLOAD_SOURCE_RELATIVE
-      : REMOTE_ENTRY_SOURCE_RELATIVE;
-  const file = path.join(input.repoRoot, relative);
+  const file = path.join(input.repoRoot, MAIN_PAYLOAD_SOURCE_RELATIVE);
   await requireRegularFile(file, `${input.runtime} fresh compiler output`);
   const body = embedRuntimeBuildIdentity({
     payload: await readFile(file),
     identity: input.identity,
   });
   await writeAtomic(file, body);
-  await chmod(file, input.runtime === "linux-remote" ? 0o755 : 0o644);
+  await chmod(file, 0o644);
 };
 
 const runCompiler = (input: {
@@ -944,17 +900,15 @@ export type PreparedPackageRuntimes = {
   readonly source: PackageSourceFacts;
   readonly cohortNonce: string;
   readonly main: PackageRuntimeProvenance;
-  readonly remote?: PackageRuntimeProvenance;
 };
 
-/** One coordinator compiles every runtime shipped for the selected target. */
+/** One coordinator compiles the runtime shipped for the selected target. */
 export const preparePackageRuntimes = async (input: {
   readonly repoRoot: string;
   readonly target: PackageTarget;
   readonly source?: PackageSourceFacts;
   readonly cohortNonce?: string;
   readonly buildMain?: (repoRoot: string) => Promise<void>;
-  readonly buildRemote?: (repoRoot: string) => Promise<void>;
 }): Promise<PreparedPackageRuntimes> => {
   const repoRoot = path.resolve(input.repoRoot);
   const target = requireTarget(input.target);
@@ -994,23 +948,6 @@ export const preparePackageRuntimes = async (input: {
     },
   });
 
-  await resetOwnedOutputDirectory(repoRoot, "out/remote");
-  if (target === "linux") {
-    await (input.buildRemote ?? (async (root) => {
-      await buildRemoteEntryBundle({ repoRoot: root });
-    }))(repoRoot);
-    await stampRuntimePayload({
-      repoRoot,
-      runtime: "linux-remote",
-      identity: {
-        schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
-        cohortNonce,
-        sourceCommit: source.sourceCommit,
-        runtime: "linux-remote",
-      },
-    });
-  }
-
   if (input.source === undefined) {
     const after = await readPackageSourceFacts({
       repoRoot,
@@ -1025,21 +962,13 @@ export const preparePackageRuntimes = async (input: {
     }
   }
 
-  // Write manifests only after both fresh outputs and source re-admission pass.
+  // Write the manifest only after the fresh output and source re-admission pass.
   const main = await writeRuntimeProvenance({
     repoRoot,
     runtime: "electron-main",
     source,
   });
-  const remote =
-    target === "linux"
-      ? await writeRuntimeProvenance({
-          repoRoot,
-          runtime: "linux-remote",
-          source,
-        })
-      : undefined;
-  return { target, source, cohortNonce, main, ...(remote === undefined ? {} : { remote }) };
+  return { target, source, cohortNonce, main };
 };
 
 const sameSchemaFacts = (
@@ -1102,16 +1031,8 @@ const readSourceRuntime = async (input: {
   readonly runtime: PackageRuntime;
   readonly expected: PackageSourceFacts;
 }): Promise<VerifiedRuntimeProvenance> => {
-  const provenanceRelative =
-    input.runtime === "electron-main"
-      ? MAIN_PROVENANCE_SOURCE_RELATIVE
-      : REMOTE_PROVENANCE_SOURCE_RELATIVE;
-  const payloadRelative =
-    input.runtime === "electron-main"
-      ? MAIN_PAYLOAD_SOURCE_RELATIVE
-      : REMOTE_ENTRY_SOURCE_RELATIVE;
-  const manifestPath = path.join(input.repoRoot, provenanceRelative);
-  const payloadPath = path.join(input.repoRoot, payloadRelative);
+  const manifestPath = path.join(input.repoRoot, MAIN_PROVENANCE_SOURCE_RELATIVE);
+  const payloadPath = path.join(input.repoRoot, MAIN_PAYLOAD_SOURCE_RELATIVE);
   await requireRegularFile(manifestPath, `${input.runtime} provenance`);
   await requireRegularFile(payloadPath, `${input.runtime} payload`);
   return verifyRuntimeProvenance({
@@ -1120,22 +1041,6 @@ const readSourceRuntime = async (input: {
     payload: await readFile(payloadPath),
     expected: input.expected,
   });
-};
-
-const requireSameCohort = (
-  main: VerifiedRuntimeProvenance,
-  remote: VerifiedRuntimeProvenance,
-): string => {
-  const nonce = main.buildIdentity.cohortNonce;
-  if (
-    remote.buildIdentity.cohortNonce !== nonce ||
-    remote.buildIdentity.sourceCommit !== main.buildIdentity.sourceCommit ||
-    main.runtime !== "electron-main" ||
-    remote.runtime !== "linux-remote"
-  ) {
-    throw new Error("Electron main and Linux Remote are not one compiler cohort");
-  }
-  return nonce;
 };
 
 export const verifyPreparedPackageRuntimes = async (input: {
@@ -1153,36 +1058,18 @@ export const verifyPreparedPackageRuntimes = async (input: {
     runtime: "electron-main",
     expected,
   });
-  const linuxRemote =
-    target === "linux"
-      ? await readSourceRuntime({
-          repoRoot,
-          runtime: "linux-remote",
-          expected,
-        })
-      : undefined;
-  const cohortNonce =
-    linuxRemote === undefined
-      ? electronMain.buildIdentity.cohortNonce
-      : requireSameCohort(electronMain, linuxRemote);
   return {
     target,
     appVersion: expected.appVersion,
     sourceCommit: expected.sourceCommit,
-    cohortNonce,
+    cohortNonce: electronMain.buildIdentity.cohortNonce,
     state: {
       currentStateSchemaVersion: expected.currentStateSchemaVersion,
       migrationHead: expected.migrationHead,
       migrationIdentitySha256: expected.migrationIdentitySha256,
     },
-    compiledRuntimes: {
-      electronMain,
-      ...(linuxRemote === undefined ? {} : { linuxRemote }),
-    },
-    runtimes: {
-      electronMain,
-      ...(target === "linux" ? { linuxRemote } : {}),
-    },
+    compiledRuntimes: { electronMain },
+    runtimes: { electronMain },
   };
 };
 
@@ -1365,25 +1252,6 @@ export const validateRawAsarArchive = async (
   });
 };
 
-const assertAsarHasNoRemote = (header: ValidatedRawAsarHeader): void => {
-  const remote = header.paths.find(
-    (entry) =>
-      entry === "out/remote" ||
-      entry.startsWith("out/remote/") ||
-      entry === "resources/app-remote" ||
-      entry.startsWith("resources/app-remote/") ||
-      entry.split("/").includes("app-remote") ||
-      ["junto-remote", "junto-remote.js"].includes(
-        entry.split("/").at(-1) ?? "",
-      ),
-  );
-  if (remote !== undefined) {
-    throw new Error(
-      `Electron app.asar must exclude the Remote runtime (${remote})`,
-    );
-  }
-};
-
 const extractRequired = (
   asarPath: string,
   relative: string,
@@ -1433,54 +1301,6 @@ const requireExactCompiledRuntime = (
   }
 };
 
-const walkResourcePaths = async (
-  root: string,
-  relative = "",
-): Promise<string[]> => {
-  const result: string[] = [];
-  const directory = path.join(root, relative);
-  const entries = await readdir(directory, { withFileTypes: true }).catch(
-    (error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
-    },
-  );
-  for (const entry of entries) {
-    const child = path.posix.join(relative, entry.name);
-    const metadata = await lstat(path.join(root, child));
-    result.push(child);
-    if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
-      result.push(...(await walkResourcePaths(root, child)));
-    }
-  }
-  return result;
-};
-
-export const assertMacHasNoRemoteResources = async (
-  appBundle: string,
-): Promise<void> => {
-  const resources = path.join(appBundle, "Contents/Resources");
-  await requireDirectory(resources, "macOS Resources directory");
-  const paths = await walkResourcePaths(resources);
-  const forbidden = paths.find((entry) => {
-    const parts = entry.split("/");
-    const basename = parts.at(-1) ?? "";
-    return (
-      parts.includes("app-remote") ||
-      (parts.includes("out") && parts.includes("remote")) ||
-      basename === "junto-remote" ||
-      basename === "junto-remote.js" ||
-      basename === "junto-remote-launch" ||
-      basename === "junto-remote.service.template" ||
-      entry === "bin/node" ||
-      entry.startsWith("systemd/")
-    );
-  });
-  if (forbidden !== undefined) {
-    throw new Error(`macOS package contains Remote-only resource: ${forbidden}`);
-  }
-};
-
 export const verifyPackagedRuntimeParity = async (input: {
   readonly repoRoot: string;
   readonly target: PackageTarget;
@@ -1499,25 +1319,22 @@ export const verifyPackagedRuntimeParity = async (input: {
     expected,
   });
   let asarPath: string;
-  let runtimeRoot: string | undefined;
-  let appBundle: string | undefined;
   if (target === "mac") {
     if (input.appBundle === undefined) {
       throw new Error("mac package verification requires --app");
     }
-    appBundle = path.resolve(input.appBundle);
+    const appBundle = path.resolve(input.appBundle);
     await requireDirectory(appBundle, "macOS app bundle");
     asarPath = path.join(appBundle, "Contents/Resources/app.asar");
   } else {
     if (input.runtimeRoot === undefined) {
       throw new Error("Linux package verification requires --runtime");
     }
-    runtimeRoot = path.resolve(input.runtimeRoot);
+    const runtimeRoot = path.resolve(input.runtimeRoot);
     await requireDirectory(runtimeRoot, "Linux runtime root");
     asarPath = path.join(runtimeRoot, "resources/app.asar");
   }
-  const rawHeader = await validateRawAsarArchive(asarPath);
-  assertAsarHasNoRemote(rawHeader);
+  await validateRawAsarArchive(asarPath);
   verifyPackagedVersion(asarPath, expected.appVersion);
 
   const electronMain = verifyRuntimeProvenance({
@@ -1539,51 +1356,6 @@ export const verifyPackagedRuntimeParity = async (input: {
     prepared.compiledRuntimes.electronMain,
   );
 
-  let linuxRemote: VerifiedRuntimeProvenance | undefined;
-  let linuxRuntimeClosure:
-    | {
-        readonly inventory: LinuxRuntimeInventory;
-        readonly remoteEntries: ReadonlyArray<LinuxRuntimeInventoryEntry>;
-      }
-    | undefined;
-  if (target === "linux") {
-    const admittedRoot = runtimeRoot as string;
-    const manifestPath = path.join(
-      admittedRoot,
-      REMOTE_PROVENANCE_PACKAGED_RELATIVE,
-    );
-    const payloadPath = path.join(
-      admittedRoot,
-      REMOTE_PAYLOAD_PACKAGED_RELATIVE,
-    );
-    await requireRegularFile(manifestPath, "packaged Linux Remote provenance");
-    await requireRegularFile(payloadPath, "packaged Linux Remote payload");
-    linuxRemote = verifyRuntimeProvenance({
-      runtime: "linux-remote",
-      manifest: await readFile(manifestPath),
-      payload: await readFile(payloadPath),
-      expected,
-    });
-    const compiledLinuxRemote = prepared.compiledRuntimes.linuxRemote;
-    if (compiledLinuxRemote === undefined) {
-      throw new Error("Linux package build is missing its compiled Remote");
-    }
-    requireExactCompiledRuntime(
-      linuxRemote,
-      compiledLinuxRemote,
-    );
-    if (linuxRemote.buildIdentity.cohortNonce !== electronMain.buildIdentity.cohortNonce) {
-      throw new Error("packaged runtimes have different compiler cohort identities");
-    }
-    const inventory = await collectLinuxRuntimeInventory(admittedRoot);
-    linuxRuntimeClosure = {
-      inventory,
-      remoteEntries: requireExactLinuxRemoteClosure(inventory),
-    };
-  } else {
-    await assertMacHasNoRemoteResources(appBundle as string);
-  }
-
   return {
     target,
     appVersion: expected.appVersion,
@@ -1595,11 +1367,7 @@ export const verifyPackagedRuntimeParity = async (input: {
       migrationIdentitySha256: expected.migrationIdentitySha256,
     },
     compiledRuntimes: prepared.compiledRuntimes,
-    runtimes: {
-      electronMain,
-      ...(linuxRemote === undefined ? {} : { linuxRemote }),
-    },
-    ...(linuxRuntimeClosure === undefined ? {} : { linuxRuntimeClosure }),
+    runtimes: { electronMain },
   };
 };
 
