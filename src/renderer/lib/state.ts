@@ -95,6 +95,9 @@ export const state$ = observable({
   /** Developer logs explorer (gated by advanced.logsExplorer). */
   observabilityOpen: false,
   settingsError: "",
+  /** The machine list as main last reported it (lib/machines.ts). Empty when
+      the machines surface is off; this machine's name comes from settings. */
+  machines: [] as ReadonlyArray<RemoteHost>,
   // Fleet overlay plane: enrolled hosts, discovered Tailscale peers, and
   // per-host reachability probes. Mirrors the settings plane pattern.
   fleetOpen: false,
