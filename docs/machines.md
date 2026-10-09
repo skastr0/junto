@@ -291,6 +291,8 @@ git show --stat --oneline HEAD
 - For a deletion, name the deleted paths or their directory.
 - For only your lines of a shared file: write a patch with just your hunks
   and use `git apply --cached` on the private index in place of `git add`.
+  Build that patch from main's copy plus your edit, never from the tree's
+  difference: another seat may have written into the file since you looked.
 - If `update-ref` fails, main moved: run again from the `PARENT=` line. Never
   force.
 - The `git reset` line is not optional: it brings the shared index up to date
@@ -303,14 +305,14 @@ git show --stat --oneline HEAD
 |---|---|---|
 | Review and contract | `remote-lead` | done: `959ec0e98`, `83b1badb7` |
 | The exercise | `remote-verify` | boot exercise passes on the Mac mini and Linux: `db140e741`; install and update driver landed and proven on a clean export: `677138943`, `d52657417`; its live run on the mini waits for the common entry and `machine.status` |
-| One core, two entries | `remote-core` | old protocol and entry points cut: `d47e566d2`; machine name and identity: `6b5c9a21b`, `ef396b505`; role gates gone: `e6258f951`; now the machine repository, the windowless entry, the owner socket with `machine.setup` and `machine.status`, the link socket |
-| The row exchange and the copy | `remote-work` | work plane cut, schema 14 to 19; rows exchanged between three databases: `4aecb797b` through `a4fc42a73`; a machine takes a copy in one transaction: `ff6aeec8a`; next the rest of the copy, the copy frame, the name step (schema 20), three send outcomes |
-| Putting Junto on a machine | `remote-send` | installer with receipts and uninstall: `06a6077a6`, `082270965`; pinned SSH routes: `0486ca08f`, `65aa52716`; bundle copy over SSH: `e223244a9`; next the machine list by name, the owner machine commands, the link relay |
-| Leaf cuts, stale documents, the guide | `remote-cut` | cut closed at `9e80c1edc`; guide rewritten: `6dfa819ae`; e2e sweep under way: `8bedc47ef`; then the ship gate lane by lane and the words left in code |
-| Security review and the doctrine | `remote-security` | doctrine rewritten and agreed by every seat: `fef22553a`, `03cb81f71`; reviews each landing at the boundary |
-| A seat on another machine | `remote-seats` | first slice in progress: the session pin leaves the seat row |
-| The Machines window | `remote-window` | staffed; first slice: the renderer reads machines by name |
-| How a machine looks | `remote-design` | staffed at the operator's request; first a proof he can look at |
+| One core, two entries | `remote-core` | old protocol and entry points cut: `d47e566d2`; role gates gone: `e6258f951`; the machine repository, names and pins: `a28e2261c`, `7bcc31345`; settings without roles: `0534318ee`; now the windowless root, the owner socket with `machine.setup` and `machine.status`, the link socket |
+| The row exchange and the copy | `remote-work` | work plane cut; rows exchanged between three databases: `4aecb797b` through `a4fc42a73`; a machine takes a copy in one transaction: `ff6aeec8a`; every machine named, schema 21: `6388df555`; next the rest of the copy, the copy frame, three send outcomes |
+| Putting Junto on a machine | `remote-send` | installer with receipts and uninstall: `06a6077a6`, `082270965`; pinned SSH routes: `65aa52716`; bundle copy over SSH: `e223244a9`; the machine list by name: `35a7a69f9`; the closed owner machine commands, reviewed: `9c9f68561`, `e12463eef`; next their handler in the core, setup, the link relay |
+| Leaf cuts, stale documents, the guide | `remote-cut` | cut closed at `9e80c1edc`; guide rewritten: `6dfa819ae`; e2e sweep: `8bedc47ef`, `9c2e11dda`; the browser and the tests by machine name: `1f45473c3`, `a1331dfc7`; then the ship gate lane by lane and the words left in code |
+| Security review and the doctrine | `remote-security` | doctrine agreed by every seat, current at `18341a52b`; reviews each landing at the boundary |
+| A seat on another machine | `remote-seats` | the session pin has its own store: `d281981a7`; sessions routed by this machine's name: `a27e4bb1f`; the field leaves the seat row next |
+| The Machines window | `remote-window` | the renderer reads machines by name, no roles: `69884279f` through `c8a212a7e`; the window's two channels: `493286c44`; now the window itself |
+| How a machine looks | `remote-design` | printed solids, approved by the operator on the proof: `f21d698ce`, `fb43aac74`; nothing mounts it yet |
 
 **The cut.** Closed at `9e80c1edc` with typecheck and the whole unit suite
 green on a clean export of that commit (8,485 passed, none failed). Since the
@@ -319,12 +321,13 @@ typechecks and adds no failure.
 
 **The name window.** Open since `35a7a69f9`. The switch from `local` to real
 machine names lands as six parts, each seat its own files, and typecheck on
-main may be red from that change only: the machine list (`remote-send`,
-landed), `machines/` and its readers (`remote-core`), the name step, schema 20
-(`remote-work`), the browser and the fleet components (`remote-cut`), `term/`
-and `seat-sessions/` (`remote-seats`), the other renderer consumers
-(`remote-window`). It closes when `remote-verify` has typecheck and the whole
-unit suite green on a clean export. Until then nobody packages or runs main.
+main may be red from that change only. All six have landed their main part:
+the machine list (`remote-send`), `machines/` and settings (`remote-core`),
+the name step, schema 21 (`remote-work`), the browser, the fleet components
+and the tests (`remote-cut`), `term/` and `seat-sessions/` (`remote-seats`),
+the renderer (`remote-window`). Leftovers are being closed. It closes when
+`remote-verify` has typecheck and the whole unit suite green on a clean
+export. Until then nobody packages or runs main.
 
 ## Test machines
 
