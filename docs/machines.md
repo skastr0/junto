@@ -39,22 +39,32 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    feature that works for a local seat works for a seat on any machine, or it
    is not done.
 2. **One canvas, one editing machine.** Each canvas names the one machine that
-   may change it. Every other machine holds a read-only copy as ordinary rows.
-   There is no merging of concurrent edits. Nothing may assume a second editor
-   can never exist: ids stay global, and a canvas travels as rows.
+   may change it, by installation id. Every other machine holds a read-only
+   copy as ordinary rows. The copy travels whole and replaces the old one when
+   it is newer. It carries everything the operator authors that a seat reads:
+   nodes, wires, each seat's soul and instructions, references, the app
+   briefing, and play or pause. There is no merging of concurrent edits.
+   Nothing may assume a second editor can never exist: ids stay global, and a
+   canvas travels as rows. A changed or removed wire takes effect on a machine
+   when that machine has the new copy; mail written before then still arrives.
 3. **A seat lives on one machine.** That machine starts it, holds its terminal,
    mints its token, and stores its mail, signals and sessions. The seat's
    `junto` CLI talks only to its own machine.
 4. **Synced rows are immutable and have one writer.** Sync between two machines
    is: send the other side what it lacks and is entitled to. No claims, no
    transfer of authority, no conflict handling. Applying a row twice changes
-   nothing.
+   nothing. A machine writes only for its own seats: mail from a seat, and a
+   receipt or signal for a seat, are valid only from the machine that seat is
+   on; an answer to a signal only from the machine that edits the canvas. A
+   row that breaks this, or that arrives twice with different content, closes
+   the link.
 5. **Entitlement.** Every machine on a canvas gets the canvas rows. A machine
    gets the mail addressed to its seats. A machine that keeps the whole canvas
    gets everything. In the first version that machine is the MacBook.
 6. **Mail waits.** Mail to a seat whose machine is unreachable is accepted and
    held, the way mail to a stopped seat is held. It is delivered when a path
-   exists. The sender is told which of the two happened.
+   exists. The sender is told which happened: delivered here, handed to a
+   link, or held.
 7. **Links are symmetric.** A link is one SSH session to the other machine's
    Junto. Either end may open one and it behaves the same once open. No code
    knows a "this side" and a "that side". In the first version only the
