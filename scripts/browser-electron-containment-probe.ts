@@ -1688,8 +1688,11 @@ const qualifyCapabilityNonDisclosure = async (options: {
 
 const main = async (): Promise<void> => {
   // Skipped: the browser is off and its socket admission refuses in this build; this probe has not moved to the seat credential.
-  console.log("browser containment probe skipped: browser control is not available in this build");
-  return;
+  const browserAvailable: boolean = false;
+  if (!browserAvailable) {
+    console.log("browser containment probe skipped: browser control is not available in this build");
+    return;
+  }
   const sandbox = await createProbeSandbox(PROBE_TEMP_PREFIX);
   const root = sandbox.root;
   activeProbeSandbox = sandbox;
