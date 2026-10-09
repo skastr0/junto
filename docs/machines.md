@@ -104,6 +104,14 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     by SSH's input, it says there is no progress and resumes when bytes move.
     That status never retries or interrupts the operation, and copied bytes
     do not prove that the receiving machine installed or started Junto.
+    A release app first downloads the target's archive from its compiled
+    release origin. Its own build pins the exact archive size and digest
+    and the manifest digest. Admission finishes before the current link is
+    disconnected or anything is sent. The window shows download bytes as
+    a separate step. Offline or failed checks leave the machine as it was.
+    Archives are cached under the Junto home, verified on each use, and old
+    builds are pruned while active users keep their inputs. Source and
+    Preview builds use local bundles only and never download.
 11. **Seat control addresses the machine.** Start, stop and attach go to the
     seat's machine directly.
 12. **Harnesses are the operator's.** Junto reports which harness CLIs exist on

@@ -7,6 +7,8 @@ import { ObservabilityLoggerLive } from "./junto/observability";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { makeMachineCoreLayer } from "./core-runtime";
 import { runningBuildIdentity } from "./junto/build-identity";
+import { getCompiledMachineReleaseCatalog } from "@shared/machine-release";
+import { makeMachineBundleSources } from "./junto/hosts/machine-bundle-download";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import { linuxDesktopInstallStorageDoctor } from "./junto/update/linux-install";
@@ -71,13 +73,13 @@ export const setMachineControlReadiness = (ready: () => boolean): void => {
 };
 
 const MachineServicesLive = Layer.unwrap(Effect.sync(() => {
-  const root = app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines");
+  const home = resolveJuntoHome(), build = runningBuildIdentity();
+  const catalog = getCompiledMachineReleaseCatalog();
   return makeMachineCoreLayer({
-    home: resolveJuntoHome(), build: runningBuildIdentity(), ready: () => machineControlReady(),
-    bundles: Object.fromEntries(["darwin-arm64", "linux-x64"].flatMap(target => {
-      const path = join(root, target);
-      return existsSync(join(path, "manifest.json")) ? [[target, path]] : [];
-    })),
+    home, build, ready: () => machineControlReady(),
+    ...makeMachineBundleSources({ home, build, catalog, localRoot: () => process.env.JUNTO_MACHINE_BUNDLES ??
+      (app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines")),
+    }),
   });
 }));
 

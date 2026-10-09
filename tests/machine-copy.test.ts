@@ -17,10 +17,11 @@ import { SshTransport } from "../src/main/junto/ssh";
 import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
 import { RemoteHost } from "../src/shared/remote-hosts";
 import { MachineInstallResult, MachineInstallError, MachineSetupError } from "../src/shared/machine-install";
+import type { MachineBundleAcquirer } from "../src/main/junto/hosts/machine-bundle-download";
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
-const fixture = async (options: { platform?: string; helloFailure?: boolean; bundleBuild?: string } = {}) => {
+const fixture = async (options: { platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer } = {}) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-copy-")));
   await mkdir(join(root, "bin")); await mkdir(join(root, "core"));
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
@@ -61,7 +62,7 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
   const runtime = ManagedRuntime.make(Layer.mergeAll(machines, Layer.succeed(SshTransport, transport), Layer.succeed(HostsService, hosts)));
   cleanup.push(async () => { await runtime.dispose(); database.close(); await rm(root, { recursive: true, force: true }); });
   const repository = await runtime.runPromise(MachineRepository); ownId = await runtime.runPromise(repository.installationId);
-  const copy = await runtime.runPromise(makeMachineCopy({ build, bundles: { "darwin-arm64": root },
+  const copy = await runtime.runPromise(makeMachineCopy({ build, bundles: { "darwin-arm64": root }, acquireBundle: options.acquireBundle,
     disconnect: () => Effect.sync(() => { calls.push("disconnect"); }),
     connect: () => Effect.sync(() => { calls.push("connect"); }),
     connectSetup: (host, installationId) => Effect.gen(function* () {
@@ -72,7 +73,7 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
     }),
   }));
   const host = Schema.decodeUnknownSync(RemoteHost)({ id: "mini", label: "Mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal", "hermes"] });
-  return { root, calls, receipt, repository, runtime, copy: (mode: "send" | "update") => runtime.runPromise(copy(host, { name: "mini" }, mode)), error: (mode: "send" | "update") => runtime.runPromise(copy(host, { name: "mini" }, mode).pipe(Effect.flip)) };
+  return { root, calls, receipt, repository, runtime, copy: (mode: "send" | "update") => runtime.runPromise(copy(host, { name: "mini" }, mode)), error: (mode: "send" | "update", bundle?: string) => runtime.runPromise(copy(host, { name: "mini", ...(bundle === undefined ? {} : { bundle }) }, mode).pipe(Effect.flip)) };
 };
 
 it("installs and configures before binding through the checked first hello", async () => {
@@ -111,4 +112,22 @@ it("refuses an unavailable target bundle or different fingerprint before disconn
     expect(error).toBeInstanceOf(MachineInstallError);
     expect(f.calls).toEqual(["platform"]);
   }
+});
+
+it("refuses a release's explicit local override before download or target inspection", async () => {
+  let downloads = 0;
+  const f = await fixture({ acquireBundle: () => Effect.sync(() => { downloads++; return "/unused"; }) });
+  const error = await f.error("send", f.root);
+  expect(error).toBeInstanceOf(MachineInstallError);
+  expect(error.message).toContain("local package cannot replace");
+  expect(f.calls).toEqual([]); expect(downloads).toBe(0);
+});
+
+it("leaves the link and service untouched when release download admission fails, even with a local bundle present", async () => {
+  const f = await fixture({ acquireBundle: () => Effect.fail(new MachineInstallError({
+    message: "Junto's download failed its check. The machine has not changed", disposition: "staged", retryable: true,
+  })) });
+  const error = await f.error("send");
+  expect(error.message).toContain("download failed its check");
+  expect(f.calls).toEqual(["platform"]);
 });

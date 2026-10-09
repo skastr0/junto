@@ -12,11 +12,14 @@ import { configureMachine, setupMachine, machinePlatform } from "../ssh/machine-
 import { inspectMachineBundle } from "./bundle";
 import { sendMachine } from "./send";
 import { HostsService } from "./service";
+import type { MachineBundleAcquirer } from "./machine-bundle-download";
 
 type Target = "darwin-arm64" | "linux-x64";
 export interface MachineCopyOptions {
   readonly build: string;
   readonly bundles: Readonly<Partial<Record<Target, string>>>;
+  /** Present only for a release: local paths cannot replace compiled archive pins. */
+  readonly acquireBundle?: MachineBundleAcquirer;
   readonly connectSetup: (host: RemoteHost, expectedInstallationId: InstallationId) => Effect.Effect<unknown, unknown>;
   readonly connect: (host: RemoteHost) => Effect.Effect<unknown, unknown>;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
@@ -41,7 +44,8 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       }
       return Effect.fail(cause);
     }));
-  return (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineSendEvent) => void) => Effect.gen(function* () {
+  return (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineSendEvent) => void) => Effect.scoped(Effect.gen(function* () {
+    if (options.acquireBundle !== undefined && input.bundle !== undefined) return yield* Effect.fail(staged(new Error("This Junto release uses its own verified machine download. A local package cannot replace it")));
     const pin = yield* machines.peer(host.id);
     if (mode === "update" && pin === undefined) return yield* Effect.fail(staged(new Error("Set up this machine before updating Junto")));
     const target = yield* parseHostSshRoute(host).pipe(Effect.mapError(staged));
@@ -49,7 +53,8 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
     const reported = platform.stdout.trim();
     const targetPlatform: Target | undefined = reported === "Darwin arm64" ? "darwin-arm64" : reported === "Linux x86_64" ? "linux-x64" : undefined;
     if (targetPlatform === undefined) return yield* Effect.fail(staged(new Error("This machine's platform is not supported by Junto")));
-    const bundle = input.bundle ?? options.bundles[targetPlatform];
+    const bundle = options.acquireBundle === undefined ? input.bundle ?? options.bundles[targetPlatform]
+      : yield* options.acquireBundle(targetPlatform, onTransition);
     if (bundle === undefined) return yield* Effect.fail(staged(new Error(targetPlatform === "linux-x64" ? "This Junto has no build for a Linux machine" : "This Junto has no build for a Mac machine")));
     const manifest = yield* Effect.tryPromise({ try: () => inspectMachineBundle(bundle), catch: staged });
     if (manifest.build !== build || manifest.target !== targetPlatform) return yield* Effect.fail(staged(new Error("The selected Junto package does not match this build and the target platform")));
@@ -84,5 +89,5 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       message: `Junto is installed, but could not ${pin === undefined ? "finish setup" : "connect"}: ${cause instanceof Error ? cause.message : String(cause)}. Check this machine before sending again`,
       retryable: false, installed: receipt,
     })));
-  });
+  }));
 });

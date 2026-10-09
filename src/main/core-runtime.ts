@@ -37,6 +37,7 @@ export interface MachineCoreOptions {
   readonly home: string;
   readonly build: string;
   readonly bundles: MachineCopyOptions["bundles"];
+  readonly acquireBundle?: MachineCopyOptions["acquireBundle"];
   readonly ready: () => boolean;
 }
 
@@ -183,7 +184,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const exchangeQuery = yield* makeMachineExchangeQuery(rows.exchange);
     const hostsService = yield* HostsService;
     const machines = yield* MachineRepository;
-    const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles,
+    const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
     const actions = yield* makeMachineOwnerActions({
       ownStatus: machineStatus.own,

@@ -38,13 +38,14 @@ it("correlates bounded strict progress with its command and survives a detached 
 it("forwards copy progress without using up the five installation receipts", async () => {
   const seen: MachineCommandProgress[] = [];
   const actions = { dispatch: (request: OperatorRequestEnvelope, observer?: (event: MachineSendEvent) => void) => Effect.sync(() => {
+    observer?.({ event: "machine-download", downloadedBytes: 10, totalBytes: 10, state: "downloaded" });
     for (let copiedBytes = 0; copiedBytes <= 10; copiedBytes++) observer?.({ event: "machine-copy", copiedBytes, totalBytes: 10, state: copiedBytes === 10 ? "copied" : "copying" });
     observer?.({ event: "machine-install", juntoHome: "/home/probe", installRoot: "/home/probe/install", step: "verified" });
     return { protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false as const,
       error: { type: "io" as const, message: "fixture", details: { retryable: false } } };
   }) };
   await Effect.runPromise(dispatchMachineIpcCommand(actions, { protocol: OPERATOR_PROTOCOL_VERSION, id: "copy-one", op: "machine.send", args: { name: "mini" } }, progress => seen.push(progress)));
-  expect(seen).toHaveLength(12);
+  expect(seen).toHaveLength(13);
   expect(seen.at(-1)?.event).toMatchObject({ event: "machine-install", step: "verified" });
   expect(seen.every(progress => progress.id === "copy-one")).toBe(true);
 });

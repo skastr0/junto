@@ -21,6 +21,14 @@ describe("a step of a machine command in flight", () => {
     }
     expect(Result.isSuccess(decodeMachineCommandProgress({ id: "send-01", event: { ...event, copiedBytes: 69, state: "copied" } }))).toBe(true);
   });
+  it("admits download counts separately and refuses oversized or invented completion", () => {
+    const event = { event: "machine-download", downloadedBytes: 25, totalBytes: 69, state: "downloading" };
+    expect(Result.isSuccess(decodeMachineCommandProgress({ id: "send-01", event }))).toBe(true);
+    for (const bad of [{ downloadedBytes: -1 }, { downloadedBytes: 70 }, { totalBytes: 300_000_000 }, { downloadedBytes: 0.5 }, { state: "downloaded" }, { origin: "https://example.invalid" }]) {
+      expect(Result.isFailure(decodeMachineCommandProgress({ id: "send-01", event: { ...event, ...bad } }))).toBe(true);
+    }
+    expect(Result.isSuccess(decodeMachineCommandProgress({ id: "send-01", event: { ...event, downloadedBytes: 69, state: "downloaded" } }))).toBe(true);
+  });
   it("decodes with the id of the command it belongs to", () => {
     const decoded = decodeMachineCommandProgress(step);
     expect(Result.isSuccess(decoded)).toBe(true);
