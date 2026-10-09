@@ -18,8 +18,10 @@ import {
 } from "../src/main/junto/overseer/canvas";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
+import { nameThisMachine } from "./support/name-this-machine";
+import { clearMachines, seedThisMachine } from "./support/seed-this-machine";
 import { WorkLive } from "../src/main/junto/work/service";
 import { ModelService } from "../src/main/junto/model/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
@@ -69,8 +71,7 @@ describe("executeOverseerCanvas", () => {
       Layer.mergeAll(
         WorkRepositoryLive,
         CrewRepositoryLive,
-        StationRepositoryLive,
-        StationFleetTargetRepositoryLive,
+        MachineRepositoryLive,
         SettingsLive,
         makeContentServiceLive({
           root: contentRoot,
@@ -98,6 +99,7 @@ describe("executeOverseerCanvas", () => {
 
   const restoreEnv = async (): Promise<void> => {
     setOverseerNativeDeleteHooks(undefined);
+    clearMachines();
     if (runtime) {
       await runtime.dispose();
       runtime = undefined;
@@ -113,6 +115,9 @@ describe("executeOverseerCanvas", () => {
   const boot = async () => {
     await installEnv();
     runtime = makeRuntime(join(stateDir, "junto.db"));
+    await runtime.runPromise(nameThisMachine);
+    // The overseer places a seat with no machine named on this one.
+    seedThisMachine();
     await runtime.runPromise(seedCanvas("ops", opsNodes()));
     await runtime.runPromise(seedCanvas("other", [amp("alias", "bind-overseer")]));
     await runtime.runPromise(grantOverseer("ops", "overseer", true));
@@ -288,7 +293,7 @@ describe("executeOverseerCanvas", () => {
     })) as { node: NodeOf<"agent"> };
     // Main worked out everything the agent did not name.
     expect(made.node).toMatchObject({
-      kind: "agent", label: "Builder", harness: "claude", host: "local", agentKey: "local:claude",
+      kind: "agent", label: "Builder", harness: "claude", host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:claude`,
       overseer: false, onRemove: "detach",
     });
     expect(made.node.bindingId).toMatch(/\S/u);
@@ -327,12 +332,12 @@ describe("executeOverseerCanvas", () => {
     await boot();
     const refused = await expectErr({
       operation: "node.create",
-      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: "local", onRemove: "detach", bindingId: "bind-overseer" } },
+      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: THIS_MACHINE, onRemove: "detach", bindingId: "bind-overseer" } },
     } as never, "AuthError");
     expect(refused.message).toMatch(/share a session/u);
     const shell = (await expectOk({
       operation: "node.create",
-      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: "local", onRemove: "detach" } },
+      args: { node: { kind: "terminal", x: 0, y: 200, width: 200, height: 100, host: THIS_MACHINE, onRemove: "detach" } },
     } as never)) as { node: NodeOf<"terminal"> };
     expect(shell.node.bindingId).toMatch(/\S/u);
   });
@@ -355,7 +360,7 @@ describe("executeOverseerCanvas", () => {
     // What a seat runs is not an edit.
     for (const change of [
       { kind: "agent", harness: "claude" },
-      { kind: "agent", host: "studio" },
+      { kind: "agent", host: OTHER_MACHINE },
       { kind: "agent", launch: { kind: "harness", argv: ["sh"] } },
     ] as const) {
       const refused = await expectErr(
@@ -364,7 +369,7 @@ describe("executeOverseerCanvas", () => {
       );
       expect(refused.message).toMatch(/agent reseat/u);
     }
-    expect(await nodeAt("ops", "peer")).toMatchObject({ harness: "amp", host: "local" });
+    expect(await nodeAt("ops", "peer")).toMatchObject({ harness: "amp", host: THIS_MACHINE });
     await expectOk({ operation: "node.configure", args: { nodeId: "peer", change: { kind: "agent", label: "Peer" } } });
     expect(await nodeAt("ops", "peer")).toMatchObject({ label: "Peer", bindingId: "bind-peer" });
   });
@@ -747,7 +752,7 @@ describe("executeOverseerCanvas", () => {
     await expectOk({ operation: "node.delete", args: { nodeIds: ["peer"] } });
     expect(planned).toEqual([[
       { kind: "agent", agentKey: "local:amp" },
-      { kind: "terminal", bindingId: "bind-peer", hostId: "local" },
+      { kind: "terminal", bindingId: "bind-peer", hostId: THIS_MACHINE },
     ]]);
   });
 });

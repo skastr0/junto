@@ -20,8 +20,8 @@ import { ModelService } from "../src/main/junto/model/service";
 import { createLiveSessionService } from "../src/main/junto/overseer/live/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { nameThisMachine } from "./support/name-this-machine";
 import { WorkRevisions, WorkRevisionsLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { runOverseerTurn } from "../src/overseer-host/session";
 import { asNodeId, type Node } from "../src/shared/model";
@@ -50,7 +50,7 @@ afterEach(async () => { for (const dispose of disposals.splice(0).reverse()) awa
 const boot = async () => {
   const root = await mkdtemp(join(tmpdir(), "command-live-poc-"));
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive, SettingsLive,
+    WorkRepositoryLive, MachineRepositoryLive, SettingsLive,
     WorkRevisionsLive,
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state.db")), makeInstallOpsLive(join(root, "install-ops.db"))));
@@ -59,6 +59,7 @@ const boot = async () => {
     await runtime.dispose();
     await rm(root, { recursive: true, force: true });
   });
+  await runtime.runPromise(nameThisMachine);
   await runtime.runPromise(seedCanvas("factory", nodes()));
   await runtime.runPromise(grantOverseer(identity.canvasName, identity.nodeId, true));
   const repository = makeLiveRepository(await runtime.runPromise(SqlClient.SqlClient));

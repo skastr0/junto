@@ -3,10 +3,10 @@ import { Effect, Layer, Result, Schema } from "effect";
 import { asCanvasName, type Changed, type Node } from "../src/shared/model";
 import { canvasOf, note, page, seat, terminal } from "./support/model-nodes";
 import { InstallationId } from "../src/shared/installation-id";
-import { CommandCenterConfiguration } from "../src/shared/station-api";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelService } from "../src/main/junto/model/service";
-import { StationRepository } from "../src/main/junto/station/repository";
+import { MachineRepository } from "../src/main/junto/machines/repository";
+import { THIS_MACHINE } from "./support/machines";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import {
   resolveOverseerActor,
@@ -86,7 +86,8 @@ describe("overseer installation admission", () => {
   });
 
   it("rechecks on a change that leaves the seat as it was, and latches a rapid off and on", async () => {
-    const read = fixture();
+    // Overseer commands come from an occupant on this machine.
+    const read = fixture(local);
     let listener: ((event: Changed) => void) | undefined;
     let reads = 0;
     let settled = false;
@@ -100,13 +101,12 @@ describe("overseer installation admission", () => {
         subscribeCanvasesChanges: () => () => undefined,
       } as never),
       Layer.succeed(ModelActorRefs, { read: () => Effect.succeed(read.actorRefs) } as never),
-      Layer.mock(StationRepository, {
+      Layer.mock(MachineRepository, {
         installationId: Effect.succeed(local),
+        machineName: Effect.succeed(THIS_MACHINE),
         configuration: Effect.succeed({
           configuredAt: "2026-09-11T00:00:00Z",
-          configuration: Schema.decodeUnknownSync(CommandCenterConfiguration)({
-            role: "command-center", hostId: "local", supervisedPreferred: false,
-          }),
+          configuration: { name: THIS_MACHINE, supervisedPreferred: false },
         }),
       }),
     );
@@ -122,7 +122,7 @@ describe("overseer installation admission", () => {
     } as Changed);
     const abort = new AbortController();
     const watching = Effect.runPromise(
-      watchOverseerRevocation(caller, read.actorRefs[0]!, remote).pipe(
+      watchOverseerRevocation(caller, read.actorRefs[0]!, local).pipe(
         Effect.result,
         Effect.provide(layers),
       ),
