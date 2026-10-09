@@ -354,15 +354,17 @@ status (`59409daf5`) and its window lines (`878a47646`).
 
 Open, not finished:
 - One full-suite gate on current main, and a security read of `a32615924`.
-- Release 0.7.0 with Machines on is cut, the operator's call, from
-  `d6c828640`, unsigned, not published:
-  `~/.junto-release-builds/d6c828640.../release/mac-arm64/Junto.app`. The
-  packaged app opened a copy of the operator's real home: schema 13 to 21,
-  the Factory canvas with its 152 nodes and 257 wires, the Machines window,
-  a clean quit (`~/junto-receipts/release-0.7.0-20261009/release-receipt.json`).
-  The live runs owed above are now the operator's own run; what he finds is
-  a patch version. The shared lane was not rerun after the test-only lane
-  fix `20c6c36cf`.
+- Release 0.7.0 is held for size, the operator's decision. The signed,
+  notarized and qualified candidate from `77b24fb3c` is 332 MB against
+  175 MB for 0.6.0, over the 300 MB limit of the upload route. Nothing was
+  published; the feed serves 0.6.0. Measured: the two machine bundles are
+  451 MB installed, and `node_modules` ships whole in the app (119 MB).
+  Ordered: the bundles leave the app and are fetched per target when a
+  machine needs one, checked against a hash compiled into the app
+  (`remote-send`, `remote-core`); main and preload bundle their
+  dependencies (`remote-cut`). Later: the `junto` CLI on the bundle's own
+  Node, not a second runtime. 0.7.0 ships when the first is proven on a
+  signed candidate with a real send to the mini.
 - Leftovers of the old unit: `publishSystemdGenerationReadiness` has no
   caller, `supervision/systemd-user.ts` and `systemctl-runner.ts` still
   describe it.
