@@ -2,17 +2,36 @@
 """A real PTY harness stand-in, driven by one JSON instruction per submission.
 
 Place a wrapper named codex on the exercise core's PATH. It runs this script,
-with JUNTO_EXERCISE_CLI naming that run's packaged CLI. Commands: onboard,
-send {target,text}, mail, signal {text}, exit. Every operation invokes the real
-CLI with the seat's inherited credential. No database or socket is opened here.
+with JUNTO_EXERCISE_CLI naming that run's packaged CLI and CODEX_HOME set to
+a disposable directory inside the exercise root. Commands: onboard,
+send {target,text}, mail, signal {text}, operator-denial, exit. Work operations
+invoke the real CLI with the seat's inherited credential. The admission probe
+connects to this seat's own operator socket without a token or request frame.
 """
 import json
 import os
 from pathlib import Path
 import subprocess
+import socket
 import sys
 import termios
 import tty
+
+
+def operator_denial(home):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(3)
+        client.connect(str(home / ".junto/operator/control.sock"))
+        with client.makefile("r") as stream:
+            response = json.loads(stream.readline(8192))
+    # Admission runs at connection time, before any operation is dispatched.
+    # A missing socket, timeout, or ordinary operation error is not this proof.
+    return {"kind": "operator-denial", "ok": (
+        response.get("protocol") == "junto-operator/v1" and
+        response.get("ok") is False and
+        response.get("error", {}).get("type") == "forbidden" and
+        response.get("error", {}).get("message") == "operator control peer is not admitted"
+    ), "response": response}
 
 
 def main():
@@ -26,6 +45,9 @@ def main():
     cli = Path(os.environ["JUNTO_EXERCISE_CLI"]).resolve(strict=True)
     if not cli.is_relative_to(root):
         raise RuntimeError("stand-in CLI must belong to this exercise")
+    config = Path(os.environ["CODEX_HOME"]).resolve(strict=True)
+    if not config.is_dir() or not config.is_relative_to(root):
+        raise RuntimeError("stand-in requires a disposable CODEX_HOME inside this exercise")
     if not os.environ.get("JUNTO_WORK_TOKEN"):
         raise RuntimeError("stand-in must be started as a Junto seat")
     if not sys.stdin.isatty():
@@ -70,6 +92,9 @@ def main():
             if op == "exit":
                 emit({"kind": "exit", "ok": True})
                 return False
+            if op == "operator-denial":
+                emit(operator_denial(home))
+                return True
             if op == "onboard":
                 args = ["onboard"]
             elif op == "mail":
@@ -80,7 +105,7 @@ def main():
             elif op == "signal":
                 args = ["feedback", instruction["text"]]
             else:
-                raise ValueError("expected onboard, send, mail, signal, or exit")
+                raise ValueError("expected onboard, send, mail, signal, operator-denial, or exit")
             result = subprocess.run([str(cli), *args], capture_output=True,
                                     text=True, timeout=20)
             output = result.stdout if result.returncode == 0 else result.stderr
