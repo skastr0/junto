@@ -153,7 +153,7 @@ The Alpha executable remains an ordinary-user, rootless installation at:
 ```
 
 Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor. The
-reviewed source file [`scripts/linux-command-center.apparmor`](../scripts/linux-command-center.apparmor)
+reviewed source file [`scripts/linux-desktop.apparmor`](../scripts/linux-desktop.apparmor)
 grants only `userns,` to the exact versioned Alpha executable attachment. It
 uses AppArmor ABI 4.0, imports `tunables/global`, names the profile
 `junto`, and uses `flags=(unconfined)`. There is no local include and
@@ -174,7 +174,7 @@ copies the file byte-for-byte and loads that copy. Do not hand-edit the source,
 the installed copy, or add a local policy fragment.
 
 ```sh
-PROFILE_SOURCE="$PWD/scripts/linux-command-center.apparmor"
+PROFILE_SOURCE="$PWD/scripts/linux-desktop.apparmor"
 PROFILE_DESTINATION="/etc/apparmor.d/junto"
 
 test -f "$PROFILE_SOURCE"

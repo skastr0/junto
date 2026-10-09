@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const readProfile = (): Promise<string> =>
   readFile(
-    new URL("../scripts/linux-command-center.apparmor", import.meta.url),
+    new URL("../scripts/linux-desktop.apparmor", import.meta.url),
     "utf8",
   );
 
@@ -83,7 +83,7 @@ describe("Linux desktop alpha AppArmor boundary", () => {
       "An operator or host administrator separately reviews and installs the exact checked-in file",
     );
     expect(text).toContain("the application package remains rootless");
-    expect(packagedInputs).not.toMatch(/linux-command-center\.apparmor|apparmor/iu);
+    expect(packagedInputs).not.toMatch(/apparmor/iu);
     expect(packagedInputs).not.toContain("junto-desktop-bootstrap-linux-x64");
   });
 
