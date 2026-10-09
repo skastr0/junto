@@ -101,14 +101,6 @@ export interface SshReady<A> {
 
 export type ConfirmSshReady = <A>(value: A) => SshReady<A>;
 
-/**
- * S4 (effect@3.21): single canonical Tag id `@junto/SshTransport`.
- * `Context.Service` is unavailable until the product pins Effect V4 — do not
- * dual-define Tag + Service. Shape is `SshTransportShape` for callers.
- * V4 map: `class SshTransport extends Context.Service<SshTransport, Shape>()("@junto/SshTransport")`.
- * @see docs/END_STATE-effect-foundation.md §S4
- * @see Playground/effect/migration/services.md
- */
 export class SshTransport extends Context.Service<SshTransport,
   {
     readonly run: (

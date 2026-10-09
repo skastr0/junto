@@ -40,8 +40,6 @@ const READINESS_TIMEOUT_MS: Readonly<Record<ReadinessBudget, number>> = {
   agent: 20_000,
 };
 
-const DEPLOYMENT_STREAM_TIMEOUT_MS = 20 * 60_000;
-
 const ProgramTypeId: unique symbol = Symbol("@junto/ssh/Program");
 
 export interface OneShotProgram {
@@ -155,24 +153,6 @@ export const dedicatedStream = (
     command,
     connection: "dedicated",
     readinessTimeoutMs: READINESS_TIMEOUT_MS[readiness],
-  });
-
-/**
- * A deployment is one caller-scoped SSH capability, from candidate upload
- * through the privileged commit receipt. Its deliberately closed timeout is
- * long enough for package installation while retaining the non-multiplexed
- * connection boundary of a dedicated stream.
- */
-export const deploymentStream = (
-  target: SshTarget,
-  command: RemoteCommand,
-): ScopedStreamProgram =>
-  opaque<ScopedStreamProgram>("stream", {
-    _tag: "Stream",
-    target,
-    command,
-    connection: "dedicated",
-    readinessTimeoutMs: DEPLOYMENT_STREAM_TIMEOUT_MS,
   });
 
 export const unixForward = (

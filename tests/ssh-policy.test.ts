@@ -22,7 +22,6 @@ import {
 import { makeRemoteCommand } from "../src/main/junto/ssh/domain";
 import {
   createSshProgramCompiler,
-  deploymentStream,
   dedicatedStream,
   oneShot,
   unixForward,
@@ -248,31 +247,6 @@ describe("SSH policy surface", () => {
     expect(args).toContain("IdentitiesOnly=yes");
     expect(args).toContain("StrictHostKeyChecking=accept-new");
     expect(args.at(-2)).toBe("user@203.0.113.8");
-  });
-
-  it("keeps deployment streams dedicated for one bounded privileged transcript", async () => {
-    const endpoint = await runPromise(parseSshEndpoint("linux-station"));
-    const remote = await runPromise(
-      makeRemoteCommand("/usr/libexec/junto-release-bridge", []),
-    );
-    const compiler = createSshProgramCompiler({
-      controlDir: "/tmp/junto-ssh-policy-test",
-      envExecutable: "/usr/bin/env",
-      sshExecutable: "/usr/bin/ssh",
-      environment: {
-        HOME: "/tmp/junto-ssh-policy-home",
-        PATH: "/usr/bin:/bin",
-      },
-    });
-
-    const compiled = compiler.stream(deploymentStream(endpoint, remote));
-    const args = sshArgs(standard(compiled.command));
-
-    expect(compiled.connection).toBe("dedicated");
-    expect(compiled.readinessTimeoutMs).toBe(20 * 60_000);
-    expect(args).toContain("ControlMaster=no");
-    expect(args).toContain("ControlPath=none");
-    expect(args).not.toContain("ControlMaster=auto");
   });
 
   it("renders Hermes operations through shared one-shots and isolated ACP streams", async () => {
