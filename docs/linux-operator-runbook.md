@@ -140,7 +140,7 @@ unavailable in the first Remote Beta.
 Remote install/update must retain the same ordinary-user authority and
 single-store rules. Its user-service lifecycle, boot readiness, fixed OpenSSH
 Station operations and two-installation Work convergence require their own
-[qualification](linux-package-qualification.md). Desktop launch and update
+qualification. Desktop launch and update
 receipts do not substitute for those proofs.
 
 Optional lingering controls only the user manager's login lifetime. Core Node

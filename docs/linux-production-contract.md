@@ -22,9 +22,8 @@ and remediation remain optional external actions, never product privilege.
 
 This contract derives from
 [security-doctrine.md](security-doctrine.md),
-[linux-host-preparation.md](linux-host-preparation.md),
-[state-architecture.md](state-architecture.md), and
-[fleet-station-architecture.md](fleet-station-architecture.md).
+[linux-host-preparation.md](linux-host-preparation.md), and
+[state-architecture.md](state-architecture.md).
 
 ## Release and installation boundaries
 

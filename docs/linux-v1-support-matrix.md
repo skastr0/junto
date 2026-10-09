@@ -41,8 +41,7 @@ first install, source builds and sandbox preparation, and the
 | Work control | Owner-local Unix socket with process-bound identity | Exact rootless payload proof required |
 | Maturity | Unreleased, experimental and feature-gated | Desktop alpha evidence grants no Fleet qualification |
 
-Fleet contracts are in [host preparation](linux-host-preparation.md),
-[package qualification](linux-package-qualification.md) and the
+Fleet contracts are in [host preparation](linux-host-preparation.md) and the
 [production contract](linux-production-contract.md).
 
 ## Outside the qualified envelope

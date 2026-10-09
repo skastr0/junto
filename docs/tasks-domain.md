@@ -22,7 +22,7 @@ The Tasks feature was built by several agents in sequence. Each one carried a
 visualization analogy (a railway line with stations, arrivals, departures,
 boarding, tickets, passages, journeys, bake time) into identifiers, schema
 fields, and product copy. The analogy collided with the real Station concept
-(remote installations in `docs/fleet-station-architecture.md`) and made the
+(remote installations) and made the
 feature unreadable. The operator's ruling is that product language stays
 neutral and plain: a user must never have to ask what an arrival is.
 

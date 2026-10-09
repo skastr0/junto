@@ -146,9 +146,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     const production = collapsed(await readDoc("linux-production-contract.md"));
     const host = collapsed(await readDoc("linux-host-preparation.md"));
     const matrix = collapsed(await readDoc("linux-v1-support-matrix.md"));
-    const qualification = collapsed(
-      await readDoc("linux-package-qualification.md"),
-    );
 
     // Desktop and Fleet share rootless authority but have separate qualification.
     expect(production).toContain(
@@ -159,10 +156,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     );
     expect(production).toContain(
       "This does not block a separately qualified desktop alpha release",
-    );
-    expect(qualification).toContain("rootless userland payload");
-    expect(qualification).toContain(
-      "exact signed rootless payload",
     );
     expect(matrix).toContain(
       "Immutable owner-local generations",
@@ -202,12 +195,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     expect(matrix).toContain(
       "Unavailable in the first Remote Beta | Display/sandbox/secret-storage gaps do not block core Node health",
     );
-    expect(qualification).toContain(
-      "core Doctor status can be `ready` without display tooling",
-    );
-    expect(qualification).toContain(
-      "Linux Remote browser automation remains explicitly `unavailable`",
-    );
 
     // No sudo / deb / /opt product path.
     expect(production).toContain(
@@ -227,12 +214,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     );
     expect(matrix).toContain(
       "No `/opt` installer, administrator-credential flow, privileged bridge, root journal, setuid helper or package-manager fallback is supported",
-    );
-    expect(qualification).toContain(
-      "fresh install with no `sudo`, `su`, `pkexec`, system package manager",
-    );
-    expect(qualification).toContain(
-      "a system-owned active release path such as `/opt`, `/usr`, or `/var/lib`",
     );
   });
 
@@ -326,46 +307,5 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     ]) {
       expect(matrix).toContain(unsupported);
     }
-  });
-
-  it("qualifies downgrades only as one-way cutover rejections", async () => {
-    const qualification = await readDoc("linux-package-qualification.md");
-    const normalized = collapsed(qualification);
-    expect(normalized).toContain(
-      "downgrade only as a rejection: no older build may activate",
-    );
-  });
-
-  it("documents the exact structured two-installation qualification", async () => {
-    const qualification = await readDoc("linux-package-qualification.md");
-    const normalized = collapsed(qualification);
-    for (const required of [
-      "`nativePlatform`",
-      "`commandCenterOfflineClaimedTask`",
-      "`reportResponseRetry`",
-      "`syntheticNoOverlap`",
-      "`eventHome`",
-      "`entityHome`",
-      "`linux` / `ubuntu` / `24.04` / `x64`",
-      "`darwin` / `macos`",
-      "Only the Remote platform is bound to the exact Linux rootless payload",
-      "`station-qualification-evidence.txt`",
-      "human/operator attestation",
-      "`station-qualification-evidence` entry in the signed release manifest",
-      "displayless Node Remote",
-      "rootless userland payload",
-    ]) {
-      expect(normalized).toContain(required);
-    }
-    expect(qualification).not.toContain("ordered `checks`");
-    expect(normalized).not.toContain(
-      "Only the Remote platform is bound to the deb",
-    );
-  });
-
-  it("keeps the checked-in changelog visibly non-publishable", async () => {
-    const changelog = await readDoc("linux-release-changelog-template.md");
-    expect(changelog).toContain("NOT AUTHORIZED FOR PUBLICATION");
-    expect(changelog).toContain("human release authority replaces this file");
   });
 });

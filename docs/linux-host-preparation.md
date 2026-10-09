@@ -274,7 +274,6 @@ The Linux product and its support procedures must not:
 
 - [Linux operator runbook](linux-operator-runbook.md)
 - [Linux production contract](linux-production-contract.md)
-- [Linux package qualification](linux-package-qualification.md)
 
 ## Related contracts
 
@@ -282,4 +281,3 @@ The Linux product and its support procedures must not:
 - [Linux production contract](linux-production-contract.md)
 - [Linux operator runbook](linux-operator-runbook.md)
 - [Linux support matrix](linux-v1-support-matrix.md)
-- [Linux qualification](linux-package-qualification.md)
