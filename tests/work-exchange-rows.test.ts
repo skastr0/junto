@@ -180,6 +180,65 @@ describe("the rows that may cross machines", () => {
     expect(Result.isSuccess(decodeExchangeFrame({ ...refusal, detail: "x" }))).toBe(false);
   });
 
+  it("carries a secret only as its reference, at every depth of a copy and of a row", () => {
+    const region = (source: object) => ({
+      kind: "region",
+      id: "remote",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      z: 0,
+      hold: false,
+      environment: { sources: [source] },
+    });
+    const copy = (regions: unknown[], seats: unknown[] = []) => ({
+      kind: "copy",
+      copy: {
+        canvasName: "factory",
+        canvasId: "canvas-factory",
+        seq: 3,
+        editor,
+        target: mini,
+        seats,
+        peers: [],
+        terminals: [],
+        regions,
+        wires: [],
+        guidance: [],
+        references: [],
+        playing: true,
+      },
+    });
+    const reference = { id: "token", kind: "secret", name: "TOKEN", secretId: "token-1" };
+    expect(Result.isSuccess(decodeExchangeFrame(copy([region(reference)])))).toBe(true);
+    // The same source with the secret itself beside its reference, under any name.
+    for (const leaked of [{ value: "s3cr3t" }, { secret: "s3cr3t" }, { resolved: "s3cr3t" }]) {
+      expect(Result.isSuccess(decodeExchangeFrame(copy([region({ ...reference, ...leaked })])))).toBe(false);
+    }
+    // A seat or a peer with an environment, or anything else it does not have.
+    const peerSeat = { kind: "peer", id: "lead", x: 0, y: 0, width: 100, height: 60, z: 0, label: "lead", host: "macbook", seatId: seat("1") };
+    expect(Result.isSuccess(decodeExchangeFrame({ ...copy([]), copy: { ...copy([]).copy, peers: [peerSeat] } }))).toBe(true);
+    for (const extra of [{ env: { TOKEN: "s3cr3t" } }, { bindingId: "binding-lead" }, { launch: { kind: "harness", argv: ["claude"] } }]) {
+      expect(
+        Result.isSuccess(decodeExchangeFrame({ ...copy([]), copy: { ...copy([]).copy, peers: [{ ...peerSeat, ...extra }] } })),
+      ).toBe(false);
+    }
+
+    // A row: nothing rides inside its body or its receipt beyond what the row is.
+    const sent = mail(editor, lead, "peer");
+    const frame = (fact: unknown) => ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: editor, facts: [fact], through: "1" });
+    expect(Result.isSuccess(decodeExchangeFrame(frame(sent)))).toBe(true);
+    expect(Result.isSuccess(decodeExchangeFrame(frame({ ...sent, body: { ...sent.body, environment: { TOKEN: "s3cr3t" } } })))).toBe(false);
+    expect(Result.isSuccess(decodeExchangeFrame(frame({ ...sent, body: { ...sent.body, sentBy: { ...sent.body.sentBy, credential: "s3cr3t" } } })))).toBe(false);
+    const taken = receipt(mini, peer);
+    expect(
+      Result.isSuccess(
+        decodeExchangeFrame({ ...frame({ ...taken, body: { ...taken.body, receipt: { ...taken.body.receipt, token: "s3cr3t" } } }), writer: mini }),
+      ),
+    ).toBe(false);
+  });
+
   it("orders sequences by value, past the range of a number", () => {
     expect(compareSequence("9", "10")).toBeLessThan(0);
     expect(compareSequence("9007199254740993", "9007199254740992")).toBeGreaterThan(0);
