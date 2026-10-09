@@ -33,7 +33,6 @@ import {
   hasDebugAuthority,
   modeString,
   observeSpawnedRuntimeLease,
-  parseDoctorReceipt,
   parseProcessRows,
   processRoles,
   survivingProcessRows,
@@ -216,20 +215,6 @@ describe("packaged runtime smoke process qualification", () => {
 });
 
 describe("packaged runtime smoke receipts", () => {
-  it("accepts only the exact doctor envelope", () => {
-    expect(parseDoctorReceipt('{"ok":true,"data":{"status":"ok"}}')).toEqual({
-      ok: true,
-      data: { status: "ok" },
-    });
-    expect(() => parseDoctorReceipt("not-json")).toThrow(/non-JSON/u);
-    expect(() =>
-      parseDoctorReceipt('{"ok":true,"data":{"status":"ok","token":"leak"}}'),
-    ).toThrow(/wrong doctor payload/u);
-    expect(() =>
-      parseDoctorReceipt('{"ok":true,"data":{"status":"ok"},"extra":true}'),
-    ).toThrow(/wrong doctor envelope/u);
-  });
-
   it("normalizes owner-only modes and treats lsof exit 1 plus empty output as no listener", () => {
     expect(modeString(0o40700)).toBe("0700");
     expect(modeString(0o100600)).toBe("0600");

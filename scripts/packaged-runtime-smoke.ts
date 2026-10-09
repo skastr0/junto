@@ -44,11 +44,6 @@ export interface ProcessRow {
   readonly command: string;
 }
 
-export interface DoctorReceipt {
-  readonly ok: true;
-  readonly data: { readonly status: "ok" };
-}
-
 export const parseProcessRows = (output: string): ReadonlyArray<ProcessRow> => {
   const rows: ProcessRow[] = [];
   for (const line of output.split(/\r?\n/u)) {
@@ -183,35 +178,6 @@ export const assertNoRealHomeHandles = (
   ) {
     throw new Error("packaged Junto holds a file open under a real Junto root");
   }
-};
-
-export const parseDoctorReceipt = (output: string): DoctorReceipt => {
-  let value: unknown;
-  try {
-    value = JSON.parse(output);
-  } catch {
-    throw new Error("packaged junto browser returned non-JSON doctor output");
-  }
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value) ||
-    Object.keys(value).sort().join(",") !== "data,ok" ||
-    (value as { ok?: unknown }).ok !== true
-  ) {
-    throw new Error("packaged junto browser returned the wrong doctor envelope");
-  }
-  const data = (value as { data?: unknown }).data;
-  if (
-    typeof data !== "object" ||
-    data === null ||
-    Array.isArray(data) ||
-    Object.keys(data).join(",") !== "status" ||
-    (data as { status?: unknown }).status !== "ok"
-  ) {
-    throw new Error("packaged junto browser returned the wrong doctor payload");
-  }
-  return value as DoctorReceipt;
 };
 
 export const modeString = (mode: number): string =>

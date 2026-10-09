@@ -12,10 +12,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  controlSocketPath,
-  controlTokenPath,
-} from "../src/shared/browser-control";
+import { workControlDir, workControlSocketPath } from "../src/shared/work-control";
 import {
   createAppProcessPlane,
   type AppProcessLease,
@@ -26,7 +23,6 @@ import {
   finalizePackagedRuntimeSandbox,
   hasDebugAuthority,
   observeSpawnedRuntimeLease,
-  parseDoctorReceipt,
   parseProcessRows,
   processRoles,
   survivingProcessRows,
@@ -51,8 +47,6 @@ export interface LinuxCiPackagedSmokeReceipt {
   readonly ok: true;
   readonly display: "xvfb";
   readonly workCli: "ok";
-  readonly browserCli: "ok";
-  readonly browserRemoteModes: "absent";
   readonly processRoles: ReadonlyArray<string>;
   readonly rendererSandbox: {
     readonly renderers: number;
@@ -380,6 +374,7 @@ export const smokeLinuxCiPackagedRuntime = async (
       throw new Error("packaged Junto did not produce a diagnostic pid");
     }
     const output = boundedOutput(runtimeLease);
+    const workSocket = workControlSocketPath(workControlDir(isolatedHome));
     let runtimeRows: ReadonlyArray<ProcessRow> = [];
 
     await waitUntil("control and renderer startup", async () => {
@@ -391,11 +386,7 @@ export const smokeLinuxCiPackagedRuntime = async (
       }
       runtimeRows = descendantRows(rootPid, currentProcessRows());
       const roles = processRoles(rootPid, runtimeRows);
-      return (
-        (await pathExists(controlSocketPath(isolatedHome))) &&
-        (await pathExists(controlTokenPath(isolatedHome))) &&
-        roles.includes("renderer")
-      );
+      return (await pathExists(workSocket)) && roles.includes("renderer");
     });
 
     if (output.overflowed()) {
@@ -424,34 +415,6 @@ export const smokeLinuxCiPackagedRuntime = async (
     }
     parseWorkCliSchemaReceipt(work.stdout.trim());
 
-    const browserDoctor = runFixed(
-      workCli,
-      ["browser", "doctor", "--json"],
-      environment,
-    );
-    if (browserDoctor.status !== 0) {
-      throw new Error("packaged browser CLI doctor failed");
-    }
-    parseDoctorReceipt(browserDoctor.stdout.trim());
-
-    for (const argv of [
-      ["browser", "station"],
-      ["browser", "station-trust"],
-      ["browser", "--host", "remote-a", "doctor", "--json"],
-    ] as const) {
-      const retired = runFixed(workCli, [...argv], environment);
-      if (retired.status !== 2) {
-        throw new Error(
-          `packaged browser CLI ${argv.join(" ")} did not reject retired remote mode`,
-        );
-      }
-      if (!/remote Station-browser is removed/i.test(retired.stderr)) {
-        throw new Error(
-          `packaged browser CLI ${argv.join(" ")} missing retirement message`,
-        );
-      }
-    }
-
     const pids = runtimeRows.map((row) => String(row.pid));
     const listeners = runFixed("/usr/bin/lsof", [
       "-nP",
@@ -466,8 +429,6 @@ export const smokeLinuxCiPackagedRuntime = async (
       output.value(),
       work.stdout,
       work.stderr,
-      browserDoctor.stdout,
-      browserDoctor.stderr,
       listeners.stdout,
       listeners.stderr,
     ]);
@@ -492,7 +453,7 @@ export const smokeLinuxCiPackagedRuntime = async (
     await waitUntil(
       "descendant and socket cleanup",
       async () =>
-        !(await pathExists(controlSocketPath(isolatedHome))) &&
+        !(await pathExists(workSocket)) &&
         survivingProcessRows(runtimeRows, currentProcessRows()).length === 0,
       SHUTDOWN_TIMEOUT_MS,
     );
@@ -501,8 +462,6 @@ export const smokeLinuxCiPackagedRuntime = async (
       ok: true,
       display: "xvfb",
       workCli: "ok",
-      browserCli: "ok",
-      browserRemoteModes: "absent",
       processRoles: processRoles(rootPid, runtimeRows),
       rendererSandbox: sandbox,
       sandboxCapability,
