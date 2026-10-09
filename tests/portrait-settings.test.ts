@@ -19,7 +19,7 @@ describe("deprecated settings portraits", () => {
       ...JSON.parse(JSON.stringify(preferencesFromSettings(defaultSettings()))),
       portraits: { bySeat: { a: { shape: "toast", temperament: 0.5 }, b: { shape: "cloud-from-a-later-build" } } },
     };
-    const decoded = decodeStoredSettings(1, legacy, defaultSettings().station);
+    const decoded = decodeStoredSettings(1, legacy, defaultSettings().machine);
     const patched = applySettingsPatch(decoded, { appearance: { theme: "bright" } });
     const stored = JSON.parse(JSON.stringify(preferencesFromSettings(patched)));
     expect(stored.portraits).toEqual(legacy.portraits);

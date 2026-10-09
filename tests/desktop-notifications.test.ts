@@ -246,7 +246,7 @@ describe("notification settings", () => {
   it("decodes rows written before notifications as the defaults", () => {
     const settings = defaultSettings();
     const { notifications: _notifications, ...prefsRow } = preferencesFromSettings(settings);
-    const decoded = decodeStoredSettings(1, prefsRow, settings.station);
+    const decoded = decodeStoredSettings(1, prefsRow, settings.machine);
     expect(notificationSettings(decoded)).toEqual(defaultNotifications());
   });
 
@@ -254,7 +254,7 @@ describe("notification settings", () => {
     const patched = applySettingsPatch(defaultSettings(), decodePatch({ notifications: { done: false } }));
     expect(notificationSettings(patched)).toEqual({ ...defaultNotifications(), done: false });
     decodeSettings(patched);
-    const stored = decodeStoredSettings(1, preferencesFromSettings(patched), patched.station);
+    const stored = decodeStoredSettings(1, preferencesFromSettings(patched), patched.machine);
     expect(notificationSettings(stored).done).toBe(false);
   });
 });

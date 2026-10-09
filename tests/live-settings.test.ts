@@ -25,7 +25,7 @@ describe("Live provider preferences", () => {
   it("decodes pre-Live rows without creating call or microphone authority", () => {
     const settings = defaultSettings();
     const { live: _live, ...prefs } = preferencesFromSettings(settings);
-    const decoded = decodeStoredSettings(1, prefs, settings.station);
+    const decoded = decodeStoredSettings(1, prefs, settings.machine);
     expect(liveSettings(decoded)).toEqual(defaultLive());
     expect(Object.keys(liveSettings(decoded)).sort()).toEqual([
       "backendModel", "maxCallMinutes", "maxVoiceCostUsd",

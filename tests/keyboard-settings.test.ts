@@ -24,7 +24,7 @@ describe("keyboard settings", () => {
   it("decodes rows written before shortcuts could be changed as the defaults", () => {
     const settings = defaultSettings();
     const { keyboard: _keyboard, ...prefs } = preferencesFromSettings(settings);
-    expect(keyboardSettings(decodeStoredSettings(1, prefs, settings.station)).overrides).toEqual({});
+    expect(keyboardSettings(decodeStoredSettings(1, prefs, settings.machine)).overrides).toEqual({});
   });
 
   it("keeps a changed shortcut through the stored row", () => {
@@ -33,7 +33,7 @@ describe("keyboard settings", () => {
       decodePatch({ keyboard: { overrides: { "feed.open": ["Cmd+J"], "search.slash": [] } } }),
     );
     expect(keyboardSettings(next).overrides).toEqual({ "feed.open": ["Cmd+J"], "search.slash": [] });
-    const stored = decodeStoredSettings(1, JSON.parse(JSON.stringify(preferencesFromSettings(next))), next.station);
+    const stored = decodeStoredSettings(1, JSON.parse(JSON.stringify(preferencesFromSettings(next))), next.machine);
     expect(keyboardSettings(stored).overrides).toEqual({ "feed.open": ["Cmd+J"], "search.slash": [] });
     expect(decodeSettings(next)).toEqual(next);
   });

@@ -41,14 +41,14 @@ describe("interface size setting", () => {
     const settings = defaultSettings();
     expect(settings.appearance.interfaceScale).toBeUndefined();
     expect(interfaceScaleOf(settings)).toBe(100);
-    expect(interfaceScaleOf(decodeStoredSettings(1, preferencesFromSettings(settings), settings.station))).toBe(100);
+    expect(interfaceScaleOf(decodeStoredSettings(1, preferencesFromSettings(settings), settings.machine))).toBe(100);
   });
 
   it("takes each offered size through a patch and keeps it through the stored row", () => {
     for (const scale of INTERFACE_SCALES) {
       const next = applySettingsPatch(defaultSettings(), decodePatch({ appearance: { interfaceScale: scale } }));
       expect(interfaceScaleOf(decodeSettings(next))).toBe(scale);
-      expect(interfaceScaleOf(decodeStoredSettings(1, preferencesFromSettings(next), next.station))).toBe(scale);
+      expect(interfaceScaleOf(decodeStoredSettings(1, preferencesFromSettings(next), next.machine))).toBe(scale);
     }
   });
 

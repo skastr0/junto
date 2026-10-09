@@ -48,7 +48,7 @@ describe("retired token pressure in stored data", () => {
       ...(JSON.parse(JSON.stringify(preferencesFromSettings(defaultSettings()))) as Record<string, unknown>),
       tokenPressure: { enabled: true, threshold: { kind: "percent", percent: 75 }, graceMinutes: 10 },
     };
-    const settings = decodeStoredSettings(SETTINGS_VERSION, stored, defaultSettings().station);
+    const settings = decodeStoredSettings(SETTINGS_VERSION, stored, defaultSettings().machine);
     expect(Object.hasOwn(settings, "tokenPressure")).toBe(false);
     // The next persist writes the row clean.
     expect(Object.hasOwn(preferencesFromSettings(settings), "tokenPressure")).toBe(false);

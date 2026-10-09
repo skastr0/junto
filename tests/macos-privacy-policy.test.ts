@@ -97,7 +97,7 @@ describe("macOS privacy policy", () => {
         audio: current.audio,
         fleet: { ditherLevel: "fine", remoteManagedInstalls: true },
       },
-      current.station,
+      current.machine,
     );
     expect(restored.fleet.remoteManagedInstalls).toBe(false);
     expect(restored.fleet.remoteManagedInstallsConsented).toBeUndefined();

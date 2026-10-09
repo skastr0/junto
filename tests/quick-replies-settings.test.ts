@@ -25,7 +25,7 @@ describe("quick replies settings", () => {
   it("decodes rows written before quick replies as the defaults", () => {
     const settings = defaultSettings();
     const { feed: _feed, ...prefs } = preferencesFromSettings(settings);
-    const decoded = decodeStoredSettings(1, prefs, settings.station);
+    const decoded = decodeStoredSettings(1, prefs, settings.machine);
     expect(feedSettings(decoded).quickReplies).toEqual([...DEFAULT_QUICK_REPLIES]);
     expect(preferencesFromSettings(decoded).feed?.quickReplies).toEqual([...DEFAULT_QUICK_REPLIES]);
   });
@@ -33,7 +33,7 @@ describe("quick replies settings", () => {
   it("stores an edited, reordered list and keeps it through the stored row", () => {
     const next = applySettingsPatch(defaultSettings(), decodePatch({ feed: { quickReplies: ["Go on", "Ship it", "No"] } }));
     expect(feedSettings(next).quickReplies).toEqual(["Go on", "Ship it", "No"]);
-    const stored = decodeStoredSettings(1, JSON.parse(JSON.stringify(preferencesFromSettings(next))), next.station);
+    const stored = decodeStoredSettings(1, JSON.parse(JSON.stringify(preferencesFromSettings(next))), next.machine);
     expect(feedSettings(stored).quickReplies).toEqual(["Go on", "Ship it", "No"]);
     expect(decodeSettings(next)).toEqual(next);
   });
