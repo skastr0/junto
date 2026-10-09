@@ -86,6 +86,9 @@ redesigned. Browser pages are not placed on other machines at all.
   with it, so nothing waits for the MacBook.
 - Moving which machine edits a canvas, and editing from another window by
   sending the edit to that machine.
+- Boat (boat.dev, formerly Box): a provider that creates a machine and sends
+  Junto to it. The old provider code leaves the tree and is kept intact at the
+  tag `archive/box-provider`.
 
 ## Cutting
 
@@ -169,13 +172,22 @@ git show --stat --oneline HEAD
 | Slice | Owner | State |
 |---|---|---|
 | Review and contract | `remote-lead` | done: `959ec0e98`, `83b1badb7` |
-| Baseline and the two-machine rig | `remote-verify` | briefed |
-| Delete the old protocol, then roles, then the split | `remote-core` | briefed |
-| Work plane cut, then the row exchange | `remote-work` | briefed |
-| SSH review, then send to the Mac mini | `remote-send` | briefed |
-| Leaf cuts, stale documents, the guide | `remote-cut` | briefed |
-| A seat on another machine | `remote-seats` | not staffed |
-| The Machines window | `remote-window` | not staffed |
+| Baseline and the two-machine rig | `remote-verify` | baseline taken at `0e6e55434`; rig in design |
+| Delete the old protocol, then roles, then the split | `remote-core` | in progress |
+| Work plane cut, then the row exchange | `remote-work` | in progress |
+| SSH review, then send to the Mac mini | `remote-send` | in progress |
+| Leaf cuts, stale documents, the guide | `remote-cut` | in progress: `915e9c33a`, `3a50b10f6` |
+| A seat on another machine | `remote-seats` | not staffed; when the mini runs Junto |
+| The Machines window | `remote-window` | not staffed; when the mini runs Junto |
+
+**Baseline** (`0e6e55434`): typecheck clean; unit suite 9,204 passed, 3 failed,
+59 skipped. A landing adds no failure beyond those three:
+`effect-runpromise-boundary` (being fixed by `remote-core`) and two cases in
+`packaged-runtime-smoke` (being attributed).
+
+**Found by running:** the old windowless entry cannot boot. It exits at once
+because an Electron import reaches it through `term/ensure-managed-seat.ts`.
+Fixing that is the first step of the split.
 
 ## Test machine
 
