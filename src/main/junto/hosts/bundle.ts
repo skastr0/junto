@@ -31,6 +31,7 @@ export const inspectMachineBundle = async (root: string): Promise<MachineBundleM
   const metadata = await lstat(join(root,"manifest.json"));
   if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error("bundle manifest must be a regular file");
   const manifest = Schema.decodeUnknownSync(MachineBundleManifest,{onExcessProperty:"error"})(JSON.parse(await readFile(join(root,"manifest.json"),"utf8")));
+  if (manifest.files.some(file => (file.mode & 0o022) !== 0)) throw new Error("bundle files must not be writable by others; rebuild this machine package");
   const files = await machineBundleFiles(root);
   if (JSON.stringify(files) !== JSON.stringify(manifest.files)) throw new Error("bundle files do not match the manifest");
   for (const required of ["bin/node", "bin/junto", "core/junto.cjs"]) {

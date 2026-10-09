@@ -13,6 +13,7 @@ import { featureBunDefineArgs, featureViteDefines, resolveBuildFeatures } from "
 import { buildIdentity } from "./build-identity";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { bootRelocatedMachineBundle } from "./machine-bundle-boot";
+import { normalizeMachineBundleModes } from "./machine-bundle-modes";
 
 const NODE_VERSION = "26.10.0";
 const NODE_DIGESTS = {
@@ -125,8 +126,10 @@ export const buildMachine = async (input: BuildMachineInput) => {
     await stageMachinePty(stage, input.target);
     run(process.execPath, ["build", "--compile", `--target=bun-${input.target}`, "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig", "--no-compile-autoload-tsconfig", "--no-compile-autoload-package-json", "--external=original-fs", ...featureBunDefineArgs(features), `--define=APP_VERSION=${JSON.stringify(pkg.version)}`, `--define=__JUNTO_BUILD_ID__=${JSON.stringify(build)}`, "--outfile", join(stage, "bin/junto"), join(repoRoot, "src/cli/main.ts")], repoRoot);
     if (buildIdentity(repoRoot) !== build) throw new Error("source changed during build; rebuild this bundle");
+    await normalizeMachineBundleModes(stage);
     const manifest = {build, target:input.target, node:NODE_VERSION, appVersion:pkg.version, files:await machineBundleFiles(stage)};
     await writeFile(join(stage, "manifest.json"), JSON.stringify(manifest)+"\n");
+    await chmod(join(stage, "manifest.json"), 0o644);
     await bootRelocatedMachineBundle(stage, build);
     await rename(stage, output);
     return {output, build, target:input.target, node:NODE_VERSION, appVersion:pkg.version, files:manifest.files.length};

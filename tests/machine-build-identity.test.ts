@@ -10,7 +10,7 @@ const fixture = (): string => {
   const root = mkdtempSync(join(tmpdir(), "junto-build-id-"));
   roots.push(root);
   mkdirSync(join(root, "src")); mkdirSync(join(root, "scripts"));
-  for (const file of ["package.json", "bun.lock", "tsconfig.json", "electron.vite.config.ts", "scripts/build-identity.ts", "scripts/build-machine.ts", "scripts/machine-bundle-boot.ts", "scripts/build-features.ts", "scripts/build-standalone-cli.ts", "src/core.ts"]) writeFileSync(join(root,file), file);
+  for (const file of ["package.json", "bun.lock", "tsconfig.json", "electron.vite.config.ts", "scripts/build-identity.ts", "scripts/build-machine.ts", "scripts/machine-bundle-boot.ts", "scripts/machine-bundle-modes.ts", "scripts/build-features.ts", "scripts/build-standalone-cli.ts", "src/core.ts"]) writeFileSync(join(root,file), file);
   return root;
 };
 
