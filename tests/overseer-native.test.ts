@@ -451,11 +451,6 @@ describe("overseer native adapters", () => {
     });
     const native = live([{ name: "factory", doc: doc([remoteAgent]) }], {
       occupySeat: occupySpy,
-      stationScope: () => ({
-        hostId: "local",
-        installationId: "cc-install",
-        role: "command-center",
-      }),
     });
     const started = await run(native, "agent.start", { nodeId: "remote-a" });
     expect(started.ok).toBe(true);

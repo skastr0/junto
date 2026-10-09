@@ -8,6 +8,7 @@ import {
 } from "../src/main/junto/adapters/hermes";
 import {
   defaultRemoteHostsDocument,
+  makeThisMachine,
   type RemoteHost,
 } from "../src/shared/remote-hosts";
 import { setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
@@ -45,6 +46,8 @@ describe("hermes profile parsing", () => {
 });
 
 describe("hermes fleet host identity", () => {
+  // This machine has a name like any other and its own Hermes prefix.
+  const own = makeThisMachine("studio", { hermesId: "fleet-studio" });
   const remote: RemoteHost = {
     id: "render",
     hermesId: "fleet-render",
@@ -65,7 +68,7 @@ describe("hermes fleet host identity", () => {
   });
 
   it("publishes canonical self/fleet keys separately from physical ids and labels", async () => {
-    setHostsSnapshot([...defaultRemoteHostsDocument().hosts, remote]);
+    setHostsSnapshot([own, remote]);
     const seen: string[] = [];
     const bundle = await fetchHermesBundle(
       operations((host) => {
@@ -76,11 +79,11 @@ describe("hermes fleet host identity", () => {
     );
 
     expect(bundle.ok).toBe(true);
-    expect(seen).toEqual(["local", "fleet-render"]);
+    expect(seen).toEqual(["fleet-studio", "fleet-render"]);
     expect(bundle.entities.find((entity) => entity.key === "fleet-studio:default"))
       .toMatchObject({
         stats: {
-          host: "local",
+          host: "studio",
           hostId: "studio",
           gateway: "running",
           running: 1,
@@ -98,10 +101,10 @@ describe("hermes fleet host identity", () => {
   });
 
   it("retains current facts but marks a partial fleet attempt unhealthy", async () => {
-    setHostsSnapshot([...defaultRemoteHostsDocument().hosts, remote]);
+    setHostsSnapshot([own, remote]);
     const bundle = await fetchHermesBundle(
       operations((host) =>
-        host === "local"
+        host === "fleet-studio"
           ? { ok: true, stdout: TABLE }
           : { ok: false, stdout: "", error: "private endpoint detail" },
       ),
@@ -126,6 +129,7 @@ describe("hermes fleet host identity", () => {
   });
 
   it("does not spawn version after profiles is aborted", async () => {
+    setHostsSnapshot([own]);
     let releaseProfiles!: () => void;
     const profilesGate = new Promise<void>((resolve) => {
       releaseProfiles = resolve;
