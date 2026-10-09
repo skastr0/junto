@@ -22,6 +22,13 @@ import { messageDelivery } from "./junto/work/message-delivery";
 import { makeMachineExchangeQuery } from "./junto/work/exchange/queries";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse } from "@shared/operator-control";
 import { makeSeatsChannel } from "./junto/term/seats-link";
+import { makeCoreMailTransport, type CoreMailSeats } from "./junto/term/core-mail";
+import { makeMessageDeliveryStore } from "./junto/work/message-delivery-store";
+import { recordDeliveryReceiptRefusal } from "./junto/work/delivery-receipts";
+import { mainAuthoringGate } from "./junto/main-authoring-gate";
+import { KernelService, type KernelHost } from "./junto/kernel/service";
+import { PausePlane } from "./junto/pause-plane";
+import { pauseWasResumed } from "@shared/pause";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -48,9 +55,54 @@ export class MachineCoreSeats extends Context.Service<MachineCoreSeats, {
   readonly handler: LinkChannelHandler;
 }>()("@junto/MachineCoreSeats") {}
 
+export class MachineCoreMail extends Context.Service<MachineCoreMail, {
+  readonly seats: CoreMailSeats;
+  readonly boot: (host: KernelHost) => Effect.Effect<void>;
+}>()("@junto/MachineCoreMail") {}
+
 const machineCoreSeatsLayer = Layer.effect(MachineCoreSeats,
   makeSeatsChannel().pipe(Effect.map(handler => ({ handler }))),
 );
+
+const machineCoreMailLayer = Layer.effect(MachineCoreMail, Effect.gen(function* () {
+  const store = yield* makeMessageDeliveryStore;
+  const seats = yield* makeCoreMailTransport();
+  const pause = yield* PausePlane;
+  const kernel = yield* KernelService;
+  messageDelivery.configure({
+    transport: seats.transport,
+    store: {
+      ...store,
+      acceptMessageDelivery: (canvas, nodeId, messageId) =>
+        mainAuthoringGate.run("delivery.message-stamp", () => store.acceptMessageDelivery(canvas, nodeId, messageId))
+          .catch((cause: unknown) => {
+            recordDeliveryReceiptRefusal(canvas, nodeId, cause);
+            return false;
+          }),
+    },
+  });
+  const stopPause = pause.subscribe((canvas, previous, current) => {
+    if (pauseWasResumed(previous, current)) messageDelivery.onResumed(canvas);
+  });
+  let booted = false;
+  let stopped = false;
+  seats.onSuspend(() => {
+    stopped = true;
+    stopPause();
+    kernel.suspend();
+  });
+  return {
+    seats,
+    boot: (host) => Effect.gen(function* () {
+      if (booted || stopped) return;
+      booted = true;
+      yield* pause.start;
+      if (stopped) return;
+      kernel.start(host);
+      yield* Effect.promise(() => messageDelivery.onBooted());
+    }),
+  };
+}));
 
 const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* () {
   const machines = yield* MachineRepository;
@@ -113,6 +165,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
   const seats = Layer.provideMerge(machineCoreSeatsLayer, rows);
+  const mail = Layer.provideMerge(machineCoreMailLayer, seats);
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
     const machineStatus = yield* MachineCoreStatus;
@@ -153,7 +206,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       ),
     });
   }));
-  return Layer.provideMerge(owner, seats);
+  return Layer.provideMerge(owner, mail);
 };
 
 /** One StateEngine reference feeds identity, registry, link and owner commands. */

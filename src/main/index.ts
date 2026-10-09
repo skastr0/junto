@@ -41,7 +41,7 @@ import {
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessPlane } from "./junto/app-process-plane";
 import { AppRuntime, setMachineControlReadiness } from "./runtime";
-import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats } from "./core-runtime";
+import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats, MachineCoreMail } from "./core-runtime";
 import { MachineOwnerControl } from "./junto/hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./junto/link/service";
 import { AgentSignalRepository } from "./junto/signals/repository";
@@ -1656,24 +1656,22 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Every installation starts the same product kernel.
     try {
       kernelService = await AppRuntime.runPromise(KernelService);
-      // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry
-      // (migration/runtime.md). Factory program via runFork.
-      kernelService.start({
-        runPromise: (effect) => AppRuntime.runPromise(effect as never),
-        runFork: (effect) => {
-          AppRuntime.runFork(effect as never);
-        },
-      });
     } catch (error) {
       console.error("[kernel] failed to start:", error);
       exitAfterDetach(1, "kernel-startup-failure");
       return;
     }
-    // Local term control UDS — Remote stations expose this for CC SSH forward.
+    // The shared core starts mail only after its local seats are reachable.
     try {
       await termPlane.start({ controlHome: termControlHome });
+      await AppRuntime.runPromise(Effect.flatMap(MachineCoreMail, mail => mail.boot({
+        runPromise: effect => AppRuntime.runPromise(effect),
+        runFork: effect => { AppRuntime.runFork(effect); },
+      })));
     } catch (error) {
-      console.error("[term] control socket failed to start:", error);
+      console.error("[core] seats and mail failed to start:", error);
+      exitAfterDetach(1, "core-mail-startup-failure");
+      return;
     }
     powerMonitor.on("resume", () => {
       if (shutdownAdmissionClosed) return;

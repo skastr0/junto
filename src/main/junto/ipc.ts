@@ -1,4 +1,4 @@
-import { canvasReceiptBasis, recordDeliveryReceiptRefusal, stampMailboxDeliveryReceipt } from "./work/delivery-receipts";
+import { canvasReceiptBasis } from "./work/delivery-receipts";
 import { WorkItemQuery, WorkActorQuery, WorkAttentionQuery, WorkSinkQuery } from "@shared/work-sinks";
 import { WorkMailQuery } from "@shared/work-mail";
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
@@ -11,9 +11,9 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { Canvas } from "@shared/model";
-import { pauseWasResumed } from "@shared/pause";
 import { readModelDigest } from "./model/digest";
 import { AppRuntime } from "../runtime";
+import { MachineCoreMail } from "../core-runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
 import { ModelService } from "./model/service";
@@ -78,7 +78,7 @@ import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squ
 import { SeatGuidanceRepository } from "./seat-guidance/repository";
 import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
 import { SeatOffboardCloser } from "./seat-sessions/offboard-close";
-import { closingFence, fencedWriter } from "./term/closing-fence";
+import { closingFence } from "./term/closing-fence";
 import { ContinuationLedger, rotateOwing } from "./seat-sessions/continuation-pending";
 import { makeOnboardNudgeInterject, watchSeatReadiness } from "./term/onboard-nudge-interject";
 import {
@@ -116,7 +116,6 @@ import {
   dismissAgentSignal,
   listCanvasAgentSignals,
 } from "./signals/operator";
-import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { CrewRepository } from "./work/crew-repository";
@@ -127,14 +126,10 @@ import { registerGitIpc } from "./git/ipc";
 import {
   GROK_MIN_POST_SPAWN_MS,
 } from "./term/drive";
-import { createManagedTerminalDrive } from "./term/drive/managed-drive-factory";
-import { attachManagedTerminalDriveRuntime } from "./term/drive/managed-drive-runtime";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
-import { isManagedTerminalReady } from "./term/drive/readiness";
-import { MailReadinessLatch } from "./term/drive/mail-readiness";
 import {
   rulePackFor,
   seatStateRuntime,
@@ -160,7 +155,6 @@ import { injectionSupervisor } from "./term/injection-supervisor";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import { handleSeatOffboardRun, handleSeatOffboardStatus } from "./seat-sessions/operator-offboard-ipc";
 import { startOperatorOffboard } from "./seat-sessions/operator-offboard-live";
-import { cutBeforeMail } from "./seat-sessions/operator-offboard";
 import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
   scheduleManagedPulseReady,
@@ -173,7 +167,6 @@ import {
 } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
-import { bindManagedTerminalDriveForOverseer } from "./term/managed-drive-holder";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
 import type { WorkMetadata, Part, TaskState } from "@shared/work-model";
@@ -240,19 +233,6 @@ const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
 ): Promise<A> => mainAuthoringGate.run(label, operation);
-
-const stampMailboxReceipt = (
-  deliveryId: string,
-  canvas: string,
-  nodeId: string,
-  messageId: string,
-): Promise<boolean> =>
-  runMainAuthoring("delivery.message-stamp", () => AppRuntime.runPromise(
-    stampMailboxDeliveryReceipt({ deliveryId, canvas, nodeId, messageId }),
-  )).catch((cause: unknown) => {
-    recordDeliveryReceiptRefusal(canvas, nodeId, cause);
-    return false;
-  });
 
 const runRendererWorkAuthoring = <A>(
   label: MainAuthoringLabel,
@@ -1500,7 +1480,7 @@ export const registerJuntoIpc = (): void => {
       const snapshots = yield* SnapshotsService;
       const usage = yield* UsageService;
       const kernel = yield* KernelService;
-      const pause = yield* PausePlane;
+      const coreMail = yield* MachineCoreMail;
       const settingsForSeed = yield* SettingsService;
       const settingsAtBoot = yield* settingsForSeed.get;
       yield* Effect.tryPromise({
@@ -1561,9 +1541,6 @@ export const registerJuntoIpc = (): void => {
         pending.cancel();
         managedPulseReadyCancels.delete(bindingId);
       };
-      // Observer → seat state machine → idle gate for drive typing.
-      // Fail closed: unknown/unbound seats are not idle (never type into dialogs).
-      seatStateRuntime.start();
       // Advisory seat-awareness sidecar, an experimental feature. Enrollment is
       // the Settings toggle: a discovered key is not consent. Off, the plane is
       // not running at all; on with no key it publishes missing_key. The toggle
@@ -1584,82 +1561,12 @@ export const registerJuntoIpc = (): void => {
       };
       applySeatAwareness(settingsAtBoot);
       settingsForSeed.subscribe(applySeatAwareness);
-      // Mail waits for each generation's TUI to come up (bracketed paste on,
-      // settled idle) before its first paste; see mail-readiness.
-      const mailReadiness = new MailReadinessLatch();
-      const mailReadyNow = (bindingId: string): boolean => {
-        const slot = seatStateRuntime.machine.getSlot(bindingId);
-        const snap = terminalObserverPlane.snapshot(bindingId);
-        const live = termPlane.host.get(bindingId);
-        return mailReadiness.observe(bindingId, {
-          running: live?.status === "running",
-          generation: live?.epoch,
-          harness: slot?.harness,
-          seatState: seatStateRuntime.getState(bindingId),
-          bracketedPaste: snap?.signals.modes.bracketedPaste === true,
-          idleConfirmed: seatStateRuntime.isSeatIdle(bindingId),
-          lines: snap?.lines,
-        });
-      };
-      closingFence.setLiveGeneration((bindingId) => {
-        const live = termPlane.host.get(bindingId);
-        return live !== undefined && live.status !== "exited" ? live.epoch : undefined;
-      });
-      // The operator's own keystrokes ask the same fence.
-      termPlane.host.setInputSealed((bindingId) => closingFence.sealed(bindingId));
-      const managedDrive = createManagedTerminalDrive({
-        // Every byte Junto types into a seat goes through here: a sealed
-        // seat takes none, whichever path asked.
-        write: fencedWriter(
-          closingFence,
-          (bindingId: string, data: string) =>
-            !productAutomationSuspended &&
-            termPlane.host.writeManagedSeat(bindingId, data),
-          false,
-        ),
-        isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
-        seatState: (bindingId) => seatStateRuntime.getState(bindingId),
-        // Only Grok has the clipboard-image TUI trap. Electron exposes the
-        // pasteboard format list without decoding its payload; all other
-        // harnesses bypass this preflight entirely.
-        assertClipboardSafe: (bindingId) => {
-          if (
-            seatStateRuntime.machine.getSlot(bindingId)?.harness !== "grok"
-          ) {
-            return true;
-          }
-          return clipboardFormatsAreSafeForGrok(clipboard.availableFormats());
-        },
-        onAttention: (bindingId, reason) => {
-          // One seat event producer: preserve the generation epoch and let
-          // runtime lifecycle invalidation suppress nudges for dead seats.
-          if (!seatStateRuntime.machine.getSlot(bindingId)) return;
-          seatStateRuntime.machine.force(
-            bindingId,
-            "attention",
-            reason,
-          );
-        },
-        snapshot: (bindingId) => terminalObserverPlane.snapshot(bindingId),
-        bracketedPaste: (bindingId) =>
-          terminalObserverPlane.snapshot(bindingId)?.signals.modes.bracketedPaste === true,
-        // Screen truth: typing is authorized only while the harness's
-        // composer probes prove an EMPTY input box on the live grid.
-        composerVerdict: (bindingId) =>
-          seatStateRuntime.composerVerdict(bindingId),
-        harnessFor: (bindingId) =>
-          seatStateRuntime.machine.getSlot(bindingId)?.harness,
-      });
-      bindManagedTerminalDriveForOverseer(managedDrive);
-      const driveReady = (bindingId: string): boolean => {
-        if (productAutomationSuspended || closingFence.sealed(bindingId)) return false;
-        const slot = seatStateRuntime.machine.getSlot(bindingId);
-        return isManagedTerminalReady({
-          harness: slot?.harness,
-          seatState: seatStateRuntime.getState(bindingId),
-          snapshot: terminalObserverPlane.snapshot(bindingId),
-        });
-      };
+      const { drive: managedDrive, mailReadyNow, driveReady } = coreMail.seats;
+      // Electron alone can inspect the pasteboard before Grok receives text.
+      coreMail.seats.setClipboardSafe((bindingId) =>
+        seatStateRuntime.machine.getSlot(bindingId)?.harness !== "grok" ||
+        clipboardFormatsAreSafeForGrok(clipboard.availableFormats()),
+      );
       const writeManagedPrompt = (
         bindingId: string,
         text: string,
@@ -1676,63 +1583,15 @@ export const registerJuntoIpc = (): void => {
           ready: options?.ready ?? driveReady(bindingId),
           ...(options ?? {}),
         });
-      attachManagedTerminalDriveRuntime(managedDrive, {
-        subscribeHostEvents: (listener, options) =>
-          termPlane.host.subscribeEvents((payload) => {
-            if (payload.type === "output") {
-              listener({ kind: "output", bindingId: payload.bindingId });
-              return;
-            }
-            if (payload.type !== "session") return;
-            listener({
-              kind: "session",
-              bindingId: payload.bindingId,
-              exited: payload.status === "exited",
-              running: payload.status === "running",
-            });
-          }, options),
-        subscribeSeatState: (listener) =>
-          seatStateRuntime.subscribe((event) =>
-            listener({ bindingId: event.bindingId, state: event.state }),
-          ),
-        subscribeComposerEmpty: (listener) =>
-          seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
-            if (verdict !== "empty") return;
-            listener(bindingId);
-          }),
-        subscribeComposerDraft: (listener) =>
-          seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
-            if (verdict !== "draft") return;
-            listener(bindingId);
-          }),
-        harnessFor: (bindingId) =>
-          seatStateRuntime.machine.getSlot(bindingId)?.harness,
-        snapshotText: (bindingId) =>
-          terminalObserverPlane.snapshot(bindingId)?.text,
+      coreMail.seats.onSuspend(() => {
+        productAutomationSuspended = true;
+        checkoutWatch?.stop();
+        offboardCloser?.stop();
+        seatDrain?.quit();
+        setManagedPulseDeliver(undefined);
+        for (const pending of managedPulseReadyCancels.values()) pending.cancel();
+        managedPulseReadyCancels.clear();
       });
-      const productAutomationSuspension = Object.freeze({
-        suspend: (): void => {
-          if (productAutomationSuspended) return;
-          productAutomationSuspended = true;
-          checkoutWatch?.stop();
-          // Cut every Junto-owned source before releasing its exact control
-          // leases. LocalSessionHost.release never signals the PTY process.
-          managedDrive.suspend();
-          messageDelivery.suspend();
-          offboardCloser?.stop();
-          // Junto is going down and the host stops every process: what was
-          // still winding down is recorded as ended by the quit.
-          seatDrain?.quit();
-          setManagedPulseDeliver(undefined);
-          for (const pending of managedPulseReadyCancels.values()) {
-            pending.cancel();
-          }
-          managedPulseReadyCancels.clear();
-        },
-      });
-      termPlane.bindProductAutomationSuspension(
-        productAutomationSuspension,
-      );
       // Post-spawn session capture for harnesses that mint an id and never
       // print it (Muse, fx). Home is read lazily so a test seam can move it.
       const seatSessionCapture = new SeatSessionCapture(() => homedir());
@@ -1982,9 +1841,6 @@ export const registerJuntoIpc = (): void => {
           appendManagedPrompt({ bindingId, text, canvasName, nodeId }),
         suspended: () => productAutomationSuspended,
       });
-      closingFence.subscribeLifted((bindingId) => {
-        if (!productAutomationSuspended) messageDelivery.onSeatLive(bindingId);
-      });
       privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => offboardCloser?.current() ?? []);
       // Operator offboard: ask or offboard now, one seat or many, and what the
       // buttons should say first. The same operation the overseer and the
@@ -2163,8 +2019,6 @@ export const registerJuntoIpc = (): void => {
       }, { replayCurrentSessions: true });
       seatStateRuntime.subscribe((event) => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
-        // Injection supervisor: event-driven re-engagement policy.
-        injectionSupervisor.noteSeatState(event);
         // Muse and fx mint their session id without printing it, so the seat
         // watches for it on its own boundaries and stores it once. Without
         // that, a cold wake starts a NEW session instead of resuming this one.
@@ -2177,10 +2031,6 @@ export const registerJuntoIpc = (): void => {
         });
         if (event.state === "gone") {
           seatSessionCapture.forget(event.bindingId);
-          // An offboarded session's process is gone: the fence lifts, and
-          // mail that arrived while it was ending now wakes the seat (rest)
-          // or waits for the fresh session that is starting (continue).
-          closingFence.release(event.bindingId);
         }
         if (
           event.state === "attention" &&
@@ -2213,10 +2063,6 @@ export const registerJuntoIpc = (): void => {
             });
           }
         }
-        // Any live state means the seat's terminal is up: write the mail
-        // that waited for it. The drive idle drain runs in the shared
-        // runtime attach above.
-        if (event.state !== "gone") messageDelivery.onSeatLive(event.bindingId);
       });
       // Kernel pulses for managed seats (not ACP).
       setManagedPulseDeliver(
@@ -2233,81 +2079,7 @@ export const registerJuntoIpc = (): void => {
         factoryBoardTransport({ kernel, write: writeManagedPrompt }),
       );
 
-      // Mail: every pending message is typed into its seat at once, whatever
-      // the seat is doing; mail for a seat that is not up starts it (on a
-      // playing canvas) and waits for its TUI.
       const crew = yield* CrewRepository;
-      // Mail held for an operator draft goes out once the draft is gone.
-      managedDrive.subscribeMailWritable((bindingId) => {
-        if (!productAutomationSuspended) messageDelivery.onSeatLive(bindingId);
-        // The onboarding nudge passes the same gate: one it held goes out
-        // now, instead of waiting for whatever the seat does next.
-        injectionSupervisor.noteWritable(bindingId);
-      });
-      messageDelivery.configure({
-        transport: {
-          // Physical only: a running process whose TUI is up (mail-readiness).
-          // A seat that has offboarded is not live for mail: what arrives
-          // while its session ends waits for the fresh one.
-          seatLive: (bindingId) =>
-            !productAutomationSuspended &&
-            !closingFence.sealed(bindingId) &&
-            mailReadyNow(bindingId) &&
-            // A fresh session owed its continuation line gets that first
-            // (briefly): mail typed ahead of it starts a turn that keeps it out.
-            !injectionSupervisor.continuationHoldsMail(bindingId),
-          // Mail to a seat that has not run `junto onboard` carries the
-          // pointer on its own line.
-          seatOnboarded: (bindingId) => injectionSupervisor.isOnboarded(bindingId),
-          // Auto offboard: a running, idle seat about to be given a turn on
-          // a session that has gone cold gets a fresh session first, and this
-          // mail wakes it there. One seat, at its own delivery; never a timer.
-          cutColdSession: (_bindingId, canvas, nodeId) =>
-            productAutomationSuspended
-              ? Promise.resolve(false)
-              : cutBeforeMail({ canvasName: canvas, seatId: nodeId }),
-          // The kernel wake owns locality, the pause law, and the restart
-          // budget. A generation already starting needs no second wake.
-          wakeSeat: (bindingId, canvas, nodeId) => {
-            if (productAutomationSuspended) return Promise.resolve(false);
-            const status = termPlane.host.get(bindingId)?.status;
-            if (status === "starting" || status === "running") {
-              return Promise.resolve(true);
-            }
-            return kernel.wakeManagedSeat(canvas, nodeId);
-          },
-          writeMail: (bindingId, text) =>
-            managedDrive.writeMail(bindingId, text).then((outcome) => {
-              // Mail in the seat is a first real message: the onboarding
-              // nudge may follow the turn it starts.
-              if (outcome === "written") injectionSupervisor.noteMailWritten(bindingId);
-              return outcome;
-            }),
-        },
-        store: {
-          listCanvasNames: () => AppRuntime.runPromise(
-            Effect.flatMap(ModelService, (model) => model.listCanvases()),
-          ),
-          readModel: (name) => AppRuntime.runPromise(
-            Effect.flatMap(ModelService, (model) => model.canvas(name)).pipe(
-              Effect.catch(() => Effect.succeed(undefined)),
-            ),
-          ),
-          readMessage: (canvas, nodeId, messageId) => AppRuntime.runPromise(mailRepository.mailMessage(canvas, nodeId, messageId)),
-          listMail: (canvas, nodeId) => AppRuntime.runPromise(mailRepository.mailbox(canvas, nodeId)),
-          acceptMessageDelivery: (canvas, nodeId, messageId) =>
-            stampMailboxReceipt(
-              mailboxMessageDeliveryId(canvas, nodeId, messageId),
-              canvas,
-              nodeId,
-              messageId,
-            ),
-        },
-      });
-      // The line went out, or its turn to go first is over: waiting mail goes.
-      injectionSupervisor.subscribeContinuationCleared((bindingId) => {
-        if (!productAutomationSuspended) messageDelivery.onSeatLive(bindingId);
-      });
       // A continuation line held by the seat's input box is said on the seat
       // the way held mail is.
       injectionSupervisor.subscribeContinuationHeld((bindingId, hold, line) => {
@@ -2327,27 +2099,6 @@ export const registerJuntoIpc = (): void => {
       messageDelivery.subscribeDelivered((event) =>
         broadcast(IPC_CHANNELS.wireTraffic, event),
       );
-      // A TUI that turns bracketed paste on may do it with no seat-state
-      // change; that edge is when its waiting mail becomes writable.
-      const bracketedPasteOn = new Set<string>();
-      terminalObserverPlane.subscribeGlobal((snap) => {
-        const on = snap.signals.modes.bracketedPaste;
-        if (!on) {
-          bracketedPasteOn.delete(snap.bindingId);
-          return;
-        }
-        if (bracketedPasteOn.has(snap.bindingId)) return;
-        bracketedPasteOn.add(snap.bindingId);
-        // The other half of a first ready moment: record it if this is one.
-        mailReadyNow(snap.bindingId);
-        messageDelivery.onSeatLive(snap.bindingId);
-      });
-      // Play released a hold: its waiting mail starts the seats it names.
-      pause.subscribe((canvas, previous, current) => {
-        if (pauseWasResumed(previous, current)) messageDelivery.onResumed(canvas);
-      });
-      setTimeout(() => void messageDelivery.onBooted(), 10_000);
-
       const workRepository = yield* WorkRepository;
       checkoutWatch = makeCheckoutWatchComposition({
         model: yield* ModelService,
@@ -2372,12 +2123,6 @@ export const registerJuntoIpc = (): void => {
       // First usage fetch is fire-and-forget off the boot critical path;
       // provider fetches can take tens of seconds so it never blocks window open.
       if (USAGE_ENABLED) usage.start();
-      kernel.start({
-        runPromise: (effect) => AppRuntime.runPromise(effect as never),
-        runFork: (effect) => {
-          AppRuntime.runFork(effect as never);
-        },
-      });
 
       settingsForSeed.subscribe((settings) => {
         syncCheckoutWatch();
