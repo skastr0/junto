@@ -212,6 +212,12 @@ redesigned. Browser pages are not placed on other machines at all.
 
 ## Later, and not to be blocked
 
+- Browser control by a seat. Its socket admission was cut when the peer
+  process read was removed and answers "not available in this build"; it
+  comes back on the generation credential when the browser is enabled.
+- A briefing or an app-wide reference taken with a copy replaces the taking
+  machine's own of the same name. Harmless while a machine that takes copies
+  edits no canvas of its own; to be decided before one does both.
 - An always-on machine as the hub: it opens the links, and the phone app pairs
   with it, so nothing waits for the operator's own computer.
 - Moving which machine edits a canvas, and editing from another window by
