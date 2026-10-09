@@ -936,20 +936,6 @@ const makeKernelService = (
       if (!generationIsActive(generation)) return;
 
       const busyActorSeatIds = new Set<ActorSeatId>();
-      const pendingCommands = yield* workRepository.pendingCommands;
-      if (!generationIsActive(generation)) return;
-      for (const pending of pendingCommands) {
-        if (
-          pending.resolution === undefined &&
-          pending.command.body.operation === "task.claim"
-        ) {
-          // The task remains submitted until the Remote adopts it, but the
-          // durable claim attempt already reserves the actor. Treating only
-          // material task rows as busy would let the deterministic selector
-          // choose this seat forever and starve the next eligible actor.
-          busyActorSeatIds.add(pending.command.body.actor.seatId);
-        }
-      }
       for (const world of worlds.values()) {
         for (const board of nodesOf(world.canvas, "task")) {
           for (const task of workOf(world).itemsOf(board.id)) {
