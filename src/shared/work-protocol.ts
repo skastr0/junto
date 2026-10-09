@@ -23,12 +23,7 @@ export {
   ActorRef,
   SinkRef,
   TaskRef,
-  WorkItemKind,
   WorkItemRef,
-  WorkNodeRef,
-  WORK_PROTOCOL_MAX_CANVAS_NAME_CHARS,
-  WORK_PROTOCOL_MAX_ID_CHARS,
-  WORK_PROTOCOL_MAX_NODE_ID_CHARS,
 } from "./work-reference";
 
 /**

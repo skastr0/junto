@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+
 
 /**
  * Pure canonical JSON and semantic hashing for Work records.
@@ -18,12 +18,4 @@ export const canonicalJson = (value: unknown): string => {
     );
   };
   return JSON.stringify(normalizeJson(value));
-};
-
-export const computeWorkRecordContentSha256 = (record: Record<string, unknown>): string => {
-  if (record.recordType === "fact" && (record.basis as { kind?: unknown } | undefined)?.kind === "historical") {
-    throw new Error("historical Work hashes cannot be recomputed");
-  }
-  const { contentSha256: _, originAt: __, ...semantic } = record;
-  return createHash("sha256").update(canonicalJson(semantic), "utf8").digest("hex");
 };
