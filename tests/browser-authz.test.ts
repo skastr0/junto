@@ -11,11 +11,6 @@ import {
   resolveBrowserCaller,
 } from "../src/main/junto/browser/authz";
 import { resolveBrowserCallerFromProcess } from "../src/main/junto/browser/process-bind";
-import {
-  makeProcessIdentityMap,
-  admitProcessIdentity,
-} from "../src/main/junto/process-identity";
-import type { Socket } from "node:net";
 
 const at = { x: 0, y: 0, width: 100, height: 40 };
 
@@ -199,19 +194,4 @@ describe("process-bind (browser canvas resolution)", () => {
     if (!resolved.ok) expect(resolved.denial).toBe("not_found");
   });
 
-});
-
-describe("process identity map", () => {
-  it("admits peer PID and ancestor walk", () => {
-    const map = makeProcessIdentityMap();
-    expect(map.bind(process.pid, { agentKey: "local:default" })).toBe(true);
-    const fakeSocket = {} as Socket;
-    const ok = admitProcessIdentity(fakeSocket, map, () => process.pid);
-    expect(ok.ok).toBe(true);
-    if (ok.ok) expect(ok.principal.agentKey).toBe("local:default");
-
-    const unbound = admitProcessIdentity(fakeSocket, map, () => 999_999);
-    expect(unbound.ok).toBe(false);
-    map.clear();
-  });
 });

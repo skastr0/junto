@@ -1687,6 +1687,9 @@ const qualifyCapabilityNonDisclosure = async (options: {
 };
 
 const main = async (): Promise<void> => {
+  // Skipped: the browser is off and its socket admission refuses in this build; this probe has not moved to the seat credential.
+  console.log("browser containment probe skipped: browser control is not available in this build");
+  return;
   const sandbox = await createProbeSandbox(PROBE_TEMP_PREFIX);
   const root = sandbox.root;
   activeProbeSandbox = sandbox;
@@ -1833,7 +1836,6 @@ const main = async (): Promise<void> => {
       `--revoke-marker-path=${options.revokeMarkerPath}`,
       `--admission-mode-path=${options.admissionModePath}`,
       `--shutdown-request-path=${options.shutdownRequestPath}`,
-      `--peer-pid-helper-root=${join(repoRoot, "scripts")}`,
       `--terminal-peer-pid=${terminalProbe.pid}`,
       `--unbound-peer-pid=${unboundProbe.pid}`,
     ];

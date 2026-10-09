@@ -42,7 +42,6 @@ import {
   makeBrowserTestOnlyExactOriginGrant,
 } from "../../../src/main/junto/browser/web-policy";
 import {
-  configurePeerPidHelperRoots,
   makeProcessIdentityMap,
   readParentPid,
   type ProcessPrincipal,
@@ -86,7 +85,6 @@ const canvasPayload = requiredArgument("canvas-payload");
 const revokeMarkerPath = requiredArgument("revoke-marker-path");
 const admissionModePath = requiredArgument("admission-mode-path");
 const shutdownRequestPath = requiredArgument("shutdown-request-path");
-const peerPidHelperRoot = requiredArgument("peer-pid-helper-root");
 const terminalPeerPid = Number(requiredArgument("terminal-peer-pid"));
 const unboundPeerPid = Number(requiredArgument("unbound-peer-pid"));
 
@@ -99,7 +97,6 @@ for (const [name, path] of [
   ["revoke-marker-path", revokeMarkerPath],
   ["admission-mode-path", admissionModePath],
   ["shutdown-request-path", shutdownRequestPath],
-  ["peer-pid-helper-root", peerPidHelperRoot],
 ] as const) {
   if (!isAbsolute(path)) throw new Error(`${name} must be absolute`);
 }
@@ -109,7 +106,6 @@ for (const [name, pid] of [
 ] as const) {
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error(`${name} must be a live pid`);
 }
-configurePeerPidHelperRoots([peerPidHelperRoot]);
 
 const canvasName = "browser-containment";
 const makeCanvasRuntime = () => {

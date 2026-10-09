@@ -305,7 +305,7 @@ export interface ControlDeps {
   };
   /**
    * Process-bind + edge authz admission. When present, protected routes admit
-   * via Unix peer PID → registered actor process (no client claim).
+   * through it. It refuses every socket caller in this build.
    */
   readonly edgeGrant?: EdgeGrantService;
   /**
@@ -984,7 +984,7 @@ const edgeGrantHttp = (
     };
   }
   if (
-    denial === "peer_pid_unavailable" ||
+    denial === "unavailable" ||
     denial === "process_unbound" ||
     denial === "closed" ||
     denial === "canvas_unreadable" ||
@@ -1475,7 +1475,7 @@ export const startBrowserControlServer = async (
           return;
         }
         const presentedRequestId = fixedHeader(req, CONTROL_REQUEST_ID_HEADER);
-        // Protected routes: process-bind only (peer PID → edges). Client
+        // Protected routes: edge-grant admission only. Client
         // capability secrets are not identity — edge-grant mints an internal
         // lease after process admission.
         let processAdmission:
@@ -1519,7 +1519,7 @@ export const startBrowserControlServer = async (
             return;
           }
           // Request ids and bodies are protected-route protocol details. Do
-          // not validate or disclose them until Unix peer process-bind and
+          // not validate or disclose them until caller admission and
           // edge-scoped capability admission have both succeeded.
           if (!isValidControlRequestId(presentedRequestId ?? "")) {
             respond(400, controlErr("bad_request", "invalid request id"), true);
@@ -1845,7 +1845,7 @@ export const startBrowserControlServer = async (
     // Path unlink waits for listener close — early unlink opens a replacement race.
     ensureListenerClose();
     // Graceful half-close first. drainOnQuit applies a bounded destroy after
-    // the configured grace; no peer PID is ever signalled.
+    // the configured grace; no client process is ever signalled.
     for (const { socket } of sockets.values()) {
       if (!socket.destroyed) socket.end();
     }

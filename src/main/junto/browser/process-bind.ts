@@ -13,7 +13,7 @@ import { matchesProcessPrincipal } from "../process-principal-match";
 
 // Browser process-bind: map a registered process principal onto a canvas
 // actor node and its edge-reachable pages. Identity itself is owned by
-// process-identity (peer PID); this module only does canvas resolution.
+// main; this module only does canvas resolution.
 //
 // Eligibility is the factory role of the matched node (`resolveBrowserCaller`
 // → `isBrowserCallerNode`). This module keeps no kind ACL of its own: a node

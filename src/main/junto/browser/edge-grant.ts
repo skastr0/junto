@@ -11,12 +11,9 @@ import {
 import { resolveBrowserCallerFromProcess } from "./process-bind";
 import type { PageTargetResolver } from "./page-target";
 import {
-  admitProcessIdentity,
   getProcessIdentityMap,
-  type PeerPidReader,
   type ProcessIdentityMap,
   type ProcessPrincipal,
-  readUnixPeerPid,
 } from "../process-identity";
 import { isThisMachine } from "@shared/machine-identity";
 import { parseNodeRef } from "@shared/node-ref";
@@ -33,8 +30,8 @@ export interface CanvasChangeDetail {
   readonly next?: Canvas;
 }
 
-// Edge-grant admission for process-bound callers:
-//   peer PID → registered principal → canvas actor node → edges → pages
+// Edge-grant admission for an already-resolved principal:
+//   registered principal → canvas actor node → edges → pages
 //   mint a short-lived capability under the hood so existing handlers keep
 //   their lease model. Agents never present nodeRef or capability secrets.
 //
@@ -60,7 +57,7 @@ const exactHttpOrigin = (value: string): string | undefined => {
 };
 
 export type EdgeGrantDenial =
-  | "peer_pid_unavailable"
+  | "unavailable"
   | "process_unbound"
   | "not_found"
   | "ambiguous"
@@ -128,7 +125,6 @@ export interface EdgeGrantDependencies {
   readonly capabilities: BrowserCapabilityRegistry;
   readonly resolvePageTarget: PageTargetResolver;
   readonly processMap?: ProcessIdentityMap;
-  readonly readPeerPid?: PeerPidReader;
   readonly wallNow?: () => number;
   readonly ttlMs?: number;
   /**
@@ -189,7 +185,6 @@ export const makeEdgeGrantService = (
   dependencies: EdgeGrantDependencies,
 ): EdgeGrantService => {
   const processMap = dependencies.processMap ?? getProcessIdentityMap();
-  const readPeerPid = dependencies.readPeerPid ?? readUnixPeerPid;
   const wallNow = dependencies.wallNow ?? Date.now;
   const ttlMs = dependencies.ttlMs ?? EDGE_GRANT_TTL_MS;
   const cache = new Map<string, CacheEntry>();
@@ -620,18 +615,10 @@ export const makeEdgeGrantService = (
     };
   };
 
-  const admitSocket = async (socket: Socket): Promise<EdgeGrantResult> => {
-    const identity = admitProcessIdentity(socket, processMap, readPeerPid);
-    if (!identity.ok) {
-      return fail(
-        identity.denial === "peer_pid_unavailable"
-          ? "peer_pid_unavailable"
-          : "process_unbound",
-        identity.message,
-      );
-    }
-    return admitPrincipal(identity.principal);
-  };
+  // The browser is off in this build and its routes have not moved to the
+  // seat generation credential, so a socket caller names no seat. Refuse.
+  const admitSocket = async (_socket: Socket): Promise<EdgeGrantResult> =>
+    fail("unavailable", "Browser control is not available in this build");
 
   return Object.freeze({
     processMap,
