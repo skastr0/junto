@@ -69,7 +69,7 @@ describe("Live Overseer product gate", () => {
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses internal occupation of an existing native seat before spawning", async () => {
     const fake = makeFakeTerminalProcessAuthority();
     const host = new LocalSessionHost(fake.authority);
-    const command = occupyVacantSeat(occupancyFromSession("live-seat", undefined, THIS_MACHINE));
+    const command = occupyVacantSeat(occupancyFromSession("live-seat", undefined, "local"));
     if (command._tag !== "Success") throw new Error("expected vacant seat");
     await expect(Effect.runPromise(makeLocalSeatProcess(host, noSeatEnvironment).occupy(command.success, {
       bindingId: "live-seat",

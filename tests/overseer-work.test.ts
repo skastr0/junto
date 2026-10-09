@@ -26,14 +26,10 @@ import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import {
-  StationFleetTargetRepository,
-  StationFleetTargetRepositoryLive,
-} from "../src/main/junto/station/fleet-target-repository";
-import { InstallationId } from "../src/shared/installation-id";
-import { HostId } from "../src/shared/remote-hosts";
-import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { THIS_MACHINE } from "./support/machines";
+import { nameThisMachine } from "./support/name-this-machine";
+import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
@@ -64,9 +60,9 @@ const seatOn = (id: string, canvas: string, hostId: string, at: { x: number; y: 
   });
 
 const mailboxNode = (id: string, canvas = "mailbox"): Seat =>
-  seatOn(id, canvas, "local", { x: 400, y: 0 });
+  seatOn(id, canvas, THIS_MACHINE, { x: 400, y: 0 });
 
-const agentNode = (id: string, canvas = "factory", hostId = "local"): Seat =>
+const agentNode = (id: string, canvas = "factory", hostId = THIS_MACHINE): Seat =>
   seatOn(id, canvas, hostId, { x: 0, y: 120 });
 
 const factoryNodes = (canvas: string): ReadonlyArray<Seat> =>
@@ -84,9 +80,8 @@ const makeRuntime = () => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
-      StationRepositoryLive,
-      StationFleetTargetRepositoryLive,
-      makeSettingsLive({ ensureDefaultCommandCenter: false }),
+      MachineRepositoryLive,
+      SettingsLive,
       makeContentServiceLive({
         root: join(installRoot, "content"),
         skipInlineMediaMigration: true,
@@ -111,14 +106,7 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   runtime.runPromise(effect as Effect.Effect<A, E, never>);
 
 beforeAll(async () => {
-  const settings = await runtime.runPromise(SettingsService);
-  await runtime.runPromise(
-    settings.setStationTopology({
-      role: "command-center",
-      hostId: "local",
-      supervisedPreferred: true,
-    }),
-  );
+  await runtime.runPromise(nameThisMachine);
 });
 
 afterAll(async () => {
@@ -246,41 +234,6 @@ describe("executeOverseerWork", () => {
         {
           operation: "msg.send",
           args: { canvas: "target-mail", target: "peer", text: "hello from origin" },
-        },
-        overseerWorkAdmin(actor),
-      ),
-    );
-    expect(sent).toMatchObject({ disposition: "applied" });
-  });
-
-  it("lets a Remote overseer send Command Center mail without an edge", async () => {
-    const remoteHost = Schema.decodeUnknownSync(HostId)("remote-admin-work");
-    const remoteInstallation = Schema.decodeUnknownSync(InstallationId)(
-      "remote-admin-work-installation",
-    );
-    const fleet = await runtime.runPromise(StationFleetTargetRepository);
-    await runtime.runPromise(
-      fleet.bind(
-        { hostId: remoteHost, stationInstallationId: remoteInstallation },
-        "2026-09-11T00:00:00.000Z",
-      ),
-    );
-    // Seeded once: the model does not put another agent in a seat's session.
-    await runtime.runPromise(
-      seedCanvas("remote-admin", [
-        mailboxNode("peer", "remote-admin"),
-        agentNode("boss", "remote-admin", remoteHost),
-        agentNode("worker", "remote-admin"),
-      ]),
-    );
-    await grantOverseer("remote-admin", "boss", true);
-    const { actor } = await actorOn("remote-admin", "boss");
-    const sent = await run(
-      executeOverseerWork(
-        { canvasName: "remote-admin", nodeId: "boss" },
-        {
-          operation: "msg.send",
-          args: { target: "peer", text: "hello from remote overseer" },
         },
         overseerWorkAdmin(actor),
       ),

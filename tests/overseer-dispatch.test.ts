@@ -13,9 +13,9 @@ import {
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { StationRepository, StationRepositoryLive } from "../src/main/junto/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { nameThisMachine } from "./support/name-this-machine";
+import { SettingsLive } from "../src/main/junto/settings/service";
 import { WorkLive } from "../src/main/junto/work/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { executeOverseer, type OverseerRuntime } from "../src/main/junto/overseer/dispatch";
@@ -29,14 +29,13 @@ import {
   type OffboardRules,
 } from "../src/shared/seat-offboard";
 import { InstallationId } from "../src/shared/installation-id";
-import { RemoteConfiguration } from "../src/shared/station-api";
 import { seat } from "./support/model-nodes";
 import { asNodeId } from "../src/shared/model";
 
 const caller = { canvasName: "origin", nodeId: "boss" };
 const layers = (root: string) => {
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    CrewRepositoryLive, WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
+    CrewRepositoryLive, WorkRepositoryLive, MachineRepositoryLive,
     SettingsLive, makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(
     makeStateEngineLive(join(root, "state.db")),
@@ -58,10 +57,7 @@ afterEach(async () => {
 const boot = async () => {
   root = await mkdtemp(join(tmpdir(), "overseer-dispatch-"));
   runtime = makeRuntime(root);
-  const settings = await runtime.runPromise(SettingsService);
-  await runtime.runPromise(settings.setStationTopology({
-    role: "command-center", hostId: "local", supervisedPreferred: false,
-  }));
+  await runtime.runPromise(nameThisMachine);
   await runtime.runPromise(seedCanvas("origin", [
     seat("boss", { label: "Boss", x: 17, y: -31, width: 240, height: 120 }),
   ]));
@@ -156,18 +152,6 @@ describe("integrated overseer dispatcher", () => {
 
     expect(await run({ operation: "secret.delete", args: { secretId: "not-a-uuid" } }))
       .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
-
-    // A Remote keeps its own secrets: nothing is forwarded to Command Center.
-    const stations = await runtime.runPromise(StationRepository);
-    const configuration = Schema.decodeUnknownSync(RemoteConfiguration)({
-      role: "remote", hostId: "local", agentHostId: "local", commandCenterInstallationId: "cc", supervisedPreferred: false,
-    });
-    expect(await runtime.runPromise(
-      executeOverseer(caller, { operation: "secret.put", args: { secretId: "6c1a7e1f-3d2b-4c8f-8e4a-9b2d3f5a7b81", value: VALUE } }, { ...adapters, secrets })
-        .pipe(Effect.provideService(StationRepository, {
-          ...stations, configuration: Effect.succeed({ configuration, configuredAt: "2026-09-11T00:00:00Z" }),
-        })),
-    )).toMatchObject({ ok: true, data: { secretId: "6c1a7e1f-3d2b-4c8f-8e4a-9b2d3f5a7b81" } });
 
     expect(adapters.native).not.toHaveBeenCalled();
   });
