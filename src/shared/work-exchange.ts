@@ -13,6 +13,12 @@
  */
 import { Schema } from "effect";
 import type { ActorSeatId } from "./actor-seat";
+import {
+  AgentSignalDetail,
+  AgentSignalKind,
+  AgentSignalResponseText,
+  AgentSignalText,
+} from "./agent-signals";
 import { CanvasCopy } from "./canvas-copy";
 import { InstallationId } from "./installation-id";
 import { Seq } from "./model";
@@ -119,7 +125,46 @@ export const CopyRefusedFrame = Schema.Struct({
 });
 export type CopyRefusedFrame = typeof CopyRefusedFrame.Type;
 
-export const ExchangeFrame = Schema.Union([HaveFrame, RowsFrame, CopyFrame, CopyRefusedFrame]);
+export const EXCHANGE_MAX_SIGNALS_PER_FRAME = 32;
+
+const Epoch = Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+
+/**
+ * A seat's signal to the operator, as its writer states it. The machine the
+ * seat lives on writes the raise and a withdrawal; the machine that edits the
+ * canvas writes an answer or a dismissal. Only what the seat and the operator
+ * wrote crosses: a file the signal carries stays where it was raised.
+ */
+export const ExchangeSignal = Schema.Struct({
+  signalId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
+  nodeId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(1024))),
+  kind: AgentSignalKind,
+  text: AgentSignalText,
+  detail: Schema.optionalKey(AgentSignalDetail),
+  createdAt: Epoch,
+  closing: Schema.optionalKey(
+    Schema.Union([
+      Schema.Struct({ state: Schema.Literals(["withdrawn", "dismissed"]), closedAt: Epoch }),
+      Schema.Struct({
+        state: Schema.Literal("answered"),
+        closedAt: Epoch,
+        response: Schema.Struct({ text: AgentSignalResponseText, at: Epoch }),
+      }),
+    ]),
+  ),
+});
+export type ExchangeSignal = typeof ExchangeSignal.Type;
+
+/** Signals of the seats of one canvas, each as the sender of this frame may state it. */
+export const SignalsFrame = Schema.Struct({
+  kind: Schema.Literal("signals"),
+  canvasName: WorkCanvasName,
+  canvasId: CanvasId,
+  signals: Schema.Array(ExchangeSignal).pipe(Schema.check(Schema.isMaxLength(EXCHANGE_MAX_SIGNALS_PER_FRAME))),
+});
+export type SignalsFrame = typeof SignalsFrame.Type;
+
+export const ExchangeFrame = Schema.Union([HaveFrame, RowsFrame, CopyFrame, CopyRefusedFrame, SignalsFrame]);
 export type ExchangeFrame = typeof ExchangeFrame.Type;
 
 export const decodeExchangeFrame = Schema.decodeUnknownResult(ExchangeFrame, { onExcessProperty: "error" });
@@ -136,6 +181,30 @@ export type CanvasPlacement = {
   readonly seatOf: (
     nodeId: string,
   ) => { readonly seatId: ActorSeatId; readonly machine: InstallationId } | undefined;
+};
+
+/**
+ * What a machine may state of a signal to a peer, or nothing. The machine the
+ * seat lives on tells the machine that edits the canvas of the raise and of a
+ * withdrawal. The editing machine tells the seat's machine of an answer or a
+ * dismissal. No other pair exchanges a signal.
+ */
+export const signalStatedTo = (
+  from: InstallationId,
+  to: InstallationId,
+  signal: ExchangeSignal,
+  placement: CanvasPlacement,
+): ExchangeSignal | undefined => {
+  const home = placement.seatOf(signal.nodeId)?.machine;
+  if (home === undefined || from === to) return undefined;
+  const { closing, ...raised } = signal;
+  if (from === home && to === placement.editor) {
+    return closing?.state === "withdrawn" ? signal : raised;
+  }
+  if (from === placement.editor && to === home) {
+    return closing !== undefined && closing.state !== "withdrawn" ? signal : undefined;
+  }
+  return undefined;
 };
 
 /** Who a row says wrote it: the receiving seat of a receipt, the sender of mail. */

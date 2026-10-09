@@ -23,6 +23,7 @@ import { FactoryPauseRepository, FactoryPauseRepositoryLive } from "../src/main/
 import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
 import { onboardReferenceFields } from "../src/main/junto/references/seat-reads";
 import { SeatGuidanceRepository, SeatGuidanceRepositoryLive } from "../src/main/junto/seat-guidance/repository";
+import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
 import { makeSettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
@@ -55,6 +56,7 @@ const makeRuntime = (root: string, name: string, installation: InstallationId) =
           makeSettingsLive(),
           makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
           SeatGuidanceRepositoryLive,
+          AgentSignalRepositoryLive,
           ReferencesRepositoryLive,
           Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
           makeMachineRepositoryLive({ defaultName: () => name, makeInstallationId: () => installation }),
@@ -515,6 +517,121 @@ describe("delivery on a machine with no window", () => {
       expect(await delivery.deliver("factory", "lead", "held-here")).toBe("held");
     } finally {
       delivery.suspend();
+    }
+  });
+});
+
+describe("a seat's signal to the operator", () => {
+  const signals = <A>(on: Machine, use: (store: AgentSignalRepository["Service"]) => Effect.Effect<A, unknown>) =>
+    on.runtime.runPromise(Effect.flatMap(AgentSignalRepository, use));
+  /** The operator's feed for the canvas, as the window lists it. */
+  const feed = async (on: Machine) =>
+    (await signals(on, (store) => store.listCanvas("factory"))).map(
+      (signal) => `${signal.nodeId} ${signal.kind} ${signal.state} ${signal.text}${signal.response === undefined ? "" : ` > ${signal.response.text}`}`,
+    );
+  const following = async (machines: ReadonlyArray<Machine>) => {
+    const stops = await Promise.all(machines.map((machine) => machine.runtime.runPromise(followLocalCommits(machine.exchange))));
+    return () => stops.forEach((stop) => stop());
+  };
+
+  it("raised with no link open reaches the editing machine when one opens, and the answer comes back", async () => {
+    const { macbook, mini } = await pair();
+    const stop = await following([macbook, mini]);
+    try {
+      // The mini holds the canvas, then the macbook goes away.
+      await link(macbook, mini);
+      await settle();
+      open.clear();
+      macbook.exchange.closed(MINI);
+      mini.exchange.closed(MACBOOK);
+
+      const raised = await signals(mini, (store) =>
+        store.raise({ canvasName: "factory", nodeId: "peer", kind: "blocked", text: "Need a key.", detail: "Which one?" }),
+      );
+      await pushed();
+      await settle();
+      expect(await feed(macbook)).toEqual([]);
+
+      await link(macbook, mini);
+      await settle();
+      expect(await feed(macbook)).toEqual(["peer blocked open Need a key."]);
+      expect((await signals(macbook, (store) => store.get(raised.signalId))).detail).toBe("Which one?");
+
+      await signals(macbook, (store) => store.answer(raised.signalId, "Use the staging key."));
+      await pushed();
+      await settle();
+      expect(await feed(mini)).toEqual(["peer blocked answered Need a key. > Use the staging key."]);
+      // Stated twice changes nothing.
+      await link(macbook, mini);
+      await settle();
+      expect(await feed(macbook)).toEqual(["peer blocked answered Need a key. > Use the staging key."]);
+      expect(await feed(mini)).toEqual(["peer blocked answered Need a key. > Use the staging key."]);
+    } finally {
+      stop();
+    }
+  });
+
+  it("is pushed while a link is open: a raise, its withdrawal, and a dismissal", async () => {
+    const { macbook, mini } = await pair();
+    const stop = await following([macbook, mini]);
+    try {
+      await link(macbook, mini);
+      await settle();
+      const first = await signals(mini, (store) => store.raise({ canvasName: "factory", nodeId: "peer", kind: "feedback", text: "Ready." }));
+      await pushed();
+      await settle();
+      expect(await feed(macbook)).toEqual(["peer feedback open Ready."]);
+
+      await signals(mini, (store) => store.withdraw({ canvasName: "factory", nodeId: "peer" }, first.signalId));
+      await pushed();
+      await settle();
+      expect(await feed(macbook)).toEqual(["peer feedback withdrawn Ready."]);
+
+      const second = await signals(mini, (store) => store.raise({ canvasName: "factory", nodeId: "peer", kind: "escalate", text: "Look." }));
+      await pushed();
+      await settle();
+      await signals(macbook, (store) => store.dismiss(second.signalId));
+      await pushed();
+      await settle();
+      expect((await feed(mini)).sort()).toEqual(["peer escalate dismissed Look.", "peer feedback withdrawn Ready."]);
+      // The editing machine's own seat's signal goes nowhere.
+      await signals(macbook, (store) => store.raise({ canvasName: "factory", nodeId: "lead", kind: "feedback", text: "Mine." }));
+      await pushed();
+      await settle();
+      expect((await feed(mini)).some((line) => line.startsWith("lead"))).toBe(false);
+    } finally {
+      stop();
+    }
+  });
+
+  it("closes the link when stated by a machine that may not: a raise for another machine's seat, an answer from the seat's machine", async () => {
+    const signal = { signalId: "forged", nodeId: "lead", kind: "blocked", text: "Not mine to raise.", createdAt: 1 };
+    {
+      const { macbook, mini } = await pair();
+      await link(macbook, mini);
+      await settle();
+      const sent = (await header(macbook))!;
+      const frame = { kind: "signals", canvasName: "factory", canvasId: sent.canvas_id, signals: [signal] };
+      await expect(
+        macbook.runtime.runPromise(macbook.channel.handleEvent(contextOf(macbook, mini), macbook.channel.decodeEvent(frame))),
+      ).rejects.toThrow();
+      expect(await feed(macbook)).toEqual([]);
+    }
+    {
+      const { macbook, mini } = await pair();
+      await link(macbook, mini);
+      await settle();
+      const sent = (await header(macbook))!;
+      const answered = {
+        ...signal,
+        nodeId: "peer",
+        closing: { state: "answered", closedAt: 2, response: { text: "I answer myself.", at: 2 } },
+      };
+      const frame = { kind: "signals", canvasName: "factory", canvasId: sent.canvas_id, signals: [answered] };
+      await expect(
+        macbook.runtime.runPromise(macbook.channel.handleEvent(contextOf(macbook, mini), macbook.channel.decodeEvent(frame))),
+      ).rejects.toThrow();
+      expect(await feed(macbook)).toEqual([]);
     }
   });
 });

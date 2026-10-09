@@ -17,7 +17,8 @@ import { exportCanvasCopy, type CanvasCopy, type CopiedReference } from "@shared
 import type { InstallationId } from "@shared/installation-id";
 import { asCanvasName, type Node, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
-import type { CanvasPlacement } from "@shared/work-exchange";
+import type { AgentSignal } from "@shared/agent-signals";
+import type { CanvasPlacement, ExchangeSignal } from "@shared/work-exchange";
 import type { Message } from "@shared/work-model";
 import { deriveActorSeatId } from "../../actor-seat-id";
 import { MachineRepository } from "../../machines/repository";
@@ -29,6 +30,9 @@ import { ReferencesRepository } from "../../references/repository";
 import { onSeatGuidanceChanged } from "../../seat-guidance/changes";
 import { seatGuidanceIndex } from "../../seat-guidance/index-memory";
 import { SeatGuidanceRepository } from "../../seat-guidance/repository";
+import { onAgentSignalChanged } from "../../signals/changes";
+import { raisedHands } from "../../signals/raised-hands";
+import { AgentSignalRepository } from "../../signals/repository";
 import { WorkRepository } from "../repository";
 import { makeRowExchange, type CopyInstalled, type RowExchange } from "./session";
 
@@ -37,7 +41,26 @@ export type LiveRowExchangeOptions = {
   readonly mailArrived: (canvasName: string, nodeId: string, message: Message) => void;
   /** A push to a linked machine failed: the exchange on that link is over. */
   readonly linkFailed?: (peer: InstallationId, cause: unknown) => void;
+  /** A signal another machine wrote was kept here, as it now stands: for whoever shows signals. */
+  readonly signalTaken?: (signal: AgentSignal) => void;
 };
+
+/** A signal as it stands here, in the words that cross: no file it carries. */
+const stated = (signal: AgentSignal): ExchangeSignal => ({
+  signalId: signal.signalId,
+  nodeId: signal.nodeId,
+  kind: signal.kind,
+  text: signal.text,
+  ...(signal.detail === undefined ? {} : { detail: signal.detail }),
+  createdAt: signal.createdAt,
+  ...(signal.state === "open" || signal.closedAt === undefined
+    ? {}
+    : signal.state === "answered"
+      ? signal.response === undefined
+        ? {}
+        : { closing: { state: "answered" as const, closedAt: signal.closedAt, response: signal.response } }
+      : { closing: { state: signal.state, closedAt: signal.closedAt } }),
+});
 
 type Home = { readonly seatId: ActorSeatId; readonly machine: InstallationId };
 
@@ -63,6 +86,7 @@ export const makeLiveRowExchange = (
   | SeatGuidanceRepository
   | ReferencesRepository
   | PausePlane
+  | AgentSignalRepository
 > =>
   Effect.gen(function* () {
     const machines = yield* MachineRepository;
@@ -72,6 +96,7 @@ export const makeLiveRowExchange = (
     const guidance = yield* SeatGuidanceRepository;
     const references = yield* ReferencesRepository;
     const pause = yield* PausePlane;
+    const signals = yield* AgentSignalRepository;
     const self = yield* machines.installationId;
 
     /** The installation behind a machine name, as this machine knows it now. */
@@ -244,14 +269,23 @@ export const makeLiveRowExchange = (
       cutCopy,
       copySent,
       installCopy,
+      signals: (canvasName) => signals.listCanvas(canvasName).pipe(Effect.map((held) => held.map(stated))),
+      takeSignal: (canvasName, signal, raises) =>
+        signals.take({ ...signal, canvasName, raises }).pipe(
+          Effect.map((taken) => {
+            if (taken === undefined) return;
+            raisedHands.note(taken);
+            options.signalTaken?.(taken);
+          }),
+        ),
     });
   });
 
 /**
  * Push every local commit to the open links: a change to a canvas, a row
- * written to the work log, and a change to what a copy carries: play or
- * pause, guidance, the briefing, a reference. Returns the function that stops
- * following.
+ * written to the work log, a signal raised or closed, and a change to what a
+ * copy carries: play or pause, guidance, the briefing, a reference. Returns
+ * the function that stops following.
  */
 export const followLocalCommits = (
   exchange: RowExchange,
@@ -277,6 +311,7 @@ export const followLocalCommits = (
       model.subscribeChanges((event) => push(event.canvas)),
       repository.subscribeChanges((canvasName) => push(canvasName)),
       pause.subscribe((canvasName) => push(canvasName)),
+      onAgentSignalChanged((signal) => push(signal.canvasName)),
       onSeatGuidanceChanged(pushAll),
       onReferencesChanged((event) =>
         event.kind === "reference" && event.canvasName !== undefined ? push(event.canvasName) : pushAll(),

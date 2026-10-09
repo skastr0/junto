@@ -94,6 +94,8 @@ const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["fa
     cutCopy: () => Effect.succeed(undefined),
     copySent: () => Effect.void,
     installCopy: () => Effect.die("no copy is sent between these machines"),
+    signals: () => Effect.succeed([]),
+    takeSignal: () => Effect.die("no signal is stated between these machines"),
   });
   const machine: Machine = { self, root, runtime, repository, exchange, arrived };
   machines.set(self, machine);

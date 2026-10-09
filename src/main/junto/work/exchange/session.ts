@@ -12,6 +12,12 @@
  * canvas it does not hold, so it sends its own catch-up again once it has
  * taken a copy, and the machine that sent the copy sends its own after it:
  * each end then hears of the canvas only once it holds it.
+ *
+ * A seat's signal to the operator crosses the same way and under the same
+ * law: the machine the seat lives on states the raise and a withdrawal to the
+ * machine that edits the canvas, and that machine states its answer or
+ * dismissal back. Each is stated again when a link opens, so one written
+ * while no link was open arrives when one is.
  */
 import { Effect, Result, Semaphore } from "effect";
 import type { CanvasCopy } from "@shared/canvas-copy";
@@ -19,13 +25,17 @@ import type { InstallationId } from "@shared/installation-id";
 import type { Message } from "@shared/work-model";
 import {
   EXCHANGE_MAX_FACTS_PER_FRAME,
+  EXCHANGE_MAX_SIGNALS_PER_FRAME,
   compareSequence,
   decodeExchangeFrame,
   entitledTo,
+  signalStatedTo,
   type CanvasPlacement,
   type CopyRefusedFrame,
   type ExchangeFrame,
+  type ExchangeSignal,
   type HaveFrame,
+  type SignalsFrame,
 } from "@shared/work-exchange";
 import type { WorkRepositoryShape } from "../repository";
 
@@ -66,6 +76,14 @@ export type RowExchangeDeps = {
    * that name which is not this one. Fails for a copy no honest machine sends.
    */
   readonly installCopy: (copy: CanvasCopy) => Effect.Effect<CopyInstalled, unknown>;
+  /** The signals this machine holds for the seats of one canvas, as they stand. */
+  readonly signals: (canvasName: string) => Effect.Effect<ReadonlyArray<ExchangeSignal>, unknown>;
+  /**
+   * Keep a signal a peer stated. `raises` when that peer is the machine the
+   * seat lives on, which alone may raise it. Fails for a closing of a signal
+   * this machine does not hold.
+   */
+  readonly takeSignal: (canvasName: string, signal: ExchangeSignal, raises: boolean) => Effect.Effect<void, unknown>;
   /** A push to a linked machine failed: the exchange on that link is over. */
   readonly linkFailed?: (peer: InstallationId, cause: ExchangeClosed) => void;
 };
@@ -104,6 +122,8 @@ type LinkState = {
   /** What the peer would not take, by canvas. */
   readonly refused: Map<string, Omit<CopyRefusedFrame, "kind">>;
   readonly rows: Map<string, { sent: number; taken: number }>;
+  /** Each signal as last stated on this link, by canvas and signal id. */
+  readonly signals: Map<string, string>;
   readonly turn: Semaphore.Semaphore;
 };
 
@@ -221,6 +241,68 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       }
     });
 
+  /**
+   * State to a peer the signals of one canvas it has not heard as they stand:
+   * this machine's seats' raises and withdrawals to the machine that edits the
+   * canvas, its own answers and dismissals to the machine each seat lives on.
+   */
+  const sendSignals = (state: LinkState, canvasName: string): Effect.Effect<void, ExchangeClosed> =>
+    Effect.gen(function* () {
+      if (!state.have.has(canvasName)) return;
+      const placement = yield* deps.placement(canvasName);
+      if (placement === undefined || !placement.holds(state.link.peer)) return;
+      const fresh: Array<{ readonly key: string; readonly stated: string; readonly signal: ExchangeSignal }> = [];
+      for (const held of yield* deps.signals(canvasName).pipe(Effect.mapError(closed))) {
+        const signal = signalStatedTo(deps.self, state.link.peer, held, placement);
+        if (signal === undefined) continue;
+        const key = `${canvasName}::${signal.signalId}`;
+        const stated = JSON.stringify(signal);
+        if (state.signals.get(key) !== stated) fresh.push({ key, stated, signal });
+      }
+      for (let at = 0; at < fresh.length; at += EXCHANGE_MAX_SIGNALS_PER_FRAME) {
+        const page = fresh.slice(at, at + EXCHANGE_MAX_SIGNALS_PER_FRAME);
+        yield* send(state, {
+          kind: "signals",
+          canvasName,
+          canvasId: placement.canvasId,
+          signals: page.map((entry) => entry.signal),
+        });
+        for (const entry of page) state.signals.set(entry.key, entry.stated);
+      }
+    });
+
+  /**
+   * Signals arrived. A raise or a withdrawal is taken only from the machine
+   * the seat lives on, by the machine that edits the canvas; an answer or a
+   * dismissal only from the editing machine, by the seat's own machine.
+   * Anything else closes the link.
+   */
+  const takeSignals = (state: LinkState, frame: SignalsFrame): Effect.Effect<void, ExchangeClosed> =>
+    Effect.gen(function* () {
+      const peer = state.link.peer;
+      const placement = yield* deps.placement(frame.canvasName);
+      if (placement === undefined || placement.canvasId !== frame.canvasId || !placement.holds(peer)) {
+        return yield* Effect.fail(new ExchangeClosed("signals of a canvas these two machines do not share"));
+      }
+      for (const signal of frame.signals) {
+        const home = placement.seatOf(signal.nodeId)?.machine;
+        const raised = home === peer && placement.editor === deps.self;
+        const closedByEditor = peer === placement.editor && home === deps.self;
+        if (raised) {
+          if (signal.closing !== undefined && signal.closing.state !== "withdrawn") {
+            return yield* Effect.fail(new ExchangeClosed("only the machine that edits a canvas answers or dismisses a signal"));
+          }
+        } else if (closedByEditor) {
+          if (signal.closing === undefined || signal.closing.state === "withdrawn") {
+            return yield* Effect.fail(new ExchangeClosed("a seat's signal is raised and withdrawn only on its own machine"));
+          }
+        } else {
+          return yield* Effect.fail(new ExchangeClosed("a signal from a machine that may not state it"));
+        }
+        yield* deps.takeSignal(frame.canvasName, signal, raised).pipe(Effect.mapError(closed));
+      }
+    });
+
   const inTurn = <A>(
     state: LinkState,
     effect: Effect.Effect<A, ExchangeClosed>,
@@ -247,9 +329,16 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
               if (placement.canvasId !== canvas.canvasId) continue;
               state.have.set(canvas.canvasName, new Map(canvas.writers.map((entry) => [entry.writer, entry.through])));
             }
-            for (const canvasName of state.have.keys()) yield* offer(state, canvasName);
+            for (const canvasName of state.have.keys()) {
+              yield* offer(state, canvasName);
+              yield* sendSignals(state, canvasName);
+            }
           }),
         );
+        return;
+      }
+      if (frame.kind === "signals") {
+        yield* inTurn(state, takeSignals(state, frame));
         return;
       }
       if (frame.kind === "copy") {
@@ -316,6 +405,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
           Effect.gen(function* () {
             if (yield* sendCopy(state, canvasName)) yield* sendHave(state);
             yield* offer(state, canvasName);
+            yield* sendSignals(state, canvasName);
           }),
         ).pipe(
           Effect.catch((cause) =>
@@ -338,6 +428,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
           copies: new Map(),
           refused: new Map(),
           rows: new Map(),
+          signals: new Map(),
           turn: Semaphore.makeUnsafe(1),
         };
         links.set(link.peer, state);

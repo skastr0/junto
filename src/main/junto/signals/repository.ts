@@ -8,6 +8,7 @@ import {
   AgentSignalState,
 } from "@shared/agent-signals";
 import { StateTransactionOperation } from "../state/service";
+import { emitAgentSignalChanged } from "./changes";
 
 export class AgentSignalPersistenceError extends Schema.TaggedError<AgentSignalPersistenceError>()(
   "AgentSignalPersistenceError",
@@ -47,6 +48,25 @@ export type RaiseAgentSignal = AgentSignalSeat & {
   readonly signalId?: string;
   /** Already in the content store, in the order the agent gave them. */
   readonly attachments?: ReadonlyArray<AgentSignalAttachment>;
+};
+
+/**
+ * A signal as another machine wrote it: the raise by the machine its seat
+ * lives on, and the closing by the machine entitled to write it. Its words
+ * cross; a file it carries stays on the machine that raised it.
+ */
+export type TakenAgentSignal = AgentSignalSeat & {
+  readonly signalId: string;
+  readonly kind: AgentSignalKind;
+  readonly text: string;
+  readonly detail?: string;
+  readonly createdAt: number;
+  /** The closing to take, when the sender is the one that may write it. */
+  readonly closing?:
+    | { readonly state: "withdrawn" | "dismissed"; readonly closedAt: number }
+    | { readonly state: "answered"; readonly closedAt: number; readonly response: { readonly text: string; readonly at: number } };
+  /** May the sender raise this signal: it is the machine the seat lives on. */
+  readonly raises: boolean;
 };
 
 /** Closed signals kept per seat in listings; open ones are always listed. */
@@ -92,6 +112,16 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
     readonly dismiss: (
       signalId: string,
     ) => Effect.Effect<AgentSignal, AgentSignalRepositoryError>;
+    /**
+     * Take a signal another machine wrote. Applying it twice changes nothing:
+     * a raise is kept once, and a closing lands only on an open signal of the
+     * same seat. Answers the signal when this changed it, undefined when not.
+     * `AgentSignalNotFound` for a closing of a signal this machine does not
+     * hold and the sender may not raise.
+     */
+    readonly take: (
+      input: TakenAgentSignal,
+    ) => Effect.Effect<AgentSignal | undefined, AgentSignalRepositoryError>;
   }>()("@junto/AgentSignalRepository") {}
 
 const SignalRow = Schema.Struct({
@@ -341,15 +371,54 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         [Date.now(), signalId],
       );
 
+    const takeRow = Effect.fn("agent-signals.take")(function* (input: TakenAgentSignal) {
+      let changed = false;
+      const held = yield* readOne(input.signalId);
+      if (held === undefined) {
+        if (!input.raises) return yield* notFound(input.signalId, `no signal ${input.signalId} to close`);
+        yield* sql`
+          INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, created_at, state)
+          VALUES (${input.signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null}, ${input.createdAt}, 'open')
+        `;
+        changed = true;
+      } else if (held.canvasName !== input.canvasName || held.nodeId !== input.nodeId) {
+        return yield* notFound(input.signalId, `signal ${input.signalId} belongs to another seat`);
+      }
+      const closing = input.closing;
+      if (closing !== undefined) {
+        const response = closing.state === "answered" ? closing.response : undefined;
+        const closed = yield* sql`
+          UPDATE agent_signals
+          SET state = ${closing.state}, closed_at = ${closing.closedAt},
+              response_text = ${response?.text ?? null}, response_at = ${response?.at ?? null}
+          WHERE signal_id = ${input.signalId} AND state = 'open'
+        `.raw.pipe(Effect.flatMap(changes));
+        changed = changed || Number(closed.changes) > 0;
+      }
+      return changed ? yield* readOne(input.signalId) : undefined;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.take"),
+    Effect.mapError(persistence("take")));
+
+    // Listeners hear of a write once it is committed, never from inside it.
+    const told = <E, R>(write: Effect.Effect<AgentSignal, E, R>) =>
+      write.pipe(Effect.tap((signal) => Effect.sync(() => emitAgentSignalChanged(signal))));
+
     return AgentSignalRepository.of({
-      raise,
-      withdraw,
+      raise: (input) => told(raise(input)),
+      withdraw: (seat, signalId) =>
+        withdraw(seat, signalId).pipe(
+          Effect.tap((signals) => Effect.sync(() => signals.forEach(emitAgentSignalChanged))),
+        ),
       listSeat,
       listRaisedHands,
       listCanvas,
       get,
-      answer,
-      dismiss,
+      answer: (signalId, text) => told(answer(signalId, text)),
+      dismiss: (signalId) => told(dismiss(signalId)),
+      take: (input) =>
+        takeRow(input).pipe(
+          Effect.tap((signal) => Effect.sync(() => (signal === undefined ? undefined : emitAgentSignalChanged(signal)))),
+        ),
     });
   }),
 );
