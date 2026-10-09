@@ -40,35 +40,29 @@ export function MachineStage({ machine, state, seatIds = [], theme, children }: 
   );
 }
 
-/** The steps of a send as one strip: a bar and a label each, filled as they arrive. */
-export function MachineSteps<Step extends string>({
-  steps,
-  done,
-  labels,
-  running,
+/**
+ * The steps of a send as one strip: a bar, then the phase in words and the
+ * step. The words stay in the text, so the strip reads without its bars.
+ */
+export function MachineSteps<Phase extends string>({
+  lines,
+  words,
   ...rest
 }: {
-  readonly steps: ReadonlyArray<Step>;
-  readonly done: ReadonlyArray<Step>;
-  readonly labels: Readonly<Record<Step, string>>;
-  /** The send is still under way, so the first step not done is the one being waited on. */
-  readonly running: boolean;
+  readonly lines: ReadonlyArray<{ readonly step: string; readonly label: string; readonly phase: Phase }>;
+  /** What each phase is called. */
+  readonly words: Readonly<Record<Phase, string>>;
   readonly "data-testid"?: string;
 }) {
-  const next = steps.find((step) => !done.includes(step));
   return (
     <ol className="machine-steps" aria-label="Steps" {...rest}>
-      {steps.map((step) => {
-        const isDone = done.includes(step);
-        const phase = isDone ? "done" : running && step === next ? "now" : "ahead";
-        return (
-          <li key={step} data-step={step} data-done={isDone} data-phase={phase}>
-            <i aria-hidden="true" />
-            <span className="sr-only">{isDone ? "Done: " : running ? "Waiting: " : "Not reached: "}</span>
-            <span>{labels[step]}</span>
-          </li>
-        );
-      })}
+      {lines.map(({ step, label, phase }) => (
+        <li key={step} data-step={step} data-done={phase === "done"} data-step-phase={phase}>
+          <i aria-hidden="true" />
+          <small>{words[phase]}: </small>
+          {label}
+        </li>
+      ))}
     </ol>
   );
 }

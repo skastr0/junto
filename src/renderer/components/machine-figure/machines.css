@@ -179,18 +179,32 @@
   border-radius: 4px;
 }
 
-.machine-steps [data-phase="done"],
-.machine-steps [data-phase="now"] {
+.machine-steps small {
+  color: var(--color-dim);
+  font-size: inherit;
+}
+
+.machine-steps [data-step-phase="done"],
+.machine-steps [data-step-phase="now"] {
   color: var(--color-ink);
 }
 
-.machine-steps [data-phase="done"] i {
+.machine-steps [data-step-phase="done"] i {
   border-color: var(--color-amber);
   background: var(--color-amber);
 }
 
-.machine-steps [data-phase="now"] i {
+.machine-steps [data-step-phase="now"] i {
   background: linear-gradient(90deg, var(--color-amber) 40%, transparent 40%);
+}
+
+/* Nobody confirmed it: it may have happened, so it is neither full nor empty. */
+.machine-steps [data-step-phase="unconfirmed"] i {
+  background: color-mix(in oklab, var(--color-amber) 32%, transparent);
+}
+
+.machine-steps [data-step-phase="not-reached"] i {
+  border-color: var(--color-faint);
 }
 
 .machine-facts {

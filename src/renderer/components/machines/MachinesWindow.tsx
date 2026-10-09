@@ -35,24 +35,33 @@ import { closeMachines } from "../../lib/machines-window";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { FocusSurface } from "../FocusSurface";
-import { MachineFigure } from "../machine-figure";
+import { MachineFigure, MachineStage, MachineSteps } from "../machine-figure";
 import { Button, ConfirmDialog, Dialog, FieldLabel, Input, OverlayHeader } from "../ui";
 
 // The Machines window: every machine this one knows, what state each is in,
 // and the four things the operator can do about it (add, send Junto, update,
-// remove). It is structure, states and actions in plain text; how a machine
-// looks is the figure's, and the figure takes a machine, its state and a size.
+// remove). The machines stand on a shelf, each a figure with its name and one
+// line of state; the chosen one is given the stage, with the seats placed on
+// it standing on its roof. How a machine looks is the figure's, and the
+// figure takes a machine, its state and a size.
 
-/** What is placed on a machine on the open canvas: how many seats, and the harnesses they use. */
-type Placed = { readonly seats: number; readonly harnesses: ReadonlyArray<string> };
-const NOTHING_PLACED: Placed = { seats: 0, harnesses: [] };
+/** What is placed on a machine on the open canvas: its seats, and the harnesses they use. */
+type Placed = { readonly seats: number; readonly harnesses: ReadonlyArray<string>; readonly seatIds: ReadonlyArray<string> };
+const NOTHING_PLACED: Placed = { seats: 0, harnesses: [], seatIds: [] };
+
+/** On the shelf a machine stands as a solid, large enough to carry its state. */
+const SHELF_FIGURE = 104;
 
 const placedByMachine = (canvas: Canvas): ReadonlyMap<string, Placed> => {
   const placed = new Map<string, Placed>();
   for (const node of canvas.nodes.values()) {
     if (node.kind !== "agent") continue;
     const current = placed.get(node.host) ?? NOTHING_PLACED;
-    placed.set(node.host, { seats: current.seats + 1, harnesses: [...current.harnesses, node.harness] });
+    placed.set(node.host, {
+      seats: current.seats + 1,
+      harnesses: [...current.harnesses, node.harness],
+      seatIds: [...current.seatIds, node.id],
+    });
   }
   return placed;
 };
@@ -92,10 +101,7 @@ function MachineRow({
         data-testid={`machine-row-${item.machine.id}`}
         data-machine-condition={machineCondition(item, read, copy)}
         data-needs-you={summary.needsYou}
-        className={[
-          "flex w-full items-center gap-2.5 px-3 py-2 text-left",
-          selected ? "bg-raise-2 text-ink" : "text-dim hover:text-ink",
-        ].join(" ")}
+        className="machine-shelf__place"
         onClick={onSelect}
       >
         <MachineFigure
@@ -106,12 +112,11 @@ function MachineRow({
             isThisMachine: item.machine.isThisMachine,
           }}
           state={machineFigureState(item, read, copy, placed)}
-          size={28}
+          size={SHELF_FIGURE}
+          turns={false}
         />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-body text-ink">{label}</span>
-          <span className="block truncate text-label text-dim">{summary.headline}</span>
-        </span>
+        <span className="machine-shelf__name">{label}</span>
+        <span className="machine-shelf__state">{summary.headline}</span>
       </button>
     </li>
   );
@@ -119,9 +124,9 @@ function MachineRow({
 
 function Fact({ name, children }: { readonly name: string; readonly children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[9rem_1fr] gap-3 py-1">
-      <dt className="text-label text-dim">{name}</dt>
-      <dd className="min-w-0 text-body text-ink">{children}</dd>
+    <div>
+      <dt className="text-body-lg text-dim">{name}</dt>
+      <dd className="min-w-0 text-body-lg leading-normal text-ink">{children}</dd>
     </div>
   );
 }
@@ -163,64 +168,46 @@ function MachineDetail({
 
   return (
     <section
-      className="min-w-0 flex-1 overflow-y-auto p-5"
+      className="flex min-w-0 flex-1 flex-col overflow-y-auto"
       aria-label={label}
       data-testid="machine-detail"
       data-machine={name}
       data-machine-condition={condition}
       data-needs-you={summary.needsYou}
     >
-      <div className="flex items-start gap-4">
-        <MachineFigure
-          machine={{ name, label, form: machineForm(item, read), isThisMachine: item.machine.isThisMachine }}
-          state={machineFigureState(item, read, copy, placed)}
-          size={96}
-        />
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate font-mono text-[16px] font-semibold text-ink">{label}</h2>
-          <p className="mt-1 text-body text-ink" role="status" data-testid="machine-headline">
-            {summary.headline}
+      <MachineStage
+        machine={{ name, label, form: machineForm(item, read), isThisMachine: item.machine.isThisMachine }}
+        state={machineFigureState(item, read, copy, placed)}
+        seatIds={placed.seatIds}
+      >
+        <div className="machine-stage__eyebrow">{name}</div>
+        <h2 className="machine-stage__label">{label}</h2>
+        <p className="machine-stage__headline" role="status" data-testid="machine-headline">
+          {summary.headline}
+        </p>
+        {summary.advice ? (
+          <p className="machine-stage__advice" data-testid="machine-advice">
+            {summary.advice}
           </p>
-          {summary.advice ? (
-            <p className="mt-1 text-body text-dim" data-testid="machine-advice">
-              {summary.advice}
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      {steps.length > 0 ? (
-        <ol className="mt-4 grid gap-1" aria-label="Steps" data-testid="machine-steps">
-          {steps.map(({ step, label: stepLabel, phase }) => (
-            <li
-              key={step}
-              className={phase === "done" ? "text-body text-ink" : "text-body text-dim"}
-              data-step={step}
-              data-done={phase === "done"}
-              data-step-phase={phase}
+        ) : null}
+        <div className="machine-stage__actions">
+          {machineActions(condition).map((action) => (
+            <Button
+              key={action}
+              size="sm"
+              variant={action === "remove" ? "subtle" : action === "check" ? "chrome" : "primary"}
+              data-testid={`machine-action-${action}`}
+              onClick={() => run(action)}
             >
-              {MACHINE_STEP_PHASE_WORD[phase]}: {stepLabel}
-            </li>
+              {MACHINE_ACTION_LABEL[action]}
+            </Button>
           ))}
-        </ol>
-      ) : null}
+        </div>
+      </MachineStage>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {machineActions(condition).map((action) => (
-          <Button
-            key={action}
-            size="sm"
-            variant={action === "remove" ? "subtle" : action === "check" ? "chrome" : "primary"}
-            data-testid={`machine-action-${action}`}
-            onClick={() => run(action)}
-          >
-            {MACHINE_ACTION_LABEL[action]}
-          </Button>
-        ))}
-      </div>
+      {steps.length > 0 ? <MachineSteps lines={steps} words={MACHINE_STEP_PHASE_WORD} data-testid="machine-steps" /> : null}
 
-      <dl className="mt-5 border-t border-stroke pt-3">
-        <Fact name="Name">{name}</Fact>
+      <dl className="machine-facts">
         {item.machine.sshEndpoint ? <Fact name="SSH target">{item.machine.sshEndpoint}</Fact> : null}
         {read?.kind === "own" ? <Fact name="Build">{read.status.build.slice(0, 12)}</Fact> : null}
         {harnesses ? (
@@ -442,8 +429,8 @@ function MachinesWindowOpen() {
         </p>
       ) : null}
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col border-r border-stroke" aria-label="Machines">
-          <ul className="min-h-0 flex-1 overflow-y-auto py-1" role="listbox" aria-label="Machines">
+        <aside className="flex w-[340px] shrink-0 flex-col overflow-y-auto border-r border-stroke" aria-label="Machines">
+          <ul className="machine-shelf" role="listbox" aria-label="Machines">
             {ordered.map((item) => (
               <MachineRow
                 key={item.machine.id}
@@ -457,7 +444,7 @@ function MachinesWindowOpen() {
             ))}
           </ul>
           {ordered.length > 0 && others.length === 0 ? (
-            <p className="border-t border-stroke px-3 py-3 text-label text-dim" data-testid="machines-empty">
+            <p className="machine-shelf__empty mx-3 mb-3" data-testid="machines-empty">
               No other machine yet. Add one by its name and SSH target, then send Junto to it.
             </p>
           ) : null}
