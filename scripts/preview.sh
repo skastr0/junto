@@ -3,7 +3,8 @@
 # --prepare builds without launching; --copy refuses launch until guaranteed inert.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-PREVIEW_HOME="${HOME}/.junto-preview"
+PREVIEW_HOME="${JUNTO_PREVIEW_HOME:-${HOME}/.junto-preview}"
+node -e 'const p=require("node:path"); const [home,value]=process.argv.slice(1); if(p.dirname(value)!==home || !/^\.junto-preview(?:-[a-z0-9][a-z0-9-]*)?$/.test(p.basename(value))) throw new Error("JUNTO_PREVIEW_HOME must name .junto-preview or .junto-preview-<name> directly under HOME");' "$HOME" "$PREVIEW_HOME"
 COPY_HOME="${HOME}/.junto-preview-copy"
 BUILD_ROOT="${HOME}/.junto-preview-builds"
 MODE="launch"
@@ -39,6 +40,7 @@ case "${1:-}" in
   --help|-h)
     printf '%s\n' 'Usage: scripts/preview.sh [--prepare|--snapshot|--migrate|--check|--copy|--clean]' \
       'Default: build and launch with fresh ~/.junto-preview, create a NEW canvas for QA.' \
+      'JUNTO_PREVIEW_HOME=$HOME/.junto-preview-<name>: use a separate fresh Preview home.' \
       '--prepare: build only. --snapshot: read-only SQLite backups into ~/.junto-preview-copy.' \
       '--migrate: headless StateEngine on copy only. --check: compare it with untouched baseline. --copy: launch blocked.' \
       '--clean: delete only ~/.junto-preview-copy, including its copied credentials.'
@@ -125,5 +127,5 @@ if [[ "$MODE" == prepare ]]; then
   printf '%s\n' 'Prepared without launching. Run scripts/preview.sh to launch this build.'
   exit 0
 fi
-export JUNTO_HOME="$PREVIEW_HOME" JUNTO_PREVIEW=1
+export JUNTO_HOME="$PREVIEW_HOME" JUNTO_PREVIEW_HOME="$PREVIEW_HOME" JUNTO_PREVIEW=1
 exec "$APP/Contents/MacOS/Junto" --junto-operator-control --user-data-dir="$PREVIEW_HOME/.junto/electron-user-data"

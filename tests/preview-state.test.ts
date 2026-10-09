@@ -26,6 +26,23 @@ it("pins a packaged Finder launch to fresh state before product imports and refu
   expect(() => pinFreshPreviewHome(home, environment)).toThrow("copied-state launch is refused");
 });
 
+it("admits a separate marked Preview home and refuses live, nested and linked homes", () => {
+  const home = temporary(), fresh = join(home, ".junto-preview-machines");
+  mkdirSync(fresh); writeFileSync(join(fresh, ".fresh-preview"), "fresh");
+  const environment: NodeJS.ProcessEnv = { JUNTO_PREVIEW_HOME: fresh, JUNTO_WORK_TOKEN: "live", JUNTO_HOME: home };
+  pinFreshPreviewHome(home, environment);
+  expect(environment.JUNTO_HOME).toBe(fresh);
+  expect(environment.JUNTO_WORK_TOKEN).toBeUndefined();
+  pinFreshPreviewHome(home, environment);
+  expect(environment.JUNTO_HOME).toBe(fresh);
+  for (const invalid of [home, join(home, ".junto"), join(home, "nested/.junto-preview-machines")]) {
+    expect(() => pinFreshPreviewHome(home, { JUNTO_PREVIEW_HOME: invalid })).toThrow("account home");
+  }
+  const linked = join(home, ".junto-preview-linked");
+  symlinkSync(fresh, linked);
+  expect(() => pinFreshPreviewHome(home, { JUNTO_PREVIEW_HOME: linked })).toThrow("fresh home");
+});
+
 it("backs up committed WAL without a checkpoint, retains a protected baseline and never follows live references", async () => {
   const root = temporary(), source = join(root, "source"), preview = join(root, "preview");
   mkdirSync(join(source, "state"), { recursive: true });
