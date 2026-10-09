@@ -25,7 +25,7 @@ else
 fi
 [ "$actual" = "$1" ] || { printf '%s\\n' 'package checksum mismatch' >&2; exit 1; }
 mkdir "$stage/package"
-tar -xzf "$stage/package.tgz" -C "$stage/package"
+tar -xpzf "$stage/package.tgz" -C "$stage/package"
 "$stage/package/bin/node" -e 'const fs=require("node:fs"); const input=JSON.parse(process.argv[2]); input.bundle=process.argv[1]; fs.writeFileSync(process.argv[3],JSON.stringify(input))' "$stage/package" "$2" "$stage/input.json"
 "$stage/package/bin/junto" machine install-local "@$stage/input.json"
 `;
