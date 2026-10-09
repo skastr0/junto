@@ -6,10 +6,11 @@ import {
 import type { Readable, Writable } from "node:stream";
 import type { IDisposable, IPty } from "node-pty";
 import {
-  captureProcessGroupObservation,
+  captureProcessGroupObservationAsync,
   refreshProcessGroupObservations,
   type ProcessGroupObservation,
   type ProcessGroupObservationRefresh,
+  type ProcessGroupEpoch,
 } from "./process-epoch";
 import {
   admitChildProcess,
@@ -537,6 +538,7 @@ export const createAppProcessPlane = (
     "app process KILL grace",
   );
   const records = new Set<AppRecord>();
+  const pendingGroupObservations = new Set<Promise<void>>();
   const leases = new WeakMap<AppProcessLease, AppProcessRecord>();
   const terminalLeases = new WeakMap<AppTerminalLease, AppTerminalRecord>();
   const registryEmptyWaiters = new Set<RegistryEmptyWaiter>();
@@ -572,12 +574,12 @@ export const createAppProcessPlane = (
     notifyRegistryEmpty();
   };
 
-  const captureGroupObservation = (
-    leaderPid: number | undefined,
-  ): ProcessGroupObservation | undefined => {
-    if (leaderPid === undefined) return undefined;
+  const captureGroupObservation = async (
+    leaderPid: number,
+    epoch: ProcessGroupEpoch,
+  ): Promise<ProcessGroupObservation | undefined> => {
     try {
-      const observation = captureProcessGroupObservation(leaderPid);
+      const observation = await captureProcessGroupObservationAsync(leaderPid, epoch);
       return observation !== undefined &&
           validCapturedGroupObservation(observation, leaderPid)
         ? observation
@@ -1003,11 +1005,15 @@ export const createAppProcessPlane = (
       mode: spawned.mode,
       gracefulSignalScope,
     });
-    if (spawned.mode === "group") {
-      // Lifecycle listeners are already attached. Capture before exposing the
-      // lease so the observed/unverified ownership state is immutable in time.
+    if (spawned.mode === "group" && spawned.groupEpoch !== undefined && spawned.child.pid !== undefined) {
+      // Exact signal authority and lifecycle registration remain synchronous.
+      // Only member enumeration yields. Its result cannot adopt a reused pid,
+      // and failure leaves the retained group explicitly ownership-unverified.
       const record = leases.get(lease)!;
-      record.groupObservation = captureGroupObservation(spawned.child.pid);
+      const observation = captureGroupObservation(spawned.child.pid, spawned.groupEpoch)
+        .then((captured) => { record.groupObservation = captured; });
+      pendingGroupObservations.add(observation);
+      void observation.then(() => { pendingGroupObservations.delete(observation); });
     }
     return lease;
   };
@@ -1159,6 +1165,9 @@ export const createAppProcessPlane = (
     // invoking any kill callback, which may re-enter spawn or drain.
     beginShutdown();
     const flight: Promise<AppProcessDrainResult> = Promise.resolve().then(async () => {
+      // Finish bounded spawn observations before refreshing or terminating.
+      // No new spawn can enter after the synchronous shutdown cut line above.
+      await Promise.all(pendingGroupObservations);
       // A retry can retire tombstones whose descendants exited after an
       // earlier bounded receipt. Refresh before issuing any new signal.
       refreshObservedGroups();

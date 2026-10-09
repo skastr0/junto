@@ -108,6 +108,8 @@ export type DetachedProcessGroup = {
   readonly child: ChildProcessWithoutNullStreams;
   readonly process: OwnedProcess;
   readonly mode: "group" | "child";
+  /** Observation anchor only; never accepted as signal authority. */
+  readonly groupEpoch?: ProcessGroupEpoch;
 };
 /** The sole mint site for POSIX process-group authority. Detached is not caller-configurable. */
 export const spawnDetachedProcessGroup = (input: { readonly source: string; readonly command: string; readonly args: readonly string[]; readonly options?: Omit<SpawnOptionsWithoutStdio, "detached"> }): DetachedProcessGroup => {
@@ -150,6 +152,7 @@ export const spawnDetachedProcessGroup = (input: { readonly source: string; read
         released: false,
       }),
       mode: "group",
+      groupEpoch: { ...captured.group },
     };
   }
   return {

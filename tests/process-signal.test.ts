@@ -186,6 +186,9 @@ describe("process-signal authority", () => {
     const closed = once(spawned.child, "close");
     expect(spawned.child.pid).toBeTypeOf("number");
     expect(spawned.mode).toBe("group");
+    expect(spawned.groupEpoch?.processGroupId).toBe(spawned.child.pid);
+    // The observation anchor must not alias the private signal authority.
+    if (spawned.groupEpoch) Object.assign(spawned.groupEpoch, { startKey: "forged" });
     expect(signalOwned(spawned.process, "SIGTERM").via).toBe("process.kill-group");
     expect(spy).toHaveBeenCalledWith(-spawned.child.pid!, "SIGTERM");
     // The mocked group signal does not terminate the real child. Keep its

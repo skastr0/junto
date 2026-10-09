@@ -21,7 +21,12 @@ vi.mock("node:child_process", async (importOriginal) => ({
 vi.mock("../src/main/junto/process-signal", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/main/junto/process-signal")>()),
   admitChildProcess: mocks.admitChildProcess,
-  spawnDetachedProcessGroup: mocks.spawnDetachedProcessGroup,
+  spawnDetachedProcessGroup: (...args: unknown[]) => {
+    const spawned = mocks.spawnDetachedProcessGroup(...args);
+    return spawned?.mode === "group"
+      ? { ...spawned, groupEpoch: spawned.groupEpoch ?? captureProcessGroupEpoch(spawned.child.pid) }
+      : spawned;
+  },
   signalOwned: mocks.signalOwned,
   signalOwnedGroupLeader: mocks.signalOwnedGroupLeader,
   releaseOwned: mocks.releaseOwned,
@@ -50,6 +55,7 @@ import {
   type AppTerminalLease,
 } from "../src/main/junto/app-process-plane";
 import {
+  captureProcessGroupEpoch,
   setProcessEpochReaderForTests,
   type ProcessGroupObservation,
   type ProcessGroupObservationRefresh,
@@ -249,6 +255,46 @@ const epochRow = (
 ): ProcessEpochRow => ({ pid, processGroupId, sessionId, startKey });
 
 describe("app process plane admission", () => {
+  it("registers lifecycle and closes admission while member observation is pending", async () => {
+    vi.useFakeTimers();
+    let complete!: (rows: readonly ProcessEpochRow[] | undefined) => void;
+    const child = new FakeChild();
+    const leader = epochRow(child.pid!, child.pid!, 77, "leader-a");
+    const snapshot = vi.fn((pidHint?: number) => {
+      if (pidHint === undefined) throw new Error("blocking member enumeration");
+      return [leader];
+    });
+    setProcessEpochReaderForTests({
+      snapshot,
+      snapshotAsync: () => new Promise((resolve) => { complete = resolve; }),
+    });
+    mocks.spawnDetachedProcessGroup.mockReturnValue({
+      child,
+      process: mintOwned({ kill: child.kill.bind(child) }),
+      mode: "group",
+    });
+    const plane = createAppProcessPlane({ termGraceMs: 10, killGraceMs: 15 });
+    const lease = plane.spawnGroup(spec());
+    expect(child.listenerCount("exit")).toBe(1);
+    expect(child.listenerCount("close")).toBe(1);
+    expect(snapshot.mock.calls).toEqual([[child.pid]]);
+
+    child.exitAndClose();
+    await expect(lease.io.closed).resolves.toEqual({ code: 0, signal: null });
+    expect(mocks.releaseOwned).toHaveBeenCalledOnce();
+    const draining = plane.drainOnQuit();
+    expect(plane.isQuiescing()).toBe(true);
+    expect(() => plane.spawnGroup(spec())).toThrow(APP_PROCESS_PLANE_QUIESCING_ERROR);
+    await Promise.resolve();
+    expect(mocks.refreshProcessGroupObservations).not.toHaveBeenCalled();
+    // Observation fails closed; late completion never restores exited authority.
+    complete(undefined);
+    await vi.advanceTimersByTimeAsync(25);
+    const result = await draining;
+    expect(result).toMatchObject({ clean: false, stragglers: [{ state: "ownership-unverified" }] });
+    expect(mocks.signalOwned).not.toHaveBeenCalled();
+  });
+
   it("closes child, group, terminal, and daemon admission synchronously and monotonically", () => {
     const plane = createAppProcessPlane();
     plane.beginShutdown();

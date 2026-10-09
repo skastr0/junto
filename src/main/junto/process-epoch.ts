@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { resolveSystemPs } from "./platform-executables";
 
 /** One row from one `ps` observation; never compose identity from multiple reads. */
@@ -24,6 +24,7 @@ export type ProcessEpochReader = {
    * table, which is what the test seam does.
    */
   readonly snapshot: (pidHint?: number) => readonly ProcessEpochRow[] | undefined;
+  readonly snapshotAsync?: () => Promise<readonly ProcessEpochRow[] | undefined>;
 };
 
 /**
@@ -53,6 +54,10 @@ export type ProcessEpochPsResult = {
 export type ProcessEpochPsRunner = (
   request: ProcessEpochPsRequest,
 ) => ProcessEpochPsResult;
+
+export type ProcessEpochPsAsyncRunner = (
+  request: ProcessEpochPsRequest,
+) => Promise<ProcessEpochPsResult>;
 
 /**
  * Capability-free observation retained after an original process-group leader
@@ -102,6 +107,23 @@ const systemPsRunner: ProcessEpochPsRunner = (request) => {
     error: result.error,
   };
 };
+
+// Fixed observation only, with the same timeout and output bound as sync ps.
+// execFile owns its observation child; it never accepts a product signal target.
+const systemPsAsyncRunner: ProcessEpochPsAsyncRunner = (request) =>
+  new Promise((resolve) => {
+    execFile(request.command, [...request.args], {
+      encoding: "utf8",
+      env: request.env,
+      maxBuffer: request.maxBuffer,
+      timeout: request.timeoutMs,
+    }, (error, stdout, stderr) => resolve({
+      status: error === null ? 0 : null,
+      stdout,
+      stderr,
+      ...(error === null ? {} : { error }),
+    }));
+  });
 
 const parseSafeInteger = (value: string, minimum: number): number | undefined => {
   const parsed = Number(value);
@@ -167,6 +189,13 @@ export const readFullProcessEpochSnapshot = (
   } catch {
     return undefined;
   }
+  return validateFullSnapshot(result, witnessPid);
+};
+
+const validateFullSnapshot = (
+  result: ProcessEpochPsResult,
+  witnessPid: number,
+): readonly ProcessEpochRow[] | undefined => {
   if (
     result.error !== undefined ||
     result.status !== 0 ||
@@ -177,6 +206,26 @@ export const readFullProcessEpochSnapshot = (
   const rows = parseProcessEpochRows(result.stdout);
   if (rows === undefined) return undefined;
   return rows.some((row) => row.pid === witnessPid) ? rows : undefined;
+};
+
+/** Full-table member observation without freezing the app's event loop. */
+export const readFullProcessEpochSnapshotAsync = async (
+  runPs: ProcessEpochPsAsyncRunner = systemPsAsyncRunner,
+  witnessPid: number = process.pid,
+): Promise<readonly ProcessEpochRow[] | undefined> => {
+  const ps = resolveSystemPs();
+  if (ps === undefined) return undefined;
+  try {
+    return validateFullSnapshot(await runPs({
+      command: ps,
+      args: PS_FULL_ARGS,
+      env: psEnv(),
+      timeoutMs: PS_TIMEOUT_MS,
+      maxBuffer: PS_MAX_BUFFER,
+    }), witnessPid);
+  } catch {
+    return undefined;
+  }
 };
 
 /**
@@ -233,6 +282,7 @@ export const readSingleProcessEpochSnapshot = (
 };
 
 const systemReader: ProcessEpochReader = {
+  snapshotAsync: () => readFullProcessEpochSnapshotAsync(),
   snapshot: (pidHint) =>
     pidHint === undefined
       ? readFullProcessEpochSnapshot()
@@ -300,8 +350,20 @@ export const captureProcessGroupObservation = (
   // Member enumeration is the one question a single-pid read cannot answer.
   const snapshot = reader.snapshot();
   if (!snapshot) return undefined;
+  return groupObservationFromSnapshot(snapshot, leaderPid);
+};
+
+const groupObservationFromSnapshot = (
+  snapshot: readonly ProcessEpochRow[],
+  leaderPid: number,
+  epoch?: ProcessGroupEpoch,
+): ProcessGroupObservation | undefined => {
   const leader = snapshot.find((candidate) =>
-    candidate.pid === leaderPid && candidate.processGroupId === leaderPid
+    candidate.pid === leaderPid && candidate.processGroupId === leaderPid &&
+    (epoch === undefined || (
+      epoch.processGroupId === leaderPid &&
+      candidate.sessionId === epoch.sessionId && candidate.startKey === epoch.startKey
+    ))
   );
   if (!leader) return undefined;
   const currentMembers = snapshot.filter((candidate) =>
@@ -313,6 +375,24 @@ export const captureProcessGroupObservation = (
     sessionId: leader.sessionId,
     observedMemberEpochs: unionMemberEpochs([], currentMembers),
   };
+};
+
+/** Observe members only for the exact group generation admitted at spawn. */
+export const captureProcessGroupObservationAsync = async (
+  leaderPid: number,
+  epoch: ProcessGroupEpoch,
+): Promise<ProcessGroupObservation | undefined> => {
+  const selectedReader = reader;
+  try {
+    const snapshot = selectedReader.snapshotAsync === undefined
+      ? selectedReader.snapshot()
+      : await selectedReader.snapshotAsync();
+    return snapshot === undefined
+      ? undefined
+      : groupObservationFromSnapshot(snapshot, leaderPid, epoch);
+  } catch {
+    return undefined;
+  }
 };
 
 /**

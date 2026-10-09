@@ -4,13 +4,16 @@ import {
   captureProcessEpoch,
   captureProcessGroupEpoch,
   captureProcessGroupObservation,
+  captureProcessGroupObservationAsync,
   childProcessEpochIsCurrent,
   processGroupEpochIsCurrent,
   readFullProcessEpochSnapshot,
+  readFullProcessEpochSnapshotAsync,
   readSingleProcessEpochSnapshot,
   refreshProcessGroupObservations,
   setProcessEpochReaderForTests,
   type ProcessEpochPsRequest,
+  type ProcessEpochPsResult,
   type ProcessEpochRow,
 } from "../src/main/junto/process-epoch";
 import { resolveSystemPs } from "../src/main/junto/platform-executables";
@@ -116,6 +119,67 @@ describe("full process epoch snapshots", () => {
       }),
       51,
     )).toBeUndefined();
+  });
+});
+
+describe("asynchronous process-group observations", () => {
+  it("yields while ps is pending and preserves full-table validation", async () => {
+    let complete!: (result: ProcessEpochPsResult) => void;
+    const requests: ProcessEpochPsRequest[] = [];
+    let settled = false;
+    const pending = readFullProcessEpochSnapshotAsync((request) => {
+      requests.push(request);
+      return new Promise((resolve) => { complete = resolve; });
+    }, 51).then((value) => { settled = true; return value; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(requests[0]).toMatchObject({
+      args: ["-axo", "pid=,pgid=,sess=,lstart="],
+      env: { LC_ALL: "C", TZ: "UTC" },
+      timeoutMs: 500,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    complete({ status: 0, stdout: `${psLine(51, 51, 9)}\n`, stderr: "" });
+    await expect(pending).resolves.toEqual([row(51, 51, 9, START)]);
+
+    for (const result of [
+      { status: 0, stdout: psLine(77, 77, 9), stderr: "" },
+      { status: 0, stdout: `${psLine(51, 51, 9)}\nmalformed`, stderr: "" },
+      { status: 0, stdout: `${psLine(51, 51, 9)}\n${psLine(51, 51, 9)}`, stderr: "" },
+      { status: 0, stdout: psLine(51, 51, 9), stderr: "partial" },
+      { status: 1, stdout: psLine(51, 51, 9), stderr: "" },
+      { status: 0, stdout: undefined, stderr: "" },
+      { status: 0, stdout: psLine(51, 51, 9), stderr: "", error: new Error("timeout") },
+    ]) {
+      await expect(readFullProcessEpochSnapshotAsync(async () => result, 51)).resolves.toBeUndefined();
+    }
+    await expect(readFullProcessEpochSnapshotAsync(async () => { throw new Error("spawn"); }, 51))
+      .resolves.toBeUndefined();
+  });
+
+  it("anchors delayed member capture to the admitted generation and session", async () => {
+    let complete!: (rows: readonly ProcessEpochRow[] | undefined) => void;
+    setProcessEpochReaderForTests({
+      snapshot: () => { throw new Error("synchronous table read"); },
+      snapshotAsync: () => new Promise((resolve) => { complete = resolve; }),
+    });
+    const epoch = { processGroupId: 500, sessionId: 12, startKey: "leader-a" };
+    const pending = captureProcessGroupObservationAsync(500, epoch);
+    complete([row(500, 500, 12, "leader-a"), row(501, 500, 12, "member-a")]);
+    await expect(pending).resolves.toMatchObject({
+      observedMemberEpochs: [{ pid: 500, startKey: "leader-a" }, { pid: 501, startKey: "member-a" }],
+    });
+    for (const rows of [
+      [row(500, 500, 12, "leader-reused")],
+      [row(500, 500, 13, "leader-a")],
+      [row(500, 900, 12, "leader-a")],
+      [row(501, 500, 12, "member-a")],
+      undefined,
+    ]) {
+      const next = captureProcessGroupObservationAsync(500, epoch);
+      complete(rows);
+      await expect(next).resolves.toBeUndefined();
+    }
   });
 });
 
