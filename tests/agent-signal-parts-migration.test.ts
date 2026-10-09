@@ -135,10 +135,14 @@ describe("state migration 10 -> 11 (signal parts)", () => {
         "INSERT INTO agent_signal_parts(signal_id, position, kind, body_json, caption) VALUES (?, ?, ?, ?, ?)",
       );
       const body = JSON.stringify({ sha256: sha("a"), byteLength: 1, mediaType: "image/png", displayName: "a.png" });
+      // One durable fixture transaction keeps the proof about count and
+      // caption constraints independent of hundreds of disk flushes.
+      database.exec("BEGIN IMMEDIATE");
       for (let position = 0; position < 200; position += 1) insert.run("sig-1", position, "file", body, null);
       insert.run("sig-1", 200, "file", body, "x".repeat(5000));
       // A kind this version does not draw is still held.
       insert.run("sig-1", 201, "commit", JSON.stringify({ sha: "abc1234" }), null);
+      database.exec("COMMIT");
       expect(database.prepare("SELECT COUNT(*) AS n FROM agent_signal_parts").get()).toEqual({ n: 202 });
 
       // Still refused: a place taken twice, a signal that does not exist, a body that is not an object, an empty caption or kind.

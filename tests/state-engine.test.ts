@@ -67,9 +67,13 @@ const seedCurrentStateSchema = async (path: string): Promise<void> => {
 const seedVersionOneStateSchema = (path: string, version = 1): void => {
   const database = new DatabaseSync(path);
   try {
+    // Seed the historical fixture atomically, rather than syncing every DDL
+    // statement before the runtime under test opens it.
+    database.exec("BEGIN IMMEDIATE");
     database.exec(STATE_SCHEMA_V1_SQL);
     verifyAndStampStateSchema(database, STATE_SCHEMA_V1_SQL);
     database.exec(`PRAGMA user_version = ${version}`);
+    database.exec("COMMIT");
   } finally {
     database.close();
   }
