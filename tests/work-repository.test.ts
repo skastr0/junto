@@ -53,8 +53,6 @@ const fixtureSeatNodeIds: ReadonlyArray<string> = [
 ];
 const fixtureNodes = fixtureSeatNodeIds.map((id, index) =>
   seat(id, { y: index * 120, width: 240, height: 100, bindingId: `binding-${id}` as never }));
-// A projection identity this command center never held: any 64 hex digits.
-const currentIntentSha256 = "c".repeat(64);
 const decodeIntentFactBasis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 });
@@ -66,11 +64,6 @@ const staleAuthorialBasis = decodeIntentFactBasis({
 });
 const wrongAuthorialBasis = decodeIntentFactBasis({
   kind: "canvas", canvasName: "wrong-factory", seq: 1,
-});
-const projectedBasis = decodeIntentFactBasis({
-  kind: "projected-intent",
-  generation: "1",
-  contentSha256: currentIntentSha256,
 });
 
 const actor = {
@@ -311,7 +304,7 @@ describe("WorkRepository v2 local authority", () => {
     expect(storedMessageFact).not.toContain("bytesBase64");
   });
 
-  it("rejects stale, mismatched, and role-wrong intent bases transactionally", async () => {
+  it("rejects a stale basis and a basis for another canvas, writing nothing", async () => {
     const sink = { canvasName: "factory", nodeId: "basis-rejections" };
     const persistedState = () =>
       withSqlRead(
@@ -351,7 +344,6 @@ describe("WorkRepository v2 local authority", () => {
     for (const [messageId, basis, reason] of [
       ["stale-basis-mail", staleAuthorialBasis, "causal-conflict"],
       ["wrong-canvas-mail", wrongAuthorialBasis, "authority-mismatch"],
-      ["wrong-role-mail", projectedBasis, "authority-mismatch"],
     ] as const) {
       const result = await runtime.runPromise(
         repository

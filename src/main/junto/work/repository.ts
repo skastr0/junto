@@ -1161,8 +1161,7 @@ const assertCurrentIntentBasis = Effect.fn("work.assertCurrentIntentBasis")(
 const MAX_TASK_DEPENDENCY_IDS = 256;
 
 const sameIntentBasis = (left: IntentFactBasisValue, right: IntentFactBasisValue): boolean =>
-  left.kind === "canvas" ? right.kind === "canvas" && left.canvasName === right.canvasName && left.seq === right.seq
-    : right.kind === "projected-intent" && left.generation === right.generation && left.contentSha256 === right.contentSha256;
+  left.canvasName === right.canvasName && left.seq === right.seq;
 
 const assertCanonicalDependsOn = (
   dependsOn: ReadonlyArray<string> | undefined,
