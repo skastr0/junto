@@ -315,11 +315,13 @@ Linux: sandboxes on Boat, which the operator opened to us for testing. They
 are native machines, so they replace the emulated one for anything that
 needs a real Linux.
 
-- Create with `boat new --no-env --json` and a `--ttl`, so a sandbox never
-  carries the operator's stored secrets and a forgotten one stops itself.
-  `--type small` unless a build needs more.
+- Create with `boat new --no-env --no-snapshots --json` and a `--ttl`, so a
+  sandbox never carries the operator's stored secrets, leaves no snapshot
+  behind, and a forgotten one becomes eligible for cleanup. `--type small`
+  unless a build needs more.
 - Touch only a sandbox you created. Record its id in your receipt.
-- Delete it when the run ends. Time is billed while it runs.
+- Delete it when the run ends; the time limit is not a guarantee. Time is
+  billed while it runs.
 - Use only: `new`, `list`, `info`, `ssh`, `exec`, `scp`, `stop`, `resume`,
   `delete`, `usage`. No sharing, public URLs, keys, webhooks, billing or
   organization commands.
