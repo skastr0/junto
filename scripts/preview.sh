@@ -69,11 +69,21 @@ if [[ ! -f "$PREVIEW_HOME/.fresh-preview" ]]; then
   chmod 600 "$PREVIEW_HOME/.fresh-preview"
 fi
 # Never inherit this seat's live control credentials or testing/runtime overrides.
+PREVIEW_LOCK_HOME="${JUNTO_APP_RUN_LOCK_HOME:-$PREVIEW_HOME/locks}"
 while IFS= read -r name; do unset "$name"; done < <(compgen -v JUNTO_)
+export JUNTO_HOME="$PREVIEW_HOME" JUNTO_APP_RUN_LOCK_HOME="$PREVIEW_LOCK_HOME"
 COMMIT="$(git -C "$ROOT" rev-parse refs/heads/main)"
 CHECKOUT="$BUILD_ROOT/$COMMIT"
 if [[ ! -d "$CHECKOUT" ]]; then
-  git -C "$ROOT" worktree add --detach "$CHECKOUT" "$COMMIT"
+  EXPORT="$(mktemp -d "$BUILD_ROOT/.export-XXXXXX")"
+  git -C "$ROOT" archive "$COMMIT" | tar -xf - -C "$EXPORT"
+  # Keep the exact commit and index for package provenance, without a worktree
+  # registration or branch. This directory is only a disposable build export.
+  git -C "$EXPORT" init -q
+  git -C "$EXPORT" fetch -q --no-tags --depth=1 "$ROOT" "$COMMIT"
+  git -C "$EXPORT" update-ref --no-deref HEAD "$COMMIT"
+  git -C "$EXPORT" read-tree "$COMMIT"
+  mv "$EXPORT" "$CHECKOUT"
 fi
 if [[ ! -d "$CHECKOUT/node_modules" ]]; then
   # APFS clone: isolated native rebuilds cannot alter the shared tree's PTY binary.
@@ -88,7 +98,7 @@ if [[ "$(bun --version)" != "$PINNED_BUN" ]]; then
   export PATH="$BUN_PREFIX/bin:$PATH"
 fi
 if [[ ! -f .preview-build-ready ]]; then
-  JUNTO_PREVIEW_BUILD=1 bash scripts/build-app.sh --target mac --fast
+  JUNTO_PREVIEW_BUILD=1 JUNTO_FLEET_UI=1 JUNTO_ALLOW_FEATURE_OVERRIDES=1 bash scripts/build-app.sh --target mac --fast
   printf '%s\n' "$COMMIT" > .preview-build-ready
 fi
 case "$(uname -m)" in arm64) ARCH_DIR=mac-arm64 ;; x86_64) ARCH_DIR=mac ;; *) exit 1 ;; esac
