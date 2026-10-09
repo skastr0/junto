@@ -366,6 +366,18 @@ together, from one commit of main. `remote-verify` holds the receipts:
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
 
+**Run C with a real agent, `3363f44bd`.** A real Amp seat on the Mac mini,
+placed and started from the Preview on this Mac, received mail from a seat
+here with nobody touching the mini, and answered it from the mini with its
+own hostname and folder. Receipt:
+`preview-3363f44bd/live/receipt-c-real.json`. What it took after the
+stand-in run: mail delivery had been configured only by the window, so a
+windowless machine stored mail and never typed it into its seat (fixed in
+`ba625745c`, `7160fcf2a`, `3363f44bd`). Found on the way, not ours to fix:
+the mini's stored Codex login was revoked, and Claude Code there says its
+login expired. Open: whether a background service on macOS can use the
+login keychain at all; one status from the service's own context decides.
+
 **The name window is closed, at `a8de71787`.** Typecheck and the whole unit
 suite, both lanes, are green on a clean export (8,633 tests), checked by
 `remote-verify`. Main may be built and run again by any seat, in a home of
