@@ -17,7 +17,7 @@ import { seat, taskBoard, wire } from "./support/model-nodes";
  * binding unique to its canvas or its descriptor would conflict with a
  * same-named seat elsewhere.
  */
-const agentNode = (id: string, canvasName: string, hostId = "local") =>
+const agentNode = (id: string, canvasName: string, hostId: string = THIS_MACHINE) =>
   seat(id, {
     label: "profile-13",
     host: hostId,
@@ -53,8 +53,7 @@ import {
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import {
   makeSettingsLive,
   SettingsService,
@@ -63,6 +62,7 @@ import {
   makeContentServiceLive,
 } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { THIS_MACHINE } from "./support/machines";
 
 const makeWorkRuntime = (databasePath: string) => {
   const installRoot = join(databasePath, "..");
@@ -71,10 +71,8 @@ const makeWorkRuntime = (databasePath: string) => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
-      StationRepositoryLive,
-      StationFleetTargetRepositoryLive,
-      // Blank-slate station for Remote offline fixtures; tests configure role.
-      makeSettingsLive({ ensureDefaultCommandCenter: false }),
+      makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
+      makeSettingsLive(),
       makeContentServiceLive({
         root: join(installRoot, "content"),
         skipInlineMediaMigration: true,
@@ -106,11 +104,7 @@ let repository: Context.Service.Shape<typeof WorkRepository>;
 beforeAll(async () => {
   const settings = await workRuntime.runPromise(SettingsService);
   await workRuntime.runPromise(
-    settings.setStationTopology({
-      role: "command-center",
-      hostId: "local",
-      supervisedPreferred: true,
-    })
+    settings.setMachinePreferences({ supervisedPreferred: true })
   );
   work = await workRuntime.runPromise(WorkService);
   repository = await workRuntime.runPromise(WorkRepository);

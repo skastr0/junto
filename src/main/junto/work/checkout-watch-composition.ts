@@ -2,7 +2,7 @@ import { recordDeliveryReceiptRefusal } from "./delivery-receipts";
 import { type Context, Effect } from "effect";
 import { asNodeId, type Seat, type Canvas } from "@shared/model";
 import type { MailSenderStamp } from "@shared/crew";
-import { DEFAULT_STATION_HOST_ID } from "@shared/station";
+import { isThisMachine } from "@shared/machine-identity";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import type { CanvasFactBasis } from "@shared/work-protocol";
 import type { ModelService } from "../model/service";
@@ -62,11 +62,12 @@ const matchesSurface = (
   session: TerminalSessionSummary | undefined,
   canvasName: string,
   surface: Seat,
+  thisMachine: string,
 ): session is TerminalSessionSummary => session !== undefined &&
   session.status === "running" && !session.stopping &&
   session.pid !== undefined && session.pid > 0 &&
   session.epoch.length > 0 &&
-  session.hostId === DEFAULT_STATION_HOST_ID &&
+  isThisMachine(session.hostId, thisMachine) &&
   session.canvasName === canvasName && session.nodeId === surface.id &&
   session.bindingId === surface.bindingId &&
   session.harness === surface.harness && session.agentKey === surface.agentKey;
@@ -88,14 +89,12 @@ export const makeCheckoutWatchComposition = (
   options: CheckoutWatchCompositionOptions,
 ): CheckoutWatchSupervisor => {
   let stopped = false;
-  const commandCenter = options.settings.get.pipe(
-    Effect.flatMap((settings) => settings.station.role === "command-center"
-      ? Effect.void
-      : Effect.fail(failure("crew-command-center-only", "checkout watch requires Command Center"))),
-  );
+  // Only a seat on this machine has a checkout here. A machine that holds a
+  // copy of a canvas holds none of its boards, so it claims nothing there.
+  const machineName = options.settings.get.pipe(Effect.map((settings) => settings.machine.name));
 
   const readClaims = (canvasName: string) => Effect.gen(function* () {
-    yield* commandCenter;
+    const thisMachine = yield* machineName;
     const canvas = yield* options.model.canvas(canvasName);
     const actors = yield* options.actorRefs.read(canvasName);
     const processes = new Map<string, ProcessProof>();
@@ -103,11 +102,11 @@ export const makeCheckoutWatchComposition = (
     for (const actor of actors) {
       const node = canvas.nodes.get(asNodeId(actor.nodeId));
       if (node === undefined) continue;
-      if (node.kind !== "agent" || node.host !== DEFAULT_STATION_HOST_ID) continue;
+      if (node.kind !== "agent" || !isThisMachine(node.host, thisMachine)) continue;
       const surface = node;
       const session = options.host.get(surface.bindingId);
       sessions.push({ bindingId: surface.bindingId, identity: sessionIdentity(session) });
-      if (!matchesSurface(session, canvasName, surface)) continue;
+      if (!matchesSurface(session, canvasName, surface, thisMachine)) continue;
       // Only the running host's actual cwd proves a checkout. Launch/default cwd is not evidence.
       const checkoutKey = yield* Effect.promise(() => checkoutKeyFromPath(session.cwd));
       if (checkoutKey === undefined || !sameProcess(options.host.get(surface.bindingId), session)) continue;
@@ -119,6 +118,7 @@ export const makeCheckoutWatchComposition = (
       const tasks = yield* options.workRepository.taskLane(canvasName, node.id, "task");
       const context = claimContextFrom({
         canvasName,
+        thisMachine,
         boards: [{ nodeId: node.id, tasks, contract: node.contract }],
         actorRefs: actors.filter((actor) => processes.has(actor.nodeId)),
         nodes: [...canvas.nodes.values()],
@@ -137,7 +137,6 @@ export const makeCheckoutWatchComposition = (
   });
 
   const currentClaims = (canvasName: string) => Effect.gen(function* () {
-    yield* commandCenter;
     const names = yield* options.model.listCanvases();
     const inventory = [];
     for (const name of names) inventory.push(yield* readClaims(name));
@@ -218,7 +217,6 @@ export const makeCheckoutWatchComposition = (
     };
     const receipts = yield* Effect.tryPromise({
       try: () => options.write(Effect.gen(function* () {
-        yield* commandCenter;
         if (stopped) return yield* Effect.fail(failure("checkout-watch-stopped", "checkout watch is stopped"));
         if (!sameProcess(options.host.get(session.bindingId), session)) {
           return yield* Effect.fail(failure("authority-mismatch", "checkout author process changed before receipt commit"));
@@ -255,7 +253,6 @@ export const makeCheckoutWatchComposition = (
     repository: {
       recordCheckoutObservation: (input) => Effect.tryPromise({
         try: () => options.write(Effect.gen(function* () {
-          yield* commandCenter;
           if (stopped) return yield* Effect.fail(failure("checkout-watch-stopped", "checkout watch is stopped"));
           return yield* options.crew.recordCheckoutObservation(input);
         })),
@@ -267,10 +264,7 @@ export const makeCheckoutWatchComposition = (
       }),
     },
     // A failed read must reject the pass. Empty success would discard the live baseline.
-    canvases: () => commandCenter.pipe(
-      Effect.flatMap(() => options.model.listCanvases()),
-      Effect.orDie,
-    ),
+    canvases: () => options.model.listCanvases().pipe(Effect.orDie),
     claims: (canvasName) => currentClaims(canvasName).pipe(
       Effect.map(({ attributionClaims }) => attributionClaims),
       Effect.orDie,

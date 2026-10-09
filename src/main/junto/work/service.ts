@@ -119,7 +119,7 @@ import type {
 } from "@shared/work-protocol";
 import { IntentFactBasis } from "@shared/work-protocol";
 import { ulid } from "ulid";
-import { StationRepository } from "../station/repository";
+import { MachineRepository } from "../machines/repository";
 import { ContentService } from "../content/service";
 import type { ContentOwner } from "../content/manifest";
 import {
@@ -304,7 +304,7 @@ const asResult = <T>(
     ),
   );
 
-type StationContext = {
+type InstallationContext = {
   readonly localInstallationId: InstallationIdValue;
 };
 
@@ -710,7 +710,7 @@ export const WorkLive = Layer.effect(
     const repository = yield* WorkRepository;
     const modelRecords = yield* ModelRecords;
     const crew = yield* CrewRepository;
-    const stations = yield* StationRepository;
+    const machines = yield* MachineRepository;
     // S2: ContentService is a hard WorkLive dependency (both CC + Remote graphs
     // compose it — runtime.ts / remote-runtime.ts). Hard yield*, never
     // serviceOption: a missing ContentService must fail layer build, not soft-
@@ -721,8 +721,8 @@ export const WorkLive = Layer.effect(
     const contentService = yield* ContentService;
     const ids = defaultIds();
 
-    const stationContext: Effect.Effect<StationContext, WorkServiceError> =
-      stations.installationId.pipe(
+    const installationContext: Effect.Effect<InstallationContext, WorkServiceError> =
+      machines.installationId.pipe(
         Effect.mapError(toWorkServiceError),
         Effect.map((localInstallationId) => ({ localInstallationId })),
       );
@@ -1154,7 +1154,7 @@ export const WorkLive = Layer.effect(
       input: Omit<VerdictPostArgs, "target">,
       reviewer: ActorRef,
     ) => Effect.gen(function* () {
-      const [context, read] = yield* Effect.all([stationContext, readTopology(canvas)]);
+      const [context, read] = yield* Effect.all([installationContext, readTopology(canvas)]);
       if (reviewer.canvasName !== canvas ||
         read.actorRefs.filter((actor) => sameActor(actor, reviewer)).length !== 1) {
         return yield* new WorkServiceError({
@@ -1398,7 +1398,7 @@ export const WorkLive = Layer.effect(
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
-              stationContext,
+              installationContext,
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
@@ -1589,7 +1589,7 @@ export const WorkLive = Layer.effect(
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
-              stationContext,
+              installationContext,
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
@@ -1886,7 +1886,7 @@ export const WorkLive = Layer.effect(
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
-              stationContext,
+              installationContext,
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
@@ -2015,7 +2015,7 @@ export const WorkLive = Layer.effect(
         asResult(
           Effect.gen(function* () {
             const [context, read, sourceHome] = yield* Effect.all([
-              stationContext,
+              installationContext,
               readTopology(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
@@ -2927,7 +2927,7 @@ export const WorkLive = Layer.effect(
       workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
         asResult(
           Effect.gen(function* () {
-            yield* stationContext;
+            yield* installationContext;
             const outcome = yield* local(
               repository
                 .setArtifactArchived({
@@ -2944,7 +2944,7 @@ export const WorkLive = Layer.effect(
       workArtifactDelete: (canvas, nodeId, artifactId) =>
         asResult(
           Effect.gen(function* () {
-            yield* stationContext;
+            yield* installationContext;
             const outcome = yield* local(
               repository
                 .deleteArtifact({

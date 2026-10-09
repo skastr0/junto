@@ -37,7 +37,7 @@ describe("node host assignment", () => {
         harness: "codex",
         host: "",
       }),
-    ).toThrow("invalid station host id");
+    ).toThrow("invalid machine name");
   });
 
 });

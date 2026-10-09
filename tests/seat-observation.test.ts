@@ -12,6 +12,7 @@ import {
   makeSeatObservation,
   type SeatObservationDeps,
 } from "../src/main/junto/work/seat-observation";
+import { THIS_MACHINE } from "./support/machines";
 
 // Focused tests for the seat wait/observe service. Everything is injected: the
 // service's contract is about authority, ordering and bounds, none of which
@@ -109,6 +110,7 @@ const makeHarness = (input: {
   >();
 
   const deps: SeatObservationDeps = {
+    thisMachine: () => THIS_MACHINE,
     // No case here puts a task on a board: there is nothing to read.
     readTask: () => Effect.succeed(undefined),
     readTopology: () => Effect.succeed(currentDoc),
@@ -279,6 +281,7 @@ describe("seat.wait", () => {
   it("does not lose a transition delivered synchronously at registration", async () => {
     let reads = 0;
     const service = makeSeatObservation({
+      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => Effect.succeed(peerDoc()),
       subscribeCanvasChanges: () => () => {},
@@ -312,6 +315,7 @@ describe("seat.wait", () => {
     const revoked = peerDoc([]);
     let reads = 0;
     const service = makeSeatObservation({
+      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
@@ -384,6 +388,7 @@ describe("seat.wait", () => {
     );
     let reads = 0;
     const service = makeSeatObservation({
+      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
@@ -434,6 +439,7 @@ describe("seat.wait", () => {
     const revoked = peerDoc([]);
     let reads = 0;
     const service = makeSeatObservation({
+      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;

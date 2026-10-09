@@ -8,6 +8,7 @@ import type {
   ObserverGridWindow,
 } from "../src/main/junto/term/observer";
 import { makeSeatObservation } from "../src/main/junto/work/seat-observation";
+import { THIS_MACHINE } from "./support/machines";
 
 // Independent adversarial seam tests for the seat wait/observe contract
 // (historical crew contract, deleted by operator ruling 2026-09-16). The service's own rules: authority is re-derived
@@ -51,6 +52,7 @@ const makeHarness = (input: {
   let seatSubscribed = false;
 
   const service = makeSeatObservation({
+    thisMachine: () => THIS_MACHINE,
     readTask: () => Effect.succeed(undefined),
     readTopology: () => Effect.succeed(doc),
     subscribeCanvasChanges: (listener) => {
@@ -231,6 +233,7 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     let reads = 0;
     let subscribed = false;
     const service = makeSeatObservation({
+      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
@@ -298,6 +301,7 @@ describe("crew seat observation — adversarial authority and ordering", () => {
       (canvasName: string | undefined, nodeId: string | undefined) => void
     >();
     const service = makeSeatObservation({
+      thisMachine: () => THIS_MACHINE,
       // First read resolves targets; by the post-event revalidation the
       // edge is gone — the answer must be ScopeError, not the stale match.
       readTask: () => Effect.succeed(undefined),

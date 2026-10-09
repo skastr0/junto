@@ -10,9 +10,10 @@ import type { Task } from "../src/shared/work-model";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import { canvasReceiptBasis } from "../src/main/junto/work/delivery-receipts";
 import { makeCheckoutWatchComposition, type CheckoutWatchCompositionOptions } from "../src/main/junto/work/checkout-watch-composition";
+import { THIS_MACHINE } from "./support/machines";
 
 const seatId = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
-const seat = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", label: "Worker", x: 0, y: 0, width: 200, height: 100, z: 0, agentKey: "local:codex", host: "local", bindingId: "binding", harness: "codex", overseer: false, onRemove: "detach" });
+const seat = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", label: "Worker", x: 0, y: 0, width: 200, height: 100, z: 0, agentKey: "local:codex", host: THIS_MACHINE, bindingId: "binding", harness: "codex", overseer: false, onRemove: "detach" });
 const board = Schema.decodeUnknownSync(Node)({ kind: "task", id: "queue", x: 0, y: 0, width: 200, height: 100, z: 1 });
 
 const fixture = async () => {
@@ -22,12 +23,12 @@ const fixture = async () => {
   let head = "a".repeat(40);
   const receipts: Array<Parameters<CheckoutWatchCompositionOptions["workRepository"]["publishCheckoutReceipts"]>[0]> = [];
   const records: unknown[] = [];
-  const session: TerminalSessionSummary = { bindingId: "binding", epoch: "generation", hostId: "local", status: "running", pid: 123, canvasName: "factory", nodeId: "seat", harness: "codex", agentKey: "local:codex", cwd: root, detached: false, createdAt: 1 };
+  const session: TerminalSessionSummary = { bindingId: "binding", epoch: "generation", hostId: THIS_MACHINE, status: "running", pid: 123, canvasName: "factory", nodeId: "seat", harness: "codex", agentKey: "local:codex", cwd: root, detached: false, createdAt: 1 };
   const settings = defaultSettings();
   const options: CheckoutWatchCompositionOptions = {
     model: { listCanvases: () => Effect.succeed([canvas.name]), canvas: () => Effect.succeed(canvas) },
     actorRefs: { read: () => Effect.succeed([{ canvasName: "factory", nodeId: "seat", seatId }]) },
-    settings: { get: Effect.succeed({ ...settings, station: { ...settings.station, role: "command-center" } }) },
+    settings: { get: Effect.succeed({ ...settings, machine: { ...settings.machine, name: THIS_MACHINE } }) },
     host: { get: () => session },
     crew: { recordCheckoutObservation: (input) => Effect.sync(() => { records.push(input); return true; }) },
     workRepository: {

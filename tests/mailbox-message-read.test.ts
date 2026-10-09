@@ -20,10 +20,7 @@ import {
   SettingsLive,
   SettingsService,
 } from "../src/main/junto/settings/service";
-import {
-  StationFleetTargetRepositoryLive,
-} from "../src/main/junto/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 import {
   WorkRepository,
@@ -34,6 +31,7 @@ import {
   makeContentServiceLive,
 } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { THIS_MACHINE } from "./support/machines";
 
 const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];
@@ -53,8 +51,7 @@ const makeRuntime = (root: string) => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
-      StationRepositoryLive,
-      StationFleetTargetRepositoryLive,
+      makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
       SettingsLive,
       makeContentServiceLive({
         root: join(root, "content"),
@@ -101,11 +98,7 @@ describe("mailbox message read receipts", () => {
 
     const settings = await runtime.runPromise(SettingsService);
     await runtime.runPromise(
-      settings.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-        supervisedPreferred: true,
-      }),
+      settings.setMachinePreferences({ supervisedPreferred: true }),
     );
     await runtime.runPromise(seedCanvas("mail", agentNodes()) as never);
     const repository = await runtime.runPromise(WorkRepository);
@@ -177,11 +170,7 @@ describe("mailbox message read receipts", () => {
 
     const settings = await runtime.runPromise(SettingsService);
     await runtime.runPromise(
-      settings.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-        supervisedPreferred: true,
-      }),
+      settings.setMachinePreferences({ supervisedPreferred: true }),
     );
     await runtime.runPromise(seedCanvas("mail", agentNodes()) as never);
     const repository = await runtime.runPromise(WorkRepository);

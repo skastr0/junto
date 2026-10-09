@@ -3,7 +3,7 @@ import { managedHarnessEnabled } from "../features";
 import { sanitizeExtraArgs } from "../launch-extra-args";
 import { resolveManagedLaunch } from "../managed-terminal-launch";
 import { templateFor, type HarnessId } from "../managed-terminal-templates";
-import { isValidStationHostId } from "../station";
+import { isValidMachineName } from "../machine-identity";
 import type { NodeOf } from "./kinds";
 
 // Which agent runs in a seat and how it is started, worked out from what was
@@ -16,13 +16,22 @@ type BindingId = NodeOf<"agent">["bindingId"];
 /** A new session binding. Minted the same way wherever a seat or terminal is made. */
 export const newBinding = (): BindingId => ulid() as BindingId;
 
-/** The host id, trimmed; throws when it is not one. */
+/** The machine name, trimmed; throws when it is not one. */
 export const requireHostId = (value: string): string => {
   const host = value.trim();
-  if (!isValidStationHostId(host)) {
-    throw new Error(`invalid station host id: ${JSON.stringify(value)}`);
+  if (!isValidMachineName(host)) {
+    throw new Error(`invalid machine name: ${JSON.stringify(value)}`);
   }
   return host;
+};
+
+/** The first part of an agent key, trimmed. It is the agent's own text and need not be a machine name. */
+const requireAgentKeyHost = (value: string): string => {
+  const prefix = value.trim();
+  if (!/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(prefix)) {
+    throw new Error(`invalid agent key: ${JSON.stringify(value)}`);
+  }
+  return prefix;
 };
 
 /** What the operator chooses when seating an agent. */
@@ -76,7 +85,7 @@ export const seatParts = (choices: SeatChoices): SeatParts => {
     throw new Error(`managed harness ${choices.harness} is disabled in this build`);
   }
   const host = requireHostId(choices.host);
-  const agentHost = requireHostId(choices.agentHost ?? host);
+  const agentHost = requireAgentKeyHost(choices.agentHost ?? host);
   const template = templateFor(choices.harness);
   const extraArgs = sanitizeExtraArgs(choices.harness, choices.extraArgs).args;
   // A pinning harness wants a UUID for its session flag, and refuses a ULID.

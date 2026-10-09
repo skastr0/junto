@@ -43,9 +43,8 @@
  * Attribution law (unchanged from the pure module, enforced on the input side
  * here): zero or several distinct active seats on one checkout yields an
  * unattributed observation — recorded, exposed, never seat-claimed. A seat with
- * no process binding on this canvas, no proven checkout, or a canonical
- * delivery surface on another host (Remote is out of this iteration) yields no
- * binding at all. This module never guesses a checkout from a default path.
+ * no process binding on this canvas, no proven checkout, or a seat on another
+ * machine yields no binding at all. This module never guesses a checkout from a default path.
  *
  * A checkout with no live claim is untracked. Re-attaching re-baselines
  * silently, because attach never synthesizes history.
@@ -58,7 +57,7 @@ import { Effect, Result } from "effect";
 import type { ActorSeatId } from "@shared/actor-seat";
 import { asNodeId, type Node } from "@shared/model";
 import { isGitSha } from "@shared/git";
-import { DEFAULT_STATION_HOST_ID } from "@shared/station";
+import { isThisMachine } from "@shared/machine-identity";
 import { currentTaskOwner } from "@shared/task-owner";
 import type { Task, TasksContract } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-reference";
@@ -116,6 +115,8 @@ export type CheckoutWatchBoard = {
  */
 export type CheckoutWatchFacts = {
   readonly canvasName: string;
+  /** This machine's name. Only a seat on it has a checkout here. */
+  readonly thisMachine: string;
   readonly boards: ReadonlyArray<CheckoutWatchBoard>;
   /** Live process-bound seats for this canvas (`canvas.actorRefs`). */
   readonly actorRefs: ReadonlyArray<ActorRef>;
@@ -171,7 +172,7 @@ export const claimContextFrom = (facts: CheckoutWatchFacts): CheckoutWatchContex
       if (ref === undefined) continue;
       const node = nodesById.get(asNodeId(ref.nodeId));
       if (node === undefined) continue;
-      if (node.kind !== "agent" || node.host !== DEFAULT_STATION_HOST_ID) continue;
+      if (node.kind !== "agent" || !isThisMachine(node.host, facts.thisMachine)) continue;
       const checkoutKey = facts.checkoutKeyFor(ref.nodeId)?.trim();
       if (checkoutKey === undefined || checkoutKey.length === 0) continue;
       const process = facts.observedProcessFor(ref.nodeId);

@@ -40,10 +40,7 @@ import {
 } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import {
-  StationFleetTargetRepositoryLive,
-} from "../src/main/junto/station/fleet-target-repository";
+import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import {
   SettingsLive,
   SettingsService,
@@ -74,6 +71,7 @@ import {
 import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
 import { answerAgentSignal } from "../src/main/junto/signals/operator";
 import type { AgentSignal } from "../src/shared/agent-signals";
+import { THIS_MACHINE } from "./support/machines";
 
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
@@ -85,8 +83,7 @@ const makeWorkTestRuntime = (root: string) => {
       WorkRepositoryLive,
       CrewRepositoryLive,
       AgentSignalRepositoryLive,
-      StationRepositoryLive,
-      StationFleetTargetRepositoryLive,
+      makeMachineRepositoryLive({ defaultName: () => THIS_MACHINE }),
       SettingsLive,
       makeContentServiceLive({
         root: join(root, "content"),
@@ -170,11 +167,7 @@ const seedCanonicalWork = async (
 ): Promise<void> => {
   const settings = await runtime.runPromise(SettingsService);
   await runtime.runPromise(
-    settings.setStationTopology({
-      role: "command-center",
-      hostId: "local",
-      supervisedPreferred: true,
-    }),
+    settings.setMachinePreferences({ supervisedPreferred: true }),
   );
   await runtime.runPromise(
     seedCanvas("work-cli", [claude("agent", { x: 0, y: 0 }), claude("orphan", { x: 500, y: 200 })]),

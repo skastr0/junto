@@ -30,18 +30,18 @@
  * 5. The read port grants no write, resize, or signal operation — the only
  *    screen access here is `readWindow`, read-only by construction.
  *
- * Remote seats are out of this iteration (local Command Center only), and that
- * is enforced rather than assumed: a managed seat whose canonical delivery
- * surface is not this host is refused with `crew-local-seat-only`, because this
- * process holds no grid and no live state for it. `--any` considers only local
- * authorized peers. Nothing here falls back to a stale grid or a `gone` state
- * for a seat that runs on another machine.
+ * Only a seat on this machine can be observed, and that is enforced rather
+ * than assumed: a seat whose host is another machine is refused with
+ * `crew-local-seat-only`, because this process holds no grid and no live
+ * state for it. `--any` considers only authorized peers on this machine.
+ * Nothing here falls back to a stale grid or a `gone` state for a seat that
+ * runs on another machine.
  */
 
 import { Effect, Result } from "effect";
 import type { Canvas, Node, Seat } from "@shared/model";
 import type { Task } from "@shared/work-model";
-import { DEFAULT_STATION_HOST_ID } from "@shared/station";
+import { isThisMachine } from "@shared/machine-identity";
 import type { AgentSeatState, AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
   SEAT_WAIT_DEFAULT_MS,
@@ -79,6 +79,8 @@ export type SeatSessionSnapshot = {
 };
 
 export type SeatObservationDeps = {
+  /** This machine's name, read at each decision. Only a seat on it is observable. */
+  readonly thisMachine: () => string;
   /**
    * Live canvas document at call time. Re-read for every event and every
    * return: an authorization decision is only as good as the document it was
@@ -185,33 +187,33 @@ const noLiveGrid = (targetId: string): WorkErrorBody => ({
 });
 
 /**
- * A managed seat that runs on another host. This Command Center holds no grid
- * and no live seat state for it, so a wait or read is refused up front rather
- * than answered from a stale local projection.
+ * A seat that runs on another machine. This machine holds no grid and no live
+ * seat state for it, so a wait or read is refused up front rather than
+ * answered from something stale.
  */
 const remoteSeatOnly = (targetId: string, hostId: string): WorkErrorBody => ({
   type: "ScopeError",
-  message: `seat "${targetId}" runs on host "${hostId}"; this Command Center observes local seats only`,
+  message: `seat "${targetId}" runs on machine "${hostId}"; a machine observes only its own seats`,
   details: {
     target: targetId,
     received: hostId,
     reason: "crew-local-seat-only",
-    hint: "wait and observe are local-iteration operations; another host's screen is not on this machine",
+    hint: "another machine's screen is not on this machine",
     retryable: false,
-    next_step: "run the wait or read from the Command Center that hosts that seat",
+    next_step: "run the wait or read from a seat on the machine that runs that seat",
   },
 });
 
 /** No authorized peer runs locally, though authorized peers exist elsewhere. */
 const noLocalAuthorizedPeer = (callerId: string, remoteCount: number): WorkErrorBody => ({
   type: "ScopeError",
-  message: `${remoteCount} authorized peer seat(s) run on another host; none run on this Command Center`,
+  message: `${remoteCount} authorized peer seat(s) run on another machine; none run on this one`,
   details: {
     caller: callerId,
     reason: "crew-local-seat-only",
     hint: "any waits on the local peer seats a drawn edge authorizes, never a seat on another machine",
     retryable: false,
-    next_step: "run the wait from the Command Center that hosts those seats",
+    next_step: "run the wait from a seat on the machine that runs those seats",
   },
 });
 
@@ -289,18 +291,14 @@ const seatTargetOf = (node: Seat): SeatTarget => ({
 });
 
 /**
- * Whether this managed seat runs on this Command Center.
+ * Whether this seat runs on this machine.
  *
- * The canonical delivery surface carries the host, and it is the same witness
- * the delivery path uses to decide which machine owns the PTY. A seat on
- * another host has no grid and no live state here, so it is not observable.
+ * The seat names its machine, and it is the same witness the delivery path
+ * uses to decide which machine owns the PTY. A seat on another machine has no
+ * grid and no live state here, so it is not observable.
  */
-const isLocalSeat = (node: Seat): boolean =>
-  node.host === DEFAULT_STATION_HOST_ID;
-
-/** The host a managed seat's canonical surface names, for the refusal message. */
-const seatHostOf = (node: Node): string =>
-  ("host" in node ? node.host : DEFAULT_STATION_HOST_ID);
+const onThisMachine = (thisMachine: string) => (node: Seat): boolean =>
+  isThisMachine(node.host, thisMachine);
 
 /**
  * Resolve the seats a wait may address under current authority.
@@ -314,7 +312,9 @@ const resolveSeatTargets = (
   doc: Canvas,
   callerId: string,
   args: Pick<SeatWaitArgs, "target" | "any">,
+  thisMachine: string,
 ): Result.Result<ReadonlyArray<SeatTarget>, WorkErrorBody> => {
+  const isLocalSeat = onThisMachine(thisMachine);
   if (args.target !== undefined) {
     const admitted = admitWorkTarget(doc, callerId, args.target, "seat.wait");
     if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
@@ -323,7 +323,7 @@ const resolveSeatTargets = (
       return Result.fail(notASeat(args.target, nodeKind(node)));
     }
     if (!isLocalSeat(node)) {
-      return Result.fail(remoteSeatOnly(args.target, seatHostOf(node)));
+      return Result.fail(remoteSeatOnly(args.target, node.host));
     }
     return Result.succeed([seatTargetOf(node)]);
   }
@@ -344,6 +344,7 @@ const resolveReadTarget = (
   doc: Canvas,
   callerId: string,
   targetId: string,
+  thisMachine: string,
 ): Result.Result<SeatTarget, WorkErrorBody> => {
   const admitted = admitWorkTarget(doc, callerId, targetId, "seat.read");
   if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
@@ -351,8 +352,8 @@ const resolveReadTarget = (
   if (node.kind !== "agent") {
     return Result.fail(notASeat(targetId, nodeKind(node)));
   }
-  if (!isLocalSeat(node)) {
-    return Result.fail(remoteSeatOnly(targetId, seatHostOf(node)));
+  if (!isThisMachine(node.host, thisMachine)) {
+    return Result.fail(remoteSeatOnly(targetId, node.host));
   }
   return Result.succeed(seatTargetOf(node));
 };
@@ -487,7 +488,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
         Effect.suspend(() =>
           Effect.gen(function* () {
             const fresh = yield* deps.readTopology(caller.canvasName);
-            const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args);
+            const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args, deps.thisMachine());
             if (Result.isFailure(freshTargets)) return yield* Effect.fail(freshTargets.failure);
             if (sameSeatTargets(captured, freshTargets.success)) {
               return yield* Effect.never as Effect.Effect<Signal, WorkErrorBody>;
@@ -502,7 +503,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       // either answers, fails, or expires.
       for (;;) {
         const doc = yield* deps.readTopology(caller.canvasName);
-        const targets = resolveSeatTargets(doc, caller.nodeId, args);
+        const targets = resolveSeatTargets(doc, caller.nodeId, args, deps.thisMachine());
         if (Result.isFailure(targets)) return yield* Effect.fail(targets.failure);
         const byBinding = new Map(
           targets.success.map((target) => [target.bindingId, target] as const),
@@ -569,7 +570,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
         // Revalidate against a fresh document before answering: the event may
         // have been produced under an edge the operator has already removed.
         const fresh = yield* deps.readTopology(caller.canvasName);
-        const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args);
+        const freshTargets = resolveSeatTargets(fresh, caller.nodeId, args, deps.thisMachine());
         if (Result.isFailure(freshTargets)) return yield* Effect.fail(freshTargets.failure);
         const stillAuthorized = freshTargets.success.find(
           (target) => target.bindingId === signal.event.bindingId,
@@ -606,7 +607,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       const authorize = (): Effect.Effect<SeatTarget, WorkErrorBody> =>
         Effect.gen(function* () {
           const doc = yield* deps.readTopology(caller.canvasName);
-          const resolved = resolveReadTarget(doc, caller.nodeId, args.target);
+          const resolved = resolveReadTarget(doc, caller.nodeId, args.target, deps.thisMachine());
           if (Result.isFailure(resolved)) return yield* Effect.fail(resolved.failure);
           return resolved.success;
         });
@@ -745,7 +746,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           Effect.suspend(() =>
             Effect.gen(function* () {
               const fresh = yield* deps.readTopology(caller.canvasName);
-              const reauthorized = resolveReadTarget(fresh, caller.nodeId, args.target);
+              const reauthorized = resolveReadTarget(fresh, caller.nodeId, args.target, deps.thisMachine());
               if (Result.isFailure(reauthorized)) {
                 return yield* Effect.fail(reauthorized.failure);
               }
