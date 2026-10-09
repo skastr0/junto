@@ -1,12 +1,12 @@
 import { PassThrough } from "node:stream";
 import { Effect, Schema } from "effect";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { makeLinkSession, type LinkSessionOptions } from "../src/main/junto/link/session";
 import { LinkHelloSchema, decodeLinkFrame } from "../src/main/junto/link/protocol";
 import { MachineLinkError, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/main/junto/link/types";
 
 const sessions: LinkSession[] = [];
-afterEach(async () => { await Promise.all(sessions.splice(0).map(session => session.close())); });
+afterEach(async () => { await Promise.all(sessions.splice(0).map(session => session.close())); vi.useRealTimers(); });
 const hello = (name: string, build = "a".repeat(64)): LinkHello => Schema.decodeUnknownSync(LinkHelloSchema)({ build, installationId: name + "-install", machineName: name });
 const Payload = Schema.Struct({ value: Schema.String });
 const decode = Schema.decodeUnknownSync(Payload, { onExcessProperty: "error" });
@@ -93,12 +93,18 @@ it("strictly decodes responses before resolving a pending request", async () => 
 });
 
 it("closes on request timeout and rejects pending work without automatic replay", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   let calls = 0;
+  let started!: () => void;
+  const handling = new Promise<void>(resolve => { started = resolve; });
   let cleaned!: () => void;
   const cleanup = new Promise<void>(resolve => { cleaned = resolve; });
-  const { left } = pair({ limits: { requestTimeoutMs: 20 } }, { channels: { status: channel(() => { calls++; return Effect.never.pipe(Effect.ensuring(Effect.sync(cleaned))); }) } });
+  const { left } = pair({ limits: { requestTimeoutMs: 20 } }, { channels: { status: channel(() => { calls++; started(); return Effect.never.pipe(Effect.ensuring(Effect.sync(cleaned))); }) } });
   await left.ready;
-  await expect(left.request("status", { value: "one" })).rejects.toThrow("outcome is uncertain");
+  const failed = expect(left.request("status", { value: "one" })).rejects.toThrow("outcome is uncertain");
+  await handling;
+  await vi.advanceTimersByTimeAsync(20);
+  await failed;
   expect(calls).toBe(1);
   await cleanup;
 });
