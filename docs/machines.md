@@ -65,7 +65,11 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    receipt or signal for a seat, are valid only from the machine that seat is
    on; an answer to a signal only from the machine that edits the canvas. A
    row that breaks this, or that arrives twice with different content, closes
-   the link.
+   the link. Only mail, receipts, signals and session facts are exchanged;
+   the exchange has its own closed list and admits nothing else. The editing
+   machine remembers which machine each seat was on and when, so mail written
+   before a seat moved or was removed is still judged against where the seat
+   was.
 5. **Entitlement.** Every machine on a canvas gets the canvas rows. A machine
    gets the mail addressed to its seats. A machine that keeps the whole canvas
    gets everything. In the first version that machine is the MacBook. Passing
@@ -109,6 +113,12 @@ Junto. Seat tokens, wires and the check that keeps a seat's process tree off
 the owner-only sockets say who made a Junto call and stop confused use. They
 are not a sandbox. The real boundaries are other users, content an agent
 reads, and another machine at the far end of a link.
+
+A wire you remove is not withdrawn everywhere at once. A machine acts on its
+own copy, and a machine that has been taken over can keep sending mail from
+the seats it hosts, or once hosted, as if the change had not reached it. The
+receiver still refuses a row from the wrong machine or for a seat that
+machine never held. Taking the machine off the canvas is what stops it.
 
 Junto never sends a value from its secret store between machines. Text the
 operator writes into a briefing, a note or a launch setting is ordinary canvas
