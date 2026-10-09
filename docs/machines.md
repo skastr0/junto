@@ -116,12 +116,66 @@ database must still open.
 
 ## How we work
 
-- A commit leaves the tree green: typecheck and the unit suite.
+- One shared checkout, branch main. No worktrees and no branches: seams break
+  early while conflicts are cheap, and main stays integrated.
+- Commit only your own files, small and often, with the method below. A cut
+  that breaks the build for the others is on main within minutes.
+- Run typecheck and the unit tests your change touches before landing; the
+  full suite before a large landing.
 - A slice is done when `remote-verify` has run it on two real machines. A
   passing test of code that nothing runs is not evidence.
 - Cut first. Read the real thing before deciding, and keep the receipt.
 - Stay inside what you own. If your work needs a change in another seat's
   area, mail that seat.
+- Keep it tidy: tests go with the code they test, no stray files, temp files
+  removed. Mail `remote-lead` each landed commit; the ledger below is kept
+  from those.
+
+### Committing in the shared checkout
+
+The private index method, from the repository root. Never a bare
+`git commit`, `git commit -a` or `git add -A`.
+
+```text
+PATHS=(path/to/one.ts path/to/two.ts)
+MSG='type(scope): subject'
+
+BRANCH=$(git symbolic-ref HEAD)
+PARENT=$(git rev-parse HEAD)
+IDX=$(mktemp -u "${TMPDIR:-/tmp}/idx.XXXXXX")
+
+GIT_INDEX_FILE=$IDX git read-tree "$PARENT"
+GIT_INDEX_FILE=$IDX git add -- "${PATHS[@]}"
+TREE=$(GIT_INDEX_FILE=$IDX git write-tree)
+NEW=$(printf '%s\n' "$MSG" | git commit-tree "$TREE" -p "$PARENT")
+
+git update-ref -m "commit: $MSG" "$BRANCH" "$NEW" "$PARENT"
+git reset -q HEAD -- "${PATHS[@]}"
+git show --stat --oneline HEAD
+```
+
+- Remove the temporary index file afterwards.
+- For a deletion, name the deleted paths or their directory.
+- For only your lines of a shared file: write a patch with just your hunks
+  and use `git apply --cached` on the private index in place of `git add`.
+- If `update-ref` fails, main moved: run again from the `PARENT=` line. Never
+  force.
+- The `git reset` line is not optional: it brings the shared index up to date
+  for those paths without touching working files.
+- The last line must list your files and only yours.
+
+## Progress
+
+| Slice | Owner | State |
+|---|---|---|
+| Review and contract | `remote-lead` | done: `959ec0e98`, `83b1badb7` |
+| Baseline and the two-machine rig | `remote-verify` | briefed |
+| Delete the old protocol, then roles, then the split | `remote-core` | briefed |
+| Work plane cut, then the row exchange | `remote-work` | briefed |
+| SSH review, then send to the Mac mini | `remote-send` | briefed |
+| Leaf cuts, stale documents, the guide | `remote-cut` | briefed |
+| A seat on another machine | `remote-seats` | not staffed |
+| The Machines window | `remote-window` | not staffed |
 
 ## Test machine
 
