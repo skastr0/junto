@@ -355,6 +355,14 @@ together, from one commit of main. `remote-verify` holds the receipts:
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
 
+**First real link, `d83193aed`.** Run A passed without a window: a core on
+this Mac sent Junto to the Mac mini, the mini started it under launchd, the
+link opened and status came back over it. Two installations, one build, the
+mini's form and harnesses read on the mini. Receipt:
+`~/junto-receipts/resume-20261009/a-NYly48/receipt.json`. The first attempt
+failed live on file modes changed by extraction; fixed in `d83193aed` and
+`5c2e8abe7`. The same run from the Preview app is receipt 3 and still open.
+
 **Paused.** The operator paused all work with the name window still open.
 All nine seats confirmed: finished work committed, the rest left in the tree,
 nothing running, waiting for the word resume. Main is at `4b6fe6e13`.
