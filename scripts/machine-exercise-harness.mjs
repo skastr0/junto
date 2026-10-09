@@ -9,7 +9,7 @@ if (process.argv.includes('--version')) {
   process.exit(0);
 }
 const home = fs.realpathSync(process.env.JUNTO_HOME);
-const root = fs.realpathSync(process.env.JUNTO_EXERCISE_ROOT ?? path.dirname(home));
+const root = fs.realpathSync(process.env.MACHINE_EXERCISE_ROOT ?? path.dirname(home));
 // A named Preview home is separate from its disposable harness folder.
 if (home !== path.join(root, 'home')) {
   assert.equal(fs.readFileSync(path.join(root, 'exercise-home'), 'utf8'), home);
@@ -21,7 +21,7 @@ function inside(file) {
   assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
   return real;
 }
-const cli = inside(process.env.JUNTO_EXERCISE_CLI);
+const cli = inside(process.env.MACHINE_EXERCISE_CLI);
 assert.ok(fs.statSync(inside(process.env.CODEX_HOME)).isDirectory());
 assert.ok(process.env.JUNTO_WORK_TOKEN && process.stdin.isTTY);
 const receipts = path.join(root, `harness-${process.pid}.jsonl`);
