@@ -1199,28 +1199,6 @@ export const registerJuntoIpc = (): void => {
         ),
       ),
   );
-  if (TASKS_ENABLED) privilegedIpc.handle(
-    IPC_CHANNELS.workTaskClaim,
-    (_event, canvas: string, nodeId: string, taskId: string, actor: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-claim",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
-            const resolved = yield* resolveRendererActor(canvas, actor);
-            if (!resolved.ok) return resolved.result;
-            const work = yield* WorkService;
-            return yield* work.workTaskClaim(
-              canvas,
-              nodeId,
-              taskId,
-              resolved.actor,
-            );
-          }),
-        ),
-      ),
-  );
   if (REQUESTS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workRequestResolve,
     (

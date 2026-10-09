@@ -17,7 +17,6 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.task-promote",
   "ipc.work.task-comment",
   "ipc.work.task-respond",
-  "ipc.work.task-claim",
   "ipc.work.message-append",
   "ipc.work.request-create",
   "ipc.work.request-resolve",

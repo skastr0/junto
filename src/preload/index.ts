@@ -122,7 +122,6 @@ const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Prom
 
 const chassisApi: ChassisApi = {
   doctor: () => invoke(IPC_CHANNELS.doctor, IPC_TIMEOUT_MS),
-  probeCodex: () => invoke(IPC_CHANNELS.probeCodex, IPC_TIMEOUT_MS),
 };
 
 const subscribe = <T>(channel: string, listener: (payload: T) => void) => {
@@ -415,7 +414,6 @@ type WorkFeatureApiKey =
   | "workTaskPromote"
   | "workTaskComment"
   | "workTaskRespond"
-  | "workTaskClaim"
   | "workRequestResolve"
   | "workArtifactArchive"
   | "workArtifactDelete"
@@ -623,7 +621,6 @@ const taskWorkApi: Pick<
   | "workTaskPromote"
   | "workTaskComment"
   | "workTaskRespond"
-  | "workTaskClaim"
 > = {
   workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options) =>
     invoke(
@@ -683,8 +680,6 @@ const taskWorkApi: Pick<
       responseText,
       disposition,
     ),
-  workTaskClaim: (canvas, nodeId, taskId, actor) =>
-    invoke(IPC_CHANNELS.workTaskClaim, IPC_TIMEOUT_MS, canvas, nodeId, taskId, actor),
 };
 
 const requestsWorkApi: Pick<JuntoApi, "workRequestResolve"> = {
@@ -891,8 +886,6 @@ const terminalApi: JuntoTerminalApi = {
       hostId,
       path,
     ),
-  terminalBindCanvas: (bindingId, ref, hostId) =>
-    invoke(IPC_CHANNELS.terminalBindCanvas, IPC_TIMEOUT_MS, bindingId, ref, hostId),
   terminalAttach: (input) =>
     invoke(
       IPC_CHANNELS.terminalAttach,

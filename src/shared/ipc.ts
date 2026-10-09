@@ -20,7 +20,7 @@ export type {
   BrowserProfileWipeReceipt,
   BrowserStopReceipt,
 } from "./browser";
-import type { DoctorReport, ServiceCheck } from "./contracts";
+import type { DoctorReport } from "./contracts";
 import type { WorkMetadata, Task, Part, TaskState, FinishCriteria, CompletionEvidence, TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
 import type {
   SeatCollaborationAskResult,
@@ -139,7 +139,6 @@ export const IPC_CHANNELS = {
   liveStopActions: "junto:live-stop-actions",
   liveChanged: "junto:live-changed",
   doctor: "chassis:doctor",
-  probeCodex: "chassis:probe-codex",
   canvasDigest: "junto:canvas-digest",
   modelOpen: "junto:model-open",
   modelCanvases: "junto:model-canvases",
@@ -257,7 +256,6 @@ export const IPC_CHANNELS = {
   workTaskPromote: "junto:work-task-promote",
   workTaskComment: "junto:work-task-comment",
   workTaskRespond: "junto:work-task-respond",
-  workTaskClaim: "junto:work-task-claim",
   workRequestResolve: "junto:work-request-resolve",
   workArtifactArchive: "junto:work-artifact-archive",
   workArtifactDelete: "junto:work-artifact-delete",
@@ -344,7 +342,6 @@ export const IPC_CHANNELS = {
   terminalBeginNodeDelete: "junto:terminal-begin-node-delete",
   /** Release the terminal node-delete fence after commit or abort. */
   terminalFinishNodeDelete: "junto:terminal-finish-node-delete",
-  terminalBindCanvas: "junto:terminal-bind-canvas",
   terminalAttach: "junto:terminal-attach",
   terminalRelease: "junto:terminal-release",
   terminalWrite: "junto:terminal-write",
@@ -404,7 +401,6 @@ export type TaskCreateOptions = {
 
 export interface ChassisApi {
   readonly doctor: () => Promise<DoctorReport>;
-  readonly probeCodex: () => Promise<ServiceCheck>;
 }
 
 export interface CanvasSummary {
@@ -965,12 +961,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     responseText: string,
     disposition: "working" | "rejected",
   ) => Promise<WorkOpResult<Task>>;
-  readonly workTaskClaim: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    actor: string,
-  ) => Promise<WorkOpResult<Task>>;
   readonly workRequestResolve: (
     canvas: string,
     nodeId: string,
@@ -1391,11 +1381,6 @@ export interface JuntoTerminalApi {
     hostId: string,
     path?: string,
   ) => Promise<HostDirectorySnapshot>;
-  readonly terminalBindCanvas: (
-    bindingId: string,
-    ref: { canvasName?: string; nodeId?: string } | null,
-    hostId?: string,
-  ) => Promise<void>;
   readonly terminalAttach: (input: TerminalAttachInput) => Promise<unknown>;
   readonly terminalRelease: (leaseId: string) => Promise<boolean>;
   readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;

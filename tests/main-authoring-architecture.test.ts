@@ -64,7 +64,6 @@ describe("main authoring architecture", () => {
       "ipc.work.message-append",
       "ipc.work.pad-patch",
       "ipc.work.request-resolve",
-      "ipc.work.task-claim",
       "ipc.work.task-comment",
       "ipc.work.task-create",
       "ipc.work.task-describe",

@@ -332,14 +332,6 @@ export const registerTerminalIpc = (
     },
   );
 
-  ipcMain.handle(
-    IPC_CHANNELS.terminalBindCanvas,
-    async (event, bindingId: string, ref, hostId?: string) => {
-      assertTrusted(event);
-      await router.bindCanvas(bindingId, ref, hostId);
-    },
-  );
-
   ipcMain.handle(IPC_CHANNELS.terminalAttach, async (event, input: AttachInput) => {
     const sender = assertTrusted(event);
     const hostId = input.hostId?.trim() || "local";
