@@ -217,6 +217,8 @@ redesigned. Browser pages are not placed on other machines at all.
 
 ## Later, and not to be blocked
 
+- A signal's file attachments. Its words and detail cross to the editing
+  machine; attached files stay on the machine that raised it.
 - Browser control by a seat. Its socket admission was cut when the peer
   process read was removed and answers "not available in this build"; it
   comes back on the generation credential when the browser is enabled.
