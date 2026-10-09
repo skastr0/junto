@@ -1,7 +1,8 @@
 # Review: the Remote station feature
 
 From the Remote region, 2026-10-09, at the operator's direction. A review of
-state and fit. It prunes nothing and proposes no design.
+state and fit. It prunes nothing and proposes no design. The decisions that
+followed it are in [machines.md](machines.md).
 
 Receipts are `path:line` at commit `c604aae01`. A claim marked *(audit)* comes
 from a delegated read that I did not repeat. Everything else I opened myself.
