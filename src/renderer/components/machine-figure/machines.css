@@ -186,6 +186,7 @@
 
 .machine-steps [data-step-phase="done"],
 .machine-steps [data-step-phase="now"],
+.machine-steps [data-step-phase="downloading"],
 .machine-steps [data-step-phase="copying"],
 .machine-steps [data-step-phase="stalled"] {
   color: var(--color-ink);

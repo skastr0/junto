@@ -12,6 +12,7 @@ import {
   machineActions,
   machineCondition,
   machineCopyStepLines,
+  machineDownloadStepLines,
   machineFigureState,
   machineForm,
   machineHarnesses,
@@ -33,6 +34,18 @@ it("shows copied bytes and the owner's stated no-progress interval", () => {
   expect(machineCopyStepLines(copy)).toEqual([{ step: "copy", label: "25 of 69 MB", phase: "copying" }]);
   expect(machineCopyStepLines({ ...copy, transfer: { ...copy.transfer!, state: "stalled" } })[0].phase).toBe("stalled");
   expect(machineCopyStepLines({ ...copy, transfer: { ...copy.transfer!, copiedBytes: copy.transfer!.totalBytes, state: "copied" } })[0]).toMatchObject({ phase: "done", label: "Copy, 69 of 69 MB" });
+});
+it("shows the bundle download with bytes, and a failed one as not reached", () => {
+  const copy: MachineCopy = { kind: "running", op: "send", id: "copy-1", steps: [], download: {
+    event: "machine-download", downloadedBytes: 40_000_000, totalBytes: 146_000_000, state: "downloading",
+  } };
+  expect(machineDownloadStepLines(undefined)).toEqual([]);
+  expect(machineDownloadStepLines(copy)).toEqual([{ step: "download", label: "40 of 146 MB", phase: "downloading" }]);
+  expect(machineDownloadStepLines({ ...copy, download: { ...copy.download!, state: "stalled" } })[0].phase).toBe("stalled");
+  expect(machineDownloadStepLines({ ...copy, download: { ...copy.download!, downloadedBytes: 146_000_000, state: "downloaded" } })[0])
+    .toEqual({ step: "download", label: "Download, 146 of 146 MB", phase: "done" });
+  expect(machineDownloadStepLines({ kind: "failed", op: "send", id: "copy-1", message: "This Mac is offline.", steps: [], installed: false, download: copy.download! }))
+    .toEqual([{ step: "download", label: "Download, 40 of 146 MB", phase: "not-reached" }]);
 });
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 

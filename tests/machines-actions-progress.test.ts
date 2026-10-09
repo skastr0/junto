@@ -25,3 +25,22 @@ it("does not reopen copying after installation starts", () => {
   applyMachineProgress({ id: "copy-mini", event: { event: "machine-copy", copiedBytes: 25, totalBytes: 69, state: "stalled" } });
   expect(machines$.copies.mini.peek()?.transfer).toBeUndefined();
 });
+
+it("keeps the download as its own step, ahead of the copy and closed once copying starts", () => {
+  const event = { event: "machine-download" as const, downloadedBytes: 40, totalBytes: 200, state: "downloading" as const };
+  applyMachineProgress({ id: "unknown", event });
+  applyMachineProgress({ id: "copy-mini", event });
+  applyMachineProgress({ id: "copy-mini", event: { ...event, downloadedBytes: 10 } });
+  applyMachineProgress({ id: "copy-mini", event: { ...event, totalBytes: 300 } });
+  expect(machines$.copies.mini.peek()?.download).toEqual(event);
+  expect(machines$.copies.linux.peek()?.download).toBeUndefined();
+  applyMachineProgress({ id: "copy-mini", event: { ...event, state: "stalled" } });
+  applyMachineProgress({ id: "copy-mini", event: { ...event, downloadedBytes: 200, state: "downloaded" } });
+  applyMachineProgress({ id: "copy-mini", event: { ...event, downloadedBytes: 200 } });
+  expect(machines$.copies.mini.peek()?.download).toMatchObject({ downloadedBytes: 200, state: "downloaded" });
+  applyMachineProgress({ id: "copy-mini", event: { event: "machine-copy", copiedBytes: 5, totalBytes: 69, state: "copying" } });
+  expect(machines$.copies.mini.peek()).toMatchObject({ download: { state: "downloaded" }, transfer: { copiedBytes: 5 } });
+  applyMachineProgress({ id: "copy-linux", event: { event: "machine-copy", copiedBytes: 5, totalBytes: 69, state: "copying" } });
+  applyMachineProgress({ id: "copy-linux", event });
+  expect(machines$.copies.linux.peek()?.download).toBeUndefined();
+});

@@ -133,6 +133,7 @@ export const copyJunto = async (name: string, op: MachineCopyOp): Promise<void> 
       id,
       message: answer.message,
       steps: confirmed.reduce((steps, transition) => withInstallStep(steps, transition.step), seen),
+      ...(running?.download === undefined ? {} : { download: running.download }),
       ...(running?.transfer === undefined ? {} : { transfer: running.transfer }),
       ...(answer.disposition === undefined ? {} : { disposition: answer.disposition }),
       installed: answer.installed !== undefined,
@@ -175,6 +176,14 @@ export const removeMachine = async (name: string): Promise<MachineCommandRefusal
 export const applyMachineProgress = (progress: MachineCommandProgress): void => {
   for (const [name, copy] of Object.entries(machines$.copies.peek())) {
     if (copy.id !== progress.id) continue;
+    if (progress.event.event === "machine-download") {
+      // The download comes first: once a byte is copied or a step is seen it is over.
+      if (copy.kind !== "running" || copy.steps.length > 0 || copy.transfer !== undefined) return;
+      const prior = copy.download;
+      if (prior && (prior.totalBytes !== progress.event.totalBytes || prior.downloadedBytes > progress.event.downloadedBytes || prior.state === "downloaded")) return;
+      machines$.copies[name].set({ ...copy, download: progress.event });
+      return;
+    }
     if (progress.event.event === "machine-copy") {
       if (copy.kind !== "running" || copy.steps.length > 0) return;
       const prior = copy.transfer;

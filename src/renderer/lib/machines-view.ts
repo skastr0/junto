@@ -7,7 +7,7 @@ import type {
 import { resolveMachineForm, type MachineFigureState, type MachineForm } from "@shared/machine-figure";
 import type { MachineInstallError, MachineInstallTransition } from "@shared/machine-install";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
-import { MACHINE_COPY_STALL_MS, type MachineCopyProgress } from "@shared/machine-progress";
+import { MACHINE_COPY_STALL_MS, type MachineCopyProgress, type MachineDownloadProgress } from "@shared/machine-progress";
 
 // What the Machines window says about one machine, worked out from what the
 // owner commands answered. Pure: no window, no store, so every state the
@@ -36,6 +36,8 @@ export type MachineCopy =
       /** The command's id; its progress steps carry the same one. */
       readonly id: string;
       readonly steps: ReadonlyArray<MachineInstallStep>;
+      /** This build's bundle being fetched, before anything is copied. */
+      readonly download?: MachineDownloadProgress;
       readonly transfer?: MachineCopyProgress;
     }
   | {
@@ -47,6 +49,8 @@ export type MachineCopy =
       readonly message: string;
       /** The steps that were confirmed. One that is not here may still have happened. */
       readonly steps: ReadonlyArray<MachineInstallStep>;
+      /** This build's bundle being fetched, before anything is copied. */
+      readonly download?: MachineDownloadProgress;
       readonly transfer?: MachineCopyProgress;
       /** Where the owner said the install left the machine. Absent: it did not say. */
       readonly disposition?: MachineInstallDisposition;
@@ -160,7 +164,7 @@ export const MACHINE_INSTALL_STEP_LABEL: Readonly<Record<MachineInstallStep, { r
  * the machine was left as it was; otherwise a step nobody confirmed is
  * `unconfirmed`, because no word of a step is not word that it did not happen.
  */
-export type MachineStepPhase = "done" | "now" | "ahead" | "not-reached" | "unconfirmed" | "copying" | "stalled";
+export type MachineStepPhase = "done" | "now" | "ahead" | "not-reached" | "unconfirmed" | "downloading" | "copying" | "stalled";
 
 export const MACHINE_STEP_PHASE_WORD: Readonly<Record<MachineStepPhase, string>> = {
   done: "Done",
@@ -168,22 +172,41 @@ export const MACHINE_STEP_PHASE_WORD: Readonly<Record<MachineStepPhase, string>>
   ahead: "",
   "not-reached": "",
   unconfirmed: "Not confirmed",
+  downloading: "Downloading",
   copying: "Copying",
   stalled: `No progress for ${MACHINE_COPY_STALL_MS / 1000} seconds`,
 };
 
 export type MachineStepLine = {
-  readonly step: MachineInstallStep | "copy";
+  readonly step: MachineInstallStep | "download" | "copy";
   readonly label: string;
   readonly phase: MachineStepPhase;
+};
+
+const byteAmount = (bytes: number, totalBytes: number): string => {
+  const scale = totalBytes >= 1_000_000 ? 1_000_000 : totalBytes >= 1_000 ? 1_000 : 1;
+  const unit = scale === 1_000_000 ? "MB" : scale === 1_000 ? "KB" : "bytes";
+  return `${Math.round(bytes / scale)} of ${Math.round(totalBytes / scale)} ${unit}`;
+};
+
+/**
+ * The fetch of this build's bundle, its own step ahead of the copy. A
+ * download that did not finish left the machine as it was, so after a failure
+ * it reads as not reached, never as unconfirmed.
+ */
+export const machineDownloadStepLines = (copy: MachineCopy | undefined): ReadonlyArray<MachineStepLine> => {
+  const download = copy?.download;
+  if (!download || (copy.kind === "failed" && copy.installed)) return [];
+  const amount = byteAmount(download.downloadedBytes, download.totalBytes);
+  const settled = download.state === "downloaded" || copy.kind === "failed";
+  return [{ step: "download", label: settled ? `Download, ${amount}` : amount,
+    phase: download.state === "downloaded" ? "done" : copy.kind === "failed" ? "not-reached" : download.state === "stalled" ? "stalled" : "downloading" }];
 };
 
 export const machineCopyStepLines = (copy: MachineCopy | undefined): ReadonlyArray<MachineStepLine> => {
   const transfer = copy?.transfer;
   if (!transfer || (copy.kind === "failed" && copy.installed)) return [];
-  const scale = transfer.totalBytes >= 1_000_000 ? 1_000_000 : transfer.totalBytes >= 1_000 ? 1_000 : 1;
-  const unit = scale === 1_000_000 ? "MB" : scale === 1_000 ? "KB" : "bytes";
-  const amount = `${Math.round(transfer.copiedBytes / scale)} of ${Math.round(transfer.totalBytes / scale)} ${unit}`;
+  const amount = byteAmount(transfer.copiedBytes, transfer.totalBytes);
   return [{ step: "copy", label: transfer.state === "copied" ? `Copy, ${amount}` : amount,
     phase: transfer.state === "copied" ? "done" : copy.kind === "failed" ? "unconfirmed" : transfer.state === "stalled" ? "stalled" : "copying" }];
 };
