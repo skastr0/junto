@@ -348,13 +348,19 @@ validation, in order:
 4. The mail drive fix (`70aa48ac4`) and the step wording (`666e7d92c`) ride
    the same build.
 
+Landed at the close on focused tests only, no full suite, no review, no
+real machine: the late-login repair (`a32615924`), the keychain and sign-in
+status (`59409daf5`) and its window lines (`878a47646`).
+
 Open, not finished:
-- Late login leaves two services (`remote-security`, reproducer in
-  `gate-688920ba7/security-login-race.json`). `remote-send` has the repair:
-  ours in both places is ours to repair, keep the graphical one.
-- The sign-in status fields and their window lines (`remote-core`,
-  `remote-cut`): keychain available or not per machine, three states per
-  harness, never a claim of signed in or out.
+- One full-suite gate on current main, and a security read of `a32615924`.
+- `bun run lint:layers` fails on `MachinesWindow.tsx:362`, a native confirm
+  on Remove; route it through `askConfirm`. This fails `bun run verify`.
+- A release does not carry Machines yet: `fleetUi` is off in the ship
+  profile and only `scripts/preview.sh` builds and embeds the bundles.
+- Leftovers of the old unit: `publishSystemdGenerationReadiness` has no
+  caller, `supervision/systemd-user.ts` and `systemctl-runner.ts` still
+  describe it.
 - Install fault cases not yet run: a transfer cut midway, a full disk, a
   wrong SSH target.
 - The operator's own: sign in again to Codex and Claude Code on the mini;
