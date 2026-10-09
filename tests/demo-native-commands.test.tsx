@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { asCanvasName, asNodeId, asWireId, Command, Node } from "../src/shared/model";
 import type { DemoScenario } from "../src/shared/demo";
@@ -10,6 +11,7 @@ import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 import { flushPendingCanvasSave, undo } from "../src/renderer/lib/mutations";
 import { executeBeat, resetDemoCanvas } from "../src/renderer/demo/ops";
 import { demo$, startTake, stopTake } from "../src/renderer/demo/conductor";
+import { DEMO_THIS_MACHINE } from "../src/renderer/demo/machine";
 import { demoScenarios } from "../src/renderer/demo/scenarios";
 
 vi.hoisted(() => {
@@ -26,7 +28,7 @@ let command: ReturnType<typeof vi.fn>;
 const scenario: DemoScenario = { id: "native-proof", title: "Native proof", bpm: 120, beats: [] };
 const decodeNode = Schema.decodeUnknownSync(Node);
 const note = (id: string, text: string) => decodeNode({ id, kind: "note", text, x: 110, y: 220, width: 240, height: 96, z: 0 });
-const seat = decodeNode({ id: "seat", kind: "agent", label: "Planner", agentKey: "local:planner", host: "local", bindingId: "binding", harness: "codex", overseer: false, onRemove: "detach", x: 110, y: 220, width: 240, height: 96, z: 0 });
+const seat = decodeNode({ id: "seat", kind: "agent", label: "Planner", agentKey: `${DEMO_THIS_MACHINE}:planner`, host: DEMO_THIS_MACHINE, bindingId: "binding", harness: "codex", overseer: false, onRemove: "detach", x: 110, y: 220, width: 240, height: 96, z: 0 });
 const flush = async () => { await flushPendingCanvasSave(); for (let i = 0; i < 30; i++) await Promise.resolve(); };
 
 beforeEach(() => {
@@ -45,7 +47,7 @@ beforeEach(() => {
     onWorkSinkChanged: () => () => {}, workAttention: async () => ({ glances: [], items: [] }),
     onWorkMailChanged: () => () => {}, workMailPage: async () => ({ items: [] }),
   };
-  state$.settings.set(EMPTY_SETTINGS); state$.settings.station.role.set("command-center");
+  state$.settings.set(EMPTY_SETTINGS); state$.settings.machine.name.set(THIS_MACHINE);
   state$.canvasName.set(canvas);
   state$.selectedNodeId.set(""); state$.selectedNodeIds.set([]); state$.actorRefs.set([]);
   state$.saveState.set("saved"); state$.error.set("");
@@ -75,6 +77,7 @@ it("shows beat additions through the native store and removes incident wires in 
   expect(command).toHaveBeenCalledOnce();
   expect(command.mock.calls[0]![0]).toMatchObject({ _tag: "Batch", steps: [{ _tag: "Add" }, { _tag: "Add" }] });
   expect(modelStore.wire$(canvas, "work").peek()?.verb).toBe("works");
+  expect(modelStore.node$(canvas, "seat").peek()).toMatchObject({ host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:planner` });
   await act(async () => { executeBeat(scenario, { at: 1, ops: [{ kind: "remove-nodes", ids: ["queue"] }] }); await flush(); });
   expect(command.mock.calls[1]![0]).toEqual({ _tag: "Remove", canvas, nodes: ["queue"], wires: ["work"] });
   expect(modelStore.node$(canvas, "queue").peek()).toBeUndefined();

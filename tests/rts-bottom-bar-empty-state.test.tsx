@@ -2,6 +2,7 @@
 import { act, Profiler } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { Node, Wire } from "@shared/model";
 import { batch } from "@legendapp/state";
@@ -135,7 +136,7 @@ describe("RTS bottom bar follows displayed facts", () => {
 
   it("keeps a selected relation quiet on moves and follows endpoint names and verb changes", () => {
     let commits = 0;
-    const agent = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", x: 0, y: 0, width: 100, height: 100, z: 0, label: "Planner", agentKey: "local:planner", bindingId: "planner-binding", host: "local", harness: "codex", overseer: false, onRemove: "detach" });
+    const agent = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", x: 0, y: 0, width: 100, height: 100, z: 0, label: "Planner", agentKey: `${THIS_MACHINE}:planner`, bindingId: "planner-binding", host: THIS_MACHINE, harness: "codex", overseer: false, onRemove: "detach" });
     const task = Schema.decodeUnknownSync(Node)({ kind: "task", id: "tasks", x: 400, y: 0, width: 100, height: 100, z: 0, name: "Backlog" });
     const wire = Schema.decodeUnknownSync(Wire)({ id: "link", from: agent.id, to: task.id, verb: "contributes" });
     act(() => {
@@ -206,7 +207,7 @@ describe("RTS bottom bar follows displayed facts", () => {
 
   it("keeps the selected agent glance quiet while its seat moves", () => {
     let commits = 0;
-    const agent = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", x: 0, y: 0, width: 100, height: 100, z: 0, label: "Planner", agentKey: "local:planner", bindingId: "planner-binding", host: "local", harness: "codex", overseer: false, onRemove: "detach" });
+    const agent = Schema.decodeUnknownSync(Node)({ kind: "agent", id: "seat", x: 0, y: 0, width: 100, height: 100, z: 0, label: "Planner", agentKey: `${THIS_MACHINE}:planner`, bindingId: "planner-binding", host: THIS_MACHINE, harness: "codex", overseer: false, onRemove: "detach" });
     act(() => {
       seed(); modelStore.node$(canvasName, agent.id).set(agent);
       modelStore.canvas$(canvasName).nodeIds.set([agent.id]);

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import type { Node, NodeOf } from "../src/shared/model";
 import { quiesceAndFlushCanvasEdits } from "../src/renderer/lib/canvas-editor-flush";
 import {
@@ -22,7 +23,7 @@ const cleanTerminalDelete = (resources: ReadonlyArray<TerminalDeleteResource>) =
   leaseId: "terminal-delete-lease",
   closeResults: resources.map((resource) => ({
     bindingId: resource.bindingId,
-    hostId: resource.hostId ?? "local",
+    hostId: resource.hostId ?? THIS_MACHINE,
     clean: true as const,
   })),
 });
@@ -66,7 +67,7 @@ const runtimeWindow = {
 const managedAgent = ({
   id,
   bindingId,
-  agentKey = "local:shared",
+  agentKey = `${THIS_MACHINE}:shared`,
   hostId,
 }: {
   readonly id: string;
@@ -177,13 +178,13 @@ describe.sequential("managed agent node terminal teardown", () => {
     const seatA = managedAgent({
       id: "seat-a",
       bindingId: "binding-a",
-      agentKey: "local:duplicate",
+      agentKey: `${THIS_MACHINE}:duplicate`,
       hostId: "station-a",
     });
     const seatB = managedAgent({
       id: "seat-b",
       bindingId: "binding-b",
-      agentKey: "local:duplicate",
+      agentKey: `${THIS_MACHINE}:duplicate`,
       hostId: "station-b",
     });
     open(seatA, seatB);
@@ -198,7 +199,7 @@ describe.sequential("managed agent node terminal teardown", () => {
       { bindingId: "binding-a", hostId: "station-a" },
     ]);
     expect(chatBeginNodeDelete).toHaveBeenCalledWith([
-      { kind: "agent", agentKey: "local:duplicate" },
+      { kind: "agent", agentKey: `${THIS_MACHINE}:duplicate` },
     ]);
   });
 
@@ -206,13 +207,13 @@ describe.sequential("managed agent node terminal teardown", () => {
     const seatA = managedAgent({
       id: "seat-a",
       bindingId: "binding-shared",
-      agentKey: "local:a",
+      agentKey: `${THIS_MACHINE}:a`,
       hostId: "studio",
     });
     const seatAlias = managedAgent({
       id: "seat-alias",
       bindingId: "binding-shared",
-      agentKey: "local:alias",
+      agentKey: `${THIS_MACHINE}:alias`,
       hostId: "studio",
     });
     open(seatA, seatAlias);
@@ -234,7 +235,7 @@ describe.sequential("managed agent node terminal teardown", () => {
 
     await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
     expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
-      { bindingId: "binding-cold", hostId: "local" },
+      { bindingId: "binding-cold", hostId: THIS_MACHINE },
     ]);
     expect(state$.error.peek()).toBe("");
   });
@@ -254,7 +255,7 @@ describe.sequential("managed agent node terminal teardown", () => {
     const replacement = managedAgent({
       id: "replacement",
       bindingId: "replacement-binding",
-      agentKey: "local:replacement",
+      agentKey: `${THIS_MACHINE}:replacement`,
     });
     open(replacement);
     finishTerminalDelete();

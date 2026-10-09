@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { decodeNode } from "../src/shared/model";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import type { BrowserOpResult, BrowserSessionInfo } from "../src/shared/ipc";
 import { formatNodeRef, parseNodeRef } from "../src/shared/node-ref";
 import {
@@ -207,7 +208,7 @@ const baseSession = (
   sessionId,
   nodeId,
   url: "https://example.com",
-  hostId: "local",
+  hostId: THIS_MACHINE,
   profile: "personal",
   state: "loading",
   attached: false,
@@ -286,7 +287,7 @@ describe("dock-state", () => {
   it("opens agent chat as a focus surface and drops its payload on close", () => {
     const node = Effect.runSync(decodeNode({
       kind: "agent", id: "agent-1", label: "PROFILE-01", x: 0, y: 0, width: 240, height: 96, z: 0,
-      agentKey: "remote-a:profile-01", host: "local", overseer: false, onRemove: "detach",
+      agentKey: "remote-a:profile-01", host: THIS_MACHINE, overseer: false, onRemove: "detach",
       bindingId: "binding-agent-1", harness: "claude",
     }));
     const release = holdCanvas("dock-test", [node]);
@@ -849,7 +850,7 @@ describe("dock-state", () => {
       openTerminalSurface(nativeTerminalNode("t1"), "focus");
       const release = holdCanvas("dock-test", [Effect.runSync(decodeNode({
         kind: "agent", id: "agent-1", label: "PROFILE-01", x: 0, y: 0, width: 240, height: 96, z: 0,
-        agentKey: "remote-a:profile-01", host: "local", overseer: false, onRemove: "detach",
+        agentKey: "remote-a:profile-01", host: THIS_MACHINE, overseer: false, onRemove: "detach",
         bindingId: "binding-agent-1", harness: "claude",
       }))]);
       openAgentChatSurface("dock-test", "agent-1");

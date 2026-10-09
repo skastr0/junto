@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { assessSupervisedRuntime } from "../src/shared/station";
 import {
   newSeat,
@@ -9,13 +10,13 @@ describe("node host assignment", () => {
   it("factories stamp host on executable nodes", () => {
     const agent = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "claude",
-      host: "local",
+      host: THIS_MACHINE,
       profile: "codex",
       label: "codex",
     });
-    const page = newPage({ x: 0, y: 0, z: 0 }, "https://example.com");
-    expect(agent.host).toBe("local");
-    expect(page.host).toBe("local");
+    const page = newPage({ x: 0, y: 0, z: 0 }, "https://example.com", { host: OTHER_MACHINE });
+    expect(agent.host).toBe(THIS_MACHINE);
+    expect(page.host).toBe(OTHER_MACHINE);
   });
 
   it("separates an actor's placement HostId from its Hermes routing key", () => {

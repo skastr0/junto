@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import { Effect } from "effect";
 import { decodeNode } from "../src/shared/model";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
@@ -30,7 +31,7 @@ const { decodeCosmeticPacks } = await import("../src/shared/cosmetics/load");
 
 const seat = Effect.runSync(decodeNode({
   kind: "agent", id: "seat-1", label: "planner", x: 0, y: 0, width: 240, height: 96, z: 0,
-  agentKey: "local:planner", host: "local", overseer: false, onRemove: "detach",
+  agentKey: `${THIS_MACHINE}:planner`, host: THIS_MACHINE, overseer: false, onRemove: "detach",
   bindingId: "bind-local-planner", harness: "claude", launch: { kind: "harness", argv: ["claude"] },
 }));
 

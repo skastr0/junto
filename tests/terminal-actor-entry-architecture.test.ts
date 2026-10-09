@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { Node } from "../src/shared/model";
 import { seat, terminal } from "./support/model-nodes";
@@ -149,7 +150,7 @@ describe("terminal actor entry", () => {
   it("refuses actor fields on raw terminals and incomplete agent identities", () => {
     const decode = Schema.decodeUnknownSync(Node, { onExcessProperty: "error" });
     expect(decode(terminal("raw"))).toMatchObject({ kind: "terminal", bindingId: "terminal-raw" });
-    expect(() => decode({ ...terminal("raw"), harness: "codex", agentKey: "local:actor" })).toThrow();
+    expect(() => decode({ ...terminal("raw"), harness: "codex", agentKey: `${THIS_MACHINE}:actor` })).toThrow();
     const { harness: _harness, ...withoutHarness } = seat("actor");
     const { bindingId: _binding, ...withoutBinding } = seat("actor");
     expect(() => decode(withoutHarness)).toThrow();

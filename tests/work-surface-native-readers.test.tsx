@@ -2,6 +2,7 @@
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { asCanvasName, Node, Wire } from "../src/shared/model";
 import { modelStore } from "../src/renderer/lib/use-model";
@@ -41,8 +42,8 @@ let releaseCanvas: (() => void) | undefined;
 const decodeNode = Schema.decodeUnknownSync(Node);
 const decodeWire = Schema.decodeUnknownSync(Wire);
 const agent = (label: string) => ({
-  kind: "agent", label, agentKey: "local:worker", harness: "codex",
-  host: "local", bindingId: "binding", overseer: false, onRemove: "detach",
+  kind: "agent", label, agentKey: `${THIS_MACHINE}:worker`, harness: "codex",
+  host: THIS_MACHINE, bindingId: "binding", overseer: false, onRemove: "detach",
 });
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const publish = (id: string, fields: Record<string, unknown>) => {
@@ -89,7 +90,6 @@ beforeEach(() => {
     workBoardList: async () => ({ ok: true, data: { topics } }),
   };
   state$.settings.set(EMPTY_SETTINGS);
-  state$.settings.station.role.set("command-center");
   state$.canvasName.set(canvas);
   // There are no mirrored document nodes. All rendered facts must come from
   // native rows or the separately paged work store.

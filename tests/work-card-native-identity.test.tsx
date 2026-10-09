@@ -57,7 +57,7 @@ beforeEach(() => {
       ? { kind, glance: { revision: 0, shapeCount: 0, unreadPinCount: 0 } }
       : { kind, items: [] },
   };
-  state$.settings.set(EMPTY_SETTINGS); state$.settings.station.role.set("command-center");
+  state$.settings.set(EMPTY_SETTINGS);
   state$.canvasName.set(canvas);
   state$.error.set(""); state$.saveState.set("saved"); dock$.registry.set(initialWorkbenchState());
   release = modelStore.adopt({ canvas: asCanvasName(canvas), seq: 0, wires: [], nodes: [

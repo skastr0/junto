@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { batch } from "@legendapp/state";
 import { Node, Opened } from "../src/shared/model";
@@ -58,13 +59,13 @@ const assertPlacement = () => {
   expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ ...moved, color: frame.color });
   expect(modelStore.node$(canvas, frame.id).peek()?.kind).toBeTruthy();
 };
-const agent = { kind: "agent", label: "Worker", agentKey: "local:worker", bindingId: "worker-binding", host: "local", harness: "codex", launch: { kind: "harness", argv: ["codex"] }, overseer: false, onRemove: "detach" };
+const agent = { kind: "agent", label: "Worker", agentKey: `${THIS_MACHINE}:worker`, bindingId: "worker-binding", host: THIS_MACHINE, harness: "codex", launch: { kind: "harness", argv: ["codex"] }, overseer: false, onRemove: "detach" };
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   oldApi = window.junto;
-  setApi({ modelCommand: async () => ({ seq: 1 }), onWorkSinkChanged: () => () => {}, workAttention: async () => ({ glances: [], items: [] }), hostsList: async () => ({ ok: true, hosts: [{ id: "local", label: "Local" }, { id: "remote-one", label: "Remote" }] }), terminalKill: async () => {}, terminalGet: async () => undefined });
-  state$.canvasName.set(canvas); state$.settings.station.role.set("command-center");
+  setApi({ modelCommand: async () => ({ seq: 1 }), onWorkSinkChanged: () => () => {}, workAttention: async () => ({ glances: [], items: [] }), hostsList: async () => ({ ok: true, hosts: [{ id: THIS_MACHINE, label: "Studio", isThisMachine: true, capabilities: ["terminal"] }, { id: OTHER_MACHINE, label: "Atlas", isThisMachine: false, capabilities: ["terminal"] }] }), terminalKill: async () => {}, terminalGet: async () => undefined });
+  state$.canvasName.set(canvas);
   releaseCanvas = modelStore.adopt(Schema.decodeUnknownSync(Opened)({ canvas, seq: 0, nodes: [], wires: [] }));
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -84,7 +85,7 @@ it("never fabricates placement in the bar's public node view", async () => {
 });
 
 it("keeps placement when an open page URL editor saves after a move", async () => {
-  const node = await mount({ kind: "page", url: "https://before.example", profile: "personal", host: "local" });
+  const node = await mount({ kind: "page", url: "https://before.example", profile: "personal", host: THIS_MACHINE });
   await click("Page url"); await move(node);
   const input = document.querySelector<HTMLInputElement>('input[aria-label="Page URL"]')!;
   await act(async () => {
@@ -96,7 +97,7 @@ it("keeps placement when an open page URL editor saves after a move", async () =
 });
 
 it("keeps placement when browser binding editor save after a move", async () => {
-  const page = await mount({ kind: "page", url: "https://example.test", profile: "personal", host: "local" });
+  const page = await mount({ kind: "page", url: "https://example.test", profile: "personal", host: THIS_MACHINE });
   await click("Browser binding"); await move(page);
   await click("Page browser profile");
   const option = [...document.querySelectorAll('[role="option"]')].find(el => el.textContent?.trim() === "work")!;
@@ -107,7 +108,7 @@ it("keeps placement when browser binding editor save after a move", async () => 
 });
 
 it("keeps placement for task admission and wait writes from the bar", async () => {
-  const task = await mount({ kind: "task", name: "Queue", host: "local" });
+  const task = await mount({ kind: "task", name: "Queue", host: THIS_MACHINE });
   await click("Who starts tasks"); await move(task); await click("Approval");
   expect(modelStore.node$(canvas, frame.id).peek()).toMatchObject({ kind: "task", contract: { incoming: { admission: "approval" } } }); assertPlacement();
   await click("Wait before starting"); await click("15m");
@@ -127,7 +128,7 @@ it("opens a terminal using the current complete node after a quiet move", async 
 });
 
 it("opens task creation and profile capture by identity without authoring placement", async () => {
-  const task = await mount({ kind: "task", name: "Queue", host: "local" }); await move(task); await click("Add task");
+  const task = await mount({ kind: "task", name: "Queue", host: THIS_MACHINE }); await move(task); await click("Add task");
   expect(Object.values(dock$.taskCreateById.peek())).toContainEqual(expect.objectContaining({ nodeId: "subject" })); assertPlacement();
   const node = await mount(agent); await move(node); await click("Save as profile");
   expect(profileDialog$.peek()).toEqual({ seatId: "subject" }); assertPlacement();

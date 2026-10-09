@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { Node, Wire } from "../src/shared/model";
 import { modelStore } from "../src/renderer/lib/use-model";
@@ -45,6 +46,7 @@ afterEach(() => {
   modelStore.canvas$(canvas).nodes.set({});
   modelStore.canvas$(canvas).wires.set({});
   state$.canvasName.set(oldCanvas); state$.hotbarSlots.set(oldSlots);
+  state$.settings.machine.name.set("");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -61,10 +63,11 @@ it("a mounted group picker follows native titles without a document copy", async
 
 it("mounted region paths follow native defaults without a document copy", async () => {
   const region = { ...rect, kind: "region", label: "Team", hold: false };
-  publish({ ...region, defaults: { paths: { local: "/before" } } });
+  state$.settings.machine.name.set(THIS_MACHINE);
+  publish({ ...region, defaults: { paths: { [THIS_MACHINE]: "/before", [OTHER_MACHINE]: "/elsewhere" } } });
   await act(async () => root.render(<RegionPathsModal nodeId="subject" onClose={() => {}} />));
   expect(document.querySelector('[data-testid="path"]')?.textContent).toBe("/before");
-  await act(async () => publish({ ...region, defaults: { paths: { local: "/after" } } }));
+  await act(async () => publish({ ...region, defaults: { paths: { [THIS_MACHINE]: "/after", [OTHER_MACHINE]: "/elsewhere" } } }));
   expect(document.querySelector('[data-testid="path"]')?.textContent).toBe("/after");
   await act(async () => modelStore.node$(canvas, "subject").delete());
   expect(document.querySelector('[data-testid="path"]')).toBeNull();
@@ -76,7 +79,7 @@ const publishWire = (input: unknown) => {
 };
 
 it("a mounted cron follows its native schedule and connected actions", async () => {
-  const cron = { ...rect, kind: "cron", label: "Morning", host: "local" };
+  const cron = { ...rect, kind: "cron", label: "Morning", host: THIS_MACHINE };
   publish({ ...cron, expression: "0 9 * * *" });
   await act(async () => root.render(<CronScheduleSurface canvas={canvas} id="subject" onClose={() => {}} />));
   expect(document.querySelector<HTMLInputElement>('[aria-label="Time of day"]')?.value).toBe("09:00");
@@ -94,8 +97,8 @@ it("a mounted cron follows its native schedule and connected actions", async () 
 
 it("the mounted pad mention picker follows inbound native seats and wires", async () => {
   publish({ ...rect, kind: "pad", label: "Sketch" });
-  const seat = { ...rect, id: "worker", kind: "agent", label: "Scout", agentKey: "local:scout",
-    harness: "codex", host: "local", bindingId: "binding", overseer: false, onRemove: "detach" };
+  const seat = { ...rect, id: "worker", kind: "agent", label: "Scout", agentKey: `${THIS_MACHINE}:scout`,
+    harness: "codex", host: THIS_MACHINE, bindingId: "binding", overseer: false, onRemove: "detach" };
   publish(seat);
   publishWire({ id: "edits", from: "worker", to: "subject", verb: "edits" });
   const pin = Schema.decodeUnknownSync(PadPin)({ id: "pin", x: 0, y: 0, z: 0, mentions: [], posts: [], unread: false });
@@ -143,7 +146,7 @@ it("the mounted command bar finds native region paths and opens current note con
 });
 
 it("the command bar's native seat ring and line follow binding facts", async () => {
-  publish({ ...rect, kind: "agent", label: "Scout", agentKey: "local:scout", harness: "codex", host: "local", bindingId: "native-bar-seat", overseer: true, onRemove: "detach" });
+  publish({ ...rect, kind: "agent", label: "Scout", agentKey: `${THIS_MACHINE}:scout`, harness: "codex", host: THIS_MACHINE, bindingId: "native-bar-seat", overseer: true, onRemove: "detach" });
   await act(async () => root.render(<CommandBar />));
   expect(document.body.textContent).toContain("Scout");
   expect(document.body.textContent).not.toContain("wants your input");

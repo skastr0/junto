@@ -6,6 +6,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import { Effect } from "effect";
 import { decodeNode, type Node } from "../src/shared/model";
 import { holdModelCanvas as holdCanvas } from "./support/hold-canvas";
@@ -25,7 +26,7 @@ const { SeatOffboardPanel } = await import("../src/renderer/components/nodes/Sea
 
 const seat = (id: string, label: string): Node => Effect.runSync(decodeNode({
   kind: "agent", id, label, x: 0, y: 0, width: 200, height: 80, z: 0,
-  agentKey: `local:${id}`, host: "local", overseer: false, onRemove: "detach",
+  agentKey: `${THIS_MACHINE}:${id}`, host: THIS_MACHINE, overseer: false, onRemove: "detach",
   bindingId: `bind-${id}`, harness: "claude", launch: { kind: "harness", argv: ["claude"] },
 }));
 

@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import { Schema } from "effect";
 import { Node, asCanvasName, type Changed, type Opened } from "../src/shared/model";
 import type { ChatChromeChanged } from "../src/renderer/lib/chat-chrome-store";
@@ -18,11 +19,11 @@ it("hydrates already-pending ACP permission without ChatView and reads no rollup
   const canvas = asCanvasName("local-rollup-hook");
   const decode = Schema.decodeUnknownSync(Node);
   const frame = { x: 10, y: 10, width: 40, height: 40, z: 0 };
-  const seat = decode({ ...frame, kind: "agent", id: "seat", label: "Seat", agentKey: "local:hook-seat", bindingId: "hook-binding", host: "local", overseer: false, harness: "codex", onRemove: "detach" });
+  const seat = decode({ ...frame, kind: "agent", id: "seat", label: "Seat", agentKey: `${THIS_MACHINE}:hook-seat`, bindingId: "hook-binding", host: THIS_MACHINE, overseer: false, harness: "codex", onRemove: "detach" });
   let change!: (event: Changed) => void;
   let chrome!: (event: ChatChromeChanged) => void;
   const regionRollups = vi.fn(), chatOpen = vi.fn();
-  const chatChrome = vi.fn(async () => ({ revision: 5, states: [{ agentKey: "local:hook-seat", sessionLive: true, permissionPending: true }] }));
+  const chatChrome = vi.fn(async () => ({ revision: 5, states: [{ agentKey: `${THIS_MACHINE}:hook-seat`, sessionLive: true, permissionPending: true }] }));
   const workAttention = vi.fn(async () => ({ glances: [], items: [] }));
   const offChat = vi.fn(), offWork = vi.fn();
   bridge.junto = {
@@ -49,7 +50,7 @@ it("hydrates already-pending ACP permission without ChatView and reads no rollup
       await flush();
     });
     expect(host.textContent).toBe("attention:Renamed");
-    await act(async () => { chrome({ revision: 6, state: { agentKey: "local:hook-seat", sessionLive: true, permissionPending: false } }); await flush(); });
+    await act(async () => { chrome({ revision: 6, state: { agentKey: `${THIS_MACHINE}:hook-seat`, sessionLive: true, permissionPending: false } }); await flush(); });
     expect(host.textContent).toBe("idle:Renamed");
     // A former 300 ms poll would have fired by now, without another command.
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
