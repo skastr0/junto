@@ -366,6 +366,13 @@ together, from one commit of main. `remote-verify` holds the receipts:
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
 
+**The name window is closed, at `a8de71787`.** Typecheck and the whole unit
+suite, both lanes, are green on a clean export (8,633 tests), checked by
+`remote-verify`. Main may be built and run again by any seat, in a home of
+its own. Every machine has a real name, no row says `local`, the old remote
+runtime is deleted. What stays skipped: the browser socket admission tests,
+with the browser cut under Later.
+
 **Run C with the stand-in harness, `88e9a5465`.** A seat placed on the Mac
 mini in the Preview started there from this Mac's window, in its own folder
 on the mini. Its `junto onboard` on the mini returned the guidance, soul and
