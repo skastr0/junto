@@ -321,8 +321,9 @@ needs a real Linux.
   for cleanup. A longer limit or a larger size only for a run known to need
   it. Never `--from`, a secret passed as an environment value, or a setup
   script that provisions an account.
-- Put only test artifacts on a sandbox. No harness login, no forwarded
-  credential.
+- Put only built artifacts on a sandbox: a bundle, a package, a bundled test
+  script. Never a checkout of the source, a harness login or a forwarded
+  credential. Build here or in the local Linux machine, then copy the result.
 - Touch only a sandbox you created. Record its id in your receipt.
 - Delete it when the run ends; the time limit is not a guarantee. Time is
   billed while it runs.
