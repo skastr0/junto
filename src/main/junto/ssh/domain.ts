@@ -222,22 +222,7 @@ const remoteCommandBytes = (executable: string, args: ReadonlyArray<string>): nu
     0,
   );
 
-/**
- * Low-level mint: bounds check + WeakMap brand only.
- *
- * **@internal** — not a product safety boundary and **not** on the public
- * `ssh` barrel (`ssh/index.ts`). Brand means “created inside Junto’s SSH
- * kernel,” not “safe product operation.” Only:
- * - `ssh/remote-plan.ts` (named plan compilers)
- * - `ssh/read-commands.ts` (closed allowlisted read constructors)
- * - SSH kernel tests (deep-import this module)
- * may call this. Product modules under hosts/, hermes/,
- * term/, browser/ must use named factories — never this function.
- *
- * Residual (Cut 3, deliberate): one WeakMap command brand for all recipes
- * (argv reads, `/bin/sh -c` plans, dormant Darwin `bash -lc`). Do not invent
- * parallel command types — seal at the named-compiler boundary instead.
- */
+/** @internal Bounded command mint for named SSH recipes. */
 export const makeRemoteCommand = (
   executable: string,
   args: ReadonlyArray<string> = [],
