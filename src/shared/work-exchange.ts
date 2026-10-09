@@ -107,7 +107,7 @@ export type CanvasPlacement = {
 };
 
 /** Who a row says wrote it: the receiving seat of a receipt, the sender of mail. */
-const authorOf = (fact: ExchangeFact): { readonly seatId: ActorSeatId; readonly nodeId: string } => {
+export const authorOf = (fact: ExchangeFact): { readonly seatId: ActorSeatId; readonly nodeId: string } => {
   if (fact.body.operation === "delivery.accepted") return fact.body.receipt.actor;
   if (fact.body.operation !== "message.append") throw new Error("not an exchanged row");
   return fact.body.sentBy;
@@ -123,6 +123,16 @@ export const peerMayPassOn = (
   writer: InstallationId,
   placement: CanvasPlacement,
 ): boolean => placement.holds(peer) && (peer === writer || peer === placement.editor);
+
+/** Is the author of this row the operator, exactly: the operator's node and the operator's identity, on mail. */
+export const writtenByTheOperator = (fact: ExchangeFact): boolean => {
+  const author = authorOf(fact);
+  return (
+    fact.body.operation === "message.append" &&
+    author.seatId === OPERATOR_SEAT_ID &&
+    author.nodeId === OPERATOR_NODE_ID
+  );
+};
 
 /**
  * Was this row written where its author lives? Mail and receipts of a seat

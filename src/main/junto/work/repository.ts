@@ -6,10 +6,12 @@ import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/w
 import { workProjectionChanges } from "./projection-changes";
 import {
   ExchangeFact,
+  authorOf,
   compareSequence,
   entitledTo,
   peerMayPassOn,
   writtenByItsAuthor,
+  writtenByTheOperator,
   type CanvasPlacement,
   type RowsFrame,
 } from "@shared/work-exchange";
@@ -4988,6 +4990,19 @@ export type ApplyExchangeRowsInput = {
   readonly receivedAt?: string;
 };
 
+/** A canvas copy the machine that edits the canvas sent, and where each seat was at that count. */
+export type CanvasCopySent = {
+  readonly canvasName: string;
+  readonly target: InstallationId;
+  readonly seq: number;
+  readonly seats: ReadonlyArray<{
+    readonly nodeId: string;
+    readonly seatId: string;
+    readonly machine: InstallationId;
+  }>;
+  readonly sentAt?: string;
+};
+
 export type AppliedExchangeRows = {
   /** Rows that were new to this machine. */
   readonly taken: number;
@@ -5081,6 +5096,49 @@ const exchangeCursorOf = Effect.fn("work.exchangeCursorOf")(function* (
   return rows[0] === undefined
     ? { through: "0", lastBasisSeq: 0 }
     : { through: rows[0].through, lastBasisSeq: rows[0].last_basis_seq };
+});
+
+/**
+ * On the machine that edits a canvas: was the author of this row a seat on the
+ * row's writer at the canvas count the row states, and is that a count this
+ * machine sent that writer? A writer cannot state a count it was never sent,
+ * and a count cannot put a seat where it was not.
+ */
+const exchangeAuthorWasThere = Effect.fn("work.exchangeAuthorWasThere")(function* (
+  reader: SqlClient.SqlClient,
+  fact: ExchangeFact,
+): Effect.fn.Return<boolean, WorkSqlFailure> {
+  if (fact.basis.kind !== "canvas") return false;
+  const author = authorOf(fact);
+  const writer = fact.id.route.eventHome;
+  const rows = yield* reader.unsafe<{ found: number }>(
+    `
+      SELECT 1 AS found
+      FROM canvas_placements AS placed
+      WHERE placed.canvas_name = ?
+        AND placed.node_id = ?
+        AND placed.seat_id = ?
+        AND placed.machine = ?
+        AND placed.from_seq <= ?
+        AND (placed.until_seq IS NULL OR ? < placed.until_seq)
+        AND EXISTS (
+          SELECT 1 FROM canvas_copies_sent AS sent
+          WHERE sent.canvas_name = placed.canvas_name AND sent.target = ? AND sent.seq = ?
+        )
+      LIMIT 1
+    `,
+    [
+      fact.item.sink.canvasName,
+      author.nodeId,
+      author.seatId,
+      writer,
+      fact.basis.seq,
+      fact.basis.seq,
+      writer,
+      fact.basis.seq,
+    ],
+  );
+  return rows.length > 0;
 });
 
 const refuseExchange = (message: string): WorkAuthorityError =>
@@ -5249,6 +5307,14 @@ export interface WorkRepositoryShape {
     readonly sink: SinkRefValue;
     readonly artifactId: string;
   }) => Effect.Effect<{ readonly artifactId: string }, RepositoryFailure>;
+  /**
+   * Remember a canvas copy this machine sent: the count it sent that machine,
+   * and which machine each seat is on from that count. Sending the same count
+   * again changes nothing.
+   */
+  readonly recordCanvasCopySent: (
+    input: CanvasCopySent,
+  ) => Effect.Effect<void, WorkRepositoryError>;
   /** How far this machine is caught up on each other writer's rows for a canvas. */
   readonly exchangeHave: (
     canvasName: string,
@@ -7953,6 +8019,53 @@ export const WorkRepositoryLive = Layer.effect(
           }),
       );
 
+    const recordCanvasCopySent = (
+      input: CanvasCopySent,
+    ): Effect.Effect<void, WorkRepositoryError> =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql.unsafe(
+              "INSERT OR IGNORE INTO canvas_copies_sent(canvas_name, target, seq, sent_at) VALUES (?, ?, ?, ?)",
+              [input.canvasName, input.target, input.seq, timestamp(input.sentAt)],
+            );
+            const open = yield* sql.unsafe<{
+              node_id: string;
+              from_seq: number;
+              seat_id: string;
+              machine: string;
+            }>(
+              "SELECT node_id, from_seq, seat_id, machine FROM canvas_placements WHERE canvas_name = ? AND until_seq IS NULL",
+              [input.canvasName],
+            );
+            const now = new Map(input.seats.map((seat) => [seat.nodeId, seat]));
+            const kept = new Set<string>();
+            for (const row of open) {
+              const seat = now.get(row.node_id);
+              if (seat !== undefined && seat.seatId === row.seat_id && seat.machine === row.machine) {
+                kept.add(row.node_id);
+              } else if (input.seq > row.from_seq) {
+                yield* sql.unsafe(
+                  "UPDATE canvas_placements SET until_seq = ? WHERE canvas_name = ? AND node_id = ? AND from_seq = ?",
+                  [input.seq, input.canvasName, row.node_id, row.from_seq],
+                );
+              }
+            }
+            for (const seat of input.seats) {
+              if (kept.has(seat.nodeId)) continue;
+              yield* sql.unsafe(
+                `INSERT OR IGNORE INTO canvas_placements(canvas_name, node_id, from_seq, until_seq, seat_id, machine)
+                 VALUES (?, ?, ?, NULL, ?, ?)`,
+                [input.canvasName, seat.nodeId, input.seq, seat.seatId, seat.machine],
+              );
+            }
+          }),
+        )
+        .pipe(
+          Effect.provideService(StateTransactionOperation, "work.exchange.copy-sent"),
+          Effect.mapError((error) => toRepositoryError("work.exchange.copy-sent", error)),
+        );
+
     const exchangeHave = (
       canvasName: string,
     ): Effect.Effect<ReadonlyArray<ExchangeCursor>, WorkRepositoryError> =>
@@ -8105,7 +8218,15 @@ export const WorkRepositoryLive = Layer.effect(
               if (workRecordContentSha256(semantic) !== fact.contentSha256) {
                 return yield* Effect.fail(refuseExchange("a row does not match its hash"));
               }
-              if (!writtenByItsAuthor(fact, placement)) {
+              // The machine that edits the canvas judges an author against
+              // where its seat was at the count the row states. Any other
+              // machine takes the editing machine's rows as already judged,
+              // and judges a writer's own rows against the copy it holds.
+              const authored =
+                placement.editor === self
+                  ? !writtenByTheOperator(fact) && (yield* exchangeAuthorWasThere(writer, fact))
+                  : peer === placement.editor || writtenByItsAuthor(fact, placement);
+              if (!authored) {
                 return yield* Effect.fail(refuseExchange("a row was not written where its author lives"));
               }
               if (!entitledTo(self, fact, placement, yield* exchangeMailAuthor(writer, fact))) {
@@ -8374,6 +8495,7 @@ export const WorkRepositoryLive = Layer.effect(
       markBoardRead,
       setArtifactArchived,
       deleteArtifact,
+      recordCanvasCopySent,
       exchangeHave,
       exchangeWriters,
       exchangeRows,

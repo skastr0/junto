@@ -177,10 +177,23 @@ let editor: Machine;
 let mini: Machine;
 let other: Machine;
 
+/** Where every seat is, as the editing machine records it with a copy it sends. */
+const seatsAt = (moved: Record<string, InstallationId> = {}) =>
+  Object.keys(homes).map((nodeId) => ({ nodeId, seatId: actor(nodeId).seatId, machine: moved[nodeId] ?? homes[nodeId]! }));
+
+const copySent = async (seq: number, moved: Record<string, InstallationId> = {}): Promise<void> => {
+  for (const target of [MINI, OTHER]) {
+    await editor.runtime.runPromise(
+      editor.repository.recordCanvasCopySent({ canvasName: "factory", target, seq, seats: seatsAt(moved), sentAt: at }),
+    );
+  }
+};
+
 beforeAll(async () => {
   editor = await boot(EDITOR, ["factory", "private"]);
   mini = await boot(MINI);
   other = await boot(OTHER);
+  await copySent(1);
 });
 
 afterAll(async () => {
@@ -311,6 +324,59 @@ describe("a canvas a machine does not hold", () => {
 
   it("takes no rows for it from that machine, not even an empty frame", async () => {
     await refused(editor, MINI, { kind: "rows", canvasName: "private", writer: MINI, facts: [], through: "9" });
+  });
+});
+
+describe("where a seat was when its mail was written", () => {
+  /** Mail the mini says it wrote, at a fresh sequence, under the canvas count it states. */
+  const miniMail = async (seq: string, messageId: string, from: string, count: number): Promise<RowsFrame> => {
+    const frame = await frameFrom(mini);
+    const base = frame.facts.find((fact) => fact.body.operation === "message.append" && fact.item.sink.nodeId === "lead")!;
+    const body = base.body as unknown as { message: { messageId: string } };
+    const row = fresh(
+      {
+        ...base,
+        basis: { kind: "canvas", canvasName: "factory", seq: count },
+        item: { ...base.item, itemId: messageId },
+        body: { ...body, message: { ...body.message, messageId }, sentBy: actor(from) },
+      } as never,
+      seq,
+    );
+    return { ...frame, facts: [row], through: seq } as RowsFrame;
+  };
+  const take = (frame: RowsFrame) => editor.runtime.runPromise(editor.exchange.receive(MINI, frame));
+
+  it("refuses a count the editing machine never sent that machine", async () => {
+    await link(editor, mini);
+    await settle();
+    await refused(editor, MINI, await miniMail("2001", "from-a-count-never-sent", "peer", 5));
+  });
+
+  it("refuses a seat the writer never held, whatever count it states", async () => {
+    await link(editor, mini);
+    await settle();
+    await refused(editor, MINI, await miniMail("2002", "from-a-seat-never-held", "far", 1));
+  });
+
+  it("still takes mail written before a seat moved, and refuses mail stated after", async () => {
+    // At count 2 the editing machine moves `peer-two` from the mini to the far machine.
+    await copySent(2, { "peer-two": OTHER });
+    await link(editor, mini);
+    await settle();
+
+    await take(await miniMail("2003", "written-before-the-move", "peer-two", 1));
+    expect(await inbox(editor, "lead")).toContain("written-before-the-move");
+
+    await refused(editor, MINI, await miniMail("2004", "stated-after-the-move", "peer-two", 2));
+    // A seat that stayed is still the mini's at the new count.
+    await link(editor, mini);
+    await settle();
+    await take(await miniMail("2005", "from-the-seat-that-stayed", "peer", 2));
+    expect(await inbox(editor, "lead")).toContain("from-the-seat-that-stayed");
+  });
+
+  it("refuses a writer whose stated count goes backwards", async () => {
+    await refused(editor, MINI, await miniMail("2006", "back-to-an-older-count", "peer", 1));
   });
 });
 
