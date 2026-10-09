@@ -63,7 +63,10 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    the link.
 5. **Entitlement.** Every machine on a canvas gets the canvas rows. A machine
    gets the mail addressed to its seats. A machine that keeps the whole canvas
-   gets everything. In the first version that machine is the MacBook.
+   gets everything. In the first version that machine is the MacBook. Passing
+   on another machine's rows, and saying how far a peer is caught up, is
+   scoped to one canvas: only the machine that keeps that canvas may do it,
+   and never for another canvas.
 6. **Mail waits.** Mail to a seat whose machine is unreachable is accepted and
    held, the way mail to a stopped seat is held. It is delivered when a path
    exists. The sender is told which happened: delivered here, handed to a
@@ -129,8 +132,12 @@ The one interface three seats build against.
   first channels:
   - `rows`: the row exchange (rules 4 to 6).
   - `seats`: start, stop and attach for seats on that machine, and their
-    terminal bytes.
-  - `status`: reachable or not, harness CLIs present, secrets missing.
+    terminal bytes. Only the machine that edits the canvas may ask. It names
+    the seat and nothing else: the machine starts the seat from its own copy
+    of the canvas and never takes a command line, an environment or a process
+    id from a peer.
+  - `status`: reachable or not, harness CLIs present, the names of missing
+    secrets. Never a value, a path or anything a caller chose to probe.
 - The same code runs at both ends. Nothing above the transport knows which end
   opened the link.
 - Terminal bytes ride the link. If running shows that hurts typing,
