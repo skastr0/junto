@@ -62,7 +62,7 @@ if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
   exit 1
 fi
 if [[ "$SIGN" -eq 1 && "$TARGET" != "mac" ]]; then
-  printf 'junto: error: --sign selects macOS signing; Linux release manifests use linux-release-tool.ts\n' >&2
+  printf 'junto: error: --sign selects macOS signing; Linux desktop releases are signed with linux-desktop-release.ts\n' >&2
   exit 1
 fi
 BUN_EXECUTABLE="$(type -P bun || true)"
