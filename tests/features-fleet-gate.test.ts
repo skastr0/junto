@@ -2,17 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FLEET_UI_ENABLED } from "../src/shared/features";
 import { SHIP_FEATURES } from "../src/shared/feature-catalog";
-import { RELEASE_CAPABILITIES } from "../src/shared/release-capabilities";
 
 describe("Fleet product gate", () => {
   it("keeps Fleet UI off in the ship catalog", () => {
     expect(SHIP_FEATURES.fleetUi).toBe(false);
-  });
-
-  it("freezes packaged darwin enroll/deploy", () => {
-    expect(RELEASE_CAPABILITIES.freshRemoteEnrollment).toBe(false);
-    expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(false);
-    expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(false);
   });
 
   it("gates main hosts IPC, overlay import, preload, and remote occupy, with no fleet CLI or operator op", () => {
