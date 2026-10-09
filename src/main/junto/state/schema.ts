@@ -1,6 +1,7 @@
 import { BROWSER_PROFILES_STATE_SCHEMA_SQL } from "../browser/state-schema";
 import { MODEL_STATE_SCHEMA_SQL } from "../model/state-schema";
-import { HOSTS_STATE_SCHEMA_SQL } from "../hosts/state-schema";
+import { HOSTS_STATE_SCHEMA_SQL, MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../hosts/state-schema";
+import { MACHINE_STATE_SCHEMA_SQL } from "../machines/state-schema";
 import { KERNEL_STATE_SCHEMA_SQL } from "../kernel/state-schema";
 import {
   LICENSE_STATE_V1_SCHEMA_SQL,
@@ -9,7 +10,6 @@ import {
 import { FACTORY_PAUSE_STATE_SCHEMA_SQL } from "../pause/state-schema";
 import { SETTINGS_STATE_SCHEMA_SQL } from "../settings/state-schema";
 import { SCHEDULER_STATE_SCHEMA_SQL } from "../scheduler/state-schema";
-import { STATION_STATE_SCHEMA_SQL } from "../station/state-schema";
 import { STATION_STATUS_STATE_SCHEMA_SQL } from "../station-status-state-schema";
 import { USAGE_STATE_SCHEMA_SQL } from "../usage/state-schema";
 import {
@@ -63,6 +63,14 @@ export const STATE_SCHEMA_IDENTITY_SQL = `
   ) STRICT;
 `;
 
+/** The machine list's bookkeeping table, as the hosts schema declares it. */
+const HOST_REGISTRY_STATE_TABLE_SQL = (() => {
+  const start = HOSTS_STATE_SCHEMA_SQL.indexOf("CREATE TABLE IF NOT EXISTS host_registry_state");
+  const end = HOSTS_STATE_SCHEMA_SQL.indexOf(";", start);
+  if (start < 0 || end < 0) throw new Error("the hosts schema lost its bookkeeping table");
+  return `${HOSTS_STATE_SCHEMA_SQL.slice(start, end)};`;
+})();
+
 /**
  * The current durable schema, one fragment per owner. Version 1 was the
  * baseline; each later change is a forward step in `migrations.ts`.
@@ -71,12 +79,13 @@ export const STATE_SCHEMA_FRAGMENTS = [
   STATE_SCHEMA_IDENTITY_SQL,
   MODEL_STATE_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,
-  HOSTS_STATE_SCHEMA_SQL,
+  MACHINE_REGISTRY_STATE_SCHEMA_SQL,
+  HOST_REGISTRY_STATE_TABLE_SQL,
   KERNEL_STATE_SCHEMA_SQL,
   FACTORY_PAUSE_STATE_SCHEMA_SQL,
   SETTINGS_STATE_SCHEMA_SQL,
   SCHEDULER_STATE_SCHEMA_SQL,
-  STATION_STATE_SCHEMA_SQL,
+  MACHINE_STATE_SCHEMA_SQL,
   STATION_STATUS_STATE_SCHEMA_SQL,
   USAGE_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_SQL,

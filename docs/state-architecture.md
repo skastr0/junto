@@ -97,8 +97,9 @@ There are two kinds of step, and the migration connection enforces which:
 - **Expand only.** Adds tables, columns, indexes or triggers. It may not
   delete or overwrite a row, drop or rename anything, or write into a table
   that existed before it.
-- **Consolidate.** Also drops the tables it names in `removesTables` and
-  rebuilds the ones in `replacesTables`, copying every kept row. It needs the
+- **Consolidate.** Also drops the tables it names in `removesTables`,
+  rebuilds the ones in `replacesTables`, copying every kept row, and renames
+  the ones in `renamesTables`, which keep their rows and columns. It needs the
   operator's approval for that work.
 
 Every step proves that each table and column it does not name survives with

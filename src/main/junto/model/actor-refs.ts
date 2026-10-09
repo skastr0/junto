@@ -27,10 +27,10 @@ export class ModelActorRefs extends Context.Service<ModelActorRefs>()(
           installation_id: InstallationId,
         }),
         execute:
-          () => sql`SELECT configuration.host_id, installation.installation_id
-        FROM station_configuration AS configuration JOIN station_installation AS installation ON installation.singleton=configuration.singleton
-        WHERE configuration.singleton=1 AND configuration.role='command-center'
-        UNION ALL SELECT host_id,station_installation_id AS installation_id FROM station_fleet_targets WHERE retired_at IS NULL`,
+          () => sql`SELECT configuration.machine_name AS host_id, installation.installation_id
+        FROM machine_configuration AS configuration JOIN installation ON installation.singleton=configuration.singleton
+        WHERE configuration.singleton=1
+        UNION ALL SELECT machine_name AS host_id, installation_id FROM machine_peers WHERE retired_at IS NULL`,
       });
       const read = Effect.fn("ModelActorRefs.read")(function* (
         canvas?: string,

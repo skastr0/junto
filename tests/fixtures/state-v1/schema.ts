@@ -1,5 +1,5 @@
 /**
- * The frozen state schemas, version 1 through version 19, built only from
+ * The frozen state schemas, version 1 through version 20, built only from
  * frozen text and frozen steps so no later schema change can move a
  * historical witness.
  * Version 14 is its frozen fragments. Each earlier version is the next one
@@ -15,8 +15,6 @@ import {
 import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "./work-head-schema";
 import { DatabaseSync } from "node:sqlite";
 import { migrateOneMachineLog } from "../../../src/main/junto/work/migrate-one-machine-log";
-import { WORK_EXCHANGE_STATE_SCHEMA_SQL } from "../../../src/main/junto/work/exchange/state-schema";
-import { PEERS_STATE_SCHEMA_SQL } from "../../../src/main/junto/model/state-schema";
 import { STATE_SCHEMA_MIGRATIONS } from "../../../src/main/junto/state/migrations";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../domain-cutover/entities-schema";
@@ -80,14 +78,16 @@ const stepped = (
 export const STATE_SCHEMA_V15_SQL = stepped(STATE_SCHEMA_V14_SQL, migrateOneMachineLog);
 
 // Version 16 added the row exchange cursors (15 -> 16).
-export const STATE_SCHEMA_V16_SQL = stepped(STATE_SCHEMA_V15_SQL, (database) => {
-  database.exec(WORK_EXCHANGE_STATE_SCHEMA_SQL);
-});
+export const STATE_SCHEMA_V16_SQL = stepped(
+  STATE_SCHEMA_V15_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 16)!.migrate,
+);
 
 // Version 17 added peers (16 -> 17).
-export const STATE_SCHEMA_V17_SQL = stepped(STATE_SCHEMA_V16_SQL, (database) => {
-  database.exec(PEERS_STATE_SCHEMA_SQL);
-});
+export const STATE_SCHEMA_V17_SQL = stepped(
+  STATE_SCHEMA_V16_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 17)!.migrate,
+);
 
 // Version 18 named the machine that edits each canvas (17 -> 18).
 export const STATE_SCHEMA_V18_SQL = stepped(
@@ -99,6 +99,12 @@ export const STATE_SCHEMA_V18_SQL = stepped(
 export const STATE_SCHEMA_V19_SQL = stepped(
   STATE_SCHEMA_V18_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 19)!.migrate,
+);
+
+// Version 20 moved each seat's session pin into the seat sessions store (19 -> 20).
+export const STATE_SCHEMA_V20_SQL = stepped(
+  STATE_SCHEMA_V19_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 20)!.migrate,
 );
 
 // Version 14 dropped this trigger (13 -> 14), so version 13 is version 14 with it.

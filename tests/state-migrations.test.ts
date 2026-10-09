@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
+  STATE_SCHEMA_CONSOLIDATE_SAFETY,
   STATE_SCHEMA_MIGRATION_SAFETY,
   STATE_SCHEMA_V1_IDENTITY,
   migrateStateSchema,
@@ -464,6 +465,111 @@ describe("State schema migrations", () => {
     } finally {
       database.close();
     }
+  });
+
+  describe("a step that renames a table", () => {
+    const BEFORE_SQL = `
+      ${STATE_SCHEMA_IDENTITY_SQL}
+      CREATE TABLE old_owners (id TEXT PRIMARY KEY) STRICT;
+      CREATE TABLE owned (
+        id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        FOREIGN KEY (owner) REFERENCES old_owners(id) ON DELETE RESTRICT
+      ) STRICT;
+      CREATE TABLE doomed (id TEXT PRIMARY KEY) STRICT;
+    `;
+    const AFTER_SQL = `
+      ${STATE_SCHEMA_IDENTITY_SQL}
+      CREATE TABLE owners (id TEXT PRIMARY KEY) STRICT;
+      CREATE TABLE owned (
+        id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        FOREIGN KEY (owner) REFERENCES owners(id) ON DELETE RESTRICT
+      ) STRICT;
+    `;
+    const seeded = (): DatabaseSync => {
+      const database = openDatabase();
+      database.exec(BEFORE_SQL);
+      database.exec("INSERT INTO old_owners VALUES ('a'); INSERT INTO owned VALUES ('row', 'a');");
+      verifyAndStampStateSchema(database, BEFORE_SQL);
+      database.exec("PRAGMA user_version = 1");
+      return database;
+    };
+    const renamePlan = (
+      step: Partial<StateSchemaMigrationPlan["migrations"][number]>,
+      migrate: StateSchemaMigrationPlan["migrations"][number]["migrate"],
+    ): StateSchemaMigrationPlan => {
+      const from = expectedStateSchemaIdentity(BEFORE_SQL);
+      return {
+        baselineVersion: 1,
+        baselineIdentity: from,
+        currentVersion: 2,
+        currentSchemaSql: AFTER_SQL,
+        migrations: [
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            name: "rename-owners",
+            safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+            fromIdentity: from,
+            removesTables: ["doomed"],
+            renamesTables: { old_owners: "owners" },
+            ...step,
+            migrate,
+          },
+        ],
+      };
+    };
+    const rename = "ALTER TABLE old_owners RENAME TO owners; DROP TABLE doomed;";
+    const schema = (database: DatabaseSync) =>
+      database.prepare("SELECT name, sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name").all();
+
+    it("keeps the rows, and every reference follows the new name", () => {
+      const database = seeded();
+      try {
+        migrateStateSchema(database, renamePlan({}, (connection) => connection.exec(rename)));
+        expect(database.prepare("SELECT id FROM owners").all()).toEqual([{ id: "a" }]);
+        expect(database.prepare("SELECT id, owner FROM owned").all()).toEqual([{ id: "row", owner: "a" }]);
+        expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+        expect(() => database.exec("INSERT INTO owned VALUES ('stray', 'nobody')")).toThrow(/FOREIGN KEY/u);
+        expect(() => database.exec("DELETE FROM owners WHERE id = 'a'")).toThrow(/FOREIGN KEY/u);
+      } finally {
+        database.close();
+      }
+    });
+
+    it.each([
+      ["a rename it did not declare", {}, "ALTER TABLE owned RENAME TO possessed;", /may not rename/u],
+      ["a declared table renamed to another name", {}, "ALTER TABLE old_owners RENAME TO masters;", /may not rename/u],
+      ["a column rename", {}, "ALTER TABLE old_owners RENAME COLUMN id TO key;", /may not rename/u],
+      ["dropping the table under its new name", {}, `${rename} DROP TABLE owners;`, /not authorized/u],
+      ["emptying the table under its new name", {}, `${rename} DELETE FROM owners;`, /not authorized/u],
+    ] as const)("refuses %s and leaves the database as it was", (_label, step, sql, reason) => {
+      const database = seeded();
+      try {
+        const before = schema(database);
+        expect(() => migrateStateSchema(database, renamePlan(step, (connection) => connection.exec(sql)))).toThrow(reason);
+        expect(schema(database)).toEqual(before);
+        expect(database.prepare("SELECT id FROM old_owners").all()).toEqual([{ id: "a" }]);
+        expect(database.prepare("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+      } finally {
+        database.close();
+      }
+    });
+
+    it("is only for a consolidating step", () => {
+      const database = seeded();
+      try {
+        expect(() =>
+          migrateStateSchema(
+            database,
+            renamePlan({ safety: STATE_SCHEMA_MIGRATION_SAFETY, removesTables: undefined }, (connection) => connection.exec(rename)),
+          ),
+        ).toThrow(/invalid state schema migration/u);
+      } finally {
+        database.close();
+      }
+    });
   });
 
   it("rejects a database from a newer release without mutation", () => {

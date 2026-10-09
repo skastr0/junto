@@ -68,10 +68,9 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
       const seatHosts = SqlSchema.findAll({
         Request: Schema.String,
         Result: Schema.Struct({ host_id: Schema.String }),
-        execute: (host) => sql`SELECT configuration.host_id FROM station_configuration AS configuration
-          JOIN station_installation AS installation ON installation.singleton=configuration.singleton
-          WHERE configuration.singleton=1 AND configuration.role='command-center' AND configuration.host_id=${host}
-          UNION ALL SELECT host_id FROM station_fleet_targets WHERE retired_at IS NULL AND host_id=${host}`,
+        execute: (host) => sql`SELECT machine_name AS host_id FROM machine_configuration
+          WHERE singleton=1 AND machine_name=${host}
+          UNION ALL SELECT machine_name AS host_id FROM machine_peers WHERE retired_at IS NULL AND machine_name=${host}`,
       });
       const requireSeatHost = Effect.fn("ModelRecords.requireSeatHost")(function* (host: string) {
         if ((yield* seatHosts(host)).length === 0)
@@ -108,7 +107,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         execute: (canvas) =>
           sql`SELECT COALESCE(
               editor_installation_id IS NULL
-              OR editor_installation_id = (SELECT installation_id FROM station_installation WHERE singleton = 1),
+              OR editor_installation_id = (SELECT installation_id FROM installation WHERE singleton = 1),
               0
             ) AS edits
             FROM canvases WHERE canvas_name=${canvas}`,
@@ -322,7 +321,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
       ) => {
         const at = new Date().toISOString();
         return sql`INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,editor_installation_id)
-          VALUES (${canvas},${id},${at},${at},(SELECT installation_id FROM station_installation WHERE singleton = 1))`.pipe(
+          VALUES (${canvas},${id},${at},${at},(SELECT installation_id FROM installation WHERE singleton = 1))`.pipe(
           Effect.asVoid,
           failure("createCanvas"),
         );
@@ -363,7 +362,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           yield* insert("wires", { ...wireToRow(input.canvas, wire), created_at: at, updated_at: at });
       }, failure("replaceCanvas"));
       const thisInstallation = Effect.fn("ModelRecords.thisInstallation")(() =>
-        sql<{ installation_id: string }>`SELECT installation_id FROM station_installation WHERE singleton = 1`.pipe(
+        sql<{ installation_id: string }>`SELECT installation_id FROM installation WHERE singleton = 1`.pipe(
           Effect.map((rows) => rows[0]?.installation_id),
           failure("thisInstallation"),
         ),

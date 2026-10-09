@@ -13,7 +13,6 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { seatSessionNotesPath } from "../src/main/junto/seat-sessions/notes-file";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V19_IDENTITY,
@@ -21,8 +20,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V19_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V19_SQL, STATE_SCHEMA_V20_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -63,6 +61,13 @@ const versionNineteenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 19),
 };
 
+const versionTwentyPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 20,
+  currentSchemaSql: STATE_SCHEMA_V20_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 20),
+};
+
 const at = "2026-10-09T00:00:00.000Z";
 
 /**
@@ -100,10 +105,9 @@ const seed = (database: DatabaseSync): void => {
 };
 
 describe("state migration 19 -> 20 (seat session pins)", () => {
-  it("freezes the version-nineteen witness the step starts from and names the head", () => {
+  it("freezes the version-nineteen witness the step starts from and the version-twenty one it ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V19_SQL)).toEqual(STATE_SCHEMA_V19_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V20_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V20_SQL)).toEqual(STATE_SCHEMA_V20_IDENTITY);
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(
@@ -117,7 +121,7 @@ describe("state migration 19 -> 20 (seat session pins)", () => {
         database.exec("PRAGMA foreign_keys = ON");
         const { seat_sessions: sessionsBefore, ...before } = snapshot(database);
 
-        const result = migrateStateSchema(database);
+        const result = migrateStateSchema(database, versionTwentyPlan);
         expect(result).toMatchObject({ previousVersion: 19, schemaVersion: 20 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V20_IDENTITY);
         expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -151,7 +155,7 @@ describe("state migration 19 -> 20 (seat session pins)", () => {
             .prepare("INSERT INTO seat_sessions(seat_id, session_id, harness, notes_path, started_at) VALUES ('open', 'a-second-open', 'claude', '/n.md', 1)")
             .run(),
         ).toThrow();
-        expect(migrateStateSchema(database)).toMatchObject({ previousVersion: 20, initialized: false });
+        expect(migrateStateSchema(database, versionTwentyPlan)).toMatchObject({ previousVersion: 20, initialized: false });
       } finally {
         database.close();
       }

@@ -1132,7 +1132,7 @@ const canonicalLocalWorkAuthority = Effect.fn(
     execute: () =>
       reader.unsafe(`
       SELECT installation_id
-      FROM station_installation
+      FROM installation
       WHERE singleton = 1
     `),
   })(undefined).pipe(Effect.map(Option.getOrUndefined));
@@ -1517,11 +1517,10 @@ const readReviewCanvas = Effect.fn("work.readReviewCanvas")(function* (reader: S
   const doc = yield* readModelCanvas(canvasName);
   if (!doc) return { doc, actorRefs: [] };
   const authority = yield* canonicalLocalWorkAuthority(reader);
-  const local = yield* reader.unsafe<{ host_id: string }>("SELECT host_id FROM station_configuration WHERE singleton = 1");
-  const placements = yield* reader.unsafe<{ host_id: string; station_installation_id: string }>("SELECT host_id,station_installation_id FROM station_fleet_targets WHERE retired_at IS NULL");
-  const installations = new Map(placements.map((row) => [row.host_id, row.station_installation_id as InstallationId]));
-  installations.set("local", authority.installationId);
-  if (local[0]) installations.set(local[0].host_id, authority.installationId);
+  const own = yield* reader.unsafe<{ machine_name: string }>("SELECT machine_name FROM machine_configuration WHERE singleton = 1");
+  const others = yield* reader.unsafe<{ machine_name: string; installation_id: string }>("SELECT machine_name, installation_id FROM machine_peers WHERE retired_at IS NULL");
+  const installations = new Map(others.map((row) => [row.machine_name, row.installation_id as InstallationId]));
+  if (own[0]) installations.set(own[0].machine_name, authority.installationId);
   const actorRefs: ActorRef[] = [];
   for (const node of doc.nodes.values()) {
     if (node.kind !== "agent") continue;
@@ -8254,7 +8253,7 @@ export const WorkRepositoryLive = Layer.effect(
             }
 
             yield* writer.unsafe(
-              "INSERT OR IGNORE INTO station_known_installations(installation_id, registered_at) VALUES (?, ?)",
+              "INSERT OR IGNORE INTO known_installations(installation_id, registered_at) VALUES (?, ?)",
               [frame.writer, receivedAt],
             );
             const mail: Array<AppliedExchangeRows["mail"][number]> = [];

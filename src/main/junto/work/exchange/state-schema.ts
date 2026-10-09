@@ -21,6 +21,28 @@ export const WORK_EXCHANGE_STATE_SCHEMA_SQL = `
     updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
     PRIMARY KEY (canvas_name, writer),
     FOREIGN KEY (writer)
+      REFERENCES known_installations(installation_id)
+      ON DELETE RESTRICT
+      ON UPDATE RESTRICT
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/** The cursor table exactly as state migration 15 -> 16 creates it. */
+export const WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS work_exchange_cursors (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    writer TEXT NOT NULL,
+    through TEXT NOT NULL
+      CHECK (
+        length(through) BETWEEN 1 AND 32
+        AND through NOT GLOB '*[^0-9]*'
+        AND (through = '0' OR substr(through, 1, 1) <> '0')
+      ),
+    last_basis_seq INTEGER NOT NULL
+      CHECK (last_basis_seq BETWEEN 0 AND 9007199254740991),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, writer),
+    FOREIGN KEY (writer)
       REFERENCES station_known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT

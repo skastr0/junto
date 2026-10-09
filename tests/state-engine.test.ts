@@ -744,14 +744,14 @@ describe("StateEngine", () => {
 
     const drifted = new DatabaseSync(path);
     try {
-      drifted.exec("DROP TRIGGER host_registry_retain_local");
+      drifted.exec("DROP TRIGGER host_registry_retain_own");
     } finally {
       drifted.close();
     }
 
     await expectSchemaRejectionWithoutMutation(
       path,
-      /state schema identity mismatch.*missing=trigger:host_registry_retain_local/,
+      /state schema identity mismatch.*missing=trigger:host_registry_retain_own/,
     );
   });
 

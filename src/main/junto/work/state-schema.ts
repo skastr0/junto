@@ -19,11 +19,11 @@ export const WORK_STATE_SCHEMA_SQL = `
       ),
     PRIMARY KEY (event_home, entity_home),
     FOREIGN KEY (event_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT
   ) STRICT, WITHOUT ROWID;
@@ -61,11 +61,11 @@ export const WORK_STATE_SCHEMA_SQL = `
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (event_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT
   ) STRICT, WITHOUT ROWID;
@@ -202,7 +202,7 @@ export const WORK_STATE_SCHEMA_SQL = `
       )
     ),
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)
@@ -257,7 +257,7 @@ export const WORK_STATE_SCHEMA_SQL = `
     CHECK (entity_home = fact_entity_home),
     CHECK (fact_event_home = fact_entity_home),
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)
@@ -301,7 +301,7 @@ export const WORK_STATE_SCHEMA_SQL = `
     CHECK (entity_home = fact_entity_home),
     CHECK (fact_event_home = fact_entity_home),
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)
@@ -348,7 +348,7 @@ export const WORK_STATE_SCHEMA_SQL = `
     CHECK (entity_home = fact_entity_home),
     CHECK (fact_event_home = fact_entity_home),
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)
@@ -417,7 +417,7 @@ export const WORK_STATE_SCHEMA_SQL = `
       OR task_entity_home = entity_home
     ),
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (
@@ -509,7 +509,7 @@ export const WORK_STATE_SCHEMA_SQL = `
     CHECK (entity_home = fact_entity_home),
     CHECK (fact_event_home = fact_entity_home),
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)
@@ -561,7 +561,7 @@ export const WORK_STATE_SCHEMA_SQL = `
     CHECK (entity_home = fact_entity_home),
     CHECK (fact_event_home = fact_entity_home),
     FOREIGN KEY (entity_home)
-      REFERENCES station_known_installations(installation_id)
+      REFERENCES known_installations(installation_id)
       ON DELETE RESTRICT
       ON UPDATE RESTRICT,
     FOREIGN KEY (fact_event_home, fact_entity_home, fact_seq)

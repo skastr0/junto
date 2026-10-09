@@ -17,8 +17,14 @@ import {
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
-  WORK_EXCHANGE_STATE_SCHEMA_SQL,
+  WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
 } from "../work/exchange/state-schema";
+import {
+  MACHINE_NAMES_CORRECTED_TABLES,
+  MACHINE_NAMES_REMOVED_TABLES,
+  MACHINE_NAMES_RENAMED_TABLES,
+  migrateMachineNames,
+} from "./migrate-machine-names";
 import {
   migrateOneMachineLog,
   ONE_MACHINE_LOG_REMOVED_TABLES,
@@ -35,6 +41,7 @@ import {
 } from "../portraits/state-schema";
 import {
   actualStateSchemaSha256,
+  normalizeSchemaSql,
   expectedStateSchemaIdentity,
   isFreshStateSchema,
   readRecordedStateSchemaIdentity,
@@ -100,6 +107,13 @@ export type StateSchemaMigration = {
    * applies.
    */
   readonly removesTables?: ReadonlyArray<string>;
+  /**
+   * Durable tables this consolidation step renames, old name to new, with
+   * `ALTER TABLE old RENAME TO new`. SQLite rewrites every reference to the
+   * table itself; the table keeps its rows and columns. No other rename is
+   * admitted.
+   */
+  readonly renamesTables?: Readonly<Record<string, string>>;
   /**
    * Runs synchronously inside StateEngine's startup BEGIN IMMEDIATE. Throwing
    * rolls back DDL, copied-forward data, schema identity, and user_version.
@@ -304,7 +318,17 @@ export const STATE_SCHEMA_V20_IDENTITY = {
     "ad2673cb715e3ef9bb5edd13fb7b8464db3fedb74e79167f9c3da70eee2ca6c1",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 20;
+/**
+ * Version 21 gives every machine a real name: the identity tables take their
+ * plain names, this machine's configuration and the machines it knows move to
+ * their new tables, and no canvas row says `local` any more.
+ */
+export const STATE_SCHEMA_V21_IDENTITY = {
+  actualSchemaSha256:
+    "3f66bf3f3123345039d6bd1bd9eda6c4bed42ffb7d5bb1ade4ed7ae0d5903148",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 21;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -312,7 +336,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 20;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V20_IDENTITY;
+  STATE_SCHEMA_V21_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -485,7 +509,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V15_IDENTITY,
     migrate: (database) => {
-      database.exec(WORK_EXCHANGE_STATE_SCHEMA_SQL);
+      database.exec(WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL);
     },
   },
   {
@@ -532,6 +556,23 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V19_IDENTITY,
     replacesTables: ["seat_sessions"],
     migrate: (database) => migrateSeatPins(database),
+  },
+  {
+    fromVersion: 20,
+    toVersion: 21,
+    name: "name this machine and the machines it knows",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V20_IDENTITY,
+    removesTables: [...MACHINE_NAMES_REMOVED_TABLES],
+    replacesTables: ["host_registry"],
+    retiresColumns: { host_registry: ["kind"] },
+    renamesTables: MACHINE_NAMES_RENAMED_TABLES,
+    replacesObjects: [
+      "trigger:station_known_installation_identity_immutable",
+      "trigger:station_local_installation_identity_immutable",
+    ],
+    correctiveWriteTables: [...MACHINE_NAMES_CORRECTED_TABLES],
+    migrate: (database) => migrateMachineNames(database),
   },
 ];
 
@@ -705,8 +746,18 @@ const assertExpandSchemaPreserved = (
   } = { indexes: new Set(), triggers: new Set() },
   removedTables: ReadonlySet<string> = new Set(),
   retiredColumns: Readonly<Record<string, ReadonlyArray<string>>> = {},
+  renamedTables: Readonly<Record<string, string>> = {},
 ): void => {
   const after = expandSchemaSnapshot(database);
+  /** An object's stored text as SQLite leaves it once the renamed tables carry their new names. */
+  const renamed = (sql: string | null): string | null => {
+    if (sql === null) return null;
+    let text = sql;
+    for (const [from, to] of Object.entries(renamedTables)) {
+      text = text.replace(new RegExp(`(?<![A-Za-z0-9_])${from}(?![A-Za-z0-9_])`, "gu"), to);
+    }
+    return normalizeSchemaSql(text);
+  };
   for (const [tableName, beforeColumns] of before.tables) {
     if (removedTables.has(tableName)) {
       if (after.tables.has(tableName)) {
@@ -716,7 +767,7 @@ const assertExpandSchemaPreserved = (
       }
       continue;
     }
-    const afterColumns = after.tables.get(tableName);
+    const afterColumns = after.tables.get(renamedTables[tableName] ?? tableName);
     if (afterColumns === undefined) {
       throw new Error(
         `state schema startup migration removed table ${tableName}`,
@@ -747,7 +798,14 @@ const assertExpandSchemaPreserved = (
       if (kind === "trigger" && sideObjects.triggers.has(name)) continue;
       if (kind === "index" && sideObjects.indexes.has(name)) continue;
     }
-    if (after.retainedObjects.get(key) !== sql) {
+    const kept = after.retainedObjects.get(key);
+    // Byte for byte, unless the step renamed a table: then SQLite rewrote the
+    // name inside every object that refers to it, and nothing else.
+    const follows =
+      Object.keys(renamedTables).length > 0 &&
+      typeof kept === "string" &&
+      normalizeSchemaSql(kept) === renamed(sql);
+    if (kept !== sql && !follows) {
       throw new Error(
         `state schema startup migration changed durable ${key}`,
       );
@@ -781,10 +839,20 @@ const migrationOwnedPragmas = new Set([
   "writable_schema",
 ]);
 
-const assertExpandOnlyMigrationSql = (sql: string): void => {
-  const withoutComments = sql
+const assertExpandOnlyMigrationSql = (
+  sql: string,
+  renamesTables: Readonly<Record<string, string>> = {},
+): void => {
+  let withoutComments = sql
     .replace(/--[^\r\n]*/gu, " ")
     .replace(/\/\*[\s\S]*?\*\//gu, " ");
+  // The renames a step declares are the only ones it may make.
+  for (const [from, to] of Object.entries(renamesTables)) {
+    withoutComments = withoutComments.replace(
+      new RegExp(`\\balter\\s+table\\s+${from}\\s+rename\\s+to\\s+${to}\\s*(?=;|$)`, "giu"),
+      " ",
+    );
+  }
   if (
     /\balter\s+table\b[\s\S]*?\b(?:rename(?:\s+(?:to|column))?|drop\s+column)\b/iu
       .test(withoutComments)
@@ -879,17 +947,18 @@ const runMigrationStep = (
   const correctiveWriteTables = new Set<string>(
     migration.correctiveWriteTables ?? [],
   );
+  const renamedTo = new Set<string>(Object.values(migration.renamesTables ?? {}));
   const sideObjects = sideObjectsForReplacedTables(
     database,
     new Set([...replacesTables, ...removesTables]),
   );
   const connection: StateSchemaMigrationDatabase = {
     exec: (sql) => {
-      assertExpandOnlyMigrationSql(sql);
+      assertExpandOnlyMigrationSql(sql, migration.renamesTables);
       database.exec(sql);
     },
     prepare: (sql, options) => {
-      assertExpandOnlyMigrationSql(sql);
+      assertExpandOnlyMigrationSql(sql, migration.renamesTables);
       return database.prepare(sql, options);
     },
   };
@@ -899,8 +968,15 @@ const runMigrationStep = (
       arg1 === "sqlite_schema" || arg1 === "sqlite_master";
     const isReplacedTable = arg1 !== null && replacesTables.has(arg1);
     const isRemovedTable = arg1 !== null && removesTables.has(arg1);
+    // A table the step made itself is the step's to drop: a backup, or a
+    // working copy under any name. A durable table under its new name is not.
     const isMigrateBackup =
-      arg1 !== null && arg1.endsWith("__migrate_bak");
+      arg1 !== null &&
+      (arg1.endsWith("__migrate_bak") ||
+        (!isSchemaCatalog &&
+          !arg1.startsWith("sqlite_") &&
+          !before.tables.has(arg1) &&
+          !renamedTo.has(arg1)));
     const isSideIndex = arg1 !== null && sideObjects.indexes.has(arg1);
     const isSideTrigger = arg1 !== null && sideObjects.triggers.has(arg1);
 
@@ -982,6 +1058,7 @@ const runMigrationStep = (
       sideObjects,
       removesTables,
       migration.retiresColumns,
+      migration.renamesTables,
     );
   } finally {
     database.setAuthorizer(null);
@@ -1042,6 +1119,8 @@ export const validateStateSchemaMigrationPlan = (
       ((migration.removesTables?.length ?? 0) > 0 || (migration.replacesTables?.length ?? 0) > 0) !==
         (migration.safety === STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
       ((migration.correctiveWriteTables?.length ?? 0) > 0 &&
+        migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
+      (Object.keys(migration.renamesTables ?? {}).length > 0 &&
         migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
       (migration.retiresColumns !== undefined && (
         migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY ||
