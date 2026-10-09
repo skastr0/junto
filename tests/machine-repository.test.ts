@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient } from "effect/unstable/sql";
@@ -9,6 +11,9 @@ import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schem
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { MODEL_STATE_SCHEMA_SQL } from "../src/main/junto/model/state-schema";
 import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/main/junto/hosts/state-schema";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { ModelService } from "../src/main/junto/model/service";
+import { ModelDependents } from "../src/main/junto/model/dependents";
 
 const fixture = () => {
   const database = new DatabaseSync(":memory:");
@@ -24,6 +29,25 @@ const fixture = () => {
 const peer = { machineName: "mini", installationId: Schema.decodeUnknownSync(InstallationId)("mini-install") };
 
 describe("machine repository", () => {
+  it("can name a real fresh home after the normal model seed", async () => {
+    const home = await mkdtemp("/tmp/junto-name-");
+    const runtime = ManagedRuntime.make(Layer.mergeAll(
+      makeMachineRepositoryLive(),
+      ModelService.layer.pipe(Layer.provide(ModelDependents.empty)),
+    ).pipe(Layer.provideMerge(makeStateEngineLive(join(home, "state", "junto.db")))));
+    try {
+      await runtime.runPromise(Effect.gen(function* () {
+        const model = yield* ModelService;
+        const machines = yield* MachineRepository;
+        const sql = yield* SqlClient.SqlClient;
+        yield* model.ensureSeed;
+        expect(yield* sql`SELECT seq FROM canvases`).toEqual([{ seq: 0 }]);
+        yield* machines.configureName("exercise");
+        expect(yield* machines.machineName).toBe("exercise");
+      }));
+    } finally { await runtime.dispose(); await rm(home, { recursive: true, force: true }); }
+  });
+
   it("persists one identity and a configured name", async () => {
     const f = fixture();
     try {

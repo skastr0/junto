@@ -569,11 +569,11 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),
-  settingsSetStationTopology: (station) =>
+  settingsSetMachinePreferences: (machine) =>
     invoke<SettingsOpResult>(
-      IPC_CHANNELS.settingsSetStationTopology,
+      IPC_CHANNELS.settingsSetMachinePreferences,
       IPC_TIMEOUT_MS,
-      station,
+      machine,
     ),
   settingsReset: (section?: SettingsSectionKey) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsReset, IPC_TIMEOUT_MS, section),

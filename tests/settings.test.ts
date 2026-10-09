@@ -9,7 +9,7 @@ import { Effect, Result, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
   SETTINGS_VERSION,
-  StationSettings,
+  MachineSettings,
   TERMINAL_BOUNDS,
   TerminalSettings,
   applySettingsPatch,
@@ -25,20 +25,20 @@ import {
 import {
   applyAndValidatePatch,
   decodePatchInput,
-  decodeStationTopologyPatch,
+  decodeMachinePreferencesPatch,
 } from "../src/main/junto/settings/patch";
 import {
   decodeStoredSettings,
 } from "../src/main/junto/settings/state-schema";
 import {
   makeSettingsService,
-  shouldEnsureDefaultCommandCenter,
   type SettingsServiceApi,
 } from "../src/main/junto/settings/service";
 import {
   CredentialBindingRepository,
 } from "../src/main/junto/credentials/bindings";
-import { StationConfigurationRepository } from "../src/main/junto/station/configuration-state";
+import { MachineConfigurationRepository } from "../src/main/junto/machines/configuration";
+import { defaultMachineName } from "../src/shared/machine-name";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
@@ -77,13 +77,13 @@ describe("settings contract", () => {
 
   it("rejects the retired topologyIntegrity field at every decode boundary", () => {
     const retiredStation = {
-      ...defaultSettings().station,
+      ...defaultSettings().machine,
       topologyIntegrity: "ok",
     };
-    expect("topologyIntegrity" in defaultSettings().station).toBe(false);
+    expect("topologyIntegrity" in defaultSettings().machine).toBe(false);
     expect(
       Result.isFailure(
-        Schema.decodeUnknownResult(StationSettings, {
+        Schema.decodeUnknownResult(MachineSettings, {
           onExcessProperty: "error",
         })(retiredStation),
       ),
@@ -91,13 +91,13 @@ describe("settings contract", () => {
     expect(
       Result.isFailure(
         decodePatchInput({
-          station: { topologyIntegrity: "ok" },
+          machine: { topologyIntegrity: "ok" },
         }),
       ),
     ).toBe(true);
     expect(
       Result.isFailure(
-        decodeStationTopologyPatch({ topologyIntegrity: "ok" }),
+        decodeMachinePreferencesPatch({ topologyIntegrity: "ok" }),
       ),
     ).toBe(true);
   });
@@ -123,14 +123,14 @@ describe("settings contract", () => {
   });
 
   it("maps the pre-rename theme value to dark on decode", () => {
-    const { version: _version, station, ...preferences } = defaultSettings();
+    const { version: _version, machine, ...preferences } = defaultSettings();
     const decoded = decodeStoredSettings(
       SETTINGS_VERSION,
       {
         ...preferences,
         appearance: { ...preferences.appearance, theme: "deep-field" },
       },
-      station,
+      machine,
     );
     expect(decoded.appearance.theme).toBe("dark");
   });
@@ -139,7 +139,7 @@ describe("settings contract", () => {
     const defaults = defaultSettings();
     const {
       version: _version,
-      station,
+      machine,
       ...preferences
     } = defaults;
 
@@ -151,7 +151,7 @@ describe("settings contract", () => {
         ...preferences,
         retiredCompatibility: true,
       },
-      station,
+      machine,
     );
     expect("retiredCompatibility" in decoded).toBe(false);
     // Live patch input is a caller's intent, not old data: typos still fail.
@@ -169,7 +169,7 @@ describe("settings contract", () => {
     ).toBe(true);
     expect(
       Result.isFailure(
-        decodeStationTopologyPatch({ legacyManagedRollback: true }),
+        decodeMachinePreferencesPatch({ legacyManagedRollback: true }),
       ),
     ).toBe(true);
   });
@@ -186,7 +186,7 @@ describe("SQLite settings service", () => {
   let databasePath = "";
   let active: Harness | undefined;
   const makeRuntime = () => ManagedRuntime.make(
-    Layer.mergeAll(CredentialBindingRepository.layer, StationConfigurationRepository.layer).pipe(
+    Layer.mergeAll(CredentialBindingRepository.layer, MachineConfigurationRepository.layer).pipe(
       Layer.provideMerge(makeStateEngineLive(databasePath)),
     ),
   );
@@ -232,21 +232,13 @@ describe("SQLite settings service", () => {
     return harness;
   };
 
-  it("does not infer Command Center for headless enrollment argv", () => {
-    expect(shouldEnsureDefaultCommandCenter(["node", "app"])).toBe(true);
-    expect(
-      shouldEnsureDefaultCommandCenter(["node", "app", "--junto-headless"]),
-    ).toBe(false);
-  });
-
-  it("initializes defaults in SQLite and auto-establishes Command Center", async () => {
+  it("initializes preferences and this machine's canonical name in SQLite", async () => {
     const { service, sql } = await openService();
     const settings = await run(service.get);
     expect(settings).toEqual({
       ...defaultSettings(),
-      station: {
-        role: "command-center",
-        hostId: "local",
+      machine: {
+        name: defaultMachineName(),
         supervisedPreferred: false,
       },
     });
@@ -254,18 +246,18 @@ describe("SQLite settings service", () => {
     const counts = await run(
       Effect.gen(function* () {
         const preferences = yield* sql<{ count: number }>`SELECT count(*) AS count FROM settings_preferences`;
-        const station = yield* sql<{ count: number }>`SELECT count(*) AS count FROM station_configuration`;
+        const machine = yield* sql<{ count: number }>`SELECT count(*) AS count FROM machine_configuration`;
         const initialization = yield* sql<{ count: number }>`SELECT count(*) AS count FROM settings_initialization`;
         return {
           preferences: Number(preferences[0]?.count ?? -1),
-          stationConfiguration: Number(station[0]?.count ?? -1),
+          machineConfiguration: Number(machine[0]?.count ?? -1),
           initialization: Number(initialization[0]?.count ?? -1),
         };
       }),
     );
     expect(counts).toEqual({
       preferences: 1,
-      stationConfiguration: 1,
+      machineConfiguration: 1,
       initialization: 1,
     });
   });
@@ -295,12 +287,11 @@ describe("SQLite settings service", () => {
     expect(optedIn.fleet.remoteManagedInstallsConsented).toBe(true);
   });
 
-  it("persists preferences and canonical station configuration across restart", async () => {
+  it("persists preferences and canonical machine configuration across restart", async () => {
     const first = await openService();
     await run(
-      first.service.setStationTopology({
-        role: "command-center",
-        hostId: "local",
+      first.service.setMachinePreferences({
+        supervisedPreferred: true,
       }),
     );
     await run(
@@ -315,27 +306,26 @@ describe("SQLite settings service", () => {
 
     const second = await openService();
     const reloaded = await run(second.service.get);
-    expect(reloaded.station.role).toBe("command-center");
+    expect(reloaded.machine.name).toBe(defaultMachineName());
     expect(reloaded.appearance.reduceMotion).toBe(true);
     expect(reloaded.fleet.ditherLevel).toBe("coarse");
     expect(reloaded.fleet.remoteManagedInstalls).toBe(true);
   });
 
-  it("commits generic preference patches without rewriting station configuration", async () => {
+  it("commits generic preference patches without rewriting machine configuration", async () => {
     const { service, sql } = await openService();
     await run(
-      service.setStationTopology({
-        role: "command-center",
-        hostId: "local",
+      service.setMachinePreferences({
+        supervisedPreferred: true,
       }),
     );
     const before = await run(
-      sql`SELECT role, host_id, configured_at FROM station_configuration WHERE singleton = 1`.pipe(Effect.map((rows) => rows[0])),
+      sql`SELECT machine_name, configured_at FROM machine_configuration WHERE singleton = 1`.pipe(Effect.map((rows) => rows[0])),
     );
 
     await run(service.patch({ browser: { maxVisibleSurfaces: 4 } }));
     const after = await run(
-      sql`SELECT role, host_id, configured_at FROM station_configuration WHERE singleton = 1`.pipe(Effect.map((rows) => rows[0])),
+      sql`SELECT machine_name, configured_at FROM machine_configuration WHERE singleton = 1`.pipe(Effect.map((rows) => rows[0])),
     );
     expect(after).toEqual(before);
   });
@@ -428,109 +418,32 @@ describe("SQLite settings service", () => {
     expect((await run(service.get)).appearance.reduceMotion).toBe(true);
   });
 
-  it("rejects station topology through the generic patch surface", async () => {
+  it("protects name and supervision from generic patches", async () => {
     const { service } = await openService();
-    const result = await runEither(
-      service.patch({ station: { role: "command-center" } }),
-    );
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.code).toBe("validation");
-      expect(result.failure.message).toContain("settingsSetStationTopology");
-    }
-    expect((await run(service.get)).station.role).toBe("command-center");
-  });
-
-  it("freezes established Command Center identity but permits supervisor preference", async () => {
-    const { service } = await openService();
-    await run(
-      service.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-        supervisedPreferred: true,
-      }),
-    );
-
-    for (const mutation of [
-      { hostId: "other-box" },
-      { role: "remote" as const },
-      { role: "" as const },
-    ]) {
-      const result = await runEither(service.setStationTopology(mutation));
+    for (const input of [{ machine: { name: "studio" } }, { machine: { supervisedPreferred: true } }]) {
+      const result = await runEither(service.patch(input));
       expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure.message).toContain("settingsSetMachinePreferences");
     }
-
-    const next = await run(
-      service.setStationTopology({ supervisedPreferred: false }),
-    );
-    expect(next.station).toMatchObject({
-      role: "command-center",
-      hostId: "local",
-      supervisedPreferred: false,
-    });
+    expect((await run(service.get)).machine).toEqual({ name: defaultMachineName(), supervisedPreferred: false });
   });
 
-  it("refuses to invent a Remote identity through local Settings", async () => {
-    const { service, sql } = await openService();
-    const result = await runEither(
-      service.setStationTopology({
-        role: "remote",
-        hostId: "studio",
-        agentHostId: "studio",
-        supervisedPreferred: true,
-      }),
-    );
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.message).toContain("Station API");
-    }
-    // v1 auto-establishes Command Center; remote invent still fails and leaves CC.
-    expect((await run(service.get)).station).toEqual({
-      role: "command-center",
-      hostId: "local",
-      supervisedPreferred: false,
-    });
-    expect(
-      await run(
-        sql`SELECT role FROM station_configuration WHERE singleton = 1`.pipe(Effect.map((rows) => rows[0])),
-      ),
-    ).toEqual({ role: "command-center" });
-  });
-
-  it("rejects the retired topologyIntegrity field instead of ignoring it", async () => {
+  it("changes supervision without changing identity and rejects other fields", async () => {
     const { service } = await openService();
-    const result = await runEither(
-      service.setStationTopology({
-        role: "command-center",
-        topologyIntegrity: "ok",
-      }),
-    );
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.message).toMatch(
-        /topologyIntegrity|Unexpected key/i,
-      );
-    }
-    expect((await run(service.get)).station.role).toBe("command-center");
+    const next = await run(service.setMachinePreferences({ supervisedPreferred: true }));
+    expect(next.machine).toEqual({ name: defaultMachineName(), supervisedPreferred: true });
+    expect(Result.isFailure(await runEither(service.setMachinePreferences({ name: "studio" })))).toBe(true);
+    expect((await run(service.get)).machine).toEqual(next.machine);
   });
 
-  it("reset preserves protected topology and refuses station reset", async () => {
+  it("reset keeps this machine's name and supervision preference", async () => {
     const { service } = await openService();
-    await run(
-      service.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-      }),
-    );
+    const changed = await run(service.setMachinePreferences({ supervisedPreferred: true }));
     await run(service.patch({ browser: { maxVisibleSurfaces: 4 } }));
     const reset = await run(service.reset());
-    expect(reset.station.role).toBe("command-center");
-    expect(reset.browser.maxVisibleSurfaces).toBe(
-      defaultSettings().browser.maxVisibleSurfaces,
-    );
-    expect(Result.isFailure(await runEither(service.reset("station")))).toBe(
-      true,
-    );
+    expect(reset.machine).toEqual(changed.machine);
+    expect(reset.browser).toEqual(defaultSettings().browser);
+    expect(Result.isFailure(await runEither(service.reset("machine")))).toBe(true);
   });
 
   it("reports database-backed settings health without leaking paths", async () => {
@@ -545,59 +458,11 @@ describe("SQLite settings service", () => {
     expect(check.detail).not.toContain(root);
     expect(check.metadata).toMatchObject({
       version: "1",
-      role: "command-center",
-      hostId: "local",
+      machineName: defaultMachineName(),
       supervisedPreferred: "false",
       supervisedInstalled: "absent",
       supervisedAligned: "true",
     });
-  });
-
-  it("fails closed on malformed canonical Remote configuration", async () => {
-    const { service, sql } = await openService();
-    await run(
-      sql.withTransaction(Effect.gen(function* () {
-        yield* sql.unsafe(
-          `INSERT INTO station_known_installations(
-             installation_id,
-             registered_at
-           ) VALUES ('command-id', ?)`,
-          ["2026-07-27T12:00:00.000Z"],
-        );
-        // Replace auto-established CC with a malformed Remote row.
-        yield* sql.unsafe(
-          `INSERT INTO station_configuration(
-             singleton,
-             role,
-             host_id,
-             agent_host_id,
-             command_center_installation_id,
-             supervised_preferred,
-             configured_at
-           ) VALUES (1, 'remote', ?, 'studio', 'command-id', 1, ?)
-           ON CONFLICT(singleton) DO UPDATE SET
-             role = excluded.role,
-             host_id = excluded.host_id,
-             agent_host_id = excluded.agent_host_id,
-             command_center_installation_id =
-               excluded.command_center_installation_id,
-             supervised_preferred = excluded.supervised_preferred,
-             configured_at = excluded.configured_at`,
-          [
-            "-invalid-host",
-            "2026-07-27T12:00:00.000Z",
-          ],
-        );
-      })),
-    );
-    const result = await runEither(service.get);
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.code).toBe("corrupt");
-      expect(result.failure.message).toContain(
-        "canonical station configuration is invalid",
-      );
-    }
   });
 
   it("ignores an unknown stored preference key without rewriting the row", async () => {
@@ -824,7 +689,7 @@ describe("terminal settings fragment", () => {
   it("decodes a stored row written without the terminal fragment", () => {
     const {
       version: _version,
-      station,
+      machine,
       terminal: _terminal,
       ...preferencesWithoutTerminal
     } = defaultSettings();
@@ -833,7 +698,7 @@ describe("terminal settings fragment", () => {
     const decoded = decodeStoredSettings(
       SETTINGS_VERSION,
       preferencesWithoutTerminal,
-      station,
+      machine,
     );
     expect(decoded.terminal).toEqual(defaultTerminal());
     // And the rest of the aggregate is untouched by the fill-in.

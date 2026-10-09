@@ -17,7 +17,7 @@ import {
   ProvidersSettings,
   SETTINGS_VERSION,
   SettingsError,
-  StationSettings,
+  MachineSettings,
   TerminalSettings,
   defaultFeed,
   defaultKeyboard,
@@ -32,8 +32,8 @@ import {
 import { persistableProviders } from "../credentials/redact";
 
 /**
- * Settings owns preferences only. Station topology is normalized separately
- * in station_configuration and is joined into the public aggregate on read.
+ * Settings owns preferences only. Machine identity and supervision is normalized separately
+ * in machine_configuration and is joined into the public aggregate on read.
  */
 export const SETTINGS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS settings_preferences (
@@ -115,7 +115,7 @@ const decodePreferences = (
   const lenient = decodePreferencesDroppingUnknown(preferences);
   return lenient._tag === "Success" ? lenient : strict;
 };
-const decodeTopology = Schema.decodeUnknownResult(StationSettings, {
+const decodeMachine = Schema.decodeUnknownResult(MachineSettings, {
   onExcessProperty: "error",
 });
 
@@ -170,7 +170,7 @@ const migrateLegacyPreferences = (preferences: unknown): unknown => {
 export const decodeStoredSettings = (
   version: unknown,
   preferences: unknown,
-  station: unknown,
+  machine: unknown,
 ): Settings => {
   if (version !== SETTINGS_VERSION) {
     throw new SettingsError({
@@ -190,13 +190,13 @@ export const decodeStoredSettings = (
         }`,
     });
   }
-  const decodedTopology = decodeTopology(station);
-  if (decodedTopology._tag === "Failure") {
+  const decodedMachine = decodeMachine(machine);
+  if (decodedMachine._tag === "Failure") {
     throw new SettingsError({
       code: "corrupt",
       message:
-        `canonical station configuration projects invalid settings: ${
-          formatParse(decodedTopology.failure)
+        `canonical machine configuration projects invalid settings: ${
+          formatParse(decodedMachine.failure)
         }`,
     });
   }
@@ -219,6 +219,6 @@ export const decodeStoredSettings = (
     offboard: prefs.offboard ?? defaultOffboardRules(),
     providers: prefs.providers ?? defaultProviders(),
     ...(prefs.portraits ? { portraits: prefs.portraits } : {}),
-    station: decodedTopology.success,
+    machine: decodedMachine.success,
   };
 };

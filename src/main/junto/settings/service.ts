@@ -2,10 +2,6 @@ import { Context, Effect, Result, Layer, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import type { ServiceCheck } from "@shared/contracts";
 import {
-  CommandCenterConfiguration,
-  StationHostId,
-} from "@shared/station-api";
-import {
   SETTINGS_MAX_SERIALIZED_BYTES,
   SettingsError,
   defaultAdvanced,
@@ -15,10 +11,9 @@ import {
   type Settings,
   type SettingsSectionKey,
 } from "@shared/settings";
-import {
-  assessSupervisedRuntime,
-  DEFAULT_STATION_HOST_ID,
-} from "@shared/station";
+import { assessSupervisedRuntime } from "@shared/supervised-runtime";
+import { defaultMachineName } from "@shared/machine-name";
+import { MachineName } from "@shared/machine-control";
 import {
   StateEngine,
   StateTransactionOperation,
@@ -27,7 +22,7 @@ import { withSqlRead } from "../state/sql-read";
 import {
   applyAndValidatePatch,
   decodePatchInput,
-  decodeStationTopologyPatch,
+  decodeMachinePreferencesPatch,
 } from "./patch";
 import {
   decodeStoredSettings,
@@ -38,10 +33,10 @@ import {
   type SupervisedProbe,
 } from "./supervised-probe";
 import {
-  StationConfigurationRepository,
-  stationSettingsFromConfiguration,
-  type StoredStationConfiguration,
-} from "../station/configuration-state";
+  MachineConfigurationRepository,
+  machineSettingsFromConfiguration,
+  type StoredMachineConfiguration,
+} from "../machines/configuration";
 import { CredentialBindingRepository } from "../credentials/bindings";
 import {
   clearAllProviderSecretOps,
@@ -63,26 +58,13 @@ import {
 } from "../credentials/store";
 import { dirname, join } from "node:path";
 
-/**
- * Settings preserves the renderer-facing aggregate while storing only ordinary
- * preferences. Its station section is a projection of station_configuration,
- * the sole normalized topology authority.
- */
-/**
- * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@junto/SettingsService` — single definition; no dual path.
- * - Service id: Context.Service (Effect V4 live).
- * - Shape:
- *   `class SettingsService extends Context.Service<SettingsService, SettingsService>()("@junto/SettingsService") {}`
- * - Layer today: SettingsLive / makeSettingsLive — V4 rename candidate SettingsService.layer
- *   Do not dual-export Live + `.layer` names.
- */
+/** Machine configuration joins preferences in the public settings value. */
 export class SettingsService extends Context.Service<SettingsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly get: Effect.Effect<Settings, SettingsError>;
     readonly patch: (input: unknown) => Effect.Effect<Settings, SettingsError>;
-    readonly setStationTopology: (
+    readonly setMachinePreferences: (
       input: unknown,
     ) => Effect.Effect<Settings, SettingsError>;
     readonly reset: (
@@ -99,7 +81,7 @@ export interface SettingsServiceApi {
   readonly doctor: Effect.Effect<ServiceCheck>;
   readonly get: Effect.Effect<Settings, SettingsError>;
   readonly patch: (input: unknown) => Effect.Effect<Settings, SettingsError>;
-  readonly setStationTopology: (
+  readonly setMachinePreferences: (
     input: unknown,
   ) => Effect.Effect<Settings, SettingsError>;
   readonly reset: (
@@ -115,21 +97,11 @@ export interface SettingsServiceApi {
 export type SettingsServiceOptions = {
   /** Override supervisor probe in tests. */
   readonly probeSupervised?: SupervisedProbe;
-  /**
-   * When false, skip v1 auto-Command-Center (tests and Remote/headless
-   * enrollment). GUI Command Center boots still default this on.
-   */
-  readonly ensureDefaultCommandCenter?: boolean;
   /** Override credential vault in tests. */
   readonly credentials?: CredentialStore;
 };
 
-/** Headless enrollment must not infer Command Center. Role is never inferred. */
-export const shouldEnsureDefaultCommandCenter = (
-  argv: readonly string[] = process.argv,
-): boolean => !argv.includes("--junto-headless");
-
-type StationConfigurationService = typeof StationConfigurationRepository.Service;
+type MachineConfigurationService = typeof MachineConfigurationRepository.Service;
 type CredentialBindings = typeof CredentialBindingRepository.Service;
 type SettingsRows = {
   readonly preferences:
@@ -138,7 +110,7 @@ type SettingsRows = {
         readonly body: string;
       }
     | undefined;
-  readonly station: StoredStationConfiguration | undefined;
+  readonly machine: StoredMachineConfiguration | undefined;
   readonly initialization:
     | {
         readonly initializedAt: string;
@@ -208,7 +180,7 @@ const parseBody = (label: string, raw: string): unknown => {
 
 const readRows = Effect.fn("settings.read-rows")(function* (
   sql: SqlClient.SqlClient,
-  configuration: StationConfigurationService,
+  configuration: MachineConfigurationService,
 ) {
   const preferences = yield* SqlSchema.findOneOption({
     Request: Schema.Void,
@@ -220,11 +192,11 @@ const readRows = Effect.fn("settings.read-rows")(function* (
     Result: InitializationRow,
     execute: () => sql.unsafe(SELECT_INITIALIZATION_SQL),
   })(undefined);
-  const station = yield* configuration.read.pipe(Effect.mapError((error) =>
+  const machine = yield* configuration.read.pipe(Effect.mapError((error) =>
     new SettingsError({
       code: "corrupt",
       message:
-        `canonical station configuration is invalid: ${
+        `canonical machine configuration is invalid: ${
           error instanceof Error ? error.message : String(error)
         }`,
     }),
@@ -234,7 +206,7 @@ const readRows = Effect.fn("settings.read-rows")(function* (
       preferences._tag === "None"
         ? undefined
         : preferences.value,
-    station,
+    machine,
     initialization:
       initialization._tag === "None"
         ? undefined
@@ -271,7 +243,7 @@ const decodeRows = (
     settings: decodeStoredSettings(
       rows.preferences.version,
       parseBody("stored settings preferences", rows.preferences.body),
-      stationSettingsFromConfiguration(rows.station),
+      machineSettingsFromConfiguration(rows.machine),
     ),
     initialization: rows.initialization,
   };
@@ -279,13 +251,13 @@ const decodeRows = (
 
 const readStoredState = Effect.fn("settings.read-stored")(function* (
   sql: SqlClient.SqlClient,
-  configuration: StationConfigurationService,
+  configuration: MachineConfigurationService,
 ) {
   const rows = yield* readRows(sql, configuration);
   return yield* Effect.try({ try: () => decodeRows(rows), catch: stateFailure("decode") });
 });
 
-const readSettings = (sql: SqlClient.SqlClient, configuration: StationConfigurationService) =>
+const readSettings = (sql: SqlClient.SqlClient, configuration: MachineConfigurationService) =>
   readStoredState(sql, configuration).pipe(Effect.map((stored) => stored?.settings));
 
 const presentSettings = (bindings: CredentialBindings, settings: Settings) =>
@@ -348,7 +320,7 @@ const writeInitialSettings = Effect.fn("settings.write-initial")(function* (
  */
 const repairFleetConsent = (
   sql: SqlClient.SqlClient,
-  configuration: StationConfigurationService,
+  configuration: MachineConfigurationService,
 ): Effect.Effect<void, SettingsError> =>
   transaction(
     sql,
@@ -382,7 +354,7 @@ const repairFleetConsent = (
 
 const initializeSettings = (
   sql: SqlClient.SqlClient,
-  configuration: StationConfigurationService,
+  configuration: MachineConfigurationService,
 ): Effect.Effect<StoredSettingsState, SettingsError> =>
   transaction(
     sql,
@@ -402,27 +374,15 @@ const initializeSettings = (
     }),
   );
 
-/**
- * v1 is single-machine: every unset, unpaired installation becomes the local
- * Command Center. Remote pairing remains possible only via Station API (not
- * a first-run product path). Idempotent.
- */
-const ensureDefaultCommandCenter = (
+const ensureMachineConfiguration = (
   sql: SqlClient.SqlClient,
-  configuration: StationConfigurationService,
+  configuration: MachineConfigurationService,
 ): Effect.Effect<void, SettingsError> =>
-  transaction(sql, "settings.ensure-command-center", Effect.gen(function* () {
-      if ((yield* configuration.read) !== undefined) return;
-      const hostId = yield* Schema.decodeUnknownEffect(StationHostId)(DEFAULT_STATION_HOST_ID);
-      yield* configuration.write(
-        {
-          role: "command-center",
-          hostId,
-          supervisedPreferred: false,
-        },
-        new Date().toISOString(),
-      );
-    }));
+  transaction(sql, "settings.ensure-machine", Effect.gen(function* () {
+    if ((yield* configuration.read) !== undefined) return;
+    const name = yield* Schema.decodeUnknownEffect(MachineName)(defaultMachineName());
+    yield* configuration.write({ name, supervisedPreferred: false }, new Date().toISOString());
+  }));
 
 type MutationResult = {
   readonly settings: Settings;
@@ -459,22 +419,23 @@ const publishAfterCommit = (
 export const makeSettingsService = (
   databasePath: string,
   options: SettingsServiceOptions = {},
-): Effect.Effect<SettingsServiceApi, SettingsError, SqlClient.SqlClient | CredentialBindingRepository | StationConfigurationRepository> =>
+): Effect.Effect<SettingsServiceApi, SettingsError, SqlClient.SqlClient | CredentialBindingRepository | MachineConfigurationRepository> =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const bindings = yield* CredentialBindingRepository;
-    const stationConfiguration = yield* StationConfigurationRepository;
+    const machineConfiguration = yield* MachineConfigurationRepository;
     const probeSupervised =
       options.probeSupervised ?? probeSupervisedRuntime;
     const credentials =
       options.credentials ??
       openFileCredentialStore(join(dirname(databasePath), "credentials"));
-    yield* initializeSettings(sql, stationConfiguration);
-    yield* repairFleetConsent(sql, stationConfiguration);
+    yield* ensureMachineConfiguration(sql, machineConfiguration);
+    yield* initializeSettings(sql, machineConfiguration);
+    yield* repairFleetConsent(sql, machineConfiguration);
     const migrated = yield* Effect.result(
       transaction(sql, "settings.migrate-provider-secrets", Effect.gen(function* () {
         yield* reconcileCredentialVault(bindings, credentials);
-        const current = yield* readSettings(sql, stationConfiguration);
+        const current = yield* readSettings(sql, machineConfiguration);
         if (current === undefined) {
           return { retired: [] as ReadonlyArray<string> };
         }
@@ -494,16 +455,9 @@ export const makeSettingsService = (
         retireVaultSecrets(bindings, credentials, migrated.success.retired),
       ).pipe(Effect.result);
     }
-    if (
-      options.ensureDefaultCommandCenter !== false &&
-      shouldEnsureDefaultCommandCenter()
-    ) {
-      yield* ensureDefaultCommandCenter(sql, stationConfiguration);
-    }
-
     const listeners = new Set<(settings: Settings) => void>();
     const readResolved = Effect.gen(function* () {
-      const settings = yield* readSettings(sql, stationConfiguration);
+      const settings = yield* readSettings(sql, machineConfiguration);
       if (settings === undefined) return {};
       return yield* resolveProviderSecrets(bindings, credentials, settings);
     });
@@ -514,7 +468,7 @@ export const makeSettingsService = (
     );
 
     const get = read(sql, "settings.get", Effect.gen(function* () {
-      const settings = yield* readSettings(sql, stationConfiguration);
+      const settings = yield* readSettings(sql, machineConfiguration);
       if (settings === undefined) {
         return yield* new SettingsError({
           code: "corrupt",
@@ -533,10 +487,10 @@ export const makeSettingsService = (
     ) {
       const decoded = decodePatchInput(input);
       if (Result.isFailure(decoded)) return yield* decoded.failure;
-      if (decoded.success.station !== undefined) {
+      if (decoded.success.machine !== undefined) {
         return yield* new SettingsError({
           message:
-            "the machine role is protected — use settingsSetStationTopology to establish or update the local Command Center",
+            "Machine settings are protected; use settingsSetMachinePreferences for supervision or machine.configure for its name.",
           code: "validation",
         });
       }
@@ -557,7 +511,7 @@ export const makeSettingsService = (
             sql,
             "settings.patch",
             Effect.gen(function* () {
-              const current = yield* readSettings(sql, stationConfiguration);
+              const current = yield* readSettings(sql, machineConfiguration);
               if (current === undefined) {
                 return yield* new SettingsError({
                   code: "corrupt",
@@ -616,16 +570,16 @@ export const makeSettingsService = (
       return publishAfterCommit(result, listeners);
     });
 
-    const setStationTopology = Effect.fn(
-      "SettingsService.setStationTopology",
+    const setMachinePreferences = Effect.fn(
+      "SettingsService.setMachinePreferences",
     )(function* (input: unknown) {
-      const decoded = decodeStationTopologyPatch(input);
+      const decoded = decodeMachinePreferencesPatch(input);
       if (Result.isFailure(decoded)) return yield* decoded.failure;
       const result: MutationResult = yield* transaction(
         sql,
-        "settings.setStationTopology",
+        "settings.setMachinePreferences",
         Effect.gen(function* () {
-          const current = yield* readSettings(sql, stationConfiguration);
+          const current = yield* readSettings(sql, machineConfiguration);
           if (current === undefined) {
             return yield* new SettingsError({
               code: "corrupt",
@@ -633,113 +587,12 @@ export const makeSettingsService = (
             });
           }
           const requested = decoded.success;
-          const validated = applyAndValidatePatch(current, {
-            station: requested,
-          });
+          const validated = applyAndValidatePatch(current, { machine: requested });
           if (Result.isFailure(validated)) return yield* validated.failure;
           if (sameSettings(current, validated.success)) {
-            return {
-              settings: yield* presentSettings(bindings, current),
-              changed: false,
-            };
+            return { settings: yield* presentSettings(bindings, current), changed: false };
           }
-
-          if (current.station.role === "remote") {
-            return yield* new SettingsError({
-              message:
-                "Remote topology is configured only by the paired Command Center through the Station API",
-              code: "validation",
-            });
-          }
-
-          const previousRole = current.station.role;
-          const nextRole = validated.success.station.role;
-          if (nextRole === "remote") {
-            return yield* new SettingsError({
-              message:
-                "Remote topology requires Command Center pairing and Station API configuration",
-              code: "validation",
-            });
-          }
-
-          const established =
-            current.station.role === "command-center";
-          if (established) {
-            const frozen: ReadonlyArray<{
-              readonly key: string;
-              readonly next: string | undefined;
-              readonly previous: string | undefined;
-            }> = [
-              {
-                key: "role",
-                next: requested.role,
-                previous: current.station.role,
-              },
-              {
-                key: "hostId",
-                next: requested.hostId,
-                previous: current.station.hostId,
-              },
-              {
-                key: "agentHostId",
-                next: requested.agentHostId,
-                previous: current.station.agentHostId,
-              },
-            ];
-            for (const field of frozen) {
-              if (
-                field.next !== undefined &&
-                field.next !== field.previous
-              ) {
-                return yield* new SettingsError({
-                  message:
-                    `Established Command Center topology freezes ${field.key} — only supervisedPreferred may change`,
-                  code: "validation",
-                });
-              }
-            }
-          }
-
-          if (previousRole === "command-center" && nextRole !== previousRole) {
-            return yield* new SettingsError({
-              message:
-                "Command Center role cannot be cleared or changed from Settings",
-              code: "validation",
-            });
-          }
-          if (nextRole === "") {
-            return yield* new SettingsError({
-              message:
-                "An unset station is represented by no configuration; choose Command Center locally or configure Remote from a Command Center",
-              code: "validation",
-            });
-          }
-          if (validated.success.station.agentHostId !== undefined) {
-            return yield* new SettingsError({
-              message:
-                "Command Center topology cannot carry Remote-only identity fields",
-              code: "validation",
-            });
-          }
-          const configuration = Schema.decodeUnknownResult(
-            CommandCenterConfiguration,
-            { onExcessProperty: "error" },
-          )({
-            role: "command-center",
-            hostId: validated.success.station.hostId,
-            supervisedPreferred:
-              validated.success.station.supervisedPreferred,
-          });
-          if (Result.isFailure(configuration)) {
-            return yield* new SettingsError({
-              message: "Command Center topology is invalid",
-              code: "validation",
-            });
-          }
-          yield* stationConfiguration.write(
-            configuration.success,
-            new Date().toISOString(),
-          );
+          yield* machineConfiguration.write(validated.success.machine, new Date().toISOString());
           return {
             settings: yield* presentSettings(bindings, validated.success),
             changed: true,
@@ -752,10 +605,10 @@ export const makeSettingsService = (
     const reset = Effect.fn("SettingsService.reset")(function* (
       section?: SettingsSectionKey,
     ) {
-      if (section === "station") {
+      if (section === "machine") {
         return yield* new SettingsError({
           message:
-            "This machine's role can't be changed from Settings.",
+            "Reset keeps this machine's name and supervision preference.",
           code: "validation",
         });
       }
@@ -763,7 +616,7 @@ export const makeSettingsService = (
         sql,
         "settings.reset",
         Effect.gen(function* () {
-          const current = yield* readSettings(sql, stationConfiguration);
+          const current = yield* readSettings(sql, machineConfiguration);
           if (current === undefined) {
             return yield* new SettingsError({
               code: "corrupt",
@@ -772,7 +625,7 @@ export const makeSettingsService = (
           }
           const next: Settings =
             section === undefined
-              ? { ...defaultSettings(), station: current.station }
+              ? { ...defaultSettings(), machine: current.machine }
               : section === "advanced" && current.advanced.experimental !== undefined
                 // Experimental toggles live on their own tab; resetting
                 // Advanced must not quietly turn those features off.
@@ -841,9 +694,8 @@ export const makeSettingsService = (
           }),
       });
       const supervised = assessSupervisedRuntime({
-        role: settings.station.role,
-        hostId: settings.station.hostId,
-        supervisedPreferred: settings.station.supervisedPreferred,
+        machineName: settings.machine.name,
+        supervisedPreferred: settings.machine.supervisedPreferred,
         supervisedInstalled,
       });
       return {
@@ -875,7 +727,7 @@ export const makeSettingsService = (
       doctor,
       get,
       patch,
-      setStationTopology,
+      setMachinePreferences,
       reset,
       resolveProviders,
       subscribe: (listener) => {
@@ -899,7 +751,7 @@ export const makeSettingsLive = (
     }),
   ).pipe(Layer.provide([
     CredentialBindingRepository.layer,
-    StationConfigurationRepository.layer,
+    MachineConfigurationRepository.layer,
   ]));
 
 /** Requires the app's single StateEngine instance. */

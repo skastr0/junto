@@ -42,7 +42,7 @@ import type {
   SettingsOpResult,
   SettingsPatch,
   SettingsSectionKey,
-  StationPatch,
+  MachinePreferencesPatch,
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
@@ -292,8 +292,8 @@ export const IPC_CHANNELS = {
   // user settings plane (app-owned SQLite state)
   settingsGet: "junto:settings-get",
   settingsPatch: "junto:settings-patch",
-  /** Dedicated transition for normalized protected station topology. */
-  settingsSetStationTopology: "junto:settings-set-station-topology",
+  /** Update this machine's supervision preference. */
+  settingsSetMachinePreferences: "junto:settings-set-machine-preferences",
   settingsReset: "junto:settings-reset",
   // Verified state-backup inventory/export. Destination selection stays Main-owned.
   stateBackupsList: "junto:state-backups-list",
@@ -1133,11 +1133,10 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly settingsGet: () => Promise<SettingsOpResult>;
   readonly settingsPatch: (patch: SettingsPatch) => Promise<SettingsOpResult>;
   /**
-   * Topology transitions only (station.role / hostId / agentHostId /
-   * supervisedPreferred). Generic settingsPatch rejects these.
+   * Update supervision. Machine names change through the owner command.
    */
-  readonly settingsSetStationTopology: (
-    station: StationPatch,
+  readonly settingsSetMachinePreferences: (
+    machine: MachinePreferencesPatch,
   ) => Promise<SettingsOpResult>;
   readonly settingsReset: (section?: SettingsSectionKey) => Promise<SettingsOpResult>;
   /** Verified retained backups only; never scans arbitrary paths. */

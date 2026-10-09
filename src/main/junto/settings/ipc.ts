@@ -119,20 +119,18 @@ export const registerSettingsIpc = (
     ),
   );
 
-  // Topology (station role / host / CC ref / supervised) — dedicated channel.
-  // Generic settingsPatch refuses station keys; this path persists the
-  // normalized protected topology.
-  ipcMain.handle(IPC_CHANNELS.settingsSetStationTopology, (_event, station: unknown) =>
+  // Supervision has its own protected preference command.
+  ipcMain.handle(IPC_CHANNELS.settingsSetMachinePreferences, (_event, machine: unknown) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
         const settings = yield* SettingsService;
-        if (station === null || typeof station !== "object" || Array.isArray(station)) {
+        if (machine === null || typeof machine !== "object" || Array.isArray(machine)) {
           return settingsOpFail(
             "validation",
-            "station topology patch must be a plain object",
+            "machine preferences patch must be a plain object",
           );
         }
-        const result = yield* Effect.result(settings.setStationTopology(station));
+        const result = yield* Effect.result(settings.setMachinePreferences(machine));
         return toRendererOpResult(toOpResult(result));
       }),
     ),

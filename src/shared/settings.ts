@@ -12,22 +12,16 @@ import {
 import { RECENT_COLORS_MAX, sanitizeRecentColors } from "./canvas-colors";
 import { CANVAS_NAME_INPUT_PATTERN, CANVAS_NAME_MAX_LENGTH } from "./canvas-name";
 import { KEY_TABLE } from "./key-table";
-import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
+import { isValidMachineName } from "./machine-identity";
 import { NATIVE_USAGE_PROVIDERS, NativeUsageProvider } from "./usage";
 
 // Settings plane: one schema-validated aggregate in the app-owned SQLite
 // database. Mutable user prefs are not Effect Config (boot/env) and not
 // runtime kernel state.
 //
-// Aggregate: the preference row and normalized station_configuration state
-// assemble into this single public value.
-//
-// Mental model:
-// - **prefs** — appearance/canvas/kernel/browser/audio/advanced/fleet.
-//   Generic settingsPatch mutates only their canonical row.
-// - **topology** — derived from station_configuration. Local Settings may
-//   establish a Command Center; Remote identity arrives only through pairing
-//   and the Station API. Generic settingsPatch cannot write topology.
+// Machine identity and supervision come from machine_configuration; the rest
+// of this value comes from the preferences row. Generic patches change only
+// preferences.
 //
 // Invariants:
 // - Never store secrets here (full document is IPC-broadcast to all windows).
@@ -283,51 +277,12 @@ export const FleetSettings = Schema.Struct({
 });
 export type FleetSettings = typeof FleetSettings.Type;
 
-// Station role: Command Center (v1 default) or Remote (Station-API pairing only).
-// Empty role is a transient pre-configuration state; SettingsService auto-establishes
-// Command Center on first boot when unpaired.
-export const StationRoleSetting = Schema.Literals([...STATION_ROLES, ""]);
-export type StationRoleSetting = typeof StationRoleSetting.Type;
-
-export const StationHostIdSetting = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1)),
-  Schema.check(Schema.isMaxLength(64)),
-  Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/)),
-);
-export type StationHostIdSetting = typeof StationHostIdSetting.Type;
-
-const WithoutRetiredTopologyIntegrity = Schema.Unknown.pipe(
-  Schema.check(Schema.makeFilter((value) =>
-    !(
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      Object.prototype.hasOwnProperty.call(value, "topologyIntegrity")
-    ),
-  {
-    message: "topologyIntegrity is retired and must not be supplied",
-  },)),
-);
-
-const StationSettingsValue = Schema.Struct({
-  /** "" only before auto Command Center establish (or paired Remote). */
-  role: StationRoleSetting,
-  /** This machine's host id in the fleet registry (usually "local" on first box). */
-  hostId: StationHostIdSetting,
-  /**
-   * Canonical Hermes host prefix for agents running on this physical station.
-   * Remote configure stamps the effective `hermesKeyFor(host)` so a distinct
-   * registry hermesId remains the sole fleet transport identity.
-   */
-  agentHostId: Schema.optionalKey(StationHostIdSetting),
-  /** Prefer LaunchAgent supervised run (especially Remote). */
+export const MachineSettings = Schema.Struct({
+  /** Empty only in a client before the first settings read. */
+  name: Schema.String.pipe(Schema.check(Schema.makeFilter((value) => value === "" || isValidMachineName(value)))),
   supervisedPreferred: Schema.Boolean,
 });
-// V4: former compose(..., { strict: false }) + topologyIntegrity filter was a
-// v3 parseOptions pattern. Use the value schema directly; excess keys rejected
-// at decodeUnknownResult call sites via onExcessProperty where needed.
-export const StationSettings = StationSettingsValue;
-export type StationSettings = typeof StationSettings.Type;
+export type MachineSettings = typeof MachineSettings.Type;
 
 // Sound: master mute and volume, then one enable + volume per sound family
 // (`sounds`). `clips` is the retired sample pack's per-clip prefs: a frozen
@@ -894,7 +849,7 @@ export const Settings = Schema.Struct({
   browser: BrowserPrefs,
   advanced: AdvancedSettings,
   audio: AudioSettings,
-  station: StationSettings,
+  machine: MachineSettings,
   fleet: FleetSettings,
   /**
    * Optional so rows written before the Agents settings surface still decode.
@@ -1073,14 +1028,15 @@ export const FleetPatch = Schema.Struct({
 });
 export type FleetPatch = typeof FleetPatch.Type;
 
-const StationPatchValue = Schema.Struct({
-  role: Schema.optionalKey(StationRoleSetting),
-  hostId: Schema.optionalKey(StationHostIdSetting),
-  agentHostId: Schema.optionalKey(StationHostIdSetting),
+export const MachinePatch = Schema.Struct({
+  name: Schema.optionalKey(Schema.String),
   supervisedPreferred: Schema.optionalKey(Schema.Boolean),
 });
-export const StationPatch = StationPatchValue;
-export type StationPatch = typeof StationPatch.Type;
+export type MachinePatch = typeof MachinePatch.Type;
+export const MachinePreferencesPatch = Schema.Struct({
+  supervisedPreferred: Schema.optionalKey(Schema.Boolean),
+});
+export type MachinePreferencesPatch = typeof MachinePreferencesPatch.Type;
 
 export const SfxClipPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
@@ -1120,7 +1076,7 @@ export const SettingsPatch = Schema.Struct({
   browser: Schema.optionalKey(BrowserPatch),
   advanced: Schema.optionalKey(AdvancedPatch),
   audio: Schema.optionalKey(AudioPatch),
-  station: Schema.optionalKey(StationPatch),
+  machine: Schema.optionalKey(MachinePatch),
   fleet: Schema.optionalKey(FleetPatch),
   harnesses: Schema.optionalKey(HarnessesPatch),
   terminal: Schema.optionalKey(TerminalPatch),
@@ -1138,7 +1094,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "browser",
 "advanced",
 "audio",
-"station",
+"machine",
 "fleet",
 "harnesses",
 "terminal",
@@ -1278,9 +1234,8 @@ export const applySourceAccess = (
   };
 };
 
-export const defaultStation = (): StationSettings => ({
-  role: "",
-  hostId: DEFAULT_STATION_HOST_ID,
+export const defaultMachine = (): MachineSettings => ({
+  name: "",
   supervisedPreferred: false,
 });
 
@@ -1328,7 +1283,7 @@ export const defaultSettings = (): Settings => ({
   browser: defaultBrowser(),
   advanced: defaultAdvanced(),
   audio: defaultAudio(),
-  station: defaultStation(),
+  machine: defaultMachine(),
   fleet: defaultFleet(),
   harnesses: defaultHarnesses(),
   terminal: defaultTerminal(),
@@ -1354,8 +1309,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultAdvanced();
     case "audio":
       return defaultAudio();
-    case "station":
-      return defaultStation();
+    case "machine":
+      return defaultMachine();
     case "fleet":
       return defaultFleet();
     case "harnesses":
@@ -1481,8 +1436,8 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
             })(),
     };
   }
-  if (patch.station) {
-    next = { ...next, station: mergeSection(next.station, patch.station) };
+  if (patch.machine) {
+    next = { ...next, machine: mergeSection(next.machine, patch.machine) };
   }
   if (patch.audio) {
     const audioPatch = patch.audio;

@@ -62,45 +62,16 @@ describe("settings state architecture", () => {
     expect(source.match(/\bSTRICT\b/g)).toHaveLength(2);
   });
 
-  it("joins the aggregate from canonical normalized station state", async () => {
+  it("joins the aggregate from canonical normalized machine state", async () => {
     const source = await readFile(
       new URL("../src/main/junto/settings/service.ts", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("yield* StationConfigurationRepository");
+    expect(source).toContain("yield* MachineConfigurationRepository");
     expect(source).toContain("configuration.read");
-    expect(source).toContain("stationConfiguration.write(");
+    expect(source).toContain("machineConfiguration.write(");
     expect(source).not.toContain("StationRepository");
     expect(source).not.toContain("encodedTopology");
-  });
-
-  it("does not expose local Remote configuration or station-role onboarding", async () => {
-    const [panel, app, service] = await Promise.all([
-      readFile(
-        new URL(
-          "../src/renderer/components/SettingsPanel.tsx",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-      readFile(
-        new URL("../src/renderer/App.tsx", import.meta.url),
-        "utf8",
-      ),
-      readFile(
-        new URL("../src/main/junto/settings/service.ts", import.meta.url),
-        "utf8",
-      ),
-    ]);
-    // First-run role UI is retired; main auto-establishes Command Center.
-    expect(app).not.toContain("StationRoleGate");
-    expect(service).toContain("ensureDefaultCommandCenter");
-    expect(service).toContain('role: "command-center"');
-    expect(panel).not.toContain("Pull from Command Center");
-    expect(panel).toContain("Allow remote managed installs");
-    expect(panel).toContain("fleet: { remoteManagedInstalls: event.target.checked }");
-    expect(panel).not.toContain("Remote identity cannot be changed locally");
-    expect(panel).not.toContain("enroll it from an existing one");
   });
 
   it("boots the settings fragment in the sole StateEngine schema", async () => {

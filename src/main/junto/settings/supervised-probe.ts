@@ -1,4 +1,4 @@
-import type { SupervisedInstallState } from "@shared/station";
+import type { SupervisedInstallState } from "@shared/supervised-runtime";
 import {
   loadStationSupervisor,
 } from "../supervision/select";

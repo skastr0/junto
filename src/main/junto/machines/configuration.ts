@@ -12,6 +12,11 @@ export type StoredMachineConfiguration = {
   readonly configuredAt: string;
 };
 
+export const machineSettingsFromConfiguration = (stored: StoredMachineConfiguration | undefined) => {
+  if (stored === undefined) throw new Error("machine configuration is missing");
+  return stored.configuration;
+};
+
 const ConfigurationRow = Schema.Struct({
   machine_name: MachineName,
   supervised_preferred: Schema.Literals([0, 1]),

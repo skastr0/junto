@@ -3,12 +3,12 @@ import {
   Settings,
   SettingsError,
   SettingsPatch,
-  StationPatch,
+  MachinePreferencesPatch,
   applySettingsPatch,
   offboardRules,
   type Settings as SettingsValue,
   type SettingsPatch as SettingsPatchValue,
-  type StationPatch as StationPatchValue,
+  type MachinePreferencesPatch as MachinePreferencesPatchValue,
 } from "@shared/settings";
 import { offboardRulesProblem } from "@shared/seat-offboard";
 
@@ -24,8 +24,8 @@ const decodeSettingsPatch = Schema.decodeUnknownResult(
   SettingsPatch,
   STRICT_DECODE_OPTIONS,
 );
-const decodeStationPatch = Schema.decodeUnknownResult(
-  StationPatch,
+const decodePreferencesPatch = Schema.decodeUnknownResult(
+  MachinePreferencesPatch,
   STRICT_DECODE_OPTIONS,
 );
 
@@ -69,23 +69,23 @@ export const applyAndValidatePatch = (
   );
 };
 
-/** Decode the dedicated local Command Center topology transition. */
-export const decodeStationTopologyPatch = (
+/** Decode the dedicated supervision preference. */
+export const decodeMachinePreferencesPatch = (
   raw: unknown,
-): Result.Result<StationPatchValue, SettingsError> => {
+): Result.Result<MachinePreferencesPatchValue, SettingsError> => {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     return Result.fail(
       new SettingsError({
-        message: "station topology patch must be a plain object",
+        message: "machine preferences patch must be a plain object",
         code: "validation",
       }),
     );
   }
-  return decodeStationPatch(raw).pipe(
+  return decodePreferencesPatch(raw).pipe(
     Result.mapError(
       (error) =>
         new SettingsError({
-          message: `station topology patch invalid: ${formatParse(error)}`,
+          message: `machine preferences patch invalid: ${formatParse(error)}`,
           code: "validation",
         }),
     ),
