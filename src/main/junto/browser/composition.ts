@@ -486,8 +486,8 @@ export const startBrowserComposition = async (
   let hostAuthorityLease: BrowserHostCapabilityAuthorityLease | undefined;
   try {
     // This is an authority barrier, not a background warm-up: no Electron
-    // adapter, control socket, or renderer IPC exists until durable station
-    // identity has hydrated and subscribed to transactional settings changes.
+    // adapter, control socket, or renderer IPC exists before the browser can
+    // ask which machine this is.
     hostAuthorityLease = await (
       runtime.prepareHostAuthority ??
       prepareDefaultBrowserHostCapabilityAuthority

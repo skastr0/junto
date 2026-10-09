@@ -47,7 +47,7 @@ const REF_PAGE = "junto://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {
   ref: REF_PAGE,
   nodeId: "p1",
-  hostId: "local",
+  hostId: "studio",
   url: "https://example.com/",
   profile: "personal",
 };
@@ -91,45 +91,41 @@ const makeSpyAdapter = (): BrowserViewAdapter => {
 
 const frame = { y: 0, width: 120, height: 48 };
 
-/** An agent and a page; `hosts` puts each on a machine other than local. */
+/** An agent and a page; `hosts` puts each on a machine other than this one. */
 const browserCanvas = (withEdge: boolean, hosts: { agent?: string; page?: string } = {}): Canvas =>
   canvasOf(
     [
       seat("agent", {
         ...frame, x: 0,
         agentKey: "local:default",
-        host: hosts.agent ?? "local",
+        host: hosts.agent ?? "studio",
         bindingId: "bind-local-default" as never,
         launch: { kind: "harness", argv: ["claude"] },
       }),
-      pageNode("p1", { ...frame, x: 200, profile: "personal", host: hosts.page ?? "local" }),
+      pageNode("p1", { ...frame, x: 200, profile: "personal", host: hosts.page ?? "studio" }),
     ],
     withEdge ? [wire("e1", "agent", "p1", "navigates")] : [],
     "work",
   );
 
-const stationAuthority = (hostId: string): BrowserHostCapabilityAuthority => ({
+const machineAuthority = (name: string): BrowserHostCapabilityAuthority => ({
   findHost: (id) =>
-    id === hostId
+    id === name
       ? {
           id,
           label: id,
-          kind: id === "local" ? "local" : "remote",
-          ...(id === "local" ? {} : { sshEndpoint: id }),
+          isThisMachine: true,
           capabilities: ["browser"],
         }
       : undefined,
-  station: () => ({
-    hostId,
-    role: hostId === "local" ? "command-center" : "remote",
-  }),
+  machineName: () => name,
 });
 
 const terminalCanvas = (): Canvas =>
   canvasOf(
     [
-      seat("terminal", { ...frame, x: 0, agentKey: "local:terminal", bindingId: "terminal-binding" as never }),
-      pageNode("p1", { ...frame, x: 200, profile: "personal" }),
+      seat("terminal", { ...frame, x: 0, agentKey: "local:terminal", host: "studio", bindingId: "terminal-binding" as never }),
+      pageNode("p1", { ...frame, x: 200, profile: "personal", host: "studio" }),
     ],
     [wire("e1", "terminal", "p1", "navigates")],
     "work",
@@ -189,7 +185,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       capabilities,
       resolvePageTarget,
       listCanvasModels,
-      station: () => sessions.stationIdentity(),
+      machineName: () => sessions.machineName(),
       admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       ...(identity ?? {}),
     });
@@ -267,7 +263,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       targets: [
         {
           ref: REF_PAGE,
-          hostId: "local",
+          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -344,14 +340,14 @@ describe("browser edge-grant process-bind dual admit", () => {
   it("fails closed when canonical document authority is unavailable", async () => {
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
-    const authority = stationAuthority("local");
+    const authority = machineAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       listCanvasModels: async () => {
         throw new Error("database unavailable");
       },
       resolvePageTarget: async () => ({ ok: true, data: TARGET }),
-      station: authority.station,
+      machineName: authority.machineName,
       admitBrowserHost: (hostId) => {
         const host = authority.findHost(hostId);
         return host === undefined
@@ -378,7 +374,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const doc = browserCanvas(true, { agent: "studio", page: "render" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
-    const authority = stationAuthority("studio");
+    const authority = machineAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       listCanvasModels: async () => [{ name: "work", doc: doc }],
@@ -386,7 +382,7 @@ describe("browser edge-grant process-bind dual admit", () => {
         candidate === REF_PAGE
           ? { ok: true, data: { ...TARGET, hostId: "render" } }
           : { ok: false, code: "not_found", message: "missing" },
-      station: authority.station,
+      machineName: authority.machineName,
       admitBrowserHost: (hostId) => {
         const host = authority.findHost(hostId);
         return host === undefined
@@ -400,7 +396,7 @@ describe("browser edge-grant process-bind dual admit", () => {
       },
     });
 
-    // S11 placement: Station↔Station is a route denial before host-mint checks.
+    // Placement: an edge between two machines is a route denial before host-mint checks.
     // Cross-host studio→render therefore never reaches physical_host_mismatch —
     // physics withholds the browser.automate edge (surfaces as not_connected).
     await expect(
@@ -416,12 +412,12 @@ describe("browser edge-grant process-bind dual admit", () => {
     const doc = browserCanvas(true, { agent: "studio", page: "studio" });
     const capabilities = makeBrowserCapabilityRegistry();
     registries.push(capabilities);
-    const authority = stationAuthority("studio");
+    const authority = machineAuthority("studio");
     const edgeGrant = makeEdgeGrantService({
       capabilities,
       listCanvasModels: async () => [{ name: "work", doc: doc }],
       resolvePageTarget: async () => ({ ok: true, data: { ...TARGET, hostId: "render" } }),
-      station: authority.station,
+      machineName: authority.machineName,
       admitBrowserHost: (hostId) => {
         const host = authority.findHost(hostId);
         return host === undefined

@@ -1,6 +1,5 @@
 import { state$ } from "./state";
 import { FLEET_UI_ENABLED } from "@shared/features";
-import { isCommandCenterFleetUi } from "./canvas-boot";
 
 /** Per-host reachability probe state for the fleet overlay. */
 export interface FleetProbeState {
@@ -11,9 +10,7 @@ export interface FleetProbeState {
 
 /** Warm the lazy Fleet chunk before the operator clicks. */
 let fleetChunkPrefetch: Promise<unknown> | null = null;
-const fleetUiOpen = (): boolean =>
-  FLEET_UI_ENABLED &&
-  isCommandCenterFleetUi(state$.settings.station.role.peek());
+const fleetUiOpen = (): boolean => FLEET_UI_ENABLED;
 
 export const prefetchFleetChunk = (): void => {
   if (!__JUNTO_FLEET_UI_ENABLED__) return;

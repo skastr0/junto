@@ -37,7 +37,7 @@ describe("browser startup recovery gate", () => {
 
     expect(grantStart).toBeGreaterThanOrEqual(0);
     expect(controlStart).toBeGreaterThan(grantStart);
-    expect(grant).toContain("station: () => composition.sessions.stationIdentity()");
+    expect(grant).toContain("machineName: () => composition.sessions.machineName()");
     expect(grant).toContain(
       "admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId)",
     );

@@ -747,7 +747,7 @@ void app.whenReady().then(async () => {
     resolvePageTarget,
     listCanvasModels,
     processMap,
-    station: LOCAL_BROWSER_TEST_AUTHORITY.station,
+    machineName: LOCAL_BROWSER_TEST_AUTHORITY.machineName,
     admitBrowserHost: (hostId) =>
       admitBrowserHostCapability(hostId, LOCAL_BROWSER_TEST_AUTHORITY),
   });

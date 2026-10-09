@@ -5,7 +5,7 @@ import {
   BROWSER_ENABLED,
   productHostCapabilities,
 } from "../src/shared/features";
-import { LOCAL_STATION_CAPABILITIES } from "../src/shared/remote-hosts";
+import { THIS_MACHINE_CAPABILITIES } from "../src/shared/remote-hosts";
 import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 
 const catalogIds = (): ReadonlyArray<string> =>
@@ -16,7 +16,7 @@ describe("browser hard product gate", () => {
     "removes authoring, capability advertising, live composition, preload IPC, and CLI dispatch",
     () => {
       expect(catalogIds()).not.toContain("page");
-      expect(LOCAL_STATION_CAPABILITIES).toContain("browser");
+      expect(THIS_MACHINE_CAPABILITIES).toContain("browser");
       expect(productHostCapabilities(["terminal", "browser"])).toEqual([
         "terminal",
       ]);
@@ -65,7 +65,7 @@ describe("browser hard product gate", () => {
 
   it.runIf(BROWSER_ENABLED)("restores the browser product in all-on builds", () => {
     expect(catalogIds()).toContain("page");
-    expect(LOCAL_STATION_CAPABILITIES).toContain("browser");
+    expect(THIS_MACHINE_CAPABILITIES).toContain("browser");
     expect(productHostCapabilities(["terminal", "browser"])).toEqual([
       "terminal",
       "browser",

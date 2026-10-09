@@ -2,9 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, ManagedRuntime } from "effect";
+import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { defaultSettings, type Settings } from "../src/shared/settings";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
 import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
@@ -15,21 +14,19 @@ import {
 import { prepareBrowserHostCapabilityAuthority } from "../src/main/junto/browser/station-authority";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
-const hosts: ReadonlyArray<RemoteHost> = [
-  {
-    id: "local",
-    label: "local",
-    kind: "local",
-    capabilities: ["browser"],
-  },
-  {
-    id: "studio",
-    label: "studio",
-    kind: "remote",
-    sshEndpoint: "studio",
-    capabilities: ["browser"],
-  },
-];
+const studio: RemoteHost = {
+  id: "studio",
+  label: "studio",
+  isThisMachine: true,
+  capabilities: ["browser"],
+};
+const atlas: RemoteHost = {
+  id: "atlas",
+  label: "atlas",
+  isThisMachine: false,
+  sshEndpoint: "atlas",
+  capabilities: ["browser"],
+};
 
 const target = (nodeId: string, hostId: string): ResolvedPageTarget => ({
   ref: `junto://canvas/work?node=${nodeId}`,
@@ -39,27 +36,7 @@ const target = (nodeId: string, hostId: string): ResolvedPageTarget => ({
   profile: "personal",
 });
 
-const settingsAt = (
-  role: Settings["station"]["role"],
-  hostId: string,
-): Settings => ({
-  ...defaultSettings(),
-  station: {
-    ...defaultSettings().station,
-    role,
-    hostId,
-  },
-});
-
-const deferred = <T>() => {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-};
-
-describe("browser physical-station authority", () => {
+describe("browser machine authority", () => {
   const roots: string[] = [];
   const stateRuntimes: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>[] = [];
 
@@ -79,39 +56,10 @@ describe("browser physical-station authority", () => {
     }
   });
 
-  it("awaits durable Remote identity and never creates a local view during boot", async () => {
-    const loading = deferred<Settings>();
-    let listener: ((settings: Settings) => void) | undefined;
-    const preparing = prepareBrowserHostCapabilityAuthority(
-      {
-        get: Effect.promise(() => loading.promise),
-        subscribe: (next) => {
-          listener = next;
-          return () => {
-            listener = undefined;
-          };
-        },
-      },
-      (hostId) => hosts.find((host) => host.id === hostId),
-    );
-    let ready = false;
-    void preparing.then(() => {
-      ready = true;
-    });
-    await Promise.resolve();
-    expect(ready).toBe(false);
-
-    expect(listener).toBeDefined();
-    // The subscribed transaction wins even if the older boot read resolves
-    // afterward; there is no stale read/subscribe window.
-    listener?.(settingsAt("remote", "studio"));
-    loading.resolve(settingsAt("command-center", "local"));
-    const lease = await preparing;
-    const root = await mkdtemp(join(tmpdir(), "junto-browser-station-"));
-    roots.push(root);
-    let adapterCalls = 0;
+  const makeAdapter = () => {
+    const calls = { count: 0 };
     const adapter: BrowserViewAdapter = () => {
-      adapterCalls += 1;
+      calls.count += 1;
       return {
         loadUrl: async () => {},
         attach: () => {},
@@ -120,53 +68,18 @@ describe("browser physical-station authority", () => {
         destroy: () => {},
       };
     };
-    const service = new BrowserSessionService(
-      adapter,
-      lease.authority,
-      await makeProfiles(root),
-      Date.now,
-      () => "session-remote",
-    );
+    return { adapter, calls };
+  };
 
-    expect(await service.open(target("legacy-local", "local"))).toMatchObject({
-      ok: false,
-      code: "unsupported_capability",
+  it("names this machine from the list's own row and refuses another machine's page", async () => {
+    const list = [studio, atlas];
+    const lease = await prepareBrowserHostCapabilityAuthority({
+      findHost: (hostId) => list.find((host) => host.id === hostId),
+      hosts: () => list,
     });
-    expect(adapterCalls).toBe(0);
-    expect(lease.authority.station()).toEqual({
-      hostId: "studio",
-      role: "remote",
-    });
-    lease.close();
-  });
-
-  it("switches authority in the same accepted Settings transaction", async () => {
-    let listener: ((settings: Settings) => void) | undefined;
-    const lease = await prepareBrowserHostCapabilityAuthority(
-      {
-        get: Effect.succeed(settingsAt("command-center", "local")),
-        subscribe: (next) => {
-          listener = next;
-          return () => {
-            listener = undefined;
-          };
-        },
-      },
-      (hostId) => hosts.find((host) => host.id === hostId),
-    );
-    const root = await mkdtemp(join(tmpdir(), "junto-browser-station-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-browser-machine-"));
     roots.push(root);
-    let adapterCalls = 0;
-    const adapter: BrowserViewAdapter = () => {
-      adapterCalls += 1;
-      return {
-        loadUrl: async () => {},
-        attach: () => {},
-        setBounds: () => {},
-        detach: () => {},
-        destroy: () => {},
-      };
-    };
+    const { adapter, calls } = makeAdapter();
     let sessionId = 0;
     const service = new BrowserSessionService(
       adapter,
@@ -176,19 +89,46 @@ describe("browser physical-station authority", () => {
       () => `session-${++sessionId}`,
     );
 
-    expect((await service.open(target("before-change", "local"))).ok).toBe(true);
-    expect(adapterCalls).toBe(1);
-
-    listener?.(settingsAt("remote", "studio"));
-    expect(await service.open(target("stale-local", "local"))).toMatchObject({
+    expect(lease.authority.machineName()).toBe("studio");
+    expect(await service.open(target("on-atlas", "atlas"))).toMatchObject({
       ok: false,
       code: "unsupported_capability",
     });
-    expect(adapterCalls).toBe(1);
-
-    expect((await service.open(target("after-change", "studio"))).ok).toBe(true);
-    expect(adapterCalls).toBe(2);
+    expect(calls.count).toBe(0);
+    expect((await service.open(target("here", "studio"))).ok).toBe(true);
+    expect(calls.count).toBe(1);
     lease.close();
-    expect(listener).toBeUndefined();
+  });
+
+  it("fails closed before the list has hydrated and follows it once it has", async () => {
+    let list: ReadonlyArray<RemoteHost> = [];
+    const lease = await prepareBrowserHostCapabilityAuthority({
+      findHost: (hostId) => list.find((host) => host.id === hostId),
+      hosts: () => list,
+    });
+    const root = await mkdtemp(join(tmpdir(), "junto-browser-machine-"));
+    roots.push(root);
+    const { adapter, calls } = makeAdapter();
+    let sessionId = 0;
+    const service = new BrowserSessionService(
+      adapter,
+      lease.authority,
+      await makeProfiles(root),
+      Date.now,
+      () => `session-${++sessionId}`,
+    );
+
+    expect(lease.authority.machineName()).toBeUndefined();
+    expect(await service.open(target("early", "studio"))).toMatchObject({
+      ok: false,
+      code: "unsupported_capability",
+    });
+    expect(calls.count).toBe(0);
+
+    list = [studio, atlas];
+    expect(lease.authority.machineName()).toBe("studio");
+    expect((await service.open(target("hydrated", "studio"))).ok).toBe(true);
+    expect(calls.count).toBe(1);
+    lease.close();
   });
 });

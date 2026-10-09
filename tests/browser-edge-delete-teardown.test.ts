@@ -43,21 +43,21 @@ const REF_P2 = "junto://canvas/work?node=p2";
 const TARGET_P1: ResolvedPageTarget = {
   ref: REF_P1,
   nodeId: "p1",
-  hostId: "local",
+  hostId: "studio",
   url: "https://example.com/one",
   profile: "personal",
 };
 const TARGET_P2: ResolvedPageTarget = {
   ref: REF_P2,
   nodeId: "p2",
-  hostId: "local",
+  hostId: "studio",
   url: "https://example.com/two",
   profile: "personal",
 };
 const TARGET_REMOTE: ResolvedPageTarget = {
   ref: REF_P1,
   nodeId: "p1",
-  hostId: "station-x",
+  hostId: "atlas",
   url: "https://example.com/remote",
   profile: "personal",
 };
@@ -115,16 +115,17 @@ const twoPageDoc = (
       seat("agent", {
         x: agentX, y: 0, width: 120, height: 48,
         agentKey: "local:default",
+        host: "studio",
         bindingId: "bind-local-default" as never,
         launch: { kind: "harness", argv: ["claude"] },
       }),
       pageNode("p1", {
         url: "https://example.com/one", x: 200, y: 0, width: 120, height: 48, profile: "personal",
-        host: pageHosts?.p1 ?? "local",
+        host: pageHosts?.p1 ?? "studio",
       }),
       pageNode("p2", {
         url: "https://example.com/two", x: 400, y: 0, width: 120, height: 48, profile: "personal",
-        host: pageHosts?.p2 ?? "local",
+        host: pageHosts?.p2 ?? "studio",
       }),
     ],
     edges.map((e) => wire(e.id, e.from, e.to, "navigates")),
@@ -144,8 +145,8 @@ describe("edge-revocation pure helpers", () => {
       "work",
       "agent",
       [
-        { ref: REF_P1, hostId: "local" },
-        { ref: REF_P2, hostId: "local" },
+        { ref: REF_P1, hostId: "studio" },
+        { ref: REF_P2, hostId: "studio" },
       ],
     );
     expect(lost).toEqual([
@@ -153,7 +154,7 @@ describe("edge-revocation pure helpers", () => {
         pageRef: REF_P1,
         pageNodeId: "p1",
         callerNodeId: "agent",
-        hostId: "local",
+        hostId: "studio",
       },
     ]);
   });
@@ -162,23 +163,23 @@ describe("edge-revocation pure helpers", () => {
     const receipt = receiptForHostTeardown({
       canvasName: "work",
       pageRef: REF_P1 as never,
-      hostId: "station-x",
+      hostId: "atlas",
       callerNodeId: "agent",
-      localHostId: "local",
+      localHostId: "studio",
       hostReachable: false,
       sessionsDestroyed: 0,
     });
     expect(receipt.status).toBe("not_confirmed");
-    expect(receipt.detail).toBe("not confirmed on host station-x");
+    expect(receipt.detail).toBe("not confirmed on host atlas");
   });
 
   it("I20: local reachable host confirms", () => {
     const receipt = receiptForHostTeardown({
       canvasName: "work",
       pageRef: REF_P1 as never,
-      hostId: "local",
+      hostId: "studio",
       callerNodeId: "agent",
-      localHostId: "local",
+      localHostId: "studio",
       hostReachable: true,
       sessionsDestroyed: 1,
     });
@@ -234,7 +235,7 @@ describe("browser edge-delete session teardown", () => {
       capabilities,
       resolvePageTarget,
       listCanvasModels: async () => [{ name: "work", doc: liveDoc }],
-      station: () => sessions.stationIdentity(),
+      machineName: () => sessions.machineName(),
       admitBrowserHost: (hostId) => sessions.admitAutomationHost(hostId),
       sessions: {
         destroyOwnerTargetSessions: (owner, ref, reason) =>
@@ -271,7 +272,7 @@ describe("browser edge-delete session teardown", () => {
         action: "open",
         target: {
           ref: REF_P1,
-          hostId: "local",
+          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -284,7 +285,7 @@ describe("browser edge-delete session teardown", () => {
         action: "open",
         target: {
           ref: REF_P2,
-          hostId: "local",
+          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -316,7 +317,7 @@ describe("browser edge-delete session teardown", () => {
     expect(receipts).toHaveLength(1);
     expect(receipts[0]).toMatchObject({
       pageRef: REF_P1,
-      hostId: "local",
+      hostId: "studio",
       status: "confirmed",
       callerNodeId: "agent",
     });
@@ -355,7 +356,7 @@ describe("browser edge-delete session teardown", () => {
         action: "open",
         target: {
           ref: REF_P1,
-          hostId: "local",
+          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -397,7 +398,7 @@ describe("browser edge-delete session teardown", () => {
         action: "open",
         target: {
           ref: REF_P1,
-          hostId: "local",
+          hostId: "studio",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -420,8 +421,8 @@ describe("browser edge-delete session teardown", () => {
   });
 
   it("I20 fixture: remote/unreachable host reports not confirmed, never success", async () => {
-    // Grant minted with remote hostId on the capability target; local station
-    // cannot prove session teardown on station-x.
+    // Grant minted with another machine's hostId on the capability target; this
+    // machine cannot prove session teardown on atlas.
     const previous = twoPageDoc([{ id: "e1", from: "agent", to: "p1" }]);
     let sessionCounter = 0;
     const sessions = new BrowserSessionService(
@@ -445,7 +446,7 @@ describe("browser edge-delete session teardown", () => {
       targets: [
         {
           ref: REF_P1,
-          hostId: "station-x",
+          hostId: "atlas",
           profile: "personal",
           exactOrigins: ["https://example.com"],
         },
@@ -456,8 +457,8 @@ describe("browser edge-delete session teardown", () => {
     });
 
     // Seed edge-grant cache by using a custom path: build service and inject
-    // via admit after list docs + resolve returns remote target. Physical
-    // station check will deny mint for foreign host — so call drop path via
+    // via admit after list docs + resolve returns remote target. The machine
+    // check will deny mint for a foreign host — so call drop path via
     // invalidate by planting cache through a local mint then replace… instead
     // exercise receipt helper + destroyOwnerTargetSessions isolation:
 
@@ -471,14 +472,14 @@ describe("browser edge-delete session teardown", () => {
     const receipt = receiptForHostTeardown({
       canvasName: "work",
       pageRef: REF_P1 as never,
-      hostId: "station-x",
+      hostId: "atlas",
       callerNodeId: "agent",
-      localHostId: sessions.stationIdentity()?.hostId,
+      localHostId: sessions.machineName(),
       hostReachable: false,
       sessionsDestroyed: destroyed,
     });
     expect(receipt.status).toBe("not_confirmed");
-    expect(receipt.detail).toBe("not confirmed on host station-x");
+    expect(receipt.detail).toBe("not confirmed on host atlas");
     // Never a confirmed success for an unproven host.
     expect(receipt.status).not.toBe("confirmed");
     void TARGET_REMOTE;

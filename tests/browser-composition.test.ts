@@ -116,7 +116,7 @@ describe("browser composition (no ceremony)", () => {
     expect(err.name).toBe("BrowserCompositionStartupError");
   });
 
-  it("awaits physical-station identity before composition and adapter activation", async () => {
+  it("awaits the machine authority before composition and adapter activation", async () => {
     const root = await mkdtemp(join(tmpdir(), "junto-browser-composition-"));
     const stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
@@ -130,9 +130,9 @@ describe("browser composition (no ceremony)", () => {
         activated = true;
         expect(
           await composition.sessions.open({
-            ref: "junto://canvas/work?node=legacy-local",
-            nodeId: "legacy-local",
-            hostId: "local",
+            ref: "junto://canvas/work?node=on-atlas",
+            nodeId: "on-atlas",
+            hostId: "atlas",
             url: "https://example.com/",
             profile: "personal",
           }),
@@ -180,23 +180,23 @@ describe("browser composition (no ceremony)", () => {
     authority.resolve({
       authority: {
         findHost: (hostId) =>
-          hostId === "local"
+          hostId === "studio"
             ? {
-                id: "local",
-                label: "local",
-                kind: "local",
+                id: "studio",
+                label: "studio",
+                isThisMachine: true,
                 capabilities: ["browser"],
               }
-            : hostId === "studio"
+            : hostId === "atlas"
               ? {
-                  id: "studio",
-                  label: "studio",
-                  kind: "remote",
-                  sshEndpoint: "studio",
+                  id: "atlas",
+                  label: "atlas",
+                  isThisMachine: false,
+                  sshEndpoint: "atlas",
                   capabilities: ["browser"],
                 }
               : undefined,
-        station: () => ({ hostId: "studio", role: "remote" }),
+        machineName: () => "studio",
       },
       close: () => {},
     });

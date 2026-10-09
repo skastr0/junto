@@ -61,7 +61,7 @@ const REF = "junto://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {
   ref: REF,
   nodeId: "n1",
-  hostId: "local",
+  hostId: "studio",
   url: "https://example.com/",
   profile: "personal",
 };
@@ -340,7 +340,7 @@ describe("control route handlers", () => {
       listDocuments: async () => [{
         name: "work",
         doc: canvasOf(
-          [pageNode("n1", { url: DEFAULT_TARGET.url, width: 400, height: 300, profile: DEFAULT_TARGET.profile })],
+          [pageNode("n1", { url: DEFAULT_TARGET.url, width: 400, height: 300, profile: DEFAULT_TARGET.profile, host: DEFAULT_TARGET.hostId })],
           [],
           "work",
         ),
@@ -921,7 +921,7 @@ describe("control route handlers", () => {
         [badRef]: {
           ref: badRef,
           nodeId: "bad",
-          hostId: "local",
+          hostId: "studio",
           url: "file:///etc/passwd",
           profile: "personal",
         },
@@ -1100,9 +1100,9 @@ describe("control route handlers", () => {
 
 /** A page of the smallest size, on a profile a browser can open. */
 const tiny = (id: string, url: string, profile = "default"): Node =>
-  pageNode(id, { url, x: 0, y: 0, width: 1, height: 1, profile });
+  pageNode(id, { url, x: 0, y: 0, width: 1, height: 1, profile, host: "studio" });
 const mailPage = (): Node =>
-  pageNode("p1", { url: "https://mail.example.com", width: 400, height: 300, profile: "personal" });
+  pageNode("p1", { url: "https://mail.example.com", width: 400, height: 300, profile: "personal", host: "studio" });
 /** A plain web link, which is not a page. */
 const plainLink = (id: string, url: string): Node => ({ kind: "link", id: asNodeId(id), url, x: 0, y: 0, z: 0, width: 1, height: 1 });
 
@@ -1120,7 +1120,7 @@ describe("listPageNodes", () => {
         canvas: "work",
         nodeId: "p1",
         url: "https://mail.example.com",
-        hostId: "local",
+        hostId: "studio",
         profile: "personal",
       },
     ]);
@@ -1163,7 +1163,7 @@ describe("listPageNodes", () => {
       canvas: "bounded",
       nodeId: "good",
       url: "https://good.example.com",
-      hostId: "local",
+      hostId: "studio",
       profile: "personal",
     }]);
 
@@ -1208,7 +1208,7 @@ describe("listPageNodes", () => {
         canvas: "work",
         nodeId: "p1",
         url: "https://mail.example.com",
-        hostId: "local",
+        hostId: "studio",
         profile: "personal",
       },
     ]);

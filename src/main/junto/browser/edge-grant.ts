@@ -18,7 +18,7 @@ import {
   type ProcessPrincipal,
   readUnixPeerPid,
 } from "../process-identity";
-import type { StationRole } from "@shared/station";
+import { isThisMachine } from "@shared/machine-identity";
 import { parseNodeRef } from "@shared/node-ref";
 import type { BrowserHostCapabilityAdmission } from "./host-capability";
 import {
@@ -67,7 +67,6 @@ export type EdgeGrantDenial =
   | "caller_wrong_kind"
   | "not_connected"
   | "physical_host_mismatch"
-  | "station_not_ready"
   | "canvas_unreadable"
   | "capacity"
   | "closed";
@@ -134,12 +133,10 @@ export interface EdgeGrantDependencies {
   readonly ttlMs?: number;
   /**
    * Browser composition supplies these from its local session service. They
-   * make station identity and advertised browser capability a pre-mint
+   * make this machine's name and advertised browser capability a pre-mint
    * condition, rather than allowing a short-lived secret for a foreign page.
    */
-  readonly station: () =>
-    | { readonly hostId: string; readonly role: StationRole }
-    | undefined;
+  readonly machineName: () => string | undefined;
   readonly admitBrowserHost: (hostId: string) => BrowserHostCapabilityAdmission;
   /**
    * Optional session teardown for edge-delete (I10). When omitted, grants
@@ -240,7 +237,7 @@ export const makeEdgeGrantService = (
     canvasName: string,
   ): EdgeRevocationReceipt[] => {
     if (lost.length === 0) return [];
-    const localHostId = dependencies.station()?.hostId;
+    const localHostId = dependencies.machineName();
     const lostRefs = lost.map((item) => item.pageRef);
     try {
       dependencies.capabilities.dropTargets(entry.handle, lostRefs);
@@ -377,19 +374,23 @@ export const makeEdgeGrantService = (
     callerNodeId: string,
     pageRefs: ReadonlyArray<string>,
   ): EdgeGrantResult | undefined => {
-    const station = dependencies.station();
+    const machineName = dependencies.machineName();
     const caller = doc.nodes.get(asNodeId(callerNodeId));
-    if (station === undefined || caller === undefined || ("host" in caller ? caller.host : "local") !== station.hostId) {
+    if (
+      machineName === undefined ||
+      caller === undefined ||
+      !isThisMachine("host" in caller ? caller.host : undefined, machineName)
+    ) {
       return fail(
         "physical_host_mismatch",
-        "caller node is not assigned to this physical station",
+        "caller node is not assigned to this machine",
       );
     }
-    const browserHost = dependencies.admitBrowserHost(station.hostId);
+    const browserHost = dependencies.admitBrowserHost(machineName);
     if (!browserHost.ok) {
       return fail(
         "physical_host_mismatch",
-        "this physical station cannot host browser automation",
+        "this machine cannot host browser automation",
       );
     }
     for (const ref of pageRefs) {
@@ -397,10 +398,13 @@ export const makeEdgeGrantService = (
       const page = parsed.ok
         ? doc.nodes.get(asNodeId(parsed.value.nodeId))
         : undefined;
-      if (page === undefined || ("host" in page ? page.host : "local") !== station.hostId) {
+      if (
+        page === undefined ||
+        !isThisMachine("host" in page ? page.host : undefined, machineName)
+      ) {
         return fail(
           "physical_host_mismatch",
-          "connected page is not assigned to this physical station",
+          "connected page is not assigned to this machine",
         );
       }
     }
@@ -410,15 +414,15 @@ export const makeEdgeGrantService = (
   const targetsAdmitPhysicalStation = (
     targets: ReadonlyArray<BrowserCapabilityTarget>,
   ): EdgeGrantResult | undefined => {
-    const station = dependencies.station();
+    const machineName = dependencies.machineName();
     if (
-      station === undefined ||
-      targets.some((target) => target.hostId !== station.hostId) ||
+      machineName === undefined ||
+      targets.some((target) => !isThisMachine(target.hostId, machineName)) ||
       targets.some((target) => !dependencies.admitBrowserHost(target.hostId).ok)
     ) {
       return fail(
         "physical_host_mismatch",
-        "resolved page target is not hosted by this physical station",
+        "resolved page target is not hosted by this machine",
       );
     }
     return undefined;
@@ -491,12 +495,6 @@ export const makeEdgeGrantService = (
     }
     const targetStationDenial = targetsAdmitPhysicalStation(targets);
     if (targetStationDenial !== undefined) return targetStationDenial;
-    if (dependencies.station()?.role !== "command-center") {
-      return fail(
-        "station_not_ready",
-        "this machine's identity is not ready for browser work",
-      );
-    }
     if (
       lastClearSequence > admissionStartedAt ||
       (canvasInvalidatedAt.get(match.canvasName) ?? 0) > admissionStartedAt

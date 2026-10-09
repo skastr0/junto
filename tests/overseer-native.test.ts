@@ -81,7 +81,7 @@ const agent = (
   });
 
 const page = (id: string, url = "https://example.com/"): NodeOf<"page"> =>
-  pageNode(id, { url, x: 200, y: 0, width: 100, height: 40, profile: "personal", host: "local" });
+  pageNode(id, { url, x: 200, y: 0, width: 100, height: 40, profile: "personal", host: "studio" });
 
 const git = (id: string, cwd: string): NodeOf<"git"> => ({
   kind: "git", id: asNodeId(id), x: 0, y: 160, z: 0, width: 120, height: 40, cwd,
@@ -995,7 +995,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       ref: "junto://canvas/factory?node=p1",
       nodeId: "p1",
       url: "https://p1.example.com",
-      hostId: "local",
+      hostId: "studio",
       profile: "personal",
     };
     const pending = pages.openForOwner("job-a", deleted);
@@ -1015,7 +1015,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       ref: "junto://canvas/factory?node=p-sibling",
       nodeId: "p-sibling",
       url: "https://sibling.example.com",
-      hostId: "local",
+      hostId: "studio",
       profile: "work",
     });
     expect(sibling.ok).toBe(true);
@@ -1080,7 +1080,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
         ref: "junto://canvas/factory?node=p1",
         nodeId: "p1",
         url: "https://p1.example.com",
-        hostId: "local",
+        hostId: "studio",
         profile: "personal",
       });
       expect(opened.ok).toBe(true);

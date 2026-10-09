@@ -15,7 +15,7 @@ import {
 } from "@shared/browser-limits";
 import type { NodeRefKey } from "@shared/node-ref";
 import { parseNodeRef } from "@shared/node-ref";
-import { isValidStationHostId } from "@shared/station";
+import { isValidMachineName } from "@shared/machine-identity";
 import { makeBrowserProfileGate, type BrowserProfileGate } from "./profile-gate";
 
 export const BROWSER_CAPABILITY_ACTIONS = [
@@ -395,7 +395,7 @@ const normalizeTarget = (input: unknown): BrowserCapabilityTarget | undefined =>
   if (
     !isCanonicalRef(candidate.ref) ||
     typeof candidate.hostId !== "string" ||
-    !isValidStationHostId(candidate.hostId) ||
+    !isValidMachineName(candidate.hostId) ||
     typeof candidate.profile !== "string"
   ) {
     return undefined;

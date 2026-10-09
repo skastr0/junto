@@ -9,14 +9,14 @@ describe("browser page model", () => {
   });
 
   it("newPage stamps kind page, profile, and kill-session", () => {
-    const node = newPage({ x: 12.4, y: 8.9, z: 0 }, "https://example.com/a");
+    const node = newPage({ x: 12.4, y: 8.9, z: 0 }, "https://example.com/a", { host: "studio" });
     expect(node.kind).toBe("page");
     expect(node.url).toBe("https://example.com/a");
     expect(node.x).toBe(12);
     expect(node.y).toBe(9);
     expect(node.profile).toBe("personal");
     expect(node.onRemove).toBe("kill-session");
-    expect(node.host).toBe("local");
+    expect(node.host).toBe("studio");
   });
 
   it("newPage accepts profile and onRemove override", () => {

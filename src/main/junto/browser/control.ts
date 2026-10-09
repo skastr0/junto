@@ -1336,7 +1336,7 @@ export const startBrowserControlServer = async (
     makeEdgeGrantService({
       capabilities: options.capabilities,
       resolvePageTarget: options.resolvePageTarget,
-      station: () => options.sessions.stationIdentity(),
+      machineName: () => options.sessions.machineName(),
       admitBrowserHost: (hostId) => options.sessions.admitAutomationHost(hostId),
       listCanvasModels: options.listCanvasModels,
     });

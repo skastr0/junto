@@ -8,89 +8,75 @@ import {
 const host = (
   id: string,
   capabilities: RemoteHost["capabilities"],
-  kind: RemoteHost["kind"] = id === "local" ? "local" : "remote",
+  isThisMachine = false,
 ): RemoteHost => ({
   id,
   label: id,
-  kind,
-  ...(kind === "remote" ? { endpoint: id } : {}),
+  isThisMachine,
+  ...(isThisMachine ? {} : { sshEndpoint: id }),
   capabilities,
 });
 
 const authority = (
   hosts: ReadonlyArray<RemoteHost>,
-  stationHostId = "local",
+  machineName = "studio",
 ): BrowserHostCapabilityAuthority => ({
   findHost: (hostId) => hosts.find((candidate) => candidate.id === hostId),
-  station: () => ({ hostId: stationHostId, role: stationHostId === "local" ? "command-center" : "remote" }),
+  machineName: () => machineName,
 });
 
 describe("browser HostCapability admission", () => {
-  it("admits a declared browser capability only on the exact physical station", () => {
-    const local = host("local", ["terminal", "browser", "hermes"]);
-    expect(admitBrowserHostCapability("local", authority([local]))).toEqual({
-      ok: true,
-      host: local,
-    });
-
-    const studio = host("studio", ["browser", "terminal"]);
-    expect(admitBrowserHostCapability("studio", authority([studio], "studio"))).toEqual({
+  it("admits a declared browser capability only on this machine", () => {
+    const studio = host("studio", ["terminal", "browser", "hermes"], true);
+    expect(admitBrowserHostCapability("studio", authority([studio]))).toEqual({
       ok: true,
       host: studio,
     });
   });
 
-  it("never turns a selected remote page into a local browser view", () => {
-    const studio = host("studio", ["browser", "terminal"]);
-    expect(admitBrowserHostCapability("studio", authority([studio], "local"))).toMatchObject({
+  it("never turns a page on another machine into a browser view here", () => {
+    const studio = host("studio", ["browser", "terminal"], true);
+    const atlas = host("atlas", ["browser", "terminal"]);
+    expect(admitBrowserHostCapability("atlas", authority([studio, atlas]))).toMatchObject({
       ok: false,
       code: "unsupported_capability",
       reason: "physical-host-mismatch",
     });
   });
 
-  it("rejects a remote registry target even when Command Center settings name it", () => {
-    const studio = host("studio", ["browser", "terminal"]);
-    expect(
-      admitBrowserHostCapability(
-        "studio",
-        {
-          findHost: (hostId) => hostId === studio.id ? studio : undefined,
-          station: () => ({ hostId: "studio", role: "command-center" }),
-        },
-      ),
-    ).toMatchObject({
+  it("rejects another machine's row even when this machine's name matches it", () => {
+    const atlas = host("atlas", ["browser", "terminal"]);
+    expect(admitBrowserHostCapability("atlas", authority([atlas], "atlas"))).toMatchObject({
       ok: false,
       code: "unsupported_capability",
       reason: "physical-host-mismatch",
     });
   });
 
-  it("fails closed until durable physical-station identity is ready", () => {
-    const local = host("local", ["browser", "terminal"]);
+  it("fails closed until this machine's name is known", () => {
+    const studio = host("studio", ["browser", "terminal"], true);
     expect(
-      admitBrowserHostCapability("local", {
-        findHost: () => local,
-        station: () => undefined,
+      admitBrowserHostCapability("studio", {
+        findHost: () => studio,
+        machineName: () => undefined,
       }),
     ).toMatchObject({
       ok: false,
       code: "unsupported_capability",
-      reason: "station-identity-unavailable",
+      reason: "machine-name-unavailable",
     });
   });
 
   it("fails closed when the host is missing or its browser capability was removed", () => {
-    expect(admitBrowserHostCapability("studio", authority([], "studio"))).toMatchObject({
+    expect(admitBrowserHostCapability("studio", authority([]))).toMatchObject({
       ok: false,
       code: "unsupported_capability",
       reason: "host-not-registered",
     });
+    // This machine's own capabilities are a fact of the process, so only
+    // another machine's row can lack the browser.
     expect(
-      admitBrowserHostCapability(
-        "studio",
-        authority([host("studio", ["terminal"])], "studio"),
-      ),
+      admitBrowserHostCapability("atlas", authority([host("atlas", ["terminal"])])),
     ).toMatchObject({
       ok: false,
       code: "unsupported_capability",
@@ -99,10 +85,12 @@ describe("browser HostCapability admission", () => {
   });
 
   it("rejects malformed document-derived host ids before registry lookup", () => {
-    expect(admitBrowserHostCapability("-studio", authority([]))).toMatchObject({
-      ok: false,
-      code: "invalid",
-      reason: "invalid-host",
-    });
+    for (const id of ["-studio", "local"]) {
+      expect(admitBrowserHostCapability(id, authority([]))).toMatchObject({
+        ok: false,
+        code: "invalid",
+        reason: "invalid-host",
+      });
+    }
   });
 });

@@ -19,10 +19,6 @@ describe("Fleet product gate", () => {
     );
     const router = readFileSync("src/main/junto/term/router.ts", "utf8");
     const doctor = readFileSync("src/main/junto/hosts/doctor.ts", "utf8");
-    const settings = readFileSync(
-      "src/main/junto/settings/service.ts",
-      "utf8",
-    );
 
     expect(ipc).toContain("if (FLEET_UI_ENABLED) {\n    registerHostsIpc(privilegedIpc);");
     // Remote stations are switched off: the fleet supervisor is never started.
@@ -40,6 +36,5 @@ describe("Fleet product gate", () => {
     expect(coordinator).not.toMatch(/fleet/iu);
     expect(doctor).not.toMatch(/fleet/iu);
     expect(router).toContain("if (!FLEET_UI_ENABLED)");
-    expect(settings).toContain("ensureDefaultCommandCenter");
   });
 });

@@ -2,20 +2,15 @@ import {
   hostHasCapability,
   type RemoteHost,
 } from "@shared/remote-hosts";
-import { isValidStationHostId, type StationRole } from "@shared/station";
+import { isThisMachine, isValidMachineName } from "@shared/machine-identity";
 
 export interface BrowserHostCapabilityAuthority {
   readonly findHost: (hostId: string) => RemoteHost | undefined;
   /**
-   * Durable, hydrated physical-station identity. `undefined` means startup or
-   * onboarding has not established an identity yet and must fail closed.
+   * This machine's name. `undefined` means the machine list has not hydrated
+   * yet, and admission must fail closed.
    */
-  readonly station: () =>
-    | {
-        readonly hostId: string;
-        readonly role: StationRole;
-      }
-    | undefined;
+  readonly machineName: () => string | undefined;
 }
 
 export type BrowserHostCapabilityAdmission =
@@ -27,20 +22,20 @@ export type BrowserHostCapabilityAdmission =
         | "invalid-host"
         | "host-not-registered"
         | "browser-not-declared"
-        | "station-identity-unavailable"
+        | "machine-name-unavailable"
         | "physical-host-mismatch";
       readonly message: string;
     };
 
 /**
- * A WebContentsView is a physical resource of this station. The page's host is
+ * A WebContentsView is a physical resource of this machine. The page's host is
  * document-derived; a caller cannot redirect creation by supplying a host.
  */
 export const admitBrowserHostCapability = (
   hostId: string,
   authority: BrowserHostCapabilityAuthority,
 ): BrowserHostCapabilityAdmission => {
-  if (!isValidStationHostId(hostId)) {
+  if (!isValidMachineName(hostId)) {
     return {
       ok: false,
       code: "invalid",
@@ -65,24 +60,16 @@ export const admitBrowserHostCapability = (
       message: "page host does not declare browser capability",
     };
   }
-  const station = authority.station();
-  if (station === undefined) {
+  const machineName = authority.machineName();
+  if (machineName === undefined) {
     return {
       ok: false,
       code: "unsupported_capability",
-      reason: "station-identity-unavailable",
+      reason: "machine-name-unavailable",
       message: "this machine's identity is not ready for browser work",
     };
   }
-  const roleMatchesPhysicalHost =
-    station.role === "command-center"
-      ? station.hostId === "local" &&
-        host.id === "local" &&
-        host.kind === "local"
-      : station.hostId !== "local" &&
-        host.id === station.hostId &&
-        host.kind === "remote";
-  if (station.hostId !== hostId || !roleMatchesPhysicalHost) {
+  if (!isThisMachine(hostId, machineName) || !host.isThisMachine) {
     return {
       ok: false,
       code: "unsupported_capability",

@@ -23,7 +23,7 @@ const session = (): BrowserSessionInfo => ({
   ref: PAGE_REF,
   nodeId: "page-1",
   url: "https://example.com/",
-  hostId: "local",
+  hostId: "studio",
   profile: "default",
   state: "ready",
   attached: true,
@@ -207,7 +207,7 @@ describe("browser IPC bounds ingress", () => {
         ref: PAGE_REF,
         nodeId: "page-1",
         url: "https://example.com",
-        hostId: "local",
+        hostId: "studio",
         profile: "default",
       },
     });

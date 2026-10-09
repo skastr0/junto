@@ -184,11 +184,6 @@ export type OverseerNativeLiveOptions = {
     input: SchedulerConfigureApplyInput,
     signal: AbortSignal,
   ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
-  readonly stationScope?: () => {
-    readonly hostId: string;
-    readonly installationId: string;
-    readonly role: string;
-  };
   readonly now?: () => number;
 };
 
@@ -960,7 +955,7 @@ const handlePage = async (
     if (!hostAdmission.ok) {
       return fail(
         hostAdmission.reason === "browser-not-declared" ||
-          hostAdmission.reason === "station-identity-unavailable"
+          hostAdmission.reason === "machine-name-unavailable"
           ? "RuntimeDown"
           : "Forbidden",
         hostAdmission.message,

@@ -229,7 +229,7 @@ const target = (
   url: `${exactOrigin}/profile-wipe/fixture.html?mode=${mode}&profile=${profile}${
     pulse === undefined ? "" : `&pulse=${encodeURIComponent(pulse)}`
   }`,
-  hostId: "local",
+  hostId: "studio",
   profile,
 });
 

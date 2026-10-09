@@ -42,7 +42,7 @@ import {
   type BrowserViewHandle,
   type BrowserViewOptions,
 } from "../src/main/junto/browser/sessions";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import { LOCAL_BROWSER_TEST_AUTHORITY, LOCAL_BROWSER_TEST_HOST } from "./browser-host-test-authority";
 
 describe("warmPoolEvictions (pure)", () => {
   const entry = (key: string, attached: boolean, lastActiveAt: number) => ({
@@ -144,7 +144,7 @@ const target = (
   ref: `junto://canvas/work?node=${nodeId}`,
   nodeId,
   url: `https://${nodeId}.example.com`,
-  hostId: "local",
+  hostId: LOCAL_BROWSER_TEST_HOST.id,
   profile: "personal",
   ...overrides,
 });
@@ -311,18 +311,18 @@ describe("BrowserSessionService", () => {
     expect(views).toHaveLength(0);
   });
 
-  it("fails before adapter creation when a page targets another physical host", async () => {
+  it("fails before adapter creation when a page targets another machine", async () => {
     const { adapter, views } = makeSpyAdapter();
     const remote: RemoteHost = {
-      id: "studio",
-      label: "studio",
-      kind: "remote",
-      sshEndpoint: "studio",
+      id: "atlas",
+      label: "atlas",
+      isThisMachine: false,
+      sshEndpoint: "atlas",
       capabilities: ["browser"],
     };
     const hostAuthority: BrowserHostCapabilityAuthority = {
       findHost: (hostId) => hostId === remote.id ? remote : undefined,
-      station: () => ({ hostId: "local", role: "command-center" }),
+      machineName: () => LOCAL_BROWSER_TEST_HOST.id,
     };
     const service = new BrowserSessionService(
       adapter,
@@ -336,27 +336,27 @@ describe("BrowserSessionService", () => {
       undefined,
     );
 
-    expect(await service.open(target("remote", { hostId: "studio" }))).toMatchObject({
+    expect(await service.open(target("remote", { hostId: "atlas" }))).toMatchObject({
       ok: false,
       code: "unsupported_capability",
     });
     expect(views).toHaveLength(0);
   });
 
-  it("does not treat a Command Center host-id setting as a remote physical station", async () => {
+  it("does not open a page on another machine's row even when this machine's name matches it", async () => {
     const { adapter, views } = makeSpyAdapter();
     const remote: RemoteHost = {
-      id: "studio",
-      label: "studio",
-      kind: "remote",
-      sshEndpoint: "studio",
+      id: "atlas",
+      label: "atlas",
+      isThisMachine: false,
+      sshEndpoint: "atlas",
       capabilities: ["browser"],
     };
     const service = new BrowserSessionService(
       adapter,
       {
         findHost: (hostId) => hostId === remote.id ? remote : undefined,
-        station: () => ({ hostId: remote.id, role: "command-center" }),
+        machineName: () => remote.id,
       },
       makeProfileService(),
       () => ++clock,
@@ -372,17 +372,18 @@ describe("BrowserSessionService", () => {
 
   it("rechecks host capability and the canvas target immediately before adapter creation", async () => {
     const { adapter, views } = makeSpyAdapter();
-    let browserDeclared = true;
-    const stationed = (): RemoteHost => ({
+    // This machine's capabilities are a fact of the process; what can change
+    // under an open is whether its row is still in the machine list.
+    let registered = true;
+    const thisMachine: RemoteHost = {
       id: "studio",
       label: "studio",
-      kind: "remote",
-      sshEndpoint: "studio",
-      capabilities: browserDeclared ? ["browser"] : ["terminal"],
-    });
+      isThisMachine: true,
+      capabilities: ["browser"],
+    };
     const hostAuthority: BrowserHostCapabilityAuthority = {
-      findHost: (hostId) => hostId === "studio" ? stationed() : undefined,
-      station: () => ({ hostId: "studio", role: "remote" }),
+      findHost: (hostId) => registered && hostId === "studio" ? thisMachine : undefined,
+      machineName: () => "studio",
     };
     const service = new BrowserSessionService(
       adapter,
@@ -398,7 +399,7 @@ describe("BrowserSessionService", () => {
     const original = target("removed-capability", { hostId: "studio" });
 
     expect(await service.open(original, undefined, async () => {
-      browserDeclared = false;
+      registered = false;
       return { ok: true, data: original };
     })).toMatchObject({
       ok: false,
@@ -406,7 +407,7 @@ describe("BrowserSessionService", () => {
     });
     expect(views).toHaveLength(0);
 
-    browserDeclared = true;
+    registered = true;
     expect(await service.open(
       target("host-changed", { hostId: "studio" }),
       undefined,
