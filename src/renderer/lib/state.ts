@@ -1,13 +1,12 @@
 import { batch, observable } from "@legendapp/state";
 import type { WirePhase } from "@shared/model/wire";
 import type { SnapshotState } from "@shared/entities";
-import type { CanvasSummary, DigestResult, DiscoveredPeer } from "@shared/ipc";
+import type { CanvasSummary, DigestResult } from "@shared/ipc";
 import type { RegionRollup } from "@shared/region-rollup";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { defaultSettings, type Settings } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { ActorRef } from "@shared/work-protocol";
-import type { FleetProbeState } from "./fleet-state";
 import type { HotbarSlot } from "./hotbar-slots";
 
 export const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
@@ -98,13 +97,8 @@ export const state$ = observable({
   /** The machine list as main last reported it (lib/machines.ts). Empty when
       the machines surface is off; this machine's name comes from settings. */
   machines: [] as ReadonlyArray<RemoteHost>,
-  // Fleet overlay plane: enrolled hosts, discovered Tailscale peers, and
-  // per-host reachability probes. Mirrors the settings plane pattern.
-  fleetOpen: false,
-  fleetHosts: [] as ReadonlyArray<RemoteHost>,
-  fleetPeers: [] as ReadonlyArray<DiscoveredPeer>,
-  fleetLoading: false,
-  fleetProbe: {} as Record<string, FleetProbeState>,
+  /** The Machines window is open. What it shows lives with it (lib/machines-actions.ts). */
+  machinesOpen: false,
   digest: null as DigestResult | null,
   digestOpen: false,
   exporting: false,

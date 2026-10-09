@@ -61,16 +61,16 @@ import {
   LIVE_OVERSEER_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
-// Fleet is experimental. The define identifier must wrap import() in
-// this module so ship builds can drop the chunk; imported FLEET_UI_ENABLED
-// is not visible to Rollup DCE.
-const FleetOverlay = __JUNTO_FLEET_UI_ENABLED__
+// The Machines window is behind a flag. The define identifier must wrap
+// import() in this module so ship builds can drop the chunk; imported
+// FLEET_UI_ENABLED is not visible to Rollup DCE.
+const MachinesWindow = __JUNTO_FLEET_UI_ENABLED__
   ? lazy(async () => {
-      const mod = await import("./components/fleet/FleetOverlay");
-      return { default: mod.FleetOverlay };
+      const mod = await import("./components/machines/MachinesWindow");
+      return { default: mod.MachinesWindow };
     })
   : () => null;
-// Pinning is off in every profile. Like Fleet above, the define identifier
+// Pinning is off in every profile. Like the Machines window above, the define identifier
 // wraps import() here so the dock and its styles are left out of the build.
 const WorkSurfaceDock = __JUNTO_PINNING_ENABLED__
   ? lazy(async () => {
@@ -343,7 +343,7 @@ export function App() {
   const error = use$(state$.error);
   const booting = use$(state$.booting);
   const canvasName = use$(state$.canvasName);
-  const fleetOpen = use$(state$.fleetOpen);
+  const machinesOpen = use$(state$.machinesOpen);
   const errorAction = retryActionForError(error);
 
   useEffect(() => {
@@ -623,16 +623,16 @@ export function App() {
         <StoreHost />
         <AgentEditorHost />
         <ObservabilityPanel />
-        {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
-        {FLEET_UI_ENABLED && fleetOpen ? (
+        {/* Mounted only while open, so none of it loads at startup. */}
+        {FLEET_UI_ENABLED && machinesOpen ? (
           <Suspense
             fallback={
-              <div className="fleet-chunk-fallback" role="status" aria-live="polite">
+              <div className="machines-opening" role="status" aria-live="polite">
                 Opening machines…
               </div>
             }
           >
-            <FleetOverlay />
+            <MachinesWindow />
           </Suspense>
         ) : null}
         <DemoLayer />

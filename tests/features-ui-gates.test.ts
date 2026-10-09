@@ -7,16 +7,16 @@ import {
   USAGE_ENABLED,
 } from "../src/shared/features";
 import { ProvidersSettingsSection } from "../src/renderer/components/settings/ProvidersSettingsSection";
-import { openFleet, prefetchFleetChunk } from "../src/renderer/lib/fleet-state";
+import { openMachines, prefetchMachinesWindow } from "../src/renderer/lib/machines-window";
 import { playCue } from "../src/renderer/lib/sound";
 import { state$ } from "../src/renderer/lib/state";
 
 describe("ship-profile UI feature gates", () => {
-  it.runIf(!FLEET_UI_ENABLED)("does not open or prefetch fleet UI while disabled", () => {
-    state$.fleetOpen.set(false);
-    prefetchFleetChunk();
-    openFleet();
-    expect(state$.fleetOpen.peek()).toBe(false);
+  it.runIf(!FLEET_UI_ENABLED)("does not open or prefetch the Machines window while disabled", () => {
+    state$.machinesOpen.set(false);
+    prefetchMachinesWindow();
+    openMachines();
+    expect(state$.machinesOpen.peek()).toBe(false);
   });
 
   it.runIf(!USAGE_ENABLED)("shows no usage source, credential or wording in Settings while usage is disabled", () => {

@@ -10,7 +10,7 @@ describe("Fleet product gate", () => {
   it("gates main hosts IPC, overlay import, preload, and remote occupy, with no fleet CLI or operator op", () => {
     const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
     const app = readFileSync("src/renderer/App.tsx", "utf8");
-    const fleetState = readFileSync("src/renderer/lib/fleet-state.ts", "utf8");
+    const machinesWindow = readFileSync("src/renderer/lib/machines-window.ts", "utf8");
     const preload = readFileSync("src/preload/index.ts", "utf8");
     const cli = readFileSync("src/cli/main.ts", "utf8");
     const coordinator = readFileSync(
@@ -25,9 +25,9 @@ describe("Fleet product gate", () => {
     expect(ipc).not.toContain("fleetPropagation.start()");
     expect(ipc).not.toContain("startLiveFleetUpdateExecutor");
     expect(app).toContain(
-      "const FleetOverlay = __JUNTO_FLEET_UI_ENABLED__",
+      "const MachinesWindow = __JUNTO_FLEET_UI_ENABLED__",
     );
-    expect(fleetState).toContain(
+    expect(machinesWindow).toContain(
       "if (!__JUNTO_FLEET_UI_ENABLED__) return;",
     );
     expect(preload).toContain("...(FLEET_UI_ENABLED ? hostsApi : {})");

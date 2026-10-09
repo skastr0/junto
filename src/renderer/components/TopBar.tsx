@@ -20,7 +20,7 @@ import { state$ } from "../lib/state";
 import { openOperatorModal } from "../lib/operator-modal";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
-import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
+import { openMachines, prefetchMachinesWindow } from "../lib/machines-window";
 import { HUE, HUE_TEXT, withAlpha } from "../lib/theme";
 import { Button, ConfirmDialog, Dialog, Dropdown, FieldLabel, Input, Popover } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
@@ -312,9 +312,9 @@ export function TopBar({
         {FLEET_UI_ENABLED ? (
           <button type="button" className="station-icon-button" aria-label="Open machines" title="Machines"
             style={{ borderColor: "var(--color-stroke)", color: HUE.steel }}
-            onPointerEnter={prefetchFleetChunk}
-            onFocus={prefetchFleetChunk}
-            onClick={openFleet}>
+            onPointerEnter={prefetchMachinesWindow}
+            onFocus={prefetchMachinesWindow}
+            onClick={openMachines}>
             <Radar size={15} />
           </button>
         ) : null}

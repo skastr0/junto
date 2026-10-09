@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const rendererFiles = [
   "../src/renderer/components/SettingsPanel.tsx",
-  "../src/renderer/components/fleet/FleetDetailPanel.tsx",
+  "../src/renderer/components/machines/MachinesWindow.tsx",
 ] as const;
 
 describe("Linux host preparation UI", () => {
