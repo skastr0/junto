@@ -8,11 +8,17 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ home: "", root: "", loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", stopSelections: [] as string[], starts: 0, definitionRemoved: false }));
+const fixture = vi.hoisted(() => ({ home: "", root: "", loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", collideCopy: false, stopSelections: [] as string[], starts: 0, definitionRemoved: false }));
 vi.mock("node:os", async original => ({ ...await original<typeof import("node:os")>(), homedir: () => fixture.home }));
 vi.mock("node:fs/promises", async original => {
   const fs = await original<typeof import("node:fs/promises")>();
-  return { ...fs, cp: (source: string, destination: string, options: Parameters<typeof fs.cp>[2]) => fs.cp(fixture.copiedFrom || source, destination, options) };
+  return { ...fs, cp: async (source: string, destination: string, options: Parameters<typeof fs.cp>[2]) => {
+    if (fixture.collideCopy) {
+      await fs.mkdir(join(destination, "core"), { recursive: true, mode: 0o700 });
+      await fs.writeFile(join(destination, "core/junto.cjs"), "collision\n", { mode: 0o600 });
+    }
+    return fs.cp(fixture.copiedFrom || source, destination, options);
+  } };
 });
 vi.mock("../src/main/junto/process-epoch", () => ({
   readSingleProcessEpochSnapshot: (pid: number) => fixture.stopped ? [] : [{ pid, startKey: "incumbent" }],
@@ -60,7 +66,7 @@ const errorFrom = async (bundle: string) => Effect.runPromise(installMachine({ b
 
 beforeEach(async () => {
   scratch = await realpath(await mkdtemp(join(tmpdir(), "junto-install-test-")));
-  Object.assign(fixture, { home: scratch, root: join(scratch, "install"), loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", stopSelections: [], starts: 0, definitionRemoved: false });
+  Object.assign(fixture, { home: scratch, root: join(scratch, "install"), loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", collideCopy: false, stopSelections: [], starts: 0, definitionRemoved: false });
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
 afterEach(async () => { vi.restoreAllMocks(); await rm(scratch, { recursive: true, force: true }); });
@@ -175,6 +181,16 @@ await release();`;
     const error = await errorFrom(bundle);
     expect(error.message).toContain("differs from the bundle");
     expect(fixture.starts).toBe(0);
+  });
+
+  it("refuses an existing copy destination file before activation", async () => {
+    const bundle = await makeBundle("a".repeat(64));
+    fixture.collideCopy = true;
+    const error = await errorFrom(bundle);
+    expect(error.message).toContain("copy destination already exists");
+    expect(error.disposition).toBe("staged");
+    expect(fixture.starts).toBe(0);
+    expect(await readFile(join(bundle, "core/junto.cjs"), "utf8")).toBe("fixture\n");
   });
 
   it.each(["builds", "logs", "owner.json"])("refuses a symlink at %s without touching its target", async name => {

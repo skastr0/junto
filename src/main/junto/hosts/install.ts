@@ -93,11 +93,12 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
         const stage = join(installRoot, `incoming-${randomUUID()}`);
         try {
           await cp(input.bundle, stage, {
-            recursive: true, dereference: false, errorOnExist: true, force: false,
+            recursive: true, dereference: false, errorOnExist: false, force: false,
             // Bun creates copied directories with ambient permissions. Mint
             // each private destination before copying, including nested ones.
             filter: async (source, destination) => {
               if ((await optionalMetadata(source))?.isDirectory()) await ensureMachineDirectory(destination);
+              else if (await optionalMetadata(destination)) throw new Error("install copy destination already exists");
               return true;
             },
           });
