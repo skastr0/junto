@@ -100,8 +100,10 @@ How an agent proves the feature without the operator.
 - One script runs the whole acceptance run from fresh homes and prints a
   receipt. Smaller scripts run each step alone, so a builder can iterate on
   its own part.
-- Three targets, same script: this Mac under a second home over SSH (the fast
-  loop, any seat can run it), the Mac mini, and a Linux machine.
+- Two targets, same script: the Mac mini, which is the real one and comes
+  first, and a Linux machine. Nothing logs in to the operator's own Mac over
+  SSH. Each run uses its own home and install location on the target, so
+  several seats can exercise the mini at once.
 - Both ends are windowless cores driven by commands. The editing machine in
   the exercise is a windowless core on this Mac in its own home. The window is
   tested apart, on top of commands that already work.
