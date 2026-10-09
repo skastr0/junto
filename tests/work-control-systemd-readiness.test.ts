@@ -68,18 +68,5 @@ describe("work control systemd readiness", () => {
     expect(genericStartup).not.toContain(
       "publishSystemdGenerationReadiness();",
     );
-
-    const remoteSource = await readFile(
-      new URL("../src/main/junto-remote.ts", import.meta.url),
-      "utf8",
-    );
-    expect(
-      remoteSource.match(/publishSystemdGenerationReadiness\(\);/gu),
-    ).toHaveLength(1);
-    expect(
-      remoteSource.indexOf("publishSystemdGenerationReadiness();"),
-    ).toBeGreaterThan(
-      remoteSource.indexOf("await termPlane.start({ controlHome });"),
-    );
   });
 });

@@ -26,7 +26,6 @@ const ENTRY_SURFACES = [
   "src/main/ipc.ts",
   "src/main/junto/ipc.ts",
   "src/main/junto/core.ts",
-  "src/main/junto-remote.ts",
 ] as const;
 
 const CALL_PATTERN = /Effect\.runPromise\b/;
@@ -162,10 +161,6 @@ describe("V4-ENTRY managed runtime domain entry", () => {
       path.join(ROOT, "src/main/junto/ipc.ts"),
       "utf8",
     );
-    const remote = readFileSync(
-      path.join(ROOT, "src/main/junto-remote.ts"),
-      "utf8",
-    );
     const core = readFileSync(path.join(ROOT, "src/main/junto/core.ts"), "utf8");
 
     expect(core).toMatch(/makeCoreRuntime/);
@@ -174,10 +169,8 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     expect(cc).toMatch(/AppRuntime\.runFork/);
     expect(ipc).toMatch(/AppRuntime\.runPromise/);
     expect(juntoIpc).toMatch(/AppRuntime\.runPromise/);
-    expect(remote).toMatch(/RemoteRuntime\.runPromise/);
-    expect(remote).toMatch(/RemoteRuntime\.runFork/);
 
-    // Keep the construction sites explicit, including the unshipped legacy root.
+    // Keep the construction sites explicit: the desktop shell and the windowless core.
     // Pure-Node scan: CI runners do not all ship ripgrep.
     const constructions: string[] = [];
     const walk = (dir: string): void => {
@@ -205,7 +198,6 @@ describe("V4-ENTRY managed runtime domain entry", () => {
       constructions.join("\n"),
     ).toEqual([
       "src/main/core-runtime.ts",
-      "src/main/remote-runtime.ts",
       "src/main/runtime.ts",
     ]);
   });

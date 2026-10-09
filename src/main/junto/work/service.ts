@@ -712,7 +712,7 @@ export const WorkLive = Layer.effect(
     const crew = yield* CrewRepository;
     const machines = yield* MachineRepository;
     // S2: ContentService is a hard WorkLive dependency (both CC + Remote graphs
-    // compose it — runtime.ts / remote-runtime.ts). Hard yield*, never
+    // compose it — runtime.ts / core-runtime.ts). Hard yield*, never
     // serviceOption: a missing ContentService must fail layer build, not soft-
     // degrade claim/media as "unavailable". Closed over for media claim gate +
     // raw externalize (methods stay R=never). Kernel still runs via warm

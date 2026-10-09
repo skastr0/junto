@@ -6,7 +6,7 @@ const source = (relative: string): string =>
 
 describe("actor seat production architecture", () => {
   it("roots expose the actor WHEN without exposing a process HOW", () => {
-    for (const path of ["src/main/core-product.ts", "src/main/remote-runtime.ts"]) {
+    for (const path of ["src/main/core-product.ts"]) {
       const root = source(path);
       expect(root, path).toContain("ActorSeatOccupyLive");
       expect(root, path).toMatch(
