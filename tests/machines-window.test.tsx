@@ -264,10 +264,14 @@ it("sends Junto with one command, shows its steps, then reads the list again", a
   expect(sent.args).toEqual({ name: "build-box" });
   expect(condition("build-box")).toBe("sending");
   expect(byTest("machine-action-send")).toBeNull();
+  const stepText = () => [...byTest("machine-steps")!.querySelectorAll("[data-step]")].map((item) => item.textContent);
+  expect(stepText()).toEqual(["Check the build", "Stop the old Junto", "Put the new build in place", "Start Junto", "Junto answers"]);
+  expect(byTest("machine-steps")?.textContent).not.toContain("Waiting:");
 
   await act(async () => { owner.step(sent.id, "verified"); owner.step(sent.id, "quiescent"); await flush(); });
   const done = () => [...byTest("machine-steps")!.querySelectorAll('[data-done="true"]')].map((item) => item.getAttribute("data-step"));
   expect(done()).toEqual(["verified", "quiescent"]);
+  expect(stepText()).toEqual(["Done: Build checked", "Done: Old Junto stopped", "Put the new build in place", "Start Junto", "Junto answers"]);
   // A step for another command, or one that is not a step, lands nowhere.
   await act(async () => { owner.step("window-other", "ready"); owner.emit({ id: sent.id, event: { step: "ready", secret: "value" } }); await flush(); });
   expect(done()).toEqual(["verified", "quiescent"]);
@@ -307,7 +311,7 @@ it("does not say a send did not happen when it could not be confirmed, and does 
   expect(byTest("machine-advice")?.textContent).toBe("junto: backend did not respond");
   // What was confirmed stays; what was not is not called unreached.
   expect(phases()).toEqual(["done", "done", "unconfirmed", "unconfirmed", "unconfirmed"]);
-  expect(byTest("machine-steps")?.textContent).toContain("Not confirmed: Junto answered");
+  expect(byTest("machine-steps")?.textContent).toContain("Not confirmed: Junto answers");
   expect(byTest("machine-steps")?.textContent).not.toContain("Not reached");
   // A step that arrives late still confirms that step.
   await act(async () => { owner.step(sent.id, "selected"); await flush(); });

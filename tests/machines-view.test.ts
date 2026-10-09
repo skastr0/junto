@@ -281,7 +281,7 @@ describe("the steps of a send", () => {
     expect(machineStepLines(running(["verified", "quiescent"])).map((line) => line.phase)).toEqual(["done", "done", "now", "ahead", "ahead"]);
     // A step nobody reported, before one that was: not confirmed, and not said to be skipped.
     expect(machineStepLines(running(["verified", "selected"])).map((line) => line.phase)).toEqual(["done", "unconfirmed", "done", "now", "ahead"]);
-    expect(machineStepLines(running(["verified"]))[1]).toEqual({ step: "quiescent", label: "Old Junto stopped", phase: "now" });
+    expect(machineStepLines(running(["verified"]))[1]).toEqual({ step: "quiescent", label: "Stop the old Junto", phase: "now" });
     expect(machineStepLines(undefined)).toEqual([]);
   });
 });

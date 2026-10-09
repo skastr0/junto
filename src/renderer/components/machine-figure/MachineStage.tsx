@@ -41,8 +41,8 @@ export function MachineStage({ machine, state, seatIds = [], theme, children }: 
 }
 
 /**
- * The steps of a send as one strip: a bar, then the phase in words and the
- * step. The words stay in the text, so the strip reads without its bars.
+ * The steps of a send as one strip. Confirmed and uncertain phases name
+ * their state; upcoming steps read plainly without a prefix.
  */
 export function MachineSteps<Phase extends string>({
   lines,
@@ -59,7 +59,7 @@ export function MachineSteps<Phase extends string>({
       {lines.map(({ step, label, phase }) => (
         <li key={step} data-step={step} data-done={phase === "done"} data-step-phase={phase}>
           <i aria-hidden="true" />
-          <small>{words[phase]}: </small>
+          {words[phase] ? <small>{words[phase]}: </small> : null}
           {label}
         </li>
       ))}

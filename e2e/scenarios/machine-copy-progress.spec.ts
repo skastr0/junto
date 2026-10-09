@@ -33,6 +33,10 @@ test("the Machines strip shows bytes, a stated stall and resumed copying", async
   const strip = page.getByTestId("machine-steps");
   const copy = strip.locator('[data-step="copy"]');
   await expect(copy).toContainText("0 of 69 MB");
+  await expect(strip.locator('[data-step]:not([data-step="copy"])')).toHaveText([
+    "Check the build", "Stop the old Junto", "Put the new build in place", "Start Junto", "Junto answers",
+  ]);
+  await expect(strip).not.toContainText("Waiting:");
   const emit = async (state: string, bytes: number) => app.evaluate((_electron, input) => {
     const probe = globalThis as unknown as { copyProbe: { emit: (state: string, bytes: number) => void } };
     probe.copyProbe.emit(input.state, input.bytes);

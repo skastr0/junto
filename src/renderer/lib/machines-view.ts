@@ -146,12 +146,12 @@ export const MACHINE_INSTALL_STEPS: ReadonlyArray<MachineInstallStep> = [
   "ready",
 ];
 
-export const MACHINE_INSTALL_STEP_LABEL: Readonly<Record<MachineInstallStep, string>> = {
-  verified: "Build checked",
-  quiescent: "Old Junto stopped",
-  selected: "New build in place",
-  started: "Junto started",
-  ready: "Junto answered",
+export const MACHINE_INSTALL_STEP_LABEL: Readonly<Record<MachineInstallStep, { readonly upcoming: string; readonly done: string }>> = {
+  verified: { upcoming: "Check the build", done: "Build checked" },
+  quiescent: { upcoming: "Stop the old Junto", done: "Old Junto stopped" },
+  selected: { upcoming: "Put the new build in place", done: "New build in place" },
+  started: { upcoming: "Start Junto", done: "Junto started" },
+  ready: { upcoming: "Junto answers", done: "Junto answered" },
 };
 
 /**
@@ -164,9 +164,9 @@ export type MachineStepPhase = "done" | "now" | "ahead" | "not-reached" | "uncon
 
 export const MACHINE_STEP_PHASE_WORD: Readonly<Record<MachineStepPhase, string>> = {
   done: "Done",
-  now: "Waiting",
-  ahead: "Waiting",
-  "not-reached": "Not reached",
+  now: "",
+  ahead: "",
+  "not-reached": "",
   unconfirmed: "Not confirmed",
   copying: "Copying",
   stalled: `No progress for ${MACHINE_COPY_STALL_MS / 1000} seconds`,
@@ -204,7 +204,7 @@ export const machineStepLines = (copy: MachineCopy | undefined): ReadonlyArray<M
           : copy.disposition === "staged"
             ? "not-reached"
             : "unconfirmed";
-    return { step, label: MACHINE_INSTALL_STEP_LABEL[step], phase };
+    return { step, label: MACHINE_INSTALL_STEP_LABEL[step][phase === "done" ? "done" : "upcoming"], phase };
   });
 };
 
