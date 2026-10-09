@@ -4,6 +4,7 @@
  */
 
 import { Effect } from "effect";
+import { runOnSeatStartTurn } from "./seat-start-turn";
 import type { Node } from "@shared/model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorRef } from "@shared/work-protocol";
@@ -188,17 +189,23 @@ export const ensureManagedSeatRunning = (
     const surface = { ...node, hostId: node.host };
 
     const occupy = (spec: ActorOccupySpec): Effect.Effect<boolean> =>
-      actorSeatOccupy.occupy(spec).pipe(
-        Effect.match({
-          onFailure: (error) => {
-            console.error(
-              `[term] ensureManagedSeatRunning failed for ${surface.bindingId}:`,
-              error,
-            );
-            return false;
-          },
-          onSuccess: () => true,
-        }),
+      Effect.promise(() =>
+        runOnSeatStartTurn(() =>
+          Effect.runPromise(
+            actorSeatOccupy.occupy(spec).pipe(
+              Effect.match({
+                onFailure: (error) => {
+                  console.error(
+                    `[term] ensureManagedSeatRunning failed for ${surface.bindingId}:`,
+                    error,
+                  );
+                  return false;
+                },
+                onSuccess: () => true,
+              }),
+            ),
+          ),
+        ),
       );
     // Same provisioning step the operator-initiated create runs, for the same
     // reason: a provisioned-session harness has no launch shape without its
