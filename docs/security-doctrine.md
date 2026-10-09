@@ -1,1192 +1,272 @@
 # Junto security doctrine
 
-**Status:** normative product doctrine
-
-**Scope:** product trust, operator intent, agents, canvases, stations, fleet
-topology, and Junto-owned control paths
-
-This document is the governing security doctrine for Junto. It defines the
-product Junto is becoming and the claims a production release must be able to
-prove.
-
-When another document, backlog item, review, test, or implementation conflicts
-with this doctrine, the conflict must be removed. Compatibility is permitted
-only at two proven external boundaries: installed SQLite state that cannot be
-updated atomically with its binary, and independently updated enrolled
-Stations. Those exceptions remain boundary codecs or retained inert data; they
-do not justify duplicate internal domains, dual writes, dormant fallback
-stores, or retired file paths.
-
-The contract for one canvas across machines is
-[`machines.md`](machines.md). That document may refine mechanics, but it
-cannot weaken the trust boundaries or forbidden residue defined here.
-
-The exact Linux host boundary is
-[`linux-host-preparation.md`](linux-host-preparation.md). Linux installation,
-update, host inspection, optional administrator preparation, and
-capability-specific degradation must satisfy that contract.
-
-## Product position
-
-Junto is unapologetically a **one-person business factory**.
-
-One operator may own many machines, accounts, regions, projects, agents, and
-business assets. Those resources still express one sovereign intent and one
-factory workstream. Junto is not a collaboration canvas for independent
-people performing separately authorized work.
-
-Junto v1 does not attempt to provide:
-
-- multi-tenant isolation;
-- team roles or employee RBAC;
-- mutually distrustful collaborators;
-- enterprise identity governance;
-- security boundaries between multiple human operators in one factory.
-
-A Junto installation belongs to one operator and one factory. A competent
-operator may run separate installations under separate operating-system
-accounts. Junto does not add a machine-global tenancy system to coordinate
-those accounts.
-
-## Security objective
-
-Junto makes the operator's existing power **explicit, legible, scoped, and
-recoverable**. It must not silently enlarge that power or create routes the
-operator did not choose.
-
-No powerful fleet application can truthfully promise that compromise or data
-loss is impossible. Junto instead makes concrete, testable promises:
-
-1. Junto does not secretly create authority.
-2. Junto enforces operator intent throughout every Junto-owned control path.
-3. A boundary Junto advertises is a boundary Junto actually enforces.
-4. Junto does not silently create lateral fleet reach.
-5. Junto exposes loss of reach or control honestly and immediately.
-6. Junto preserves operating-system, root, web-content, package, and physical
-   machine boundaries rather than pretending to replace them.
-7. Junto minimizes the authority and sensitive data placed on each resource.
-8. Safety controls protect the user's machine from mistakes without treating
-   the trusted factory as an adversary.
-
-## The trust model
-
-### Trusted
-
-- The single human operator.
-- Machines and accounts the operator explicitly enrolls.
-- Agents the operator intentionally attaches to the factory.
-- Provider resources the operator explicitly enrolls.
-- Junto processes and owner-local control transports on an enrolled station.
-
-Attached agents are trusted participants, but they are not assumed to be
-perfect. They may be eager, mistaken, unaware of Junto's topology, operating
-on stale context, influenced by prompt injection, or affected by a harness or
-tool bug. Junto therefore enforces operator-authored edges and ports on every
-Junto-owned action.
-
-This is protection of operator intent and protection of agents from mistakes.
-It is not an attempt to contain a malicious process that already has arbitrary
-shell access as the operator's operating-system account.
-
-An **external actor** is external to a Junto runtime, not external to operator
-ownership or trust. Junto does not add warnings or repeated disclosure
-ceremonies merely because an operator-owned actor uses a harness, provider, or
-managed resource outside the local Junto process.
-
-### Untrusted boundaries and inputs
-
-- Arbitrary websites and browser page content.
-- Unenrolled machines and unauthenticated network peers.
-- Downloaded packages, updates, imports, and network responses until verified.
-- Data crossing into privileged filesystem, process, shell, browser, or root
-   operations until decoded and validated.
-- Other operating-system users.
-- Responses and payloads crossing an external provider connector until decoded
-   and validated.
-- Root authority except during an explicit, bounded operator transaction.
-
-Agent and model output is treated as untrusted **input** when it crosses one of
-these privileged boundaries. That does not make the attached agent an
-adversarial tenant.
-
-### Explicit non-claim
-
-Junto does not claim to isolate mutually hostile processes running as the same
-operating-system user. Such a process may already be able to inspect files,
-invoke binaries, automate applications, or use the user's credentials outside
-Junto.
-
-Controls whose only purpose is defeating an arbitrary malicious same-user
-process require an explicit change to this doctrine. They must not quietly
-enter the product through a review or backlog item.
-
-## Governing laws
-
-### 1. Single sovereign
-
-The operator is the sole author of factory intent. Agents execute, report,
-request, and produce artifacts. They do not become co-authors of the canvas,
-settings, topology, or station roles.
-
-### 2. No surprising authority
-
-Junto never creates, discovers-and-uses, broadens, transfers, or retains
-authority without a corresponding operator-visible action.
-
-In particular, Junto must not silently:
-
-- open a port;
-- enroll or connect a host;
-- reuse an SSH destination merely because it was discovered;
-- install an integration;
-- grant an agent another machine's capabilities;
-- turn a facility into an execution actor;
-- promote a Station to Command Center;
-- make one Station directly reachable from another.
-
-Discovery may produce a visible suggestion. It never produces authority.
-
-### 3. Operator intent is sacred
-
-The canvas and protected settings are executable operator intent. Every
-Junto-owned path must use the current intent available to that runtime.
-
-A control path that bypasses an edge, port, installation assignment, actor
-seat, or role boundary is a product security failure even when the attached
-agent is trusted.
-
-### 4. Advertised boundaries are real
-
-An edge, port, actor-seat locality, host assignment, profile boundary, role,
-revocation, or termination state must not be advisory when the UI presents it
-as protective.
-
-Junto may state an external limit honestly. It must not display a stronger
-guarantee than the runtime can enforce.
-
-### 5. Explicit enrollment
-
-Every host and external resource begins outside the execution graph.
-Enrollment is always an operator action.
-
-Defaults are strict and deny new reach. The operator may deliberately broaden
-the factory. Junto then enables that chosen power without repetitive approval
-ceremonies.
-
-Configuration must remain small enough to understand. Prefer a predictable set
-of atomic capabilities and strong presets over vague security levels or a
-settings swamp.
-
-### 6. No Station-to-Station control plane
-
-Junto guarantees Command Center-to-Station communication. It does not create a
-Station-to-Station control plane.
-
-Any future cross-station action must route through Command Center and remain
-subject to current operator intent. Mere network adjacency does not create a
-route.
-
-### 7. Remote projection and durable work authority
-
-Command Center is the sole authority for authored intent. A Remote is not
-authorially stateful, but it is operationally stateful: it owns one SQLite
-database and the work and physical resources homed there.
-
-A Remote durably holds:
-
-- its installation identity, pairing, and Remote configuration;
-- the latest complete intent projection received from Command Center;
-- immutable prior projection versions as audit and exact fact-basis
-  witnesses, with one head selecting the only active version;
-- work rows homed to that Remote;
-- logical events, pending dispositions, receipts, and propagation cursors;
-- browser profiles, terminals, processes, artifacts, and runtime recovery
-  required for local execution.
-
-The active projection is a replaceable cache of intent, not an independently
-authoritative document. Retaining immutable prior versions does not create
-multiple active intents: `station_projection_head` selects exactly one active
-version, and monotonic installation never moves that head backward. A Remote
-does not author, merge, negotiate, elect, reinterpret, or veto intent, and it
-never coordinates intent with another Remote.
-
-Projection replacement is one bounded transaction that inserts the admitted
-immutable version and advances the active head. It must not merge intent or
-erase, overwrite, or re-home Remote-owned work, receipts, cursors, pairing,
-configuration, browser profiles, artifacts, or runtime recovery state.
-
-If Command Center is sleeping, closed, crashed, or otherwise unavailable, the
-Remote continues under its latest projection and independently advances the
-work already homed there. There is no delegation ceremony, lease state
-machine, election, or recovery protocol on the Remote.
-
-If Command Center cannot reach a Remote, it cannot update intent there,
-mediate a new Command Center-home queue claim, or claim that revocation
-arrived. It must:
-
-- mark the Remote and affected canvas resources as unreachable or stale;
-- show the last acknowledged projection and logical cursors;
-- warn the operator without claiming synchronization or control;
-- offer visible, safe diagnostic tools;
-- leave remediation and fleet/network decisions with the operator.
-
-The unreachable Remote continues under its last received intent. Junto does
-not attempt to solve a network or machine the operator cannot reach.
-
-### 8. Honest operator tools
-
-Junto may provide Doctor, connectivity tests, SSH or network inspection, safe
-scans, and exact remediation guidance.
-
-These tools remain visible to the operator. Read-only diagnosis may run
-automatically when disclosed by the UI. Active remediation, topology changes,
-new connectivity, installation, or privilege escalation requires an explicit
-operator action.
-
-On Linux, Junto's own Station install and update transaction is an
-ordinary-user operation. A host-administrator action is separate from that
-transaction: Junto may document it and later verify its effect, but it does
-not invoke the privileged command, collect its password or input, or retain a
-grant. A missing optional host facility degrades only the capability that
-needs it when safe; a missing security property fails the affected boundary
-closed.
-
-### 9. Safety without autoimmunity
-
-Machine safety protects against confused code, malformed input, partial
-failure, dangerous path selection, PID reuse, and destructive mistakes.
-
-It does not justify treating trusted same-user agents as hostile tenants.
-Security machinery must identify:
-
-- the real boundary;
-- the plausible failure or attacker;
-- the reachable path;
-- the material consequence;
-- the property the control actually enforces.
-
-If those cannot be named, the control is security theater and must not become a
-product requirement.
-
-## The protected operator-intent plane
-
-### Canonical canvas
-
-The canonical canvas is a protected Junto document. Ordinary agents
-never write it. Command Center remains the authorial installation.
-
-The target product contract is:
-
-- canvas and protected settings have one app-owned authoring path;
-- direct operator actions in Command Center author intent;
-- a human-toggled overseer on an existing managed agent seat may author through
-  closed `overseer` commands admitted by main; ordinary agents never write the
-  canonical canvas;
-- ordinary agents consume read-only compiled projections and Junto tools;
-- automatic history records operator and overseer changes without adding
-  authoring chores;
-- undo, recovery, and "what authority changed?" remain operator facilities and
-  must not restore a revoked overseer grant from a stale document.
-
-There is no canvas file, import or export. No file on disk carries canvas
-contents, and none can grant live authority over a running factory.
-
-Canonical live and durable state is `~/.junto/state/junto.db`. During normal
-product operation it is an owner-only SQLite database opened by exactly one
-main-process `StateEngine`: Electron main on Command Center or packaged Node
-main on Remote. Renderers, CLIs, helpers, fleet callers, and other processes
-use IPC/control APIs and never open it. A change to a canvas is a command that
-names the rows it touches, committed in one transaction and followed by one
-event (`src/shared/model/`).
-
-There is no sealed state-preflight database opener. Install/update stages the
-package, quiesces the incumbent, and cutovers; schema and content migration run
-on normal app open through the sole StateEngine owner. Test programs may open
-explicitly injected disposable databases; that is not a general product data
-path.
-
-Every app version provides one role-independent schema. Independently updated
-installations may temporarily run different recognized schema versions; no
-installation opens another installation's database. Role changes which rows
-are resident and active, not which storage implementation exists:
-
-- Command Center holds authorial canvas generations, fleet enrollment and
-  coordination, and all work homed to Command Center;
-- a Remote holds its complete replace-only projection, Station pairing and
-  configuration, logical propagation cursors, and work homed to that Station;
-- actor mailbox messages remain Command Center-homed; task/request thread
-  messages share their exact parent row's home;
-- browser profiles and other physical resources remain on the installation
-  that owns them.
-
-One durable row has one home. Re-homing is an explicit move; it is never a
-dual-read or dual-write interval. The first successful task claim is one such
-explicit cutover: a submitted queue-home task becomes `working`, gains one
-claimant, and transfers authority to that actor's authority installation in
-the same accepted claim operation.
-
-SQLite schema evolution is forward-only and in place. `PRAGMA user_version`
-is the migration cursor; `state_schema_identity` remains the exact normalized
-schema witness. Fresh databases compile the current schema directly. Existing
-databases run one contiguous, release-authored migration chain inside a single
-`BEGIN IMMEDIATE`, followed by exact `sqlite_schema` verification and
-`foreign_key_check`. Additive schema changes, copy-forward data, the identity
-stamp, and the version advance commit together or all roll back. A database
-from a newer release, an unknown version, a missing migration, or a drifted
-version witness fails closed without mutation.
-
-Version 1 is the Junto baseline schema, selected by `CURRENT_STATE_SCHEMA_VERSION = 1`
-and declared in `src/main/junto/state/migrations.ts`. Every subsequent schema
-change after version 1 must append an `N → N+1` migration (starting with `1 → 2`)
-and prove representative data preservation. A released migration is immutable
-and may never be edited, removed, reordered, or renumbered.
-
-An unversioned non-empty database is adopted only when both its live schema and
-recorded identity match the exact version-1 baseline. This is not a general
-legacy importer: there is no file-store reader, dual schema, downgrade, or
-instruction to delete `junto.db`. Every schema change after version 1 must
-append an `N → N+1` migration and prove representative data preservation.
-
-Routine migrations are expand, preserve, and deprecate. They add a new
-representation, copy forward while retaining every installed row and old
-column value, and then make the old representation inert. They cannot delete
-or replace installed rows, overwrite installed fields, rename/drop/reuse
-durable names, or contract schema. Physical retirement is a separate
-operator-approved compaction requiring a verified coherent backup, exact
-replacement parity, no current reader/writer, fleet compatibility evidence,
-and explicit retention intent. Canonical user and factory history has no
-automatic retirement horizon.
-
-A canvas is stored as rows: one `canvases` row carrying its `seq`, one typed
-table per kind of node, and `wires`. A command changes those rows and advances
-`seq` in one SQLite transaction; there is no stored document, checkpoint or
-generation history to retain or compact.
-
-The transient in-memory schema compiler contains no product data and is not an
-authority connection.
-
-### Gentle package update
-
-Staging a package and changing installed state are separate phases:
-
-1. The installer downloads, stages, verifies, and audits the candidate while
-   the incumbent may continue running. This phase does not open
-   `junto.db`.
-2. The installer fully quiesces the incumbent and proves that it released the
-   canonical database.
-3. The installer revalidates the exact admitted package and its bounded
-   activation destination. Neither an installer nor a helper opens the product
-   database or starts a disposable-clone migration.
-4. A failure before activation leaves installed bytes and live state
-   unchanged. The installer may resume the previously healthy incumbent.
-5. Activation selects the verified candidate. Its normal main process then
-   opens and, when required, migrates the live database through the immutable
-   forward-only chain. Schema identity, foreign keys, and current repositories
-   are checked through normal startup; failures use startup recovery.
-6. Once the live schema version advances or candidate-authored durable work
-   commits, recovery is forward-only. An older binary is never launched
-   against the advanced database. Refusal is deterministic: before opening the
-   database for write, `schema-version-probe` reads `PRAGMA user_version`
-   read-only and returns `newer-than-supported`, and `startup-schema-recovery`
-   shows the operator a plain "Update required" path (quit, or install the
-   newer feed build). No open, migration, downgrade, or partial decode occurs.
-
-Package admission proves the downloaded bytes and activation target. It does not
-claim a pre-activation migration or simulate actors, browser pages, terminals,
-SSH sessions, providers, or fleet processes. Those surfaces belong to normal
-startup and post-activation package readiness. If activation has occurred and
-startup progress cannot be established, recovery must not guess that an older
-binary is safe to launch.
-
-Verified backups under `state/backups/` may be inventoried and exported to an
-explicit new operator destination as portability and forensic evidence.
-Inventory verifies owner-only regular files, SQLite integrity, foreign keys,
-schema version, and schema identity. Export refuses overwrite and verifies the
-copy. It never replaces `junto.db`, launches an older binary, restores a
-retired schema, or authorizes downgrade. Junto currently has no restore path.
-
-Canvas confidentiality follows the operator's operating-system account, disk,
-backup, and export choices. Junto does not become a general secret-management
-or key-management system merely because the canvas is authoritative.
-
-### Agent surface
-
-The app is its model: seats, regions, wires and the other kinds, as typed rows.
-Capability-bound tools are the agent API.
-
-Ordinary agents may receive deterministic text or visual projections, scoped
-context (including region briefing text via work-control onboard), work
-requests, messages, and artifact facilities. They do not receive an authorial
-canvas mutation path.
-
-An overseer is not another actor kind. It is an existing managed agent seat
-whose occupant may use closed `overseer` operations after a live human grant.
-Only humans grant or revoke; overseers cannot propagate authority. Copied
-aliases do not inherit the grant. Factory pause and play have no bearing on
-overseer administration. An overseer cannot delete its own seat, including
-indirect removal through canvas delete, kind change, or binding replacement,
-and cannot pan, zoom, focus, resize, or switch the operator viewport. It does
-not receive the operator socket, fleet enrollment, or credentials. Attribution
-stays the real agent seat; it never becomes the operator.
-
-### Work authority and sink reach
-
-Logical `task`, `requests`, and `artifacts` sink nodes are part of the complete
-intent projection. Their stable node identity may therefore be addressed by
-an edged actor on any installation. Sink visibility does not create shared row
-authority.
-
-Mutable work remains single-home:
-
-- a Command Center-home task queue is arbitrated only by Command Center;
-- claiming a Command Center-home task for a Remote actor requires a live,
-  synchronous Command Center-to-Remote exchange;
-- claim is the atomic `submitted → working` start of work, not a separate
-  reservation state;
-- one compiled `ActorSeatId` owns at most one pending claim attempt or active
-  task across every canvas reference to that executable seat;
-- after claim, the task remains homed to that Remote and progresses there
-  while Command Center is unavailable;
-- an unreachable Remote cannot receive a newly queued future claim;
-- a Remote-home task queue may be claimed locally by an eligible local actor;
-- requests and artifacts may be created locally while offline and are homed
-  with their raising or publishing actor;
-- actor mailbox messages remain Command Center-homed; task/request thread
-  messages share their exact parent row's home.
-
-There is no actor backlog, unclaim, steal, lease expiry, shared offline task
-claim, last-write-wins row merge, or CRDT work plane. Reconnect exchanges
-ordered facts, commands, dispositions, receipts, and cumulative cursors.
-
-Browser `page` remains the deliberate sink exception: it has a physical
-runtime requirement, so actor and page must share one installation.
-
-### Portability and derivatives
-
-Screenshots, diagnostic bundles, and other derivatives are explicit export
-surfaces. Junto writes no canvas file, digest file, or SVG file.
-
-An exported derivative:
-
-- does not become canonical operator intent;
-- carries no live authority over a running factory;
-- may be consumed by the operator or an attached agent through an authorized
-  Junto tool;
-- remains an ordinary operator-owned file when deliberately persisted.
-
-Junto must not silently treat an exported derivative as authorial input or
-live factory state. This protects the canonical authoring boundary without
-turning deliberate operator portability into a warning ceremony.
-
-### Protected settings
-
-Installation role, Command Center identity, factory membership, host enrollment,
-security capabilities, and equivalent topology state are protected operator
-intent. They are normalized rows in `junto.db` and are mutated only through
-app-owned services. There is no plaintext settings or hosts document whose
-edit, signature, HMAC, or deletion can mint or transfer that authority.
-
-Ordinary use should favor operator comfort. Explicit reauthentication or
-recovery ceremony is reserved for catastrophic actions such as Command Center
-transfer, factory recovery or reset, and factory identity or recovery export.
-
-The exact authoring lock, catastrophic-action reauthentication, factory
-pairing, and recovery design remain open decisions below.
-
-## Factory topology
-
-`Station API` is the protocol name. `Station` may describe an installation in
-fleet topology, but role-bearing text and code use exactly `Command Center` or
-`Remote`; there is no third Station role.
-
-### One Command Center per factory
-
-There is exactly one Command Center for one Junto factory.
-
-Many independent Command Centers may exist on the same physical network when
-they belong to different factories. Network discovery never establishes
-factory membership and never disables a new installation.
-
-A new installation may:
-
-- create a new factory;
-- explicitly join an existing factory as a Remote;
-- remain an unenrolled local installation or facility.
-
-One Junto installation belongs to at most one factory and has one role in that
-factory.
-
-### Command Center transfer
-
-A Remote never becomes Command Center through SSH enrollment, a CLI request,
-an agent tool, a canvas edit, or a settings mutation.
-
-Command Center transfer is a catastrophic operator workflow. The current
-Command Center must deliberately yield, and the operator must directly open
-Junto on the target installation to accept its new role. Exact transfer and
-permanent-loss recovery mechanics remain open decisions.
-
-### Actor locality and admission
-
-Every executable Junto actor is one compiled `ActorSeatId` homed on exactly
-one installation:
-
-- a Command Center actor executes in the Command Center runtime;
-- a Remote actor executes in that Remote runtime.
-
-The seat acts through a process bound by its host-local Junto runtime. Its
-current edges and ports determine which projected sinks it may use.
-`ActorSeatId`, placement, and an edge are routing or authorization facts; none
-is a network credential.
-
-A provider resource or machine without a local Junto runtime is a facility or
-integration target, not an ambient Junto actor. It cannot become an actor by
-holding a node ID, environment variable, Station route, generic MCP endpoint,
-or CLI address. A future provider adapter may expose a specifically typed
-principal only after defining an honest attribution and revocation boundary.
-
-The Station session is factory control between installations. It is not an
-agent tunnel and does not create a remote actor-access tier. Closed `overseer`
-traffic uses the existing Command Center-opened duplex session. A Remote does
-not author projection, does not open a new dial, and does not impersonate the
-operator. Command Center validates the live grant and authenticated source
-installation before authoring.
-
-Actor placement, seat identity, and meaningful edge constraints must be
-visible on the canvas and in inspection surfaces.
-
-## Edges, ports, and enforcement
-
-An edge is an enforceable delegation within Junto. It is not a claim that the
-operating system confines a trusted shell process.
-
-For every protected Junto action:
-
-- the actor is attributed to its real Junto seat;
-- the target belongs to the expected runtime and host;
-- a current edge connects actor and target;
-- the requested operation matches the edge's ports;
-- the actor seat is locally homed and process-bound for the route;
-- every Junto-owned relay repeats the relevant checks.
-
-Process binding is automatic attribution of a live process to a seat. It must
-not grow into a user-facing enable ceremony or be described as same-user
-malware containment.
-
-### The one universal capability: agent signals
-
-Raising a hand to the operator is a deliberate exception to "edges are
-grants", made at the operator's request. Session notes (below) are the only
-other one. Every canvas agent seat may run
-`junto escalate`, `junto blocked`, and `junto feedback`, read its own signals
-and their answers (`junto signal list`), and withdraw its own open signal
-(`junto signal clear`), with no edge, port, or task.
-
-The exception is narrow by construction:
-
-- a signal names no target. The caller is the process-bound seat, and it can
-  raise, read, or withdraw only its own signals;
-- a signal is a durable claim for the operator's eyes (`agent_signals` in
-  `junto.db`). It confers no reach, wakes no other seat, and authors nothing
-  on the canvas;
-- only the operator answers or dismisses. An answer reaches the seat as
-  operator mail through the ordinary delivery path, never as a new grant;
-- a signal is the agent's own claim. Advisory thread-health readings are a
-  separate axis and are never merged into it.
-
-Signals replaced the edge-granted `request.escalate` operation. The
-`escalates` verb and the `request.escalate` port are retired from the grammar:
-no verb joins an agent to a requests sink, and only an overseer raises a
-request. Stored canvases migrate once at boot (install-ops marker
-`canvas.retire-escalates.v1`): each escalates edge is dropped, never converted
-into an adjacent verb, and a surviving mask loses the retired port, which
-granted nothing.
-
-### Seat-local session notes: offboard
-
-Every canvas agent seat may run `junto offboard` to save notes on its current
-session, with no edge, port, or task. `junto onboard` returns the seat's past
-sessions with their notes and transcript paths. The exception is as narrow as
-signals:
-
-- offboard names no target. The caller is the process-bound seat, and it writes
-  only the notes of the session its own node names (or that its harness's own
-  files prove). A seat id or session id in the payload is refused;
-- notes are a markdown file under `~/.junto/seats/<seat>/sessions/` and a
-  `seat_sessions` row in `junto.db`; a continuation (`--continue`) is a second
-  file beside them. Offboard confers no reach, wakes no other seat, and
-  authors nothing on the canvas;
-- offboard closes only the caller's own session, and only once the seat is
-  idle between turns. Closing is Junto's own act (the offboard closer): the
-  session ends, the seat gets a fresh session id, and its process stops.
-  Plain offboard leaves the seat resting; `--continue` wakes it under the
-  ordinary wake rules (this installation's seat only, on a playing canvas)
-  and mails the fresh session its kickoff;
-- the continuation is the one past-session record onboard presents as work:
-  only the session right after the one that continued sees it, as `handoff`;
-- the operator's Offboard buttons send the agent the offboard prompt as
-  operator mail on the ordinary delivery path. They never write notes: the
-  notes are always the agent's own;
-- no renderer surface reads a seat's sessions, notes, or transcripts. They
-  are internal to the seat: its store and its CLI only.
-
-### Revocation and deletion
-
-On every reachable runtime, edge deletion or restriction affects the next
-Junto action immediately. New actions are denied and queued actions are
-canceled.
-
-When a page is deleted or moved to another Station, Junto does everything
-available at that actor tier to close its page, session, and owned
-connections. When an actor node is deleted, Junto does everything available
-at that tier to stop the actor's Junto-owned process and revoke its tools.
-Deletion retires the actor seat; it does not erase immutable attribution,
-artifacts, receipts, or completed history.
-
-An active task claimed by a retired seat remains claimed and single-home. It
-becomes a visible stalled/orphaned lifecycle condition; it is never silently
-unclaimed, requeued, stolen, or claimed by a replacement actor. Any future
-operator recovery action must name an explicit disposition and perform one
-atomic authority transition. Until that contract exists, preservation and
-honest stoppage are safer than invented progress.
-
-Actions already completed in an external system cannot be reversed. Failure to
-terminate a resource must be visible; Junto must not manufacture a successful
-revocation receipt.
-
-An unreachable Station necessarily continues under its last received intent.
-Command Center must display that limit rather than claiming the new revocation
-reached it.
-
-## Enrollment and fleet reach
-
-Host enrollment is always explicit.
-
-Junto may discover SSH, Tailscale, harness-owned, Vouch-managed, or other
-resources and offer onboarding. Discovery alone does not:
-
-- connect the resource;
-- open an inbound port;
-- install software;
-- copy credentials;
-- configure an agent harness;
-- add a Station;
-- add an execution edge.
-
-Junto starts with the strictest useful defaults. The operator may enable a
-small, comprehensible set of atomic host capabilities. Existing operator-owned
-connectivity may be used only after the operator enrolls the resource and
-selects the relevant Junto capabilities.
-
-External and provider-managed resources are first-class factory facilities,
-but Junto presents the guarantees it actually owns. It must not display a
-provider-controlled resource as though it were a Junto-managed Station.
-Runtime placement and provider capability remain legible because they affect
-available ports and termination guarantees, not because Junto requires a
-special disclosure ceremony for an operator-owned resource.
-
-### Command Center-to-Station protocol
-
-Fleet coordination is a transport-neutral typed protocol with a closed
-operation set. Protocol 1 remains prerelease. The closed operations are
-`pair`, `configure`, `project`, `report`, `status`, and `overseer`. Every
-payload is strict-decoded; unknown operations and excess fields fail closed.
-No generic exec, tunnel, forward, plugin, browser, or arbitrary RPC operation
-may smuggle extra capability through an operation or transport adapter.
-`overseer` is a typed request/result for a granted seat, not an RPC tunnel.
-
-Browser operations are never Station API verbs. There is no Station-browser
-protocol, browser PKI, projected browser trust, browser session-handle
-exchange, or cross-installation browser relay on this wire.
-
-Command Center initiates every fleet connection. A Remote never dials Command
-Center or another Remote for fleet control. Once Command Center establishes an
-authenticated persistent session, the channel is duplex: either side may send
-bounded `report` traffic, and a Remote overseer occupant may send closed
-`overseer` on that existing session. A configured Remote still never dials a
-new fleet connection. Timeout or disconnect on `overseer` is uncertain
-completion; Command Center never automatically replays the mutation.
-
-The first transport adapter is OpenSSH. Command Center invokes the fixed
-`junto station-stdio` command as one persistent framed session. The helper connects
-to the Remote app's owner-local control socket; Remote main strictly decodes
-and authorizes each frame and owns every database transaction. SSH never writes
-settings, projections, acknowledgements, status, or database files.
-
-Tailscale (or other mesh/VPN) may supply network reachability to the enrolled
-SSH endpoint. It is optional connectivity, not Junto authority and not a
-Station credential plane.
-
-A future public transport, if shipped, is HTTPS with mutual TLS, never plain
-HTTP. Each adapter authenticates at the boundary it actually owns before
-Station API handling. OpenSSH authenticates the Remote host and operator
-account at the SSH boundary; future HTTPS authenticates both peers through
-mTLS. The closed Station operations, work identities, dispositions, and
-cursors do not change with the adapter.
-
-A future mobile app acting as a standalone Command Center may use that HTTPS
-adapter and the same Station protocol. A mobile mirror of an existing
-sovereign Command Center requires a separate future control/synchronization
-API; it is not a Station peer, adds no extra Station operation beyond the
-closed set, and cannot create two sovereign Command Centers for one factory.
-
-The owner-local socket is transport containment, not a fleet credential or
-cryptographic continuation of SSH identity. The fixed packaged helper carries
-frames from the SSH command to the Remote app under the same operator account.
-Remote main cannot infer the original SSH peer from process ancestry or the
-local socket; it strictly validates target, pairing, verb, state transition,
-and work authority instead. The fixed command narrows attack surface but does
-not claim containment of an arbitrary malicious same-user process. A future
-HTTPS adapter may pass real mTLS peer evidence only when its termination and
-handoff genuinely preserve that evidence.
-
-OpenSSH's authenticated operator account is the authority for the current
-network route; no second Junto bearer credential exists. Wire-version
-compatibility does not create another credential or weaken route admission.
-
-Installed Station version skew is an unavoidable runtime boundary. Junto
-tracks three facts without turning them into a version soup: app release,
-local SQLite schema version, and one Station protocol integer. App and schema
-versions are diagnostic only. Each release declares Station support as
-`{ preferred, compatibleFrom, warnBelow }`, with
-`compatibleFrom <= warnBelow <= preferred`. Peers select the highest integer
-in the overlap of their support intervals and bind that one protocol before
-domain traffic. Selection below either warning threshold remains operational
-with an explicit upgrade warning.
-
-Remote Stations are unreleased, so the baseline is Station protocol 1 with
-`{ preferred: 1, compatibleFrom: 1, warnBelow: 1 }`. Every Remote-specific
-contract remains at version 1, and the release-state gate forbids a bump until
-its exact sentinel declares release. The current contract is content-capable:
-Work carries ContentRef metadata only, claim readiness requires verified local
-content receipts, and media bytes never enter Station NDJSON. One Station
-protocol number selects one complete closed bundle: framing, control envelope,
-the closed Station operations, Work records, projection encoding, bounds, and
-failure semantics. The exact discriminators inside that bundle are not separately
-negotiated versions. There are no session/API/Work/projection version arrays,
-capability arrays, fallback protocol, or pre-release compatibility codecs.
-Semantic compatibility analysis (Exact / Restricted / Unsupported) is
-diagnostic only: operational admission accepts Exact alone, and Restricted or
-Unsupported fails closed without projection, Work, cursor, or ACK movement and
-never widens grants, effects, transitions, operations, or acceptance. A
-"Restricted" reading may explain withheld semantics to the operator but is
-never a partial down-conversion.
-
-After release, an older codec is retained only while an enrolled, non-retired
-Station or unreconciled route proves that compatibility obligation.
-Compatibility lives only at the transport/domain boundary and normalizes
-immediately into the one current internal model.
-
-If no compatible Station protocol exists:
-
-- the Remote continues local execution under its last valid projection;
-- Command Center sends no projection, claim, command, or acknowledgement that
-  the Remote cannot represent;
-- no task or actor reservation is created merely because a socket is live;
-- ordered records remain durable and unacknowledged at the incompatible route
-  head;
-- Command Center reports `running locally — update required`, not generic
-  unavailability or healthy synchronization.
-
-No-common is a coordination lockdown, not a host-process kill. The Remote
-continues already-homed work under its last complete projection, but accepts
-no new projection, task claim, task approval, command, or acknowledgement
-until it updates. The signed package must be admitted before the incumbent is
-quiesced. Failed staging leaves the incumbent and its local work intact;
-schema migration belongs to the candidate's normal startup after activation.
-
-Every connection begins with the compatibility preface. There is no
-pre-negotiation alternate-version entry path or reconnect fallback: an
-unsupported helper, domain frame, malformed frame, timeout, or other negotiation
-failure closes that attempt without fallback. A Station codec may be retained
-only while an enrolled Station or unreconciled durable route proves the
-obligation; elapsed time or a new app release is not evidence either way.
-
-Installation, host, factory, actor, resource, event-home, and entity-home
-identifiers on this protocol are routing facts, not credentials. Junto has
-one `InstallationId` concept; aliases such as `originStationId` and
-`originInstallationId` must not survive beside canonical `eventHome`.
-
-For a fresh Remote, Command Center may not know the database-generated
-`InstallationId` before the first authenticated SSH connection. Identity
-discovery is therefore a narrow bootstrap ceremony on an operator-enrolled SSH
-route: Command Center opens the fixed framed helper, sends exactly one strict
-`status` request, records the returned installation identity, closes that
-bootstrap session, and then opens the normal known-peer session for pairing
-and configuration. The bootstrap admits no other verb and cannot silently
-replace or repair an existing fleet binding. It is not the retired one-shot
-Station client, and the observed identifier does not become a credential;
-OpenSSH remains the authentication boundary for that route.
-
-Authenticated transport does not grant role-promotion authority. The Station
-wire's `configure` request contains `RemoteConfiguration` plus one route-free
-Remote installation registration; Command Center configuration is a distinct
-local-main operation. The registration contains only installation-facing
-identity and capabilities. SSH endpoint, identity-file path, host-key policy,
-and Command Center presentation state remain Command Center-local. Strict
-decoding rejects those fields, and any unknown or retired credential field,
-rather than pruning them. Pairing refuses an existing Command Center
-configuration, and local Command Center selection refuses an existing pairing,
-transactionally. On Remote configuration the same transaction removes all
-authorial canvas generations, so a Remote cannot retain a dormant Command
-Center document plane behind its projection.
-
-Projection transfer is complete and replace-only. Work and receipt propagation
-uses route-local `(event_home, entity_home, seq)` identities and cumulative
-acknowledgements that retain both homes. The wire record is a strict closed sum
-of command, fact, and disposition; it is not an opaque `kind` plus
-repository-private JSON.
-
-Retries send canonical records after the last acknowledged route sequence and
-are idempotent. A Command Center mutation homed on a Remote remains pending
-until that Remote durably applies or causally rejects it and returns an ordered
-disposition; transport ACK alone never materializes it. Origin and received
-timestamps are retained for operator display; neither is an ordering key. Tick
-phase and wall-clock drift can change propagation latency, never ownership or
-ordering.
-
-A Command Center-home task claim is attempted only while both Command Center
-and the target Remote have a live authenticated session. While that session is
-live, Command Center transactionally creates the exact pending claim and
-reserves both task and actor. That commit is the claim-attempt boundary. If the
-connection is lost afterwards—including before the first frame write
-completes—reconnect resolves only that same uncertain command identity; it
-does not select another actor or invent a delayed new claim.
-
-Role is never inferred, and an unconfigured installation rejects every work
-mutation without writing an event or material row. Configured role and host
-identity are immutable until an explicit transfer ceremony exists. Fleet
-host-to-installation bindings follow the same rule: retirement preserves the
-identity tombstone, exact reactivation is allowed, and fresh-install
-replacement requires a new host identity.
-
-A Remote may immediately mutate only rows homed on its own `InstallationId`.
-The single exception is one accepted first-claim transaction for a
-Command Center-home task delivered by that paired Command Center through a
-live CC-opened claim attempt to an actor placed locally. It adopts that exact
-canonical submitted task as `working` on the Remote installation. Actor inbox
-messages are always Command Center-homed: a Remote cannot append an unscoped
-inbox message, while installation-local task, request, artifact, receipt, and
-transition history remains permitted.
-
-Schedulers obey the same single-home law. A local tick evaluates only
-schedulers homed on that installation. The current interval timer kind
-coalesces missed intervals into at most one firing on wake. Any future
-absolute-time or calendar timer must declare its stale/catch-up behavior as
-part of its contract before it can ship.
-
-## Credential ownership
-
-Junto is not a KMS and does not become the owner of credentials belonging to
-the operator's operating system, network, harness, or provider.
-
-- SSH configuration, private keys, known-host decisions, and agent state remain
-  OpenSSH and operator-machine concerns. Junto may invoke the operator's
-  configured SSH client after explicit host enrollment; it does not import,
-  copy, escrow, or reissue SSH private keys.
-- Harness and provider credentials remain in their native harness or provider
-  configuration. Junto integrates with the authenticated tool; it does not
-  absorb the provider's secrets. The one exception is operator-entered usage
-  credentials on Settings → Providers: those values live in an OS-adjacent
-  owner-only file vault outside SQLite and are omitted from newly minted
-  product-state backups. Historical backups remain immutable.
-- Tailscale identity and credentials remain owned by Tailscale and the
-  operator's installation.
-- Browser cookies and authenticated session data remain in the browser profile
-  on the installation that hosts the page. Moving or recreating a page elsewhere
-  does not copy or migrate that profile.
-- The Linux Station lane never accepts, forwards, pipes, caches, retries,
-  logs, or persists an administrator password or other privilege input. Linux
-  host-administrator preparation is performed separately outside Junto and
-  verified afterward through read-only preflight or Doctor.
-
-Junto may mint only credentials intrinsic to a Junto-owned protocol, such as
-owner-local control tokens or future mTLS material for the HTTPS Station
-adapter. Those credentials are narrowly scoped to Junto; they never substitute
-for general SSH, provider, operating-system, browser, or root credentials.
-
-Transport credentials and logical pairing are separate:
-
-- OpenSSH authenticates the Remote host to Command Center and the operator
-  account to the Remote SSH daemon; it does not authenticate a Command Center
-  `InstallationId` inside Remote main;
-- current SSH pairing records the Command Center-declared installation/factory
-  identity accepted over that operator-controlled route;
-- future mTLS may cryptographically bind an authenticated Station credential
-  to an enrolled `InstallationId` only when its handoff preserves that proof;
-- `InstallationId`, `HostId`, factory, actor, resource, route URL, and pairing
-  rows do not authenticate or authorize by themselves.
-
-Before introducing a Junto-specific credential, the design must show that it:
-
-1. establishes a real boundary not already supplied by SSH, Tailscale, the
-   operating system, or the provider;
-2. materially improves security or operator ergonomics;
-3. has a comprehensible creation, rotation, revocation, and recovery lifecycle;
-4. does not duplicate an existing authentication step or create a ceremonial
-   proof that the underlying system does not enforce.
-
-If those conditions are not met, Junto reuses the native authenticated
-transport and adds no credential. Future mTLS design must explicitly define
-bootstrap, private-key custody, rotation, revocation, replacement, and recovery
-before implementation. Retired browser signing or pinning is not a template
-for fleet transport.
-
-## Privilege and machine safety
-
-Root or administrator authority is a real boundary.
-
-- Host-administrator mutation is a separate operator transaction outside
-  Junto. The app may document and later verify it; the app does not execute
-  it.
-- Junto does not accept or transport an administrator password or other
-  privilege input and does not retain ambient privilege.
-- Installation and update inputs are verified before the ordinary-user
-  product transaction mutates installed bytes.
-- Partial installs and updates are recoverable and honestly reported.
-- Staging and audit do not touch installed state or open product databases.
-  After exclusive incumbent quiescence, activation selects the admitted package;
-  only the normal candidate runtime may open and migrate its product database.
-- A failure before activation leaves the unchanged database and prior binary
-  available. After activation, an uncertain startup result is not permission
-  to relaunch an older binary.
-- Once a candidate commits a schema-version advance or candidate-authored
-  durable work, recovery is forward-only: Junto retains or repairs that
-  candidate and never launches an older bundle against advanced state.
-- Host-destructive APIs accept Junto-owned resources or tightly bounded
-  targets rather than arbitrary paths or PIDs.
-
-These controls prevent catastrophic mistakes and corrupted input. They do not
-exist to simulate isolation from the trusted operator account.
-
-### Linux rootless installation and host preparation
-
-Linux has one canonical Station installation and update lane:
-
-- the signed Junto payload is installed, activated, updated, and repaired
-  inside the Station user's account;
-- first install and update use the same userland stage + cutover transaction;
-  schema and content migration run on normal app open;
-- Command Center may drive that userland transaction over the
-  operator-enrolled ordinary-user SSH route, but neither side invokes
-  `sudo`, `su`, `pkexec`, a system package manager, or a privileged helper;
-- host preflight and Doctor are read-only and report per-capability facts;
-- the core Remote is a packaged Node process with no Electron, Chromium,
-  renderer, browser-composition, `DISPLAY`, Xvfb, xauth, or mcookie
-  dependency;
-- Linux Remote browser automation is unavailable in the first Beta and its
-  display, AppArmor/user-namespace, and secret-storage findings cannot
-  determine core health;
-- user lingering and missing core operating-system packages are separate,
-  explicit host-administrator actions;
-- any future browser sidecar is optional and must qualify its AppArmor,
-  user-namespace, display, sandbox, and secret-storage boundaries separately;
-- declining an optional host action degrades only the affected capability when
-  that does not weaken a security boundary;
-- a sandbox, signature, state, ownership, or equivalent security gate fails
-  closed without an insecure fallback;
-- a custom machine image is never the ordinary prerequisite. Hosted machines
-  may arrive prepared, but they follow the same product contract.
-
-Linux desktop releases carry the explicit maturity label **Alpha**. Their
-ordinary-user install and automatic-update transaction must be qualified on
-the declared desktop target. Fleet and Remote remain unreleased and gated;
-their future Station **Beta** admission additionally requires the core Remote
-and two-installation path to be fully tested. Desktop publication does not
-qualify that surface. Optional capabilities may degrade independently when
-safe; security-sensitive features remain fail-closed in both scopes.
-
-Junto must not install a `sudoers` rule, setuid helper, file capability,
-polkit rule, privileged daemon, root-owned update journal, or ambient package
-mutation bridge for this lane. It must not ask the app to accept or transport
-administrator input. Exact optional preparation, its consequence,
-verification, and removal remain operator-visible and outside the Junto
-transaction.
-
-The Linux `.deb`/`/opt` artifact contract and any remaining privileged
-release-installer, release-bridge, root-journal, or administrator-credential
-types, tests, scripts, receipts, and instructions are noncanonical migration
-residue. They do not constitute a legacy, offline, fallback, beta, or
-enterprise product path. They must be removed as the rootless lane lands; a
-release cannot preserve both.
-
-Remote machines are physical blast-radius boundaries. Enrollment of one Remote
-must not silently provide it reusable credentials or direct routes to other
-Remotes or Command Center administration.
-
-## Browser and external-content boundary
-
-Web content is untrusted even when the operator and attached agent are trusted.
-
-Browser automation is host-local. The actor and the page node must
-share the same installation. The enrolled host capability `"browser"` means
-that installation may physically host browser pages and owner-local browser
-control; it is not a remote RPC grant and never appears on the Station API.
-
-Linux Remote browser automation is intentionally unavailable in the first
-Beta. The following Remote browser rules govern a future optional sidecar; its
-absence is not a core Remote health failure.
-
-There is no Station-browser protocol, browser PKI, projected browser trust,
-Command Center browser session handle, or cross-installation browser relay.
-If a future Remote browser sidecar is qualified, a page on a Remote is driven
-only by actors and tools on that Remote.
-
-Browser pages must remain isolated from Electron, Node, filesystem, shell,
-canvas, fleet credentials, and other profiles except through explicit
-Junto-owned operations allowed by current intent.
-
-An edge to a page grants the connected actor the represented operations on
-that specific page node and session. The page may navigate or otherwise change
-through ordinary use; the grant continues to follow that page. It does not
-implicitly grant a full browser, profile administration, sibling pages, or
-newly created pages.
-
-Junto should not add repeated confirmations after the operator deliberately
-grants that page capability.
-
-Junto can promise:
-
-> No agent lacking the required current edge on the same installation may
-> control that browser surface through a Junto API, CLI, socket, or
-> automation surface.
-
-Junto cannot promise that arbitrary malicious same-user code, an operating
-system compromise, or an unknown browser or kernel vulnerability cannot reach
-the user's data by means outside Junto.
-
-## Termination promises by ownership
-
-- **Junto-owned host-local process:** revoke admission, request graceful
-  termination, escalate within a bounded window when safe, and verify exit.
-- **Externally attached host-local process:** revoke every Junto capability
-  and request termination; report honestly when lifecycle ownership is
-  external.
-- **Provider-managed operation:** revoke the typed adapter capability, request
-  provider or harness cancellation where supported, and report its result.
-- **Facility without a Junto runtime:** no Junto actor or execution
-  authority exists.
-
-Junto claims only the termination strength supported by the resource's real
-ownership boundary.
-
-## Security review discipline
-
-Every security requirement and finding must begin with this doctrine.
-
-Before adding a control, reviewers must answer:
-
-1. What exact trust boundary is crossed?
-2. Is the source actually controlled by an entity outside that boundary, or is
-   this merely a trusted same-user hypothetical?
-3. What executable path reaches what privileged sink?
-4. What material operator or fleet harm follows?
-5. What property will the proposed control genuinely enforce?
-6. Does the control preserve operator intent without adding hidden authority,
-   ceremony, or failure states?
-7. Could a smaller control at an operating-system, physical-machine, provider,
-   root, web-content, or package boundary provide the real protection?
-
-Security reviews must distinguish:
-
-- malicious external input;
-- accidental or confused trusted-agent behavior;
-- ordinary reliability failure;
-- compromised physical machine;
-- limits Junto cannot enforce.
-
-Review severity follows reachability and impact inside this threat model, not
-the most adversarial imaginable model.
-
-## Explicit non-goals
-
-- Confining an arbitrary hostile process already running as the operator.
-- Multi-user, team, tenant, or collaborator isolation.
-- Station elections, consensus, CRDT intent, or decentralized canvas
-  authority.
-- Station-to-Station control or credential sharing.
-- Inferring compromise merely because a Station is unreachable.
-- Automatically repairing operator networking or fleet topology.
-- Approval ceremonies that do not establish a real boundary.
-- Claiming control over provider infrastructure Junto does not operate.
-- Claiming revocation reached an unreachable physical machine.
-
-## Forbidden architectural residue
-
-A release is blocked while any product path preserves:
-
-- `.canvas` files, generation directories, manifests, pointer files, JSON
-  settings/host/status files, seals, or drop files as live durability;
-- topology keys, topology seals, hosts keys, or hosts seals;
-- `incoming.frame`, `applied.ack`, or SSH writes/reads that substitute files
-  for the Station API;
-- Station-browser verbs or relays, browser PKI/certificate stores, projected
-  browser trust, cross-installation browser handles, or compatibility paths to
-  any of them;
-- Remote-opened or reverse fleet connections to Command Center,
-  Remote-to-Remote routes, or credentials that create lateral fleet reach;
-- shared offline task claiming, actor backlogs, reservation distinct from task
-  start, unclaim, steal, or implicit work re-home;
-- wall-clock ordering or a cursor that drops part of
-  `(event_home, entity_home)`;
-- direct product database access from a renderer, headless CLI, helper, fleet
-  caller, concurrent second process, installer, or state-preflight process;
-- dual reads, dual writes, legacy imports, or compatibility adapters outside
-  the explicit installed-SQLite and Station-wire boundaries;
-- permissive Station decoding, guessed downgrade, or an older wire codec kept
-  after its enrolled-fleet retirement trigger;
-- a rollback path to a retired file store;
-- Station merging, negotiating, electing, or vetoing Command Center intent;
-- security requirements derived solely from a hostile same-user model;
-- readiness or deployment ceremonies whose only protection is against a
-  trusted same-user process;
-- a Linux product install, update, repair, or removal path that invokes
-  `sudo`, accepts administrator input, mutates a system package manager,
-  writes the active release into a system-owned location, or retains a
-  privileged helper, bridge, daemon, policy, or root transaction journal;
-- parallel rootless and privileged Linux product lanes, including a privileged
-  path relabelled as legacy, offline, fallback, beta, enterprise, or recovery
-  support.
-
-There is no supported pre-SQLite state to protect or recover. If obsolete
-storage code is found, it is deleted in the same change that exposes it.
-
-## Open doctrine decisions
-
-These questions remain intentionally open. Implementations must not resolve
-them by accident:
-
-1. Exact operator authoring lock, catastrophic-action reauthentication,
-   factory/Station pairing, and recovery-code format.
-2. Permanent Command Center loss and whether recovery material may reclaim
-   Stations.
-3. Exact Command Center transfer protocol and catastrophic-action
-   reauthentication.
-4. The bounded set of operator-facing host capability controls and presets.
-5. Intent-history and verified-backup retention and compaction policy.
-   Coherent backup uses SQLite `VACUUM INTO`; inventory/export is explicit
-   operator portability, not restore or downgrade.
-6. Provider-specific guarantees for harness-owned and managed-cloud actors.
-7. HTTPS/mTLS bootstrap, private-key custody, rotation, revocation, and
-   permanent-loss recovery.
-
-Until decided, these remain product questions rather than invitations to add a
-general distributed system or a stricter threat model.
-
-## Release test
-
-A production security claim is acceptable only when:
-
-- the claim names the boundary it covers;
-- executable code enforces it on every Junto-owned path;
-- tests exercise allowed, denied, revoked, stale, unreachable, and failure
-  behavior proportionately;
-- packaged artifacts prove the same behavior as source tests;
-- the UI communicates external limits and degraded control honestly;
-- the mechanism does not rely on an adversary already excluded by this
-  doctrine;
-- the operator can understand what authority exists and how it was created.
-
-The goal is not maximum security machinery. The goal is a factory the operator
-can trust because its power is deliberate, its boundaries are real, and its
-limits are honest.
+Junto is one operator's workspace across machines. The build contract is
+[machines.md](machines.md); this document states the trust boundaries for that
+same design. These are requirements for the product, not a claim that every
+implementation has passed an audit. Change both documents when a boundary
+changes.
+
+## Trust and its limits
+
+Junto shares the authority of the OS account it runs in. A seat with an
+unrestricted shell can reach that account's files, credentials and other
+local mechanisms outside Junto. Owner-only sockets and files exclude other
+users; they do not isolate processes belonging to their owner. Seat tokens,
+edge checks and process ancestry checks attribute Junto calls and prevent
+confused use. They are not a sandbox or proof that a human made a request.
+
+The operator, chosen accounts and attached agents are trusted participants.
+Agents are fallible: hostile pages, repositories, messages and tool output can
+influence them. Those inputs never become authority merely because an agent
+read them. Junto checks its own operations; containing an agent's unrestricted
+shell requires isolation outside Junto, such as a separate OS account or VM.
+
+Real boundaries include other OS users, web content entering the native app,
+a machine sending data to another machine, and downloaded executable bytes.
+A compromised machine can read everything stored there, use its local secrets,
+impersonate its seats, and lie about their activity. A compromised editing
+machine controls the intent of its canvases. A machine holding ordinary SSH
+access can also exercise that access outside Junto. No application protocol
+removes those powers.
+
+Junto is not a multi-tenant service and does not isolate mutually hostile
+agents running under the same account. It must neither advertise that claim
+nor use its absence to excuse missing checks on Junto-owned APIs.
+
+## Authority inside Junto
+
+Each canvas names one editing installation. Only that installation commits
+canvas changes. Other machines keep a read-only copy. A seat belongs to one
+machine, which starts its occupant, mints its generation credential, owns its
+terminal and stores its work. Names and installation ids identify resources;
+knowing one is not permission to use it.
+
+The core is the sole normal opener of its product database, `junto.db`, and
+its install-local bookkeeping database. The window, CLIs, relays, installers
+and callers use core services. This is an ownership rule for Junto code, not
+a filesystem sandbox against the account that owns the files.
+
+| Caller | Admission and allowed authority |
+|---|---|
+| Ordinary seat | A live generation credential resolves to its seat. The local copy's edges grant operations on connected targets; caller-supplied ids cannot replace that principal. |
+| Owner command | An explicitly enabled owner-only control socket, with registered seat/terminal process trees refused and an indeterminate ancestry walk denied. Closed commands invoke the same services as the window. |
+| App window | The committed trusted renderer identity and origin, validated before privileged IPC dispatch. Arbitrary pages do not receive its bridge. |
+| Overseer seat | A live human-granted overseer flag and a closed operation set, attributed to the real seat. It does not become the operator. |
+| Another machine | The bound link peer plus authorization for the particular canvas, channel, operation and resource. A successful hello grants no general execution authority. |
+| Paired phone | Its restricted companion transport and live device registry, limited to the companion operations. It is not a machine link or a general operator-command relay. |
+
+Ordinary agents never write the canonical canvas through their work API.
+Own-seat onboarding, references, session notes and signals are narrow local
+facilities; they grant no reach to another seat. Signals may be raised without
+an edge. Only the operator answers or dismisses them through the editing
+machine.
+
+Only a human grants or revokes overseer authority. Copied aliases do not inherit
+the grant. An overseer cannot grant it to another seat, remove its own seat,
+move the operator's viewport, or acquire machine enrollment or credentials.
+Every closed administrative request rechecks the live grant. Timeout after a
+mutation may mean it completed; Junto never automatically replays the mutation.
+
+The agent-run exercise uses disposable cores and homes. Its external controller
+can use their owner commands while their own managed seats remain refused.
+The exercise does not need a bypass of the operator's running Junto.
+
+## What crosses machines
+
+The editing machine sends one atomic canvas snapshot selected for its
+destination, with one monotonically advancing canvas count. Every participant
+gets the structure needed to resolve seats, machines, regions and edges, plus
+play or pause. Private content follows the seats that need it:
+
+- Seat soul, instructions and launch settings go only to that seat's machine.
+  Other machines receive a `peer` row: node id, geometry, label, machine and
+  seat id. It can be addressed, never started or admitted as a caller. It has
+  no harness, binding, launch, guidance or placeholder values.
+- Region briefing, references, folders and environment sources go only where
+  a local seat is in that region, including its containing regions. Sources
+  restricted to a machine remain restricted to it.
+- App briefing and app-wide references go to every machine with a seat: those
+  texts are already available to every seat.
+- The editing machine keeps the complete canvas and its work. Other machines
+  receive only work they are entitled to, including mail for their seats and
+  the receipts or answers relevant to their seats' work.
+  Notes, labels, files and links stay on the editing machine.
+
+Copy selection must enumerate fields and tables. Adding a field does not
+silently make it public. Content that no local seat needs is not copied just
+because it has a canvas row. A guidance, reference, briefing or placement
+change must advance the count used for replacement. Equality is for the same
+canvas, count and destination; different destinations may receive different
+bytes. A replacement removes private fields that are no longer selected.
+
+Removing access cannot claw back bytes a machine already received. A canvas
+copy contains authored text; a password pasted into a note, reference, command
+argument or inline environment value is ordinary text subject to that copy's
+selection. Junto's no-secret-transfer promise covers resolved secret values,
+not detection of secrets hidden in arbitrary prose.
+
+## Links
+
+The first version uses the operator's chosen OpenSSH routes. Only the editing
+machine opens links. At that end, the connection is bound to the selected route
+and its pinned installation id. At the receiving end, the first peer id is accepted
+only during explicit machine setup. A hello cannot enroll itself or select an
+existing peer. Changed ids or names are refused.
+
+SSH authenticates a host and an account. The incoming installation id is an
+assertion authorized by that account, not cryptographic proof of a particular
+installation. A local relay cannot infer the original SSH caller from its Unix
+peer PID. Junto adds no signing or SSH key system for this first version.
+Before another machine may open links, the authentication model is reviewed;
+a link-only key with a forced command bound to its opener is the candidate.
+
+The link has SSH agent, X11 and port forwarding disabled. Junto does not
+silently weaken host-key checking, discover and use routes, copy private keys,
+or grant another machine reusable SSH access. Existing account-level access
+remains the operator's responsibility.
+
+Hello must finish before data channels open. Both builds must match exactly;
+build equality is compatibility, not authenticity. Unknown channels, malformed
+frames and unauthorized operations close the link. Bound frame size, buffered
+bytes, clients, outstanding requests and transfer size; terminal output and
+reconnects must not exhaust the core or block its local work indefinitely.
+
+The transport is symmetric. Authority depends on the bound peer and the
+canvas, never on which end opened the connection:
+
+- `rows` permits only the authorized exchange described below.
+- `seats` accepts owner control from the canvas's editing installation for
+  seats on the receiving machine. The receiver derives executable, folder and
+  environment locally from authored intent, not a peer-supplied launch script
+  or PID. Terminal handles and subsequent input, resize, stop and output are
+  bound to the admitted peer, canvas, seat and occupant generation.
+- `status` returns bounded availability and missing-secret metadata for the
+  shared scope. It is not arbitrary shell inspection, environment export or
+  a transcript reader.
+
+Responses must match the requesting session. A peer cannot gain another
+channel's authority by wrapping a request in a response or naming its handle.
+
+## Immutable work and revocation
+
+One machine writes each immutable row. `(writer, seq)` identifies it; the
+receiver checks its actual content, not only a peer-supplied hash. An identical
+row is harmless; different content under the same identity closes the link.
+Only the closed exchange operations for mail, receipts, signals and seat
+sessions are admitted. A generic repository decoder must not expose disabled
+work kinds through the link.
+
+Before registering a writer, materializing a row or advancing a cursor, the
+receiver verifies the peer's authority for that exact canvas, the row's writer,
+author and subject, and the recipient's entitlement. A machine writes for its
+own seats. Operator mail and signal answers or dismissals come from the
+canvas's editing machine. A receipt cannot claim delivery to another machine's
+seat. Rejection leaves rows and cursor unchanged.
+
+A machine may relay other writers' rows only for canvases it keeps in full.
+Coverage and cursor advancement are scoped to the canvas and writer; progress
+on one canvas cannot suppress missing rows on another. Filtering may leave
+sequence gaps. Content bytes require an entitled row, bounded transfer and
+verification against its digest; a digest alone grants no right to fetch data.
+
+A sender checks edges against its local canvas copy when it commits mail.
+A changed edge takes effect there when the new copy arrives. Previously minted
+mail still arrives. Placement history maintained by the editor must let the
+receiver validate the author at that stated canvas count after a seat moves
+or is removed. The count must be one the editor sent to that machine and must
+not move backwards within that canvas's writer sequence. A claimed old count
+cannot invent a historical seat-to-machine assignment.
+
+A compromised writer can fabricate mail for its own seats and claim an older
+allowed count. Junto cannot prove when that machine really minted it. It must
+state that limit and stop accepting the machine's traffic when the operator
+removes its participation. Removing it does not erase its data or revoke SSH
+credentials outside Junto. An unreachable machine can keep executing its last
+copy; the UI must show that revocation or stop has not reached it.
+
+Delivered here, handed to a link and held are different outcomes. A transport
+write is not proof that a recipient displayed or read mail. Durable retries
+preserve row identity and cannot duplicate terminal delivery or operator effects.
+
+## Secrets and external content
+
+Secret values are resolved on the seat's machine for its child environment.
+They are never included in canvas copies, row exchange, status, diagnostics or
+launch records. Missing-secret reports carry names and state only. Harness
+credentials, browser profiles and SSH credentials remain with their owning
+machine and tool; Junto does not install harnesses or log in to them.
+
+A child that receives a secret can read and disclose it. Platform credential
+storage protects according to that platform's policy; owner-only file fallback
+is not encryption and cannot protect against account compromise. Deleting a
+stored value cannot erase copies held by a running child, logs or an external
+service.
+
+Web content is untrusted. Managed pages are sandboxed, have no Node integration
+or privileged app preload, and cannot become the trusted app renderer through
+navigation. Browser commands require a live local seat and the relevant edge
+to that page; access to one page does not grant other pages or profile deletion.
+The machines feature carries no browser control or browser credentials.
+
+The phone companion keeps its separate restricted forced-command keys, device
+revocation and bounded operation set. Pairing material is a credential, never
+ordinary log or canvas content. A phone's authority cannot be widened by the
+new machine or owner command handlers sharing a process.
+
+## Install, update and machine safety
+
+Sending Junto installs an operator-selected package over the chosen SSH route
+under the target user's home, with a per-user service. It requires no admin
+account, privileged helper or logged-in screen. A windowless machine runs the
+same core without Electron. Installers and relays never open product databases.
+
+The archive checksum and pinned dependency digests establish integrity relative
+to the operator's chosen inputs, not publisher authentication. A self-supplied
+file inventory is not a publisher signature. Downloaded desktop releases must
+still pass their release authentication and artifact-admission path; the
+machine-copy rule does not weaken that boundary.
+
+An install or update must:
+
+1. Verify the exact admitted package and target platform before activation.
+   Recheck staged and reused installed files against that same inventory.
+2. Prove ownership of every path it creates, overwrites or removes, including
+   existing descendants and service definitions. A string prefix is not proof
+   against a symlink redirect. Act only on the selected installation.
+3. Quiesce the exact owned incumbent and prove exit before selecting a new
+   package. Never run two product-database owners for one home.
+4. Confirm the candidate's build, installation, home and required core readiness.
+   A service manager's active state alone is not a ready Junto.
+5. Report whether activation occurred. If the candidate may have opened state,
+   uncertainty is not permission to replay installation or launch an older
+   binary. Recovery is forward-only after durable state advances.
+
+SQLite evolution remains forward-only, with released migrations immutable and
+an exact schema identity. Older binaries refuse advanced state before writing.
+Retirement requires the specific approval in the build contract; neither
+migration nor repair invents permission to erase installed user data.
+
+Destructive process and filesystem operations use authority minted for an
+owned resource, not a caller's bare PID or path. Stop and cleanup must verify
+their result and report uncertainty. These controls prevent confused code and
+partial failures from harming the machine; they do not pretend to constrain
+its account owner.
+
+## Evidence before a security claim
+
+A finding names the boundary, attacker or failure, reachable path, consequence,
+source or runtime receipt, and smallest repair. Keep a design requirement,
+a source trace, a unit test and an observed packaged run distinct. A proposed
+fix is not a verified fix, and a boot-only exercise does not prove mail,
+terminal authorization or update safety.
+
+Boundary checks cover legitimate use and refusal: wrong peer or canvas,
+forged author, changed duplicate, stale intent, revoked generation, malformed
+or oversized input, interrupted update and uncertain completion. The two-machine
+exercise runs from disposable homes without touching the operator's active
+state or keys, and proves that its managed seats cannot use its owner socket.
+Tests do not weaken production admission to obtain a pass.
+
+A release claim is limited to the code and packaged behavior actually exercised.
+Unimplemented or untested boundaries remain visible. No review declares the
+whole system secure because its selected checks found nothing.
