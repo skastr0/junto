@@ -4,7 +4,7 @@ import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
-import { isValidStationHostId } from "@shared/station";
+import { isValidMachineName } from "@shared/machine-identity";
 import { ulid } from "ulid";
 import { TASKS_ENABLED } from "@shared/features";
 import { boardRemovalWarnings, removalPolicy, wireRemovalWarnings } from "./deletion-impact";
@@ -690,7 +690,7 @@ export const setPageBinding = (
 ): void => {
   const profile = input.profile.trim();
   const host = input.host.trim();
-  if (!profile || !isValidStationHostId(host)) return;
+  if (!profile || !isValidMachineName(host)) return;
   commitCommands((canvas) => pageEdited(canvas, id, { profile, host }));
 };
 
