@@ -142,11 +142,15 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         yield* inTurn(
           state,
           Effect.gen(function* () {
+            // What a peer says of a canvas it does not hold is not kept: it
+            // is offered nothing of it and is never reported caught up on it.
             state.have.clear();
             for (const canvas of frame.canvases) {
+              const placement = yield* deps.placement(canvas.canvasName);
+              if (placement === undefined || !placement.holds(peer)) continue;
               state.have.set(canvas.canvasName, new Map(canvas.writers.map((entry) => [entry.writer, entry.through])));
             }
-            for (const canvas of frame.canvases) yield* offer(state, canvas.canvasName);
+            for (const canvasName of state.have.keys()) yield* offer(state, canvasName);
           }),
         );
         return;

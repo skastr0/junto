@@ -303,6 +303,9 @@ describe("a canvas a machine does not hold", () => {
       editor.exchange.receive(MINI, { kind: "have", canvases: [{ canvasName: "private", writers: [] }, { canvasName: "factory", writers: [] }] }),
     );
     for (const queued of queue) expect(JSON.stringify(queued.frame)).not.toContain("private");
+    // Nor is it reported caught up on it.
+    const known = editor.exchange.status().find((status) => status.peer === MINI)!;
+    expect(known.caughtUp.map((entry) => entry.canvasName)).not.toContain("private");
     await settle();
   });
 
