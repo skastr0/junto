@@ -10,6 +10,7 @@ import { StateTransactionOperation } from "../src/main/junto/state/service";
 import { withSqlRead } from "../src/main/junto/state/sql-read";
 import { CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/junto/state/migrations";
 import { LiveRepository, makeLiveRepository, operationArgsHash, type LiveRequestCorrelation } from "../src/main/junto/overseer/live/repository";
+import { MACHINE_NAMES_CORRECTED_TABLES } from "../src/main/junto/state/migrate-machine-names";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>> = [];
@@ -272,7 +273,8 @@ describe("durable Live journal", () => {
     let before: Record<string, unknown[]>;
     try {
       const tables = baseline.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'state_schema_identity' ORDER BY name").all();
-      const retired = new Set(STATE_SCHEMA_MIGRATIONS.flatMap((step) => step.removesTables ?? []));
+      // Naming the machines rewrites the machine list and corrects rows that said "local": those are not untouched.
+      const retired = new Set([...STATE_SCHEMA_MIGRATIONS.flatMap((step) => step.removesTables ?? []), "host_registry", ...MACHINE_NAMES_CORRECTED_TABLES]);
       before = Object.fromEntries(tables
         .filter((row) => !retired.has(String(row.name)))
         .map((row) => [String(row.name), baseline.prepare(`SELECT * FROM "${String(row.name).replaceAll('"', '""')}"`).all()]));
@@ -281,8 +283,10 @@ describe("durable Live journal", () => {
     const { runtime, state, sql } = await open(path);
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
     const after = await runtime.runPromise(withSqlRead(sql, Effect.gen(function* () {
+      // A renamed table is read under its new name and compared under its old one.
+      const renamed: Record<string, string> = Object.assign({}, ...STATE_SCHEMA_MIGRATIONS.map((step) => step.renamesTables ?? {}));
       return Object.fromEntries(yield* Effect.forEach(Object.keys(before), (table) =>
-        sql`SELECT * FROM ${sql(table)}`.pipe(Effect.map((rows) => [table, rows]))));
+        sql`SELECT * FROM ${sql(renamed[table] ?? table)}`.pipe(Effect.map((rows) => [table, rows]))));
     })));
     // Every stored fact is marked historical, and the log keeps only the
     // events of facts. Everything else in a kept row is untouched.
