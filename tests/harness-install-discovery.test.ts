@@ -1,4 +1,5 @@
 import { accessSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { ChildProcess, execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,10 @@ vi.mock("node:fs", async (importOriginal) => {
     statSync: vi.fn(actual.statSync),
   };
 });
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, execFile: vi.fn(actual.execFile) };
+});
 
 const homes: string[] = [];
 const scratch = () => {
@@ -46,6 +51,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.mocked(readdir).mockClear();
+  vi.mocked(execFile).mockReset();
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
 
@@ -109,10 +115,18 @@ describe("shared asynchronous harness discovery", () => {
     const shims = join(home, "shims");
     const real = join(home, "real");
     binary(shims, "codex", "exit 1");
-    binary(shims, "claude", "sleep 0.05\nexit 0");
+    binary(shims, "claude");
     binary(real, "codex");
     binary(real, "prime-agent", "exit 0", 0o644);
     const options = { home, pathEnv: `${shims}:${real}`, extraDirs: [] };
+    // Child launch latency is not part of this unit proof. Release the
+    // version replies on a later event-loop turn, without a wall-clock wait.
+    vi.mocked(execFile).mockImplementation((file, ...args) => {
+      const callback = args.at(-1);
+      if (typeof callback !== "function") throw new Error("shim probe requires a callback");
+      setImmediate(() => callback(file === join(shims, "codex") ? new Error("dead shim") : null, "v1", ""));
+      return new ChildProcess();
+    });
     let yielded = false;
     setImmediate(() => { yielded = true; });
     const rows = await probeManagedHarnessInstalls(options);
@@ -120,6 +134,9 @@ describe("shared asynchronous harness discovery", () => {
     expect(rows.find((row) => row.harness === "codex")?.installed).toBe(true);
     expect(rows.find((row) => row.harness === "claude")?.installed).toBe(true);
     expect(rows.find((row) => row.harness === "prime-agent")?.installed).toBe(false);
+    expect(execFile).toHaveBeenCalledWith(join(shims, "claude"), ["--version"],
+      expect.objectContaining({ timeout: 1_500, env: expect.objectContaining({ PATH: expect.stringContaining(real) }) }),
+      expect.any(Function));
     // Cached palette truth cannot bypass the fresh executable check at launch.
     chmodSync(join(real, "codex"), 0o644);
     expect(resolveHarnessExecutable("codex", options)).toBeUndefined();
