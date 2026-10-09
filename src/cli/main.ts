@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { CLI_VERSION } from "./core/constants";
 import { earlyDispatchFromArgv } from "./early-dispatch";
-import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED, FLEET_UI_ENABLED,
+import { ARTIFACTS_ENABLED, BOARD_ENABLED, BROWSER_ENABLED,
   LIVE_OVERSEER_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
@@ -48,23 +48,12 @@ if (import.meta.main) {
     }
   } else if (
     dispatch.kind === "cli" &&
-    !FLEET_UI_ENABLED &&
-    (dispatch.args[0] === "fleet" || dispatch.args[0] === "qualification")
-  ) {
-    process.stderr.write(
-      `junto ${dispatch.args[0]}: disabled in this Junto build\n`,
-    );
-    process.exitCode = 2;
-  } else if (
-    dispatch.kind === "cli" &&
     disabledCliGroup(dispatch.args) !== undefined
   ) {
     process.stderr.write(
       `junto ${disabledCliGroup(dispatch.args)}: disabled in this Junto build\n`,
     );
     process.exitCode = 2;
-  } else if (dispatch.kind === "station-stdio") {
-    await (await import("./station-stdio")).runStationStdio(dispatch.args);
   } else if (dispatch.kind === "content-transfer") {
     await (await import("./content-transfer")).runContentTransfer(dispatch.args);
   } else if (dispatch.kind === "companion-stdio") {

@@ -2,7 +2,7 @@ import { Command } from "effect/unstable/cli";
 import { Effect, Layer } from "effect";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import { setExitCode, writeCauseEnvelope, writeFailureEnvelope } from "./core/output";
-import { ARTIFACTS_ENABLED, BOARD_ENABLED, FLEET_UI_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
+import { ARTIFACTS_ENABLED, BOARD_ENABLED, PAD_ENABLED, SHEET_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 type Entry = { readonly name: string; readonly enabled?: boolean; readonly load: () => Promise<Command.Command.Any> };
 const commands: readonly Entry[] = [
@@ -33,8 +33,6 @@ const commands: readonly Entry[] = [
   { name: "artifact", enabled: ARTIFACTS_ENABLED, load: async () => (await import("./commands/work")).artifactCommand },
   { name: "overseer", load: async () => (await import("./commands/overseer")).overseerCommand },
   { name: "station", load: async () => (await import("./commands/operator")).stationOperatorCommand },
-  { name: "fleet", enabled: FLEET_UI_ENABLED, load: async () => (await import("./commands/operator")).fleetOperatorCommand },
-  { name: "qualification", enabled: FLEET_UI_ENABLED, load: async () => (await import("./commands/operator")).qualificationOperatorCommand },
 ];
 
 /** Full discovery for root help/errors; a known invocation loads only its family. */
@@ -59,7 +57,7 @@ export const runCli = (args: ReadonlyArray<string>): Effect.Effect<void, never, 
     const root = yield* Effect.promise(() => loadRootCommand(args));
     const BunServices = yield* Effect.promise(() => import("@effect/platform-bun/BunServices"));
     const known = commands.some((entry) => entry.name === args[0] && entry.enabled !== false);
-    const operator = ["station", "fleet", "qualification"].includes(args[0]);
+    const operator = args[0] === "station";
     const transport = yield* Effect.promise(async () => {
       // Global flags before the command use the complete parser and both services.
       if (!known) {

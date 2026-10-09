@@ -211,11 +211,10 @@ describe("operator control server", () => {
       server.socketPath,
       `${JSON.stringify({
         protocol: OPERATOR_PROTOCOL_VERSION,
-        id: "deploy-1",
-        op: "fleet.deploy",
+        id: "hello-1",
+        op: "companion.hello",
         args: {
-          id: "station-1",
-          source: "cached",
+          deviceId: "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3",
           unexpectedSecret: secret,
         },
       })}\n`,

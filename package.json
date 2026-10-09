@@ -80,7 +80,6 @@
     "canvas:ls": "bun scripts/canvas-ls.ts",
     "ref": "bun scripts/ref-cli.ts",
     "browser": "bun src/cli/main.ts browser",
-    "station": "bun src/cli/main.ts station-stdio",
     "content-transfer": "bun src/cli/main.ts content-transfer",
     "cli": "bun src/cli/main.ts",
     "cli:build": "bun scripts/build-standalone-cli.ts junto",

@@ -4,10 +4,9 @@ import { resolveJuntoHome } from "@shared/junto-home";
 import { Context, Effect, Layer } from "effect";
 import {
   OPERATOR_DEFAULT_TIMEOUT_MS,
-  OPERATOR_DEPLOY_TIMEOUT_MS,
   OPERATOR_MAX_REQUEST_BYTES,
   OPERATOR_MAX_RESPONSE_BYTES,
-  OPERATOR_SYNC_TIMEOUT_MS,
+  OPERATOR_MAX_TIMEOUT_MS,
   decodeOperatorRequest,
   decodeOperatorResponse,
   encodeOperatorFrame,
@@ -24,21 +23,6 @@ type OperatorSocketError = RuntimeDown | AuthError | WireError;
 
 export const resolveOperatorSocketPath = (): string =>
   operatorControlSocketPath(resolveJuntoHome());
-
-export const defaultOperatorTimeout = (op: OperatorOpName): number => {
-  if (op === "fleet.deploy" || op === "fleet.qualify") {
-    return OPERATOR_DEPLOY_TIMEOUT_MS;
-  }
-  if (
-    op === "fleet.sync" ||
-    op === "qualification.work.prepare" ||
-    op === "qualification.work.progress-offline" ||
-    op === "qualification.work.verify"
-  ) {
-    return OPERATOR_SYNC_TIMEOUT_MS;
-  }
-  return OPERATOR_DEFAULT_TIMEOUT_MS;
-};
 
 const runtimeDown = () =>
   new RuntimeDown({
@@ -109,12 +93,7 @@ const ndjsonCall = (
           new WireError({
             type: "ProtocolError",
             message: `operator request timed out after ${timeoutMs}ms`,
-            details: {
-              retryable: true,
-              operation_may_continue:
-                request.op === "fleet.deploy" ||
-                request.op === "fleet.qualify",
-            },
+            details: { retryable: true },
           }),
         ),
       );
@@ -258,11 +237,6 @@ const ndjsonCall = (
             new WireError({
               type: "ProtocolError",
               message: "operator socket closed before its response",
-              details: {
-                operation_may_continue:
-                  request.op === "fleet.deploy" ||
-                  request.op === "fleet.qualify",
-              },
             }),
           ),
         );
@@ -317,11 +291,11 @@ export const OperatorSocketLive = Layer.succeed(
             }),
           );
         }
-        const timeout = timeoutMs ?? defaultOperatorTimeout(op);
+        const timeout = timeoutMs ?? OPERATOR_DEFAULT_TIMEOUT_MS;
         if (
           !Number.isSafeInteger(timeout) ||
           timeout < 250 ||
-          timeout > OPERATOR_DEPLOY_TIMEOUT_MS
+          timeout > OPERATOR_MAX_TIMEOUT_MS
         ) {
           return yield* Effect.fail(
             new WireError({
