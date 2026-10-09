@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/shared/operator-control";
 import { MachinesWindow } from "../src/renderer/components/machines/MachinesWindow";
+import { ConfirmHost } from "../src/renderer/components/ConfirmHost";
 import { machines$, refreshMachines } from "../src/renderer/lib/machines-actions";
 import { state$ } from "../src/renderer/lib/state";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
@@ -186,7 +187,7 @@ beforeEach(async () => {
   state$.canvasName.set("machines-window");
   state$.machinesOpen.set(true);
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-  await act(async () => { root.render(<MachinesWindow />); await flush(); });
+  await act(async () => { root.render(<><MachinesWindow /><ConfirmHost /></>); await flush(); });
 });
 
 afterEach(async () => {
@@ -425,12 +426,12 @@ it("will not add a machine called local, or one with no SSH target", async () =>
 it("removes a machine only after the operator confirms", async () => {
   await select(OTHER_MACHINE);
   await click(byTest("machine-action-remove"));
-  expect(byTest("machine-remove")?.textContent).toContain("Remove Atlas?");
+  expect(byTest("confirm-dialog")?.textContent).toContain("Remove Atlas?");
   expect(owner.ops()).not.toContain("machine.remove");
   await click(button("Remove machine"));
   expect(owner.last("machine.remove").args).toEqual({ name: OTHER_MACHINE });
   expect(byTest(`machine-row-${OTHER_MACHINE}`)).toBeNull();
-  expect(byTest("machine-remove")).toBeNull();
+  expect(byTest("confirm-dialog")).toBeNull();
 });
 
 it("reaches machines through the owner commands and nothing else", async () => {

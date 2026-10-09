@@ -2,6 +2,7 @@ import { use$ } from "@legendapp/state/react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { isValidMachineName } from "@shared/machine-identity";
 import type { Canvas } from "@shared/model";
+import { askConfirm } from "../../lib/confirm";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import {
   addMachine,
@@ -39,7 +40,7 @@ import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { FocusSurface } from "../FocusSurface";
 import { MachineFigure, MachineStage, MachineSteps } from "../machine-figure";
-import { Button, ConfirmDialog, Dialog, FieldLabel, Input, OverlayHeader } from "../ui";
+import { Button, Dialog, FieldLabel, Input, OverlayHeader } from "../ui";
 
 // The Machines window: every machine this one knows, what state each is in,
 // and the four things the operator can do about it (add, send Junto, update,
@@ -343,44 +344,23 @@ function AddMachineDialog({ onClose, onAdded }: { readonly onClose: () => void; 
   );
 }
 
-function RemoveMachineDialog({ item, onClose }: { readonly item: MachineListItem; readonly onClose: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+/** Ask, then remove. Resolves to the owner's refusal in its own words, or nothing. */
+const removeAfterConfirm = async (item: MachineListItem): Promise<string> => {
   const label = labelOf(item);
-
-  const confirm = async (): Promise<void> => {
-    setBusy(true);
-    setError("");
-    const refused = await removeMachine(item.machine.id);
-    setBusy(false);
-    if (refused) {
-      setError(refused.message);
-      return;
-    }
-    onClose();
-  };
-
-  return (
-    <ConfirmDialog
-      title={`Remove ${label}?`}
-      confirmLabel="Remove machine"
-      busy={busy}
-      onConfirm={() => void confirm()}
-      onCancel={onClose}
-      testId="machine-remove"
-    >
-      <p>
-        This machine stops reaching {label}. Its seats stay on the canvas and cannot run until you add it again.
-        Junto stays installed on {label}.
-      </p>
-      {error ? (
-        <p className="mt-2 text-crimson-fg" role="alert" data-testid="machine-remove-error">
-          {error}
-        </p>
-      ) : null}
-    </ConfirmDialog>
-  );
-}
+  const confirmed = await askConfirm({
+    source: "machine-remove",
+    title: `Remove ${label}?`,
+    body: [
+      `This machine stops reaching ${label}. Its seats stay on the canvas and cannot run until you add it again.`,
+      `Junto stays installed on ${label}.`,
+    ],
+    confirmLabel: "Remove machine",
+    tone: "danger",
+  });
+  if (!confirmed) return "";
+  const refused = await removeMachine(item.machine.id);
+  return refused ? refused.message : "";
+};
 
 function MachinesWindowOpen() {
   const items = use$(machines$.items);
@@ -391,7 +371,7 @@ function MachinesWindowOpen() {
   const canvas = useCanvas(use$(state$.canvasName));
   const [selected, setSelected] = useState("");
   const [adding, setAdding] = useState(false);
-  const [removing, setRemoving] = useState("");
+  const [removeError, setRemoveError] = useState("");
 
   useEffect(() => {
     void refreshMachines();
@@ -401,7 +381,6 @@ function MachinesWindowOpen() {
   const placed = useMemo(() => placedByMachine(canvas), [canvas]);
   const ordered = useMemo(() => inOrder(items), [items]);
   const current = ordered.find((item) => item.machine.id === selected) ?? ordered[0];
-  const removingItem = ordered.find((item) => item.machine.id === removing);
   const others = ordered.filter((item) => !item.machine.isThisMachine);
   const attention = machinesNeedingAttention(
     ordered.map((item) =>
@@ -437,6 +416,11 @@ function MachinesWindowOpen() {
           {error}
         </p>
       ) : null}
+      {removeError ? (
+        <p className="border-b border-stroke px-4 py-2 text-body text-crimson-fg" role="alert" data-testid="machine-remove-error">
+          {removeError}
+        </p>
+      ) : null}
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-[340px] shrink-0 flex-col overflow-y-auto border-r border-stroke" aria-label="Machines">
           <ul className="machine-shelf" role="listbox" aria-label="Machines">
@@ -465,7 +449,7 @@ function MachinesWindowOpen() {
             read={reads[current.machine.id]}
             copy={copies[current.machine.id]}
             placed={placed.get(current.machine.id) ?? NOTHING_PLACED}
-            onRemove={() => setRemoving(current.machine.id)}
+            onRemove={() => void removeAfterConfirm(current).then(setRemoveError)}
           />
         ) : (
           <div className="grid flex-1 place-items-center p-6 text-body text-dim">
@@ -482,7 +466,6 @@ function MachinesWindowOpen() {
           }}
         />
       ) : null}
-      {removingItem ? <RemoveMachineDialog item={removingItem} onClose={() => setRemoving("")} /> : null}
     </FocusSurface>
   );
 }
