@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { buildIdentity } from "./scripts/build-identity";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
@@ -32,6 +33,7 @@ export default defineConfig(({ command, mode }) => {
   const resolvedBuildFeatures = resolveBuildFeatures(process.env);
 
   const productDefines = {
+    __JUNTO_BUILD_ID__: JSON.stringify(buildIdentity(process.cwd())),
     __JUNTO_PREVIEW_BUILD__: JSON.stringify(process.env.JUNTO_PREVIEW_BUILD === "1"),
     ...updateDefines,
     __JUNTO_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.JUNTO_MAC_SIGNING_IDENTITY ?? ""),
