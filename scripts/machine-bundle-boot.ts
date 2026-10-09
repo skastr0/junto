@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Schema } from "effect";
@@ -16,13 +16,25 @@ export const bootRelocatedMachineBundle = async (bundle: string, build: string):
   const relocated = join(scratch, "package"), home = join(scratch, "home");
   await cp(bundle, relocated, { recursive: true, dereference: false });
   await mkdir(home, { mode: 0o700 });
+  // Relocation alone cannot detect a baked absolute checkout path while that
+  // checkout still exists on the build host. Refuse every resolved module
+  // outside this payload; built-in Node modules remain available.
+  const guard = join(scratch, "package-only.cjs");
+  const packageRoot = await realpath(relocated);
+  await writeFile(guard, `const Module = require("node:module"), path = require("node:path");
+const root = ${JSON.stringify(packageRoot)}, original = Module._resolveFilename;
+Module._resolveFilename = function (...args) {
+  const file = original.apply(this, args);
+  if (!Module.isBuiltin(file) && path.isAbsolute(file) && !file.startsWith(root + path.sep)) throw new Error("Machine bundle resolved a module outside its payload: " + file);
+  return file;
+};\n`, { mode: 0o600 });
   const environment: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (!name.startsWith("JUNTO_") && !["NODE_PATH", "NODE_OPTIONS", "ELECTRON_RUN_AS_NODE"].includes(name)) environment[name] = value;
   }
   environment.JUNTO_HOME = home;
   const core = spawnServiceChild({ source: "machine.bundle-boot", purpose: "relocated bundle build check",
-    command: join(relocated, "bin/node"), args: [join(relocated, "core/junto.cjs")], cwd: relocated, env: environment });
+    command: join(relocated, "bin/node"), args: ["--require", guard, join(relocated, "core/junto.cjs")], cwd: relocated, env: environment });
   let stderr = "";
   let timer: ReturnType<typeof setTimeout> | undefined;
   const ready = new Promise<void>((resolve, reject) => {
