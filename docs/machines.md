@@ -355,6 +355,18 @@ together, from one commit of main. `remote-verify` holds the receipts:
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
 
+**Receipts so far, all on real machines, build `98eb6c150`** (under
+`~/junto-receipts/resume-20261009/`): the Preview app builds with both
+bundles inside (1, 2); it sent Junto to the Mac mini and the Machines window
+showed it Ready (3, on `4d6ba0e51`); it updated the running mini to a build
+with no helper and no Python (5); uninstall left the mini clean (6, on
+`d83193aed`). Run B passed: a canvas made in the Preview with a seat on the
+mini reached the mini at the same count, and one mail row was sent here and
+taken there (`preview-98eb6c150/live/receipt-b.json`). Open: Linux (4),
+stopped before activation three times by transfer defects only Linux shows;
+the install fault cases; run C, a seat on the mini with mail both ways, for
+which `remote-seats` and `remote-work` are resumed; run D.
+
 **Standing rule: real machines.** Nothing about machines is done on tests
 alone. A change to the root, the link, the exchange, a seat on another
 machine, the bundle or the install is done when `remote-verify` holds a
