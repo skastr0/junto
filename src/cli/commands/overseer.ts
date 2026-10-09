@@ -1,4 +1,3 @@
-// V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { readFile } from "node:fs/promises";
 import { Effect, Option, Result, Schema } from "effect";

@@ -1,5 +1,3 @@
-// V4: platform/Command → effect/unstable/process/ChildProcess (not @effect/cli)
-// Map: src/cli/effect-v4-import-map.ts
 import * as Command from "effect/unstable/process/ChildProcess";
 import { join } from "node:path";
 import {

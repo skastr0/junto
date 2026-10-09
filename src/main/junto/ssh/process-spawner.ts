@@ -1,6 +1,3 @@
-// V4: platform/Command → effect/unstable/process/ChildProcess
-//   NodeSink/NodeStream stay @effect/platform-node (lockstep V4)
-// Map: src/cli/effect-v4-import-map.ts
 import * as Command from "effect/unstable/process/ChildProcess";
 import * as NodeSink from "@effect/platform-node/NodeSink";
 import * as NodeStream from "@effect/platform-node/NodeStream";

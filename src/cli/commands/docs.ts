@@ -1,4 +1,3 @@
-// V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
 import { Argument, Command } from "effect/unstable/cli";
 import { Effect } from "effect";
 import {

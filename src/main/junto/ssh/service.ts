@@ -1,5 +1,3 @@
-// V4: FileSystem → effect/FileSystem - Command → effect/unstable/process/ChildProcess
-// Map: src/cli/effect-v4-import-map.ts
 import * as FileSystem from "effect/FileSystem";
 import type * as Command from "effect/unstable/process/ChildProcess";
 import { randomUUID } from "node:crypto";

@@ -1,4 +1,3 @@
-// V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
 import { WORK_PROTOCOL_VERSION, WORK_TOKEN_ENV } from "../../shared/work-control";
