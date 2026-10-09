@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { THIS_MACHINE } from "./support/machines";
 import {
   HARNESS_HERMES_ENABLED,
   HARNESS_KIMI_ENABLED,
@@ -58,7 +59,7 @@ describe("managed harness product gates", () => {
       expect(managedHarnessEnabled("hermes")).toBe(true);
       expect(allTemplates().map((t) => t.harness)).toContain("hermes");
       expect(
-        newSeat({ x: 0, y: 0, z: 0 }, { harness: "hermes", host: "local" }).harness,
+        newSeat({ x: 0, y: 0, z: 0 }, { harness: "hermes", host: THIS_MACHINE }).harness,
       ).toBe("hermes");
     },
   );
@@ -67,7 +68,7 @@ describe("managed harness product gates", () => {
     expect(managedHarnessEnabled("hermes")).toBe(false);
     expect(allTemplates().map((t) => t.harness)).not.toContain("hermes");
     expect(() =>
-      newSeat({ x: 0, y: 0, z: 0 }, { harness: "hermes", host: "local" }),
+      newSeat({ x: 0, y: 0, z: 0 }, { harness: "hermes", host: THIS_MACHINE }),
     ).toThrow(/disabled/u);
   });
 
@@ -75,7 +76,7 @@ describe("managed harness product gates", () => {
     expect(managedHarnessEnabled("kimi")).toBe(false);
     expect(allTemplates().map((t) => t.harness)).not.toContain("kimi");
     expect(() =>
-      newSeat({ x: 0, y: 0, z: 0 }, { harness: "kimi", host: "local" }),
+      newSeat({ x: 0, y: 0, z: 0 }, { harness: "kimi", host: THIS_MACHINE }),
     ).toThrow(/disabled/u);
   });
 
@@ -83,7 +84,7 @@ describe("managed harness product gates", () => {
     expect(managedHarnessEnabled("muse")).toBe(false);
     expect(allTemplates().map((t) => t.harness)).not.toContain("muse");
     expect(() =>
-      newSeat({ x: 0, y: 0, z: 0 }, { harness: "muse", host: "local" }),
+      newSeat({ x: 0, y: 0, z: 0 }, { harness: "muse", host: THIS_MACHINE }),
     ).toThrow(/disabled/u);
   });
 
@@ -95,7 +96,7 @@ describe("managed harness product gates", () => {
       expect(
         newSeat({ x: 0, y: 0, z: 0 }, {
           harness: "prime-agent",
-          host: "local",
+          host: THIS_MACHINE,
         }).harness,
       ).toBe("prime-agent");
     },
@@ -107,7 +108,7 @@ describe("managed harness product gates", () => {
       expect(managedHarnessEnabled("prime-agent")).toBe(false);
       expect(allTemplates().map((t) => t.harness)).not.toContain("prime-agent");
       expect(() =>
-        newSeat({ x: 0, y: 0, z: 0 }, { harness: "prime-agent", host: "local" }),
+        newSeat({ x: 0, y: 0, z: 0 }, { harness: "prime-agent", host: THIS_MACHINE }),
       ).toThrow(/disabled/u);
     },
   );
