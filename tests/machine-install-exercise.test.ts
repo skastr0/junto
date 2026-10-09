@@ -16,7 +16,7 @@ const first = Schema.decodeUnknownSync(MachineInstallResult)({
   transitions: [],
 });
 const observation = (result: MachineInstallResult, startKey: string): InstallObservation => ({
-  status: { build: result.build, installationId: result.installationId, machineName: result.machineName,
+  status: { build: result.build, form: "mac-mini", installationId: result.installationId, machineName: result.machineName,
     juntoHome: result.juntoHome, pid: result.pid, ready: true },
   epoch: { pid: result.pid, startKey },
   selected: result.directory.slice(result.installRoot.length + 1),
