@@ -19,8 +19,6 @@ import {
 const HERMES_CAPABILITY_BIT = 8;
 const MAX_HOSTS = 32;
 
-// Bit 4 belonged to a retired capability; the numbering stays fixed so stored
-// masks keep decoding the capabilities that are still real.
 const CAPABILITY_BITS = {
   terminal: 1,
   browser: 2,
@@ -377,7 +375,7 @@ export class HostsPersistence extends Context.Service<HostsPersistence, {
 }>()("@junto/HostsPersistence") {}
 
 /**
- * Host-injected Promise bridge. Product code passes AppRuntime/RemoteRuntime
+ * Host-injected Promise bridge. Product code passes its acquired runtime context
  * (via Effect.runPromiseWith from HostsServiceLive); tests may pass bare
  * Effect.runPromise outside the src/main lint scan.
  */
@@ -477,7 +475,7 @@ export const makeHostsRegistry = (
       if (id === LOCAL_HOST_ID) {
         throw new RemoteHostsError(
           "conflict",
-          "cannot remove the local station host",
+          "cannot remove this machine",
         );
       }
 

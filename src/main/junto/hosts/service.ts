@@ -28,18 +28,10 @@ const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
 });
 
 
-/**
- * S4 (effect@3.21): single canonical Tag `@junto/HostsService`.
- * `Context.Service` unavailable until Effect V4 pin — do not dual-define.
- * Shape is `HostsServiceShape`. V4 map:
- * `class HostsService extends Context.Service<HostsService, Shape>()("@junto/HostsService")`.
- * @see docs/END_STATE-effect-foundation.md §S4
- * @see Playground/effect/migration/services.md
- */
 export class HostsService extends Context.Service<HostsService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
-    /** Observation from the one persistent fleet supervisor/session per Remote. */
+    /** Current SSH reachability for registered machines. */
     readonly doctorSnapshot: Effect.Effect<RemoteHostsDoctorSnapshot>;
     readonly list: Effect.Effect<ReadonlyArray<RemoteHostT>, RemoteHostsError>;
     readonly get: (
@@ -189,8 +181,7 @@ export const HostsServiceLive = Layer.effect(
   Effect.gen(function* () {
     const ssh = yield* SshTransport;
     const persistence = yield* HostsPersistence;
-    // Capture warm ambient Context so registry Promise bridges never use bare
-    // Effect.runPromise (AppRuntime / RemoteRuntime host entry).
+    // Registry Promise bridges use the acquired runtime context.
     const runtime = yield* Effect.context<never>();
     const runPromise = <A, E>(effect: Effect.Effect<A, E, never>) =>
       Effect.runPromiseWith(runtime)(effect);
