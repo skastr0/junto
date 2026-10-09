@@ -97,7 +97,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         const name = request.args.name;
         if (name === undefined || name === (yield* machines.machineName)) return yield* options.ownHarnesses;
         const status = yield* peerStatus(name);
-        return { machineName: status.machineName, reachable: status.reachable, harnesses: status.harnesses };
+        return { machineName: status.machineName, reachable: status.reachable, harnesses: status.harnesses,
+          ...("keychain" in status && status.keychain !== undefined ? { keychain: status.keychain } : {}) };
       }
       case "machine.send":
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);

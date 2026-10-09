@@ -10,9 +10,14 @@ export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isV
 export const MachineBuild = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/)));
 export const MachineForm = Schema.Literals(["macbook", "mac-mini", "mac-studio", "mac", "linux"]);
 export type MachineForm = typeof MachineForm.Type;
+export const MachineKeychainStatus = Schema.Literals(["available", "unavailable", "not-applicable"]);
+export type MachineKeychainStatus = typeof MachineKeychainStatus.Type;
+export const MachineHarnessSignIn = Schema.Literals(["not-installed", "sign-in-unverified", "keychain-login-unavailable"]);
+export type MachineHarnessSignIn = typeof MachineHarnessSignIn.Type;
 export const MachineOwnStatus = Schema.Struct({
   build: MachineBuild,
   form: MachineForm,
+  keychain: MachineKeychainStatus,
   installationId: InstallationId,
   machineName: MachineName,
   juntoHome: MachineAbsolutePath,
@@ -30,10 +35,14 @@ export type MachinePeerIdentity = typeof MachinePeerIdentity.Type;
 export const MachineConfigured = MachinePeerIdentity;
 export const MachinePeerPin = Schema.Struct({ ...MachinePeerIdentity.fields, boundAt: Schema.String });
 export type MachinePeerPin = typeof MachinePeerPin.Type;
-export const MachineHarness = Schema.Struct({ harness: HarnessId, installed: Schema.Boolean });
+export const MachineHarness = Schema.Struct({ harness: HarnessId, installed: Schema.Boolean, signIn: MachineHarnessSignIn }).pipe(
+  Schema.check(Schema.makeFilter(row => row.installed ? row.signIn !== "not-installed" : row.signIn === "not-installed")),
+);
 export type MachineHarness = typeof MachineHarness.Type;
 export const MachineHarnesses = Schema.Struct({
   machineName: MachineName, reachable: Schema.Boolean,
+  // Unreachable and build-mismatched peers cannot report their execution context.
+  keychain: Schema.optionalKey(MachineKeychainStatus),
   harnesses: Schema.Array(MachineHarness).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type MachineHarnesses = typeof MachineHarnesses.Type;

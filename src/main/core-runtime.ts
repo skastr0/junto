@@ -7,6 +7,8 @@ import {
 import { MachineRepository } from "./junto/machines/repository";
 import { HostsService } from "./junto/hosts/service";
 import { detectMachineForm } from "./junto/hosts/machine-form";
+import { detectMachineKeychain } from "./junto/hosts/machine-keychain";
+import { machineHarnessSignIn } from "@shared/machine-harness-status";
 import { makeMachineCopy, type MachineCopyOptions } from "./junto/hosts/machine-copy";
 import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/machine-owner";
 import { makeCoreProductLayer } from "./core-product";
@@ -134,9 +136,11 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
 export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.effect(MachineCoreStatus, Effect.gen(function* () {
   const machines = yield* MachineRepository;
   const form = yield* detectMachineForm();
+  const keychain = yield* detectMachineKeychain();
   const own = Effect.all({
     build: Effect.succeed(options.build),
     form: Effect.succeed(form),
+    keychain: Effect.succeed(keychain),
     installationId: machines.installationId,
     machineName: machines.machineName,
     juntoHome: Effect.succeed(options.home),
@@ -148,7 +152,8 @@ export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.eff
     return {
       machineName: yield* machines.machineName,
       reachable: true,
-      harnesses: installed.map(({ harness, installed }) => ({ harness, installed })),
+      keychain,
+      harnesses: installed.map(({ harness, installed }) => ({ harness, installed, signIn: machineHarnessSignIn(harness, installed, keychain) })),
     };
   });
   const peer = Effect.gen(function* () {

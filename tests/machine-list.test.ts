@@ -165,7 +165,7 @@ describe("asking a machine for the seats placed on it", () => {
       ? listing(LISTED)(request)
       : {
           protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true,
-          data: { machineName: request.args.name, reachable: true, harnesses: [{ harness: "claude", installed: true }, { harness: "codex", installed: false }], missingSecrets: [], ...more },
+          data: { machineName: request.args.name, reachable: true, keychain: "available", harnesses: [{ harness: "claude", installed: true, signIn: "sign-in-unverified" }, { harness: "codex", installed: false, signIn: "not-installed" }], missingSecrets: [], ...more },
         };
   const ops = (owner: ReturnType<typeof withOwner>) => owner.mock.calls.map(([request]) => `${request.op} ${request.args.name ?? ""}`.trim());
 

@@ -38,8 +38,8 @@ const fixture = async (overrides: Partial<MachineOwnerOptions> = {}) => {
   let failReload = false;
   const hosts = await runtime.runPromise(HostsService);
   const owner = await runtime.runPromise(makeMachineOwnerActions({
-    ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), installationId: "own-install", machineName: "macbook", juntoHome: "/home/user/probe", pid: 71, ready: true, form: "mac-mini" as const })),
-    ownHarnesses: Effect.succeed({ machineName: "macbook", reachable: true, harnesses: [{ harness: "codex", installed: true }] }),
+    ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), installationId: "own-install", machineName: "macbook", juntoHome: "/home/user/probe", pid: 71, ready: true, form: "mac-mini" as const, keychain: "available" })),
+    ownHarnesses: Effect.succeed({ machineName: "macbook", reachable: true, keychain: "available", harnesses: [{ harness: "codex", installed: true, signIn: "sign-in-unverified" }] }),
     peerBuild: () => Effect.succeed(undefined),
     peerStatus: name => Effect.sync(() => { probed.push(name); return { machineName: name, reachable: false, harnesses: [], missingSecrets: [] }; }),
     copy: () => Effect.die("copy not part of this fixture"),
@@ -89,6 +89,23 @@ it("rolls back peer retirement if deleting the route fails", async () => {
   expect(f.disconnected).toEqual([]);
 });
 
+it("preserves a peer's keychain and detect-only harness facts through owner commands", async () => {
+  const f = await fixture({ peerStatus: name => Effect.succeed({
+    machineName: name, reachable: true, keychain: "unavailable", missingSecrets: [],
+    harnesses: [{ harness: "claude", installed: true, signIn: "keychain-login-unavailable" }],
+  }) });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  const unbound = await f.call("machine.harnesses", { name: "mini" });
+  expect(unbound.ok && unbound.op === "machine.harnesses" && unbound.data.keychain).toBeUndefined();
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  for (const op of ["machine.status", "machine.harnesses"]) {
+    const response = await f.call(op, { name: "mini" });
+    expect(response).toMatchObject({ ok: true, op, data: {
+      keychain: "unavailable", harnesses: [{ harness: "claude", installed: true, signIn: "keychain-login-unavailable" }],
+    } });
+  }
+});
+
 it("refreshes the hydrated routing name after initial configuration", async () => {
   const f = await fixture();
   expect((await f.call("machine.configure", { name: "studio" })).ok).toBe(true);
@@ -122,7 +139,7 @@ it("refuses owner status and extra fields returned by a peer callback", async ()
     { build: "a".repeat(64), juntoHome: "/home/user/private", pid: 71, ready: true, form: "mac-mini" as const },
     { secretValue: "private" },
   ]) {
-    const f = await fixture({ peerStatus: name => Effect.succeed({ machineName: name, installationId: Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), machineName: name, installationId: "mini-install", juntoHome: "/home/user/private", pid: 71, ready: true, form: "mac-mini" as const }).installationId, reachable: true, harnesses: [], missingSecrets: [], ...extra }) });
+    const f = await fixture({ peerStatus: name => Effect.succeed({ machineName: name, installationId: Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), machineName: name, installationId: "mini-install", juntoHome: "/home/user/private", pid: 71, ready: true, form: "mac-mini" as const, keychain: "available" }).installationId, reachable: true, harnesses: [], missingSecrets: [], ...extra }) });
     await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
     await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
     const response = await f.call("machine.status", { name: "mini" });
@@ -135,7 +152,7 @@ it("refuses owner status and extra fields returned by a peer callback", async ()
 it("refuses an exact owner-only status reply on the peer path", async () => {
   const f = await fixture({ peerStatus: name => Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({
     build: "a".repeat(64), machineName: name, installationId: "mini-install", form: "mac-mini" as const,
-    juntoHome: "/home/user/private", pid: 71, ready: true,
+    juntoHome: "/home/user/private", pid: 71, ready: true, keychain: "available",
   })) as unknown as Effect.Effect<MachinePeerStatus> });
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
   await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });

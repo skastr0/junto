@@ -22,10 +22,10 @@ describe("closed machine owner contract", () => {
   });
 
   it("keeps peer status metadata bounded and refuses paths or secret values", () => {
-    const status = { machineName: "mini", reachable: true, harnesses: [{ harness: "codex", installed: true }], missingSecrets: ["API_KEY"] };
+    const status = { machineName: "mini", reachable: true, keychain: "unavailable", harnesses: [{ harness: "codex", installed: true, signIn: "keychain-login-unavailable" }], missingSecrets: ["API_KEY"] };
     const decode = Schema.decodeUnknownResult(MachinePeerStatus, { onExcessProperty: "error" });
     expect(Result.isSuccess(decode(status))).toBe(true);
-    for (const extra of [{ juntoHome: "/home/user" }, { pid: 71 }, { secrets: { API_KEY: "value" } }, { harnesses: [{ harness: "codex", installed: true, binary: "/usr/bin/codex" }] }]) {
+    for (const extra of [{ juntoHome: "/home/user" }, { pid: 71 }, { secrets: { API_KEY: "value" } }, { keychain: "unknown" }, { harnesses: [{ harness: "codex", installed: true, signIn: "keychain-login-unavailable", binary: "/usr/bin/codex" }] }]) {
       expect(Result.isFailure(decode({ ...status, ...extra }))).toBe(true);
     }
     expect(Result.isFailure(decodeOperatorResponse({ protocol: OPERATOR_PROTOCOL_VERSION, id: "machine-test", op: "machine.status", ok: true, data: { ...status, secretValue: "value" } }))).toBe(true);
