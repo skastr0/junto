@@ -9,7 +9,7 @@ export const buildIdentity = (
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string => {
   const hash = createHash("sha256");
-  const files = ["package.json", "bun.lock", "tsconfig.json", "electron.vite.config.ts", "scripts/build-identity.ts", "scripts/build-machine.ts", "scripts/machine-bundle-boot.ts", "scripts/machine-bundle-modes.ts", "scripts/build-features.ts", "scripts/build-standalone-cli.ts"];
+  const files = ["package.json", "bun.lock", "tsconfig.json", "electron.vite.config.ts", "scripts/build-identity.ts", "scripts/build-machine.ts", "scripts/sign-machine-bundle.mjs", "build/entitlements.machine-runtime.plist", "scripts/machine-bundle-boot.ts", "scripts/machine-bundle-modes.ts", "scripts/build-features.ts", "scripts/build-standalone-cli.ts"];
   const walk = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = join(directory, entry.name);

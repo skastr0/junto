@@ -16,6 +16,7 @@ COMPILE_ONLY=0
 NOTARIZE=0
 SIGN=0
 PREFLIGHT_ONLY=0
+CI_SOURCE_PACKAGE=0
 
 usage() {
   sed -n '2,6p' "$0" | sed 's/^# \?//'
@@ -40,10 +41,19 @@ while [[ $# -gt 0 ]]; do
     --sign) SIGN=1; shift ;;
     --compile-only) COMPILE_ONLY=1; shift ;;
     --preflight-only) PREFLIGHT_ONLY=1; shift ;;
+    --ci-source-package) CI_SOURCE_PACKAGE=1; shift ;;
     -h|--help) usage 0 ;;
     *) printf 'junto: error: unknown flag: %s\n' "$1" >&2; usage 1 ;;
   esac
 done
+
+if [[ "$CI_SOURCE_PACKAGE" -eq 1 || "${JUNTO_CI_SOURCE_PACKAGE:-}" == "1" ]]; then
+  if [[ "${CI:-}" != "true" || "$SIGN" -eq 1 || "$NOTARIZE" -eq 1 || "$VERIFY" -eq 1 ]]; then
+    printf 'junto: error: --ci-source-package is only for unsigned CI source packages, never the release lane\n' >&2
+    exit 1
+  fi
+  export JUNTO_CI_SOURCE_PACKAGE=1
+fi
 
 if [[ -z "$TARGET" ]]; then
   case "$(uname -s)" in
@@ -143,7 +153,7 @@ if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
-if [[ "$TARGET" == "mac" ]] && "$BUN_EXECUTABLE" -e 'import {resolveBuildFeatures} from "./scripts/build-features"; process.exit(resolveBuildFeatures().features.fleetUi === false ? 1 : 0)'; then
+if [[ "$TARGET" == "mac" && "${JUNTO_CI_SOURCE_PACKAGE:-}" != "1" ]] && "$BUN_EXECUTABLE" -e 'import {resolveBuildFeatures} from "./scripts/build-features"; process.exit(resolveBuildFeatures().features.fleetUi === false ? 1 : 0)'; then
   bash "$SCRIPT_DIR/build-machine-payloads.sh"
 fi
 

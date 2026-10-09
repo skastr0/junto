@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { signAsync } from "@electron/osx-sign";
 import { resolveMacSigningConfig } from "./mac-signing-config.mjs";
-import { isMachinePayloadPath } from "./machine-payloads.mjs";
+import { isMachinePayloadPath, snapshotMachinePayloads, assertMachinePayloadsUnchanged } from "./machine-payloads.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
@@ -121,6 +121,7 @@ export default async function signJuntoApp(options) {
   }
   const inheritedOptionsForFile = options.optionsForFile;
   const inheritedIgnore = options.ignore === undefined ? [] : Array.isArray(options.ignore) ? options.ignore : [options.ignore];
+  const machinePayloads = await snapshotMachinePayloads(appPath);
 
   await signWithRetries({
     ...options,
@@ -131,6 +132,7 @@ export default async function signJuntoApp(options) {
     preEmbedProvisioningProfile: false,
     ignore: [...inheritedIgnore, filePath => isMachinePayloadPath(appPath, filePath)],
     optionsForFile: (filePath) => {
+      if (isMachinePayloadPath(appPath, filePath)) throw new Error("app signer attempted to re-sign a sealed machine payload");
       const canonicalFilePath = realpathSync(filePath);
       const relativeCanonical = path.relative(appPath, canonicalFilePath);
       if (
@@ -150,4 +152,5 @@ export default async function signJuntoApp(options) {
       };
     },
   });
+  assertMachinePayloadsUnchanged(machinePayloads, await snapshotMachinePayloads(appPath));
 }

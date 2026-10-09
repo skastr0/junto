@@ -30,6 +30,8 @@ import { auditRetiredStateRuntimeBundle } from "./audit-retired-state-signatures
 import { validateRawAsarArchive } from "./package-runtime-provenance";
 import { MACHINE_PAYLOAD_MACHO_PATHS } from "./machine-payloads.mjs";
 import { checkMachinePackage, sourceMachinePackage, type MachinePackageExpectation } from "./machine-package";
+import { isCiSourcePackage } from "./source-package-mode";
+import { machineSigningIdentifier, machineNeedsJit } from "./sign-machine-bundle.mjs";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -869,6 +871,13 @@ const auditMachOObjects = async (
   const actualPaths = await enumerateMachOPaths(appPath);
   validateMachOInventory(actualPaths, policy);
   await auditMachinePayloads(appPath, await sourceMachinePackage());
+  for (const relativePath of actualPaths.filter(entry => MACHINE_PAYLOAD_MACHO_PATHS.includes(entry))) {
+    const relative = relativePath.slice("Contents/Resources/machines/darwin-arm64/".length);
+    const filePath = path.join(appPath, relativePath);
+    runFixedCommand("/usr/bin/codesign", ["--verify", "--strict", filePath]);
+    validateMachOCodesignMetadata(parseCodesignMetadata(runFixedCommand("/usr/bin/codesign", ["-d", "--verbose=4", filePath])), machineSigningIdentifier(relative), signing);
+    validateEntitlementProfile(readSignedEntitlements(filePath), machineNeedsJit(relative) ? "jit" : "none", { ...policy, profiles: { none: {}, jit: { "com.apple.security.cs.allow-jit": true } } });
+  }
   const runtimePaths = actualPaths.filter(entry => !MACHINE_PAYLOAD_MACHO_PATHS.includes(entry));
   const entries = new Map(policy.machO.map((entry) => [entry.path, entry]));
   let maxMinOS: string | undefined;
@@ -931,6 +940,7 @@ export const auditMachinePayloads = async (appPath: string, expected: MachinePac
 export const auditPackagedApp = async (
   requestedPath: string,
 ): Promise<PackageAuditReceipt> => {
+  if (isCiSourcePackage()) throw new Error("signed audit cannot use CI source packaging");
   const policy = PACKAGE_SECURITY_POLICY;
   const signing = resolveMacSigningConfig();
   const appPath = path.resolve(requestedPath);
@@ -1027,7 +1037,8 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   const fuses = validateFuseWire(await getCurrentFuseWire(appPath));
   const objects = await enumerateMachOPaths(appPath);
   validateMachOInventory(objects);
-  await auditMachinePayloads(appPath, await sourceMachinePackage());
+  const machineExpectation = await sourceMachinePackage();
+  await auditMachinePayloads(appPath, { ...machineExpectation, required: machineExpectation.required && !isCiSourcePackage() });
   for (const relative of objects.filter(entry => !MACHINE_PAYLOAD_MACHO_PATHS.includes(entry))) {
     validateMachOMinimumSystemVersions(
       readMachOMinimumSystemVersions(path.join(appPath, relative)),

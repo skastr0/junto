@@ -15,6 +15,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in --verify) VERIFY=1 ;; --notarize) NOTARIZE=1; SIGN=1 ;; --sign) SIGN=1 ;; *) err "unknown flag: $1"; exit 1 ;; esac
   shift
 done
+if [[ "${JUNTO_CI_SOURCE_PACKAGE:-}" == "1" ]] && [[ "${CI:-}" != "true" || "$SIGN" -eq 1 || "$VERIFY" -eq 1 || "$NOTARIZE" -eq 1 ]]; then
+  err "CI source packaging cannot enter a signed or release lane"
+  exit 1
+fi
 cd "$REPO_ROOT"
 if [[ "$(uname -m)" == "arm64" ]]; then
   TARGET_ARCH="arm64"
@@ -33,7 +37,7 @@ if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
 fi
 # Packaging never admits Plus, including previously compiled preview output.
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/lint-overlay.ts" --bundle
-if "$BUN_EXECUTABLE" -e 'import {resolveBuildFeatures} from "./scripts/build-features"; process.exit(resolveBuildFeatures().features.fleetUi === false ? 1 : 0)'; then
+if [[ "${JUNTO_CI_SOURCE_PACKAGE:-}" != "1" ]] && "$BUN_EXECUTABLE" -e 'import {resolveBuildFeatures} from "./scripts/build-features"; process.exit(resolveBuildFeatures().features.fleetUi === false ? 1 : 0)'; then
   bash "$SCRIPT_DIR/build-machine-payloads.sh" --check
 fi
 if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then

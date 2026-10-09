@@ -111,4 +111,4 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo node node_modules/playwright/cli.js install-deps chromium
       # These audit source artifacts without signing credentials or uploads.
-      - run: bun run app:build:fast
+      - run: bun run app:build:fast --ci-source-package
