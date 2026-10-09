@@ -17,7 +17,10 @@ import {
   CONTENT_STATE_SCHEMA_SQL,
 } from "../content/state-schema";
 import { WORK_STATE_SCHEMA_SQL } from "../work/state-schema";
-import { WORK_EXCHANGE_STATE_SCHEMA_SQL } from "../work/exchange/state-schema";
+import {
+  CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
+  WORK_EXCHANGE_STATE_SCHEMA_SQL,
+} from "../work/exchange/state-schema";
 import { OPENAI_CREDENTIAL_BINDINGS_SQL, PROVIDER_CREDENTIAL_BINDINGS_SQL } from "../credentials/state-schema";
 import { OVERSEER_LIVE_STATE_SCHEMA_SQL } from "../overseer/live/state-schema";
 import { CREW_STATE_SCHEMA_SQL } from "../work/crew-schema";
@@ -97,6 +100,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL,
   APP_TEXTS_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_STATE_SCHEMA_SQL,
+  CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
 ] as const;
 
 

@@ -1,5 +1,5 @@
 /**
- * The frozen state schemas, version 1 through version 17, built only from
+ * The frozen state schemas, version 1 through version 18, built only from
  * frozen text and frozen steps so no later schema change can move a
  * historical witness.
  * Version 14 is its frozen fragments. Each earlier version is the next one
@@ -17,6 +17,7 @@ import { DatabaseSync } from "node:sqlite";
 import { migrateOneMachineLog } from "../../../src/main/junto/work/migrate-one-machine-log";
 import { WORK_EXCHANGE_STATE_SCHEMA_SQL } from "../../../src/main/junto/work/exchange/state-schema";
 import { PEERS_STATE_SCHEMA_SQL } from "../../../src/main/junto/model/state-schema";
+import { STATE_SCHEMA_MIGRATIONS } from "../../../src/main/junto/state/migrations";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "./canvas-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../domain-cutover/entities-schema";
 
@@ -87,6 +88,12 @@ export const STATE_SCHEMA_V16_SQL = stepped(STATE_SCHEMA_V15_SQL, (database) => 
 export const STATE_SCHEMA_V17_SQL = stepped(STATE_SCHEMA_V16_SQL, (database) => {
   database.exec(PEERS_STATE_SCHEMA_SQL);
 });
+
+// Version 18 named the machine that edits each canvas (17 -> 18).
+export const STATE_SCHEMA_V18_SQL = stepped(
+  STATE_SCHEMA_V17_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 18)!.migrate,
+);
 
 // Version 14 dropped this trigger (13 -> 14), so version 13 is version 14 with it.
 const MAIL_HOME_TRIGGER_V13_SQL = `

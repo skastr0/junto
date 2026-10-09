@@ -15,7 +15,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ModelRecords } from "../src/main/junto/model/records";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V17_IDENTITY,
@@ -23,8 +22,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V17_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V17_SQL, STATE_SCHEMA_V18_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -65,11 +63,17 @@ const versionSeventeenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 17),
 };
 
+const versionEighteenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 18,
+  currentSchemaSql: STATE_SCHEMA_V18_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 18),
+};
+
 describe("state migration 17 -> 18 (the machine that edits each canvas)", () => {
-  it("freezes the version-seventeen witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V17_SQL)).toEqual(STATE_SCHEMA_V17_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V18_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V18_SQL)).toEqual(STATE_SCHEMA_V18_IDENTITY);
   });
 
   it.each([
@@ -81,7 +85,7 @@ describe("state migration 17 -> 18 (the machine that edits each canvas)", () => 
       migrateStateSchema(database, versionSeventeenPlan);
       const { canvases: canvasesBefore, ...before } = snapshot(database);
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionEighteenPlan);
       expect(result).toMatchObject({ previousVersion: 17, schemaVersion: 18 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V18_IDENTITY);
       const { canvases, ...rest } = snapshot(database);

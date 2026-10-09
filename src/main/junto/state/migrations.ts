@@ -15,7 +15,10 @@ import {
   AGENT_SIGNALS_STATE_SCHEMA_SQL,
 } from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
-import { WORK_EXCHANGE_STATE_SCHEMA_SQL } from "../work/exchange/state-schema";
+import {
+  CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
+  WORK_EXCHANGE_STATE_SCHEMA_SQL,
+} from "../work/exchange/state-schema";
 import {
   migrateOneMachineLog,
   ONE_MACHINE_LOG_REMOVED_TABLES,
@@ -284,7 +287,16 @@ export const STATE_SCHEMA_V18_IDENTITY = {
     "3370750f0a2e8f37a68757a9107c03c6617778841845382f368ec1cacee6feb8",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 18;
+/**
+ * Version 19 adds what the editing machine remembers of the copies it sent:
+ * the counts, and where each seat was at each. Expand only.
+ */
+export const STATE_SCHEMA_V19_IDENTITY = {
+  actualSchemaSha256:
+    "ff9740c27d75838011ae3a9096bc44f5ee4b6d5e0920b3cc59c76c63b02555f6",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 19;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -292,7 +304,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 18;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V18_IDENTITY;
+  STATE_SCHEMA_V19_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -492,6 +504,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
           SELECT installation_id FROM station_installation WHERE singleton = 1
         )
       `);
+    },
+  },
+  {
+    fromVersion: 18,
+    toVersion: 19,
+    name: "remember the canvas copies sent",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V18_IDENTITY,
+    migrate: (database) => {
+      database.exec(CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL);
     },
   },
 ];
