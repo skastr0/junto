@@ -13,7 +13,7 @@ import { canvasReceiptBasis, recordDeliveryReceiptRefusal } from "../work/delive
 // the name, those setters ARE the production injection points — cycle.ts
 // exposes no separately-named "prod" variant, by design.
 //
-// V4-KERNEL + V4-PROGRAM (docs/END_STATE-effect-v4-IRON.md §P3/P5 + migration/runtime.md):
+// V4-KERNEL + V4-PROGRAM:
 // kernel never owns Runtime/Effect promise entry. Domain Effects exit only
 // through the host injected at start() from AppRuntime / RemoteRuntime
 // (main boot): runPromise for Promise seams, runFork for the factory program.

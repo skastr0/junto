@@ -36,7 +36,6 @@ const NAMES: ReadonlyArray<readonly [label: string, pattern: RegExp]> = [
  */
 const ALLOWED = new Set([
   "AGENTS.md",
-  "docs/canvas-document-removal-brief.md",
   "scripts/lint-no-canvas-document.ts",
   "src/main/junto/state/migrations.ts",
   // The one-time reading of rows an old database holds.

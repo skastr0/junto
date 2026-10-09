@@ -1,5 +1,5 @@
 {
-  "$comment": "S0 fitness gate for bare Effect.runPromise under src/main. permanent = true host/post-dispose adapters only. debt = known product debt (ratchet: count may only shrink; never promote kernel/work claim paths to permanent). See docs/END_STATE-effect-foundation.md §S0.",
+  "$comment": "S0 fitness gate for bare Effect.runPromise under src/main. permanent = true host/post-dispose adapters only. debt = known product debt (ratchet: count may only shrink; never promote kernel/work claim paths to permanent).",
   "permanent": [
     {
       "path": "src/main/junto/update/ipc.ts",

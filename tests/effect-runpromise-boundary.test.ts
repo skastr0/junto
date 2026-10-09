@@ -1,11 +1,11 @@
 /**
  * S0 + V4-ENTRY fitness gates — bare Effect.runPromise boundary.
  *
- * S0 (docs/END_STATE-effect-foundation.md): product main must not use empty-
+ * S0: product main must not use empty-
  * Context Effect.runPromise except the permanent host/post-dispose allowlist.
  * Debt is ratcheted empty after V4-DEBT-ZERO. Kernel/work never permanent.
  *
- * V4-ENTRY (docs/END_STATE-effect-v4-IRON.md): domain Effects in main/remote
+ * V4-ENTRY: domain Effects in main/remote
  * entry + IPC files enter only via AppRuntime / RemoteRuntime — zero bare
  * Effect.runPromise call sites in those four surfaces.
  *

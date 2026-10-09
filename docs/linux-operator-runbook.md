@@ -98,8 +98,8 @@ safe; it does not justify bypassing a security check.
 For a host-preparation issue:
 
 1. capture the read-only preflight/Doctor finding;
-2. review the matching desktop or
-   [host-preparation](linux-host-preparation.md) instruction;
+2. review the matching [desktop preparation](linux-desktop-alpha.md#boundary)
+   instruction;
 3. have the host administrator perform only the optional external action they
    choose;
 4. rerun the relevant observation and continue only when its result is proven.

@@ -21,7 +21,6 @@ export interface ProcessHandle {
 }
 /**
  * Single canonical service id `@junto/ssh/ProcessSpawner` via Context.Service.
- * @see docs/END_STATE-effect-foundation.md §S4
  */
 export class ProcessSpawner extends Context.Service<ProcessSpawner,
   {

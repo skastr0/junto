@@ -5,7 +5,6 @@
  * Live imports under ssh/** and cli/** use the V4 destinations below.
  *
  * Source of truth: Playground/effect migration v3-to-v4 notes.
- * Contract: docs/END_STATE-effect-foundation.md §S7 / R7-platform
  *
  * Path ownership: src/main/junto/ssh/**, src/cli/**.
  * Consolidation: one map, zero dual v1/v2 import shims, zero live dual paths.
@@ -168,5 +167,4 @@ export const S7_IMPORT_MAP_PREP_META = {
   remainingContextTagCount: S7_REMAINING_CONTEXT_TAGS.length,
   liveImportSiteGroups: S7_LIVE_IMPORT_SITES.length,
   playgroundRef: "Playground/effect/migration/v3-to-v4.md",
-  endState: "docs/END_STATE-effect-foundation.md §S7",
 } as const;
