@@ -336,6 +336,33 @@ the renderer (`remote-window`). Leftovers are being closed. It closes when
 `remote-verify` has typecheck and the whole unit suite green on a clean
 export. Until then nobody packages or runs main.
 
+**Paused.** The operator paused all work with the name window still open.
+Every seat was told to commit what was complete, leave the rest in the tree,
+stop what it had running and wait for the word resume. On resume, in order:
+
+1. `remote-core` commits its fix in `src/main/junto/kernel/service.ts`, the
+   only two typecheck errors on a clean export of `db8e06871`.
+2. The unit failures from `remote-verify`'s gate on that commit (8,541 passed,
+   17 failed in 11 files; receipts under `/tmp/junto-name-gate-axvfubvv/`,
+   which may not survive a restart):
+   - a fixture still says `local` for a machine, in `companion-model-inputs`,
+     `managed-terminal-injection`, `digest`, `region-rollup-store`,
+     `seat-card`; and `overseer-control`, `overseer-live-repository` (the old
+     installation table): `remote-cut`
+   - `lint-design-tokens`, three font sizes in `machine-figure/machines.css`:
+     `remote-design`
+   - `model-legacy-row`, `scheduler-repository`: `remote-work`
+   - `prime-agent-two-seat.integration`, machine name not loaded:
+     `remote-seats`
+3. `remote-verify` reruns the gate; a green run closes the name window.
+4. Rule 9 has no test at two places a secret's value could travel: the rows
+   channel (`remote-work`) and the seats start payload (`remote-seats`).
+5. Then run A: it waits on the windowless root (`remote-core`) and the link
+   session (`remote-send`).
+
+Left on the mini: an empty `~/.junto` with empty `locks` and `machine`
+directories from an install attempt. No service, no process, no sandbox.
+
 **The path to two machines talking.** Nothing has crossed a real link yet.
 Work is ordered by four live runs on this Mac and the mini, each a receipt
 from `remote-verify`:
