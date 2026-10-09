@@ -52,6 +52,8 @@ export type OccupySpec = {
    * for the launch environment is read from it. Local placement only.
    */
   readonly seatRect?: RegionRect;
+  /** Receiver-local admission, rechecked after asynchronous launch preparation. */
+  readonly beforeSpawn?: Effect.Effect<void, Error>;
 };
 
 /**
@@ -282,6 +284,7 @@ export const makeLocalSeatProcess = (
             new Error(`This seat was not started. ${refusal}`),
           );
         }
+        if (spec.beforeSpawn !== undefined) yield* spec.beforeSpawn;
         const created = yield* Effect.try({
           try: () =>
             host.createAgentSeat(
