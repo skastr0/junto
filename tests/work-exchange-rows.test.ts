@@ -1,5 +1,6 @@
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
 import {
   EXCHANGE_MAX_FACTS_PER_FRAME,
@@ -19,12 +20,17 @@ const editor = id("macbook");
 const mini = id("mini");
 const other = id("other-mini");
 const timestamp = "2026-10-09T12:00:00.000Z";
-const seat = (digit: string) => `seat_${digit.repeat(64)}`;
+const seat = (digit: string) => Schema.decodeUnknownSync(ActorSeatId)(`seat_${digit.repeat(64)}`);
 
 /** `lead` lives on the editing machine, `peer` on the mini, `far` on a third machine. */
 const placement: CanvasPlacement = {
   editor,
-  machineOf: (nodeId) => ({ lead: editor, peer: mini, far: other })[nodeId],
+  seatOf: (nodeId) =>
+    ({
+      lead: { seatId: seat("1"), machine: editor },
+      peer: { seatId: seat("2"), machine: mini },
+      far: { seatId: seat("3"), machine: other },
+    })[nodeId],
 };
 
 const mail = (writer: string, from: { seatId: string; nodeId: string }, to: string, seq = "1") => ({
@@ -103,6 +109,31 @@ describe("the rows that may cross machines", () => {
     ).toBe(false);
   });
 
+  it("refuses a row that names another canvas anywhere inside it", () => {
+    const sent = mail(mini, peer, "lead");
+    expect(crosses({ ...sent, body: { ...sent.body, sentBy: { ...sent.body.sentBy, canvasName: "private" } } })).toBe(false);
+    const taken = receipt(mini, peer);
+    const elsewhere = { canvasName: "private", nodeId: "peer" };
+    // A receipt for the `factory` canvas that points at mail and a mailbox on another canvas.
+    expect(
+      crosses({
+        ...taken,
+        body: {
+          ...taken.body,
+          receipt: { ...taken.body.receipt, actor: { ...taken.body.receipt.actor, canvasName: "private" }, deliveredItem: { ...taken.body.receipt.deliveredItem, sink: elsewhere } },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      crosses({ ...taken, body: { ...taken.body, receipt: { ...taken.body.receipt, deliveredItem: { ...taken.body.receipt.deliveredItem, sink: elsewhere } } } }),
+    ).toBe(false);
+    expect(
+      crosses({ ...taken, body: { ...taken.body, receipt: { ...taken.body.receipt, actor: { ...taken.body.receipt.actor, canvasName: "private" } } } }),
+    ).toBe(false);
+    // A receipt whose own item sits in another seat's mailbox.
+    expect(crosses({ ...taken, item: { ...taken.item, sink: { canvasName: "factory", nodeId: "lead" } } })).toBe(false);
+  });
+
   it("bounds a frame and refuses a frame it does not know", () => {
     const one = mail(editor, lead, "peer");
     const frame = (facts: unknown[]) => ({ kind: "rows", canvasName: "factory", writer: editor, facts, through: "1" });
@@ -141,10 +172,20 @@ describe("who may hand a row over, and who wrote it", () => {
     expect(writtenByItsAuthor(decode(mail(mini, { seatId: seat("9"), nodeId: "a-note" }, "lead")), placement)).toBe(false);
   });
 
+  it("holds a row to the exact identity of the seat at its author's node", () => {
+    // The mini writes from its own node under the seat identity of another seat.
+    expect(writtenByItsAuthor(decode(mail(mini, { seatId: seat("1"), nodeId: "peer" }, "lead")), placement)).toBe(false);
+    expect(writtenByItsAuthor(decode(receipt(mini, { seatId: seat("1"), nodeId: "peer" })), placement)).toBe(false);
+  });
+
   it("holds the operator's mail to the machine that edits the canvas", () => {
     const operator = operatorActorRef("factory");
     expect(writtenByItsAuthor(decode(mail(editor, operator, "peer")), placement)).toBe(true);
     expect(writtenByItsAuthor(decode(mail(mini, operator, "peer")), placement)).toBe(false);
+    // The operator's node under a seat's identity, a seat's node under the operator's, and an operator receipt.
+    expect(writtenByItsAuthor(decode(mail(editor, { seatId: seat("1"), nodeId: "operator" }, "peer")), placement)).toBe(false);
+    expect(writtenByItsAuthor(decode(mail(editor, { seatId: operator.seatId, nodeId: "lead" }, "peer")), placement)).toBe(false);
+    expect(writtenByItsAuthor(decode(receipt(editor, operator)), placement)).toBe(false);
   });
 });
 

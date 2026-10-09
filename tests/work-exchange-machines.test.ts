@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { ExchangeClosed, makeRowExchange, type RowExchange } from "../src/main/junto/work/exchange/session";
 import { mailboxMessageDeliveryId } from "../src/main/junto/work/mailbox-receipts";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkRepository, WorkRepositoryLive, workRecordContentSha256 } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
 import type { CanvasPlacement, ExchangeFrame, RowsFrame } from "../src/shared/work-exchange";
 import type { Message } from "../src/shared/work-model";
@@ -30,7 +30,10 @@ const basis = { kind: "canvas" as const, canvasName: "factory", seq: 1 };
 
 /** `lead` lives on the editing machine, `peer` and `peer-two` on the mini, `far` on a third machine. */
 const homes: Record<string, InstallationId> = { lead: EDITOR, peer: MINI, "peer-two": MINI, far: OTHER };
-const placement: CanvasPlacement = { editor: EDITOR, machineOf: (nodeId) => homes[nodeId] };
+const placement: CanvasPlacement = {
+  editor: EDITOR,
+  seatOf: (nodeId) => (homes[nodeId] === undefined ? undefined : { seatId: actor(nodeId).seatId, machine: homes[nodeId]! }),
+};
 const actor = (nodeId: string): ActorRef => ({
   seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${(Object.keys(homes).indexOf(nodeId) + 1).toString().repeat(64)}`),
   canvasName: "factory",
@@ -309,6 +312,34 @@ describe("what a machine refuses, writing nothing", () => {
     await refused(mini, EDITOR, { ...frame, facts: [notForTheMini] });
     await link(editor, mini);
     await refused(mini, EDITOR, { ...frame, canvasName: "another-canvas", facts: [] });
+  });
+
+  it("refuses a receipt that points at another canvas, even with a matching hash", async () => {
+    const frame = await frameFrom(mini);
+    const taken = frame.facts.find((fact) => fact.body.operation === "delivery.accepted")!;
+    const body = taken.body as { receipt: { actor: object; deliveredItem: { sink: object } } };
+    const elsewhere = { canvasName: "private", nodeId: "peer" };
+    const { contentSha256: _hash, originAt, ...semantic } = {
+      ...taken,
+      body: {
+        ...body,
+        receipt: { ...body.receipt, actor: { ...body.receipt.actor, canvasName: "private" }, deliveredItem: { ...body.receipt.deliveredItem, sink: elsewhere } },
+      },
+    };
+    const rehashed = { ...semantic, originAt, contentSha256: workRecordContentSha256(semantic as never) };
+    await link(editor, mini);
+    await settle();
+    await refused(editor, MINI, { ...frame, facts: [rehashed] });
+  });
+
+  it("refuses mail written under another seat's identity", async () => {
+    const frame = await frameFrom(mini);
+    const sent = frame.facts.find((fact) => fact.body.operation === "message.append" && fact.item.sink.nodeId === "lead")!;
+    const body = sent.body as { sentBy: object };
+    const { contentSha256: _hash, originAt, ...semantic } = { ...sent, body: { ...body, sentBy: { ...actor("peer"), seatId: actor("peer-two").seatId } } };
+    await link(editor, mini);
+    await settle();
+    await refused(editor, MINI, { ...frame, facts: [{ ...semantic, originAt, contentSha256: workRecordContentSha256(semantic as never) }] });
   });
 
   it("refuses a frame it does not know and a kind of row that never crosses", async () => {

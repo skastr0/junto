@@ -8,11 +8,14 @@
  * a receiver asks before it takes a row.
  */
 import { Schema } from "effect";
+import type { ActorSeatId } from "./actor-seat";
 import { InstallationId } from "./installation-id";
-import { WorkCanvasName, OPERATOR_SEAT_ID } from "./work-reference";
+import { WorkCanvasName, OPERATOR_SEAT_ID, operatorActorRef } from "./work-reference";
 import { WorkFact } from "./work-protocol";
 
 export const EXCHANGE_MAX_FACTS_PER_FRAME = 64;
+
+const OPERATOR_NODE_ID = operatorActorRef("").nodeId;
 
 /** A sequence a machine is caught up through; zero is "nothing yet". */
 export const ExchangeThrough = Schema.String.pipe(
@@ -26,7 +29,9 @@ export const compareSequence = (left: string, right: string): number =>
 
 /**
  * The rows that may cross machines: mail to a seat and its receipts. A fact of
- * any other kind, or one that leans on another fact, never crosses.
+ * any other kind, or one that leans on another fact, never crosses. Every
+ * reference inside a row names the row's own canvas: its author, and for a
+ * receipt the mailbox and the mail it answers.
  */
 export const ExchangeFact = WorkFact.pipe(
   Schema.check(
@@ -34,16 +39,20 @@ export const ExchangeFact = WorkFact.pipe(
       if (fact.basis.kind !== "canvas") return "a row states the canvas its writer saw";
       if (fact.basis.canvasName !== fact.item.sink.canvasName) return "a row states its own canvas";
       if (fact.predecessor !== null) return "a row stands alone";
+      const { sink } = fact.item;
       switch (fact.body.operation) {
         case "message.append":
-          return fact.body.destination.kind === "mailbox" || "only mail to a seat crosses machines";
+          if (fact.body.destination.kind !== "mailbox") return "only mail to a seat crosses machines";
+          return fact.body.sentBy.canvasName === sink.canvasName || "mail is written on the canvas it is sent on";
         case "delivery.accepted": {
           const { receipt } = fact.body;
           return (
             (receipt.deliveredItem.kind === "message" &&
-              receipt.deliveredItem.sink.canvasName === receipt.actor.canvasName &&
-              receipt.deliveredItem.sink.nodeId === receipt.actor.nodeId) ||
-            "a receipt is the receiving seat's own"
+              receipt.deliveredItem.sink.canvasName === sink.canvasName &&
+              receipt.deliveredItem.sink.nodeId === sink.nodeId &&
+              receipt.actor.canvasName === sink.canvasName &&
+              receipt.actor.nodeId === sink.nodeId) ||
+            "a receipt is the receiving seat's own, for mail in its own mailbox"
           );
         }
         default:
@@ -89,20 +98,17 @@ export const decodeExchangeFrame = Schema.decodeUnknownResult(ExchangeFrame, { o
 export type CanvasPlacement = {
   /** The machine that may change the canvas; it keeps all of it. */
   readonly editor: InstallationId;
-  /** The machine a seat lives on, by node id; undefined for a node that is no seat. */
-  readonly machineOf: (nodeId: string) => InstallationId | undefined;
+  /** The seat at a node: its identity and the machine it lives on. Undefined for a node that is no seat. */
+  readonly seatOf: (
+    nodeId: string,
+  ) => { readonly seatId: ActorSeatId; readonly machine: InstallationId } | undefined;
 };
 
-/** The node whose machine must be the writer of this row. */
-const authorOf = (fact: ExchangeFact): { readonly operator: boolean; readonly nodeId: string } => {
-  if (fact.body.operation === "delivery.accepted") {
-    return { operator: false, nodeId: fact.body.receipt.actor.nodeId };
-  }
+/** Who a row says wrote it: the receiving seat of a receipt, the sender of mail. */
+const authorOf = (fact: ExchangeFact): { readonly seatId: ActorSeatId; readonly nodeId: string } => {
+  if (fact.body.operation === "delivery.accepted") return fact.body.receipt.actor;
   if (fact.body.operation !== "message.append") throw new Error("not an exchanged row");
-  return {
-    operator: fact.body.sentBy.seatId === OPERATOR_SEAT_ID,
-    nodeId: fact.body.sentBy.nodeId,
-  };
+  return fact.body.sentBy;
 };
 
 /**
@@ -117,8 +123,8 @@ export const peerMayPassOn = (
 
 /**
  * Was this row written where its author lives? Mail and receipts of a seat
- * come only from that seat's machine; the operator's mail only from the
- * machine that edits the canvas.
+ * come only from that seat's machine and carry that seat's own identity; the
+ * operator's mail comes only from the machine that edits the canvas.
  */
 export const writtenByItsAuthor = (
   fact: ExchangeFact,
@@ -126,9 +132,16 @@ export const writtenByItsAuthor = (
 ): boolean => {
   const writer = fact.id.route.eventHome;
   const author = authorOf(fact);
-  return author.operator
-    ? writer === placement.editor
-    : placement.machineOf(author.nodeId) === writer;
+  if (author.seatId === OPERATOR_SEAT_ID || author.nodeId === OPERATOR_NODE_ID) {
+    return (
+      fact.body.operation === "message.append" &&
+      author.seatId === OPERATOR_SEAT_ID &&
+      author.nodeId === OPERATOR_NODE_ID &&
+      writer === placement.editor
+    );
+  }
+  const seat = placement.seatOf(author.nodeId);
+  return seat !== undefined && seat.machine === writer && seat.seatId === author.seatId;
 };
 
 /**
@@ -145,7 +158,7 @@ export const entitledTo = (
 ): boolean => {
   if (machine === placement.editor) return true;
   if (fact.body.operation === "message.append") {
-    return placement.machineOf(fact.item.sink.nodeId) === machine;
+    return placement.seatOf(fact.item.sink.nodeId)?.machine === machine;
   }
-  return mailAuthorNodeId !== undefined && placement.machineOf(mailAuthorNodeId) === machine;
+  return mailAuthorNodeId !== undefined && placement.seatOf(mailAuthorNodeId)?.machine === machine;
 };
