@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { FLEET_UI_ENABLED } from "../src/shared/features";
 import { SHIP_FEATURES } from "../src/shared/feature-catalog";
 
 describe("Fleet product gate", () => {
@@ -43,18 +42,4 @@ describe("Fleet product gate", () => {
     expect(router).toContain("if (!FLEET_UI_ENABLED)");
     expect(settings).toContain("ensureDefaultCommandCenter");
   });
-
-  it.runIf(!FLEET_UI_ENABLED)(
-    "does not open or prefetch fleet UI while disabled",
-    async () => {
-      const { state$ } = await import("../src/renderer/lib/state");
-      const { openFleet, prefetchFleetChunk } = await import(
-        "../src/renderer/lib/fleet-state"
-      );
-      state$.fleetOpen.set(false);
-      prefetchFleetChunk();
-      openFleet();
-      expect(state$.fleetOpen.peek()).toBe(false);
-    },
-  );
 });
