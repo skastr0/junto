@@ -33,7 +33,6 @@ import {
 } from "../src/main/junto/station/fleet-target-repository";
 import { InstallationId } from "../src/shared/installation-id";
 import { HostId } from "../src/shared/remote-hosts";
-import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
@@ -102,7 +101,7 @@ const makeRuntime = () => {
   return ManagedRuntime.make(
     Layer.provideMerge(
       WorkLive,
-      Layer.mergeAll(canvasesLive, StationLivePeerRegistryLive) as never,
+      Layer.mergeAll(canvasesLive) as never,
     ) as never,
   );
 };

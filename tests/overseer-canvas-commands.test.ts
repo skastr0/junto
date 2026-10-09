@@ -20,7 +20,6 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import { WorkLive } from "../src/main/junto/work/service";
 import { ModelService } from "../src/main/junto/model/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
@@ -87,7 +86,7 @@ describe("executeOverseerCanvas", () => {
     return ManagedRuntime.make(
       Layer.provideMerge(
         WorkLive,
-        Layer.mergeAll(canvases, StationLivePeerRegistryLive) as never,
+        Layer.mergeAll(canvases) as never,
       ),
     );
   };

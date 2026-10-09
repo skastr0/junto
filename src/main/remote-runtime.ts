@@ -21,8 +21,8 @@
  * Electron IPC. isPackaged is env / release-tree placement — never app.isPackaged.
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { installCoreRunner } from "./core-runner";
 import { ObservabilityLoggerLive } from "./junto/observability";
-import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import { assessSupervisedRuntime } from "@shared/station";
 import {
   ChatServiceFromHermesLive,
@@ -45,7 +45,6 @@ import { makeSettingsLive } from "./junto/settings/service";
 import { SnapshotsLive } from "./junto/snapshots";
 import { UsageLive } from "./junto/usage/live";
 import { HostsServiceLive } from "./junto/hosts";
-import { HostRuntimeLive } from "./junto/hosts/host-runtime";
 import { SshTransportLive } from "./junto/ssh";
 import { StationStatusLive } from "./junto/station-status-store";
 import { StateEngineLive } from "./junto/state/engine";
@@ -56,14 +55,6 @@ import {
   type StationProjection,
   type StationStatusFacts,
 } from "./junto/station/repository";
-import { StationApiLive } from "./junto/station/api";
-import { StationPropagationLive } from "./junto/station/propagation";
-import {
-  OpenSshStationPeerRouteResolverLive,
-  StationFleetPropagationLive,
-} from "./junto/station/fleet-propagation";
-import { OpenSshStationPeerExchangeLive } from "./junto/station/openssh-peer-exchange";
-import { StationLivePeerRegistryLive } from "./junto/station/session-registry";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
 import {
@@ -148,52 +139,12 @@ const StateRepositoriesLive = Layer.provideMerge(
   Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(StateEngineLive, InstallOpsLive)),
 );
 
-const StatefulServicesLive = Layer.provideMerge(
-  StationApiLive,
-  StateRepositoriesLive,
-);
-
-const StationPropagationServicesLive = Layer.provideMerge(
-  StationPropagationLive,
-  StatefulServicesLive,
-);
-
-const OpenSshStationPeerExchangeFromStateLive = Layer.unwrap(
-  Effect.gen(function* () {
-    const repository = yield* StationRepository;
-    const localInstallationId = yield* repository.installationId;
-    return OpenSshStationPeerExchangeLive(localInstallationId, {
-      appVersion: remoteAppVersion(),
-      stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-      support: CURRENT_STATION_PROTOCOL_SUPPORT,
-    });
-  }),
-);
-
-const StationSessionInfrastructureLive = Layer.provideMerge(
-  Layer.mergeAll(
-    StationLivePeerRegistryLive,
-    OpenSshStationPeerRouteResolverLive,
-    OpenSshStationPeerExchangeFromStateLive,
-  ),
-  Layer.mergeAll(StateRepositoriesLive, SshTransportLive),
-);
-
-const StationFleetServicesLive = Layer.provideMerge(
-  StationFleetPropagationLive,
-  Layer.mergeAll(
-    StationPropagationServicesLive,
-    StationSessionInfrastructureLive,
-  ),
-);
-
-// HostRuntimeLive yields HostsService at acquire — provide, don't sibling-merge.
+// The registry and SSH share the same product repositories.
 const HostsWithSshLive = Layer.provideMerge(
-  Layer.provideMerge(HostRuntimeLive, HostsServiceLive),
+  HostsServiceLive,
   Layer.mergeAll(
     SshTransportLive,
     StateRepositoriesLive,
-    StationFleetServicesLive,
   ),
 );
 
@@ -221,7 +172,6 @@ const SnapshotsWithProductsLive = Layer.provideMerge(
 const BaseLayer = Layer.mergeAll(
   SnapshotsWithProductsLive,
   HostsWithSshLive,
-  StationFleetServicesLive,
 );
 
 const BaseWithPauseLive = Layer.provideMerge(PausePlaneLive, BaseLayer);
@@ -255,6 +205,7 @@ export const RemoteRuntime = ManagedRuntime.make(
     never
   >,
 );
+installCoreRunner(RemoteRuntime);
 
 // ---------------------------------------------------------------------------
 // Pure readiness helpers (Node-safe reimplementation — no electron import)

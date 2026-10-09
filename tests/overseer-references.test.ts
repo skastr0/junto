@@ -21,7 +21,6 @@ import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { StationRepository, StationRepositoryLive } from "../src/main/junto/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { WorkLive } from "../src/main/junto/work/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
@@ -48,7 +47,7 @@ const layers = (root: string, withStore: boolean) => {
     makeInstallOpsLive(join(root, "install-ops.db")),
   ));
   return Layer.provideMerge(WorkLive, Layer.mergeAll(
-    Layer.provideMerge(ModelStoresLive, repositories), StationLivePeerRegistryLive,
+    Layer.provideMerge(ModelStoresLive, repositories),
   ));
 };
 const makeRuntime = (root: string, withStore: boolean) => ManagedRuntime.make(layers(root, withStore));
@@ -83,7 +82,7 @@ const boot = async (options: { readonly withStore?: boolean; readonly grant?: bo
   }
   const adapters: OverseerRuntime = {
     native: vi.fn(() => Effect.succeed({ observed: true })),
-    forward: vi.fn<OverseerRuntime["forward"]>((_caller, request) => Effect.succeed({ ok: true, operation: request.operation, data: { forwarded: true } })),
+
   };
   const run = (request: Parameters<typeof executeOverseer>[1]) =>
     runtime.runPromise(executeOverseer(caller, request, adapters)) as Promise<any>;
@@ -170,7 +169,7 @@ describe("overseer references and briefing", () => {
       { kind: "reference", name: "long" },
       { kind: "reference", name: "style" },
     ]);
-    expect(adapters.forward).not.toHaveBeenCalled();
+
     expect(adapters.native).not.toHaveBeenCalled();
   });
 
@@ -250,21 +249,5 @@ describe("overseer references and briefing", () => {
     expect(stored?.body).toBe("# House rules\nCommit by path.");
   });
 
-  it("goes to Command Center from a Remote, and says so plainly where there is no store", async () => {
-    const { run, adapters } = await boot({ withStore: false });
-    expect(await run({ operation: "references.list" })).toMatchObject({
-      ok: false, error: { type: "Unsupported", message: "references are not available in this build" },
-    });
-    const stations = await runtime.runPromise(StationRepository);
-    const configuration = Schema.decodeUnknownSync(RemoteConfiguration)({
-      role: "remote", hostId: "local", agentHostId: "local", commandCenterInstallationId: "cc", supervisedPreferred: false,
-    });
-    expect(await runtime.runPromise(
-      executeOverseer(caller, { operation: "briefing.write", args: { body: "From afar." } }, adapters)
-        .pipe(Effect.provideService(StationRepository, {
-          ...stations, configuration: Effect.succeed({ configuration, configuredAt: "2026-09-11T00:00:00Z" }),
-        })),
-    )).toMatchObject({ ok: true, data: { forwarded: true } });
-    expect(adapters.forward).toHaveBeenCalledTimes(1);
-  });
+
 });

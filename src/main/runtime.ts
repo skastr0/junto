@@ -1,4 +1,5 @@
 import { CanvasControlQueries } from "./junto/canvas-control/queries";
+import { installCoreRunner } from "./core-runner";
 /**
  * Command Center product ManagedRuntime — single warm Effect entry for Electron main.
  *
@@ -30,7 +31,6 @@ import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import { linuxDesktopInstallStorageDoctor } from "./junto/update/linux-install";
 import { assessSupervisedRuntime } from "@shared/station";
-import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import {
   assessStationDoctor,
   kernelRecordFromSnapshot,
@@ -72,16 +72,7 @@ import { SnapshotsLive, SnapshotsService } from "./junto/snapshots";
 import { UsageLive } from "./junto/usage/live";
 import { UsageService } from "./junto/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./junto/hosts";
-import { HostRuntimeLive } from "./junto/hosts/host-runtime";
-import { composeMainFleetCompatibilitySnapshot } from "./junto/hosts/fleet-compatibility";
 import { SshTransportLive } from "./junto/ssh";
-import {
-  BoxCliLive,
-  BoxFleetServiceLive,
-  BoxActivityPolicyLive,
-  BoxOwnershipRepositoryLive,
-  BoxProcessRunnerLive,
-} from "./junto/box";
 import { primeHostsSnapshot } from "./junto/hosts/snapshot";
 import {
   StationStatusLive,
@@ -91,7 +82,6 @@ import {
   createStationReadinessCoordinator,
   stationReadinessMetadata,
 } from "./junto/station-readiness";
-import { stationControlReadiness } from "./junto/station/control-server";
 import { workControlReadiness } from "./junto/work/control";
 import { StateEngineLive } from "./junto/state/engine";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
@@ -104,18 +94,6 @@ import {
   type StationProjection,
   type StationStatusFacts,
 } from "./junto/station/repository";
-import { StationApiLive } from "./junto/station/api";
-import { StationPropagationLive } from "./junto/station/propagation";
-import {
-  OpenSshStationPeerRouteResolverLive,
-  StationFleetPropagationLive,
-} from "./junto/station/fleet-propagation";
-import {
-  OpenSshStationPeerExchangeLive,
-} from "./junto/station/openssh-peer-exchange";
-import {
-  StationLivePeerRegistryLive,
-} from "./junto/station/session-registry";
 import { WorkModelDependentsLive } from "./junto/work/model-dependents";
 import { ModelLive } from "./junto/model/layer";
 import {
@@ -156,79 +134,16 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationStatusLive,
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
-    BoxOwnershipRepositoryLive,
     makeContentServiceLive(),
   ),
   Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(StateEngineLive, InstallOpsLive)),
 );
 
-const StatefulServicesLive = Layer.provideMerge(
-  StationApiLive,
-  StateRepositoriesLive,
-);
-
-const StationPropagationServicesLive = Layer.provideMerge(
-  StationPropagationLive,
-  StatefulServicesLive,
-);
-
-const OpenSshStationPeerExchangeFromStateLive = Layer.unwrap(
-  Effect.gen(function* () {
-    const repository = yield* StationRepository;
-    const localInstallationId = yield* repository.installationId;
-    return OpenSshStationPeerExchangeLive(localInstallationId, {
-      appVersion: productMetadata.version,
-      stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-      support: CURRENT_STATION_PROTOCOL_SUPPORT,
-    });
-  }),
-);
-
-const StationSessionInfrastructureLive = Layer.provideMerge(
-  Layer.mergeAll(
-    StationLivePeerRegistryLive,
-    OpenSshStationPeerRouteResolverLive,
-    OpenSshStationPeerExchangeFromStateLive,
-  ),
-  Layer.mergeAll(StateRepositoriesLive, SshTransportLive),
-);
-
-const StationFleetServicesLive = Layer.provideMerge(
-  StationFleetPropagationLive,
-  Layer.mergeAll(
-    StationPropagationServicesLive,
-    StationSessionInfrastructureLive,
-  ),
-);
-
-// HostRuntimeLive yields HostsService at acquire — provide, don't sibling-merge.
+// The registry and SSH share the same product repositories.
 const HostsWithSshLive = Layer.provideMerge(
-  Layer.provideMerge(HostRuntimeLive, HostsServiceLive),
+  HostsServiceLive,
   Layer.mergeAll(
     SshTransportLive,
-    StateRepositoriesLive,
-    StationFleetServicesLive,
-  ),
-);
-
-const BoxCliWithProcessLive = Layer.provideMerge(
-  BoxCliLive,
-  BoxProcessRunnerLive,
-);
-
-const BoxFleetLive = Layer.provideMerge(
-  BoxFleetServiceLive,
-  Layer.mergeAll(
-    BoxCliWithProcessLive,
-    StateRepositoriesLive,
-    HostsWithSshLive,
-  ),
-);
-
-const BoxActivityPolicyWithFleetLive = Layer.provideMerge(
-  BoxActivityPolicyLive,
-  Layer.mergeAll(
-    BoxFleetLive,
     StateRepositoriesLive,
   ),
 );
@@ -293,8 +208,6 @@ const BaseLayer = Layer.mergeAll(
   CodexLive,
   SnapshotsWithProductsLive,
   HostsWithSshLive,
-  StationFleetServicesLive,
-  BoxActivityPolicyWithFleetLive,
   UpdateServiceLive,
 );
 
@@ -333,6 +246,7 @@ export const AppRuntime = ManagedRuntime.make(
     never
   >,
 );
+installCoreRunner(AppRuntime);
 
 export const supervisorAlignedForReadiness = (
   input: Parameters<typeof assessSupervisedRuntime>[0],
@@ -474,7 +388,7 @@ export const buildDoctorReport = Effect.gen(function* () {
         database: true,
         workControl: workControlReady,
         simulation: kernelRecord.fault === undefined,
-        session: stationControlReadiness.sessionReady(),
+        session: workControlReady,
       },
     });
     const readiness = yield* assessCurrentStationReadiness({
@@ -497,16 +411,7 @@ export const buildDoctorReport = Effect.gen(function* () {
         ...stationReadinessMetadata(readiness),
       },
     } satisfies ServiceCheck;
-    const compatibility = configuration?.role === "remote"
-      ? composeMainFleetCompatibilitySnapshot({
-          hostId: configuration.hostId,
-          installationId: stationState.facts.installationId,
-          ...(stationState.facts.projection === undefined
-            ? {}
-            : { projectionReceipt: stationState.facts.projection }),
-        })
-      : undefined;
-    return { check, compatibility };
+    return { check, compatibility: undefined };
   }).pipe(
     Effect.catch((error) =>
       Effect.succeed({

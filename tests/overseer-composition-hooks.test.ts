@@ -21,7 +21,6 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { StationRepository, StationRepositoryLive } from "../src/main/junto/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import { WorkLive } from "../src/main/junto/work/service";
 import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
@@ -80,7 +79,7 @@ describe("overseer composition canvas hook with live grant", () => {
     return ManagedRuntime.make(
       Layer.provideMerge(
         WorkLive,
-        Layer.mergeAll(canvases, StationLivePeerRegistryLive),
+        Layer.mergeAll(canvases),
       ),
     );
   };

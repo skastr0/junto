@@ -15,7 +15,7 @@
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { Command } from "@shared/model";
-import { AppRuntime } from "../../runtime";
+import { coreRunner } from "../../core-runner";
 import { ModelService } from "../model/service";
 import { StationRepository } from "../station/repository";
 
@@ -85,7 +85,7 @@ const persistSeatSessionId = (input: SeatSessionIdInput) => Effect.gen(function*
  */
 export const writeSeatSessionId = async (input: SeatSessionIdInput): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> => {
   try {
-    await AppRuntime.runPromise(
+    await coreRunner.runPromise(
       persistSeatSessionId(input),
     );
     return { ok: true };

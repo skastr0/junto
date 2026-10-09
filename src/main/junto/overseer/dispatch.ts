@@ -31,11 +31,6 @@ export interface OverseerRuntime {
     caller: OverseerCaller,
     request: OverseerRequest,
   ) => Effect.Effect<unknown, WorkErrorBody>;
-  /** Uses only the already-open, paired Command Center session. */
-  readonly forward: (
-    caller: OverseerCaller,
-    request: OverseerRequest,
-  ) => Effect.Effect<OverseerResult, WorkErrorBody>;
   /** This machine's secret store. Defaults to the product store. */
   readonly secrets?: () => OverseerSecretStore | undefined;
   /** The region environment resolver's report. Defaults to the product resolver. */
@@ -159,15 +154,7 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
   if (Result.isFailure(admitted)) return failed(request, admitted.failure);
   const authority = admitted.success;
   const operation = request.operation;
-  // Local resources act on the installation that runs the command and are
-  // never forwarded to another one.
-  const localResource = operation.startsWith("page.") ||
-    operation.startsWith("content.") || operation.startsWith("secret.");
-
   const run = Effect.gen(function* () {
-    if (authority.configuration.role === "remote" && !localResource) {
-      return yield* runtime.forward(caller, request);
-    }
     if (sourceInstallationId !== undefined && operation.startsWith("page.")) {
       return failed(request, {
         type: "ScopeError",

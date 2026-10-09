@@ -4,7 +4,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { Command } from "@shared/model";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
-import { AppRuntime } from "../../runtime";
+import { coreRunner } from "../../core-runner";
 import { ModelService } from "../model/service";
 import { ensureProvisionedSessionId, type SeatThreadResult } from "./amp-seat-thread";
 
@@ -45,7 +45,7 @@ export const ensureSeatSessionId = async (input: SeatSessionStart): Promise<Seat
   if (!isHarnessId(input.harness) || templateFor(input.harness).capabilityBadges.sessionId !== "pin")
     return ensureProvisionedSessionId(provisioning);
   try {
-    return await AppRuntime.runPromise(pinBeforeStart(input));
+    return await coreRunner.runPromise(pinBeforeStart(input));
   } catch (cause) {
     return { ok: false, reason: cause instanceof Error ? cause.message : String(cause) };
   }

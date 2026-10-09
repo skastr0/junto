@@ -32,9 +32,7 @@ describe("index shutdown wiring", () => {
     expect(kernelCut).toBeGreaterThan(admissionCut);
     for (const teardown of [
       "browserComposition?.drainOnQuit(reason)",
-      "beginStationFleetPropagationShutdown()",
       "workControl?.beginShutdown()",
-      "stationControl?.beginShutdown()",
       "hostOperationsShutdown.beginShutdown()",
       "termPlane.beginShutdown(reason)",
       "appProcessPlane.beginShutdown()",

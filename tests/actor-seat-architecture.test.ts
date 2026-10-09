@@ -21,9 +21,9 @@ describe("actor seat production architecture", () => {
       "src/main/junto/term/actor-seat-occupy-live.ts",
     );
 
-    expect(live).toContain("const station = yield* StationRepository");
+    expect(live).toContain("const installation = yield* StationRepository");
     expect(live).toContain("localHostId: () =>");
-    expect(live).toContain("station.configuration.pipe(");
+    expect(live).toContain("installation.configuration.pipe(");
     expect(live).toContain("termPlane.router.clientForOccupy(hostId)");
     expect(live).not.toContain("router.isLocalHostId");
   });

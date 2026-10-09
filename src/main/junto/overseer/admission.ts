@@ -6,7 +6,7 @@ import type { ActorRef } from "@shared/work-reference";
 import type { WorkErrorBody } from "@shared/work-control";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
-import { deriveActorSeatId } from "../station/actor-seat-compiler";
+import { deriveActorSeatId } from "../actor-seat-id";
 import { StationRepository } from "../station/repository";
 
 /** One canvas as the model holds it, with the actor references compiled for it. */

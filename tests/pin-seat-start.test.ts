@@ -23,7 +23,7 @@ import { ensureManagedSeatRunning } from "../src/main/junto/term/ensure-managed-
 import { termPlane } from "../src/main/junto/term/plane";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
-vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
+vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
 vi.mock("node:crypto", async (original) => {
   const actual = await original<typeof import("node:crypto")>();
   return { ...actual, randomUUID: vi.fn(actual.randomUUID) };

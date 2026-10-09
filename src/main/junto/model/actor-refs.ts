@@ -2,7 +2,7 @@ import { Context, Effect, Layer, PubSub, Schema, Stream } from "effect";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { ActorRef } from "@shared/work-reference";
 import { InstallationId } from "@shared/installation-id";
-import { deriveActorSeatId } from "../station/actor-seat-compiler";
+import { deriveActorSeatId } from "../actor-seat-id";
 import { withSqlRead } from "../state/sql-read";
 import { ModelService } from "./service";
 import { ModelRefused, modelError } from "./records";

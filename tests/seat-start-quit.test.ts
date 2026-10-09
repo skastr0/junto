@@ -18,7 +18,7 @@ import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-proces
 import { seat } from "./support/model-nodes";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
-vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
+vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import { writeSeatSessionId } from "../src/main/junto/term/seat-session-id";
 

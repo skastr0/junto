@@ -64,10 +64,9 @@ import { ModelService } from "../model/service";
 import { SnapshotsService } from "../snapshots";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
-import { deriveActorSeatId } from "../station/actor-seat-compiler";
+import { deriveActorSeatId } from "../actor-seat-id";
 import { StationFleetTargetRepository } from "../station/fleet-target-repository";
 import { StationRepository } from "../station/repository";
-import { StationLivePeerRegistry } from "../station/session-registry";
 import {
   actorsNeedingWake,
   selectFactoryClaims,
@@ -392,7 +391,6 @@ type FleetTargetsShape = Context.Service.Shape<
   typeof StationFleetTargetRepository
 >;
 type StationsShape = Context.Service.Shape<typeof StationRepository>;
-type LivePeersShape = Context.Service.Shape<typeof StationLivePeerRegistry>;
 type WorkShape = Context.Service.Shape<typeof WorkService>;
 type WorkRepositoryShape = Context.Service.Shape<typeof WorkRepository>;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
@@ -616,7 +614,6 @@ const makeKernelService = (
   scheduler: SchedulerShape,
   fleetTargets: FleetTargetsShape,
   stations: StationsShape,
-  livePeers: LivePeersShape,
   work: WorkShape,
   workRepository: WorkRepositoryShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
@@ -927,8 +924,7 @@ const makeKernelService = (
                     fleetTargets.get(hostId),
                     (row) => row?.stationInstallationId,
                   ),
-                isLive: (hostId, installationId) =>
-                  livePeers.isLive(hostId, installationId),
+                isLive: () => Effect.succeed(false),
               },
             );
             if (selectable && generationIsActive(generation)) {
@@ -1425,7 +1421,6 @@ const makeKernelService = (
           else for (const name of worlds.keys()) scheduleResync(name);
         }),
         snapshots.subscribe(() => scheduleCycle()),
-        livePeers.subscribe(() => scheduleCycle()),
         // Play/pause is an authoritative runtime transition. Resume must
         // claim immediately; pause must promptly cause the next cycle to
         // observe the closed gate instead of waiting for the 30s watchdog.
@@ -1624,7 +1619,6 @@ export const KernelLive = Layer.effect(
     const scheduler = yield* SchedulerRepository;
     const fleetTargets = yield* StationFleetTargetRepository;
     const stations = yield* StationRepository;
-    const livePeers = yield* StationLivePeerRegistry;
     const work = yield* WorkService;
     const workRepository = yield* WorkRepository;
     const actorSeatOccupy = yield* ActorSeatOccupy;
@@ -1638,7 +1632,6 @@ export const KernelLive = Layer.effect(
       scheduler,
       fleetTargets,
       stations,
-      livePeers,
       work,
       workRepository,
       actorSeatOccupy,

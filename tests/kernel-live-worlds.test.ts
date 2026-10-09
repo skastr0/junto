@@ -15,7 +15,6 @@ import { SchedulerRepository } from "../src/main/junto/scheduler/repository";
 import { SnapshotsService } from "../src/main/junto/snapshots";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { StationFleetTargetRepository } from "../src/main/junto/station/fleet-target-repository";
-import { StationLivePeerRegistry } from "../src/main/junto/station/session-registry";
 import { StationRepository } from "../src/main/junto/station/repository";
 import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
 import {
@@ -72,10 +71,6 @@ it("holds the model's canvases and follows their work", async () => {
       configuration: Effect.succeed({
         configuration: { hostId: "local", role: "command-center" },
       }),
-    } as never),
-    Layer.succeed(StationLivePeerRegistry, {
-      subscribe: () => () => undefined,
-      isLive: () => Effect.succeed(false),
     } as never),
     Layer.succeed(ActorSeatOccupy, {} as never),
   );

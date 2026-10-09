@@ -20,7 +20,6 @@ import { ModelService } from "./model/service";
 import { ModelActorRefs } from "./model/actor-refs";
 import { ModelNotFound } from "./model/records";
 import { Command, CanvasName, NodeId, asNodeId } from "@shared/model";
-import { BoxActivityPolicy } from "./box";
 
 import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
@@ -41,10 +40,6 @@ import {
 } from "@shared/features";
 import { KernelService } from "./kernel/service";
 import { registerHostsIpc } from "./hosts/ipc";
-import {
-  HOST_OPERATION_ADMISSIONS,
-  hostOperationGate,
-} from "./hosts/shutdown";
 import { PausePlane } from "./pause-plane";
 import { registerSettingsIpc } from "./settings/ipc";
 import { registerReferencesIpc } from "./references/ipc";
@@ -243,15 +238,6 @@ const broadcast = (channel: string, payload: unknown) => {
   }
 };
 
-const ensureBoxHostAvailable = (hostId: string): Promise<void> =>
-  hostOperationGate.run(HOST_OPERATION_ADMISSIONS.boxActivate, () =>
-    AppRuntime.runPromise(
-      Effect.flatMap(BoxActivityPolicy, (policy) =>
-        policy.ensureHostAvailable(hostId),
-      ),
-    ),
-  );
-
 const runMainAuthoring = <A>(
   label: MainAuthoringLabel,
   operation: () => Promise<A>,
@@ -398,7 +384,6 @@ export const registerJuntoIpc = (): void => {
 
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
-    ensureHostAvailable: ensureBoxHostAvailable,
     broadcast,
   });
   registerGitIpc(privilegedIpc);
@@ -2568,8 +2553,5 @@ export const registerJuntoBrowserIpc = (sessions: BrowserSessionService): void =
     () => BrowserWindow.getAllWindows()
       .map((window) => window.webContents)
       .filter(isTrustedMainWebContents),
-    undefined,
-    undefined,
-    ensureBoxHostAvailable,
   );
 };

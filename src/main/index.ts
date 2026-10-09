@@ -27,7 +27,6 @@ import {
 import { overlayManifest } from "@shared/overlay";
 import { PRODUCT_NAME } from "@shared/product-name";
 import { keyboardSettings, type Settings } from "@shared/settings";
-import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
 import {
@@ -41,7 +40,6 @@ import {
 } from "./junto/adapters/exec";
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessPlane } from "./junto/app-process-plane";
-import { beginBoxProcessShutdown } from "./junto/box";
 import { AppRuntime } from "./runtime";
 import { AgentSignalRepository } from "./junto/signals/repository";
 import { raisedHands } from "./junto/signals/raised-hands";
@@ -96,20 +94,6 @@ import {
 } from "./junto/overseer/composition";
 import { composeOverseerLive } from "./junto/overseer/live/composition";
 import { registerOverseerLiveIpc } from "./junto/overseer/live/ipc";
-import {
-  startStationControlServer,
-  stationControlReadiness,
-  type StationControlServer,
-} from "./junto/station/control-server";
-import {
-  startStationRemoteReportPump,
-  type StationRemoteReportPump,
-} from "./junto/station/remote-report-pump";
-import { StationFleetPropagation } from "./junto/station/fleet-propagation";
-import { StationApiService } from "./junto/station/api";
-import { StationRepository } from "./junto/station/repository";
-import { WorkRepository } from "./junto/work/repository";
-import { makeOwnerLocalStationControlHandoffAuthority } from "./junto/station/peer-authority";
 import {
   startCanvasControlServer,
   type CanvasControlServer,
@@ -171,7 +155,6 @@ import {
 } from "@shared/trusted-renderer-origin";
 import { loadStationSupervisor } from "./junto/supervision/select";
 import { SettingsService } from "./junto/settings/service";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import { installUpdateHostHooks } from "./junto/update";
 import { hostOperationsShutdown } from "./junto/hosts/shutdown";
 import { makeOperatorCoordinator } from "./junto/hosts/operator-coordinator";
@@ -410,21 +393,12 @@ let overseerComposition: OverseerComposition | undefined;
 let overseerLive: Awaited<ReturnType<typeof composeOverseerLive>> | undefined;
 let overseerLiveShutdown: Promise<void> | undefined;
 let unregisterOverseerLiveIpc: (() => void) | undefined;
-let stationControl: StationControlServer | undefined;
-let stationRemoteReportPump: StationRemoteReportPump | undefined;
 let canvasControl: CanvasControlServer | undefined;
 let operatorControl: OperatorControlServer | undefined;
 type HermesPlaneService = Context.Service.Shape<typeof HermesPlane>;
 let hermesPlaneService: HermesPlaneService | undefined;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
-type StationFleetPropagationShape = Context.Service.Shape<
-  typeof StationFleetPropagation
->;
 let kernelService: KernelServiceShape | undefined;
-let stationFleetPropagationService:
-  | StationFleetPropagationShape
-  | undefined;
-let stationFleetPropagationShutdown: Promise<void> | undefined;
 let rendererWindowAdmissionReady = false;
 let productRuntimeStarted = false;
 let operatorFleetReady = false;
@@ -432,10 +406,6 @@ let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
 let browserShutdown: Promise<Awaited<ReturnType<BrowserComposition["drainOnQuit"]>>> | undefined;
 let workControlShutdown: Promise<Awaited<ReturnType<WorkControlServer["drainOnQuit"]>>> | undefined;
-let stationControlShutdown:
-  | Promise<Awaited<ReturnType<StationControlServer["close"]>>>
-  | undefined;
-let stationRemoteReportPumpShutdown: Promise<void> | undefined;
 let canvasControlShutdown:
   | Promise<Awaited<ReturnType<CanvasControlServer["close"]>>>
   | undefined;
@@ -480,23 +450,6 @@ let quitConfirmGeneration = 0;
 /** True while a native confirm dialog is open — blocks a second dialog, not signal force. */
 let quitConfirmPending = false;
 
-const beginStationFleetPropagationShutdown = (): void => {
-  const service = stationFleetPropagationService;
-  if (service === undefined) return;
-  // The synchronous cut prevents any continuation from opening another
-  // outbound route. The retained promise owns exact worker/session teardown
-  // and is awaited before the shared Effect runtime is disposed.
-  service.beginShutdown();
-  stationFleetPropagationShutdown ??= AppRuntime.runPromise(
-    service.stop,
-  );
-};
-
-/**
- * The renderer either answers this handshake or it does not. A renderer that
- * cannot answer within this window is unreachable, and waiting longer only
- * trades an honest log line for a wedged app the operator must SIGKILL.
- */
 const CANVAS_FLUSH_TIMEOUT_MS = 10_000;
 /** Bound on awaiting already-admitted main-process authoring during quit. */
 const QUIT_DRAIN_TIMEOUT_MS = 5_000;
@@ -1484,55 +1437,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       explicitHome: process.env.JUNTO_BROWSER_HOME ?? process.env.JUNTO_HOME,
     });
 
-    const stations = await AppRuntime.runPromise(StationRepository);
-    const stationConfiguration = await AppRuntime.runPromise(
-      stations.configuration,
-    );
-    // Durable Station mode is read once, before any door is chosen, and it
-    // outranks the launch shape. Headless never infers a role and never
-    // rewrites one: the persisted configuration is the only authority.
-    //   unenrolled     -> enroll door, then hold
-    //   remote         -> peer door on the admitted product boot
-    //   command-center -> neither door; Command Center boots doorless
-    // One selection feeds both bind sites, so enroll and peer can never both
-    // bind in one process.
-    const stationMode = modeFromConfiguration(
-      stationConfiguration?.configuration.role,
-    );
-    const stationDoor = startupDoor({
-      mode: stationMode,
-      packaged: app.isPackaged,
-      headless,
-    });
-    // Operator-facing logs name the product role, never the raw mode token.
-    const stationModeCopy =
-      stationMode === "command-center"
-        ? "Command Center"
-        : stationMode === "remote"
-          ? "Remote"
-          : "unenrolled";
-
-    const coordinator = makeOperatorCoordinator({
-      fleetReady: () =>
-        operatorFleetReady &&
-        !shutdownAdmissionClosed,
-      readiness: () => ({
-        database: true,
-        workControl: workControlReadiness.ready(),
-        simulation: kernelService !== undefined,
-        session: stationControl?.ready() ?? false,
-      }),
-      sessionReady: () => stationControlReadiness.sessionReady(),
-    });
+    const coordinator = makeOperatorCoordinator();
     // The phone companion reaches the app over this same owner-only socket,
     // relayed by `junto companion-stdio` under a paired phone's forced SSH
     // command. The socket listens when launched in operator control mode, or
     // while a phone is paired (never on a Remote). Opened for a phone alone,
     // it answers the companion ops and refuses every other.
-    const companion =
-      stationMode === "remote"
-        ? undefined
-        : makeCompanionService({
+    const companion = makeCompanionService({
             appVersion: app.getVersion(),
             environment: () =>
               companionE2eEnvironment() ??
@@ -1603,53 +1514,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         .catch(() => {
           console.error("[companion] failed to start");
         });
-    }
-
-    if (headless && stationDoor === undefined) {
-      console.error(
-        `[station-control] headless ${stationModeCopy} boot binds no enroll door and no peer door`,
-      );
-    }
-
-    // Packaged --junto-headless on an Unenrolled install is enrollment
-    // ingress: enroll door only (status, pair, configure). Never the
-    // operational Remote. No report pump or product planes. An already
-    // enrolled install skips this entirely and takes its own mode's door.
-    if (stationDoor === "enroll") {
-      try {
-        stationControl = await startStationControlServer({
-          door: "enroll",
-          home: termControlHome,
-          appVersion: app.getVersion(),
-          stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-          run: (effect) => AppRuntime.runPromise(effect),
-          localHandoffAuthority:
-            makeOwnerLocalStationControlHandoffAuthority(),
-          readiness: () => ({
-            database: true,
-            workControl: false,
-            simulation: false,
-          }),
-        });
-        if (shutdownAdmissionClosed) stationControl.beginShutdown();
-      } catch (error) {
-        console.error(
-          "[station-control] enrollment bootstrap failed:",
-          error,
-        );
-        exitAfterDetach(1, "station-bootstrap-startup-failure");
-      }
-      return;
-    }
-
-    // Retain the scoped supervisor before product IPC can start it, so quit
-    // closes admission and drains its exact workers across async startup.
-    stationFleetPropagationService = await AppRuntime.runPromise(
-      StationFleetPropagation,
-    );
-    if (shutdownAdmissionClosed) {
-      beginStationFleetPropagationShutdown();
-      return;
     }
 
     // UpdateService host hooks: release SQLite before quitAndInstall, and
@@ -1729,7 +1593,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           const image = await window.webContents.capturePage();
           return new Uint8Array(image.toPNG());
         }),
-        registerRemoteHandler: true,
       });
       if (LIVE_OVERSEER_ENABLED) {
         overseerLive = await composeOverseerLive(AppRuntime.runPromise);
@@ -1806,9 +1669,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       exitAfterDetach(1, "canvas-control-startup-failure");
       return;
     }
-    // Kernel starts for every admitted product boot. Station control binds
-    // only on a configured Remote (peer door). Report pump attaches only to
-    // that server. Command Center does not listen enroll or peer.
+    // Every installation starts the same product kernel.
     try {
       kernelService = await AppRuntime.runPromise(KernelService);
       // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry
@@ -1819,55 +1680,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           AppRuntime.runFork(effect as never);
         },
       });
-      if (stationDoor === "peer") {
-        stationControl = await startStationControlServer({
-          door: "peer",
-          home: termControlHome,
-          appVersion: app.getVersion(),
-          stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-          run: (effect) => AppRuntime.runPromise(effect),
-          localHandoffAuthority:
-            makeOwnerLocalStationControlHandoffAuthority(),
-          readiness: () => ({
-            database: true,
-            workControl: workControlReadiness.ready(),
-            simulation: true,
-          }),
-        });
-        const [stationApi, work] = await Promise.all([
-          AppRuntime.runPromise(StationApiService),
-          AppRuntime.runPromise(WorkRepository),
-        ]);
-        stationRemoteReportPump = startStationRemoteReportPump({
-          api: stationApi,
-          stations,
-          work,
-          control: stationControl,
-          runPromise: (effect) => AppRuntime.runPromise(effect as never),
-        });
-        // Same authority route as the displayless Node Remote: overseer
-        // commands from the work control socket forward over this peer
-        // connection using the durable pairing identity. Dispatch still
-        // refuses when the session is down; binding only installs the route.
-        const pairing = await AppRuntime.runPromise(stations.pairing);
-        const remoteInstallationId = await AppRuntime.runPromise(
-          stations.installationId,
-        );
-        if (pairing !== undefined) {
-          overseerComposition.bindStationForward({
-            control: stationControl,
-            remoteInstallationId,
-            commandCenterInstallationId: pairing.commandCenterInstallationId,
-          });
-        }
-        if (shutdownAdmissionClosed) {
-          stationRemoteReportPumpShutdown ??= stationRemoteReportPump.close();
-          stationControl.beginShutdown();
-        }
-      }
     } catch (error) {
-      console.error("[station-control] failed to start:", error);
-      exitAfterDetach(1, "station-control-startup-failure");
+      console.error("[kernel] failed to start:", error);
+      exitAfterDetach(1, "kernel-startup-failure");
       return;
     }
     // Local term control UDS — Remote stations expose this for CC SSH forward.
@@ -2096,8 +1911,6 @@ const beginShutdownAdmission = (reason: string): void => {
   browserShutdown ??= browserComposition?.drainOnQuit(reason);
   hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit();
   adapterShutdown ??= terminateAdapterChildrenOnQuit();
-  beginBoxProcessShutdown();
-  beginStationFleetPropagationShutdown();
 
   // A phone's idle long poll must not hold operator control open over quit.
   companionService()?.changes.close();
@@ -2108,8 +1921,6 @@ const beginShutdownAdmission = (reason: string): void => {
   overseerComposition?.dispose();
   overseerComposition = undefined;
   workControl?.beginShutdown();
-  stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close();
-  stationControl?.beginShutdown();
   hostOperationsShutdown.beginShutdown();
   termPlane.beginShutdown(reason);
   appProcessPlane.beginShutdown();
@@ -2241,56 +2052,6 @@ const requireCleanOperatorControlShutdown = async (): Promise<void> => {
   operatorControl = undefined;
 };
 
-const requireCleanStationControlShutdown = async (): Promise<void> => {
-  if (stationControl === undefined && stationControlShutdown === undefined) {
-    return;
-  }
-  const receipt = await (stationControlShutdown ??= stationControl?.close());
-  if (receipt === undefined) return;
-  if (!receipt.clean) {
-    stationControlShutdown = undefined;
-    throw new Error(
-      `station control shutdown retained ${
-        [
-          receipt.pendingDispatches > 0
-            ? `${receipt.pendingDispatches} dispatch(es)`
-            : "",
-          receipt.openSockets > 0
-            ? `${receipt.openSockets} socket(s)`
-            : "",
-          receipt.listenerRetained ? "listener" : "",
-          receipt.socketPathRetained ? "socket path" : "",
-        ].filter(Boolean).join(", ") || "transport state"
-      }`,
-    );
-  }
-  stationControl = undefined;
-};
-
-const requireCleanStationRemoteReportPumpShutdown = async (): Promise<void> => {
-  if (
-    stationRemoteReportPump === undefined &&
-    stationRemoteReportPumpShutdown === undefined
-  ) {
-    return;
-  }
-  await (stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close());
-  stationRemoteReportPump = undefined;
-};
-
-const requireCleanStationFleetPropagationShutdown =
-  async (): Promise<void> => {
-    if (
-      stationFleetPropagationService === undefined &&
-      stationFleetPropagationShutdown === undefined
-    ) {
-      return;
-    }
-    beginStationFleetPropagationShutdown();
-    await stationFleetPropagationShutdown;
-    stationFleetPropagationService = undefined;
-  };
-
 const requireCleanCanvasControlShutdown = async (): Promise<void> => {
   if (canvasControl === undefined && canvasControlShutdown === undefined) {
     return;
@@ -2395,12 +2156,6 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   lap("dispose: terminal plane");
   await requireCleanCanvasControlShutdown();
   lap("dispose: canvas control");
-  await requireCleanStationRemoteReportPumpShutdown();
-  lap("dispose: station report pump");
-  await requireCleanStationFleetPropagationShutdown();
-  lap("dispose: station fleet propagation");
-  await requireCleanStationControlShutdown();
-  lap("dispose: station control");
   await requireCleanWorkControlShutdown();
   lap("dispose: work control");
   await requireCleanHostOperationsShutdown();

@@ -8,7 +8,7 @@ import { runOnSeatStartTurn } from "./seat-start-turn";
 import type { Node } from "@shared/model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorRef } from "@shared/work-protocol";
-import { deriveActorSeatId } from "../station/actor-seat-compiler";
+import { deriveActorSeatId } from "../actor-seat-id";
 import { ensureSeatSessionId } from "./seat-session-before-start";
 import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
@@ -187,11 +187,13 @@ export const ensureManagedSeatRunning = (
     // The locality proof above already established this exact managed surface.
     if (node.kind !== "agent") return false;
     const surface = { ...node, hostId: node.host };
+    const context = yield* Effect.context<never>();
+    const run = Effect.runPromiseWith(context);
 
     const occupy = (spec: ActorOccupySpec): Effect.Effect<boolean> =>
       Effect.promise(() =>
         runOnSeatStartTurn(() =>
-          Effect.runPromise(
+          run(
             actorSeatOccupy.occupy(spec).pipe(
               Effect.match({
                 onFailure: (error) => {

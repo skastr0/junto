@@ -15,7 +15,6 @@ import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { StationRepository, StationRepositoryLive } from "../src/main/junto/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { WorkLive } from "../src/main/junto/work/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
@@ -44,7 +43,7 @@ const layers = (root: string) => {
     makeInstallOpsLive(join(root, "install-ops.db")),
   ));
   return Layer.provideMerge(WorkLive, Layer.mergeAll(
-    Layer.provideMerge(ModelStoresLive, repositories), StationLivePeerRegistryLive,
+    Layer.provideMerge(ModelStoresLive, repositories),
   ));
 };
 const makeRuntime = (root: string) => ManagedRuntime.make(layers(root));
@@ -72,7 +71,7 @@ const boot = async () => {
   };
   const adapters: OverseerRuntime = {
     native: vi.fn(() => Effect.succeed({ observed: true })),
-    forward: vi.fn<OverseerRuntime["forward"]>((_caller, request) => Effect.succeed({ ok: true, operation: request.operation, data: { forwarded: true } })),
+
   };
   return { toggle, adapters };
 };
@@ -91,7 +90,7 @@ describe("integrated overseer dispatcher", () => {
     expect(await run({ operation: "node.delete", args: { nodeIds: ["boss"] } })).toMatchObject({ ok: false, error: { type: "Forbidden" } });
     expect(await run({ operation: "canvas.screenshot" })).toEqual({ ok: true, operation: "canvas.screenshot", data: { observed: true } });
     expect(adapters.native).toHaveBeenCalledTimes(1);
-    expect(adapters.forward).not.toHaveBeenCalled();
+
     const wrongSource = Schema.decodeUnknownSync(InstallationId)("different-installation");
     expect(await runtime.runPromise(executeOverseer(caller, { operation: "canvas.list" }, adapters, wrongSource)))
       .toMatchObject({ ok: false, error: { type: "Forbidden" } });
@@ -114,27 +113,6 @@ describe("integrated overseer dispatcher", () => {
     expect(await run({ operation: "wire.disconnect", args: { canvas: "wired", wireId: "w1" } })).toMatchObject({ ok: true, operation: "wire.disconnect" });
     expect((await runtime.runPromise(readSeeded("wired"))).wires.size).toBe(0);
     expect(adapters.native).not.toHaveBeenCalled();
-  });
-
-  it("forwards Remote authoring but keeps browser and content resources on the caller installation", async () => {
-    const { toggle, adapters } = await boot();
-    await toggle(true);
-    const stations = await runtime.runPromise(StationRepository);
-    const configuration = Schema.decodeUnknownSync(RemoteConfiguration)({
-      role: "remote", hostId: "local", agentHostId: "local", commandCenterInstallationId: "cc", supervisedPreferred: false,
-    });
-    const run = (request: Parameters<typeof executeOverseer>[1]) => runtime.runPromise(
-      executeOverseer(caller, request, adapters).pipe(Effect.provideService(StationRepository, {
-        ...stations, configuration: Effect.succeed({ configuration, configuredAt: "2026-09-11T00:00:00Z" }),
-      })),
-    );
-    expect(await run({ operation: "canvas.create", args: { canvas: "forwarded" } }))
-      .toMatchObject({ ok: true, data: { forwarded: true } });
-    expect(await run({ operation: "page.list" })).toMatchObject({ ok: true, data: { observed: true } });
-    expect(await run({ operation: "content.ingest", args: { bytesBase64: "aGk=", mediaType: "text/plain" } }))
-      .toMatchObject({ ok: true, operation: "content.ingest" });
-    expect(adapters.forward).toHaveBeenCalledTimes(1);
-    expect(adapters.native).toHaveBeenCalledTimes(1);
   });
 
   it("keeps secrets on the caller installation and never answers with the value", async () => {
@@ -190,7 +168,7 @@ describe("integrated overseer dispatcher", () => {
           ...stations, configuration: Effect.succeed({ configuration, configuredAt: "2026-09-11T00:00:00Z" }),
         })),
     )).toMatchObject({ ok: true, data: { secretId: "6c1a7e1f-3d2b-4c8f-8e4a-9b2d3f5a7b81" } });
-    expect(adapters.forward).not.toHaveBeenCalled();
+
     expect(adapters.native).not.toHaveBeenCalled();
   });
 

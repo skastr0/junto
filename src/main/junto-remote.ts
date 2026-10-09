@@ -40,24 +40,11 @@ import {
   type OverseerComposition,
 } from "./junto/overseer/composition";
 import {
-  startStationControlServer,
-  type StationControlServer,
-} from "./junto/station/control-server";
-import {
-  startStationRemoteReportPump,
-  type StationRemoteReportPump,
-} from "./junto/station/remote-report-pump";
-import { makeOwnerLocalStationControlHandoffAuthority } from "./junto/station/peer-authority";
-import { StationApiService } from "./junto/station/api";
-import { StationRepository } from "./junto/station/repository";
-import { WorkRepository } from "./junto/work/repository";
-import {
   KernelService,
   type KernelHost,
 } from "./junto/kernel/service";
 import { HermesPlane } from "./junto/hermes/plane";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
-import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { termPlane } from "./junto/term/plane";
 import { seatStateRuntime } from "./junto/term/agent-state";
 import { terminalObserverPlane } from "./junto/term/observer";
@@ -121,9 +108,7 @@ const runInstallUserService = (): void => {
 type Handles = {
   workControl?: WorkControlServer;
   overseer?: OverseerComposition;
-  stationControl?: StationControlServer;
   drive?: { readonly dispose: () => void; readonly suspend: () => void };
-  stationRemoteReportPump?: StationRemoteReportPump;
   hermes?: {
     readonly shutdown: { readonly drainOnQuit: () => Promise<unknown> };
   };
@@ -176,8 +161,6 @@ const runProductBoot = async (): Promise<void> => {
     }
     handles.overseer?.dispose();
     handles.workControl?.beginShutdown();
-    void handles.stationRemoteReportPump?.close();
-    handles.stationControl?.beginShutdown();
     termPlane.beginShutdown(reason);
     void handles.hermes?.shutdown.drainOnQuit();
   };
@@ -251,55 +234,6 @@ const runProductBoot = async (): Promise<void> => {
     explicitHome: process.env.JUNTO_HOME,
   });
 
-  const stations = await RemoteRuntime.runPromise(StationRepository);
-  const stationConfiguration = await RemoteRuntime.runPromise(
-    stations.configuration,
-  );
-  const packaged = isRemotePackaged(resolveBinaryPath());
-  // Same rule as the Electron main: the persisted mode picks the door, one
-  // selection feeds both bind sites, and the Node remote is always headless.
-  const stationMode = modeFromConfiguration(
-    stationConfiguration?.configuration.role,
-  );
-  const stationDoor = startupDoor({
-    mode: stationMode,
-    packaged,
-    headless: true,
-  });
-  if (stationDoor === undefined) {
-    console.error(
-      `[station-control] headless ${stationMode} boot binds no enroll door and no peer door`,
-    );
-  }
-
-  // Packaged Unenrolled ingress: enroll door only, then hold. No report
-  // pump or product planes. Never also bind the peer door.
-  if (stationDoor === "enroll") {
-    try {
-      handles.stationControl = await startStationControlServer({
-        door: "enroll",
-        home: controlHome,
-        appVersion: remoteAppVersion(),
-        stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-        run: (effect) => RemoteRuntime.runPromise(effect),
-        localHandoffAuthority: makeOwnerLocalStationControlHandoffAuthority(),
-        readiness: () => ({
-          database: true,
-          workControl: false,
-          simulation: false,
-        }),
-      });
-      console.error(
-        "[station-control] enrollment bootstrap listening; restart after configure",
-      );
-      return;
-    } catch (error) {
-      console.error("[station-control] enrollment bootstrap failed:", error);
-      await drainAndExit(1, "station-bootstrap-startup-failure");
-      return;
-    }
-  }
-
   try {
     handles.overseer = await composeOverseer({
       run: RemoteRuntime.runPromise,
@@ -334,44 +268,9 @@ const runProductBoot = async (): Promise<void> => {
         RemoteRuntime.runFork(effect as never);
       },
     });
-    if (stationDoor === "peer") {
-      handles.stationControl = await startStationControlServer({
-        door: "peer",
-        home: controlHome,
-        appVersion: remoteAppVersion(),
-        stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-        run: (effect) => RemoteRuntime.runPromise(effect),
-        localHandoffAuthority: makeOwnerLocalStationControlHandoffAuthority(),
-        readiness: () => ({
-          database: true,
-          workControl: true,
-          simulation: true,
-        }),
-      });
-      const [stationApi, work] = await Promise.all([
-        RemoteRuntime.runPromise(StationApiService),
-        RemoteRuntime.runPromise(WorkRepository),
-      ]);
-      handles.stationRemoteReportPump = startStationRemoteReportPump({
-        api: stationApi,
-        stations,
-        work,
-        control: handles.stationControl,
-        runPromise: (effect) => RemoteRuntime.runPromise(effect as never),
-      });
-      const pairing = await RemoteRuntime.runPromise(stations.pairing);
-      const remoteInstallationId = await RemoteRuntime.runPromise(stations.installationId);
-      if (pairing !== undefined && handles.overseer !== undefined) {
-        handles.overseer.bindStationForward({
-          control: handles.stationControl,
-          remoteInstallationId,
-          commandCenterInstallationId: pairing.commandCenterInstallationId,
-        });
-      }
-    }
   } catch (error) {
-    console.error("[station-control] failed to start:", error);
-    await drainAndExit(1, "station-control-startup-failure");
+    console.error("[kernel] failed to start:", error);
+    await drainAndExit(1, "kernel-startup-failure");
     return;
   }
 
@@ -500,11 +399,7 @@ const runProductBoot = async (): Promise<void> => {
     return;
   }
 
-  console.error(
-    `[junto-remote] running v${remoteAppVersion()} role=${
-      stationConfiguration?.configuration.role ?? "unconfigured"
-    }`,
-  );
+  console.error(`[Junto] running v${remoteAppVersion()}`);
 };
 
 // ---------------------------------------------------------------------------

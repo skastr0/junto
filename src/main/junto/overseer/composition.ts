@@ -43,11 +43,6 @@ import {
   type SchedulerConfigureApplyInput,
 } from "./native";
 import { managedTerminalDriveForOverseer } from "../term/managed-drive-holder";
-import {
-  makeRemoteStationOverseerDispatcher,
-  registerStationRemoteOverseerHandler,
-} from "../station/overseer-transport";
-import type { StationControlServer } from "../station/control-server";
 import type { ManagedTerminalDrive } from "../term/drive";
 import type { ContentService } from "../content/service";
 import { modelCanvases, type OverseerStores } from "./portfolio";
@@ -76,11 +71,6 @@ export type OverseerComposition = {
     live?: OverseerLiveExecutionConstraint,
   ) => Promise<OverseerResult>;
   readonly bindPages: (pages: BrowserSessionService | undefined) => void;
-  readonly bindStationForward: (input: {
-    readonly control: Pick<StationControlServer, "overseer" | "sessionReady">;
-    readonly remoteInstallationId: InstallationId;
-    readonly commandCenterInstallationId: InstallationId;
-  }) => void;
   readonly dispose: () => void;
 };
 
@@ -229,7 +219,6 @@ export const composeOverseer = async (input: {
   readonly run: OverseerRunPromise;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
   readonly pages?: BrowserSessionService;
-  readonly registerRemoteHandler?: boolean;
   readonly sourceInstallationId?: InstallationId;
 }): Promise<OverseerComposition> => {
   const chats = await input.run(Effect.gen(function* () {
@@ -254,7 +243,6 @@ export const composeOverseer = async (input: {
   const pagesHolder: { current: BrowserSessionService | undefined } = {
     current: input.pages,
   };
-  let stationForward: OverseerRuntime["forward"] | undefined;
   const liveGrant = createDispatchGrant(input.run, input.sourceInstallationId);
 
   const commitReseatHook = async (
@@ -307,39 +295,8 @@ export const composeOverseer = async (input: {
     finishOverseerNodeDelete: native.finishOverseerNodeDelete,
   });
 
-  const bindStationForward = (forwardInput: {
-    readonly control: Pick<StationControlServer, "overseer" | "sessionReady">;
-    readonly remoteInstallationId: InstallationId;
-    readonly commandCenterInstallationId: InstallationId;
-  }): void => {
-    const dispatcher = makeRemoteStationOverseerDispatcher(forwardInput);
-    stationForward = (caller, request) =>
-      Effect.tryPromise({
-        try: () => dispatcher.dispatch(request, caller),
-        catch: (error): WorkErrorBody => {
-          const body = asWorkError(error);
-          if (body.message.includes("uncertain")) {
-            return {
-              type: "InternalError",
-              message: body.message,
-              details: { retryable: false },
-            };
-          }
-          return unavailable(body.message);
-        },
-      });
-  };
-
   const runtime: OverseerRuntime = {
     native: (caller, request) => native.execute(caller, request),
-    forward: (caller, request) =>
-      stationForward !== undefined
-        ? stationForward(caller, request)
-        : Effect.fail(
-            unavailable(
-              "Remote overseer forwarding requires an active Command Center Station session",
-            ),
-          ),
   };
 
   let accepting = true;
@@ -408,7 +365,6 @@ export const composeOverseer = async (input: {
               },
               stationScope: () => scope,
             }).execute(nativeCaller, nativeRequest),
-          forward: runtime.forward,
         }, sourceInstallationId).pipe((effect) => live === undefined ? effect :
           Effect.provideService(effect, OverseerLiveExecution, live)),
         live?.signal === undefined ? signal : AbortSignal.any([signal, live.signal]),
@@ -440,31 +396,6 @@ export const composeOverseer = async (input: {
   ): Promise<OverseerResult> =>
     executeInAuthoringGate(request, caller, undefined, signal, live);
 
-  let disposeRemote = (): void => undefined;
-  if (input.registerRemoteHandler) {
-    disposeRemote = registerStationRemoteOverseerHandler((request, source) =>
-      awaitAuthoringGatePromise((signal) =>
-        executeInAuthoringGate(
-          request,
-          source.caller,
-          source.installationId,
-          signal,
-        ),
-      ).pipe(
-        Effect.catch((error) =>
-          Effect.succeed({
-            ok: false as const,
-            operation: request.operation,
-            error: {
-              type: "InternalError" as const,
-              message: asWorkError(error).message,
-            },
-          } satisfies OverseerResult),
-        ),
-      ),
-    );
-  }
-
   return {
     runtime,
     native,
@@ -472,11 +403,9 @@ export const composeOverseer = async (input: {
     bindPages: (next) => {
       pagesHolder.current = next;
     },
-    bindStationForward,
     dispose: () => {
       accepting = false;
       setOverseerNativeDeleteHooks(undefined);
-      disposeRemote();
     },
   };
 };
