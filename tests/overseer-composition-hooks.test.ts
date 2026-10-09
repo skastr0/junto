@@ -19,10 +19,11 @@ import {
 } from "./support/seed-canvas";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { StationRepository, StationRepositoryLive } from "../src/main/junto/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { MachineRepository, MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { THIS_MACHINE } from "./support/machines";
+import { nameThisMachine } from "./support/name-this-machine";
 import { WorkLive } from "../src/main/junto/work/service";
-import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { commitAgentReseat } from "../src/main/junto/overseer/canvas";
@@ -62,8 +63,7 @@ describe("overseer composition canvas hook with live grant", () => {
       Layer.mergeAll(
         WorkRepositoryLive,
         CrewRepositoryLive,
-        StationRepositoryLive,
-        StationFleetTargetRepositoryLive,
+        MachineRepositoryLive,
         SettingsLive,
         makeContentServiceLive({
           root: contentRoot,
@@ -96,15 +96,12 @@ describe("overseer composition canvas hook with live grant", () => {
   it("commits reseat with origin caller and live canvasOverseerSet grant", async () => {
     stateDir = await mkdtemp(join(tmpdir(), "junto-overseer-hook-state-"));
     runtime = makeRuntime(join(stateDir, "junto.db"));
-    const settings = await runtime.runPromise(SettingsService);
-    await runtime.runPromise(settings.setStationTopology({
-      role: "command-center", hostId: "local", supervisedPreferred: false,
-    }));
+    await runtime.runPromise(nameThisMachine);
     await runtime.runPromise(seedCanvas("ops", [amp("overseer", "bind-overseer")]));
     await runtime.runPromise(seedCanvas(targetCanvas, [amp("peer", "bind-peer")]));
     await runtime.runPromise(grantOverseer(origin.canvasName, origin.nodeId, true));
 
-    const run = <A, E>(effect: Effect.Effect<A, E, ModelService | ModelActorRefs | StationRepository>) =>
+    const run = <A, E>(effect: Effect.Effect<A, E, ModelService | ModelActorRefs | MachineRepository>) =>
       runtime!.runPromise(effect.pipe(Effect.delay("5 millis")) as never) as Promise<A>;
     const localGrant = createDispatchGrant(run, undefined);
     const wrongSourceGrant = createDispatchGrant(run, Schema.decodeUnknownSync(InstallationId)("wrong-installation"));
@@ -112,7 +109,7 @@ describe("overseer composition canvas hook with live grant", () => {
       .toEqual([true, false]);
 
     // The launch is main's: worked out from named choices, never sent by the agent.
-    const parts = seatParts({ harness: "claude", host: "local", model: "opus" });
+    const parts = seatParts({ harness: "claude", host: THIS_MACHINE, model: "opus" });
     const result = await runtime.runPromise(
       Effect.result(commitAgentReseat(origin, { canvas: targetCanvas, nodeId: targetAgent }, parts)),
     );

@@ -19,15 +19,14 @@ import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { StationRepository, StationRepositoryLive } from "../src/main/junto/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { nameThisMachine } from "./support/name-this-machine";
+import { SettingsLive } from "../src/main/junto/settings/service";
 import { WorkLive } from "../src/main/junto/work/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { executeOverseer, type OverseerRuntime } from "../src/main/junto/overseer/dispatch";
 import { onReferencesChanged } from "../src/main/junto/references/changes";
 import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
-import { RemoteConfiguration } from "../src/shared/station-api";
 import {
   OVERSEER_CATALOG,
   OverseerReferencesWriteInput,
@@ -39,7 +38,7 @@ import { region as regionNode, seat } from "./support/model-nodes";
 const caller = { canvasName: "origin", nodeId: "boss" };
 const layers = (root: string, withStore: boolean) => {
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    CrewRepositoryLive, WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
+    CrewRepositoryLive, WorkRepositoryLive, MachineRepositoryLive,
     ...(withStore ? [ReferencesRepositoryLive] : []),
     SettingsLive, makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(
@@ -67,10 +66,7 @@ const region = (id: string, label: string) => regionNode(id, { x: -500, y: -500,
 const boot = async (options: { readonly withStore?: boolean; readonly grant?: boolean } = {}) => {
   root = await mkdtemp(join(tmpdir(), "overseer-references-"));
   runtime = makeRuntime(root, options.withStore ?? true);
-  const settings = await runtime.runPromise(SettingsService);
-  await runtime.runPromise(settings.setStationTopology({
-    role: "command-center", hostId: "local", supervisedPreferred: false,
-  }));
+  await runtime.runPromise(nameThisMachine);
   await runtime.runPromise(seedCanvas("origin", [
     region("region-cli", "CLI"),
     seat("boss", { label: "Boss", x: 17, y: -31, width: 240, height: 120 }),
