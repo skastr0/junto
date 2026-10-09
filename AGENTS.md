@@ -25,15 +25,10 @@ Every public, user-facing, and runtime string uses the name **Junto**.
 
 ## Security doctrine — read first
 
-[`docs/security-doctrine.md`](docs/security-doctrine.md) is the governing
-product trust model. It defines Junto as a single-operator app, attached
-agents as trusted but fallible, and edges as enforceable operator intent
-inside Junto. If a review, backlog item, test, or older architecture note
-conflicts with it, the conflict is migration work. Newly emitted traffic has
-no legacy codec or namespace.
-
-[`docs/machines.md`](docs/machines.md) is the contract for one canvas across
-machines. The summary is under [Machines](#machines).
+[`docs/security-doctrine.md`](docs/security-doctrine.md) governs Junto trust
+boundaries. Read it alongside [`docs/machines.md`](docs/machines.md), the
+build contract for one canvas across machines; its summary is under
+[Machines](#machines).
 
 **Normative direction:** the app is its model: typed rows changed by
 commands, followed by events. Capability-bound tools are the agent API. **Sole
