@@ -1,9 +1,4 @@
 import { state$ } from "./state";
-import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
-import type {
-  StationProtocolObservation,
-  StationRemoteObservation,
-} from "@shared/station-status";
 import { FLEET_UI_ENABLED } from "@shared/features";
 import { isCommandCenterFleetUi } from "./canvas-boot";
 
@@ -12,9 +7,6 @@ export interface FleetProbeState {
   readonly status: "probing" | "reachable" | "unreachable";
   readonly latencyMs?: number;
   readonly detail?: string;
-  readonly protocol?: StationProtocolObservation;
-  readonly linuxCapabilities?: LinuxHostCapabilityObservation;
-  readonly observation?: StationRemoteObservation;
 }
 
 /** Warm the lazy Fleet chunk before the operator clicks. */
@@ -97,28 +89,10 @@ export const probeHost = async (id: string): Promise<void> => {
               ? {}
               : { latencyMs: result.latencyMs }),
             detail: result.detail,
-            ...(result.protocol === undefined
-              ? {}
-              : { protocol: result.protocol }),
-            ...(result.linuxCapabilities === undefined
-              ? {}
-              : { linuxCapabilities: result.linuxCapabilities }),
-            ...(result.observation === undefined
-              ? {}
-              : { observation: result.observation }),
           }
         : {
             status: "unreachable",
             detail: result.detail ?? result.message ?? "probe failed",
-            ...(result.protocol === undefined
-              ? {}
-              : { protocol: result.protocol }),
-            ...(result.linuxCapabilities === undefined
-              ? {}
-              : { linuxCapabilities: result.linuxCapabilities }),
-            ...(result.observation === undefined
-              ? {}
-              : { observation: result.observation }),
           },
     );
   } catch (error) {

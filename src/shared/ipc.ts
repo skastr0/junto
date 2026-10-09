@@ -111,7 +111,6 @@ import type {
 } from "./agent-profiles";
 import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notifications";
 import type { OverseerLiveApi } from "./overseer-live";
-import type { HostDeployJobSnapshot } from "./deploy-job";
 import type {
   ObservabilityLogEntry,
   ObservabilityQuery,
@@ -310,27 +309,6 @@ export const IPC_CHANNELS = {
   hostsUpsert: "junto:hosts-upsert",
   hostsRemove: "junto:hosts-remove",
   hostsTest: "junto:hosts-test",
-  /** Command Center: stamp Remote station fields on a registered host over SSH. */
-  hostsConfigureRemote: "junto:hosts-configure-remote",
-  /** Command Center: install/update .app + start Remote station over SSH. */
-  hostsDeployRemote: "junto:hosts-deploy-remote",
-  /** Live / last deploy job for a host (main-owned; survives panel unmount). */
-  hostsDeployJobGet: "junto:hosts-deploy-job-get",
-  hostsDeployJobsList: "junto:hosts-deploy-jobs-list",
-  /** Main → renderer: deploy job snapshot changed. */
-  hostsDeployJobChanged: "junto:hosts-deploy-job-changed",
-  /** Effective Remote deploy capability (RELEASE ∩ operator ∩ role). */
-  hostsDeployCapabilities: "junto:hosts-deploy-capabilities",
-  // Optional, user-owned Box CLI provider. Junto never imports account inventory.
-  boxAvailability: "junto:box-availability",
-  boxListOwned: "junto:box-list-owned",
-  boxCreate: "junto:box-create",
-  boxRefresh: "junto:box-refresh",
-  boxPrepareSsh: "junto:box-prepare-ssh",
-  boxStop: "junto:box-stop",
-  boxResume: "junto:box-resume",
-  /** Drop Junto ownership + fleet host; does not destroy the provider Box. */
-  boxDetach: "junto:box-detach",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "junto:renderer-surface-challenge",
@@ -1214,32 +1192,6 @@ export interface JuntoHostsApi {
   readonly hostsUpsert: (host: unknown) => Promise<HostsOpResult>;
   readonly hostsRemove: (id: string) => Promise<HostsOpResult>;
   readonly hostsTest: (id: string) => Promise<HostsTestResult>;
-  /** Install / configure Junto Remote station settings on a registered remote host. */
-  readonly hostsConfigureRemote: (id: string) => Promise<HostsConfigureRemoteResult>;
-  /** Install/update Junto.app on remote + start station (term control ready). */
-  readonly hostsDeployRemote: (
-    input: HostsDeployRemoteInput,
-  ) => Promise<HostsDeployRemoteResult>;
-  /** Live / last main-owned deploy job for a host (survives panel unmount). */
-  readonly hostsDeployJobGet: (
-    hostId: string,
-  ) => Promise<HostDeployJobSnapshot | null>;
-  readonly hostsDeployJobsList: () => Promise<ReadonlyArray<HostDeployJobSnapshot>>;
-  /** Subscribe to main-process deploy job updates. */
-  readonly onHostsDeployJobChanged: (
-    listener: (job: HostDeployJobSnapshot) => void,
-  ) => () => void;
-  /** SoT for Remote deployment capability gates. */
-  readonly hostsDeployCapabilities: () => Promise<HostsDeployCapabilitiesResult>;
-  readonly boxAvailability: () => Promise<BoxAvailabilityResult>;
-  readonly boxListOwned: () => Promise<BoxFleetResult>;
-  readonly boxCreate: () => Promise<BoxFleetResult>;
-  readonly boxRefresh: (boxId: string) => Promise<BoxFleetResult>;
-  readonly boxPrepareSsh: (boxId: string) => Promise<BoxFleetResult>;
-  readonly boxStop: (boxId: string) => Promise<BoxFleetResult>;
-  readonly boxResume: (boxId: string) => Promise<BoxFleetResult>;
-  /** Remove from Junto ownership + fleet only; Box account machine remains. */
-  readonly boxDetach: (boxId: string) => Promise<BoxFleetResult>;
 }
 
 /** Optional provider-usage product surface. Omitted from preload when disabled. */
@@ -1263,42 +1215,6 @@ export interface HostsOpResult {
       readonly glyph?: string;
     };
   }>;
-  readonly code?: string;
-  readonly message?: string;
-}
-
-export interface BoxAvailabilityResult {
-  readonly ok: boolean;
-  readonly available: boolean;
-  readonly authenticated: boolean;
-  readonly healthy: boolean;
-  readonly executable?: string;
-  readonly version?: string;
-  readonly account?: string;
-  readonly detail: string;
-  readonly message?: string;
-}
-
-export interface BoxFleetResource {
-  readonly boxId: string;
-  readonly hostId?: string;
-  readonly name: string;
-  readonly ip: string | null;
-  readonly state: string;
-  readonly createdAt: string | null;
-  readonly updatedAt: string | null;
-  readonly enrolledAt: string;
-  readonly sshPreparedAt?: string;
-  readonly sshVerifiedAt?: string;
-}
-
-export interface BoxFleetResult {
-  readonly ok: boolean;
-  readonly boxes?: ReadonlyArray<BoxFleetResource>;
-  readonly box?: BoxFleetResource;
-  /** Provider identity retained when a post-create local stage fails. */
-  readonly recoveryBoxId?: string;
-  readonly provisioningStage?: string;
   readonly code?: string;
   readonly message?: string;
 }
@@ -1345,76 +1261,9 @@ export interface HostsTestResult {
   /** Raw SSH link truth — `ok` is the strict all-checks verdict; this is
    * whether the host answered at all (remote probes only). */
   readonly reachability?: "reachable" | "unreachable" | "unknown";
-  /** Process-local Station wire compatibility; never persisted in the status document. */
-  readonly protocol?: import("./station-status").StationProtocolObservation;
-  /**
-   * Linux host-capability Doctor observation from the closed SSH probe.
-   * Present only when the remote probe returned a closed capability record.
-   */
-  readonly linuxCapabilities?: import("./linux-host-capabilities").LinuxHostCapabilityObservation;
-  /** Complete bounded Station observation used by Fleet detail and Doctor. */
-  readonly observation?: import("./station-status").StationRemoteObservation;
   readonly code?: string;
   readonly message?: string;
 }
-
-/** Result of hostsConfigureRemote — ok/detail/error for doctor + Hosts UI. */
-export interface HostsConfigureRemoteResult {
-  readonly ok: boolean;
-  readonly detail: string;
-  readonly code?: string;
-  readonly message?: string;
-  readonly station?: {
-    readonly role: string;
-    readonly hostId: string;
-    readonly agentHostId?: string;
-    readonly supervisedPreferred: boolean;
-  };
-  /** Configure continues into the activate lifecycle; same recovery contract as Deploy. */
-  readonly recoveryAction?: HostsDeployRemoteRecoveryAction;
-}
-
-/** Fixed operator recovery for a deployment refusal; never carries a command or path. */
-export type HostsDeployRemoteRecoveryAction =
-  {
-    readonly kind: "close-active-junto-terminals";
-    readonly activeTerminalSessions: number;
-  };
-
-export interface HostsDeployRemoteInput {
-  readonly id: string;
-}
-
-/** Effective Remote deploy gates — see shared/deploy-capabilities.ts. */
-export type HostsDeployCapabilitiesResult =
-  | import("./deploy-capabilities").HostsDeployCapabilities
-  | {
-      readonly ok: false;
-      readonly code?: string;
-      readonly message?: string;
-    };
-
-
-/** Result of hostsDeployRemote — Remote station install/update and readiness probe. */
-export interface HostsDeployRemoteResult {
-  readonly ok: boolean;
-  readonly detail: string;
-  readonly code?: string;
-  readonly message?: string;
-  readonly stages?: readonly string[];
-  readonly outcome?: "ready" | "failed" | "indeterminate";
-  readonly packageState?: "present" | "previous" | "unknown";
-  readonly role?: "remote" | "previous" | "unknown";
-  readonly version?: string;
-  readonly lastSeen?: string;
-  readonly statusRecorded?: boolean;
-  readonly recoveryAction?: HostsDeployRemoteRecoveryAction;
-}
-
-export type {
-  HostDeployJobSnapshot,
-  HostDeployJobStatus,
-} from "./deploy-job";
 
 // The attached-chat surface is declared separately and merged into the
 // preload bridge alongside JuntoApi.

@@ -945,34 +945,6 @@ const hostsApi: JuntoHostsApi = {
   hostsUpsert: (host: unknown) => invoke(IPC_CHANNELS.hostsUpsert, IPC_TIMEOUT_MS, host),
   hostsRemove: (id: string) => invoke(IPC_CHANNELS.hostsRemove, IPC_TIMEOUT_MS, id),
   hostsTest: (id: string) => invoke(IPC_CHANNELS.hostsTest, IPC_TIMEOUT_MS, id),
-  hostsConfigureRemote: (id: string) =>
-    invoke(IPC_CHANNELS.hostsConfigureRemote, IPC_TIMEOUT_MS, id),
-  hostsDeployRemote: (input) =>
-    invoke(IPC_CHANNELS.hostsDeployRemote, 1_200_000, input),
-  hostsDeployJobGet: (hostId: string) =>
-    invoke(IPC_CHANNELS.hostsDeployJobGet, IPC_TIMEOUT_MS, hostId),
-  hostsDeployJobsList: () =>
-    invoke(IPC_CHANNELS.hostsDeployJobsList, IPC_TIMEOUT_MS),
-  onHostsDeployJobChanged: (listener) =>
-    subscribe(IPC_CHANNELS.hostsDeployJobChanged, listener),
-  hostsDeployCapabilities: () =>
-    invoke(IPC_CHANNELS.hostsDeployCapabilities, IPC_TIMEOUT_MS),
-  boxAvailability: () =>
-    invoke(IPC_CHANNELS.boxAvailability, IPC_TIMEOUT_MS),
-  boxListOwned: () =>
-    invoke(IPC_CHANNELS.boxListOwned, IPC_TIMEOUT_MS),
-  boxCreate: () =>
-    invoke(IPC_CHANNELS.boxCreate, 120_000),
-  boxRefresh: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxRefresh, IPC_TIMEOUT_MS, boxId),
-  boxPrepareSsh: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxPrepareSsh, 180_000, boxId),
-  boxStop: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxStop, 180_000, boxId),
-  boxResume: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxResume, 180_000, boxId),
-  boxDetach: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxDetach, IPC_TIMEOUT_MS, boxId),
 };
 
 // A preload is attached before Chromium has committed a document. Do not hand

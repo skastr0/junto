@@ -126,22 +126,10 @@ const probePipClass = (probe?: FleetProbeState): string => {
 };
 
 const probePipTitle = (probe?: FleetProbeState): string => {
-  const protocol = probe?.status === "reachable"
-    ? probe.protocol
-    : undefined;
-  if (protocol?.compatibility === "update-required") {
-    return "On the network — update required";
-  }
-  if (protocol?.compatibility === "deprecated") {
-    return `On the network — this Junto build is old`;
-  }
   switch (probe?.status) {
     case "probing":
       return "probing link";
     case "reachable":
-      if (probe.observation?.station === undefined) {
-        return "On the network — Junto is not answering";
-      }
       return probe.latencyMs !== undefined
         ? `On the network — ${probe.latencyMs} ms`
         : "On the network";
@@ -155,22 +143,10 @@ const probePipTitle = (probe?: FleetProbeState): string => {
 };
 
 const probeLabel = (probe?: FleetProbeState): string => {
-  const protocol = probe?.status === "reachable"
-    ? probe.protocol
-    : undefined;
-  if (protocol?.compatibility === "update-required") {
-    return "update required";
-  }
-  if (protocol?.compatibility === "deprecated") {
-    return `protocol ${protocol.negotiatedProtocol} deprecated`;
-  }
   switch (probe?.status) {
     case "probing":
       return "checking route";
     case "reachable":
-      if (probe.observation?.station === undefined) {
-        return "On the network — not answering";
-      }
       return probe.latencyMs === undefined
         ? "On the network"
         : `On the network — ${probe.latencyMs} ms`;

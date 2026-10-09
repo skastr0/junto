@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { CloudCog, Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
-import type { HostsDeployCapabilities } from "@shared/deploy-capabilities";
-import { useRunningDeployJobs } from "../../lib/deploy-job-state";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
-import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
 import { FleetDetailPanel, type FleetSelection } from "./FleetDetailPanel";
-import { FleetBoxPanel } from "./FleetBoxPanel";
 import { FleetHostForm } from "./FleetHostForm";
 import { COMMAND_CENTER_ID, FleetMap, ghostNodeId } from "./FleetMap";
 
@@ -25,10 +21,7 @@ function FleetOverlayInner() {
   const probes = use$(state$.fleetProbe);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(null);
-  const [boxPanelOpen, setBoxPanelOpen] = useState(false);
-  const [boxFleetEnabled, setBoxFleetEnabled] = useState(false);
   const [ccHostId, setCcHostId] = useState("");
-  const runningDeploys = useRunningDeployJobs();
   const stations = hosts.filter((host) => host.kind === "remote");
   const reachable = stations.filter(
     (host) => probes[host.id]?.status === "reachable",
@@ -57,30 +50,6 @@ function FleetOverlayInner() {
         if (!cancelled && result.ok && result.settings) setCcHostId(result.settings.station.hostId);
       })
       .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const api = getJuntoApi();
-    if (!api?.hostsDeployCapabilities) {
-      setBoxFleetEnabled(false);
-      return;
-    }
-    void api
-      .hostsDeployCapabilities()
-      .then((result) => {
-        if (cancelled) return;
-        const caps = result as HostsDeployCapabilities | { ok: false };
-        setBoxFleetEnabled(
-          caps.ok === true && caps.effective.boxFleet === true,
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setBoxFleetEnabled(false);
-      });
     return () => {
       cancelled = true;
     };
@@ -126,16 +95,6 @@ function FleetOverlayInner() {
         }`}
         actions={
           <>
-            {boxFleetEnabled ? (
-              <Button
-                size="sm"
-                variant="subtle"
-                {...activateOnPointerUp(() => setBoxPanelOpen(true))}
-              >
-                <CloudCog size={12} />
-                Box
-              </Button>
-            ) : null}
             <Button
               size="sm"
               variant="subtle"
@@ -158,30 +117,6 @@ function FleetOverlayInner() {
           </>
         }
       />
-      {runningDeploys.length > 0 ? (
-        <div className="fleet-deploy-strip" aria-label="Active Remote deploys">
-          {runningDeploys.map((job) => {
-            const hostLabel =
-              hosts.find((host) => host.id === job.hostId)?.label ?? job.hostId;
-            const selectedHere =
-              selection?.kind === "station" &&
-              selection.host.id === job.hostId;
-            // Detail panel already shows full log for the selected host.
-            if (selectedHere) return null;
-            return (
-              <button
-                key={job.jobId}
-                type="button"
-                className="fleet-deploy-strip__item"
-                onClick={() => setSelectedId(job.hostId)}
-              >
-                <span className="fleet-deploy-strip__host">{hostLabel}</span>
-                <FleetDeployJobPanel job={job} compact />
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
       <div className="fleet-body">
         <div className="fleet-map-wrap">
           <FleetMap
@@ -204,12 +139,6 @@ function FleetOverlayInner() {
         ) : null}
       </div>
       {form ? <FleetHostForm initialLabel={form.label} initialEndpoint={form.endpoint} onClose={() => setForm(null)} /> : null}
-      {boxFleetEnabled && boxPanelOpen ? (
-        <FleetBoxPanel
-          onClose={() => setBoxPanelOpen(false)}
-          onFleetChanged={refreshFleet}
-        />
-      ) : null}
     </FocusSurface>
   );
 }

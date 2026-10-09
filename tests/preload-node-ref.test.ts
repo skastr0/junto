@@ -3,7 +3,6 @@ import type {
   NodeRefOpenedDelivery,
   NodeRefOpenedEvent,
   JuntoApi,
-  JuntoHostsApi,
 } from "../src/shared/ipc";
 import { Command } from "../src/shared/model";
 import { Schema } from "effect";
@@ -135,27 +134,6 @@ describe("preload renderer surface readiness", () => {
     emitRendererSurfaceChallenge(1);
     emitRendererSurfaceChallenge("");
     expect(electron.sent).toEqual([]);
-  });
-});
-
-describe("preload Remote deployment authorization", () => {
-  it("forwards host id only — no administrator password payload", async () => {
-    const api = (await loadPreload()) as JuntoApi &
-      Partial<JuntoHostsApi>;
-    const input = { id: "studio" };
-    if (!api.hostsDeployRemote) {
-      throw new Error("hostsDeployRemote missing from all-on preload");
-    }
-
-    await api.hostsDeployRemote(input);
-
-    expect(electron.invoked).toEqual([
-      [IPC_CHANNELS.hostsDeployRemote, input],
-    ]);
-    expect(JSON.stringify(electron.invoked)).not.toContain(
-      "linux-administrator-password",
-    );
-    expect(JSON.stringify(electron.invoked)).not.toContain("password");
   });
 });
 

@@ -1,40 +1,11 @@
-import { use$ } from "@legendapp/state/react";
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useState,
-  type CSSProperties,
-} from "react";
+import { Fragment, useState, type CSSProperties } from "react";
 import { WandSparkles, X } from "lucide-react";
-import type {
-  DiscoveredPeer,
-  HostsDeployRemoteResult,
-} from "@shared/ipc";
-import type { HostsDeployCapabilities } from "@shared/deploy-capabilities";
-import {
-  LINUX_HOST_UNAVAILABLE_IN_RELEASE_LABEL,
-  LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
-} from "@shared/release-capabilities";
+import type { DiscoveredPeer } from "@shared/ipc";
 import {
   HERMES_INTEGRATION_ENABLED,
   productHostCapabilities,
 } from "@shared/features";
-import type { StationRemoteObservation } from "@shared/station-status";
 import type { RemoteHost } from "@shared/remote-hosts";
-import {
-  deriveRemoteUpdateStatus,
-  remoteUpdatePhaseFromDeployJob,
-  remoteUpdateStatusLabel,
-  resolveRemoteAvailableForStatus,
-  REMOTE_UPDATE_IDLE_PRODUCT_COPY,
-  shouldAutoWalkRemoteUpdate,
-} from "@shared/remote-update-status";
-import { useHostDeployJob } from "../../lib/deploy-job-state";
-import {
-  deployRecoveryGuidance,
-  operatorDeployDetail,
-} from "../../lib/deploy-recovery";
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, hostColor } from "../../lib/fleet-layout";
@@ -46,13 +17,9 @@ import {
   resolvePeerMachineModel,
 } from "../../lib/fleet-machine-model";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
-import { state$ } from "../../lib/state";
 import { DIM, GREEN, HUE, withAlpha } from "../../lib/theme";
-import { updateState$ } from "../../lib/update-state";
 import { getJuntoApi } from "../../lib/junto-api";
-import { LinuxHostCapabilities } from "../LinuxHostCapabilities";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
-import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
 import { fleetMachineIcon } from "./FleetNodes";
 
 export type FleetSelection =
@@ -75,27 +42,6 @@ function reachabilityLine(probe?: FleetProbeState): {
     case "probing":
       return { text: "probing link…", color: HUE.cyan };
     case "reachable":
-      if (probe.protocol?.compatibility === "update-required") {
-        return {
-          text: "On the network, update required",
-          detail: probe.detail,
-          color: HUE.amber,
-        };
-      }
-      if (probe.protocol?.compatibility === "deprecated") {
-        return {
-          text: `On the network — this Junto build is old`,
-          detail: probe.detail,
-          color: HUE.amber,
-        };
-      }
-      if (probe.observation?.station === undefined) {
-        return {
-          text: "On the network — Junto is not answering",
-          detail: probe.detail,
-          color: HUE.amber,
-        };
-      }
       return {
         text: probe.latencyMs !== undefined
           ? `On the network — ${probe.latencyMs} ms`
@@ -134,449 +80,47 @@ function CommandCenterDetail({ hostId }: { readonly hostId: string }) {
   );
 }
 
-const diagnosticText = (value: string | number | boolean | undefined): string =>
-  value === undefined ? "unknown" : String(value);
-
-function StationDiagnostics({
-  observation,
-}: {
-  readonly observation?: StationRemoteObservation;
-}) {
-  const station = observation?.station;
-  const route = observation?.route;
-  const protocol = observation?.protocol;
-  const recovery = observation?.recovery;
-  return (
-    <section className="fleet-detail__section">
-      <div className="fleet-detail__section-label">Station diagnostics</div>
-      <div className="fleet-detail__kv">
-        <span>reachability</span>
-        <span>{diagnosticText(observation?.reachability)}</span>
-        <span>fact source</span>
-        <span>{diagnosticText(observation?.source)}</span>
-        <span>configured role / host</span>
-        <span>
-          {diagnosticText(station?.configuration?.role)} / {diagnosticText(station?.configuration?.hostId)}
-        </span>
-        <span>expected installation</span>
-        <span>{diagnosticText(observation?.expectedInstallationId)}</span>
-        <span>observed installation</span>
-        <span>{diagnosticText(station?.installationId)}</span>
-        <span>Command Center binding</span>
-        <span>
-          {diagnosticText(
-            station?.configuration?.role === "remote"
-              ? station.configuration.commandCenterInstallationId
-              : undefined,
-          )}
-        </span>
-        <span>observation timestamp</span>
-        <span>{diagnosticText(observation?.observedAt ?? station?.observedAt)}</span>
-        <span>route</span>
-        <span>
-          {diagnosticText(route?.phase)} / session {route === undefined ? "unknown" : route.sessionOpen ? "open" : "closed"}
-        </span>
-        <span>route attempt / updated</span>
-        <span>{diagnosticText(route?.attempt)} / {diagnosticText(route?.updatedAt)}</span>
-        <span>next retry</span>
-        <span>{diagnosticText(route?.nextRetryAt)}</span>
-        <span>protocol</span>
-        <span>
-          {protocol === undefined
-            ? "unknown"
-            : protocol.compatibility === "update-required"
-              ? "update-required"
-              : `${protocol.compatibility} / negotiated ${protocol.negotiatedProtocol}`}
-        </span>
-        <span>projection receipt</span>
-        <span>
-          {diagnosticText(station?.projection?.generation)} / {diagnosticText(station?.projection?.contentSha256)} / {diagnosticText(station?.projection?.receivedAt)}
-        </span>
-        <span>package / deploy receipt</span>
-        <span>
-          {diagnosticText(observation?.packageGeneration)} / {diagnosticText(observation?.deployReceiptAt)}
-        </span>
-        <span>received cursors</span>
-        <span>{diagnosticText(station?.receivedThrough.length)}</span>
-        <span>peer acknowledged cursors</span>
-        <span>{diagnosticText(station?.peerAcknowledgedThrough.length)}</span>
-        <span>readiness</span>
-        <span>
-          database {diagnosticText(station?.readiness.database)}, work {diagnosticText(station?.readiness.workControl)}, simulation {diagnosticText(station?.readiness.simulation)}, session {diagnosticText(station?.readiness.session)}, terminal {diagnosticText(observation?.readiness?.terminal)}, browser {diagnosticText(observation?.readiness?.browser)}
-        </span>
-        <span>recovery</span>
-        <span>{diagnosticText(recovery?.kind)}</span>
-      </div>
-      {recovery ? (
-        <p className="fleet-detail__note">
-          Next safe action: {recovery.nextStep}
-        </p>
-      ) : null}
-      {observation?.observationError ? (
-        <details className="fleet-detail__diagnostic">
-          <summary>Observation detail</summary>
-          <p>{observation.observationError}</p>
-        </details>
-      ) : null}
-      {station &&
-      (station.receivedThrough.length > 0 ||
-        station.peerAcknowledgedThrough.length > 0) ? (
-        <details className="fleet-detail__diagnostic">
-          <summary>Logical cursor routes</summary>
-          <div className="fleet-detail__kv">
-            {station.receivedThrough.map((cursor) => (
-              <Fragment
-                key={`received:${cursor.eventHome}:${cursor.entityHome}`}
-              >
-                <span>received {cursor.eventHome} → {cursor.entityHome}</span>
-                <span>{cursor.through}</span>
-              </Fragment>
-            ))}
-            {station.peerAcknowledgedThrough.map((cursor) => (
-              <Fragment
-                key={`acknowledged:${cursor.eventHome}:${cursor.entityHome}`}
-              >
-                <span>peer acknowledged {cursor.eventHome} → {cursor.entityHome}</span>
-                <span>{cursor.through}</span>
-              </Fragment>
-            ))}
-          </div>
-        </details>
-      ) : null}
-    </section>
-  );
-}
-
-function StationSynchronization({
-  observation,
-}: {
-  readonly observation?: StationRemoteObservation;
-}) {
-  const synchronization = observation?.synchronization;
-  if (synchronization === undefined) return null;
-  return (
-    <section className="fleet-detail__section">
-      <div className="fleet-detail__section-label">Last synchronization</div>
-      <div className="fleet-detail__kv">
-        <span>result</span>
-        <span>{synchronization.converged ? "converged" : "incomplete"}</span>
-        <span>projection</span>
-        <span>
-          {synchronization.projectionDecision} / generation {synchronization.projectionGeneration}
-        </span>
-        <span>projection hash</span>
-        <span>{synchronization.projectionContentSha256}</span>
-        <span>report rounds</span>
-        <span>{synchronization.reportRounds}</span>
-        <span>outbound / inbound</span>
-        <span>{synchronization.outboundSent} / {synchronization.inboundReceived}</span>
-        <span>accepted / idempotent / rejected</span>
-        <span>
-          {synchronization.inboundAccepted} / {synchronization.inboundIdempotent} / {synchronization.inboundRejected}
-        </span>
-        <span>more outbound / inbound</span>
-        <span>
-          {String(synchronization.hasMoreOutbound)} / {String(synchronization.hasMoreInbound)}
-        </span>
-      </div>
-      <p className="fleet-detail__note">
-        This is the last bounded projection and work-report receipt. It is not
-        a promise that the route stayed connected afterward.
-      </p>
-    </section>
-  );
-}
-
-function StationTopology({
-  observation,
-}: {
-  readonly observation?: StationRemoteObservation;
-}) {
-  const topology = observation?.topology;
-  if (topology === undefined) return null;
-  return (
-    <section className="fleet-detail__section">
-      <div className="fleet-detail__section-label">Projected topology</div>
-      <div className="fleet-detail__kv">
-        <span>portfolio</span>
-        <span>
-          {topology.canvasCount} canvases / {topology.nodeCount} nodes / {topology.edgeCount} edges
-        </span>
-        <span>all actors / sinks / schedulers</span>
-        <span>{topology.actorCount} / {topology.sinkCount} / {topology.schedulerCount}</span>
-        <span>this Remote nodes</span>
-        <span>{topology.targetNodeCount}</span>
-        <span>this Remote actors / sinks / schedulers</span>
-        <span>
-          {topology.targetActorCount} / {topology.targetSinkCount} / {topology.targetSchedulerCount}
-        </span>
-        <span>Command Center / other Station nodes</span>
-        <span>{topology.commandCenterNodeCount} / {topology.otherStationNodeCount}</span>
-        <span>Remote-local actor ↔ sink edges</span>
-        <span>{topology.targetInternalAccessEdgeCount}</span>
-        <span>Remote actor → Command Center sink</span>
-        <span>{topology.remoteActorToCommandCenterSinkEdgeCount}</span>
-        <span>Command Center actor → Remote sink</span>
-        <span>{topology.commandCenterActorToRemoteSinkEdgeCount}</span>
-        <span>Station ↔ Station edges</span>
-        <span>{topology.stationPeerEdgeCount}</span>
-        <span>dangling edges</span>
-        <span>{topology.danglingEdgeCount}</span>
-      </div>
-      <p className="fleet-detail__note">
-        Counts come from the exact complete projection acknowledged by this
-        Remote. Runtime authority still follows installation-homed work rows.
-      </p>
-    </section>
-  );
-}
-
 function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly probe?: FleetProbeState }) {
-  const remoteManagedInstalls = use$(state$.settings.fleet.remoteManagedInstalls);
-  const stationRole = use$(state$.settings.station.role);
-  const ccVersion = use$(updateState$.status.currentVersion);
-  const availableUpdate = use$(updateState$.status.available);
-  const [actionBusy, setActionBusy] = useState<
-    "" | "configure" | "deploy" | "remove"
-  >("");
+  const [removing, setRemoving] = useState(false);
   const [actionLine, setActionLine] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [caps, setCaps] = useState<HostsDeployCapabilities | null>(null);
-  const deployJob = useHostDeployJob(host.id);
   const reach = reachabilityLine(probe);
   const probing = probe?.status === "probing";
-  // Prefer main-owned job for busy state so panel remount mid-deploy still shows deploying.
-  const deployInFlight =
-    actionBusy === "deploy" || deployJob?.status === "running";
   const resolvedModel = resolveFleetMachineModel(host);
   const color = hostColor(host, fleetMachineColor(resolvedModel));
   const automatic = !FLEET_MACHINE_CATALOG.some(
     ({ id }) => id === host.appearance?.glyph,
   );
-  // CC-first: while feed is ahead of running CC, Available column waits and
-  // auto-walk is suppressed — but status still compares Remote vs CC so a
-  // lagging Remote is not mislabeled "Up to date".
-  const {
-    feedAhead,
-    feedVersion,
-    availableForStatus,
-    availableRemoteReleaseVersion,
-  } = resolveRemoteAvailableForStatus({
-    ...(availableUpdate?.version !== undefined
-      ? { feedVersion: availableUpdate.version }
-      : {}),
-    commandCenterVersion: ccVersion,
-  });
-  const installedRemoteVersion = probe?.protocol?.peer?.appVersion;
-  // Phase truth comes from the live main-owned deploy job — the same job
-  // every managed update and manual Deploy flows through. No job, no phase.
-  const remoteUpdatePhase = remoteUpdatePhaseFromDeployJob({
-    job: deployJob,
-    availableVersion: availableForStatus,
-  });
-  const remoteUpdate = deriveRemoteUpdateStatus({
-    ...(installedRemoteVersion !== undefined
-      ? { installedVersion: installedRemoteVersion }
-      : {}),
-    availableVersion: availableForStatus,
-    ...(remoteUpdatePhase === undefined ? {} : { phase: remoteUpdatePhase }),
-  });
-  const autoWalkWouldRun = shouldAutoWalkRemoteUpdate({
-    availableRemoteReleaseVersion,
-    commandCenterVersion: ccVersion,
-    remoteManagedInstalls,
-  });
-
-  const loadCaps = useCallback(async () => {
-    const api = getJuntoApi();
-    const readCaps = api?.hostsDeployCapabilities;
-    if (!readCaps) {
-      setCaps(null);
-      return;
-    }
-    try {
-      const result = await readCaps();
-      setCaps(result.ok ? result : null);
-    } catch {
-      setCaps(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadCaps();
-  }, [loadCaps, host.id, remoteManagedInstalls, stationRole]);
-
-  // Fail-closed when capabilities unknown: gated actions stay disabled.
-  // Linux hosts stay enrolled/read-only when managed Linux deploy is off.
-  // Box-enrolled host ids are always Linux; probe facts confirm other hosts.
-  const knownLinuxHost =
-    host.id.startsWith("box-") ||
-    (probe?.linuxCapabilities !== undefined &&
-      probe.linuxCapabilities.facts.platform === "linux");
-  const linuxManagedOff =
-    caps === null || caps.release.linuxRemoteDeploy === false;
-  const linuxReleaseBlocked = knownLinuxHost && linuxManagedOff;
-  // Machine gate: Linux Remotes stay enrolled/read-only while the flag is off.
-  const machineMutateEnabled = !linuxReleaseBlocked;
-  const deployEnabled =
-    caps?.effective.deployRemote === true && machineMutateEnabled;
-  const deployDetail = linuxReleaseBlocked
-    ? LINUX_REMOTE_DEPLOY_DISABLED_DETAIL
-    : caps?.detail.deployRemote;
-  // The auto-update promise renders only when the executor actually runs for
-  // this machine: Command Center role, kill-switch on, managed deploy open,
-  // and a macOS target (Linux Remotes stay observed, never auto-walked).
-  const autoWalkActive =
-    autoWalkWouldRun &&
-    stationRole === "command-center" &&
-    deployEnabled &&
-    !knownLinuxHost;
 
   const saveAppearance = (appearance: { color?: string; glyph?: string }) => {
     setActionLine("");
     setFleetAppearance(host, appearance, setActionLine);
   };
 
-  const presentDeployResult = (result: HostsDeployRemoteResult) => {
-    // Recovery + summary in actionLine. Always attach stages on failure so a
-    // missing job-bridge (stale preload) still shows what main ran.
-    const recovery = deployRecoveryGuidance(result.recoveryAction);
-    const stages = result.stages?.length
-      ? `\n${result.stages.map((stage) => `- ${stage}`).join("\n")}`
-      : "";
-    if (!result.ok) {
-      setActionLine(
-        [
-          operatorDeployDetail(result.detail || result.message || "deploy failed"),
-          recovery,
-          stages,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      );
+  const removeHost = async () => {
+    const remove = getJuntoApi()?.hostsRemove;
+    if (!remove) {
+      setActionLine("Host remove API unavailable");
       return;
     }
-    setActionLine(
-      [operatorDeployDetail(result.detail || "Junto is on this Mac"), recovery]
-        .filter(Boolean)
-        .join("\n"),
-    );
-  };
-
-  const runAction = async (kind: "configure" | "deploy" | "remove") => {
-    const api = getJuntoApi();
-    if (!api) return;
-    if (kind === "deploy" && !deployEnabled) return;
-    if (kind === "configure" && !machineMutateEnabled) return;
-    if (kind === "deploy" && deployJob?.status === "running") return;
-    setActionBusy(kind);
-    const jobBridge =
-      typeof api.hostsDeployJobGet === "function" &&
-      typeof api.onHostsDeployJobChanged === "function";
-    setActionLine(
-      kind === "deploy"
-        ? jobBridge
-          ? "Deploy accepted — live progress is at the top of this panel."
-          : "Deploy accepted — restart Command Center to see live progress."
-        : "",
-    );
+    setRemoving(true);
     try {
-      if (kind === "configure") {
-        const configure = api.hostsConfigureRemote;
-        if (!configure) {
-          setActionLine("Host configure API unavailable");
-          return;
-        }
-        const result = await configure(host.id);
-        const recovery = deployRecoveryGuidance(result.recoveryAction);
-        setActionLine(
-          [
-            result.detail ||
-              (result.ok
-                ? "configured as a Remote"
-                : (result.message ?? "configure failed")),
-            recovery,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        );
-      } else if (kind === "deploy") {
-        const deploy = api.hostsDeployRemote;
-        if (!deploy) {
-          setActionLine("Host deploy API unavailable");
-          return;
-        }
-        const result = await deploy({ id: host.id });
-        presentDeployResult(result);
+      const result = await remove(host.id);
+      if (result.ok) {
+        await refreshFleet();
       } else {
-        const remove = api.hostsRemove;
-        if (!remove) {
-          setActionLine("Host remove API unavailable");
-          return;
-        }
-        const result = await remove(host.id);
-        if (result.ok) {
-          await refreshFleet();
-        } else {
-          setActionLine(result.message ?? "remove failed");
-        }
+        setActionLine(result.message ?? "remove failed");
       }
     } catch (error) {
       setActionLine(error instanceof Error ? error.message : String(error));
     } finally {
-      setActionBusy("");
+      setRemoving(false);
       setConfirmRemove(false);
     }
   };
 
   return (
     <div className="fleet-detail__body">
-      {/* Deploy + progress share one surface — never bury the action under Identity. */}
-      <section className="fleet-detail__section fleet-detail__section--deploy">
-        <div className="fleet-detail__section-label">Remote deploy</div>
-        {deployJob ? <FleetDeployJobPanel job={deployJob} /> : null}
-        <div className="fleet-detail__actions">
-          <Button
-            size="sm"
-            disabled={probing}
-            {...activateOnPointerUp(() => void probeHost(host.id))}
-          >
-            {probing ? "probing…" : "Test Station link"}
-          </Button>
-          <Button
-            variant="primary"
-            size="xs"
-            disabled={actionBusy !== "" || !deployEnabled || deployInFlight}
-            title={
-              deployInFlight
-                ? "Deploy already running in Command Center"
-                : deployDetail
-            }
-            {...activateOnPointerUp(() => void runAction("deploy"))}
-          >
-            {deployInFlight ? "deploying…" : "Deploy Junto Remote"}
-          </Button>
-          {!deployEnabled && deployDetail ? (
-            <p className="fleet-detail__note">{deployDetail}</p>
-          ) : null}
-        </div>
-        {actionLine ? (
-          <p
-            className="fleet-detail__note"
-            role="status"
-            style={{ whiteSpace: "pre-wrap" }}
-          >
-            {actionLine}
-          </p>
-        ) : !deployJob ? (
-          <p className="fleet-detail__note">
-            On the network is SSH. A finished Deploy is Installed. Folders
-            and terminals answer after a real connect. The step log records
-            each copy, restart, and wait.
-          </p>
-        ) : null}
-      </section>
-
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Identity</div>
         <div className="fleet-detail__kv">
@@ -624,100 +168,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             <p>{reach.detail}</p>
           </details>
         ) : null}
-        {probe?.protocol ? (
-          <div className="fleet-detail__kv">
-            <span>protocol</span>
-            <span>
-              {probe.protocol.compatibility === "update-required"
-                ? "update required"
-                : `${probe.protocol.negotiatedProtocol} - ${probe.protocol.compatibility}`}
-            </span>
-            <span>local app / schema</span>
-            <span>
-              {probe.protocol.local.appVersion} /{" "}
-              {probe.protocol.local.stateSchemaVersion}
-            </span>
-            <span>local support</span>
-            <span>
-              {probe.protocol.local.support.compatibleFrom}–
-              {probe.protocol.local.support.preferred} - warn below{" "}
-              {probe.protocol.local.support.warnBelow}
-            </span>
-            <span>Remote app / schema</span>
-            <span>
-              {probe.protocol.peer
-                ? `${probe.protocol.peer.appVersion} / ${probe.protocol.peer.stateSchemaVersion}`
-                : "diagnostics unavailable"}
-            </span>
-            <span>Remote support</span>
-            <span>
-              {probe.protocol.peer
-                ? `${probe.protocol.peer.support.compatibleFrom}–${probe.protocol.peer.support.preferred} - warn below ${probe.protocol.peer.support.warnBelow}`
-                : "unknown"}
-            </span>
-          </div>
-        ) : null}
       </section>
-
-      <StationDiagnostics observation={probe?.observation} />
-      <StationSynchronization observation={probe?.observation} />
-      <StationTopology observation={probe?.observation} />
-
-      {probe?.linuxCapabilities?.facts.platform === "linux" ? (
-        <section className="fleet-detail__section">
-          <div className="fleet-detail__section-label">
-            Linux host
-            {linuxReleaseBlocked
-              ? ` - ${LINUX_HOST_UNAVAILABLE_IN_RELEASE_LABEL}`
-              : ""}
-          </div>
-          {linuxReleaseBlocked ? (
-            <p className="fleet-detail__note">
-              {LINUX_REMOTE_DEPLOY_DISABLED_DETAIL}
-            </p>
-          ) : null}
-          <LinuxHostCapabilities observation={probe.linuxCapabilities} />
-        </section>
-      ) : null}
-
-      <section className="fleet-detail__section">
-        <div className="fleet-detail__section-label">Software update</div>
-        <div className="fleet-detail__kv">
-          <span>Installed version</span>
-          <span>{remoteUpdate.installedVersion ?? "unknown"}</span>
-          <span>Available version</span>
-          <span>
-            {feedAhead && feedVersion !== undefined
-              ? `waiting for CC ${feedVersion}`
-              : (remoteUpdate.availableVersion ?? "—")}
-          </span>
-          <span>Update status</span>
-          <span>
-            {remoteUpdate.installedVersion === undefined &&
-            remoteUpdatePhase === undefined
-              ? "unknown"
-              : remoteUpdateStatusLabel(remoteUpdate.updateStatus)}
-          </span>
-        </div>
-        {remoteUpdate.updateStatus === "update-available" ? (
-          <p className="fleet-detail__note">
-            {deployEnabled
-              ? autoWalkActive
-                ? "Updates automatically when idle, one Remote at a time."
-                : remoteManagedInstalls
-                  ? knownLinuxHost && autoWalkWouldRun
-                    ? "Update available. Linux Remotes stay observed and update through Deploy."
-                    : "Update available. Command Center must match this release before Remotes auto-update."
-                  : "Update available. Enable “Allow remote managed installs” for fleet auto-update, or Deploy when ready."
-              : deployDetail ??
-                "Managed Remote package deployment is disabled in this release."}
-          </p>
-        ) : null}
-        {remoteUpdate.updateStatus === "waiting-for-idle" ? (
-          <p className="fleet-detail__note">{REMOTE_UPDATE_IDLE_PRODUCT_COPY}</p>
-        ) : null}
-      </section>
-
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Machine signature</div>
         <div className="fleet-detail__swatches" role="group" aria-label="Machine color">
@@ -806,38 +257,35 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       <section className="fleet-detail__section">
         <div className="fleet-detail__section-label">Operations</div>
         <div className="fleet-detail__actions">
-          <Button
-            size="xs"
-            disabled={actionBusy !== "" || deployInFlight || !machineMutateEnabled}
-            title={
-              linuxReleaseBlocked
-                ? LINUX_REMOTE_DEPLOY_DISABLED_DETAIL
-                : undefined
-            }
-            {...activateOnPointerUp(() => void runAction("configure"))}
-          >
-            {actionBusy === "configure" ? "configuring…" : "Configure Remote"}
-          </Button>
           {confirmRemove ? (
             <Button
               size="xs"
               variant="danger"
-              disabled={actionBusy !== "" || deployInFlight}
-              {...activateOnPointerUp(() => void runAction("remove"))}
+              disabled={removing}
+              {...activateOnPointerUp(() => void removeHost())}
             >
-              {actionBusy === "remove" ? "removing…" : `Confirm remove ${host.id}`}
+              {removing ? "removing…" : `Confirm remove ${host.id}`}
             </Button>
           ) : (
             <Button
               size="xs"
               variant="danger"
-              disabled={actionBusy !== "" || deployInFlight}
+              disabled={removing}
               {...activateOnPointerUp(() => setConfirmRemove(true))}
             >
               Remove host
             </Button>
           )}
         </div>
+        {actionLine ? (
+          <p
+            className="fleet-detail__note"
+            role="status"
+            style={{ whiteSpace: "pre-wrap" }}
+          >
+            {actionLine}
+          </p>
+        ) : null}
       </section>
     </div>
   );
@@ -867,8 +315,8 @@ function GhostDetail({
           ))}
         </div>
         <p className="fleet-detail__note">
-          Visible on your network but not yet enrolled. Enrolling only adds it
-          to the fleet — configure and deploy it afterward.
+          Visible on your network but not yet enrolled. Enrolling adds it to
+          the fleet.
         </p>
       </section>
 
