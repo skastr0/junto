@@ -856,9 +856,10 @@ export class ManagedTerminalDrive {
         // Paste-end must settle before the CR, or Claude/Devin keep a stuck
         // "[Pasted text …]" chip; a CR inside a resize repaint is eaten.
         if (!(await this.settle(bindingId, generation, bindingGeneration))) return "lost";
-        if (this.interlock.resizeActive(bindingId)) {
-          await this.awaitResizeQuiet(bindingId, generation, bindingGeneration);
-        }
+        if (
+          this.interlock.resizeActive(bindingId) &&
+          !(await this.awaitResizeQuiet(bindingId, generation, bindingGeneration))
+        ) return "lost";
         if (!(await Promise.resolve(this.writeTraced(bindingId, cr, "submit-cr")))) {
           return "lost";
         }

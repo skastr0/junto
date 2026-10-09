@@ -730,6 +730,46 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
+  it("does not submit mail to a replacement generation after waiting for resize quiet", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(clock);
+    const interlock = new OperatorInterlock(() => Date.now());
+    let generation = "original";
+    const generationWrites: Array<{ generation: string; data: string }> = [];
+    drive = makeDrive({
+      now: () => Date.now(),
+      operatorInput: interlock,
+      pasteToCrSettleMs: 5,
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        generationWrites.push({ generation, data });
+        if (generation === "original" && data !== CR) interlock.noteResize(bindingId);
+        return true;
+      },
+    });
+
+    const mail = drive.writeMail("b1", "mail for the original generation");
+    await vi.advanceTimersByTimeAsync(6);
+    expect(interlock.resizeActive("b1")).toBe(true);
+    expect(generationWrites).toEqual([
+      { generation: "original", data: encodeBracketedPaste("mail for the original generation") },
+    ]);
+
+    generation = "replacement";
+    drive.invalidateBinding("b1");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(mail).resolves.toBe("lost");
+    expect(generationWrites).toHaveLength(1);
+
+    const replacementMail = drive.writeMail("b1", "mail for the replacement");
+    await vi.advanceTimersByTimeAsync(5);
+    await expect(replacementMail).resolves.toBe("written");
+    expect(generationWrites.slice(1)).toEqual([
+      { generation: "replacement", data: encodeBracketedPaste("mail for the replacement") },
+      { generation: "replacement", data: CR },
+    ]);
+  });
+
   it("traces a mail write like any delivery, keyed by its text", async () => {
     const trace: PtyDeliveryTraceEvent[] = [];
     drive = makeDrive({ onTrace: (event) => trace.push(event) });
