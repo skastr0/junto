@@ -9,7 +9,7 @@ import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { MASKED_SECRET } from "../src/shared/settings";
 import { makeSettingsService } from "../src/main/junto/settings/service";
 import { CredentialBindingRepository, CredentialPersistenceError } from "../src/main/junto/credentials/bindings";
-import { StationConfigurationRepository } from "../src/main/junto/station/configuration-state";
+import { MachineConfigurationRepository } from "../src/main/junto/machines/configuration";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 import { StateTransactionOperation } from "../src/main/junto/state/service";
 import {
@@ -22,7 +22,7 @@ import { reconcilePendingStateBackups } from "../src/main/junto/state/backup";
 const SECRET = "sk-proof-plaintext-credential-9f8e7d6c-UNIQUE";
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 const makeRuntime = (path: string) => ManagedRuntime.make(
-  Layer.mergeAll(CredentialBindingRepository.layer, StationConfigurationRepository.layer).pipe(
+  Layer.mergeAll(CredentialBindingRepository.layer, MachineConfigurationRepository.layer).pipe(
     Layer.provideMerge(makeStateEngineLive(path)),
   ),
 );
