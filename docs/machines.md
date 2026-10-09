@@ -72,7 +72,7 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    was.
 5. **Entitlement.** Every machine on a canvas gets the canvas rows. A machine
    gets the mail addressed to its seats. A machine that keeps the whole canvas
-   gets everything. In the first version that machine is the MacBook. Passing
+   gets everything. In the first version that is the editing machine. Passing
    on another machine's rows, and saying how far a peer is caught up, is
    scoped to one canvas: only the machine that keeps that canvas may do it,
    and never for another canvas.
@@ -83,7 +83,7 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
 7. **Links are symmetric.** A link is one SSH session to the other machine's
    Junto. Either end may open one and it behaves the same once open. No code
    knows a "this side" and a "that side". In the first version only the
-   MacBook opens links.
+   editing machine opens links.
 8. **Same build everywhere.** Checked when a link opens. On a mismatch the link
    refuses and names the machine to update. No negotiation, no versioned wire
    formats.
@@ -195,7 +195,7 @@ redesigned. Browser pages are not placed on other machines at all.
 ## Later, and not to be blocked
 
 - An always-on machine as the hub: it opens the links, and the phone app pairs
-  with it, so nothing waits for the MacBook.
+  with it, so nothing waits for the operator's own computer.
 - Moving which machine edits a canvas, and editing from another window by
   sending the edit to that machine.
 - Boat (boat.dev, formerly Box): a provider that creates a machine and sends
