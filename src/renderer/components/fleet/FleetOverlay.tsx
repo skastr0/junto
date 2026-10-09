@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
-import { getJuntoApi } from "../../lib/junto-api";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
 import { FleetDetailPanel, type FleetSelection } from "./FleetDetailPanel";
@@ -21,8 +20,8 @@ function FleetOverlayInner() {
   const probes = use$(state$.fleetProbe);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(null);
-  const [ccHostId, setCcHostId] = useState("");
-  const stations = hosts.filter((host) => host.kind === "remote");
+  const ccHostId = hosts.find((host) => host.isThisMachine)?.id ?? "";
+  const stations = hosts.filter((host) => !host.isThisMachine);
   const reachable = stations.filter(
     (host) => probes[host.id]?.status === "reachable",
   ).length;
@@ -40,20 +39,6 @@ function FleetOverlayInner() {
         ? "routes untested"
         : `${reachable}/${stations.length} reachable`;
 
-  useEffect(() => {
-    let cancelled = false;
-    const api = getJuntoApi();
-    if (!api?.settingsGet) return;
-    void api
-      .settingsGet()
-      .then((result) => {
-        if (!cancelled && result.ok && result.settings) setCcHostId(result.settings.station.hostId);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const selectedHost = hosts.find((host) => host.id === selectedId);
   const selectedPeer =

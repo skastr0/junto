@@ -69,7 +69,7 @@ function CommandCenterDetail({ hostId }: { readonly hostId: string }) {
           <span>role</span>
           <span>command-center</span>
           <span>host id</span>
-          <span>{hostId || "local"}</span>
+          <span>{hostId || "this machine"}</span>
         </div>
         <p className="fleet-detail__note">
           Work is authored here and handed to the machines enrolled in the
@@ -126,8 +126,6 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         <div className="fleet-detail__kv">
           <span>endpoint</span>
           <span>{host.sshEndpoint ?? "—"}</span>
-          <span>kind</span>
-          <span>{host.kind}</span>
           {HERMES_INTEGRATION_ENABLED && host.hermesId ? (
             <>
               <span>hermes id</span>
@@ -406,7 +404,7 @@ export function FleetDetailPanel({
               ? reach?.text
               : selection.kind === "ghost"
                 ? `${selection.peer.os ?? "unknown device"} - ${selection.peer.online ? "online" : "offline"}`
-                : ccHostId || "local"}
+                : ccHostId || "this machine"}
           </small>
         </div>
         <IconButton

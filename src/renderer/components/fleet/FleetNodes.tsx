@@ -93,7 +93,7 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
         </div>
         <div className="fleet-node__copy fleet-machine__copy">
           <div className="fleet-cc__label font-display">Command Center</div>
-          <div className="fleet-node__meta">{data.hostId || "local"}</div>
+          <div className="fleet-node__meta">{data.hostId || "this machine"}</div>
           <div className="fleet-node__signal fleet-node__signal--authority">
             this machine
           </div>
@@ -182,7 +182,7 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
         </div>
         <div className="fleet-node__copy fleet-machine__copy">
           <div className="fleet-station__label">{host.label}</div>
-          <div className="fleet-node__meta">{host.sshEndpoint ?? host.kind}</div>
+          <div className="fleet-node__meta">{host.sshEndpoint ?? host.id}</div>
           <div className={`fleet-node__signal fleet-node__signal--${probe?.status ?? "unknown"}`}>
             {probeLabel(probe)}
           </div>

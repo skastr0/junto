@@ -91,7 +91,7 @@ export function FleetHostForm({
       const result = await upsert({
         id: slugifyHostId(trimmedLabel),
         label: trimmedLabel,
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: trimmedEndpoint,
         capabilities: [...capabilities],
       });

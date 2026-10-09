@@ -21,6 +21,7 @@ export type {
   BrowserStopReceipt,
 } from "./browser";
 import type { DoctorReport } from "./contracts";
+import type { RemoteHost } from "./remote-hosts";
 import type { WorkMetadata, Task, Part, TaskState, FinishCriteria, CompletionEvidence, TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
 import type {
   SeatCollaborationAskResult,
@@ -1192,18 +1193,7 @@ export interface JuntoUsageApi {
 
 export interface HostsOpResult {
   readonly ok: boolean;
-  readonly hosts?: ReadonlyArray<{
-    readonly id: string;
-    readonly label: string;
-    readonly kind: "local" | "remote";
-    readonly sshEndpoint?: string;
-    readonly capabilities: ReadonlyArray<"browser" | "terminal" | "hermes">;
-    readonly hermesId?: string;
-    readonly appearance?: {
-      readonly color?: string;
-      readonly glyph?: string;
-    };
-  }>;
+  readonly hosts?: ReadonlyArray<RemoteHost>;
   readonly code?: string;
   readonly message?: string;
 }

@@ -164,7 +164,7 @@ function FleetMapInner({
   readonly onSelect: (id: string | null) => void;
 }) {
   const { fitView } = useReactFlow();
-  const stations = useMemo(() => hosts.filter((host) => host.kind === "remote"), [hosts]);
+  const stations = useMemo(() => hosts.filter((host) => !host.isThisMachine), [hosts]);
   const topologyKey = useMemo(
     () =>
       [

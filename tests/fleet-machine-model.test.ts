@@ -10,7 +10,7 @@ import {
 const host = (overrides: Partial<RemoteHost> = {}): RemoteHost => ({
   id: "workstation",
   label: "Workstation",
-  kind: "remote",
+  isThisMachine: false,
   sshEndpoint: "workstation",
   capabilities: ["terminal"],
   ...overrides,
