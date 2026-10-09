@@ -24,12 +24,13 @@ it("sends only install selections and retains nonretryable transfer uncertainty"
   const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target", port: 19049, knownHostsFile: "/tmp/operator-pin", hostKeyAlias: "sandbox-one" }));
   let remoteText = "";
   let copiedBytes = 0;
+  const observed: unknown[] = [];
   const transport = SshTransport.of({
     run: () => Effect.die("unexpected one-shot"),
     connect: () => Effect.die("unexpected link"),
     forward: () => Effect.die("unexpected forwarding"),
     warm: () => Effect.void, teardown: () => Effect.void,
-    transfer: (program, input, timeout) => Effect.gen(function* () {
+    transfer: (program, input, timeout, onStderr) => Effect.gen(function* () {
       expect(timeout).toBe(20 * 60_000);
       const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-send-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
       const compiled = compiler.stream(program);
@@ -37,15 +38,23 @@ it("sends only install selections and retains nonretryable transfer uncertainty"
       if (!Command.isStandardCommand(compiled.command)) throw new Error("expected argv command");
       remoteText = compiled.command.args.at(-1)!;
       yield* Stream.runForEach(input, bytes => Effect.sync(() => { copiedBytes += bytes.byteLength; }));
+      const event = { event: "machine-install", juntoHome: "/home/user/probe", installRoot: "/home/user/probe/install", step: "verified" };
+      const encoder = new TextEncoder();
+      const first = JSON.stringify(event);
+      onStderr?.(encoder.encode(first.slice(0, 20)));
+      onStderr?.(encoder.encode(first.slice(20) + "\nordinary diagnostic\n" + JSON.stringify({ ...event, secretValue: "refuse" }) + "\n" + "x".repeat(9000) + "\n" + Array.from({ length: 8 }, () => JSON.stringify(event) + "\n").join("")));
       return yield* Effect.fail(new SshInputError({ message: "connection ended after receiving bytes" }));
     }),
   });
   const error = await Effect.runPromise(sendMachine(target, {
     bundle: root, juntoHome: "/home/user/probe", installRoot: "/home/user/probe/install",
     expectedInstallationId: Schema.decodeUnknownSync(InstallationId)("installation-one"), sshKnownHostsFile: "/tmp/operator-pin",
-  }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  }, event => { observed.push(event); throw new Error("view detached"); }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
   expect(copiedBytes).toBeGreaterThan(0);
   expect(remoteText).toContain("installation-one");
   expect(remoteText).not.toContain("operator-pin");
   expect(error.disposition).toBe("uncertain"); expect(error.retryable).toBe(false);
+  expect(observed).toHaveLength(5);
+  expect(observed.every(event => JSON.stringify(event).includes('"step":"verified"'))).toBe(true);
+  expect(JSON.stringify(observed)).not.toContain("secretValue");
 });

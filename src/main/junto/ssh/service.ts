@@ -112,6 +112,7 @@ export class SshTransport extends Context.Service<SshTransport,
       program: ScopedStreamProgram,
       input: Stream.Stream<Uint8Array, E, R>,
       timeoutMs: number,
+      onStderr?: (bytes: Uint8Array) => void,
     ) => Effect.Effect<SshCommandResult, SshError | SshTransferExitError | E, R>;
     readonly connect: <A, E, R>(
       program: ScopedStreamProgram,
@@ -719,6 +720,7 @@ export const SshTransportLayer = Layer.effect(
       program,
       input,
       timeoutMs,
+      onStderr,
     ) =>
       Effect.try({
         try: () => compiler.stream(program),
@@ -796,7 +798,10 @@ export const SshTransportLayer = Layer.effect(
                         STDOUT_LIMIT_BYTES,
                       ),
                       stderr: collectTransferOutput(
-                        lease.stderr,
+                        lease.stderr.pipe(Stream.tap(bytes => Effect.sync(() => {
+                          // An observer cannot alter diagnostics or cancel an in-flight mutation.
+                          try { onStderr?.(Uint8Array.from(bytes)); } catch { /* observer detached */ }
+                        }))),
                         compiled.endpoint,
                         "stderr",
                         STDERR_LIMIT_BYTES,

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { Effect, Schema } from "effect";
 import * as NodeStream from "@effect/platform-node/NodeStream";
-import { MachineInstallError, MachineInstallResult, type MachineSendInput } from "@shared/machine-install";
+import { MachineInstallError, MachineInstallResult, MachineInstallEvent, type MachineSendInput } from "@shared/machine-install";
 import { SshTransport, type SshTarget } from "../ssh";
 import { receiveMachineBundle } from "../ssh/machine-commands";
 import { inspectMachineBundle } from "./bundle";
@@ -20,6 +20,7 @@ const Success = Schema.Struct({ok:Schema.Literal(true),command:Schema.Literal("m
 export const sendMachine = (
   target:SshTarget,
   input:Omit<MachineSendInput,"sshTarget">,
+  onTransition?: (event: MachineInstallEvent) => void,
 ) => Effect.scoped(Effect.gen(function* () {
   const scratch=yield* Effect.acquireRelease(
     Effect.tryPromise({try:()=>mkdtemp(join(tmpdir(),"junto-send-")),catch:installError}),
@@ -41,7 +42,27 @@ export const sendMachine = (
     ...(input.expectedInstallationId===undefined?{}:{expectedInstallationId:input.expectedInstallationId}),
   }).pipe(Effect.mapError(installError));
   const ssh=yield* SshTransport;
-  const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000).pipe(Effect.mapError(uncertainError));
+  const decodeEvent = Schema.decodeUnknownResult(MachineInstallEvent, { onExcessProperty: "error" });
+  const decoder = new TextDecoder();
+  let pending = "";
+  let events = 0;
+  let dropped = false;
+  const observe = (bytes: Uint8Array): void => {
+    if (onTransition === undefined || events >= 5) return;
+    for (const part of decoder.decode(bytes, { stream: true }).split(/(?<=\n)/)) {
+      if (!dropped) pending += part;
+      if (pending.length > 8192) { pending = ""; dropped = true; }
+      if (!part.endsWith("\n")) continue;
+      if (!dropped) {
+        try {
+          const event = decodeEvent(JSON.parse(pending));
+          if (event._tag === "Success" && events < 5) { events++; onTransition(event.success); }
+        } catch { /* Ordinary SSH diagnostics are not progress events. */ }
+      }
+      pending = ""; dropped = false;
+    }
+  };
+  const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000,observe).pipe(Effect.mapError(uncertainError));
   const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim()).pipe(Effect.mapError(uncertainError));
   return response.data;
 }));

@@ -47,6 +47,11 @@ export const MachineInstallTransition = Schema.Struct({
   service: Schema.optionalKey(Schema.Literals(["absent", "unloaded", "inactive"])),
 });
 export type MachineInstallTransition = typeof MachineInstallTransition.Type;
+export const MachineInstallEvent = Schema.Struct({
+  event: Schema.Literal("machine-install"), juntoHome: MachineAbsolutePath, installRoot: MachineAbsolutePath,
+  ...MachineInstallTransition.fields,
+});
+export type MachineInstallEvent = typeof MachineInstallEvent.Type;
 
 export const MachineInstallResult = Schema.Struct({
   build: Schema.String,
