@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { signAsync } from "@electron/osx-sign";
 import { resolveMacSigningConfig } from "./mac-signing-config.mjs";
+import { isMachinePayloadPath } from "./machine-payloads.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
@@ -119,6 +120,7 @@ export default async function signJuntoApp(options) {
     throw new Error(`unexpected macOS app bundle ${path.basename(appPath)}`);
   }
   const inheritedOptionsForFile = options.optionsForFile;
+  const inheritedIgnore = options.ignore === undefined ? [] : Array.isArray(options.ignore) ? options.ignore : [options.ignore];
 
   await signWithRetries({
     ...options,
@@ -127,6 +129,7 @@ export default async function signJuntoApp(options) {
     identityValidation: true,
     preAutoEntitlements: false,
     preEmbedProvisioningProfile: false,
+    ignore: [...inheritedIgnore, filePath => isMachinePayloadPath(appPath, filePath)],
     optionsForFile: (filePath) => {
       const canonicalFilePath = realpathSync(filePath);
       const relativeCanonical = path.relative(appPath, canonicalFilePath);

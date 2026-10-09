@@ -1,10 +1,12 @@
-import { readFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import rawRuntimePolicy from "../scripts/macos-runtime-policy.json";
 import {
   EXPECTED_JIT_MACHO_PATHS,
+  auditMachinePayloads,
   MACOS_RUNTIME_POLICY,
   isMachOMagic,
   parseMachOArchitectures,
@@ -16,6 +18,8 @@ import {
   validateMachOMinimumSystemVersions,
 } from "../scripts/audit-packaged-app";
 import { signingProfileForPath } from "../scripts/electron-builder-sign.mjs";
+import { MACHINE_PAYLOAD_MACHO_PATHS, isMachinePayloadPath } from "../scripts/machine-payloads.mjs";
+import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 
 const manifestPaths = MACOS_RUNTIME_POLICY.machO.map((entry) => entry.path);
 
@@ -70,6 +74,30 @@ const linuxRuntimeAuditPresent = (source: string): boolean =>
   /"resources\/app\.asar"/u.test(source);
 
 describe("macOS packaged runtime policy", () => {
+  it("admits the complete machine payload inventory while refusing partial or extra native code", () => {
+    expect(() => validateMachOInventory([...manifestPaths, ...MACHINE_PAYLOAD_MACHO_PATHS])).not.toThrow();
+    expect(() => validateMachOInventory([...manifestPaths, MACHINE_PAYLOAD_MACHO_PATHS[0]])).toThrow(/missing=/);
+    expect(() => validateMachOInventory([...manifestPaths, ...MACHINE_PAYLOAD_MACHO_PATHS, "Contents/Resources/machines/darwin-arm64/extra"])).toThrow(/extra=/);
+    expect(isMachinePayloadPath("/build/Junto.app", "/build/Junto.app/Contents/Resources/machines/darwin-arm64/bin/node")).toBe(true);
+    expect(isMachinePayloadPath("/build/Junto.app", "/build/Junto.app/Contents/MacOS/Junto")).toBe(false);
+    expect(isMachinePayloadPath("/build/Junto.app", "/build/Contents/Resources/machines/darwin-arm64/bin/node")).toBe(false);
+  });
+
+  it("checks machine payload bytes independently of the desktop runtime signatures", async () => {
+    const app = await mkdtemp(path.join(tmpdir(), "junto-payload-audit-"));
+    try {
+      const bundle = path.join(app, "Contents/Resources/machines/linux-x64");
+      await mkdir(path.join(bundle, "bin"), { recursive: true });
+      await mkdir(path.join(bundle, "core"));
+      for (const file of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(path.join(bundle, file), "payload");
+      for (const file of ["bin/node", "bin/junto"]) await chmod(path.join(bundle, file), 0o755);
+      await writeFile(path.join(bundle, "manifest.json"), JSON.stringify({ build: "a".repeat(64), target: "linux-x64", node: "26.10.0", appVersion: "1", files: await machineBundleFiles(bundle) }));
+      await expect(auditMachinePayloads(app)).resolves.toBeUndefined();
+      await writeFile(path.join(bundle, "core/junto.cjs"), "changed payload");
+      await expect(auditMachinePayloads(app)).rejects.toThrow(/files do not match/);
+    } finally { await rm(app, { recursive: true, force: true }); }
+  });
+
   it("pins 24 Mach-O objects and only the four exact Electron JIT roles", () => {
     expect(MACOS_RUNTIME_POLICY.machO).toHaveLength(24);
     expect(

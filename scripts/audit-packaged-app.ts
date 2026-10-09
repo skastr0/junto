@@ -28,6 +28,8 @@ import rawPolicy from "./package-security-policy.json";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 import { auditRetiredStateRuntimeBundle } from "./audit-retired-state-signatures";
 import { validateRawAsarArchive } from "./package-runtime-provenance";
+import { MACHINE_PAYLOAD_MACHO_PATHS } from "./machine-payloads.mjs";
+import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -649,7 +651,8 @@ export const validateMachOInventory = (
   actualPaths: ReadonlyArray<string>,
   policy: MacOSRuntimePolicy = MACOS_RUNTIME_POLICY,
 ): void => {
-  const expected = policy.machO.map((entry) => entry.path).sort();
+  const hasMachinePayload = actualPaths.some(entry => entry.startsWith("Contents/Resources/machines/"));
+  const expected = [...policy.machO.map((entry) => entry.path), ...(hasMachinePayload ? MACHINE_PAYLOAD_MACHO_PATHS : [])].sort();
   const actual = [...actualPaths].sort();
   const missing = expected.filter((entry) => !actual.includes(entry));
   const extra = actual.filter((entry) => !expected.includes(entry));
@@ -865,10 +868,12 @@ const auditMachOObjects = async (
 ): Promise<PackageAuditReceipt["machO"]> => {
   const actualPaths = await enumerateMachOPaths(appPath);
   validateMachOInventory(actualPaths, policy);
+  await auditMachinePayloads(appPath);
+  const runtimePaths = actualPaths.filter(entry => !MACHINE_PAYLOAD_MACHO_PATHS.includes(entry));
   const entries = new Map(policy.machO.map((entry) => [entry.path, entry]));
   let maxMinOS: string | undefined;
 
-  for (const relativePath of actualPaths) {
+  for (const relativePath of runtimePaths) {
     const expected = entries.get(relativePath);
     if (expected === undefined) {
       throw new Error("packaged Mach-O path has no signing policy");
@@ -904,12 +909,29 @@ const auditMachOObjects = async (
     throw new Error("packaged Mach-O inventory is empty");
   }
   return {
-    count: actualPaths.length,
+    count: runtimePaths.length,
     maxMinOS,
     jitPaths,
-    emptyEntitlementsCount: actualPaths.length - jitPaths.length,
+    emptyEntitlementsCount: runtimePaths.length - jitPaths.length,
     forbiddenEntitlementsCount: 0,
   };
+};
+
+/** Delivery payloads retain their own modes, checksums and target requirements. */
+export const auditMachinePayloads = async (appPath: string): Promise<void> => {
+  const root = path.join(appPath, "Contents/Resources/machines");
+  try { await lstat(root); }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+  const metadata = await lstat(root);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error("machine payload root must be a directory");
+  for (const entry of await readdir(root)) {
+    if (entry !== "darwin-arm64" && entry !== "linux-x64") throw new Error(`unexpected machine payload: ${entry}`);
+    const manifest = await inspectMachineBundle(path.join(root, entry));
+    if (manifest.target !== entry) throw new Error("machine payload target does not match its directory");
+  }
 };
 
 export const auditPackagedApp = async (
@@ -1011,7 +1033,8 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   const fuses = validateFuseWire(await getCurrentFuseWire(appPath));
   const objects = await enumerateMachOPaths(appPath);
   validateMachOInventory(objects);
-  for (const relative of objects) {
+  await auditMachinePayloads(appPath);
+  for (const relative of objects.filter(entry => !MACHINE_PAYLOAD_MACHO_PATHS.includes(entry))) {
     validateMachOMinimumSystemVersions(
       readMachOMinimumSystemVersions(path.join(appPath, relative)),
       policy.minimumSystemVersion,
