@@ -99,7 +99,7 @@ export interface TimerSchedulerDeps {
 /**
  * When false: sensors still project status/nextFire for UI, but must not
  * consume rising-edge memory or durable cron firing slots, and must not apply
- * effects. Wired from pause plane + station role.
+ * effects. Wired from the canvas play state.
  */
 export interface AutomationGateDeps {
   readonly canAutomateCanvas: (canvasName: string) => boolean;
@@ -569,7 +569,7 @@ const runManualSchedulerFire = async (input: {
     return {
       ok: false,
       message:
-        "Factory must be playing with a station role set before Fire now can run actions",
+        "The canvas must be playing before Fire now can run actions",
     };
   }
   if (result.skipped === "no_deps") {

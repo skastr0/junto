@@ -46,7 +46,6 @@ const fixture = async () => {
   const occupy = makeActorSeatOccupy({
     local: host, localHostId: () => Effect.succeed("local"),
     clientForOccupy: async () => { throw new Error("unexpected remote start"); },
-    remoteProjectionAdmission: () => Effect.void,
     seatEnvironment: () => { entered.resolve(); return environment.promise; },
   });
   const runtime = ManagedRuntime.make(Layer.mergeAll(

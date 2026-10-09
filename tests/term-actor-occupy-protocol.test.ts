@@ -30,8 +30,6 @@ import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 const cleanups: Array<() => Promise<void> | void> = [];
 let restoreHarnessBins: () => void = () => undefined;
 
-/** These tests exercise the wire protocol, not the projection barrier. */
-const passThroughAdmission = () => Effect.void;
 
 const actorSpawnIntent = () => ({
   documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
@@ -104,7 +102,6 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
 
@@ -154,7 +151,6 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
     const spawnIntent = makeManagedSpawnIntent({
@@ -222,7 +218,6 @@ describe("actor occupy protocol (in-process both ends)", () => {
         local: host,
         localHostId: () => Effect.succeed("cc-self"),
         clientForOccupy: async () => client,
-        remoteProjectionAdmission: passThroughAdmission,
         seatEnvironment: noSeatEnvironment,
       });
 
@@ -261,7 +256,6 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
 
@@ -295,7 +289,6 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
     const spec = {
@@ -328,7 +321,6 @@ describe("actor occupy protocol (in-process both ends)", () => {
       local: host,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
     const spec = {

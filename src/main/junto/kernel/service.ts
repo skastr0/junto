@@ -789,13 +789,10 @@ const makeKernelService = (
   // Process-local effect receipts (at-most-once within this runtime).
   const effectReceipts = new Set<string>();
 
-  let cachedStationRole: "" | "command-center" | "remote" = "";
-
   const { canAutomateCanvas, effectDeps } = makeSchedulerProductionEffectDeps({
     pause,
     work,
     run,
-    getStationRole: () => cachedStationRole,
     effectReceipts,
   });
 
@@ -1155,10 +1152,6 @@ const makeKernelService = (
       generationIsActive(generation),
     );
     if (!generationIsActive(generation)) return;
-    cachedStationRole =
-      scope.role === "command-center" || scope.role === "remote"
-        ? scope.role
-        : "";
     const registry =
       scope.role === ""
         ? activeActorRegistry([])
@@ -1506,14 +1499,10 @@ export type SchedulerProductionEffectHost = {
   readonly pause: Pick<PauseShape, "stateFor">;
   readonly work: Pick<WorkShape, "workTaskCreate" | "workSystemMailboxNotify">;
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
-  readonly getStationRole: () => "" | "command-center" | "remote";
   readonly effectReceipts: Set<string>;
 };
 
-/**
- * Production enqueue / inject callbacks. Overseer skips pause only;
- * Command Center and liveGrant remain. Tests must call this, not reconstruct it.
- */
+/** Production enqueue and inject callbacks share the canvas play gate. */
 export const makeSchedulerProductionEffectDeps = (
   host: SchedulerProductionEffectHost,
 ): {
@@ -1521,7 +1510,6 @@ export const makeSchedulerProductionEffectDeps = (
   readonly effectDeps: SchedulerEffectDeps;
 } => {
   const canAutomateCanvas = (canvasName: string): boolean => {
-    if (host.getStationRole() === "") return false;
     return host.pause.stateFor(canvasName).playing;
   };
 
@@ -1536,7 +1524,6 @@ export const makeSchedulerProductionEffectDeps = (
       const admitted = await admitSchedulerEffectAutomation({
         canvasName,
         canAutomateCanvas,
-        stationRole: host.getStationRole(),
         ...(overseer !== undefined ? { overseer } : {}),
       });
       if (!admitted.ok) return admitted;
@@ -1565,8 +1552,6 @@ export const makeSchedulerProductionEffectDeps = (
       const admitted = await admitSchedulerEffectAutomation({
         canvasName,
         canAutomateCanvas,
-        stationRole: host.getStationRole(),
-        requireCommandCenter: true,
         ...(overseer !== undefined ? { overseer } : {}),
       });
       if (!admitted.ok) return admitted;

@@ -324,20 +324,6 @@ const resolveRendererActor = (
       : { ok: true, actor };
   });
 
-const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
-  const settings = yield* SettingsService;
-  const current = yield* settings.get;
-  if (current.station.role !== "command-center") {
-    return yield* Effect.fail(
-      new Error(
-        current.station.role === "remote"
-          ? "A Remote can't edit the canvas — author on the Command Center."
-          : "Station role is unset; authorial canvas mutation is refused until protected topology establishes this installation as Command Center.",
-      ),
-    );
-  }
-});
-
 export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
   const ModelOpenInput = Schema.Struct({ canvas: CanvasName });
@@ -353,7 +339,6 @@ export const registerJuntoIpc = (): void => {
   );
   privilegedIpc.handle(IPC_CHANNELS.modelCommand, (_event, input: unknown) =>
     runMainAuthoring("ipc.model.command", () => AppRuntime.runPromise(Effect.gen(function* () {
-      yield* denyUnlessCommandCenterAuthorial;
       const command = yield* Schema.decodeUnknownEffect(Command)(input, { onExcessProperty: "error" });
       return yield* (yield* ModelService).command(command, "operator");
     }))),
@@ -479,7 +464,6 @@ export const registerJuntoIpc = (): void => {
         async (): Promise<SeatCollaborationAskResult> =>
           AppRuntime.runPromise(
             Effect.gen(function* () {
-              yield* denyUnlessCommandCenterAuthorial;
               const model = yield* ModelService;
               const read = yield* Effect.result(
                 model.canvas(draft.canvas),

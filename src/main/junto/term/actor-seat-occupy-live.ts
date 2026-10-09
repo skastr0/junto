@@ -22,7 +22,6 @@ export const ActorSeatOccupyLive = Layer.effect(
           createAgentSeat: (input) => client.createAgentSeat(input),
         };
       },
-      remoteProjectionAdmission: () => Effect.void,
       seatEnvironment: liveSeatEnvironment,
     });
   }),

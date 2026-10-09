@@ -38,7 +38,7 @@ export type SchedulerFireEvent = {
 };
 
 export type SchedulerEffectDeps = {
-  /** Per-canvas: playing + station role configured. */
+  /** The canvas is playing. */
   readonly canAutomateCanvas: (canvasName: string) => boolean;
   /** Return true if this fireKey+edgeId was already applied. */
   readonly hasReceipt: (fireKey: string, edgeId: string) => boolean;
@@ -47,7 +47,7 @@ export type SchedulerEffectDeps = {
     readonly canvasName: string;
     readonly sinkNodeId: string;
     readonly payload: EffectTasksCreate;
-    /** Admitted overseer fire. Pause does not admit; role checks remain. */
+    /** Admitted overseer fire; live authority is rechecked. */
     readonly overseer?: OverseerFireAuthority;
   }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
   /** Optional — inject prompt into agent mailbox. Absent = inject effects no-op. */
@@ -55,7 +55,7 @@ export type SchedulerEffectDeps = {
     readonly canvasName: string;
     readonly agentNodeId: string;
     readonly text: string;
-    /** Admitted overseer fire. Pause does not admit; role checks remain. */
+    /** Admitted overseer fire; live authority is rechecked. */
     readonly overseer?: OverseerFireAuthority;
   }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
 };
@@ -70,31 +70,16 @@ export const setSchedulerEffectDeps = (
 
 export const __setSchedulerEffectDepsForTest = setSchedulerEffectDeps;
 
-/**
- * Production enqueue/inject admission. Overseer skips pause only; station
- * role and Command Center inject remain. liveGrant is rechecked here.
- */
+/** Overseer authority is rechecked before every effect. */
 export const admitSchedulerEffectAutomation = async (input: {
   readonly canvasName: string;
   readonly canAutomateCanvas: (canvasName: string) => boolean;
-  readonly stationRole: "" | "command-center" | "remote";
   readonly overseer?: OverseerFireAuthority;
-  readonly requireCommandCenter?: boolean;
 }): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
   if (input.overseer === undefined) {
-    if (!input.canAutomateCanvas(input.canvasName)) {
-      return { ok: false, message: "canvas paused or station role unset" };
-    }
+    if (!input.canAutomateCanvas(input.canvasName)) return { ok: false, message: "canvas is paused" };
   } else if (!(await input.overseer.liveGrant())) {
     return { ok: false, message: "overseer grant revoked" };
-  } else if (input.stationRole === "") {
-    return { ok: false, message: "station role unset" };
-  }
-  if (
-    input.requireCommandCenter === true &&
-    input.stationRole !== "command-center"
-  ) {
-    return { ok: false, message: "inject_prompt requires Command Center" };
   }
   return { ok: true };
 };

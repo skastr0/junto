@@ -530,7 +530,6 @@ describe("the launch applies it", () => {
       clientForOccupy: async () => {
         throw new Error("local only");
       },
-      remoteProjectionAdmission: () => Effect.void,
       seatEnvironment,
     });
     return { fake, host, occupy };

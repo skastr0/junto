@@ -17,10 +17,7 @@ import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer"
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
 import { rememberRemoteSeatState } from "./remote-seat-state";
-import {
-  ActorSeatOccupy,
-  ActorSeatProjectionPending,
-} from "./actor-seat-occupy";
+import { ActorSeatOccupy } from "./actor-seat-occupy";
 import { AppRuntime } from "../../runtime";
 import { liveSeatEnvironment } from "../region-env/live";
 import { Effect } from "effect";
@@ -242,10 +239,7 @@ export const registerTerminalIpc = (
       return yield* seats.occupy({ bindingId: node.bindingId, harness: node.harness,
         agentKey: node.agentKey, hostId: node.host, spawnIntent, canvasName: input.canvas, nodeId: node.id,
         seatRect: { x: node.x, y: node.y, width: node.width, height: node.height }, label: node.label,
-      }).pipe(Effect.catchIf(
-        (error): error is ActorSeatProjectionPending => error instanceof ActorSeatProjectionPending,
-        (pending) => Effect.fail(new Error(pending.message)),
-      ));
+      });
     }));
   });
 

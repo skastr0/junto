@@ -1,11 +1,5 @@
-/**
- * Actor seat WHEN.
- *
- * This service decides admission and placement only. Process mechanics stay in
- * TerminalSeatProcess, supplied for each call as the selected local or Remote
- * HOW. No process implementation belongs in a root layer here.
- */
-import { Context, Effect, Layer, Schema } from "effect";
+/** Seat admission selects the process implementation for its machine. */
+import { Context, Effect, Layer } from "effect";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import {
@@ -30,23 +24,6 @@ export type ActorOccupySpec = OccupySpec & {
   readonly hostId?: string;
 };
 
-/**
- * Typed non-started admission verdict for a Remote-placed actor seat. The
- * destination has not acknowledged the projection this seat rides on, so the
- * actor is truthfully not started — the UI surfaces the message and the
- * kernel wake path treats it like any other occupy failure: retry later.
- */
-export class ActorSeatProjectionPending extends Schema.TaggedError<ActorSeatProjectionPending>()(
-  "ActorSeatProjectionPending",
-  {
-    hostId: Schema.String,
-    bindingId: Schema.String,
-    reason: Schema.Literals(["remote-unavailable", "not-acknowledged",
-    "seat-not-projected",]),
-    message: Schema.String,
-  },
-) {}
-
 export interface ActorSeatOccupyApi {
   readonly occupy: (
     spec: ActorOccupySpec,
@@ -54,7 +31,6 @@ export interface ActorSeatOccupyApi {
     TerminalSessionSummary,
     | SeatAlreadyOccupiedError
     | SeatVacantError
-    | ActorSeatProjectionPending
     | Error
   >;
   readonly occupancy: (
@@ -68,110 +44,15 @@ export class ActorSeatOccupy extends Context.Service<
   ActorSeatOccupyApi
 >()("@junto/ActorSeatOccupy") {}
 
-/** Exact projection identity the destination must acknowledge. */
-export type ProjectionAdmissionRef = {
-  readonly generation: string;
-  readonly contentSha256: string;
-};
-
-export type ProjectionAdmissionOutcome =
-  | { readonly ok: true; readonly acked: ProjectionAdmissionRef }
-  | {
-      readonly ok: false;
-      readonly reason: "remote-unavailable" | "not-acknowledged";
-      readonly message: string;
-    };
-
-/**
- * Narrow ports for the Remote admission barrier. The live layer wires the
- * fleet propagation plane in; the decision logic stays testable here.
- */
-export type RemoteProjectionAdmissionPorts = {
-  /** Only a configured Command Center authors projections to await. */
-  readonly localRole: () => Effect.Effect<
-    "command-center" | "remote" | undefined,
-    Error
-  >;
-  /** Only enrolled fleet hosts have projection semantics; others pass. */
-  readonly isFleetTarget: (hostId: string) => Effect.Effect<boolean, Error>;
-  /** Compile the desired projection from committed authorial state only. */
-  readonly compileDesired: (
-    hostId: string,
-  ) => Effect.Effect<ProjectionAdmissionRef, Error>;
-  /** Await an acknowledgement covering exactly this desired reference. */
-  readonly awaitApplied: (
-    hostId: string,
-    desired: ProjectionAdmissionRef,
-  ) => Effect.Effect<ProjectionAdmissionOutcome, Error>;
-  /** Whether the acknowledged generation projects this seat onto the host. */
-  readonly seatProjected: (
-    acked: ProjectionAdmissionRef,
-    hostId: string,
-    bindingId: string,
-  ) => Effect.Effect<boolean, Error>;
-};
-
-export type RemoteProjectionAdmission = (input: {
-  readonly hostId: string;
-  readonly bindingId: string;
-}) => Effect.Effect<void, ActorSeatProjectionPending | Error>;
-
-/**
- * Admission barrier for occupying an actor seat placed on a Remote host:
- * the destination must have acknowledged a projection, compiled from the
- * committed authorial state, that contains this exact seat. An already
- * acknowledged covering projection short-circuits inside `awaitApplied`; a
- * destination that is offline or acknowledges only older generations yields
- * a typed pending verdict and the actor is never started early.
- */
-export const makeRemoteProjectionAdmission = (
-  ports: RemoteProjectionAdmissionPorts,
-): RemoteProjectionAdmission =>
-  ({ hostId, bindingId }) =>
-    Effect.gen(function* () {
-      if ((yield* ports.localRole()) !== "command-center") return;
-      if (!(yield* ports.isFleetTarget(hostId))) return;
-      const desired = yield* ports.compileDesired(hostId);
-      const outcome = yield* ports.awaitApplied(hostId, desired);
-      if (!outcome.ok) {
-        return yield* ActorSeatProjectionPending.make({
-          hostId,
-          bindingId,
-          reason: outcome.reason,
-          message: outcome.message,
-        });
-      }
-      if (!(yield* ports.seatProjected(outcome.acked, hostId, bindingId))) {
-        return yield* ActorSeatProjectionPending.make({
-          hostId,
-          bindingId,
-          reason: "seat-not-projected",
-          message:
-            "the acknowledged projection does not place this agent seat on the requested host",
-        });
-      }
-    });
-
 export type ActorSeatOccupyDeps = {
   readonly local: LocalSessionHost;
   /** Resolve this installation's durable identity at the time of each call. */
   readonly localHostId: () => Effect.Effect<string | undefined, Error>;
-  /** Directory seam only. The returned client is the selected Remote HOW. */
+  /** The process client on the selected machine. */
   readonly clientForOccupy: (
     hostId: string,
   ) => Promise<RemoteSeatProcessClient>;
-  /**
-   * Causal gate ahead of Remote occupation. Local seats never pass through
-   * it. Required so unplugging the barrier is a type error, never a silent
-   * fail-open; a caller with no projection semantics passes an explicit
-   * pass-through.
-   */
-  readonly remoteProjectionAdmission: RemoteProjectionAdmission;
-  /**
-   * Resolves a local seat's region environment at launch. Required for the
-   * same reason as the barrier above: a caller with no canvas passes
-   * `noSeatEnvironment` on purpose rather than leaving it out by accident.
-   */
+  /** Resolve the seat environment on its machine at launch. */
   readonly seatEnvironment: SeatEnvironmentResolver;
 };
 
@@ -262,14 +143,6 @@ export const makeActorSeatOccupy = (
         const localHostId = normalizeDurableHostId(yield* deps.localHostId());
         const isLocal =
           targetHostId === "local" || targetHostId === localHostId;
-        // Remote placement admits through the projection barrier before any
-        // process transport opens; local seats never touch the barrier.
-        if (!isLocal) {
-          yield* deps.remoteProjectionAdmission({
-            hostId: targetHostId,
-            bindingId: spec.bindingId,
-          });
-        }
         const implementation = isLocal
           ? makeLocalSeatProcess(deps.local, deps.seatEnvironment)
           : makeRemoteSeatProcess(

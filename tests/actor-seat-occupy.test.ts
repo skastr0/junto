@@ -54,7 +54,6 @@ const hostWith = (
 };
 
 /** These tests exercise process selection, not the projection barrier. */
-const passThroughAdmission = () => Effect.void;
 
 const actorSpec = (bindingId: string, hostId?: string): ActorOccupySpec => ({
   bindingId,
@@ -133,7 +132,6 @@ describe("ActorSeatOccupy", () => {
       local: host,
       localHostId,
       clientForOccupy,
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
 
@@ -199,7 +197,6 @@ describe("ActorSeatOccupy", () => {
       local: host,
       localHostId,
       clientForOccupy,
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
 
@@ -245,7 +242,6 @@ describe("ActorSeatOccupy", () => {
         get: async () => live,
         createAgentSeat,
       }),
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
 
@@ -280,7 +276,6 @@ describe("ActorSeatOccupy", () => {
         get: async () => live,
         createAgentSeat,
       }),
-      remoteProjectionAdmission: passThroughAdmission,
       seatEnvironment: noSeatEnvironment,
     });
 
