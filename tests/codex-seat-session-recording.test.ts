@@ -11,7 +11,7 @@ import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { Command } from "../src/shared/model";
 
 const app = vi.hoisted(() => ({ runPromise: vi.fn() }));
-vi.mock("../src/main/runtime", () => ({ AppRuntime: app }));
+vi.mock("../src/main/core-runner", () => ({ coreRunner: app }));
 import { SeatSessionCapture } from "../src/main/junto/term/seat-session-capture";
 
 it("captures a Codex rollout after offboard and records its id through the runtime command into SQLite", async () => {
