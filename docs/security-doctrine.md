@@ -123,8 +123,12 @@ Each identity fact has one source: this machine's name in
 or recreating a route cannot create or replace a peer binding.
 
 A machine may change its own name only before any peer has ever been pinned,
-including a retired peer, and while no seat or other durable reference names
-it. A pinned peer's name and installation id never change at either end.
+including a retired peer, and while no canvas has advanced beyond its first
+count (`seq = 0`). Check both conditions in the rename transaction. The canvas
+count covers every kind of authored reference, including folder maps and
+environment restrictions. A fresh, empty seed permits naming. Migrated
+authored canvases retain their advanced counts. A pinned peer's name and
+installation id never change at either end.
 Retirement retains that binding: a different installation under the retired
 name is refused. Rename and replacement under a used name require a later
 explicit design.
