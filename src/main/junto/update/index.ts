@@ -14,14 +14,6 @@ export {
   type AdmitMacAppCommand,
   type AdmitStagedMacAppOptions,
 } from "./admit-mac-app";
-export {
-  planFleetRemoteUpdates,
-  remotesMayReceiveFeedVersion,
-  sequentialAutoDeployHostIds,
-  type FleetRemoteObservation,
-  type FleetUpdatePlan,
-  type FleetUpdatePlanItem,
-} from "./fleet-reconciler";
 export { UpdateError, updateError } from "./errors";
 export {
   captureInstallAuthority,
