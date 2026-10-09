@@ -1,7 +1,6 @@
 # Junto Linux operator runbook
 
-**Status:** Ubuntu 24.04 x64 desktop alpha. Fleet Remote is unreleased,
-experimental and feature-gated, with separate Beta qualification.
+**Status:** Ubuntu 24.04 x64 desktop alpha.
 
 An official desktop alpha uses a signed rootless archive and managed
 owner-local installation. A source build can run as an unmanaged desktop;
@@ -12,7 +11,7 @@ particular candidate is already published.
 ## Before first install
 
 Follow the exact commands in the
-[desktop install guide](linux-command-center-alpha.md#install-an-official-desktop-alpha)
+[desktop install guide](linux-desktop-alpha.md#install-an-official-desktop-alpha)
 and the current [Linux desktop bootstrap guide](linux-desktop-bootstrap.md).
 Obtain the archive and signed descriptor through the official
 download page. Authenticate first install with an independently obtained
@@ -32,7 +31,7 @@ Run everything as the intended ordinary user. Missing host libraries or a
 blocked Chromium sandbox require separately reviewed host preparation. The
 app never invokes a package manager, loads AppArmor policy, enables lingering,
 collects administrator credentials or retries through a privileged fallback.
-See the [desktop sandbox guide](linux-command-center-alpha.md#boundary).
+See the [desktop sandbox guide](linux-desktop-alpha.md#boundary).
 
 ## Automatic desktop updates
 
@@ -128,25 +127,4 @@ it, using the exact reviewed instructions. If an intact database is rejected,
 retain the error and repair forward with a newer signed release that supports
 its schema. Do not reconstruct, replace or delete state files.
 
-## Separate Fleet Remote contract
-
-Desktop alpha does not enable or qualify Fleet Remote. When that gated surface
-is qualified, the operator explicitly selects the role; role is never inferred
-from hardware, a window or a service. Remote runs the packaged Node runtime
-under the Station user's service manager, with no Electron, Chromium, display
-server, Xvfb, xauth or mcookie prerequisite. Browser automation remains
-unavailable in the first Remote Beta.
-
-Remote install/update must retain the same ordinary-user authority and
-single-store rules. Its user-service lifecycle, boot readiness, fixed OpenSSH
-Station operations and two-installation Work convergence require their own
-qualification. Desktop launch and update
-receipts do not substitute for those proofs.
-
-Optional lingering controls only the user manager's login lifetime. Core Node
-health is independent of a future browser sidecar's display, sandbox and
-secret-storage requirements. No Remote request can grant administrator
-authority, supply a shell body or forward arbitrary control sockets.
-
-See the [support matrix](linux-v1-support-matrix.md) and
-[production contract](linux-production-contract.md) for the full boundary.
+See the [support matrix](linux-v1-support-matrix.md) for the full boundary.

@@ -1,9 +1,8 @@
 # Linux support matrix
 
-**Status:** desktop alpha is the official Linux release target. Fleet Remote
-is experimental, feature-gated and not Beta-qualified. A build or CI pass is
-not an assertion that a signed release has passed installed-update checks or
-been published.
+**Status:** desktop alpha is the official Linux release target. A build or CI
+pass is not an assertion that a signed release has passed installed-update
+checks or been published.
 
 ## Desktop alpha
 
@@ -19,30 +18,12 @@ been published.
 | Updates | Signed `/linux/x64/alpha.json`; automatic check/download, explicit Restart | Managed official installations only |
 | Source builds / loose archives | Build and launch locally | Do not gain managed update eligibility by extraction |
 | State | One app-owned `~/.junto/state/junto.db` | Install/update never copies, replaces or separately opens it |
-| Maturity | Alpha | Does not imply Fleet Beta or production qualification |
+| Maturity | Alpha | Does not imply production qualification |
 
-Use the [desktop guide](linux-command-center-alpha.md) and
+Use the [desktop guide](linux-desktop-alpha.md) and
 [bootstrap guide](linux-desktop-bootstrap.md) for independently authenticated
 first install, source builds and sandbox preparation, and the
 [operator runbook](linux-operator-runbook.md) for updates and recovery.
-
-## Gated Fleet Remote Beta target
-
-| Surface | Target | Current boundary |
-| --- | --- | --- |
-| Core Remote runtime | Packaged Node, without Electron, Chromium, display server, Xvfb, xauth or mcookie | Candidate implementation; separate native signed qualification required |
-| Supervision | Station-user service manager | No root-owned launcher; lifecycle proof required |
-| Readiness | Current invocation, owner-local controls and SQLite readiness | Stale receipts or SSH success are insufficient |
-| Login persistence | Optional externally configured user lingering | Never enabled by Junto |
-| Host preflight | Read-only per-capability findings | Unknown security facts fail closed |
-| Host preparation | Optional reviewed actions outside the app | Capability-specific degradation where safe |
-| Browser automation | Unavailable in the first Remote Beta | Display/sandbox/secret-storage gaps do not block core Node health |
-| Station API | Five bounded verbs over OpenSSH | Real two-installation qualification required |
-| Work control | Owner-local Unix socket with process-bound identity | Exact rootless payload proof required |
-| Maturity | Unreleased, experimental and feature-gated | Desktop alpha evidence grants no Fleet qualification |
-
-Fleet contracts are in [host preparation](linux-host-preparation.md) and the
-[production contract](linux-production-contract.md).
 
 ## Outside the qualified envelope
 

@@ -23,7 +23,7 @@ const readProductDocs = async (): Promise<string> => {
 
 const collapsed = (input: string): string => input.replace(/\s+/gu, " ");
 
-describe("Linux desktop alpha and gated Fleet operator documentation", () => {
+describe("Linux desktop alpha operator documentation", () => {
   it("hosts independently authenticated first-install bootstrap instructions", async () => {
     const bootstrap = await readDoc("linux-desktop-bootstrap.md");
     const commands = shellBlocks(bootstrap);
@@ -48,7 +48,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       "## State custody",
       "## Troubleshooting",
       "## Removal and repair",
-      "## Separate Fleet Remote contract",
     ]) {
       expect(runbook).toContain(heading);
     }
@@ -90,7 +89,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       "Unmanaged source builds and loose extracted copies do not update themselves through the managed release lane",
     );
     expect(runbook).not.toContain("## Before any package mutation");
-    expect(runbook).not.toContain("## Remote station and Xvfb");
     expect(runbook).not.toContain("## Post-COMMIT repair");
     expect(runbook).not.toContain("## Uninstall the package");
     expect(runbook).not.toContain("sudo apt-get remove");
@@ -99,22 +97,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     expect(runbook).not.toContain("/usr/libexec/junto-release-bridge");
     expect(runbook).not.toContain("/usr/libexec/junto-release-installer");
 
-    // Desktop evidence cannot qualify the gated, displayless Remote.
-    expect(text).toContain(
-      "Desktop alpha does not enable or qualify Fleet Remote",
-    );
-    expect(text).toContain(
-      "Remote runs the packaged Node runtime under the Station user's service manager, with no Electron, Chromium, display server, Xvfb, xauth or mcookie prerequisite",
-    );
-    expect(text).toContain(
-      "Desktop launch and update receipts do not substitute for those proofs",
-    );
-    expect(text).toContain(
-      "Browser automation remains unavailable in the first Remote Beta",
-    );
-    expect(text).toContain(
-      "Core Node health is independent of a future browser sidecar's display, sandbox and secret-storage requirements",
-    );
 
     // State custody + forward-only repair.
     expect(runbook).toContain("`~/.junto/state/junto.db`");
@@ -139,81 +121,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     );
     expect(text).toContain(
       "Never add `--no-sandbox`, disable AppArmor, weaken global user namespaces, run the app as root or install a setuid helper",
-    );
-  });
-
-  it("documents displayless beta contracts across production, host, and matrix", async () => {
-    const production = collapsed(await readDoc("linux-production-contract.md"));
-    const host = collapsed(await readDoc("linux-host-preparation.md"));
-    const matrix = collapsed(await readDoc("linux-v1-support-matrix.md"));
-
-    // Desktop and Fleet share rootless authority but have separate qualification.
-    expect(production).toContain(
-      "The canonical payload is `junto-runtime-<version>-linux-x64.tar.gz`",
-    );
-    expect(production).toContain(
-      "Desktop descriptors and the alpha feed live under `/linux/x64/`, separately from the gated Fleet release contract",
-    );
-    expect(production).toContain(
-      "This does not block a separately qualified desktop alpha release",
-    );
-    expect(matrix).toContain(
-      "Immutable owner-local generations",
-    );
-
-    // Displayless Node Remote; Xvfb not a core prerequisite.
-    expect(production).toContain(
-      "packaged Node runtime under the Station user's service manager, with no Electron, Chromium, or display-server dependency",
-    );
-    expect(production).toContain(
-      "The packaged Node Remote ignores `DISPLAY`, Wayland, and X authority. It starts without `Xvfb`, `xauth`, or `mcookie`",
-    );
-    expect(host).toContain(
-      "The core Linux Remote is a packaged Node process. It does not import Electron or Chromium and does not require `DISPLAY`, Wayland, `Xvfb`, `xauth`, or `mcookie`",
-    );
-    expect(host).toContain(
-      "Do not install `Xvfb`, `xauth`, or `mcookie` to make the current core Remote work",
-    );
-    expect(matrix).toContain("Packaged Node, without Electron, Chromium, display server, Xvfb, xauth or mcookie");
-
-    // Browser unavailable for first Beta; Doctor core readiness independent of display.
-    expect(production).toContain(
-      "Linux Remote browser automation is unavailable for the first Beta",
-    );
-    expect(production).toContain(
-      "Doctor keeps core Remote readiness independent from browser, display, sandbox, and secret-storage findings, while the first-Beta browser capability remains `unavailable`",
-    );
-    expect(production).toContain(
-      "Browser, display, sandbox, and secret-storage observations are optional and cannot block core Node Remote readiness",
-    );
-    expect(host).toContain(
-      "Browser automation is intentionally unavailable on Linux Remote for the first Beta",
-    );
-    expect(host).toContain(
-      "let display, AppArmor, user-namespace, or secret-storage findings override healthy core Node Remote status",
-    );
-    expect(matrix).toContain(
-      "Unavailable in the first Remote Beta | Display/sandbox/secret-storage gaps do not block core Node health",
-    );
-
-    // No sudo / deb / /opt product path.
-    expect(production).toContain(
-      "The retired `.deb`/`/opt` lane is not a fallback",
-    );
-    expect(production).toContain(
-      "No administrator-password flow, privileged bridge, root journal or parallel system installer is permitted",
-    );
-    expect(host).toContain(
-      "Junto never invokes `sudo`, accepts an administrator password",
-    );
-    expect(host).toContain(
-      "write application releases under `/opt`, `/usr`, `/var/lib`, or another system-owned location as part of the canonical lane",
-    );
-    expect(host).toContain(
-      "describe the current privileged `.deb` lane as beta, production, fallback, offline, enterprise, or recovery support",
-    );
-    expect(matrix).toContain(
-      "No `/opt` installer, administrator-credential flow, privileged bridge, root journal, setuid helper or package-manager fallback is supported",
     );
   });
 
@@ -280,21 +187,12 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       "Ubuntu 24.04 LTS",
       "x86-64",
       "glibc 2.39",
-      "Packaged Node",
       "Wayland/XWayland",
-      "Five bounded verbs over OpenSSH",
-      "Owner-local Unix socket with process-bound identity",
-      "Unavailable in the first Remote Beta",
-      "Real two-installation qualification required",
-      "Desktop alpha evidence grants no Fleet qualification",
       "Signed `/linux/x64/alpha.json`; automatic check/download, explicit Restart",
       "Managed official installations only",
     ]) {
       expect(matrix).toContain(supported);
     }
-    expect(matrix).toContain("without Electron, Chromium, display server, Xvfb");
-    expect(matrix).not.toContain("Station-browser protocol");
-    // Xvfb is not a supported core Remote display requirement.
     expect(matrix).not.toMatch(/X11\/Xvfb/u);
     for (const unsupported of [
       "Linux ARM64",

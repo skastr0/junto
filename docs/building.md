@@ -53,4 +53,4 @@ Official builds use the `ship` feature profile. Each feature in [`src/shared/fea
 
 A build override takes `0`, `1` or `experimental` (for example `JUNTO_SEAT_AWARENESS=experimental`). Only a feature whose catalog entry declares an `experimental` block (with its Settings title and description) may take the middle tier. The build refuses the tier for any other feature. Code reads a tiered feature through one resolved predicate, `featureOn(key, optIns)`: compiled, and either on or turned on by the operator. It never reads the tier alone. The build receipt lists the experimental features separately from overrides. Its fingerprint writes `1` for on, `x` for experimental and `0` for off.
 
-Linux desktop: see [the Linux desktop guide](linux-command-center-alpha.md) and [the bootstrap guide](linux-desktop-bootstrap.md).
+Linux desktop: see [the Linux desktop guide](linux-desktop-alpha.md) and [the bootstrap guide](linux-desktop-bootstrap.md).

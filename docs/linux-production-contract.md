@@ -10,7 +10,7 @@ distributions are outside v1.
 Linux desktop alpha uses the existing signed rootless archive, managed
 owner-local generations and automatic signed updates with explicit Restart.
 It can be published after desktop qualification, without claiming Fleet Beta
-or production readiness. The [desktop guide](linux-command-center-alpha.md),
+or production readiness. The [desktop guide](linux-desktop-alpha.md),
 the release-key policy and CI lane kept in the private distribution repository
 define those exact gates.
 

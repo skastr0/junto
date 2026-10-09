@@ -9,7 +9,7 @@ const readProfile = (): Promise<string> =>
 
 const readDoc = (): Promise<string> =>
   readFile(
-    new URL("../docs/linux-command-center-alpha.md", import.meta.url),
+    new URL("../docs/linux-desktop-alpha.md", import.meta.url),
     "utf8",
   );
 
@@ -28,7 +28,7 @@ profile junto @{HOME}/.local/opt/junto-alpha/*/junto flags=(unconfined) {
 }
 `;
 
-describe("Linux Command Center Alpha AppArmor boundary", () => {
+describe("Linux desktop alpha AppArmor boundary", () => {
   it("keeps the reviewed profile exact and grants only user namespaces", async () => {
     const profile = await readProfile();
 
@@ -69,10 +69,7 @@ describe("Linux Command Center Alpha AppArmor boundary", () => {
       "Linux desktop alpha targets Ubuntu 24.04 LTS x86-64 with glibc 2.39",
     );
     expect(text).toContain(
-      "Fleet management and its headless Remote package remain experimental, unreleased and feature-gated",
-    );
-    expect(text).toContain(
-      "Desktop qualification does not promote Fleet to Beta or either surface to production",
+      "Desktop qualification is not production qualification",
     );
     expect(text).toContain(
       "Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor",

@@ -3,9 +3,8 @@
 **Status:** Linux desktop alpha targets Ubuntu 24.04 LTS x86-64 with glibc 2.39.
 Official releases use the existing rootless archive and signed update feed.
 Publication requires exact candidate qualification; this guide does not assert
-that a qualified build is already serving. Fleet management and its headless
-Remote package remain experimental, unreleased and feature-gated. Desktop
-qualification does not promote Fleet to Beta or either surface to production.
+that a qualified build is already serving. Desktop qualification is not
+production qualification.
 
 ## Install an official desktop alpha
 
@@ -131,8 +130,7 @@ The build emits a relocatable desktop directory and `.tar.gz` archive under
 third-party notices. It needs no billing or release credentials and uploads
 nothing. A local archive is not an official signed release. Official desktop
 publication uses the signed descriptor and source binding in
-the release key policy kept in the private distribution repository. Fleet manifest/checksum
-verification is a separate gated release contract.
+the release key policy kept in the private distribution repository.
 
 Launch the extracted `junto` executable in your desktop session.
 Source builds remain unmanaged and do not consume the official updater.
