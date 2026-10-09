@@ -11,6 +11,7 @@ import {
   type BrowserProfileWipeInput,
 } from "@shared/ipc";
 import { isValidProfileId } from "@shared/browser";
+import { isThisMachine } from "@shared/machine-identity";
 import {
   BROWSER_MAX_REF_BYTES,
   isUtf8WithinLimit,
@@ -152,7 +153,12 @@ export const registerBrowserIpc = (
     if (!browserSessions.isUiAdmissionCurrent(admission)) {
       return browserUiShuttingDown();
     }
-    if (target.ok && target.data.hostId !== "local") {
+    const machineName = browserSessions.machineName();
+    if (
+      target.ok &&
+      machineName !== undefined &&
+      !isThisMachine(target.data.hostId, machineName)
+    ) {
       try {
         await browserSessions.retainUiIngress(
           "host-activation",

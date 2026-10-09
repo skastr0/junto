@@ -164,7 +164,7 @@ describe("browser IPC bounds ingress", () => {
         ref: PAGE_REF,
         nodeId: "page-1",
         url: "https://example.com",
-        hostId: "box-c79mgja6",
+        hostId: "atlas",
         profile: "default",
       },
     });
@@ -176,7 +176,7 @@ describe("browser IPC bounds ingress", () => {
 
     await invoke(IPC_CHANNELS.browserOpen, { ref: PAGE_REF });
 
-    expect(activateHost).toHaveBeenCalledWith("box-c79mgja6");
+    expect(activateHost).toHaveBeenCalledWith("atlas");
     expect(open).toHaveBeenCalledOnce();
     expect(activateHost.mock.invocationCallOrder[0]).toBeLessThan(
       open.mock.invocationCallOrder[0]!,

@@ -89,15 +89,14 @@ describe("browser startup recovery gate", () => {
     expect(host).toBeGreaterThan(supervised);
   });
 
-  it("does not infer Linux Remote supervision for a Command Center with the unit installed", () => {
+  it("asks only the machine's own preference before seeking supervision", () => {
     const ensureSupervised = indexSrc.slice(
       indexSrc.indexOf("const ensureSupervised ="),
       indexSrc.indexOf("const supervisor = await loadStationSupervisor();"),
     );
-    expect(indexSrc).toContain('if (process.platform === "linux")');
-    expect(indexSrc).not.toContain('process.platform === "linux" && !headless');
-    expect(indexSrc).toContain('station.role !== "remote"');
-    expect(indexSrc).toContain("station.supervisedPreferred !== true");
+    expect(ensureSupervised).toContain("if (!machine.supervisedPreferred) return true;");
+    expect(ensureSupervised).not.toContain("process.platform");
+    expect(ensureSupervised).not.toContain("role");
     expect(ensureSupervised).toContain("await AppRuntime.runPromise(");
     expect(ensureSupervised).toContain(
       "Effect.flatMap(SettingsService, (settings) => settings.get)",
