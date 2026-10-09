@@ -363,6 +363,26 @@ resume, in order:
    as is the seats start handler (`remote-seats`): not to be built or run as
    they are.
 
+What blocks run A, read on the paused tree at `a90cc6891`:
+
+- The windowless program is not on main. `scripts/build-machine.ts` builds
+  the bundle from `src/main/headless.ts`, which is uncommitted, so no bundle
+  can be built from main. Main plus the uncommitted root, link service and
+  link session typechecks clean and the session's ten tests pass. Nothing has
+  ever started it; no test covers the root, the listener or the link service.
+- The bundle does not carry `scripts/unix-peer-pid.py`. Both sockets admit a
+  caller only after that helper names its process, and the root looks for it
+  in the bundle's `bin`. Read, not run: a bundle built as things stand would
+  refuse every command and every link.
+- `remote-core`'s own list, not checked by the lead: the schema probe on a
+  fresh home, and closing the SSH process when a link ends.
+
+Run A does not wait for the whole unit suite. It needs typecheck clean on a
+clean export (true at `a90cc6891`) and the link, owner and install tests
+green; none of the 17 failures is on its path, and both ends use a home of
+their own. The name window still closes only on the full gate, and until
+then nothing built from main touches a home that holds data.
+
 Left on the mini: an empty `~/.junto` with empty `locks` and `machine`
 directories from an install attempt. No service, no process, no sandbox.
 
