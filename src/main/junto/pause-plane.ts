@@ -19,6 +19,10 @@ import { FactoryPauseRepository } from "./pause/repository";
 // per launch. Seats still start only when work arrives for them. A canvas
 // never played keeps the one-time first-play confirmation. Pause is
 // canvas-wide only.
+//
+// A canvas held as a copy is another machine's to play or pause. Launch
+// leaves it as the last copy said: a machine that starts with no link must
+// not play what the operator paused.
 
 /** A pause state mutation that could not land durably. */
 export class PauseStateError extends Schema.TaggedError<PauseStateError>()(
@@ -61,8 +65,9 @@ type PlaneMemory = {
 
 export interface PausePlaneOptions {
   /**
-   * Play state at start. "play" plays every canvas that has ever played,
-   * durably, before any reader sees it (the Command Center launch law);
+   * Play state at start. "play" plays every canvas this machine edits that
+   * has ever played, durably, before any reader sees it (the Command Center
+   * launch law); a canvas held as a copy keeps what its last copy said;
    * "keep" restores the record (headless Remote stations, suites).
    */
   readonly launch: "keep" | "play";
@@ -99,9 +104,19 @@ export const makePausePlaneLive = (options: PausePlaneOptions) => Layer.effect(
       }
       let canvases = read.success;
       if (options.launch === "play") {
+        const copies = yield* Effect.result(repository.copies);
+        if (Result.isFailure(copies)) {
+          // Fail closed: which canvases are copies is unknown, so none is played.
+          const fault = `copies unreadable at launch: ${copies.failure.message}`;
+          yield* Effect.sync(() =>
+            console.error(`[pause] ${fault} — every canvas reads paused; writes refused`),
+          );
+          yield* Ref.update(memory, (current) => ({ ...current, fault }));
+          return;
+        }
         const resumed = new Map(canvases);
         for (const [canvas, state] of canvases) {
-          if (state.playing || !state.everPlayed) continue;
+          if (state.playing || !state.everPlayed || copies.success.has(canvas)) continue;
           const playing = yield* Effect.result(repository.setPlaying(canvas, true));
           if (Result.isFailure(playing)) {
             // Fail closed: nothing loads, so every canvas reads paused.

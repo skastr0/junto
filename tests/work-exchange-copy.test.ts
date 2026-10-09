@@ -19,7 +19,7 @@ import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelRecords } from "../src/main/junto/model/records";
 import { ModelService } from "../src/main/junto/model/service";
 import { PausePlane, PausePlaneLive } from "../src/main/junto/pause-plane";
-import { FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
+import { FactoryPauseRepository, FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
 import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
 import { onboardReferenceFields } from "../src/main/junto/references/seat-reads";
 import { SeatGuidanceRepository, SeatGuidanceRepositoryLive } from "../src/main/junto/seat-guidance/repository";
@@ -548,6 +548,16 @@ describe("what a seat needs to onboard", () => {
     } finally {
       stop();
     }
+  });
+
+  it("is known as a copy to the machine that took it, so a restart there keeps the play state it was sent", async () => {
+    const { macbook, mini } = await pair();
+    await link(macbook, mini);
+    await settle();
+    const copies = (on: Machine) =>
+      on.runtime.runPromise(Effect.flatMap(FactoryPauseRepository, (repository) => repository.copies));
+    expect([...(await copies(mini))]).toEqual(["factory"]);
+    expect([...(await copies(macbook))]).toEqual([]);
   });
 
   it("does not send the same copy twice, and leaves this machine's own briefing when the copy has none", async () => {

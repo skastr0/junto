@@ -17,6 +17,9 @@ import {
 
 type RepositoryBehavior = {
   readonly initial?: ReadonlyMap<string, CanvasPauseState>;
+  /** Canvases held as a copy: another machine edits them. */
+  readonly copies?: ReadonlyArray<string>;
+  readonly copiesFail?: boolean;
   readonly loadFails?: boolean;
   readonly writeFails?: boolean;
 };
@@ -45,6 +48,9 @@ const makeRepository = (
       loadAll: behavior.loadFails
         ? Effect.fail(failure("load"))
         : Effect.succeed(new Map(states)),
+      copies: behavior.copiesFail
+        ? Effect.fail(failure("load"))
+        : Effect.succeed(new Set(behavior.copies ?? [])),
       setPlaying: (canvas, playing) => {
         if (behavior.writeFails) return Effect.fail(failure("write"));
         return Effect.sync(() => {
@@ -128,6 +134,33 @@ describe("PausePlane — Command Center launch comes back playing", () => {
         expect(plane.stateFor("left-playing").playing).toBe(true);
         expect(plane.stateFor("left-paused")).toEqual({ playing: true, everPlayed: true });
         expect(writes).toEqual([{ kind: "canvas", canvas: "left-paused", playing: true }]);
+      },
+      PausePlaneLaunchPlayingLive,
+    );
+  });
+
+  it("leaves a copy as its last copy said: paused by the operator stays paused with no link", async () => {
+    const writes: Write[] = [];
+    await withPlane(
+      { initial: recorded(), copies: ["left-paused", "left-playing"] },
+      writes,
+      async (plane) => {
+        expect(plane.stateFor("left-paused")).toEqual({ playing: false, everPlayed: true });
+        expect(plane.stateFor("left-playing").playing).toBe(true);
+        expect(writes).toEqual([]);
+      },
+      PausePlaneLaunchPlayingLive,
+    );
+  });
+
+  it("fails closed when it cannot tell which canvases are copies", async () => {
+    const writes: Write[] = [];
+    await withPlane(
+      { initial: recorded(), copiesFail: true },
+      writes,
+      async (plane) => {
+        expect(plane.stateFor("left-playing")).toEqual(PAUSED_CANVAS);
+        expect(writes).toEqual([]);
       },
       PausePlaneLaunchPlayingLive,
     );

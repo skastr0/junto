@@ -36,6 +36,11 @@ export class FactoryPauseRepository extends Context.Service<FactoryPauseReposito
       canvasName: string,
       playing: boolean,
     ) => Effect.Effect<CanvasPauseState, FactoryPauseRepositoryError>;
+    /**
+     * The canvases this machine holds as a copy: another machine edits them,
+     * and their play state is that machine's word, kept from the last copy.
+     */
+    readonly copies: Effect.Effect<ReadonlySet<string>, FactoryPauseRepositoryError>;
   }>()("@junto/FactoryPauseRepository") {}
 
 const CanvasRow = Schema.Struct({
@@ -89,6 +94,20 @@ export const FactoryPauseRepositoryLive: Layer.Layer<
       `,
     });
 
+    const copyRows = SqlSchema.findAll({
+      Request: Schema.Void,
+      Result: Schema.Struct({ canvas_name: Schema.String }),
+      execute: () => sql`
+        SELECT canvas_name FROM canvases
+        WHERE editor_installation_id IS NOT NULL
+          AND editor_installation_id <> COALESCE((SELECT installation_id FROM installation WHERE singleton = 1), '')
+      `,
+    });
+
+    const copies = Effect.fn("factory-pause.copies")(function* () {
+      return new Set((yield* copyRows(undefined)).map((row) => row.canvas_name));
+    }, Effect.mapError((error) => persistenceError("load copies", error)))();
+
     const loadAll = Effect.fn("factory-pause.load-all")(function* () {
       return new Map((yield* allRows(undefined)).map((canvas) => [canvas.canvas_name, stateForCanvas(canvas)]));
     }, Effect.mapError((error) => persistenceError("load all", error)))();
@@ -115,6 +134,7 @@ export const FactoryPauseRepositoryLive: Layer.Layer<
     return FactoryPauseRepository.of({
       loadAll,
       setPlaying,
+      copies,
     });
   }),
 );
