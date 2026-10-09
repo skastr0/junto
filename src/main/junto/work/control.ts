@@ -1103,21 +1103,11 @@ const dispatchOp = (
     }
 
     if (op === "doctor") {
-      const commands = yield* work.commandStatus.pipe(
-        Effect.mapError(
-          (error): WorkErrorBody => ({
-            type: "InternalError",
-            message: error.message,
-            details: { retryable: true },
-          }),
-        ),
-      );
       return {
         ok: true,
         protocol_version: WORK_PROTOCOL_VERSION,
         version,
         socket: "up",
-        commands,
         harnesses: yield* Effect.promise(() => probeManagedHarnessInstalls()),
       };
     }

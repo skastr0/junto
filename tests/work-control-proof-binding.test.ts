@@ -56,12 +56,6 @@ const canvas = canvasOf(
 const workService = {
   listTopologies: () => Effect.succeed([canvas]),
   readTopology: () => Effect.succeed({ canvas, actorRefs: [] }),
-  commandStatus: Effect.succeed({
-    counts: { pending: 0, applied: 0, rejected: 0 },
-    pending: [],
-    rejections: [],
-    truncated: { pending: false, rejections: false },
-  }),
 } as unknown as WorkServiceShape;
 
 const call = (socketPath: string, body: unknown): Promise<unknown> =>

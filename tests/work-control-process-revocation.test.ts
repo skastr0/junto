@@ -128,16 +128,10 @@ const makeWorkService = (
   onMutation: () => void,
 ): WorkServiceShape => ({
   listTopologies: () => Effect.succeed([canvas]),
-  readTopology: () => Effect.succeed({ canvas: canvas, actorRefs: [] }),
-  commandStatus: Effect.gen(function* () {
+  readTopology: () => Effect.gen(function* () {
     if (gate !== undefined) yield* gate.wait;
     yield* Effect.sync(onMutation);
-    return {
-      counts: { pending: 0, applied: 0, rejected: 0 },
-      pending: [],
-      rejections: [],
-      truncated: { pending: false, rejections: false },
-    };
+    return { canvas: canvas, actorRefs: [] };
   }),
 } as unknown as WorkServiceShape);
 
@@ -152,7 +146,7 @@ interface Rig {
   readonly credentials: TrackedRegistry;
   readonly seatCredential: string;
   readonly mutations: () => number;
-  readonly callDoctor: () => Promise<unknown>;
+  readonly callCapabilities: () => Promise<unknown>;
 }
 
 const rigs: Rig[] = [];
@@ -217,10 +211,10 @@ const startRig = async (options: {
     run: (effect) => runtime.runPromise(effect),
     authoringGate: createMainAuthoringGate(),
   });
-  const callDoctor = () =>
+  const callCapabilities = () =>
     call(server.socketPath, {
       token: mint.credential,
-      op: "doctor",
+      op: "capabilities",
     });
   const rig: Rig = {
     root,
@@ -229,7 +223,7 @@ const startRig = async (options: {
     credentials,
     seatCredential: mint.credential,
     mutations: () => mutations,
-    callDoctor,
+    callCapabilities,
   };
   rigs.push(rig);
   return rig;
@@ -253,7 +247,7 @@ describe("work control credential revocation", () => {
     const gate = makeDispatchGate();
     const rig = await startRig({ gate });
 
-    const responsePromise = rig.callDoctor();
+    const responsePromise = rig.callCapabilities();
     await gate.entered;
     expect(rig.credentials.activeSubscribers()).toBe(1);
 
@@ -285,7 +279,7 @@ describe("work control credential revocation", () => {
   it("allows a normal operation and removes its revocation subscriber", async () => {
     const rig = await startRig();
 
-    const response = await rig.callDoctor() as { readonly ok: boolean };
+    const response = await rig.callCapabilities() as { readonly ok: boolean };
 
     expect(response.ok).toBe(true);
     expect(rig.mutations()).toBe(1);
@@ -310,7 +304,7 @@ describe("work control credential revocation", () => {
     })).toBe(true);
 
     let settled = false;
-    const responsePromise = rig.callDoctor().finally(() => {
+    const responsePromise = rig.callCapabilities().finally(() => {
       settled = true;
     });
     await gate.entered;
@@ -335,7 +329,7 @@ describe("work control credential revocation", () => {
     expect(rig.credentials.registry.publish(other, PRINCIPAL)).toBe(true);
 
     let settled = false;
-    const responsePromise = rig.callDoctor().finally(() => {
+    const responsePromise = rig.callCapabilities().finally(() => {
       settled = true;
     });
     await gate.entered;

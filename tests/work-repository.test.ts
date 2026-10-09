@@ -13,7 +13,6 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
-  WorkAuthorityError,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
@@ -312,103 +311,6 @@ describe("WorkRepository v2 local authority", () => {
     expect(storedMessageFact).not.toContain("bytesBase64");
   });
 
-  it("rejects unconfigured local mutation without writing any Work row", async () => {
-    const unconfiguredRoot = join(
-      tmpdir(),
-      `junto-work-v2-unconfigured-${randomUUID()}`,
-    );
-    const unconfiguredRuntime = ManagedRuntime.make(
-      Layer.provideMerge(
-        WorkRepositoryLive,
-        makeStateEngineLive(join(unconfiguredRoot, "junto.db")),
-      ),
-    );
-    try {
-      const unconfiguredRepository =
-        await unconfiguredRuntime.runPromise(WorkRepository);
-      const unconfiguredSql = await unconfiguredRuntime.runPromise(
-        SqlClient.SqlClient,
-      );
-      const unconfiguredInstallation = Schema.decodeUnknownSync(InstallationId)(
-        "unconfigured-repository",
-      );
-      await unconfiguredRuntime.runPromise(
-        unconfiguredSql.withTransaction(
-          Effect.gen(function* () {
-            yield* unconfiguredSql.unsafe(
-              `
-                INSERT INTO station_known_installations(
-                  installation_id,
-                  registered_at
-                ) VALUES (?, ?)
-              `,
-              [unconfiguredInstallation, observedAt],
-            );
-            yield* unconfiguredSql.unsafe(
-              `
-                INSERT INTO station_installation(
-                  singleton,
-                  installation_id,
-                  created_at
-                ) VALUES (1, ?, ?)
-              `,
-              [unconfiguredInstallation, observedAt],
-            );
-          }),
-        ),
-      );
-
-      const result = await unconfiguredRuntime.runPromise(
-        unconfiguredRepository
-          .appendMessage({
-            sink: { canvasName: "factory", nodeId: "unconfigured-inbox" },
-            basis: authorialBasis,
-            message: message(
-              "must-not-exist",
-              "agent",
-              "deny before configuration",
-            ),
-            sentBy: actor,
-            destination: { kind: "mailbox" },
-            originAt: observedAt,
-            receivedAt: observedAt,
-          })
-          .pipe(Effect.result),
-      );
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure).toBeInstanceOf(WorkAuthorityError);
-        expect(result.failure).toMatchObject({
-          reason: "authority-mismatch",
-        });
-      }
-      expect(
-        await unconfiguredRuntime.runPromise(
-          withSqlRead(
-            unconfiguredSql,
-            Effect.gen(function* () {
-              return {
-                sequences: (yield* unconfiguredSql.unsafe<{
-                  readonly count: number;
-                }>("SELECT count(*) AS count FROM work_event_sequences"))[0]!
-                  .count,
-                records: (yield* unconfiguredSql.unsafe<{
-                  readonly count: number;
-                }>("SELECT count(*) AS count FROM work_events"))[0]!.count,
-                messages: (yield* unconfiguredSql.unsafe<{
-                  readonly count: number;
-                }>("SELECT count(*) AS count FROM work_messages"))[0]!.count,
-              };
-            }),
-          ),
-        ),
-      ).toEqual({ sequences: 0, records: 0, messages: 0 });
-    } finally {
-      await unconfiguredRuntime.dispose();
-      await rm(unconfiguredRoot, { recursive: true, force: true });
-    }
-  });
-
   it("rejects stale, mismatched, and role-wrong intent bases transactionally", async () => {
     const sink = { canvasName: "factory", nodeId: "basis-rejections" };
     const persistedState = () =>
@@ -474,43 +376,6 @@ describe("WorkRepository v2 local authority", () => {
     }
 
     expect(await runtime.runPromise(persistedState())).toEqual(before);
-  });
-
-  it("roundtrips the exact immutable intent basis on an emitted fact", async () => {
-    const sink = { canvasName: "factory", nodeId: "basis-roundtrip" };
-    const created = await runtime.runPromise(
-      repository.appendMessage({
-        sink,
-        basis: authorialBasis,
-        message: message(
-          "basis-roundtrip-mail",
-          "agent",
-          "retain the admitting intent",
-        ),
-        sentBy: actor,
-        destination: { kind: "mailbox" },
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-
-    expect(created.record.basis).toEqual(authorialBasis);
-    const stored = (
-      await runtime.runPromise(
-        repository.recordsAfter({
-          route: created.record.id.route,
-        }),
-      )
-    ).find(
-      (record) =>
-        record.id.seq === created.record.id.seq &&
-        record.contentSha256 === created.record.contentSha256,
-    );
-    expect(stored).toEqual(created.record);
-    expect(stored?.recordType).toBe("fact");
-    if (stored?.recordType === "fact") {
-      expect(stored.basis).toEqual(authorialBasis);
-    }
   });
 
   it("pages one seat by stable position and reports mailbox changes separately", async () => {

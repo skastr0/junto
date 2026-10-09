@@ -903,24 +903,12 @@ describe("work control transport", () => {
       ok: true;
       data: {
         protocol_version: string;
-        commands: {
-          counts: { pending: number; applied: number; rejected: number };
-          pending: ReadonlyArray<unknown>;
-          rejections: ReadonlyArray<unknown>;
-          truncated: { pending: boolean; rejections: boolean };
-        };
       };
     };
     expect(doctor).toMatchObject({
       ok: true,
       data: {
         protocol_version: WORK_PROTOCOL_VERSION,
-        commands: {
-          counts: { pending: 0, applied: 0, rejected: 0 },
-          pending: [],
-          rejections: [],
-          truncated: { pending: false, rejections: false },
-        },
       },
     });
   });

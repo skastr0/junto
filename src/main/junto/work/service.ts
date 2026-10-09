@@ -155,7 +155,6 @@ import {
   WorkRepository,
   WorkRepositoryError,
   createCanvasTaskDependencyScopeCapability,
-  type PendingCommand,
   type ReviewGateWithin,
   type ReviewReceiptRecord,
   type TaskDependencyScopeCapability,
@@ -209,22 +208,6 @@ export type WorkOpResult<T> =
       readonly message: string;
       readonly details?: WorkErrorDetails;
     };
-
-export type WorkCommandStatus = {
-  readonly counts: {
-    readonly pending: number;
-    readonly applied: number;
-    readonly rejected: number;
-  };
-  readonly pending: ReadonlyArray<PendingCommand>;
-  readonly rejections: ReadonlyArray<PendingCommand>;
-  readonly truncated: {
-    readonly pending: boolean;
-    readonly rejections: boolean;
-  };
-};
-
-const COMMAND_STATUS_DETAIL_LIMIT = 100;
 
 const defaultIds = (): WorkIds => ({
   id: () => ulid(),
@@ -703,10 +686,6 @@ export interface WorkServiceShape {
       pinId: string,
       principalKey: string,
     ) => Effect.Effect<WorkOpResult<{ readonly pinId: string }>>;
-    readonly commandStatus: Effect.Effect<
-      WorkCommandStatus,
-      WorkServiceError
-    >;
 }
 
 export type WorkService = WorkServiceId;
@@ -1244,34 +1223,6 @@ export const WorkLive = Layer.effect(
       if (!plan.ok) return yield* reviewServiceError(plan.error);
       return { context, read, plan };
     });
-
-    const commandStatus = repository.pendingCommands.pipe(
-      Effect.mapError(toWorkServiceError),
-      Effect.map((commands): WorkCommandStatus => {
-        const pending = commands.filter(
-          (entry) => entry.resolution === undefined,
-        );
-        const applied = commands.filter(
-          (entry) => entry.resolution?.status === "applied",
-        );
-        const rejected = commands.filter(
-          (entry) => entry.resolution?.status === "rejected",
-        );
-        return {
-          counts: {
-            pending: pending.length,
-            applied: applied.length,
-            rejected: rejected.length,
-          },
-          pending: pending.slice(0, COMMAND_STATUS_DETAIL_LIMIT),
-          rejections: rejected.slice(0, COMMAND_STATUS_DETAIL_LIMIT),
-          truncated: {
-            pending: pending.length > COMMAND_STATUS_DETAIL_LIMIT,
-            rejections: rejected.length > COMMAND_STATUS_DETAIL_LIMIT,
-          },
-        };
-      }),
-    );
 
     return WorkService.of({
       listTopologies: (canvasName) => withSqlRead(sql, Effect.gen(function* () {
@@ -3410,7 +3361,6 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      commandStatus,
     });
   }),
 );

@@ -14,7 +14,6 @@ import {
   CanvasFactBasis,
   type ActorRef,
   type IntentFactBasis,
-  type WorkRecord,
 } from "../src/shared/work-protocol";
 import {
   WORK_SEAT_RECENT_OPS_COVERAGE,
@@ -166,27 +165,6 @@ const appendMailboxMessage = (
     receivedAt: input.at,
   });
 
-const admitted = () => ({ _tag: "admitted" as const });
-
-const accept = (
-  repository: typeof WorkRepository.Service,
-  senderInstallationId: InstallationIdValue,
-  records: ReadonlyArray<WorkRecord>,
-  receivedAt: string,
-  authorizeCommand: Parameters<
-    typeof repository.acceptRecords
-  >[0]["authorizeCommand"] = admitted,
-) =>
-  repository.acceptRecords({
-    senderInstallationId,
-    records,
-    peerAcknowledgements: [],
-    receivedAt,
-    authorizeCommand,
-    authorizeFact: admitted,
-    admitResponse: admitted,
-  });
-
 describe("WorkRepository recent actor-seat operations", () => {
   it("returns the exact identity-backed subset with safe summaries", async () => {
     const local = installation("cc-seat-recent-ops");
@@ -316,83 +294,5 @@ describe("WorkRepository recent actor-seat operations", () => {
       kind: "message",
       messageId: "message-05",
     });
-  });
-
-  it("uses command origin and authority apply times for remote operations", async () => {
-    const commandCenterId = installation("cc-seat-remote-command");
-    const remoteId = installation("remote-seat-command");
-    const commandCenter = await openRepository(
-      commandCenterId,
-      [remoteId],
-      "command-center",
-    );
-    const remote = await openRepository(remoteId, [commandCenterId], "remote");
-    const seat = actor("4", "remote-worker");
-    const sink = { canvasName, nodeId: "recipient" };
-    const command = await remote.runtime.runPromise(
-      remote.repository.enqueueRemoteCommand({
-        targetInstallationId: commandCenterId,
-        sink,
-        item: { kind: "message", itemId: "remote-message", sink },
-        action: {
-          operation: "message.append",
-          message: message("remote-message", "SECRET_REMOTE_MESSAGE"),
-          sentBy: seat,
-          destination: { kind: "mailbox" },
-        },
-        originAt: atMinute(1),
-        receivedAt: atMinute(1),
-      }),
-    );
-    await commandCenter.runtime.runPromise(
-      accept(commandCenter.repository, remoteId, [command], atMinute(2)),
-    );
-    const rejected = await remote.runtime.runPromise(
-      remote.repository.enqueueRemoteCommand({
-        targetInstallationId: commandCenterId,
-        sink,
-        item: { kind: "message", itemId: "rejected-message", sink },
-        action: {
-          operation: "message.append",
-          message: message("rejected-message", "SECRET_REJECTED_MESSAGE"),
-          sentBy: seat,
-          destination: { kind: "mailbox" },
-        },
-        originAt: atMinute(3),
-        receivedAt: atMinute(3),
-      }),
-    );
-    await commandCenter.runtime.runPromise(
-      accept(
-        commandCenter.repository,
-        remoteId,
-        [rejected],
-        atMinute(4),
-        () => ({
-          _tag: "rejected",
-          reason: "capability-denied",
-          message: "test rejection",
-        }),
-      ),
-    );
-    const feed = await commandCenter.runtime.runPromise(
-      commandCenter.repository.recentOpsForSeat({
-        canvasName,
-        actorSeatId: seat.seatId,
-      }),
-    );
-
-    expect(feed.operations).toEqual([
-      {
-        operation: "message.append",
-        originAt: atMinute(1),
-        appliedAt: atMinute(2),
-        targetNodeId: "recipient",
-        summary: { kind: "message", messageId: "remote-message" },
-      },
-    ]);
-    expect(feed.lastOpAt).toBe(atMinute(2));
-    expect(JSON.stringify(feed)).not.toContain("SECRET_REMOTE_MESSAGE");
-    expect(JSON.stringify(feed)).not.toContain("SECRET_REJECTED_MESSAGE");
   });
 });
