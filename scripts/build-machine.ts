@@ -97,6 +97,8 @@ export const buildMachine = async (input: BuildMachineInput) => {
   try {
     await mkdir(join(stage, "bin"), {recursive: true});
     await mkdir(join(stage, "core"), {recursive: true});
+    await copyFile(join(repoRoot, "scripts/unix-peer-pid.py"), join(stage, "bin/unix-peer-pid.py"));
+    await chmod(join(stage, "bin/unix-peer-pid.py"), 0o644);
     await stageOfficialMachineNode(input.target, stage, resolve(input.cache ?? join(homedir(), ".cache/junto/node")));
     const result = await Bun.build({
       entrypoints: [join(repoRoot, "src/main/headless.ts")], outdir: join(stage, "core"), naming: "junto.cjs", target: "node", format: "cjs",

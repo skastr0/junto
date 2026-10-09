@@ -10,7 +10,7 @@ const fixture = (): string => {
   const root = mkdtempSync(join(tmpdir(), "junto-build-id-"));
   roots.push(root);
   mkdirSync(join(root, "src")); mkdirSync(join(root, "scripts"));
-  for (const file of ["package.json", "bun.lock", "tsconfig.json", "electron.vite.config.ts", "scripts/build-identity.ts", "scripts/build-machine.ts", "scripts/build-features.ts", "scripts/build-standalone-cli.ts", "src/core.ts"]) writeFileSync(join(root,file), file);
+  for (const file of ["package.json", "bun.lock", "tsconfig.json", "electron.vite.config.ts", "scripts/build-identity.ts", "scripts/build-machine.ts", "scripts/build-features.ts", "scripts/build-standalone-cli.ts", "scripts/unix-peer-pid.py", "src/core.ts"]) writeFileSync(join(root,file), file);
   return root;
 };
 
@@ -21,7 +21,7 @@ it("identifies the same source bytes across different roots", () => {
 it("detects an uncommitted source change, dependency change, and build recipe change", () => {
   const root = fixture();
   const original = buildIdentity(root, {});
-  for (const file of ["src/core.ts", "bun.lock", "scripts/build-machine.ts"]) {
+  for (const file of ["src/core.ts", "bun.lock", "scripts/build-machine.ts", "scripts/unix-peer-pid.py"]) {
     const bytes = readFileSync(join(root, file));
     writeFileSync(join(root, file), Buffer.concat([bytes, Buffer.from("changed")]));
     expect(buildIdentity(root, {})).not.toBe(original);
