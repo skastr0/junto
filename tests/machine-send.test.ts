@@ -1,4 +1,6 @@
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
@@ -49,9 +51,32 @@ it("retains observed selection when a successful transfer has a malformed final 
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
+it.runIf(process.platform === "darwin")("excludes AppleDouble files from an archive made from macOS resources", async () => {
+  execFileSync("/usr/bin/xattr", ["-w", "com.junto.archive-test", "metadata", join(root, "bin/junto")]);
+  const chunks: Uint8Array[] = [];
+  const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target" }));
+  const transport = SshTransport.of({
+    run: () => Effect.succeed({ stdout: "ready\n", stderr: "" }),
+    transfer: (_program, input) => Stream.runForEach(input, bytes => Effect.sync(() => { chunks.push(bytes); })).pipe(Effect.andThen(Effect.succeed({ stdout: "fixture", stderr: "" }))),
+    connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
+  });
+  await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  // Read raw tar headers. macOS tar's listing hides its own AppleDouble files.
+  const archive = gunzipSync(Buffer.concat(chunks));
+  const names: string[] = [];
+  for (let offset = 0; offset < archive.length && archive[offset] !== 0;) {
+    const header = archive.subarray(offset, offset + 512);
+    names.push(header.subarray(0, 100).toString().split("\0")[0]!);
+    const size = parseInt(header.subarray(124, 136).toString().replace(/\0/g, "").trim(), 8) || 0;
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  expect(names).toContain("./bin/junto");
+  expect(names.filter(name => name.split("/").some(part => part.startsWith("._")))).toEqual([]);
+});
+
 it("reports all failed preflight checks before any archive bytes are transferred", async () => {
   const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target" }));
-  const problems = "Cannot send Junto:\n- Install Python 3\n- Make the install folder writable\nFix these problems, then send again.\n";
+  const problems = "Cannot send Junto:\n- Free at least 100 KiB\n- Make the install folder writable\nFix these problems, then send again.\n";
   let transferred = false;
   const transport = SshTransport.of({
     run: () => Effect.succeed({ stdout: problems, stderr: "" }),

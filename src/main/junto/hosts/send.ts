@@ -43,7 +43,7 @@ export const sendMachine = (
   const bundle=resolve(input.bundle);
   const manifest = yield* Effect.tryPromise({ try: () => inspectMachineBundle(bundle), catch: installError });
   const checksum=yield* Effect.tryPromise({try:async()=>{
-    await exec("tar",["-czf",archive,"-C",bundle,"."],{timeout:120_000,maxBuffer:256*1024});
+    await exec("tar",["-czf",archive,"-C",bundle,"."],{timeout:120_000,maxBuffer:256*1024,env:{...process.env,COPYFILE_DISABLE:"1"}});
     if ((await stat(archive)).size > 512*1024*1024) throw new Error("machine package exceeds the copy limit");
     const hash=createHash("sha256");
     for await (const chunk of createReadStream(archive)) hash.update(chunk);
