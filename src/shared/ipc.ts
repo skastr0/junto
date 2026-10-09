@@ -351,7 +351,6 @@ export const IPC_CHANNELS = {
   /** Operator multi-prompt via durable prompt-mail (deliver now or queue). */
   terminalManagedPrompt: "junto:terminal-managed-prompt",
   terminalResize: "junto:terminal-resize",
-  terminalShutdown: "junto:terminal-shutdown",
   terminalEvent: "junto:terminal-event",
   hostDirectoryRead: "junto:host-directory-read",
   gitStatus: "junto:git-status",

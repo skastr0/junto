@@ -3165,16 +3165,7 @@ button.actor-ledger__item-row:focus-visible {
 @keyframes fleet-link-flow {
   to { stroke-dashoffset: -8; }
 }
-.fleet-link__label {
-  fill: var(--color-dim);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  paint-order: stroke;
-  stroke: var(--color-ground);
-  stroke-width: 5px;
-  stroke-linejoin: round;
-}
+
 .fleet-link {
   transition: filter 160ms ease-out, opacity 160ms ease-out;
 }
@@ -3300,65 +3291,10 @@ button.actor-ledger__item-row:focus-visible {
   justify-content: center;
 }
 
-.fleet-node__plate {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 96px;
-  padding: 11px 12px;
-  border: 1px solid;
-  border-radius: 10px;
-  background: var(--color-raise-2);
-  transition:
-    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
-    background-color 160ms ease-out,
-    border-color 160ms ease-out;
-}
-.fleet-cc .fleet-node__plate {
-  min-height: 94px;
-  padding: 14px;
-}
-
-.fleet-node__medallion {
-  position: relative;
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 9px;
-  border: 1px solid currentColor;
-  background: var(--color-inset);
-}
-.fleet-node__medallion--cc {
-  width: 58px;
-  height: 58px;
-  background: color-mix(in srgb, var(--color-amber) 7%, var(--color-inset));
-}
-
 .fleet-node__copy {
   min-width: 0;
   flex: 1 1 auto;
   text-align: left;
-}
-.fleet-cc:hover .fleet-node__plate,
-.fleet-station:hover .fleet-node__plate,
-.fleet-ghost:hover .fleet-node__plate,
-.fleet-cc--selected .fleet-node__plate,
-.fleet-station--selected .fleet-node__plate,
-.fleet-ghost--selected .fleet-node__plate {
-  background: var(--color-raise);
-}
-.fleet-cc:hover .fleet-node__plate,
-.fleet-station:hover .fleet-node__plate,
-.fleet-ghost:hover .fleet-node__plate {
-  transform: translateY(-2px);
-}
-.react-flow__node:focus-visible .fleet-node__plate {
-  outline: 1px solid var(--color-cyan);
-  outline-offset: 3px;
 }
 
 .fleet-node__capabilities {
@@ -3704,23 +3640,6 @@ button.actor-ledger__item-row:focus-visible {
   gap: 6px;
   width: 100%;
 }
-.fleet-detail__plugin-targets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-}
-.fleet-detail__plugin-targets label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-dim);
-  cursor: pointer;
-}
-.fleet-detail__plugin-targets input {
-  accent-color: var(--color-amber);
-}
 
 .fleet-detail__note {
   margin: 0;
@@ -3732,24 +3651,11 @@ button.actor-ledger__item-row:focus-visible {
 }
 
 /* --- Unclaimed peer ghosts -------------------------------------------------- */
-.fleet-ghost__plate {
-  border-color: var(--color-stroke);
-  border-style: dashed;
-  background: color-mix(in srgb, var(--color-raise-2) 70%, transparent);
-}
-.fleet-ghost__medallion {
-  border-color: var(--color-stroke-hi);
-  background: transparent;
-  color: var(--color-faint);
-}
+
 .fleet-ghost .fleet-station__label {
   color: var(--color-ink-2);
 }
-.fleet-ghost:hover .fleet-ghost__medallion,
-.fleet-ghost--selected .fleet-ghost__medallion {
-  border-color: color-mix(in oklab, var(--color-ink) 50%, transparent);
-  color: var(--color-dim);
-}
+
 /* --- Add / claim host form ------------------------------------------------- */
 .fleet-form-backdrop {
   position: absolute;
