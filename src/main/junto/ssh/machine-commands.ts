@@ -26,20 +26,40 @@ fi
 [ "$actual" = "$1" ] || { printf '%s\\n' 'package checksum mismatch' >&2; exit 1; }
 mkdir "$stage/package"
 tar -xzf "$stage/package.tgz" -C "$stage/package"
-"$stage/package/bin/node" -e '
-const fs=require("node:fs"), path=require("node:path"), crypto=require("node:crypto");
-const root=fs.realpathSync(process.argv[1]);
-const manifest=JSON.parse(fs.readFileSync(path.join(root,"manifest.json"),"utf8"));
-if (!Array.isArray(manifest.files) || manifest.files.length>128) throw new Error("Invalid package file inventory");
-for (const file of manifest.files) {
-  if (typeof file.path!=="string" || !/^(?:[A-Za-z0-9._@-]+\\/)*[A-Za-z0-9._@-]+$/.test(file.path) || file.path.split("/").some(part=>part==="." || part==="..") || !Number.isSafeInteger(file.mode) || file.mode<0 || file.mode>511 || !Number.isSafeInteger(file.bytes) || file.bytes<0 || typeof file.sha256!=="string" || !/^[0-9a-f]{64}$/.test(file.sha256)) throw new Error("Invalid package file inventory");
-  const absolute=path.join(root,file.path), metadata=fs.lstatSync(absolute), actual=fs.realpathSync(absolute);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid!==process.getuid() || !actual.startsWith(root+path.sep)) throw new Error("Package file is not owned by this staging directory");
-  const bytes=fs.readFileSync(absolute);
-  if (bytes.length!==file.bytes || crypto.createHash("sha256").update(bytes).digest("hex")!==file.sha256) throw new Error("Package file does not match its inventory");
-  fs.chmodSync(absolute,file.mode);
-}
-const input=JSON.parse(process.argv[2]); input.bundle=root; fs.writeFileSync(process.argv[3],JSON.stringify(input));
+python=""
+for candidate in /usr/bin/python3 /bin/python3; do
+  if [ -x "$candidate" ]; then python=$candidate; break; fi
+done
+[ -n "$python" ] || { printf "%s\\n" "Install Python 3 on this machine, then send Junto again" >&2; exit 1; }
+"$python" -c '
+import hashlib, json, os, re, stat, sys
+root = os.path.realpath(sys.argv[1])
+with open(os.path.join(root, "manifest.json"), encoding="utf8") as source:
+    manifest = json.load(source)
+files = manifest.get("files")
+if not isinstance(files, list) or len(files) > 128:
+    raise RuntimeError("Invalid package file inventory")
+seen = set()
+for file in files:
+    if not isinstance(file, dict):
+        raise RuntimeError("Invalid package file inventory")
+    name, mode, size, digest = (file.get(key) for key in ["path", "mode", "bytes", "sha256"])
+    if not isinstance(name, str) or not re.fullmatch(r"(?:[A-Za-z0-9._@-]+/)*[A-Za-z0-9._@-]+", name) or any(part in [".", ".."] for part in name.split("/")) or name in seen or type(mode) is not int or not 0 <= mode <= 511 or type(size) is not int or size < 0 or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise RuntimeError("Invalid package file inventory")
+    seen.add(name)
+    absolute = os.path.join(root, name)
+    metadata = os.lstat(absolute)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or not os.path.realpath(absolute).startswith(root + os.sep):
+        raise RuntimeError("Package file is not owned by this staging directory")
+    with open(absolute, "rb") as source:
+        data = source.read()
+    if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+        raise RuntimeError("Package file does not match its inventory")
+    os.chmod(absolute, mode)
+input = json.loads(sys.argv[2])
+input["bundle"] = root
+with open(sys.argv[3], "w", encoding="utf8") as output:
+    json.dump(input, output)
 ' "$stage/package" "$2" "$stage/input.json"
 "$stage/package/bin/junto" machine install-local "@$stage/input.json"
 `;

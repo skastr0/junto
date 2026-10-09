@@ -13,7 +13,7 @@ import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
 
 const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
-it("receives exact inventoried modes inside private staging under umask 077", async () => {
+it.each([false, true])("receives exact inventoried modes with lost archive execute bits=%s under umask 077", async lostExecuteBits => {
   const root = await mkdtemp(join(tmpdir(), "junto-machine-archive-"));
   try {
     const bundle = join(root, "bundle");
@@ -42,6 +42,7 @@ it("receives exact inventoried modes inside private staging under umask 077", as
     for (const file of ["bin/node", "bin/junto"]) await chmod(join(bundle, file), 0o755);
     for (const file of ["bin/unix-peer-pid.py", "core/junto.cjs"]) await chmod(join(bundle, file), 0o644);
     await writeFile(join(bundle, "manifest.json"), JSON.stringify({ files: await machineBundleFiles(bundle) }));
+    if (lostExecuteBits) for (const file of ["bin/node", "bin/junto"]) await chmod(join(bundle, file), 0o644);
     const archive = join(root, "package.tgz");
     execFileSync("tar", ["-czf", archive, "-C", bundle, "."]);
     const bytes = await readFile(archive);
