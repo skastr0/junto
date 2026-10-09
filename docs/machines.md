@@ -336,6 +336,25 @@ the renderer (`remote-window`). Leftovers are being closed. It closes when
 `remote-verify` has typecheck and the whole unit suite green on a clean
 export. Until then nobody packages or runs main.
 
+**Resumed with three seats, one task.** `remote-core`, `remote-send` and
+`remote-verify` are running; every other seat stays paused. The task is a
+Preview build of Junto on this Mac and a Junto on the Mac mini, tested
+together, from one commit of main. `remote-verify` holds the receipts:
+
+1. `scripts/preview.sh` builds the Preview app with the machines UI on, in
+   its fresh home `~/.junto-preview`.
+2. `scripts/build-machine.ts` builds the `darwin-arm64` and `linux-x64`
+   bundles with the peer helper inside.
+3. From the Preview app: add the mini, send Junto, the link opens, status
+   says the mini is ready on the same build; by `junto machine` commands and
+   by a picture of the Machines window.
+4. The same against a Linux sandbox.
+5. A new commit, a rebuild and a second send put the mini on the new build.
+6. Uninstall leaves the mini as it was.
+
+Then run B on the same two machines. No review gate before a run;
+`remote-security` reads the link after the first receipt.
+
 **Paused.** The operator paused all work with the name window still open.
 All nine seats confirmed: finished work committed, the rest left in the tree,
 nothing running, waiting for the word resume. Main is at `4b6fe6e13`.
