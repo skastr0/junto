@@ -16,7 +16,7 @@ import {
   HARNESS_IDS,
   allTemplates,
 } from "../src/shared/managed-terminal-templates";
-import { LOCAL_STATION_CAPABILITIES } from "../src/shared/remote-hosts";
+import { THIS_MACHINE_CAPABILITIES } from "../src/shared/remote-hosts";
 import { actorHostChoicesFromEnrollment } from "../src/renderer/components/node-palette/agent-launch-model";
 import { newSeat } from "../src/renderer/lib/model-factories";
 
@@ -75,7 +75,7 @@ describe("Hermes integration product gate", () => {
           host: "local",
         }).harness,
       ).toBe("claude");
-      expect(LOCAL_STATION_CAPABILITIES).toContain("hermes");
+      expect(THIS_MACHINE_CAPABILITIES).toContain("hermes");
       expect(productHostCapabilities(["terminal", "hermes"])).toEqual([
         "terminal",
       ]);
@@ -84,7 +84,7 @@ describe("Hermes integration product gate", () => {
             {
               id: "station-a",
               label: "Station A",
-              kind: "remote",
+              isThisMachine: false,
               capabilities: ["terminal", "hermes"],
               hermesId: "hermes-a",
             },
@@ -125,7 +125,7 @@ describe("Hermes integration product gate", () => {
         "hermes",
       );
       expect(managedHarnessEnabled("hermes")).toBe(true);
-      expect(LOCAL_STATION_CAPABILITIES).toContain("hermes");
+      expect(THIS_MACHINE_CAPABILITIES).toContain("hermes");
     },
   );
 });
