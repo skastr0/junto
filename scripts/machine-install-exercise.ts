@@ -4,7 +4,8 @@
  * Any uncertain failure preserves the remote root for explicit inspection.
  */
 import { randomUUID } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
@@ -28,6 +29,7 @@ const Input = Schema.Struct({
   bundle: MachineAbsolutePath,
   updateBundle: Schema.optionalKey(MachineAbsolutePath),
   localBundle: Schema.optionalKey(MachineAbsolutePath),
+  receiptsDirectory: Schema.optionalKey(MachineAbsolutePath),
 });
 const Epoch = Schema.Struct({ pid: Schema.Number, startKey: Schema.String });
 const Observation = Schema.Struct({
@@ -175,8 +177,13 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
   if (localManifest.build !== firstBundle.build || localManifest.target !== `${process.platform}-${process.arch}`) {
     return yield* Effect.fail(new Error("provide a native local bundle with the same build as the first remote bundle"));
   }
-  // macOS's per-user tmpdir makes the owner socket path exceed sockaddr_un.
-  const receipts = yield* attempt(() => mkdtemp("/tmp/junto-install-exercise-"));
+  const receiptsDirectory = input.receiptsDirectory ?? join(homedir(), "junto-receipts");
+  yield* attempt(() => mkdir(receiptsDirectory, { recursive: true, mode: 0o700 }));
+  const receipts = yield* attempt(() => mkdtemp(join(receiptsDirectory, "a-")));
+  // Keep the runtime path within macOS sockaddr_un, without disposable receipts.
+  if (Buffer.byteLength(join(receipts, "local-home/.junto/operator/control.sock")) > 103) {
+    return yield* Effect.fail(new Error("choose a shorter receiptsDirectory for the local owner socket"));
+  }
   const owner = randomUUID();
   yield* attempt(() => writeFile(join(receipts, "exercise-owner"), owner, { mode: 0o600, flag: "wx" }));
   const receipt: { ok: boolean; receipts: string; sshTarget: string; root?: string; steps: Record<string, unknown>; error?: string } = {
