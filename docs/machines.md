@@ -49,7 +49,10 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    when that machine has the new copy; mail written before then still arrives.
 3. **A seat lives on one machine.** That machine starts it, holds its terminal,
    mints its token, and stores its mail, signals and sessions. The seat's
-   `junto` CLI talks only to its own machine.
+   `junto` CLI talks only to its own machine. A seat names its machine by the
+   machine's real short name. No row says `local`: that word would mean a
+   different machine on every copy, and tying it to the editing machine would
+   move seats when editing moves. One function answers "is this seat mine".
 4. **Synced rows are immutable and have one writer.** Sync between two machines
    is: send the other side what it lacks and is entitled to. No claims, no
    transfer of authority, no conflict handling. Applying a row twice changes
