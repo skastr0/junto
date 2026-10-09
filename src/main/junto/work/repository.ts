@@ -4,6 +4,15 @@ import type { WorkAttentionSnapshot } from "@shared/work-attention";
 import { WorkItemQuery, WorkActorQuery, type WorkActorPage, type WorkLaneRow, WorkAttentionQuery, type WorkAttentionRow, WorkSinkQuery, type WorkSinkPage, WORK_SINK_PAGE_SIZE } from "@shared/work-sinks";
 import { WorkMailQuery, type WorkMailPage, WORK_MAIL_PAGE_SIZE } from "@shared/work-mail";
 import { workProjectionChanges } from "./projection-changes";
+import {
+  ExchangeFact,
+  compareSequence,
+  entitledTo,
+  peerMayPassOn,
+  writtenByItsAuthor,
+  type CanvasPlacement,
+  type RowsFrame,
+} from "@shared/work-exchange";
 import { createHash } from "node:crypto";
 import { Cause, Context, Effect, Option, Result, Layer, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
@@ -4946,6 +4955,137 @@ export type CurrentTaskClaim = {
   readonly replacedBriefMessageIds: ReadonlyArray<string>;
 };
 
+export type ExchangeCursor = {
+  readonly writer: InstallationId;
+  readonly through: string;
+};
+
+export type ExchangeRowsInput = {
+  readonly canvasName: string;
+  readonly writer: InstallationId;
+  readonly after: string;
+  readonly limit: number;
+};
+
+export type ExchangeRow = {
+  readonly fact: ExchangeFact;
+  /** For a receipt, the node that wrote the mail it answers, when held. */
+  readonly mailAuthorNodeId: string | undefined;
+};
+
+export type ExchangeRowsPage = {
+  readonly rows: ReadonlyArray<ExchangeRow>;
+  /** Every row of that writer and canvas up to here was examined. */
+  readonly through: string;
+  readonly more: boolean;
+};
+
+export type ApplyExchangeRowsInput = {
+  readonly peer: InstallationId;
+  readonly frame: RowsFrame;
+  /** The canvas as this machine holds it; absent when it does not hold it. */
+  readonly placement: CanvasPlacement | undefined;
+  readonly receivedAt?: string;
+};
+
+export type AppliedExchangeRows = {
+  /** Rows that were new to this machine. */
+  readonly taken: number;
+  /** Mail that arrived, for the seat's machine to deliver. */
+  readonly mail: ReadonlyArray<{
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly message: MessageValue;
+  }>;
+};
+
+const ExchangeFactRow = Schema.Struct({
+  event_home: Schema.String,
+  seq: Schema.String,
+  item_kind: Schema.String,
+  item_id: Schema.String,
+  item_canvas_name: Schema.String,
+  item_node_id: Schema.String,
+  operation: Schema.String,
+  content_sha256: Schema.String,
+  origin_at: Schema.String,
+  basis_kind: Schema.String,
+  basis_canvas_name: Schema.NullOr(Schema.String),
+  basis_canvas_seq: Schema.NullOr(Schema.Number),
+  result_json: Schema.String,
+});
+
+/** A stored fact as a row that may cross machines, or nothing when it may not. */
+const exchangeFactOf = (
+  row: typeof ExchangeFactRow.Type,
+): ExchangeFact | undefined => {
+  const decoded = Schema.decodeUnknownResult(ExchangeFact, strictDecode)({
+    protocol: WORK_PROTOCOL,
+    id: {
+      route: { eventHome: row.event_home, entityHome: row.event_home },
+      seq: row.seq,
+    },
+    recordType: "fact",
+    basis:
+      row.basis_kind === "canvas"
+        ? { kind: "canvas", canvasName: row.basis_canvas_name, seq: row.basis_canvas_seq }
+        : { kind: "historical" },
+    item: {
+      kind: row.item_kind,
+      itemId: row.item_id,
+      sink: { canvasName: row.item_canvas_name, nodeId: row.item_node_id },
+    },
+    operation: row.operation,
+    contentSha256: row.content_sha256,
+    originAt: row.origin_at,
+    predecessor: null,
+    body: JSON.parse(row.result_json),
+  });
+  return Result.isSuccess(decoded) ? decoded.success : undefined;
+};
+
+/** The node that wrote the mail a receipt answers, when this machine holds that mail. */
+const exchangeMailAuthor = Effect.fn("work.exchangeMailAuthor")(function* (
+  reader: SqlClient.SqlClient,
+  fact: ExchangeFact,
+): Effect.fn.Return<string | undefined, WorkSqlFailure> {
+  if (fact.body.operation !== "delivery.accepted") return undefined;
+  const { deliveredItem } = fact.body.receipt;
+  const rows = yield* reader.unsafe<{ node_id: string | null }>(
+    `
+      SELECT json_extract(fact.result_json, '$.sentBy.nodeId') AS node_id
+      FROM work_messages AS mail
+      JOIN work_facts AS fact
+        ON fact.event_home = mail.fact_event_home
+        AND fact.entity_home = mail.fact_entity_home
+        AND fact.seq = mail.fact_seq
+      WHERE mail.canvas_name = ? AND mail.node_id = ? AND mail.message_id = ?
+    `,
+    [deliveredItem.sink.canvasName, deliveredItem.sink.nodeId, deliveredItem.itemId],
+  );
+  return rows[0]?.node_id ?? undefined;
+});
+
+const exchangeCursorOf = Effect.fn("work.exchangeCursorOf")(function* (
+  reader: SqlClient.SqlClient,
+  canvasName: string,
+  writer: string,
+): Effect.fn.Return<
+  { readonly through: string; readonly lastBasisSeq: number },
+  WorkSqlFailure
+> {
+  const rows = yield* reader.unsafe<{ through: string; last_basis_seq: number }>(
+    "SELECT through, last_basis_seq FROM work_exchange_cursors WHERE canvas_name = ? AND writer = ?",
+    [canvasName, writer],
+  );
+  return rows[0] === undefined
+    ? { through: "0", lastBasisSeq: 0 }
+    : { through: rows[0].through, lastBasisSeq: rows[0].last_basis_seq };
+});
+
+const refuseExchange = (message: string): WorkAuthorityError =>
+  authorityError("authority-mismatch", message);
+
 export interface WorkRepositoryShape {
   readonly kernelWork: (canvasName: string) => Effect.Effect<KernelWork, WorkRepositoryError>;
   /** Exact policy inputs across the task's visited boards and prerequisite ids. */
@@ -5109,6 +5249,27 @@ export interface WorkRepositoryShape {
     readonly sink: SinkRefValue;
     readonly artifactId: string;
   }) => Effect.Effect<{ readonly artifactId: string }, RepositoryFailure>;
+  /** How far this machine is caught up on each other writer's rows for a canvas. */
+  readonly exchangeHave: (
+    canvasName: string,
+  ) => Effect.Effect<ReadonlyArray<ExchangeCursor>, WorkRepositoryError>;
+  /** Every writer with rows for a canvas that this machine holds. */
+  readonly exchangeWriters: (
+    canvasName: string,
+  ) => Effect.Effect<ReadonlyArray<InstallationId>, WorkRepositoryError>;
+  /** One page of a writer's rows for a canvas, above a sequence, in order. */
+  readonly exchangeRows: (
+    input: ExchangeRowsInput,
+  ) => Effect.Effect<ExchangeRowsPage, WorkRepositoryError>;
+  /**
+   * Take one frame of rows from a peer, or refuse all of it. Every row is
+   * checked before anything is written: the peer may pass on that writer, the
+   * content matches its hash, the row was written where its author lives, and
+   * this machine is entitled to it. Rows and cursor commit together.
+   */
+  readonly applyExchangeRows: (
+    input: ApplyExchangeRowsInput,
+  ) => Effect.Effect<AppliedExchangeRows, RepositoryFailure>;
   readonly subscribeChanges: (
     listener: (canvasName: string, nodeId: string, kind?: "mail" | "work") => void,
   ) => () => void;
@@ -7792,6 +7953,248 @@ export const WorkRepositoryLive = Layer.effect(
           }),
       );
 
+    const exchangeHave = (
+      canvasName: string,
+    ): Effect.Effect<ReadonlyArray<ExchangeCursor>, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        sql.unsafe<{ writer: string; through: string }>(
+          "SELECT writer, through FROM work_exchange_cursors WHERE canvas_name = ? ORDER BY writer",
+          [canvasName],
+        ),
+      ).pipe(
+        Effect.map((rows) =>
+          rows.map((row) => ({
+            writer: Schema.decodeUnknownSync(InstallationId)(row.writer),
+            through: row.through,
+          })),
+        ),
+        Effect.mapError((error) => toRepositoryError("work.exchange.have", error)),
+      );
+
+    const exchangeWriters = (
+      canvasName: string,
+    ): Effect.Effect<ReadonlyArray<InstallationId>, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        sql.unsafe<{ writer: string }>(
+          "SELECT DISTINCT event_home AS writer FROM work_events WHERE item_canvas_name = ? ORDER BY 1",
+          [canvasName],
+        ),
+      ).pipe(
+        Effect.map((rows) =>
+          rows.map((row) => Schema.decodeUnknownSync(InstallationId)(row.writer)),
+        ),
+        Effect.mapError((error) => toRepositoryError("work.exchange.writers", error)),
+      );
+
+    const exchangeRows = (
+      input: ExchangeRowsInput,
+    ): Effect.Effect<ExchangeRowsPage, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        Effect.gen(function* () {
+          const self = (yield* canonicalLocalWorkAuthority(sql)).installationId;
+          const stored = yield* SqlSchema.findAll({
+            Request: WorkSqlBindings,
+            Result: ExchangeFactRow,
+            execute: (bindings) =>
+              sql.unsafe(
+                `
+              SELECT event.event_home, event.seq, event.item_kind, event.item_id,
+                event.item_canvas_name, event.item_node_id, event.operation,
+                event.content_sha256, event.origin_at, fact.basis_kind,
+                fact.basis_canvas_name, fact.basis_canvas_seq, fact.result_json
+              FROM work_events AS event
+              JOIN work_facts AS fact USING (event_home, entity_home, seq)
+              WHERE event.event_home = ?
+                AND event.entity_home = ?
+                AND event.item_canvas_name = ?
+                AND event.operation IN ('message.append', 'delivery.accepted')
+                AND fact.predecessor_seq IS NULL
+                AND (
+                  length(event.seq) > length(?)
+                  OR (length(event.seq) = length(?) AND event.seq > ?)
+                )
+              ORDER BY length(event.seq), event.seq
+              LIMIT ?
+            `,
+                bindings,
+              ),
+          })([
+            input.writer,
+            input.writer,
+            input.canvasName,
+            input.after,
+            input.after,
+            input.after,
+            input.limit + 1,
+          ]);
+          const more = stored.length > input.limit;
+          const page = more ? stored.slice(0, input.limit) : stored;
+          const rows: ExchangeRow[] = [];
+          for (const row of page) {
+            const fact = exchangeFactOf(row);
+            if (fact === undefined) continue;
+            rows.push({ fact, mailAuthorNodeId: yield* exchangeMailAuthor(sql, fact) });
+          }
+          if (more) return { rows, through: page.at(-1)!.seq, more };
+          // Past the last row, a machine vouches for its own sequence, or for
+          // as far as it was itself vouched another writer's.
+          const through =
+            input.writer === self
+              ? ((yield* sql.unsafe<{ last_seq: string }>(
+                  "SELECT last_seq FROM work_event_sequences WHERE event_home = ? AND entity_home = ?",
+                  [self, self],
+                ))[0]?.last_seq ?? "0")
+              : (yield* exchangeCursorOf(sql, input.canvasName, input.writer)).through;
+          return {
+            rows,
+            through: compareSequence(through, input.after) < 0 ? input.after : through,
+            more,
+          };
+        }),
+      ).pipe(
+        Effect.provideService(StateTransactionOperation, "work.exchange.rows"),
+        Effect.mapError((error) => toRepositoryError("work.exchange.rows", error)),
+      );
+
+    const applyExchangeRows = (
+      input: ApplyExchangeRowsInput,
+    ): Effect.Effect<AppliedExchangeRows, RepositoryFailure> => {
+      const receivedAt = timestamp(input.receivedAt);
+      const { frame, peer, placement } = input;
+      return transaction(
+        "work.exchange.apply",
+        { canvasName: frame.canvasName, nodeId: "exchange" },
+        (writer: SqlClient.SqlClient) =>
+          Effect.gen(function* () {
+            if (placement === undefined) {
+              return yield* Effect.fail(refuseExchange("this machine does not hold that canvas"));
+            }
+            if (!peerMayPassOn(peer, frame.writer, placement)) {
+              return yield* Effect.fail(
+                refuseExchange("that machine may not pass on this writer's rows for this canvas"),
+              );
+            }
+            const self = (yield* canonicalLocalWorkAuthority(writer)).installationId;
+            if (frame.writer === self) {
+              return yield* Effect.fail(refuseExchange("a machine is never sent its own rows"));
+            }
+            const cursor = yield* exchangeCursorOf(writer, frame.canvasName, frame.writer);
+            let lastSeq = "0";
+            let lastBasisSeq = cursor.lastBasisSeq;
+            const fresh: ExchangeFact[] = [];
+            for (const fact of frame.facts) {
+              const { basis } = fact;
+              if (
+                fact.id.route.eventHome !== frame.writer ||
+                fact.item.sink.canvasName !== frame.canvasName ||
+                basis.kind !== "canvas"
+              ) {
+                return yield* Effect.fail(refuseExchange("a row is not of the writer and canvas its frame names"));
+              }
+              if (
+                compareSequence(fact.id.seq, lastSeq) <= 0 ||
+                compareSequence(fact.id.seq, frame.through) > 0
+              ) {
+                return yield* Effect.fail(refuseExchange("rows are out of order or past what their frame vouches"));
+              }
+              lastSeq = fact.id.seq;
+              const { contentSha256: _hash, originAt: _originAt, ...semantic } = fact;
+              if (workRecordContentSha256(semantic) !== fact.contentSha256) {
+                return yield* Effect.fail(refuseExchange("a row does not match its hash"));
+              }
+              if (!writtenByItsAuthor(fact, placement)) {
+                return yield* Effect.fail(refuseExchange("a row was not written where its author lives"));
+              }
+              if (!entitledTo(self, fact, placement, yield* exchangeMailAuthor(writer, fact))) {
+                return yield* Effect.fail(refuseExchange("this machine is not entitled to a row it was sent"));
+              }
+              // Above the cursor a writer's stated canvas count never goes
+              // backwards. At or below it, a row is one this machine became
+              // entitled to later and keeps the count it was written under.
+              if (compareSequence(fact.id.seq, cursor.through) > 0) {
+                if (basis.seq < lastBasisSeq) {
+                  return yield* Effect.fail(refuseExchange("a writer's canvas count went backwards"));
+                }
+                lastBasisSeq = basis.seq;
+              }
+              const held = yield* writer.unsafe<{ content_sha256: string }>(
+                "SELECT content_sha256 FROM work_events WHERE event_home = ? AND entity_home = ? AND seq = ?",
+                [frame.writer, frame.writer, fact.id.seq],
+              );
+              if (held[0] === undefined) fresh.push(fact);
+              else if (held[0].content_sha256 !== fact.contentSha256) {
+                return yield* Effect.fail(
+                  authorityError("identity-conflict", "a row this machine holds arrived with other content"),
+                );
+              }
+            }
+
+            yield* writer.unsafe(
+              "INSERT OR IGNORE INTO station_known_installations(installation_id, registered_at) VALUES (?, ?)",
+              [frame.writer, receivedAt],
+            );
+            const mail: Array<AppliedExchangeRows["mail"][number]> = [];
+            if (fresh.length > 0) {
+              const newest = fresh.at(-1)!.id.seq;
+              const known = yield* writer.unsafe<{ last_seq: string }>(
+                "SELECT last_seq FROM work_event_sequences WHERE event_home = ? AND entity_home = ?",
+                [frame.writer, frame.writer],
+              );
+              if (known[0] === undefined || compareSequence(newest, known[0].last_seq) > 0) {
+                yield* writer.unsafe(
+                  `INSERT INTO work_event_sequences(event_home, entity_home, last_seq) VALUES (?, ?, ?)
+                   ON CONFLICT(event_home, entity_home) DO UPDATE SET last_seq = excluded.last_seq`,
+                  [frame.writer, frame.writer, newest],
+                );
+              }
+              const journal = yield* WorkJournal;
+              for (const fact of fresh) {
+                yield* journal.appendWorkRecord(fact, receivedAt);
+                if (fact.body.operation === "message.append") {
+                  yield* writeInboxMessage(
+                    writer,
+                    fact.item.sink,
+                    fact.body.message,
+                    fact.body.sentBy,
+                    fact,
+                    receivedAt,
+                  );
+                  mail.push({
+                    canvasName: fact.item.sink.canvasName,
+                    nodeId: fact.item.sink.nodeId,
+                    message: fact.body.message,
+                  });
+                } else if (fact.body.operation === "delivery.accepted") {
+                  yield* writeDelivery(writer, fact.body.receipt, fact, receivedAt);
+                }
+              }
+            }
+            const through =
+              compareSequence(frame.through, cursor.through) > 0 ? frame.through : cursor.through;
+            yield* writer.unsafe(
+              `INSERT INTO work_exchange_cursors(canvas_name, writer, through, last_basis_seq, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(canvas_name, writer) DO UPDATE SET
+                 through = excluded.through,
+                 last_basis_seq = excluded.last_basis_seq,
+                 updated_at = excluded.updated_at`,
+              [frame.canvasName, frame.writer, through, lastBasisSeq, receivedAt],
+            );
+            return { taken: fresh.length, mail };
+          }),
+        "mail",
+      ).pipe(
+        Effect.tap(({ mail }) =>
+          Effect.sync(() => {
+            for (const sent of mail) notify({ canvasName: sent.canvasName, nodeId: sent.nodeId }, "mail");
+          }),
+        ),
+      );
+    };
+
     return WorkRepository.of({
       kernelWork: Effect.fn("WorkRepository.kernelWork")((canvasName: string) =>
         withSqlRead(sql, Effect.gen(function* () {
@@ -7971,6 +8374,10 @@ export const WorkRepositoryLive = Layer.effect(
       markBoardRead,
       setArtifactArchived,
       deleteArtifact,
+      exchangeHave,
+      exchangeWriters,
+      exchangeRows,
+      applyExchangeRows,
       subscribeChanges: changes.subscribe,
     });
   }),
