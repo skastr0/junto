@@ -26,8 +26,7 @@ import { ModelDependents } from "../../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../../src/main/junto/state/engine";
 import { SettingsLive } from "../../src/main/junto/settings/service";
 import { deriveActorSeatId } from "../../src/main/junto/actor-seat-id";
-import { StationFleetTargetRepositoryLive } from "../../src/main/junto/station/fleet-target-repository";
-import { StationRepository, StationRepositoryLive } from "../../src/main/junto/station/repository";
+import { MachineRepository, MachineRepositoryLive } from "../../src/main/junto/machines/repository";
 import {
   createCanvasTaskDependencyScopeCapability,
   WorkRepository,
@@ -55,7 +54,7 @@ const fixture = modelFixture(nodes, [modelWire("e-atlas-board", "atlas", "board"
 const seedWork = async (sandbox: Sandbox): Promise<void> => {
   const state = makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"));
   const repositories = Layer.provideMerge(
-    Layer.mergeAll(WorkRepositoryLive, StationRepositoryLive, SettingsLive, StationFleetTargetRepositoryLive),
+    Layer.mergeAll(WorkRepositoryLive, MachineRepositoryLive, SettingsLive),
     state,
   );
   const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelLive, ModelDependents.empty), repositories));
@@ -63,7 +62,7 @@ const seedWork = async (sandbox: Sandbox): Promise<void> => {
     await runtime.runPromise(
       Effect.gen(function* () {
         const work = yield* WorkRepository;
-        const installationId = yield* (yield* StationRepository).installationId;
+        const installationId = yield* (yield* MachineRepository).installationId;
         const model = yield* ModelService;
         const canvas = yield* model.canvas(CANVAS);
         const basis = Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })({

@@ -15,13 +15,9 @@ import {
 } from "../../../src/main/junto/state/engine";
 import { WorkRepositoryLive } from "../../../src/main/junto/work/repository";
 import {
-  StationRepository,
-  StationRepositoryLive,
-} from "../../../src/main/junto/station/repository";
-import {
-  makeStationFleetTargetRepositoryLive,
-  StationFleetTargetRepository,
-} from "../../../src/main/junto/station/fleet-target-repository";
+  MachineRepository,
+  MachineRepositoryLive,
+} from "../../../src/main/junto/machines/repository";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
@@ -53,7 +49,7 @@ import {
 } from "../../../src/main/junto/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
-import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
+import { LOCAL_BROWSER_TEST_AUTHORITY, LOCAL_BROWSER_TEST_HOST } from "../../browser-host-test-authority";
 
 // Chromium re-applies proxy command-line switches over Session proxy
 // preferences on every NetworkContext creation, so an inherited
@@ -121,15 +117,11 @@ const makeCanvasRuntime = () => {
     join(controlHome, ".junto", "state", "junto.db"),
   );
   const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
-  const stationLive = Layer.provideMerge(StationRepositoryLive, stateLive);
-  const fleetLive = Layer.provideMerge(
-    makeStationFleetTargetRepositoryLive(),
-    stationLive,
-  );
+  const machineLive = Layer.provideMerge(MachineRepositoryLive, stateLive);
   return ManagedRuntime.make(
     Layer.provideMerge(
       Layer.provide(ModelService.layer, WorkModelDependentsLive),
-      Layer.provideMerge(repositoriesLive, fleetLive),
+      Layer.provideMerge(repositoriesLive, machineLive),
     ),
   );
 };
@@ -141,7 +133,7 @@ const capabilityTargets = [
   { nodeId: "personal-restored", profile: "personal" },
 ].map(({ nodeId, profile }) => ({
   ref: formatNodeRef({ canvasName, nodeId }),
-  hostId: "local",
+  hostId: LOCAL_BROWSER_TEST_HOST.id,
   profile,
   exactOrigins: [exactOrigin],
 }));
@@ -621,23 +613,11 @@ void app.whenReady().then(async () => {
   const activeCanvasRuntime = makeCanvasRuntime();
   canvasRuntime = activeCanvasRuntime;
   const state = await activeCanvasRuntime.runPromise(StateEngine);
-  // The actor-seat compiler resolves every agent seat against the station
-  // topology, so the sandbox portfolio must bind host "local" to a Station
-  // installation exactly like a configured Command Center fleet does.
-  const stationRepository = await activeCanvasRuntime.runPromise(
-    StationRepository,
-  );
-  const installationId = await activeCanvasRuntime.runPromise(
-    stationRepository.installationId,
-  );
-  const fleetTargets = await activeCanvasRuntime.runPromise(
-    StationFleetTargetRepository,
-  );
+  // The model resolves every seat against this machine's name, so the
+  // sandbox names its machine as the browser fixture names it.
   await activeCanvasRuntime.runPromise(
-    fleetTargets.bind({
-      hostId: "local",
-      stationInstallationId: installationId,
-    }),
+    Effect.flatMap(MachineRepository, (machine) =>
+      machine.configureName(LOCAL_BROWSER_TEST_HOST.id)),
   );
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
   const profiles = makeBrowserProfileService(await activeCanvasRuntime.runPromise(SqlClient.SqlClient), browserRoot);
