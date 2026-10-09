@@ -4,6 +4,7 @@ import { use$ } from "@legendapp/state/react";
 import { TASKS_ENABLED } from "@shared/features";
 import { agentSeat$ } from "../../lib/agent-seat-state";
 import { getJuntoApi } from "../../lib/junto-api";
+import { useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { useSeatAttentionReasons } from "../../lib/occupancy-feed";
 import { cardMark, seatFactsForNode } from "../../lib/seat-projections";
@@ -76,6 +77,7 @@ export function SeatCard({
     return off;
   }, [bindingId, hostId]);
   const attentionReasons = useSeatAttentionReasons(agentKey);
+  const machineLine = useSeatMachineLine(hostId, harness);
 
   if (name === undefined) return null;
 
@@ -92,10 +94,11 @@ export function SeatCard({
       managedSeat: true,
     }),
   );
-  // Host is deliberately absent: which machine a seat sits on is not what the
-  // operator reads an agent node for, and it crowded out the claimed task.
+  // Which machine a seat sits on is not what the operator reads an agent node
+  // for, and it crowded out the claimed task. The machine is named only when
+  // it is why the seat cannot run; that outranks the spawn failure it causes.
   // Spawn failures surface as a context line so the mark + copy both land.
-  const context = exitReason && exitMessage ? exitMessage : undefined;
+  const context = machineLine?.line ?? (exitReason && exitMessage ? exitMessage : undefined);
   // Rename still edits the document; it becomes a command when main serves them.
   const commitRename = (next: string) => editText(id, next);
 
@@ -120,6 +123,7 @@ export function SeatCard({
     <div
       className="factory-agent-card relative flex h-full w-full flex-col justify-center overflow-hidden"
       data-exit-reason={exitReason}
+      data-machine-state={machineLine?.state}
       data-seat-complete={complete ? "true" : undefined}
       data-overseer={overseer ? "true" : undefined}
     >

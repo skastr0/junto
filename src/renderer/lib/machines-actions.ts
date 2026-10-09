@@ -7,7 +7,7 @@ import {
   onMachineCommandProgress,
   type MachineCommandRefusal,
 } from "./machine-commands";
-import { readMachineList } from "./machine-list";
+import { noteMachineStatus, readMachineList } from "./machine-list";
 import {
   withInstallStep,
   type MachineCopy,
@@ -58,6 +58,8 @@ export const checkMachine = async (item: MachineListItem): Promise<void> => {
     return setRead(name, { kind: "failed", message: "Another machine answered in its place." });
   }
   setRead(name, { kind: "peer", status: status.data });
+  // The seat cards on the canvas read the same answer.
+  noteMachineStatus(name, status.data);
 };
 
 /**

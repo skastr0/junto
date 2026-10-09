@@ -6,16 +6,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/shared/operator-control";
 import type { RemoteHost } from "../src/shared/remote-hosts";
+import { checkSeatMachine, forgetMachineChecks } from "../src/renderer/lib/machine-list";
 import {
   loadMachines,
   loadSetUpMachines,
   machineInWords,
+  seatMachineLine,
   setUpMachinesIn,
+  type MachineFacts,
 } from "../src/renderer/lib/machines";
 import { state$ } from "../src/renderer/lib/state";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
-type Request = { readonly id: string; readonly op: string };
+type Request = { readonly id: string; readonly op: string; readonly args: { readonly name?: string } };
 
 const machine = (id: string, label: string, isThisMachine = false): RemoteHost => ({
   id, label, isThisMachine, capabilities: ["terminal"], ...(isThisMachine ? {} : { sshEndpoint: `op@${id}` }),
@@ -39,6 +42,7 @@ const listing = (machines: unknown) => (request: Request) => ({
 beforeEach(() => {
   state$.machines.set([]);
   state$.machineFacts.set({});
+  forgetMachineChecks();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -103,5 +107,107 @@ describe("how a line names a machine", () => {
     expect(machineInWords(rows, "gone", THIS_MACHINE)).toBe("gone");
     // Before this machine's name is known, nothing is called this machine.
     expect(machineInWords(rows, THIS_MACHINE, "")).toBe("Studio");
+  });
+});
+
+describe("why a seat cannot run where it is placed", () => {
+  const rows = LISTED.map((item) => item.machine);
+  const line = (host: string, facts: Record<string, MachineFacts>, harness: string | undefined = "codex") =>
+    seatMachineLine({ host, harness, thisName: THIS_MACHINE, machines: rows, facts });
+  const READY: MachineFacts = { setUp: true, needsUpdate: false };
+
+  it("is nothing for a seat on this machine, or on a machine that answered and has its harness", () => {
+    expect(line(THIS_MACHINE, { [THIS_MACHINE]: READY })).toBeUndefined();
+    expect(line(OTHER_MACHINE, { [OTHER_MACHINE]: { ...READY, reachable: true, harnesses: ["claude", "codex"] } })).toBeUndefined();
+  });
+
+  it("says nothing before there is something to say", () => {
+    // The list has not been read, or this machine's name is not known yet.
+    expect(seatMachineLine({ host: OTHER_MACHINE, harness: "codex", thisName: THIS_MACHINE, machines: [], facts: {} })).toBeUndefined();
+    expect(seatMachineLine({ host: OTHER_MACHINE, harness: "codex", thisName: "", machines: rows, facts: {} })).toBeUndefined();
+    // Set up and not asked yet: nothing is known against it.
+    expect(line(OTHER_MACHINE, { [OTHER_MACHINE]: READY })).toBeUndefined();
+  });
+
+  it("names the machine, what happened and what to do", () => {
+    expect(line("gone", {})).toEqual({
+      state: "not-listed", line: "gone is not one of your machines. Add it in Machines, or move this seat.",
+    });
+    expect(line("build-box", { "build-box": { setUp: false, needsUpdate: false } })).toEqual({
+      state: "not-set-up", line: "Junto is not on Build box yet. Send it from Machines.",
+    });
+    expect(line("mini", { mini: { setUp: true, needsUpdate: true } })).toEqual({
+      state: "needs-update", line: "Mini runs a different build of Junto. Update it from Machines.",
+    });
+    expect(line(OTHER_MACHINE, { [OTHER_MACHINE]: { ...READY, reachable: false } })).toEqual({
+      state: "unreachable", line: "Cannot reach Atlas. Check that it is on.",
+    });
+    expect(line(OTHER_MACHINE, { [OTHER_MACHINE]: { ...READY, reachable: true, harnesses: ["claude"] } })).toEqual({
+      state: "harness-missing", line: "Codex is not on Atlas. Install it there, or move this seat.",
+    });
+  });
+
+  it("never calls another machine this machine", () => {
+    const facts: Record<string, MachineFacts> = {
+      "build-box": { setUp: false, needsUpdate: false },
+      mini: { setUp: true, needsUpdate: true },
+      [OTHER_MACHINE]: { ...READY, reachable: false },
+    };
+    for (const host of ["gone", "build-box", "mini", OTHER_MACHINE]) {
+      expect(line(host, facts)?.line).not.toMatch(/this machine/iu);
+    }
+  });
+});
+
+describe("asking a machine for the seats placed on it", () => {
+  const status = (more: Record<string, unknown>) => (request: Request) =>
+    request.op === "machine.list"
+      ? listing(LISTED)(request)
+      : {
+          protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true,
+          data: { machineName: request.args.name, reachable: true, harnesses: [{ harness: "claude", installed: true }, { harness: "codex", installed: false }], missingSecrets: [], ...more },
+        };
+  const ops = (owner: ReturnType<typeof withOwner>) => owner.mock.calls.map(([request]) => `${request.op} ${request.args.name ?? ""}`.trim());
+
+  it("reads the list once and asks the machine once, however many seats ask", async () => {
+    const owner = withOwner(status({}));
+    await Promise.all([checkSeatMachine(OTHER_MACHINE, 1_000), checkSeatMachine(OTHER_MACHINE, 1_000), checkSeatMachine(OTHER_MACHINE, 2_000)]);
+    expect(ops(owner)).toEqual(["machine.list", `machine.status ${OTHER_MACHINE}`]);
+    expect(state$.machineFacts.peek()[OTHER_MACHINE]).toEqual({ setUp: true, needsUpdate: false, reachable: true, harnesses: ["claude"] });
+    // Later, it may be asked again.
+    await checkSeatMachine(OTHER_MACHINE, 40_000);
+    expect(ops(owner)).toEqual(["machine.list", `machine.status ${OTHER_MACHINE}`, "machine.list", `machine.status ${OTHER_MACHINE}`]);
+  });
+
+  it("does not ask a machine that has no link to answer over", async () => {
+    const owner = withOwner(status({}));
+    await checkSeatMachine("build-box", 1_000);
+    await checkSeatMachine("mini", 1_000);
+    await checkSeatMachine(THIS_MACHINE, 1_000);
+    await checkSeatMachine("gone", 1_000);
+    expect(ops(owner)).toEqual(["machine.list"]);
+  });
+
+  it("records a machine that did not answer, and says nothing of its harnesses", async () => {
+    withOwner(status({ reachable: false, harnesses: [], detail: "SSH did not answer" }));
+    await checkSeatMachine(OTHER_MACHINE, 1_000);
+    expect(state$.machineFacts.peek()[OTHER_MACHINE]).toEqual({ setUp: true, needsUpdate: false, reachable: false });
+  });
+
+  it("leaves the facts as they were when the question is refused", async () => {
+    withOwner((request) =>
+      request.op === "machine.list"
+        ? listing(LISTED)(request)
+        : { protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false, error: { type: "io", message: "the link dropped" } });
+    await checkSeatMachine(OTHER_MACHINE, 1_000);
+    expect(state$.machineFacts.peek()[OTHER_MACHINE]).toEqual({ setUp: true, needsUpdate: false });
+  });
+
+  it("forgets what a machine said once it runs another build", async () => {
+    withOwner(status({}));
+    await checkSeatMachine(OTHER_MACHINE, 1_000);
+    withOwner(listing(LISTED.map((item) => (item.machine.id === OTHER_MACHINE ? { ...item, needsUpdate: true } : item))));
+    await loadMachines();
+    expect(state$.machineFacts.peek()[OTHER_MACHINE]).toEqual({ setUp: true, needsUpdate: true });
   });
 });

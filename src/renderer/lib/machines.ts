@@ -1,6 +1,7 @@
 import { use$ } from "@legendapp/state/react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { isThisMachine } from "@shared/machine-identity";
+import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { state$ } from "./state";
 
@@ -20,6 +21,10 @@ export type MachineFacts = {
   readonly setUp: boolean;
   /** It runs another build, and refuses this machine until it is updated. */
   readonly needsUpdate: boolean;
+  /** Whether it answered when last asked. Absent until it has been asked. */
+  readonly reachable?: boolean;
+  /** The harnesses it said it has. Absent until it has answered. */
+  readonly harnesses?: ReadonlyArray<string>;
 };
 
 /** This machine's name. Empty until settings have loaded. */
@@ -121,6 +126,81 @@ export const loadSetUpMachines = async (): Promise<ReadonlyArray<RemoteHost>> =>
 
 /** The machine list as last read. */
 export const useMachines = (): ReadonlyArray<RemoteHost> => use$(state$.machines);
+
+/**
+ * Ask a machine whether it answers and which harnesses it has, for the seats
+ * placed on it. Asked at most once in a while however many seats ask; the
+ * answer lands in the machine facts.
+ */
+export const requestMachineCheck = (name: string): void => {
+  if (!__JUNTO_FLEET_UI_ENABLED__) return;
+  void import("./machine-list")
+    .then(({ checkSeatMachine }) => checkSeatMachine(name))
+    .catch(() => undefined);
+};
+
+/** Why a seat cannot run where it is placed, when its machine is the reason. */
+export type SeatMachineState = "not-listed" | "not-set-up" | "needs-update" | "unreachable" | "harness-missing";
+
+export type SeatMachineLine = {
+  readonly state: SeatMachineState;
+  /** What happened and what to do, naming the machine by its label. */
+  readonly line: string;
+};
+
+/**
+ * The line a seat shows when the machine it is placed on is why it cannot
+ * run. Nothing for a seat on this machine, nothing before the list has been
+ * read, and nothing about a harness until the machine has answered.
+ */
+export const seatMachineLine = (input: {
+  readonly host: string;
+  readonly harness: string | undefined;
+  readonly thisName: string;
+  readonly machines: ReadonlyArray<Pick<RemoteHost, "id" | "label">>;
+  readonly facts: Readonly<Record<string, MachineFacts>>;
+}): SeatMachineLine | undefined => {
+  const { host, harness, thisName, machines, facts } = input;
+  if (thisName === "" || isOnMachine(host, thisName) || machines.length === 0) return undefined;
+  const label = machineLabelIn(machines, host);
+  if (!machines.some((machine) => machine.id === host)) {
+    return { state: "not-listed", line: `${label} is not one of your machines. Add it in Machines, or move this seat.` };
+  }
+  const known = facts[host];
+  if (known === undefined) return undefined;
+  if (!known.setUp) {
+    return { state: "not-set-up", line: `Junto is not on ${label} yet. Send it from Machines.` };
+  }
+  if (known.needsUpdate) {
+    return { state: "needs-update", line: `${label} runs a different build of Junto. Update it from Machines.` };
+  }
+  if (known.reachable === false) {
+    return { state: "unreachable", line: `Cannot reach ${label}. Check that it is on.` };
+  }
+  if (harness !== undefined && known.harnesses !== undefined && !known.harnesses.includes(harness)) {
+    const name = isHarnessId(harness) ? templateFor(harness).displayName : harness;
+    return { state: "harness-missing", line: `${name} is not on ${label}. Install it there, or move this seat.` };
+  }
+  return undefined;
+};
+
+/** The same line for a seat card, asking the machine once the card is on screen. */
+export const useSeatMachineLine = (
+  host: string | undefined,
+  harness: string | undefined,
+): SeatMachineLine | undefined => {
+  const thisName = useThisMachineName();
+  const machines = useMachines();
+  const facts = use$(state$.machineFacts);
+  const elsewhere = host !== undefined && thisName !== "" && !isOnMachine(host, thisName);
+  useEffect(() => {
+    if (elsewhere && host !== undefined) requestMachineCheck(host);
+  }, [elsewhere, host]);
+  return useMemo(
+    () => (host === undefined ? undefined : seatMachineLine({ host, harness, thisName, machines, facts })),
+    [host, harness, thisName, machines, facts],
+  );
+};
 
 /** The machines something new can be placed on, as last read. */
 export const useSetUpMachines = (): ReadonlyArray<RemoteHost> => {
