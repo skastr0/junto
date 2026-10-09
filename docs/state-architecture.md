@@ -80,65 +80,42 @@ version, or schema-identity witness.
 
 ## Schema evolution
 
-`PRAGMA user_version` is the one forward-only schema cursor.
-`state_schema_identity` is the independent exact-schema witness. They serve
-different jobs and must not be collapsed:
+`PRAGMA user_version` is the one forward-only schema cursor, and
+`state_schema_identity` is the exact-schema witness. The version selects one
+known `N → N+1` step; the identity proves the live tables, constraints,
+indexes and triggers are exactly the shape that step expects.
 
-- the integer version selects one known `N → N+1` migration;
-- the identity proves that the live tables, constraints, indexes, and triggers
-  are exactly the shape that migration expects.
+Version 1 is the baseline. A fresh database executes the current DDL and is
+stamped at the head. Every schema change increments
+`CURRENT_STATE_SCHEMA_VERSION` (`src/main/junto/state/migrations.ts`) and
+appends one synchronous step. A shipped step is immutable: its version, its
+input witness, its behaviour and the DDL it creates never follow the head. A
+repair is a new step.
 
-Version 1 is the baseline Junto schema. A fresh database executes the current
-composed DDL and is stamped at version 1. Every later schema change increments
-`CURRENT_STATE_SCHEMA_VERSION` (declared in `src/main/junto/state/migrations.ts`)
-and appends exactly one synchronous migration step (`1 → 2`, etc.). Once a
-migration ships, its version, name, input witness, and behavior are immutable.
-A repair is a new forward migration, never an edit to history, because an
-installation may skip any number of releases before applying the chain.
+There are two kinds of step, and the migration connection enforces which:
 
-Routine startup evolution follows four explicit stages:
+- **Expand only.** Adds tables, columns, indexes or triggers. It may not
+  delete or overwrite a row, drop or rename anything, or write into a table
+  that existed before it.
+- **Consolidate.** Also drops the tables it names in `removesTables` and
+  rebuilds the ones in `replacesTables`, copying every kept row. It needs the
+  operator's approval for that work.
 
-1. **Expand.** Add a representation beside the installed one.
-2. **Preserve.** Copy forward into new columns or tables without rewriting any
-   pre-existing value or changing row identity.
-3. **Deprecate.** Stop consuming and producing the old representation after
-   parity is proven, but keep its bytes and never reuse its name or meaning.
-4. **Retire.** Physically remove only through a separate operator-approved
-   compaction after a coherent backup, exact replacement parity and no current
-   reader or writer.
+Every step proves that each table and column it does not name survives with
+the same shape.
 
-The startup migration capability enforces the first three stages. It rejects
-row deletion, insertion into an installed table, overwriting an installed
-column, schema-object removal, table/column rename or drop, row replacement,
-attached databases, transaction control, and direct schema-version mutation.
-Each step also proves every installed table and column survives with the same
-shape. New columns and tables may receive copy-forward data.
+The whole chain runs in one `BEGIN IMMEDIATE` and must end in the exact
+current schema with no foreign-key violation. Only then do the identity and
+`user_version` commit. Any error rolls the whole chain back. A newer version,
+a gap, an unknown shape or an identity drift fails without changing anything.
 
-Startup work must remain bounded. A migration may perform additive metadata
-DDL and a demonstrably bounded copy-forward required to open the current
-schema. It may not hide an unbounded table rebuild, `VACUUM`, derived-index
-rebuild, or long backfill in application bootstrap. When such work is actually
-needed, it is one specifically designed, durable, resumable, idempotent
-post-start evolution job with visible status—not a speculative general
-migration framework.
+There is no downgrade, no old-schema runtime reader, no dual write, and no
+instruction to delete `junto.db`. Every step ships with a proof on the frozen
+version-1 databases that existing rows survive; a consolidate step is also
+proven on a disposable copy of an installed database.
 
-The complete chain runs in one `BEGIN IMMEDIATE` and must end in the exact
-fresh-compiled current schema with no foreign-key violations. Only then do the
-final identity and `user_version` commit. Any error rolls back the entire
-chain. Newer versions, gaps, branches, unknown version-zero shapes, identity
-drift, and final-schema mismatch fail without mutation.
-
-This is schema evolution of the sole current store, not compatibility mode.
-There is no downgrade, old-schema runtime reader, dual write, file-store
-importer, or “delete `junto.db` and retry” product instruction. Every real
-migration requires an old-version fixture and a repository-level proof that
-meaningful existing rows and old column values survive byte-for-byte.
-
-Installed SQLite state is a legitimate destructive-state compatibility
-boundary. Retaining a deprecated column or table is therefore required data
-protection, not permission to keep a second runtime domain model. Current code
-reads and writes one canonical representation; retained old bytes are inert
-until an explicit recovery or compaction workflow uses them.
+Startup work stays bounded. A long backfill is a separate, resumable job that
+runs after the engine is up, never a step.
 
 ## Gentle update transaction
 
