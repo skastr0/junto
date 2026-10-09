@@ -39,6 +39,7 @@ import { installMachine } from "../src/main/junto/hosts/install";
 import { uninstallMachine } from "../src/main/junto/hosts/uninstall";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { writeMachineServiceFile } from "../src/main/junto/hosts/install-paths";
+import { acquireInstallLock, admitInstallLockRoot, type OwnedInstallLockRoot } from "../src/main/junto/hosts/install-lock";
 
 let scratch: string;
 const makeBundle = async (build: string): Promise<string> => {
@@ -62,6 +63,30 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await rm(scratch, { recursive: true, force: true }); });
 
 describe("machine install", () => {
+  it("serializes sends with a kernel lease and reuses an abandoned empty lock directory", async () => {
+    await mkdir(join(fixture.root, ".install-lock"), { recursive: true, mode: 0o700 });
+    await writeFile(join(fixture.root, "owner.json"), "owned", { mode: 0o600 });
+    const handle = await admitInstallLockRoot(fixture.root, "owned");
+    const release = await acquireInstallLock(handle);
+    try { await expect(acquireInstallLock(handle)).rejects.toThrow("already being sent"); }
+    finally { await release(); }
+    // The durable lease file can remain. Kernel ownership ended at release.
+    expect(await readFile(join(fixture.root, ".install-lock/lease"), "utf8")).toBe("");
+    await (await acquireInstallLock(handle))();
+    await expect(acquireInstallLock({} as OwnedInstallLockRoot)).rejects.toThrow("owned installation");
+    await expect(admitInstallLockRoot(fixture.root, "other")).rejects.toThrow("another Junto installation");
+  });
+
+  it("refuses a linked lease without touching its target", async () => {
+    await mkdir(join(fixture.root, ".install-lock"), { recursive: true, mode: 0o700 });
+    await writeFile(join(fixture.root, "owner.json"), "owned", { mode: 0o600 });
+    const target = join(scratch, "untouched");
+    await writeFile(target, "keep", { mode: 0o600 });
+    await symlink(target, join(fixture.root, ".install-lock/lease"));
+    await expect(acquireInstallLock(await admitInstallLockRoot(fixture.root, "owned"))).rejects.toThrow("regular file");
+    expect(await readFile(target, "utf8")).toBe("keep");
+  });
+
   it("verifies readiness and stops the incumbent before selecting the next build", async () => {
     const first = await install(await makeBundle("a".repeat(64)));
     expect(first.disposition).toBe("ready");

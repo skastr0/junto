@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { cp, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,7 @@ import { inspectMachineBundle } from "./bundle";
 import { checkMachineTree, ensureMachineDirectory, machineHomePath, optionalMetadata, ownedMachineFile } from "./install-paths";
 import { machineService } from "./install-service";
 import { quiesceMachineService } from "./quiesce-service";
+import { acquireInstallLock, admitInstallLockRoot } from "./install-lock";
 
 const exec = promisify(execFile);
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
@@ -46,18 +47,19 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
       process.stderr.write(JSON.stringify({ event: "machine-install", juntoHome, installRoot, ...transition }) + "\n");
     };
     await ensureMachineDirectory(installRoot);
-    const lock = join(installRoot, ".install-lock");
-    // A failed acquire never cleans another installer's lock.
-    await mkdir(lock, { mode: 0o700 });
-    try {
-      const marker = join(installRoot, "owner.json");
-      const expected = JSON.stringify({ serviceLabel: label, juntoHome });
-      if (await ownedMachineFile(marker)) {
-        if (await readFile(marker, "utf8") !== expected) throw new Error("install directory belongs to another machine home");
-      } else {
-        if ((await readdir(installRoot)).some(name => name !== ".install-lock")) throw new Error("install directory contains files not owned by this installation");
-        await writeFile(marker, expected, { mode: 0o600, flag: "wx" });
+    const marker = join(installRoot, "owner.json");
+    const expected = JSON.stringify({ serviceLabel: label, juntoHome });
+    if (await ownedMachineFile(marker)) {
+      if (await readFile(marker, "utf8") !== expected) throw new Error("install directory belongs to another machine home");
+    } else {
+      if ((await readdir(installRoot)).some(name => name !== ".install-lock")) throw new Error("install directory contains files not owned by this installation");
+      try { await writeFile(marker, expected, { mode: 0o600, flag: "wx" }); }
+      catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST") || !await ownedMachineFile(marker) || await readFile(marker, "utf8") !== expected) throw error;
       }
+    }
+    const releaseLock = await acquireInstallLock(await admitInstallLockRoot(installRoot, expected));
+    try {
       await ensureMachineDirectory(juntoHome, true);
       await ensureMachineDirectory(join(installRoot, "logs"));
       for (const name of ["stdout.log", "stderr.log"]) await ownedMachineFile(join(installRoot, "logs", name));
@@ -128,6 +130,6 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
       }
       disposition = "uncertain";
       throw new Error(`candidate readiness unconfirmed: ${detail}; inspect machine status and recover forward`);
-    } finally { await rm(lock, { recursive: true, force: true }); }
+    } finally { await releaseLock(); }
   }, catch: cause => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: disposition === "staged", disposition, transitions }) });
 };

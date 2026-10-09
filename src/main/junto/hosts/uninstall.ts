@@ -1,4 +1,4 @@
-import { mkdir, readFile, readlink, rm } from "node:fs/promises";
+import { readFile, readlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -7,6 +7,7 @@ import { machineServiceLabel, readInstalledMachineStatus } from "./install";
 import { checkMachineTree, machineHomePath, optionalMetadata, ownedMachineFile } from "./install-paths";
 import { machineService } from "./install-service";
 import { quiesceMachineService } from "./quiesce-service";
+import { acquireInstallLock, admitInstallLockRoot } from "./install-lock";
 
 /** Retains package and product bytes; removes only the proven owned service. */
 export const uninstallMachine = (input: MachineLocalPaths): Effect.Effect<MachineUninstallResult, MachineInstallError> => {
@@ -18,8 +19,7 @@ export const uninstallMachine = (input: MachineLocalPaths): Effect.Effect<Machin
     const label = machineServiceLabel(installRoot, juntoHome);
     const marker = join(installRoot, "owner.json");
     if (!await ownedMachineFile(marker) || await readFile(marker, "utf8") !== JSON.stringify({ serviceLabel: label, juntoHome })) throw new Error("install directory ownership is not established");
-    const lock = join(installRoot, ".install-lock");
-    await mkdir(lock, { mode: 0o700 });
+    const releaseLock = await acquireInstallLock(await admitInstallLockRoot(installRoot, JSON.stringify({ serviceLabel: label, juntoHome })));
     try {
       const pointer = await optionalMetadata(join(installRoot, "current"));
       if (!pointer?.isSymbolicLink() || pointer.uid !== process.getuid!()) throw new Error("current must be an owned build selection link");
@@ -37,6 +37,6 @@ export const uninstallMachine = (input: MachineLocalPaths): Effect.Effect<Machin
       disposition = "uncertain";
       await service.removeDefinition();
       return { juntoHome, installRoot, serviceLabel: label, disposition: "stopped", definitionRemoved: true, transitions };
-    } finally { await rm(lock, { recursive: true, force: true }); }
+    } finally { await releaseLock(); }
   }, catch: cause => new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), disposition, retryable: disposition === "staged", transitions }) });
 };
