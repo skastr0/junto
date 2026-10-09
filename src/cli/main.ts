@@ -32,7 +32,10 @@ if (import.meta.main) {
   // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/junto",
   // ...args]. V4 runWith takes user args only — never the full argv.
   const dispatch = earlyDispatchFromArgv(Bun.argv);
-  if (dispatch.kind === "link") {
+  if (dispatch.kind === "owner-refused") {
+    process.stderr.write(`${dispatch.message}\n`);
+    process.exitCode = 1;
+  } else if (dispatch.kind === "link") {
     await (await import("./link")).runMachineLink(dispatch.args);
   } else if (dispatch.kind === "overseer-host") {
     if (LIVE_OVERSEER_ENABLED) {

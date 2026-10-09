@@ -18,8 +18,14 @@ import {
   type OperatorResponseEnvelope,
 } from "../../shared/operator-control";
 import { AuthError, RuntimeDown, WireError } from "./errors";
+import { ownerCommandRefusal } from "./owner-access";
 
 type OperatorSocketError = RuntimeDown | AuthError | WireError;
+
+export const requireOwnerCommand = Effect.suspend(() => {
+  const refusal = ownerCommandRefusal();
+  return refusal === undefined ? Effect.void : Effect.fail(new AuthError({ message: refusal }));
+});
 
 export const resolveOperatorSocketPath = (): string =>
   operatorControlSocketPath(resolveJuntoHome());
@@ -276,6 +282,7 @@ export const OperatorSocketLive = Layer.succeed(
       timeoutMs?: number,
     ) =>
       Effect.gen(function* () {
+        yield* requireOwnerCommand;
         const rawRequest = {
           protocol: "junto-operator/v1",
           id: randomUUID(),

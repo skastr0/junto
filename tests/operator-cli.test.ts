@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import {
   OPERATOR_PROTOCOL_VERSION,
@@ -14,12 +14,16 @@ import {
 } from "../src/cli/core/operator-socket";
 import { browserCliArgsFromArgv } from "../src/cli/browser-argv";
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
+import { WORK_TOKEN_ENV } from "../src/shared/work-control";
+import { OWNER_COMMAND_REFUSAL } from "../src/cli/core/owner-access";
 
 const DEVICE = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3";
 const hello = { appVersion: "t", deviceId: DEVICE, deviceName: "Phone", station: "Mac", serverTime: 1 };
 
 const roots: string[] = [];
 const servers: Server[] = [];
+
+beforeEach(() => { vi.stubEnv(WORK_TOKEN_ENV, undefined); });
 
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -31,11 +35,12 @@ afterEach(async () => {
   delete process.env.JUNTO_HOME;
   __resetJuntoHomeCache();
   process.exitCode = 0;
+  vi.unstubAllEnvs();
 });
 
 const startOperatorServer = async (
   respond: (request: Record<string, unknown>) => unknown,
-): Promise<void> => {
+): Promise<Server> => {
   const root = await mkdtemp("/tmp/junto-op-");
   roots.push(root);
   process.env.JUNTO_HOME = root;
@@ -60,9 +65,23 @@ const startOperatorServer = async (
     server.once("error", reject);
     server.listen(socketPath, () => resolve());
   });
+  return server;
 };
 
 describe("operator socket client", () => {
+  it.each(["", "malformed", "seat-generation"])("refuses a present seat variable before connecting (%j)", async (token) => {
+    let connections = 0;
+    const server = await startOperatorServer(() => { throw new Error("a seat must not send an owner request"); });
+    server.on("connection", () => { connections++; });
+    vi.stubEnv(WORK_TOKEN_ENV, token);
+    const result = await Effect.runPromise(Effect.gen(function* () {
+      const socket = yield* OperatorSocket;
+      return yield* socket.call("machine.status", {}).pipe(Effect.result);
+    }).pipe(Effect.provide(OperatorSocketLive)));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "AuthError", message: OWNER_COMMAND_REFUSAL } });
+    expect(connections).toBe(0);
+  });
+
   it("sends one strict token-free request and decodes its typed response", async () => {
     let observed: Record<string, unknown> | undefined;
     await startOperatorServer((request) => {

@@ -5,7 +5,7 @@ import {
   MachineTargetInput, MachinePeerIdentity, type MachineOpName,
 } from "@shared/machine-control";
 import type { OperatorArgsByOp } from "@shared/operator-control";
-import { OperatorSocket } from "../core/operator-socket";
+import { OperatorSocket, requireOwnerCommand } from "../core/operator-socket";
 import { MachineExchangeInput } from "@shared/machine-exchange";
 import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install";
 import { installMachine } from "../../main/junto/hosts/install";
@@ -13,18 +13,25 @@ import { uninstallMachine } from "../../main/junto/hosts/uninstall";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
 
-const installLocal = Command.make("install-local",{
-  input:Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
-},({input})=>executeJsonCommand("machine install-local",loadJsonInput(MachineInstallInput,input).pipe(Effect.flatMap(installMachine))));
+const installLocal = Command.make("install-local", {
+  input: Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
+}, ({ input }) => executeJsonCommand("machine install-local", requireOwnerCommand.pipe(
+  Effect.andThen(loadJsonInput(MachineInstallInput, input)),
+  Effect.flatMap(installMachine),
+)));
 
 const uninstallLocal = Command.make("uninstall-local", {
   input: Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
-}, ({input}) => executeJsonCommand("machine uninstall-local", loadJsonInput(MachineLocalPaths, input).pipe(Effect.flatMap(uninstallMachine))));
+}, ({ input }) => executeJsonCommand("machine uninstall-local", requireOwnerCommand.pipe(
+  Effect.andThen(loadJsonInput(MachineLocalPaths, input)),
+  Effect.flatMap(uninstallMachine),
+)));
 
 const ownerCommand = <Op extends MachineOpName>(name: string, op: Op, schema: Schema.Codec<OperatorArgsByOp[Op], unknown>) =>
   Command.make(name, {
     input: Argument.string("input").pipe(Argument.withDescription("JSON object, @file, or - for stdin")),
   }, ({ input }) => executeJsonCommand(`machine ${name}`, Effect.gen(function* () {
+    yield* requireOwnerCommand;
     const raw = yield* loadJsonInput(Schema.Unknown, input);
     const args = yield* Schema.decodeUnknownEffect(schema)(raw, { onExcessProperty: "error" });
     const socket = yield* OperatorSocket;
