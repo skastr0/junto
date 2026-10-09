@@ -117,17 +117,8 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
       if (name === previous) return stored;
       const pins = yield* sql`SELECT 1 FROM machine_peers LIMIT 1`;
       if (pins.length) return yield* Effect.fail(new Error("This machine's name is fixed because a peer has been pinned, including a retired peer."));
-      const references = yield* sql`
-        SELECT 1 FROM seats WHERE host IN (${previous}, ${name})
-        UNION ALL SELECT 1 FROM peers WHERE host IN (${previous}, ${name})
-        UNION ALL SELECT 1 FROM terminals WHERE host IN (${previous}, ${name})
-        UNION ALL SELECT 1 FROM pages WHERE host IN (${previous}, ${name})
-        UNION ALL SELECT 1 FROM crons WHERE host IN (${previous}, ${name})
-        UNION ALL SELECT 1 FROM relays WHERE host IN (${previous}, ${name})
-        UNION ALL SELECT 1 FROM watchers WHERE host IN (${previous}, ${name})
-        UNION ALL SELECT 1 FROM regions WHERE page_host IN (${previous}, ${name})
-        LIMIT 1`;
-      if (references.length) return yield* Effect.fail(new Error("This machine's name is fixed because a stored row uses it."));
+      const authored = yield* sql`SELECT 1 FROM canvases WHERE seq > 0 LIMIT 1`;
+      if (authored.length) return yield* Effect.fail(new Error("This machine's name is fixed because a canvas has been authored or received."));
       const configuredAt = yield* Schema.decodeUnknownEffect(Timestamp)(now());
       const configuration = { ...stored.configuration, name };
       yield* configurations.write(configuration, configuredAt);

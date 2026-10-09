@@ -1,10 +1,10 @@
 import type { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ModelService } from "./junto/model/service";
-import type { StationRepository } from "./junto/station/repository";
+import type { MachineRepository } from "./junto/machines/repository";
 import type { SeatSessionRepository } from "./junto/seat-sessions/repository";
 
-type SessionServices = ModelService | StationRepository | SeatSessionRepository | SqlClient.SqlClient;
+type SessionServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient;
 
 /** Promise callbacks enter the process's existing core, never a shell runtime. */
 export interface CoreRunner {

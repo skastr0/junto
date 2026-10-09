@@ -134,10 +134,35 @@ describe("machine repository", () => {
     const f = fixture();
     try {
       const repository = await f.runtime.runPromise(MachineRepository);
-      f.database.exec("INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at) VALUES ('canvas','canvas-id','now','now')");
+      f.database.exec("INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,seq) VALUES ('canvas','canvas-id','now','now',1)");
       f.database.prepare("INSERT INTO pages(canvas_name,id,x,y,width,height,z_index,created_at,updated_at,url,host,profile,on_remove) VALUES ('canvas','page',0,0,100,100,0,'now','now','https://example.test',?,'default','detach')").run(host);
-      await expect(f.runtime.runPromise(repository.configureName("studio"))).rejects.toThrow("a stored row uses it");
+      await expect(f.runtime.runPromise(repository.configureName("studio"))).rejects.toThrow("a canvas has been authored or received");
       expect(await f.runtime.runPromise(repository.machineName)).toBe("macbook");
+    } finally { await f.close(); }
+  });
+
+  it.each(["folder", "source"])("freezes the name after an authored %s-only region", async (reference) => {
+    const f = fixture();
+    try {
+      const repository = await f.runtime.runPromise(MachineRepository);
+      f.database.exec("INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,seq) VALUES ('canvas','canvas-id','now','now',1)");
+      const paths = reference === "folder" ? JSON.stringify({ macbook: "/project" }) : null;
+      const environment = reference === "source" ? JSON.stringify({ sources: [{ host: "macbook", path: "/project/.env" }] }) : null;
+      f.database.prepare("INSERT INTO regions(canvas_name,id,x,y,width,height,z_index,created_at,updated_at,hold,paths_json,environment_json) VALUES ('canvas','region',0,0,100,100,0,'now','now',0,?,?)").run(paths, environment);
+      await expect(f.runtime.runPromise(repository.configureName("studio"))).rejects.toThrow("a canvas has been authored or received");
+      expect(await f.runtime.runPromise(repository.machineName)).toBe("macbook");
+    } finally { await f.close(); }
+  });
+
+  it("allows an empty first-count canvas and freezes a received canvas without local nodes", async () => {
+    const f = fixture();
+    try {
+      const repository = await f.runtime.runPromise(MachineRepository);
+      f.database.exec("INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,seq) VALUES ('canvas','canvas-id','now','now',0)");
+      await f.runtime.runPromise(repository.configureName("studio"));
+      f.database.exec("UPDATE canvases SET seq=3,editor_installation_id='other-install'");
+      await expect(f.runtime.runPromise(repository.configureName("mini"))).rejects.toThrow("a canvas has been authored or received");
+      expect(await f.runtime.runPromise(repository.machineName)).toBe("studio");
     } finally { await f.close(); }
   });
 
