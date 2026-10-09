@@ -315,6 +315,15 @@ green on a clean export of that commit (8,485 passed, none failed). Since the
 baseline `0e6e55434`: 100,000 lines out, 8,000 in. From here every landing
 typechecks and adds no failure.
 
+**The name window.** Open since `35a7a69f9`. The switch from `local` to real
+machine names lands as six parts, each seat its own files, and typecheck on
+main may be red from that change only: the machine list (`remote-send`,
+landed), `machines/` and its readers (`remote-core`), the name step, schema 20
+(`remote-work`), the browser and the fleet components (`remote-cut`), `term/`
+and `seat-sessions/` (`remote-seats`), the other renderer consumers
+(`remote-window`). It closes when `remote-verify` has typecheck and the whole
+unit suite green on a clean export. Until then nobody packages or runs main.
+
 ## Test machines
 
 The Mac mini: `ssh mac-mini`, macOS on Apple Silicon, with the Claude Code,
