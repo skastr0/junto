@@ -47,7 +47,7 @@ bun run test:e2e:full          # full GUI regression suite
 
 Official builds use the `ship` feature profile. Each feature in [`src/shared/feature-catalog.ts`](../src/shared/feature-catalog.ts) has one of three tiers:
 
-- **off**: compiled out, because it is not built yet or is pruned for launch. Task queues, boards, pads, sheets, browser pages, schedulers, Fleet, Remote and the voice overseer are off in official builds.
+- **off**: compiled out, because it is not built yet or is pruned for launch. Task queues, boards, pads, sheets, browser pages, schedulers, Fleet and the voice overseer are off in official builds.
 - **experimental**: compiled in, but off until the operator turns it on in Settings, Experimental. The toggle is a product setting (`advanced.experimental` in `junto.db`). Seat awareness (Jev) ships this way, and it still needs its `TYPESAFE_API_KEY`.
 - **on**: compiled in and on.
 

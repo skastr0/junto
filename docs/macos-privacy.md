@@ -73,7 +73,7 @@ or denied.
 
 **Launch.** A canvas never played starts paused, and no agent seat on it wakes
 until the operator presses play. A canvas the operator has played comes back
-playing at every Command Center launch; its seats start when work arrives for
+playing at every launch; its seats start when work arrives for
 them (mail, a connection change, a task), so a seat with waiting mail can
 start right after launch. A shell terminal starts only when the operator opens
 one. `tests/launch-permission-surface.test.ts` holds both.
@@ -91,7 +91,7 @@ one. `tests/launch-permission-surface.test.ts` holds both.
 | Git surface | Creating/opening a Git node for an operator-chosen directory | Repository and Git metadata through read-only status/log/show commands | No untracked-file content scan in status; runs only for the authored Git surface |
 | Terminal or attached agent | Explicitly creating or activating the seat, or, once the operator presses play, waking a seat whose work is waiting | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed. A managed agent seat must name a working directory and is refused when it resolves to the operator home |
 | Browser page | Explicitly opening a page node | Junto-owned persistent browser profile and public network destinations; managed-page downloads are denied outright, and the app's own session download path is pinned under app state so it never resolves `~/Downloads` | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
-| SSH/Remote | Explicit enrollment, then reconnect/sync while Command Center runs | OpenSSH configuration/credentials plus app paths on that enrolled Remote | No tailnet-wide file walk; managed package installs default off and stay in disclosed Junto app/service paths |
+| SSH to another machine | Adding the machine, then the link while Junto runs | OpenSSH configuration/credentials plus Junto paths on that machine | No tailnet-wide file walk; managed package installs default off and stay in disclosed Junto app/service paths |
 | Backup export | Export action and native save dialog | One operator-selected destination | Creates a verified copy and never overwrites an existing file |
 | Desktop notifications | A need rising while Junto is in the background, or Send a test notification | macOS Notifications permission (asked by macOS at the first banner); the app's Dock tile for the badge and bounce | A seat's name and one line per banner, never sent off the machine; closed when the need is answered; one switch per kind, plus badge and bounce |
 | Login item | Settings checkbox | macOS Login Items state | Off until explicitly enabled; no hidden launch |
@@ -152,7 +152,7 @@ removes its cached row from the live UI and stops future polling. Individual
 provider checkboxes write one source against current durable settings, so a
 stale concurrent disable cannot reconstruct revoked access.
 
-Managed Remote package mutation (`remoteManagedInstalls`) is off until the
+Managed package mutation on another machine (`remoteManagedInstalls`) is off until the
 operator explicitly opts in. An upgraded install that still carries the old
 default-on value is treated as off, not as consent.
 

@@ -1,9 +1,9 @@
 # Junto pad
 
-A first-party spatial work sink. The factory canvas stays the ACL.
+A first-party spatial work sink. The canvas stays the ACL.
 The pad is the shared page: images, shapes, ink, pins. Wired agents
 read a picture + a text IR and patch structure and comments. Ordinary
-agents never write the factory canvas.
+agents never write the canvas.
 
 This document is the contract and the guide: laws, domain and persistence
 first, then how the operator and a wired agent use the page. A production
@@ -17,14 +17,14 @@ patches named boxes and pins.
 
 ## Laws
 
-1. Ordinary agents never write the factory canvas. Pad body lives on the work
+1. Ordinary agents never write the canvas. Pad body lives on the work
    plane (same class as `board`). An overseer authors canvas through closed
    `overseer` commands, not through pad.
 2. `applyPatch` is the only mutation of a `Pad`. Editor, CLI, and
    WorkService all emit `PadPatch`.
 3. Layers do not mix. Render order is always
    `image → shape+edge → ink → pin`. `z` orders inside a layer.
-4. Mentions are factory agent node ids on inbound edges to this pad.
+4. Mentions are agent node ids on inbound edges to this pad.
    `@` cannot name an unwired agent.
 5. Agents may upsert shapes/edges and pin posts. Agents may not
    upsert ink or images. Refuse, do not ignore.
@@ -161,7 +161,7 @@ paint. Anything else, including quotes, tags, `url()`, `var()`,
 named colors, and functions, uses a role-specific theme default
 without rewriting storage. `padToSvg` must be safe when parsed as
 markup independently of CSP. The privileged renderer must not
-interpolate Pad strings into HTML; factory-card thumbs are
+interpolate Pad strings into HTML; card thumbs are
 structural React SVG. Serialized SVG is for `pad.read` / CLI /
 look-here export only.
 
@@ -172,9 +172,9 @@ look-here export only.
 - `padToFocused(pad)` — compact `{id, type, bounds, text, status}`
 - `padLookHere(pad, pinId)` — crop around `pin.bounds` or pin ± margin
 
-Factory digest (`src/shared/digest.ts`) adds one pad block under
+The digest (`src/shared/digest.ts`) adds one pad block under
 entities (counts + digest). The working copy for a wired agent is
-`pad.read`, not the factory digest.
+`pad.read`, not the digest.
 
 ## Physics and work plane
 
@@ -187,8 +187,7 @@ pad.read   → { revision, pad, digest, svg }
 pad.patch  → { patches } → { revision, pad, digest }
 ```
 
-Process-bind + edge ports, identical to board. Command Center-homed
-sink. Remotes enqueue; material pad lives on CC.
+Process-bind + edge ports, identical to board.
 
 Mention check on `pin.upsert` / `pin.reply`: inbound edges → actor
 node ids. Anything else is `InputError`.
@@ -261,7 +260,7 @@ images.
 Human overlay. Points are recorded at 1–2px spacing and committed as one
 ink element. Agents may not upsert ink. No pressure, no pixel eraser.
 
-Factory card thumbnail is framed structural React SVG (`PadSvg`) or
+The card thumbnail is framed structural React SVG (`PadSvg`) or
 the empty-state glyph. `padToSvg` is the export picture, not an
 HTML sink.
 Theme tokens from `src/shared/theme`. This is a Junto
@@ -343,4 +342,4 @@ as board, with a discovery schema and examples.
 ## Non-goals (v1)
 
 Rotation, pressure, pixel eraser, lasso, frames, C4 stencils,
-agent-written ink, nested factory canvas, Rust, CRDT, tldraw kit.
+agent-written ink, nested canvas, Rust, CRDT, tldraw kit.

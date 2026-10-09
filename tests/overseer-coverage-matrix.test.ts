@@ -219,7 +219,7 @@ describe("overseer coverage matrix", () => {
       "No-edge ordinary vs overseer distinction",
       "Toggle copied aliases",
       "Self-retirement via canvas delete/kind/binding",
-      "Remote source impersonation",
+      "Source impersonation",
       "Uncertain completion, no automatic replay",
       "Viewport invariance",
       "Secret value echoed back",
@@ -228,7 +228,6 @@ describe("overseer coverage matrix", () => {
     }
     expect(matrix).toContain("e2e/scenarios/overseer-acceptance.spec.ts");
     expect(matrix).toContain("tests/overseer-canvas-commands.test.ts");
-    expect(matrix).toContain("tests/station-overseer-transport.test.ts");
     expect(collapsed(matrix)).toContain("Full repository suite is not claimed green");
   });
 });

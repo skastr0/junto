@@ -124,7 +124,7 @@ Linux desktop: alpha, Ubuntu 24.04 x86-64 from source; the download page says th
 - `junto --version` prints `v0.1.0` in 0.3.2 and 0.3.3 (`src/cli/core/constants.ts:4` fallback). Fixed in source (`d5e1ed032`), not yet released.
 - `bun run digest` with no argument fails: `canvas "portfolio" is not in the active portfolio` (`scripts/digest.ts:23`).
 - 0.3.3 is signed but not on the update feed; git tags stop at `v0.3.0` and the only GitHub release is 0.1.0, marked pre-release.
-- Off in official builds: tasks, boards, pads, sheets, browser, requests, artifacts, schedulers, Fleet, Remote, seat awareness (`src/shared/feature-catalog.ts`). The GitHub About text still mentions "browser pages, and shared work".
+- Off in official builds: tasks, boards, pads, sheets, browser, requests, artifacts, schedulers, Fleet, seat awareness (`src/shared/feature-catalog.ts`). The GitHub About text still mentions "browser pages, and shared work".
 - The mail notice is typed into the harness's terminal on a best-effort basis per harness (`src/shared/message-delivery.ts`); the specs above use a scripted harness, not a live Claude or Codex.
 
 ## Demo moments

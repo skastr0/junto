@@ -183,10 +183,8 @@ process-group signal primitive.
   Shared SSH commands use `ControlPersist=no`; `-O exit` remains confined to
   the explicit host removal/edit operation and is never a scope finalizer.
 - Canvas names share one bounded ASCII contract across settings, node refs,
-  projections, and the repository. Full authorial generations commit through
-  the one app-owned `StateEngine`. Station projection installation is a typed,
-  replace-only database operation and has no caller-selected filesystem
-  destination.
+  and the repository. Canvas changes commit through the one app-owned
+  `StateEngine`.
 - The Electron quit transaction synchronously closes authoring and resource
   admission, then awaits the canvas, browser, work-control, terminal, host,
   Hermes, launchctl, and central process drains before deciding whether
@@ -248,11 +246,11 @@ Code review question for every PR:
 
 ## Product promise
 
-Junto is a **premium station**. Polished means:
+Junto is a **premium workspace**. Polished means:
 
 - the user’s machine is treated as sacred
 - host power is held behind domain types
 - mistakes fail closed without session-wide blast radius
-- remote durability and local quit law never justify open kill APIs
+- a seat that outlives this machine's quit never justifies open kill APIs
 
 When in doubt: **narrow the type until the dangerous call cannot be written.**

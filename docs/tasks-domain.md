@@ -11,8 +11,7 @@ legacy behavior. Corrected schema 21 rewrites an existing invalid version-21
 database atomically on open, including current state and Work history,
 recomputes correlated hashes, materializes proposal state as Tasks, and removes
 the invalid storage and code. Fresh upgrades build the corrected shape
-directly. Neither the schema version nor the disabled Remote wire protocol is
-bumped. After repair the product carries no compatibility reader, old key, old
+directly. The schema version is not bumped. After repair the product carries no compatibility reader, old key, old
 table, or retired Tasks vocabulary; only the isolated corrective converter can
 recognize an invalid pre-fix version 21.
 

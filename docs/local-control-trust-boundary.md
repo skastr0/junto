@@ -9,7 +9,7 @@ has a live or ambiguous listener. Stale cleanup is limited to the exact socket
 inode observed refusing connections; token cleanup is limited to the exact
 exclusive temporary inode created by the process.
 
-Terminal control intentionally treats the station Unix account as its administrator
+Terminal control intentionally treats the machine's Unix account as its administrator
 boundary: a same-UID process that can read its token can administer terminal
 sessions. It must not be treated as a browser or work authorization grant.
 

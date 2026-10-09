@@ -2,8 +2,7 @@
 
 Junto is a side project with one maintainer, not a hosted service. There is
 no support email, security mailbox, or private support channel. Linux desktop is
-alpha; Fleet and Remote stations remain experimental and disabled in the default
-feature profile. Older versions do not receive backports.
+alpha. Older versions do not receive backports.
 
 ## Reporting a vulnerability
 
@@ -15,8 +14,8 @@ will ask in the issue for anything more that is needed.
 
 ## Scope
 
-The application, its local control and IPC surfaces, browser integration, Station
-boundaries, and official package/update verification are in scope. Source-build
+The application, its local control and IPC surfaces, browser integration, links
+between machines, and official package/update verification are in scope. Source-build
 reports are useful when they reproduce on the current supported dependency set.
 
 The governing [security doctrine](docs/security-doctrine.md) describes a single

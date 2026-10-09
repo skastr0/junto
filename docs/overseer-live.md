@@ -23,7 +23,7 @@ JUNTO_LIVE_OVERSEER=1 bun run dev
 1. In **Settings → Providers → OpenAI live conversation**, save your OpenAI API
    key. The key uses the existing credential vault. Choose a backend model your
    account can use; the default is `gpt-5.4`, independently of `gpt-live-1`.
-2. On the local Command Center, create an agent with the **Junto
+2. On this machine, create an agent with the **Junto
    Overseer** harness and open its managed session.
 3. Select the seat and choose **Grant overseer** in the bottom command strip.
 4. Choose **Start live conversation**, then start the call inside the panel and
@@ -64,7 +64,7 @@ additional. The app does not record raw audio.
 
 ## Deliberate POC limits
 
-- One local native controller on Command Center. No Remote controller or other
+- One local native controller. No controller on another machine and no other
   harness adapters.
 - Canvas editing and inspection only. No worker dispatch, task mutation,
   credential changes, authority grants, or resource deletion through Live tools.
@@ -73,7 +73,7 @@ additional. The app does not record raw audio.
 - Restart shows interrupted requests and uncertain actions; it does not replay
   them or automatically resume a call. Conversation continuity across app
   restarts is deferred.
-- The full fleet/worker plan remains future work. This is a local POC, not a
+- The full worker plan remains future work. This is a local POC, not a
   production release.
 
 ## Verification

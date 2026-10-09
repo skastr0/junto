@@ -38,10 +38,9 @@ plus outer socket `tests/work-control-transport.test.ts` and
 
 Process-bind to a managed agent seat whose `overseer` flag is on. Pause and
 blocked do not deny administration. Ordinary agents stay edge-scoped
-(`ScopeError` without a matching edge and port). Remote occupants send closed
-Station `overseer` on the existing Command Center-opened duplex session;
-Command Center validates the live grant and authenticated source installation
-and performs authoring. Remotes do not author projection. Attribution stays
+(`ScopeError` without a matching edge and port). The machine that edits the
+canvas validates the live grant and the authenticated source installation and
+performs authoring. Attribution stays
 the real agent seat, never `OPERATOR_SEAT_ID`. Live grant is rechecked at
 commit. Timeout or disconnect is uncertain completion with no automatic
 replay.
@@ -59,7 +58,6 @@ replay.
 | Region environment / secrets | `tests/overseer-env-secret.test.ts`, `tests/overseer-canvas-commands.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Native | `tests/overseer-native.test.ts` |
 | Composition | `tests/overseer-composition.test.ts`, `tests/overseer-composition-lifecycle.test.ts` |
-| Station transport | `tests/station-overseer-transport.test.ts` |
 | Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Canvas edits / grant isolation | `tests/canvas-edit-commands.test.ts`, `tests/overseer-set.test.ts` |
 
@@ -249,7 +247,6 @@ entry point, and one test drives the real operation module over fake ports.
 | Body | `references write` and `briefing write` take the body from `--body <text or @file or ->`, or as `body` in the argument; given twice, or empty, is an `InputError` at the CLI |
 | Author | a write records `overseer:<node id>`; the operator's own writes record `operator` |
 | Name | lower-cased; 1 to 80 characters of letters, digits, dot, underscore and dash; no bound on description or body beyond the 1 MiB overseer request |
-| Residency | forwarded to Command Center from a Remote like other authoring |
 | `junto references list` and `read` | ordinary commands; a seat reads its own scope from work ops `references.list` and `references.read` |
 
 Product bindings sit behind one import each:
@@ -266,8 +263,8 @@ Keychain, the keyring, or the operator's home.
 | No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | `tests/overseer-work.test.ts`; `tests/overseer-native.test.ts`; `tests/overseer-admission.test.ts`; e2e grants without edges | unit exercised; integrated Work suite passes |
 | Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | `src/shared/model/model.test.ts` (an edit cannot grant); `tests/model-factories.test.ts` (a new seat is never an overseer); `tests/model-service.test.ts` `GrantOverseer` alias toggle | unit exercised |
 | Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | `tests/overseer-canvas-commands.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
-| Remote source impersonation | Command Center compares `deriveActorSeatId(authenticatedSourceInstallation, binding)` to compiled seatId; forged caller args ignored | `tests/overseer-admission.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/station-overseer-transport.test.ts` | unit exercised |
-| Uncertain completion, no automatic replay | timeout/disconnect reports uncertain completion and never replays mutations | `tests/station-overseer-transport.test.ts`; `tests/work-socket-overseer.test.ts` | unit exercised |
+| Source impersonation | The editing machine compares `deriveActorSeatId(authenticatedSourceInstallation, binding)` to compiled seatId; forged caller args ignored | `tests/overseer-admission.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
+| Uncertain completion, no automatic replay | timeout/disconnect reports uncertain completion and never replays mutations | `tests/work-socket-overseer.test.ts` | unit exercised |
 | Secret value echoed back | a value given to `secret.put` never appears in a result, an error, a schema failure, or CLI output | `tests/overseer-env-secret.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/overseer-cli.test.ts` | unit and spawned-CLI exercised with a fake store |
 | Viewport invariance | overseer reads, writes, digest, render, screenshot never pan, zoom, focus, resize, or switch the operator view | parent-run `e2e/scenarios/overseer-acceptance.spec.ts` for human toggle; `tests/overseer-canvas-commands.test.ts` document reads; native capture still pending | Electron toggle exercised; screenshot/native capture not proven |
 
@@ -280,13 +277,13 @@ Keychain, the keyring, or the operator's home.
 - Retired operations (tasks, request, artifact, board, pad, sheet, scheduler)
   keep their switched-off handlers and have no suite.
 - Full repository suite is not claimed green.
-- Native Remote deletion retains the existing exact-teardown refusal in
+- Native deletion retains the existing exact-teardown refusal in
   `TerminalRouter.deleteBinding`; it never reports an unproven stop as deletion.
 
 ## Explicit non-coverage
 
 - Operator socket remains agent-denied.
-- No fleet enrollment, credentials, or Command Center transfer.
-- No arbitrary RPC tunnel and no Remote-initiated new dial.
+- No machine enrollment or credentials.
+- No arbitrary RPC tunnel.
 - Ordinary edge-scoped work ops are unchanged.
 - Parent `tests/overseer-admission.test.ts` owns `resolveOverseerActor` and watcher.
