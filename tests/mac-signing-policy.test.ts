@@ -3,10 +3,6 @@ import {
   compiledMacSigningPolicy,
   parseMacSigningPolicy,
 } from "../src/main/junto/mac-signing-policy";
-import {
-  buildRemoteDeployScript,
-  validateLocalBundleProvenance,
-} from "../src/main/junto/hosts/deploy-darwin";
 import { admitStagedMacApp } from "../src/main/junto/update/admit-mac-app";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,18 +39,6 @@ describe("compiled macOS release trust", () => {
     vi.stubGlobal("__JUNTO_MAC_TEAM_ID__", undefined);
     vi.stubGlobal("__JUNTO_MAC_SIGNING_IDENTITY__", undefined);
     expect(() => compiledMacSigningPolicy()).toThrow(/release trust is not configured/);
-    expect(() => validateLocalBundleProvenance({
-      appPath: "/missing/Junto.app",
-      executablePath: "/missing/Junto.app/Contents/MacOS/Junto",
-      bundleIdentifier: "com.skastr0.junto",
-      bundleExecutable: "Junto",
-      bundleVersion: "0.2.0",
-      codesignMetadata: `TeamIdentifier=${team}\nAuthority=${authority}`,
-    })).toThrow(/release trust is not configured/);
-    expect(() => buildRemoteDeployScript("/Users/operator", "a".repeat(40), {
-      kind: "app-tar",
-      expectedPackageState: "absent",
-    })).toThrow(/release trust is not configured/);
     const runCommand = vi.fn();
     await expect(admitStagedMacApp("/missing/Junto.app", { runCommand }))
       .rejects.toThrow(/release trust is not configured/);

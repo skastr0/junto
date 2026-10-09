@@ -40,7 +40,6 @@ describe("macOS privacy policy", () => {
       read("src/main/index.ts"),
       read("src/main/junto/trusted-renderer-protocol.ts"),
       read("src/main/junto/browser/web-policy.ts"),
-      read("src/main/junto/hosts/deploy-darwin.ts"),
       read("scripts/app-paths.sh"),
     ].join("\n");
 

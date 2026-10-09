@@ -41,13 +41,9 @@ import {
 } from "../src/main/junto/hosts/snapshot";
 import { SshTransport } from "../src/main/junto/ssh/service";
 import { acpVerboseLogging } from "../src/main/junto/chat/acp-client";
-import { StationFleetPropagation } from "../src/main/junto/station/fleet-propagation";
 
 const dirs: string[] = [];
 const originalHome = process.env.HOME;
-const unusedFleet = {} as Context.Service.Shape<
-  typeof StationFleetPropagation
->;
 const stateDisposers: Array<() => Promise<void>> = [];
 const stateByPath = new Map<
   string,
@@ -264,7 +260,6 @@ describe("remote hosts registry", () => {
     const service = makeHostsService(
       observingRegistry,
       {} as Context.Service.Shape<typeof SshTransport>,
-      unusedFleet,
     );
 
     const result = await Effect.runPromise(
@@ -340,7 +335,6 @@ describe("remote hosts registry", () => {
       const service = makeHostsService(
         registry,
         {} as Context.Service.Shape<typeof SshTransport>,
-        unusedFleet,
       );
       const listed = await Effect.runPromise(service.list);
       const firstRoute = findHostById("studio") !== undefined;
@@ -412,7 +406,6 @@ describe("remote hosts registry", () => {
     const service = makeHostsService(
       delayedRegistry,
       {} as Context.Service.Shape<typeof SshTransport>,
-      unusedFleet,
     );
     const fiber = Effect.runFork(
       service.upsert({

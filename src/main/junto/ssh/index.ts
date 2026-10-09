@@ -42,28 +42,4 @@ export {
   makeScopedPromiseRunner,
   type ScopedPromiseRunner,
 } from "./scoped-runner";
-export {
-  // Darwin freeform deploy compiler is intentionally not public: beta keeps
-  // Darwin Remote deploy capability-gated, and the freeform bash -lc mint must
-  // not be reachable from the product barrel (hosts deep-import remote-plan).
-  compileLinuxUserlandDeploy,
-  compileLinuxUserlandDeploySource,
-  compileLinuxUserlandObserve,
-  compileLinuxUserlandObserveSource,
-  compileLinuxUserlandPreflight,
-  compileLinuxUserlandPreflightSource,
-  compileLinuxUserlandRestart,
-  compileLinuxUserlandRestartSource,
-} from "./remote-plan";
-export {
-  remoteCat,
-  remoteHermesCli,
-  remoteHostProbe,
-  remoteLinuxCapabilityDoctor,
-  remoteLsofTcpListen,
-  remoteProductVersion,
-  remoteTailscaleServeStatus,
-  remoteTestFileExists,
-  remoteUname,
-  remoteJuntoStation,
-} from "./read-commands";
+export { remoteCat, remoteHermesCli, remoteUname } from "./read-commands";

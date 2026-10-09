@@ -4,7 +4,6 @@ import {
   parseSshEndpoint,
   parseRemoteUnixSocketPath,
   remoteHermesCli,
-  remoteHostProbe,
   remoteUname,
   type OneShotProgram,
   type ScopedStreamProgram,
@@ -47,13 +46,6 @@ describe("SSH domain", () => {
     type ProductApi = typeof import("../src/main/junto/ssh");
     type HasGenericMint = "makeRemoteCommand" extends keyof ProductApi ? true : false;
     expectTypeOf<HasGenericMint>().toEqualTypeOf<false>();
-
-    const probe = await Effect.runPromise(
-      Effect.result(
-        remoteHostProbe(["/bin/sh", "-c", "rm -rf -- /"]),
-      ),
-    );
-    expect(Result.isFailure(probe)).toBe(true);
 
     // remoteHermesCli cannot redirect the executable to a shell.
     const hermes = await Effect.runPromise(remoteHermesCli(["version"]));

@@ -1,10 +1,6 @@
-import { Context, Effect, Result, Layer, Schema, Semaphore } from "effect";
+import { Context, Effect, Result, Layer, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { ServiceCheck } from "@shared/contracts";
-import type {
-  StationProtocolObservation,
-  StationRemoteObservation,
-} from "@shared/station-status";
 import {
   defaultRemoteHostsDocument,
   RemoteHost,
@@ -13,17 +9,11 @@ import {
 } from "@shared/remote-hosts";
 import { SshTransport, type SshTransportShape } from "../ssh";
 import {
-  configureRemoteHost,
-  type ConfigureRemoteOptions,
-  type ConfigureRemoteResult,
-} from "./configure-remote";
-import {
   runRemoteHostsDoctor,
   runRemoteHostsDoctorSnapshot,
   testHostConnection,
   type RemoteHostsDoctorSnapshot,
 } from "./doctor";
-import { StationFleetPropagation } from "../station/fleet-propagation";
 import {
   getDefaultHostsRegistry,
   HostRegistryRows,
@@ -32,14 +22,11 @@ import {
 } from "./registry";
 import { setHostsSnapshot } from "./snapshot";
 import { StateTransactionOperation } from "../state/service";
-import { BoxResourceCleanup } from "../box/repository";
-import { StationFleetTargetCleanup } from "../station/fleet-target-repository";
 
 const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
   onExcessProperty: "error",
 });
 
-export type { ConfigureRemoteResult };
 
 /**
  * S4 (effect@3.21): single canonical Tag `@junto/HostsService`.
@@ -64,25 +51,11 @@ export class HostsService extends Context.Service<HostsService,
     readonly remove: (
       id: string,
     ) => Effect.Effect<ReadonlyArray<RemoteHostT>, RemoteHostsError>;
-    readonly test: (
-      id: string,
-    ) => Effect.Effect<
-      {
-        readonly ok: boolean;
-        readonly detail: string;
-        readonly reachability?: "reachable" | "unreachable" | "unknown";
-        readonly protocol?: StationProtocolObservation;
-        readonly linuxCapabilities?: import("@shared/linux-host-capabilities").LinuxHostCapabilityObservation;
-        readonly observation?: StationRemoteObservation;
-        readonly compatibility?: import("@shared/fleet-compatibility-snapshot").FleetPeerCompatibilitySnapshot;
-      },
-      RemoteHostsError
-    >;
-    /** Command Center → SSH stamp Remote station fields on a registered remote host. */
-    readonly configureRemote: (
-      id: string,
-      options: ConfigureRemoteOptions,
-    ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
+    readonly test: (id: string) => Effect.Effect<{
+      readonly ok: boolean;
+      readonly detail: string;
+      readonly reachability: "reachable" | "unreachable";
+    }, RemoteHostsError>;
   }>()("@junto/HostsService") {}
 
 /** Canonical service shape for `HostsService` (one id, one shape). */
@@ -113,37 +86,12 @@ const loadHostsIntoRoutingSnapshot = (
 export const makeHostsService = (
   registry: HostsRegistry,
   ssh: SshTransportShape,
-  fleet: Context.Service.Shape<typeof StationFleetPropagation>,
-  operations: {
-    readonly configureRemoteHost: typeof configureRemoteHost;
-  } = {
-    configureRemoteHost,
-  },
 ): HostsServiceShape => {
-  const mutationLocks = new Map<string, Semaphore.Semaphore>();
-  const mutationTarget = (host: RemoteHostT): string =>
-    host.kind === "remote" && host.sshEndpoint
-      ? `remote:${host.sshEndpoint}`
-      : `local:${host.id}`;
-  const mutationLockFor = (target: string): Semaphore.Semaphore => {
-    const existing = mutationLocks.get(target);
-    if (existing) return existing;
-    const created = Semaphore.makeUnsafe(1);
-    mutationLocks.set(target, created);
-    return created;
-  };
-  const serializeHostMutation = <A, E, R>(
-    host: RemoteHostT,
-    effect: Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E, R> =>
-    mutationLockFor(mutationTarget(host)).withPermits(1)(effect);
-
   return {
-    doctor: runRemoteHostsDoctor(registry, ssh, fleet),
+    doctor: runRemoteHostsDoctor(registry, ssh),
     doctorSnapshot: runRemoteHostsDoctorSnapshot(
       registry,
       ssh,
-      fleet,
     ),
     // Listing is the explicit durable reload boundary used by Settings and IPC.
     // Keep the synchronous routing snapshot in the same successful operation.
@@ -191,24 +139,9 @@ export const makeHostsService = (
             new RemoteHostsError("not_found", `unknown host: ${id}`),
           );
         }
-        return yield* testHostConnection(ssh, fleet, host);
+        return yield* testHostConnection(ssh, host);
       }),
-    configureRemote: (id, options) =>
-      Effect.gen(function* () {
-        const host = yield* Effect.tryPromise({
-          try: () => registry.get(id),
-          catch: asRemoteHostsError,
-        });
-        if (!host) {
-          return yield* Effect.fail(
-            new RemoteHostsError("not_found", `unknown host: ${id}`),
-          );
-        }
-        return yield* serializeHostMutation(
-          host,
-          operations.configureRemoteHost(ssh, host, options),
-        );
-      }),
+
   };
 };
 
@@ -217,12 +150,10 @@ const persistenceError = (operation: string, cause: unknown): RemoteHostsError =
     cause instanceof Error ? cause.message : String(cause)
   }`);
 
-/** Owns transactions spanning the independent host, Box and fleet row leaves. */
+/** Owns host registry transactions on the product connection. */
 export const HostsPersistenceLive = Layer.effect(HostsPersistence, Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const rows = yield* HostRegistryRows;
-  const boxes = yield* BoxResourceCleanup;
-  const fleet = yield* StationFleetTargetCleanup;
   const initialize = Effect.gen(function* () {
     if (yield* rows.initialized.pipe(Effect.mapError((cause) => persistenceError("initialize-read", cause)))) return;
     yield* sql.withTransaction(rows.ensure(new Date().toISOString())).pipe(
@@ -243,8 +174,6 @@ export const HostsPersistenceLive = Layer.effect(HostsPersistence, Effect.gen(fu
       if (!current.hosts.some((host) => host.id === id)) {
         return yield* Effect.fail(new RemoteHostsError("not_found", `unknown host: ${id}`));
       }
-      yield* boxes.deleteForHost(id);
-      yield* fleet.deleteForHost(id);
       yield* rows.delete(id);
       return yield* rows.read;
     })).pipe(
@@ -253,14 +182,13 @@ export const HostsPersistenceLive = Layer.effect(HostsPersistence, Effect.gen(fu
     );
   });
   return { initialize, read, upsert, remove };
-})).pipe(Layer.provide([HostRegistryRows.layer, BoxResourceCleanup.layer, StationFleetTargetCleanup.layer]));
+})).pipe(Layer.provide(HostRegistryRows.layer));
 
 export const HostsServiceLive = Layer.effect(
   HostsService,
   Effect.gen(function* () {
     const ssh = yield* SshTransport;
     const persistence = yield* HostsPersistence;
-    const fleet = yield* StationFleetPropagation;
     // Capture warm ambient Context so registry Promise bridges never use bare
     // Effect.runPromise (AppRuntime / RemoteRuntime host entry).
     const runtime = yield* Effect.context<never>();
@@ -280,6 +208,6 @@ export const HostsServiceLive = Layer.effect(
         }),
       ),
     );
-    return makeHostsService(registry, ssh, fleet);
+    return makeHostsService(registry, ssh);
   }),
 ).pipe(Layer.provide(HostsPersistenceLive));

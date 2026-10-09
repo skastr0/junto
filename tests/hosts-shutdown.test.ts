@@ -238,8 +238,6 @@ describe("host IPC shutdown admission", () => {
       [IPC_CHANNELS.hostsUpsert, { id: "studio" }],
       [IPC_CHANNELS.hostsRemove, "studio"],
       [IPC_CHANNELS.hostsTest, "studio"],
-      [IPC_CHANNELS.hostsConfigureRemote, "studio"],
-      [IPC_CHANNELS.hostsDeployRemote, { id: "studio" }],
     ] as const;
 
     for (const [channel, ...args] of calls) {
@@ -252,25 +250,4 @@ describe("host IPC shutdown admission", () => {
     expect(runtime.runPromise).not.toHaveBeenCalled();
   });
 
-  it("rejects invalid deploy IPC shape without entering the app runtime", async () => {
-    register();
-    // Managed deploy is release-enabled; invalid payloads still fail closed
-    // before AppRuntime (decode gate), and never retain a flight.
-    const inputs: ReadonlyArray<unknown> = [
-      "studio",
-      { id: "studio", extra: true },
-      { authorization: { password: "secret" } },
-    ];
-
-    for (const input of inputs) {
-      await expect(
-        invoke(IPC_CHANNELS.hostsDeployRemote, input),
-      ).resolves.toMatchObject({
-        ok: false,
-        code: "validation",
-        detail: expect.stringMatching(/invalid/i),
-      });
-    }
-    expect(runtime.runPromise).not.toHaveBeenCalled();
-  });
 });
