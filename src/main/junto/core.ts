@@ -7,17 +7,13 @@ import { MachineOwnerControl } from "./hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./link/service";
 import { startOperatorControlServer, type OperatorControlServer } from "./operator-control";
 import { evaluateSchemaCompatibility, probeInstalledStateSchema } from "./state/schema-version-probe";
-import { configurePeerPidHelperRoots } from "./process-identity";
 import { quiesceServiceChildrenOnQuit } from "../services/process";
 import { installCoreRunner } from "../core-runner";
 
-export interface CoreOptions extends Omit<MachineCoreOptions, "ready"> {
-  readonly peerPidHelperRoots: ReadonlyArray<string>;
-}
+export type CoreOptions = Omit<MachineCoreOptions, "ready">;
 
 /** Both shells use this owner/link lifecycle; it creates no canvas. */
 export const startCore = async (options: CoreOptions) => {
-  configurePeerPidHelperRoots(options.peerPidHelperRoots);
   const schema = evaluateSchemaCompatibility(probeInstalledStateSchema(join(options.home, ".junto", "state", "junto.db")));
   if (!schema.ok) throw new Error(`Update Junto: this database uses schema ${schema.userVersion}, this build supports ${schema.supportedVersion}`);
   let admitted = false;

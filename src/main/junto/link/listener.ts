@@ -12,7 +12,6 @@ import {
   removeOwnedControlSocketPath,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
-import { admitOperatorPeer, type OperatorPeerAdmissionOptions } from "../operator-control/admission";
 import type { MachineLinkListener } from "./service";
 import type { LinkSession } from "./types";
 
@@ -24,7 +23,6 @@ export interface LinkListenerOptions {
 }
 
 export interface LinkListenerRuntime {
-  readonly admission?: OperatorPeerAdmissionOptions;
   /** Tests can lower product bounds. */
   readonly maxClients?: number;
   readonly drainMs?: number;
@@ -48,7 +46,7 @@ export const startLinkListener = async (
   let closeFlight: Promise<void> | undefined;
   const server = createServer({ allowHalfOpen: false }, (socket) => {
     socket.on("error", () => undefined);
-    if (stopping || sockets.size >= bounded(runtime.maxClients, 8) || !admitOperatorPeer(socket, runtime.admission).ok) {
+    if (stopping || sockets.size >= bounded(runtime.maxClients, 8)) {
       socket.destroy();
       return;
     }

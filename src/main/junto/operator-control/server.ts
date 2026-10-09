@@ -27,10 +27,6 @@ import {
   removeOwnedControlSocketPath,
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
-import {
-  admitOperatorPeer,
-  type OperatorPeerAdmissionOptions,
-} from "./admission";
 
 export interface OperatorControlServerOptions {
   readonly dispatch: (
@@ -46,7 +42,6 @@ export interface OperatorControlServerRuntime {
   readonly maxActiveClients?: number;
   readonly requestTimeoutMs?: number;
   readonly shutdownDeadlineMs?: number;
-  readonly admission?: OperatorPeerAdmissionOptions;
 }
 
 export interface OperatorControlShutdownReceipt {
@@ -325,15 +320,6 @@ export const startOperatorControlServer = async (
             ? "operator control is shutting down"
             : "operator control peer limit reached",
         ),
-      );
-      return;
-    }
-
-    const admission = admitOperatorPeer(socket, runtime.admission);
-    if (!admission.ok) {
-      refusePeer(
-        socket,
-        operatorError("forbidden", "operator control peer is not admitted"),
       );
       return;
     }

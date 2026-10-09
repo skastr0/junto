@@ -14,7 +14,6 @@ const main = async (): Promise<void> => {
     home: resolveJuntoHome(),
     build: runningBuildIdentity(),
     bundles,
-    peerPidHelperRoots: [join(packageRoot, "bin"), resolve(dirname(entry), "../../scripts")],
   });
   let closing = false;
   const stop = (): void => {

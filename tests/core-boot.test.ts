@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Result } from "effect";
 import { expect, it } from "vitest";
@@ -12,12 +12,12 @@ import { coreControlSocketPath } from "../src/main/junto/link/listener";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath } from "../src/shared/operator-control";
 
-it("starts the core in a fresh home and answers machine.status through real owner admission", async () => {
+it("starts the core in a fresh home and answers machine.status through the account socket", async () => {
   const home = await mkdtemp("/tmp/junto-core-");
   const build = "a".repeat(64);
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build, bundles: {}, peerPidHelperRoots: [resolve("scripts")] });
+    core = await startCore({ home, build, bundles: {} });
     expect(core.ready()).toBe(true);
     const listCanvases = Effect.flatMap(ModelService, model => model.listCanvases());
     expect(await coreRunner.runPromise(listCanvases)).toEqual([]);
@@ -45,6 +45,7 @@ it("starts the core in a fresh home and answers machine.status through real owne
     } finally { database.close(); }
     for (const path of [operatorControlSocketPath(home), coreControlSocketPath(home)]) {
       expect((await lstat(path)).mode & 0o777).toBe(0o600);
+      expect((await lstat(dirname(path))).mode & 0o777).toBe(0o700);
     }
     await core.close();
     expect(core.ready()).toBe(false);

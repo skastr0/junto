@@ -1,6 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { resolve } from "node:path";
 import { Effect, Result, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
@@ -29,11 +28,11 @@ const exchangeStatus = (home: string) => new Promise<string>((resolve, reject) =
   socket.once("end", () => { socket.destroy(); resolve(response); });
 });
 
-it("reports copy and row counts through owner admission without payloads or writes", async () => {
+it("reports copy and row counts through the account socket without payloads or writes", async () => {
   const home = await mkdtemp("/tmp/junto-exchange-status-");
   let core: Awaited<ReturnType<typeof startCore>> | undefined;
   try {
-    core = await startCore({ home, build: "a".repeat(64), bundles: {}, peerPidHelperRoots: [resolve("scripts")] });
+    core = await startCore({ home, build: "a".repeat(64), bundles: {} });
     const mini = Schema.decodeUnknownSync(InstallationId)("mini-installation");
     const bookName = Schema.decodeUnknownSync(MachineName)("book");
     const miniName = Schema.decodeUnknownSync(MachineName)("mini");

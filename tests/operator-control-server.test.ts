@@ -14,24 +14,11 @@ import {
   type OperatorControlServer,
   type OperatorControlServerRuntime,
 } from "../src/main/junto/operator-control";
-import type { ProcessIdentityMap } from "../src/main/junto/process-identity";
 import { Result } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const roots: string[] = [];
 const servers: OperatorControlServer[] = [];
-
-const emptyProcessMap = {
-  snapshot: () => [],
-} as unknown as ProcessIdentityMap;
-
-const admittedRuntime: OperatorControlServerRuntime = {
-  admission: {
-    processMap: emptyProcessMap,
-    readPeerPid: () => 410,
-    readParentPid: (pid: number) => (pid === 410 ? 1 : undefined),
-  },
-};
 
 const DEVICE = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3";
 
@@ -93,7 +80,7 @@ const exchange = async (
 const start = async (
   dispatch = async (request: OperatorRequestEnvelope) =>
     helloResponse(request),
-  runtime: OperatorControlServerRuntime = admittedRuntime,
+  runtime: OperatorControlServerRuntime = {},
 ): Promise<OperatorControlServer> => {
   // Darwin Unix-domain socket paths are capped near 104 bytes.
   const home = await mkdtemp("/tmp/junto-operator-");
@@ -164,25 +151,6 @@ describe("operator control server", () => {
     expect(raw).toContain('"id":"half-close"');
   });
 
-  it("fails closed when kernel peer identity is unavailable", async () => {
-    const dispatch = vi.fn(async (request: OperatorRequestEnvelope) =>
-      helloResponse(request),
-    );
-    const server = await start(dispatch, {
-      admission: {
-        processMap: emptyProcessMap,
-        readPeerPid: () => undefined,
-      },
-    });
-    const raw = await exchange(
-      server.socketPath,
-      encodeOperatorFrame(helloRequest()),
-    );
-    expect(raw).toContain('"type":"forbidden"');
-    expect(raw).not.toContain("peer-pid-unavailable");
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
   it("rejects multiple frames and never dispatches either request", async () => {
     const dispatch = vi.fn(async (request: OperatorRequestEnvelope) =>
       helloResponse(request),
@@ -223,7 +191,6 @@ describe("operator control server", () => {
         }),
     );
     const server = await start(dispatch, {
-      ...admittedRuntime,
       shutdownDeadlineMs: 20,
     });
     const socket = await connect(server.socketPath);
