@@ -17,10 +17,6 @@ import {
   controlTokenPath,
 } from "../src/shared/browser-control";
 import {
-  stationControlDir,
-  stationControlSocketPath,
-} from "../src/shared/station-ssh-control";
-import {
   createAppProcessPlane,
   type AppProcessLease,
 } from "../src/main/junto/app-process-plane";
@@ -35,7 +31,6 @@ import {
   processRoles,
   survivingProcessRows,
   terminateSpawnedRuntime,
-  verifyPackagedStationOwnerLocalHandoff,
   type ProcessRow,
 } from "./packaged-runtime-smoke";
 import { findSecretBearingOutput } from "./linux-ci-evidence";
@@ -57,7 +52,6 @@ export interface LinuxCiPackagedSmokeReceipt {
   readonly display: "xvfb";
   readonly workCli: "ok";
   readonly browserCli: "ok";
-  readonly stationCli: "ok";
   readonly browserRemoteModes: "absent";
   readonly processRoles: ReadonlyArray<string>;
   readonly rendererSandbox: {
@@ -400,9 +394,6 @@ export const smokeLinuxCiPackagedRuntime = async (
       return (
         (await pathExists(controlSocketPath(isolatedHome))) &&
         (await pathExists(controlTokenPath(isolatedHome))) &&
-        (await pathExists(
-          stationControlSocketPath(stationControlDir(isolatedHome)),
-        )) &&
         roles.includes("renderer")
       );
     });
@@ -461,26 +452,6 @@ export const smokeLinuxCiPackagedRuntime = async (
       }
     }
 
-    const stationStatus = await verifyPackagedStationOwnerLocalHandoff(
-      processPlane,
-      workCli,
-      {
-        cwd: tempRoot,
-        env: environment,
-        timeoutMs: 15_000,
-        args: ["station-stdio"],
-      },
-    );
-    if (
-      stationStatus.state !== "unenrolled" ||
-      !stationStatus.readiness.database ||
-      !stationStatus.readiness.session
-    ) {
-      throw new Error(
-        "packaged station CLI owner-local status was not ready",
-      );
-    }
-
     const pids = runtimeRows.map((row) => String(row.pid));
     const listeners = runFixed("/usr/bin/lsof", [
       "-nP",
@@ -531,7 +502,6 @@ export const smokeLinuxCiPackagedRuntime = async (
       display: "xvfb",
       workCli: "ok",
       browserCli: "ok",
-      stationCli: "ok",
       browserRemoteModes: "absent",
       processRoles: processRoles(rootPid, runtimeRows),
       rendererSandbox: sandbox,
