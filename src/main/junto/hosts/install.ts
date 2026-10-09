@@ -110,6 +110,7 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
       await verifyGeneration(directory, manifest);
       record({ step: "verified", build: manifest.build });
       const service = await machineService(installRoot, juntoHome, label);
+      await service.reconcile();
       const before = await service.observe();
       let installationId = input.expectedInstallationId;
       if (before.pid > 0) {
@@ -142,6 +143,7 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
         while (Date.now() < deadline) {
           try {
             const status = await readInstalledMachineStatus(directory, juntoHome);
+            await service.reconcile();
             const observed = await service.observe();
             if (status.build !== manifest.build || status.juntoHome !== juntoHome || status.pid !== observed.pid) throw new Error("core build, home, or service process does not match the candidate");
             if (installationId !== undefined && status.installationId !== installationId) throw new Error("candidate installation identity changed");
@@ -158,6 +160,7 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
         let diagnostics = "";
         try { diagnostics = await serviceErrorTail(installRoot); } catch { /* Cleanup still runs if diagnostics cannot be read. */ }
         try {
+          await service.reconcile();
           await quiesceMachineService(service, await service.observe(), () => {});
           await service.removeDefinition();
         } catch (stopCause) {

@@ -26,6 +26,7 @@ vi.mock("../src/main/junto/process-epoch", () => ({
 vi.mock("../src/main/junto/hosts/install-service", () => ({
   machineService: async () => ({
     provider: "launchd",
+    reconcile: async () => {},
     observe: async () => ({ loaded: fixture.loaded, pid: fixture.pid, matchesDesiredPlacement: fixture.matchesDesiredPlacement }),
     stop: async () => {
       fixture.stopSelections.push(await readlink(join(fixture.root, "current")));

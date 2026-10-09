@@ -27,6 +27,7 @@ export const uninstallMachine = (input: MachineLocalPaths): Effect.Effect<Machin
       if (!/^builds\/[0-9a-f]{64}-(?:darwin-arm64|linux-x64)$/.test(generation)) throw new Error("current selects an invalid build directory");
       await checkMachineTree(join(installRoot, generation));
       const service = await machineService(installRoot, juntoHome, label);
+      await service.reconcile();
       const before = await service.observe();
       if (before.pid > 0) {
         const core = await readInstalledMachineStatus(join(installRoot, generation), juntoHome);

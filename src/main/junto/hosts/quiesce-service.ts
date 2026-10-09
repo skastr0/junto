@@ -3,7 +3,7 @@ import type { MachineService } from "./install-service";
 
 /** Stop by service identity, then independently observe the captured epoch gone. */
 export const quiesceMachineService = async (
-  service: MachineService,
+  service: Pick<MachineService, "provider" | "observe" | "stop">,
   before: { loaded: boolean; pid: number },
   onStopping: () => void,
 ): Promise<{ pid?: number; startKey?: string; service: "absent" | "unloaded" | "inactive" }> => {

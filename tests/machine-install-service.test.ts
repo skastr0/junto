@@ -3,8 +3,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const account = vi.hoisted(() => ({ home: "" }));
+const account = vi.hoisted(() => ({ home: "", isLive: (_pid: number): boolean => false }));
 vi.mock("node:os", async original => ({ ...await original<typeof import("node:os")>(), homedir: () => account.home }));
+vi.mock("../src/main/junto/process-epoch", () => ({
+  readSingleProcessEpochSnapshot: (pid: number) => account.isLive(pid) ? [{ pid, startKey: `fixture-${pid}` }] : [],
+}));
 import { darwinMachineService } from "../src/main/junto/hosts/install-service";
 import { removeMachineServiceFile } from "../src/main/junto/hosts/install-paths";
 
@@ -12,7 +15,7 @@ type Job = { pid: number; path: string; program: string; args: string[]; home: s
 let root: string, home: string, file: string;
 const label = "dev.junto.machine.test";
 const user = `user/${process.getuid!()}`, gui = `gui/${process.getuid!()}`;
-let guiExists: boolean, failure: string;
+let guiExists: boolean, failure: string, injectLogin: boolean;
 let jobs: Map<string, Job>, calls: string[][];
 const error = (code: number) => Object.assign(new Error(`launchctl ${code}`), { code });
 const ownJob = (pid = 71): Job => ({ pid, path: file, program: join(root, "current/bin/node"), args: [join(root, "current/bin/node"), join(root, "current/core/junto.cjs")], home });
@@ -22,14 +25,20 @@ const launchctl = async (args: string[]): Promise<string> => {
   if (failure === op) throw error(5);
   if (op === "print" && target === gui) { if (!guiExists) throw error(112); return "gui exists"; }
   const domain = target?.startsWith("gui/") ? gui : user;
-  if (domain === gui && !guiExists) throw error(112);
+  if (domain === gui && !guiExists) {
+    if (injectLogin) {
+      expect(await readFile(file, "utf8")).toContain("<string>Aqua</string>");
+      injectLogin = false; guiExists = true; jobs.set(gui, ownJob(73));
+    }
+    throw error(112);
+  }
   if (op === "print") {
     const job = jobs.get(domain);
     if (!job) throw error(113);
     return `service = {\n path = ${job.path}\n program = ${job.program}\n arguments = {\n${job.args.map(arg => "  " + arg).join("\n")}\n }\n environment = {\n JUNTO_HOME => ${job.home}\n }\n pid = ${job.pid}\n}`;
   }
   if (op === "bootstrap") {
-    if (jobs.size > 0) throw new Error("second core would be started");
+    if (jobs.has(domain)) throw error(5);
     jobs.set(domain, ownJob(72));
   } else if (op === "bootout") jobs.delete(domain);
   else if (op !== "kickstart") throw new Error("unexpected command");
@@ -46,7 +55,8 @@ beforeEach(async () => {
   account.home = await realpath(await mkdtemp(join(tmpdir(), "junto-launchd-test-")));
   root = join(account.home, "install"); home = join(account.home, "state");
   file = join(account.home, "Library/LaunchAgents", label + ".plist");
-  guiExists = true; failure = ""; jobs = new Map(); calls = [];
+  guiExists = true; failure = ""; injectLogin = false; jobs = new Map(); calls = [];
+  account.isLive = pid => [...jobs.values()].some(job => job.pid === pid);
 });
 afterEach(async () => { await rm(account.home, { recursive: true, force: true }); });
 
@@ -93,16 +103,16 @@ describe("owned macOS machine service", () => {
     expect(mutations()).toEqual([["bootstrap", user, file], ["kickstart", `${user}/${label}`]]);
   });
 
-  it("stops a gui incumbent that appears after user was selected, before starting user", async () => {
+  it("keeps a gui incumbent that appears after user was selected", async () => {
     const first = await seed(true); await first.observe(); await first.stop();
     guiExists = false;
     const next = await service();
     // Login returns after selection and RunAtLoad starts the old gui job.
     guiExists = true; jobs.set(gui, ownJob(73)); calls = [];
-    expect(await next.observe()).toEqual({ loaded: true, pid: 73, matchesDesiredPlacement: false });
-    await next.stop(); await next.start();
-    expect(jobs.has(gui)).toBe(false); expect(jobs.has(user)).toBe(true);
-    expect(mutations()).toEqual([["bootout", `${gui}/${label}`], ["bootstrap", user, file], ["kickstart", `${user}/${label}`]]);
+    await next.reconcile();
+    expect(await next.observe()).toEqual({ loaded: true, pid: 73, matchesDesiredPlacement: true });
+    expect(jobs.has(gui)).toBe(true); expect(jobs.has(user)).toBe(false);
+    expect(mutations()).toEqual([]);
   });
 
   it("never changes the selected domain during activation if the graphical session disappears", async () => {
@@ -112,6 +122,20 @@ describe("owned macOS machine service", () => {
     expect(mutations()).toEqual([["bootstrap", gui, file]]);
     await s.removeDefinition();
     await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("repairs a late login that starts Aqua after the last absent-domain scan", async () => {
+    const old = await seed(true); await old.observe(); await old.stop();
+    guiExists = false;
+    const next = await service(); await next.observe();
+    calls = []; injectLogin = true;
+    await next.start();
+    expect(injectLogin).toBe(false);
+    expect(jobs.size).toBe(1);
+    expect(jobs.has(gui)).toBe(true); expect(jobs.has(user)).toBe(false);
+    expect(await next.observe()).toMatchObject({ pid: 73, matchesDesiredPlacement: true });
+    expect(await readFile(file, "utf8")).toContain("<string>Aqua</string>");
+    expect(mutations()).toContainEqual(["bootout", `${user}/${label}`]);
   });
 
   it("does not interpret an unexpected graphical-session query failure as no session", async () => {
@@ -146,13 +170,50 @@ describe("owned macOS machine service", () => {
     expect(mutations()).toEqual([]);
   });
 
-  it("refuses conflicting jobs in both domains without stopping either", async () => {
+  it("repairs two owned jobs by stopping user and keeping gui", async () => {
     await seed(true); jobs.set(user, ownJob(71)); calls = [];
     const s = await service();
-    await expect(s.observe()).rejects.toThrow("both macOS sessions");
-    await expect(s.start()).rejects.toThrow("both macOS sessions");
-    await expect(s.removeDefinition()).rejects.toThrow("both macOS sessions");
+    await s.reconcile();
+    expect(await s.observe()).toEqual({ loaded: true, pid: 72, matchesDesiredPlacement: true });
+    expect(mutations()).toEqual([["bootout", `${user}/${label}`]]);
+    expect(jobs.size).toBe(1); expect(jobs.has(gui)).toBe(true);
+  });
+
+  it.each([user, gui])("refuses a foreign job in an otherwise owned pair, foreign=%s", async foreign => {
+    await seed(true); jobs.set(user, ownJob(71));
+    jobs.get(foreign)!.args = ["/foreign"];
+    const before = await readFile(file, "utf8"); calls = [];
+    const s = await service();
+    await expect(s.reconcile()).rejects.toThrow("does not belong");
     expect(mutations()).toEqual([]); expect(jobs.size).toBe(2);
+    expect(await readFile(file, "utf8")).toBe(before);
+  });
+
+  it("does not claim a repaired pair when the fallback stop is uncertain", async () => {
+    await seed(true); jobs.set(user, ownJob(71));
+    const s = await service(); failure = "bootout";
+    await expect(s.reconcile()).rejects.toMatchObject({ code: 5 });
+    expect(jobs.size).toBe(2);
+    failure = "";
+    await s.reconcile();
+    expect(jobs.size).toBe(1); expect(jobs.has(gui)).toBe(true);
+  });
+
+  it("repairs a late-login pair for uninstall, then removes the remaining graphical job", async () => {
+    await seed(false); guiExists = true; jobs.set(gui, ownJob(73)); calls = [];
+    const s = await service();
+    await s.reconcile(); await s.observe(); await s.stop(); await s.removeDefinition();
+    expect(jobs.size).toBe(0);
+    expect(mutations()).toEqual([["bootout", `${user}/${label}`], ["bootout", `${gui}/${label}`]]);
+    await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("quiesces both owned jobs if login occurs after a user incumbent was admitted for stopping", async () => {
+    const s = await seed(false); await s.observe();
+    guiExists = true; jobs.set(gui, ownJob(73)); calls = [];
+    await s.stop();
+    expect(jobs.size).toBe(0);
+    expect(mutations()).toEqual([["bootout", `${user}/${label}`], ["bootout", `${gui}/${label}`]]);
   });
 
   it("refuses to stop a replacement job after the original admission", async () => {

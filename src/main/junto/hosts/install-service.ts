@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { ensureMachineDirectory, ownedMachineFile, removeMachineServiceFile, writeMachineServiceFile } from "./install-paths";
+import { quiesceMachineService } from "./quiesce-service";
 
 const exec = promisify(execFile);
 const run = async (command: string, args: string[]): Promise<string> =>
@@ -13,6 +14,7 @@ const unit = (value: string): string => '"' + value.replace(/[%\\"\n\r]/g, token
 
 export interface MachineService {
   readonly provider: "launchd" | "systemd-user";
+  readonly reconcile: () => Promise<void>;
   readonly observe: () => Promise<{ loaded: boolean; pid: number; matchesDesiredPlacement: boolean }>;
   readonly stop: () => Promise<void>;
   readonly start: () => Promise<void>;
@@ -34,12 +36,12 @@ export const darwinMachineService = async (
   const body = (session: "Aqua" | "Background") => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array><string>${xml(node)}</string><string>${xml(entry)}</string></array><key>EnvironmentVariables</key><dict><key>JUNTO_HOME</key><string>${xml(home)}</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ProcessType</key><string>Background</string><key>LimitLoadToSessionType</key><string>${session}</string><key>StandardOutPath</key><string>${xml(join(root,"logs/stdout.log"))}</string><key>StandardErrorPath</key><string>${xml(join(root,"logs/stderr.log"))}</string></dict></plist>\n`;
   const background = body("Background");
   const aqua = body("Aqua");
-  // Select once. Losing the session during activation is a failed start, never
-  // permission to hop domains or start a second core.
+  // Start with the observed session. A graphical job appearing during this
+  // owning operation wins over fallback; the running core never hops domains.
   let domain: string;
   try { await launchctl(["print", gui]); domain = gui; }
   catch (cause) { if (exitCode(cause) !== 112) throw cause; domain = user; }
-  const desired = domain === gui ? aqua : background;
+  let desired = domain === gui ? aqua : background;
   await ensureMachineDirectory(dirname(file));
   const definition = async (): Promise<string | undefined> => {
     if (!await ownedMachineFile(file)) return undefined;
@@ -49,7 +51,7 @@ export const darwinMachineService = async (
   };
   await definition();
   type Observed = { domain: string; pid: number; definition: string };
-  const snapshot = async (): Promise<Observed | undefined> => {
+  const snapshot = async (): Promise<Observed[]> => {
     const value = await definition();
     const jobs: Observed[] = [];
     for (const candidate of [user, gui]) {
@@ -69,35 +71,70 @@ export const darwinMachineService = async (
       const match = /^\s*pid = ([1-9][0-9]*)\s*$/m.exec(output);
       jobs.push({ domain: candidate, pid: match === null ? 0 : Number(match[1]), definition: value });
     }
-    if (jobs.length > 1) throw new Error("Junto service is loaded in both macOS sessions; cleanup refused");
-    return jobs[0];
+    return jobs;
+  };
+  const quiesceJob = async (job: Observed): Promise<void> => {
+    await quiesceMachineService({
+      provider: "launchd",
+      observe: async () => {
+        const current = (await snapshot()).find(value => value.domain === job.domain);
+        return { loaded: current !== undefined, pid: current?.pid ?? 0, matchesDesiredPlacement: false };
+      },
+      stop: async () => {
+        const current = (await snapshot()).find(value => value.domain === job.domain);
+        if (current === undefined) return;
+        if (current.pid !== job.pid || current.definition !== job.definition) throw new Error("service changed after admission; stopping refused");
+        await launchctl(["bootout", `${job.domain}/${label}`]);
+      },
+    }, { loaded: true, pid: job.pid }, () => {});
+  };
+  const reconcile = async (): Promise<void> => {
+    // Validate every loaded job before changing either. A foreign job remains
+    // a refusal; two proven jobs of this install are an owned repair.
+    const jobs = await snapshot();
+    const graphical = jobs.find(job => job.domain === gui);
+    if (graphical === undefined) return;
+    const fallback = jobs.find(job => job.domain === user);
+    if (fallback !== undefined) await quiesceJob(fallback);
+    domain = gui; desired = aqua;
+    const previous = await definition();
+    if (previous !== undefined && previous !== desired) await removeMachineServiceFile(file, previous);
+    await writeMachineServiceFile(file, desired);
   };
   let admitted: Observed | undefined;
   return {
     provider: "launchd",
+    reconcile,
     observe: async () => {
-      admitted = await snapshot();
+      const jobs = await snapshot();
+      admitted = jobs.find(job => job.domain === gui) ?? jobs[0];
       return { loaded: admitted !== undefined, pid: admitted?.pid ?? 0,
-        matchesDesiredPlacement: admitted?.domain === domain && admitted.definition === desired };
+        matchesDesiredPlacement: jobs.length === 1 && admitted?.domain === domain && admitted.definition === desired };
     },
     stop: async () => {
-      const current = await snapshot();
-      if (current === undefined) return;
-      if (admitted === undefined || admitted.domain !== current.domain || admitted.pid !== current.pid || admitted.definition !== current.definition) {
+      const jobs = await snapshot();
+      if (jobs.length === 0) return;
+      const current = jobs.find(job => job.domain === admitted?.domain);
+      if (admitted === undefined || (current !== undefined && (admitted.pid !== current.pid || admitted.definition !== current.definition))) {
         throw new Error("service changed after admission; stopping refused");
       }
-      await launchctl(["bootout", `${current.domain}/${label}`]);
+      for (const job of jobs) await quiesceJob(job);
     },
     start: async () => {
-      if (await snapshot() !== undefined) throw new Error("Junto service must be quiescent before starting");
+      if ((await snapshot()).length !== 0) {
+        await reconcile();
+        throw new Error("Junto service must be quiescent before starting");
+      }
       const previous = await definition();
       if (previous !== undefined && previous !== desired) await removeMachineServiceFile(file, previous);
       await writeMachineServiceFile(file, desired);
       await launchctl(["bootstrap", domain, file]);
+      await reconcile();
       await launchctl(["kickstart", `${domain}/${label}`]);
+      await reconcile();
     },
     removeDefinition: async () => {
-      if (await snapshot() !== undefined) throw new Error("Junto service must be quiescent before removing its definition");
+      if ((await snapshot()).length !== 0) throw new Error("Junto service must be quiescent before removing its definition");
       const value = await definition();
       if (value !== undefined) await removeMachineServiceFile(file, value);
     },
@@ -120,6 +157,7 @@ export const machineService = async (root: string, home: string, label: string):
   if (existed && await readFile(file, "utf8") !== body) throw new Error("existing service definition belongs to a different install");
   return {
     provider: "systemd-user",
+    reconcile: async () => {},
     observe: async () => {
       const output = await run("/usr/bin/systemctl", ["--user", "show", name, "--property=LoadState,MainPID,FragmentPath,ExecStart"]);
       const fields = Object.fromEntries(output.trim().split("\n").map(line => { const index = line.indexOf("="); return [line.slice(0,index),line.slice(index+1)]; }));
