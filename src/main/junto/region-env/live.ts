@@ -28,11 +28,11 @@ const resolution = makeRegionEnvironmentResolution({
 
 const readDoc = async (canvasName: string): Promise<Canvas | undefined> => {
   try {
-    const [{ AppRuntime }, { ModelService }] = await Promise.all([
-      import("../../runtime"),
+    const [{ coreRunner }, { ModelService }] = await Promise.all([
+      import("../../core-runner"),
       import("../model/service"),
     ]);
-    const read = await AppRuntime.runPromise(
+    const read = await coreRunner.runPromise(
       Effect.gen(function* () {
         const model = yield* ModelService;
         return yield* model.canvas(canvasName).pipe(Effect.result);

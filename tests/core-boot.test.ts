@@ -3,9 +3,11 @@ import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import { expect, it } from "vitest";
 import { startCore } from "../src/main/junto/core";
+import { coreRunner } from "../src/main/core-runner";
+import { ModelService } from "../src/main/junto/model/service";
 import { coreControlSocketPath } from "../src/main/junto/link/listener";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath } from "../src/shared/operator-control";
@@ -17,6 +19,8 @@ it("starts the core in a fresh home and answers machine.status through real owne
   try {
     core = await startCore({ home, build, bundles: {}, peerPidHelperRoots: [resolve("scripts")] });
     expect(core.ready()).toBe(true);
+    const listCanvases = Effect.flatMap(ModelService, model => model.listCanvases());
+    expect(await coreRunner.runPromise(listCanvases)).toEqual([]);
     const raw = await new Promise<string>((resolve, reject) => {
       const socket = createConnection(operatorControlSocketPath(home));
       let response = "";
@@ -44,6 +48,7 @@ it("starts the core in a fresh home and answers machine.status through real owne
     }
     await core.close();
     expect(core.ready()).toBe(false);
+    await expect(coreRunner.runPromise(listCanvases)).rejects.toThrow("Junto core is not running");
     expect(existsSync(operatorControlSocketPath(home))).toBe(false);
     expect(existsSync(coreControlSocketPath(home))).toBe(false);
   } finally {

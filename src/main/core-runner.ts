@@ -13,9 +13,12 @@ export interface CoreRunner {
 
 let installed: CoreRunner | undefined;
 
-export const installCoreRunner = (runner: CoreRunner): void => {
+export const installCoreRunner = (runner: CoreRunner): (() => void) => {
   if (installed !== undefined) throw new Error("Junto core runner is already installed");
   installed = runner;
+  return () => {
+    if (installed === runner) installed = undefined;
+  };
 };
 
 export const coreRunner: CoreRunner = {

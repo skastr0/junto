@@ -9,6 +9,7 @@ import { startOperatorControlServer, type OperatorControlServer } from "./operat
 import { evaluateSchemaCompatibility, probeInstalledStateSchema } from "./state/schema-version-probe";
 import { configurePeerPidHelperRoots } from "./process-identity";
 import { quiesceServiceChildrenOnQuit } from "../services/process";
+import { installCoreRunner } from "../core-runner";
 
 export interface CoreOptions extends Omit<MachineCoreOptions, "ready"> {
   readonly peerPidHelperRoots: ReadonlyArray<string>;
@@ -23,6 +24,7 @@ export const startCore = async (options: CoreOptions) => {
   let stopping = false;
   let owner: OperatorControlServer | undefined;
   let listener: MachineLinkListener | undefined;
+  let releaseRunner: (() => void) | undefined;
   const runtime = makeCoreRuntime({ ...options, ready: () => admitted && !stopping && owner?.ready() === true && listener?.ready() === true });
   let closeFlight: Promise<void> | undefined;
   const close = (): Promise<void> => {
@@ -40,10 +42,12 @@ export const startCore = async (options: CoreOptions) => {
       await runtime.dispose();
       const children = await quiesceServiceChildrenOnQuit();
       if (!children.clean) throw new Error("Core service children did not drain");
+      releaseRunner?.();
     })();
     return closeFlight;
   };
   try {
+    releaseRunner = installCoreRunner(runtime);
     const [actions, link, status, rows] = await runtime.runPromise(Effect.all([MachineOwnerControl, MachineLink, MachineCoreStatus, MachineCoreRows]));
     await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler }));
     listener = await runtime.runPromise(link.listen(options.home));
