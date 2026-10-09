@@ -52,6 +52,17 @@ const insert = (
     .run(...Object.values(row));
 };
 
+/** The harness session a stored seat row named, if it named one. */
+const legacySessionOf = (ether: string | null | undefined): string | undefined => {
+  if (!ether) return undefined;
+  try {
+    const session = (JSON.parse(ether) as { terminal?: { sessionId?: unknown } }).terminal?.sessionId;
+    return typeof session === "string" && session.trim() !== "" ? session : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 /** Copy forward and prove each domain row, without constructing a document. */
 export const migrateCanvasKinds = (
   database: StateSchemaMigrationDatabase,
@@ -116,6 +127,13 @@ export const migrateCanvasKinds = (
       .get(old.canvas_name, node.id)!;
     if (!isDeepStrictEqual(nodeFromRow(node.kind, copied), node))
       throw new Error(`kind migration changed ${node.kind} ${node.id}`);
+    // The session a seat resumed is carried by this step itself, from the
+    // stored row, whatever a seat of the model holds today.
+    const session = node.kind === "agent" ? legacySessionOf(old.ether_json) : undefined;
+    if (session !== undefined)
+      database
+        .prepare("UPDATE seats SET session_id=? WHERE canvas_name=? AND id=?")
+        .run(session, old.canvas_name, node.id);
     const grid =
       node.kind === "sheet" ? sheetGridFromLegacyRow(old) : undefined;
     if (grid !== undefined)

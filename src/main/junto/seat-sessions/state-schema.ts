@@ -3,8 +3,9 @@
  * seat identity (canvas node id, the same key as `seat_guidance`) and the
  * harness's session id. At most one row per seat is open (no end yet): the
  * seat's current session. Notes are markdown files under
- * `~/.junto/seats/<seat>/sessions/`; the row holds their path and gist.
- * Added by state migration 7 -> 8.
+ * `~/.junto/seats/<seat>/sessions/`; the row holds their path and gist. The
+ * open session is the one the seat resumes, under the binding it ran with.
+ * Added by state migration 7 -> 8; the binding by 19 -> 20.
  */
 export const SEAT_SESSIONS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS seat_sessions (
@@ -21,6 +22,7 @@ export const SEAT_SESSIONS_STATE_SCHEMA_SQL = `
     end_reason TEXT
       CHECK (end_reason IS NULL OR end_reason IN ('offboard', 'reseat', 'replaced')),
     offboarded_at INTEGER CHECK (offboarded_at IS NULL OR offboarded_at >= 0),
+    binding_id TEXT CHECK (binding_id IS NULL OR length(binding_id) BETWEEN 1 AND 1024),
     PRIMARY KEY (seat_id, session_id),
     CHECK ((ended_at IS NULL) = (end_reason IS NULL))
   ) STRICT, WITHOUT ROWID;

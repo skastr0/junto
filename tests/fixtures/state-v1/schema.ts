@@ -1,5 +1,5 @@
 /**
- * The frozen state schemas, version 1 through version 18, built only from
+ * The frozen state schemas, version 1 through version 19, built only from
  * frozen text and frozen steps so no later schema change can move a
  * historical witness.
  * Version 14 is its frozen fragments. Each earlier version is the next one
@@ -93,6 +93,12 @@ export const STATE_SCHEMA_V17_SQL = stepped(STATE_SCHEMA_V16_SQL, (database) => 
 export const STATE_SCHEMA_V18_SQL = stepped(
   STATE_SCHEMA_V17_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 18)!.migrate,
+);
+
+// Version 19 added what the editing machine remembers of the copies it sent (18 -> 19).
+export const STATE_SCHEMA_V19_SQL = stepped(
+  STATE_SCHEMA_V18_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 19)!.migrate,
 );
 
 // Version 14 dropped this trigger (13 -> 14), so version 13 is version 14 with it.

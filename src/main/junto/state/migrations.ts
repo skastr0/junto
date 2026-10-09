@@ -27,10 +27,8 @@ import {
 import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
 import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
 import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
-import {
-  SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL,
-  SEAT_SESSIONS_STATE_SCHEMA_SQL,
-} from "../seat-sessions/state-schema";
+import { SEAT_SESSION_DRAINS_STATE_SCHEMA_SQL } from "../seat-sessions/state-schema";
+import { migrateSeatPins, SEAT_SESSIONS_V8_STATE_SCHEMA_SQL } from "./migrate-seat-pins";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
@@ -53,9 +51,9 @@ export type StateSchemaMigrationDatabase = Pick<
 
 export const STATE_SCHEMA_MIGRATION_SAFETY = "expand-only" as const;
 /**
- * A consolidation step retires durable tables whose content has been migrated
- * into a canonical replacement inside the same step. It is the only step class
- * allowed to DROP tables it names in `removesTables`.
+ * A consolidation step drops the tables it names in `removesTables` and
+ * rebuilds the ones it names in `replacesTables`, copying every kept row. It
+ * is the only step class allowed to drop a table, and it names at least one.
  */
 export const STATE_SCHEMA_CONSOLIDATE_SAFETY = "consolidate" as const;
 
@@ -296,7 +294,17 @@ export const STATE_SCHEMA_V19_IDENTITY = {
     "ff9740c27d75838011ae3a9096bc44f5ee4b6d5e0920b3cc59c76c63b02555f6",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 19;
+/**
+ * Version 20 makes the session each seat row names the seat's open session in
+ * the seat sessions store, and gives every session there its binding. The
+ * table is rebuilt for the new column; every session survives.
+ */
+export const STATE_SCHEMA_V20_IDENTITY = {
+  actualSchemaSha256:
+    "ad2673cb715e3ef9bb5edd13fb7b8464db3fedb74e79167f9c3da70eee2ca6c1",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 20;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -304,7 +312,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 19;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V19_IDENTITY;
+  STATE_SCHEMA_V20_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -388,7 +396,7 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V7_IDENTITY,
     migrate: (database) => {
-      database.exec(SEAT_SESSIONS_STATE_SCHEMA_SQL);
+      database.exec(SEAT_SESSIONS_V8_STATE_SCHEMA_SQL);
     },
   },
   {
@@ -515,6 +523,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL);
     },
+  },
+  {
+    fromVersion: 19,
+    toVersion: 20,
+    name: "keep each seat's session pin in the seat sessions store",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V19_IDENTITY,
+    replacesTables: ["seat_sessions"],
+    migrate: (database) => migrateSeatPins(database),
   },
 ];
 
@@ -1022,7 +1039,7 @@ export const validateStateSchemaMigrationPlan = (
       migration.name.length === 0 ||
       (migration.safety !== STATE_SCHEMA_MIGRATION_SAFETY &&
         migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
-      ((migration.removesTables?.length ?? 0) > 0) !==
+      ((migration.removesTables?.length ?? 0) > 0 || (migration.replacesTables?.length ?? 0) > 0) !==
         (migration.safety === STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
       ((migration.correctiveWriteTables?.length ?? 0) > 0 &&
         migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY) ||

@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V18_IDENTITY,
@@ -19,8 +18,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V18_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V18_SQL, STATE_SCHEMA_V19_SQL } from "./fixtures/state-v1/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -57,11 +55,17 @@ const versionEighteenPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 18),
 };
 
+const versionNineteenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 19,
+  currentSchemaSql: STATE_SCHEMA_V19_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 19),
+};
+
 describe("state migration 18 -> 19 (the canvas copies sent)", () => {
-  it("freezes the version-eighteen witness the step starts from and names the head", () => {
+  it("freezes the witnesses the step starts from and ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V18_SQL)).toEqual(STATE_SCHEMA_V18_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(STATE_SCHEMA_V19_IDENTITY);
-    expect(CURRENT_STATE_SCHEMA_IDENTITY).toEqual(expectedStateSchemaIdentity(STATE_SCHEMA_SQL));
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V19_SQL)).toEqual(STATE_SCHEMA_V19_IDENTITY);
   });
 
   it.each(["command-center-v1.db", "remote-v1.db"])(
@@ -72,7 +76,7 @@ describe("state migration 18 -> 19 (the canvas copies sent)", () => {
         migrateStateSchema(database, versionEighteenPlan);
         const before = snapshot(database);
 
-        const result = migrateStateSchema(database);
+        const result = migrateStateSchema(database, versionNineteenPlan);
         expect(result).toMatchObject({ previousVersion: 18, schemaVersion: 19 });
         expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V19_IDENTITY);
         const { canvas_copies_sent: sent, canvas_placements: placements, ...rest } = snapshot(database);
