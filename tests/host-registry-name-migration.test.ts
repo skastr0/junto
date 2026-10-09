@@ -20,12 +20,17 @@ describe("host registry name conversion", () => {
       delete before.kind;
       database.exec("BEGIN"); migrateHostRegistry(database, "macbook"); database.exec("COMMIT");
       const after = database.prepare("SELECT * FROM host_registry WHERE id='studio'").get()!;
-      expect(after).toEqual({ ...before, is_this_machine: 0, junto_home: null, install_root: null });
+      expect(after).toEqual({ ...before, is_this_machine: 0, junto_home: null, install_root: null, ssh_port: null, ssh_known_hosts_file: null, ssh_host_key_alias: null });
       expect(database.prepare("SELECT id,hermes_id FROM host_registry WHERE is_this_machine=1").get()).toEqual({ id: "macbook", hermes_id: "local" });
       expect(() => database.exec("DELETE FROM host_registry WHERE is_this_machine=1")).toThrow();
       expect(() => database.exec("UPDATE host_registry SET is_this_machine=0 WHERE is_this_machine=1")).toThrow();
       expect(() => database.exec("UPDATE host_registry SET junto_home='/tmp/other' WHERE is_this_machine=1")).toThrow();
       expect(() => database.exec("UPDATE host_registry SET install_root='relative' WHERE id='studio'")).toThrow();
+      database.exec("UPDATE host_registry SET ssh_port=19049, ssh_known_hosts_file='/Users/me/.ssh/pinned', ssh_host_key_alias='sandbox-one', ssh_host_key_policy='system' WHERE id='studio'");
+      expect(() => database.exec("UPDATE host_registry SET ssh_port=65536 WHERE id='studio'")).toThrow();
+      expect(() => database.exec("UPDATE host_registry SET ssh_known_hosts_file='/tmp/%h' WHERE id='studio'")).toThrow();
+      expect(() => database.exec("UPDATE host_registry SET ssh_host_key_policy='accept-new' WHERE id='studio'")).toThrow();
+      expect(() => database.exec("UPDATE host_registry SET ssh_port=22 WHERE is_this_machine=1")).toThrow();
       expect(database.prepare("PRAGMA table_info(host_registry)").all().some(row => row.name === "installation_id")).toBe(false);
     } finally { database.close(); }
   });

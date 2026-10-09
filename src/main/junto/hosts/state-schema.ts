@@ -123,6 +123,21 @@ export const MACHINE_REGISTRY_STATE_SCHEMA_SQL = `
     label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 64),
     is_this_machine INTEGER NOT NULL CHECK (is_this_machine IN (0, 1)),
     ssh_endpoint TEXT UNIQUE,
+    ssh_port INTEGER CHECK (ssh_port IS NULL OR ssh_port BETWEEN 1 AND 65535),
+    ssh_known_hosts_file TEXT CHECK (
+      ssh_known_hosts_file IS NULL OR (
+        length(ssh_known_hosts_file) BETWEEN 1 AND 1024
+        AND substr(ssh_known_hosts_file, 1, 1) = '/'
+        AND ssh_known_hosts_file NOT GLOB '*[^A-Za-z0-9._/@+-]*'
+      )
+    ),
+    ssh_host_key_alias TEXT CHECK (
+      ssh_host_key_alias IS NULL OR (
+        length(ssh_host_key_alias) BETWEEN 1 AND 255
+        AND substr(ssh_host_key_alias, 1, 1) GLOB '[A-Za-z0-9]'
+        AND ssh_host_key_alias NOT GLOB '*[^A-Za-z0-9._:-]*'
+      )
+    ),
     junto_home TEXT CHECK (junto_home IS NULL OR (length(junto_home) BETWEEN 1 AND 2048 AND substr(junto_home, 1, 1) = '/')),
     install_root TEXT CHECK (install_root IS NULL OR (length(install_root) BETWEEN 1 AND 2048 AND substr(install_root, 1, 1) = '/')),
     ssh_identity_file TEXT CHECK (
@@ -149,12 +164,15 @@ export const MACHINE_REGISTRY_STATE_SCHEMA_SQL = `
     CHECK (
       (is_this_machine = 1 AND sort_order = 0 AND capability_mask IS NULL
         AND ssh_endpoint IS NULL AND ssh_identity_file IS NULL AND ssh_host_key_policy IS NULL
-        AND junto_home IS NULL AND install_root IS NULL)
+        AND junto_home IS NULL AND install_root IS NULL
+        AND ssh_port IS NULL AND ssh_known_hosts_file IS NULL AND ssh_host_key_alias IS NULL)
       OR
       (is_this_machine = 0 AND sort_order > 0 AND capability_mask IS NOT NULL
         AND capability_mask BETWEEN 1 AND 15
         AND (ssh_endpoint IS NULL OR length(ssh_endpoint) BETWEEN 1 AND 255)
-        AND (ssh_endpoint IS NOT NULL OR (ssh_identity_file IS NULL AND ssh_host_key_policy IS NULL)))
+        AND (ssh_endpoint IS NOT NULL OR (ssh_identity_file IS NULL AND ssh_host_key_policy IS NULL
+          AND ssh_port IS NULL AND ssh_known_hosts_file IS NULL AND ssh_host_key_alias IS NULL))
+        AND (ssh_known_hosts_file IS NULL OR ssh_host_key_policy IS NULL OR ssh_host_key_policy = 'system'))
     ),
     CHECK (
       ((is_this_machine = 1 OR (capability_mask & 8) <> 0)
