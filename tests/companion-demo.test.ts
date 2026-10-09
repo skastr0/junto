@@ -11,6 +11,7 @@ import { DEMO_CANVAS, DEMO_T0, demoRequest, makeDemoHost } from "../src/shared/c
 import { COMPANION_PROTOCOL } from "../src/shared/companion-protocol";
 import { runCompanionSession } from "../src/shared/companion-session";
 import { parseCompanionStdioArgs } from "../src/cli/companion-stdio";
+import { THIS_MACHINE } from "./support/machines";
 
 type Frame = Record<string, any>;
 
@@ -38,7 +39,7 @@ const connect = (options: { idleCloseMs?: number } = {}) => {
       out.push(JSON.parse(line));
       wakeWriter?.();
     },
-    host: makeDemoHost({ appVersion: "test" }),
+    host: makeDemoHost({ appVersion: "test", machineName: THIS_MACHINE }),
     waitMs: 40,
     ...(options.idleCloseMs !== undefined ? { idleCloseMs: options.idleCloseMs } : {}),
   });

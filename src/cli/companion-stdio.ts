@@ -14,6 +14,7 @@
 import { createInterface } from "node:readline";
 import { Effect, Result, Schema } from "effect";
 import { makeDemoHost } from "../shared/companion-demo";
+import { defaultMachineName } from "../shared/machine-name";
 import {
   COMPANION_ERROR_COPY,
   CompanionDeviceId,
@@ -129,7 +130,9 @@ export const runCompanionStdio = async (args: ReadonlyArray<string>): Promise<vo
     process.exitCode = 64;
     return;
   }
-  const host = parsed.mode === "demo" ? makeDemoHost() : makeRelayHost(parsed.deviceId);
+  const host = parsed.mode === "demo"
+    ? makeDemoHost({ machineName: defaultMachineName() })
+    : makeRelayHost(parsed.deviceId);
   await runCompanionSession({
     lines: stdinLines(),
     write: (line) => {

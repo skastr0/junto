@@ -132,7 +132,9 @@ export const removalRetiresCallerBinding = (
     (resource) =>
       resource.kind === "terminal" &&
       resource.bindingId === callerSeat.bindingId &&
-      (resource.hostId ?? "local") === callerSeat.hostId,
+      // A terminal named with no machine cannot be told apart from the
+      // caller's own, so it counts as the caller's.
+      (resource.hostId === undefined || resource.hostId === callerSeat.hostId),
   );
 
 /** What has to be stopped outside the canvas before these nodes can go. */
@@ -244,25 +246,32 @@ const SEAT_EDIT_REFUSALS = {
 const reject = (type: OverseerErrorBody["type"], message: string) =>
   ({ ok: false as const, error: { type, message } });
 
-/** The node a draft becomes: its id minted when absent, stacked at `z`. */
+/**
+ * The node a draft becomes: its id minted when absent, stacked at `z`. A seat
+ * drafted with no machine named goes on `machineName`, the machine that
+ * authors the command.
+ */
 const nodeOfDraft = (
   draft: NodeDraft,
   id: string,
   z: number,
+  machineName: string | undefined,
 ): Node | { readonly refusal: string } => {
   const placed = { id: asNodeId(id), z };
   if (draft.kind === "terminal") {
     return { ...draft, ...placed, bindingId: draft.bindingId ?? newBinding() };
   }
   if (draft.kind !== "agent") return { ...draft, ...placed } as Node;
-  const { harness, host, profile, model, effort, mode, permissionMode, cwd, label, onRemove, ...frame } = draft;
+  const { harness, host: named, profile, model, effort, mode, permissionMode, cwd, label, onRemove, ...frame } = draft;
+  const host = named ?? machineName;
+  if (host === undefined) return { refusal: "this machine's name is not loaded yet; name the seat's machine" };
   try {
     const seat: NodeOf<"agent"> = {
       ...frame,
       ...placed,
       ...seatParts({
         harness,
-        host: host ?? "local",
+        host,
         ...(profile === undefined ? {} : { profile }),
         ...(model === undefined ? {} : { model }),
         ...(effort === undefined ? {} : { effort }),
@@ -307,6 +316,8 @@ export const planOverseerSteps = (input: {
   readonly caller: OverseerCallerRef;
   readonly steps: ReadonlyArray<OverseerCanvasBatchStep>;
   readonly mintId: (kind: string) => string;
+  /** The machine that authors these commands; undefined before its name has loaded. */
+  readonly machineName: string | undefined;
 }): OverseerStepsPlan => {
   const held = input.canvases.get(input.canvas);
   if (held === undefined) return reject("NotFound", `canvas "${input.canvas}" does not exist`);
@@ -338,7 +349,7 @@ export const planOverseerSteps = (input: {
         }
         const id = step.node.id ?? input.mintId(step.node.kind);
         if (nodes.has(id)) return reject("InvalidArguments", `node "${id}" already exists`);
-        const node = nodeOfDraft(step.node, id, top);
+        const node = nodeOfDraft(step.node, id, top, input.machineName);
         if ("refusal" in node) return reject("InvalidArguments", node.refusal);
         if (aliasesLiveOverseerBinding(input.canvases, node)) {
           return reject("Forbidden", "a new node cannot share a session with a live overseer seat");

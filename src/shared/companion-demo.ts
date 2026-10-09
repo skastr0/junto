@@ -64,17 +64,18 @@ export { DEMO_CANVAS, DEMO_DEVICE_ID, DEMO_T0 } from "./wire/companion-demo-fixt
 const region = (r: DemoRegion, z: number): NodeOf<"region"> =>
   ({ ...r, id: asNodeId(r.id), kind: "region", z, hold: false });
 
-const seatNode = (seat: DemoSeat, z: number): NodeOf<"agent"> => ({
+const seatNode = (seat: DemoSeat, z: number, machineName: string): NodeOf<"agent"> => ({
   id: asNodeId(seat.id), kind: "agent", label: seat.name,
   ...demoSeatPosition(seat), width: 240, height: 96, z,
-  agentKey: `local:demo-${seat.id}`, host: "local", overseer: false,
+  agentKey: `local:demo-${seat.id}`, host: machineName as NodeOf<"agent">["host"], overseer: false,
   bindingId: `demo-${seat.id}` as BindingId, harness: seat.harness, onRemove: "detach",
 });
 
 const SEATS = DEMO_SEATS;
-const CANVAS = canvasFromOpened({
+/** The demo canvas, its seats on the machine the demo runs on. */
+const demoCanvas = (machineName: string) => canvasFromOpened({
   canvas: asCanvasName(DEMO_CANVAS), seq: 0,
-  nodes: [...DEMO_REGIONS.map(region), ...SEATS.map((seat, index) => seatNode(seat, DEMO_REGIONS.length + index))], wires: [],
+  nodes: [...DEMO_REGIONS.map(region), ...SEATS.map((seat, index) => seatNode(seat, DEMO_REGIONS.length + index, machineName))], wires: [],
 });
 
 const reading = (seat: DemoSeat, value: ThreadHealthValue, at: number): ThreadHealthReading => ({
@@ -86,11 +87,12 @@ const reading = (seat: DemoSeat, value: ThreadHealthValue, at: number): ThreadHe
   signals: [{ value, probability: DEMO_HEALTH_CONFIDENCE, questionId: `health.${value}` }],
 });
 
-/** A fresh demo world; every connection gets its own. */
-export const makeDemoBackend = (): CompanionBackend & {
+/** A fresh demo world on the machine named; every connection gets its own. */
+export const makeDemoBackend = (machineName: string): CompanionBackend & {
   readonly revision: () => number;
   readonly takeSignalChanges: (since: number) => { readonly signals: ReadonlyArray<AgentSignal>; readonly seq: number };
 } => {
+  const CANVAS = demoCanvas(machineName);
   let clock = DEMO_T0;
   let revision = 0;
   const signals = new Map(DEMO_SIGNALS.map((signal) => [signal.signalId, signal] as const));
@@ -259,8 +261,12 @@ export const makeDemoBackend = (): CompanionBackend & {
 };
 
 /** The demo as a session host: one world, changes announced after each write. */
-export const makeDemoHost = (options: { readonly appVersion?: string } = {}): CompanionHost => {
-  const backend = makeDemoBackend();
+export const makeDemoHost = (options: {
+  readonly appVersion?: string;
+  /** The machine the demo runs on; the caller knows it, the demo invents none. */
+  readonly machineName: string;
+}): CompanionHost => {
+  const backend = makeDemoBackend(options.machineName);
   const allowWrite = makeWriteLimiter();
   let waiters: Array<() => void> = [];
   const wake = (): void => {

@@ -37,7 +37,7 @@ const canvases = (): OverseerCanvases =>
     ["other", canvasOf([seat("alias", { bindingId: binding("bind-boss") })])],
   ]);
 
-const plan = (steps: ReadonlyArray<unknown>, canvas = "ops") => {
+const plan = (steps: ReadonlyArray<unknown>, canvas = "ops", machineName: string | undefined = THIS_MACHINE) => {
   let minted = 0;
   return planOverseerSteps({
     canvases: canvases(),
@@ -45,6 +45,7 @@ const plan = (steps: ReadonlyArray<unknown>, canvas = "ops") => {
     caller,
     steps: steps as ReadonlyArray<OverseerCanvasBatchStep>,
     mintId: (kind) => `${kind}-${++minted}`,
+    machineName,
   });
 };
 
@@ -144,6 +145,9 @@ describe("what an overseer may not remove", () => {
       nativeDeleteResourcesOf(held, [{ canvasName, nodeIds: new Set(ids) }]);
     expect(removalRetiresCallerBinding(own, resources("other", "alias"))).toBe(true);
     expect(removalRetiresCallerBinding(own, resources("ops", "peer"))).toBe(false);
+    // A terminal named with no machine counts as the caller's when it holds the caller's session.
+    expect(removalRetiresCallerBinding(own, [{ kind: "terminal", bindingId: own!.bindingId }])).toBe(true);
+    expect(removalRetiresCallerBinding(own, [{ kind: "terminal", bindingId: own!.bindingId, hostId: OTHER_MACHINE }])).toBe(false);
   });
 
   it("reads its grant from the model, on the seat it speaks from", () => {

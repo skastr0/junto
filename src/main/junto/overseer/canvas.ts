@@ -1,5 +1,6 @@
 import { Effect, Exit } from "effect";
 import { ulid } from "ulid";
+import { hostsSnapshot } from "../hosts/snapshot";
 import { productVerbEnabled } from "@shared/features";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import {
@@ -316,7 +317,10 @@ const sendSteps = (
         ),
       };
     }
-    const plan = planOverseerSteps({ canvases, canvas: canvasName, caller, steps, mintId });
+    const plan = planOverseerSteps({
+      canvases, canvas: canvasName, caller, steps, mintId,
+      machineName: hostsSnapshot().find((machine) => machine.isThisMachine)?.id,
+    });
     if (!plan.ok) return { ok: false, error: fromOverseerError(plan.error) };
     return {
       ok: true,
