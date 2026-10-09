@@ -103,7 +103,6 @@ const makeWorkTestRuntime = (root: string) => {
 
 const runtimes: Array<ReturnType<typeof makeWorkTestRuntime>> = [];
 const authoringGates: MainAuthoringGate[] = [];
-/** Peer PID for transport tests — must be a live process (epoch-checked). */
 
 const authorialBasis = async (
   runtime: ReturnType<typeof makeWorkTestRuntime>,

@@ -26,7 +26,7 @@ that reaches that power.
 
 | Plane | Question it answers | Lives in | Mutated by |
 |-------|---------------------|----------|------------|
-| **Capability** | What may this principal reach? | Drawn edges + ports + process-bind; overseer grant is a separate human seat toggle, not an edge | Human draw/delete; admit/release of bound process; human grant/revoke of the seat's `overseer` flag |
+| **Capability** | What may this principal reach? | Drawn edges + ports + the seat generation credential; overseer grant is a separate human seat toggle, not an edge | Human draw/delete; admit/release of bound process; human grant/revoke of the seat's `overseer` flag |
 | **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from the connected sink's claimed item state + live worker/trust state | Recomputed; never authorial input |
 | **Attention / occupancy** | Is the seat empty, busy, or needing a human? | Live runtime state on seats | Process lifecycle, task status, operator focus |
 
@@ -68,10 +68,10 @@ into that occupant (`JUNTO_WORK_TOKEN`). For ordinary agents the document edge
 is necessary but not sufficient; the seat must hold a live credential on that
 installation. A human-toggled overseer still requires that credential and a
 live grant. It does not require connecting edges for closed `overseer`
-operations. `overseer.live` also reads the Unix peer PID once per connection,
-because descendants share the seat credential. Pause and play do not revoke
-that grant. Ordinary edge-scoped ops stay edge-scoped. Browser-protected ops
-still admit by peer PID.
+operations. `overseer.live` is admitted the same way: the caller is the seat
+its credential names, and a descendant holding that credential is the seat.
+Pause and play do not revoke that grant. Ordinary edge-scoped ops stay
+edge-scoped. Browser-protected ops are refused in this build.
 
 ### 2. Roles are derived from kind — never authorial
 
@@ -155,7 +155,7 @@ all; every one of those is derived, never written.
 | Rule | `compileVerb(verb, source, target).ports` | Access edge actor ↔ task\|requests + claimed `input-required` / `auth-required` on that sink → blocks that actor only |
 | Authoring | Draw the edge, pick the verb (bottom-bar sentence, or the pair's default on a plain connect) | **None** — relationship + work state; lexicon word "stops" is speech only |
 
-Ports never substitute for process-bind identity. Open queues never block.
+Ports never substitute for the seat generation credential. Open queues never block.
 
 ### 4. Seats vs occupants
 
@@ -165,7 +165,7 @@ Ports never substitute for process-bind identity. Open queues never block.
   actor kind. Copied nodes do not inherit the grant. The occupant cannot
   retire its own seat.
 - **Occupant** — live Junto-spawned agent process and its registered
-  descendants in that seat. Ephemeral; process-bind admits it.
+  descendants in that seat. Ephemeral; its generation credential admits it.
 
 Occupancy spectrum (live, derived — not stored as permanent document truth):
 
@@ -263,15 +263,14 @@ board notify, and the managed-terminal seat UI.
 
 > Can an ordinary agent (or a bad test) obtain a **work-control host
 > capability** without a **connected edge**, a matching **port**, and a live
-> **generation credential**? Can it obtain a browser-protected op without
-> those plus peer process-bind? If yes, the change is not done.
+> **generation credential**? If yes, the change is not done.
 
 Host capability here means any ordinary work-control or browser-protected op
 that can mutate tasks, messages, requests, artifacts, or page control — not
 merely reading a digest. Closed `overseer` ops are a separate
 human-granted administrative plane: they still require the seat credential
 and a live grant, never ambient reach, never the operator socket, and never a
-minted edge. `overseer.live` also checks the Unix peer PID.
+minted edge. `overseer.live` asks for nothing more than that credential.
 
 Pair with machine safety’s PR test for the sealed kill/path plane: canvas
 physics decides *whether* the seat may act; machine safety decides *whether*
@@ -302,7 +301,6 @@ the act can touch the OS.
 | Compiled `wake` (board verbs) | Operator megaphone eligibility (`participates` on, `messages` off) |
 | Compiled `when` / `does` / `flow` / `chain` | Scheduler watch predicate / fire action / task-path hop / chain — all from the verb |
 | Work control socket + generation credential | Occupant admission. The credential names the generation. It is not a shared file |
-| Browser and `overseer.live` peer PID | Remaining process observation. Not ordinary work admission |
 | `authz` / `ScopeError` | Capability plane enforcement |
 | Derived `blocks` / `relates` | Phase plane (stoppage vs soft relate; no depends) |
 | Region `instruction` + watchers/timers | Onboard briefing text + status/clock sensors |
@@ -325,7 +323,7 @@ they are not degraded through a compatibility rewrite. Unknown
 | Derived graph / phase | `src/shared/graph.ts` |
 | Work control authz | `src/main/junto/work/authz.ts` |
 | Control socket + ScopeError | `src/main/junto/work/control.ts` |
-| Process-bind identity | `src/main/junto/process-identity.ts` |
+| Seat generation credential | `src/main/junto/work/seat-credentials.ts` |
 | Kernel watchers / timers | `src/main/junto/kernel/` |
 | Machine safety (host seal) | `docs/architecture-machine-safety.md` |
 
