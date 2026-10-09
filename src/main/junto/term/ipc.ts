@@ -10,7 +10,6 @@ import {
 } from "@shared/ipc";
 import {
   isHarnessId,
-  templateFor,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
 import type { ControlLease, LocalHostEvent } from "./local-host";
@@ -211,8 +210,6 @@ export const registerTerminalIpc = (
     const createAdmission = nodeDelete.admitCreate(node.bindingId, node.host);
     if (node.kind === "agent") {
       if (!managedHarnessEnabled(node.harness)) return deny(`terminal ipc: harness ${node.harness} is disabled in this build`);
-      if (!templateFor(node.harness).capabilityBadges.remote && !router.isLocalHostId(node.host))
-        return deny(`terminal ipc: harness ${node.harness} is local-only and cannot use a Remote host`);
     }
     await ensureHostAvailable(node.host);
     const assertCurrent = async () => {
@@ -232,10 +229,10 @@ export const registerTerminalIpc = (
       });
     }
     const { ensureSeatSessionId } = await import("./seat-session-before-start");
-    const provisioned = await ensureSeatSessionId({ canvasName: input.canvas, nodeId: node.id, bindingId: node.bindingId,
+    const provisioned = router.isLocalHostId(node.host) ? await ensureSeatSessionId({ canvasName: input.canvas, nodeId: node.id, bindingId: node.bindingId,
       harness: node.harness, documentLaunch: node.launch,
       ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}),
-    });
+    }) : { ok: true as const, sessionId: "", minted: false };
     if (!provisioned.ok) return deny(`terminal ipc: ${node.harness} session unavailable — ${provisioned.reason}`);
     const { makeManagedSpawnIntent } = await import("./managed-spawn-plan");
     const spawnIntent = makeManagedSpawnIntent({ nodeId: node.id, harness: node.harness,

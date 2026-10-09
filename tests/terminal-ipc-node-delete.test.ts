@@ -106,27 +106,22 @@ describe("terminal IPC node-delete admission", () => {
     expect(runtime.router.create).not.toHaveBeenCalled();
   });
 
-  it("routes Prime Agent to a Remote host; local-only harnesses stay refused", async () => {
+  it("routes installed harnesses to their machine", async () => {
     const hostSentinel = new Error("host activation sentinel");
     const ensureHostAvailable = vi.fn(async () => {
       throw hostSentinel;
     });
     const runtime = harness({ ensureHostAvailable, node: agentNode("claude-remote", "remote-a", "claude", "local:claude-remote") });
 
-    // Claude remains a local-only harness: the badge gate refuses before any
-    // host activation or seat occupation.
     await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.modelStart)(
       event,
       {
         id: "node-claude-remote", canvas: "factory",
       },
-    ))).rejects.toThrow(/local-only.*Remote/u);
-    expect(ensureHostAvailable).not.toHaveBeenCalled();
+    ))).rejects.toThrow(hostSentinel);
+    expect(ensureHostAvailable).toHaveBeenCalledWith("remote-a");
 
     vi.mocked(AppRuntime.runPromise).mockResolvedValue(agentNode("prime-remote", "remote-a", "prime-agent", "local:prime-remote"));
-    // Prime Agent is remote-capable: the create passes the badge gate and
-    // reaches host activation for the Remote target. The sentinel stops the
-    // flow there so the ordering is proven without occupying a real seat.
     await expect(Promise.resolve(runtime.handler(IPC_CHANNELS.modelStart)(
       event,
       {
@@ -134,6 +129,22 @@ describe("terminal IPC node-delete admission", () => {
       },
     ))).rejects.toThrow(hostSentinel);
     expect(ensureHostAvailable).toHaveBeenCalledWith("remote-a");
+  });
+
+  it("leaves a remote seat's session selection to its machine", async () => {
+    const runtime = harness();
+    const node = agentNode("codex-mini", "mini", "codex", "mini:codex-mini");
+    const provision = vi.spyOn(seatSessionBeforeStart, "ensureSeatSessionId");
+    const occupied = { bindingId: "codex-mini", status: "running" };
+    const run = vi.spyOn(AppRuntime, "runPromise")
+      .mockResolvedValueOnce(node)
+      .mockResolvedValueOnce(node)
+      .mockResolvedValueOnce(occupied);
+    expect(await runtime.handler(IPC_CHANNELS.modelStart)(event, {
+      id: node.id, canvas: "factory",
+    })).toEqual(occupied);
+    expect(provision).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(3);
   });
 
   it("forwards the selected Amp launch to provisioning on an operator open", async () => {

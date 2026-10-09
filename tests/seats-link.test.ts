@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LinkChannelContext } from "../src/main/junto/link/types";
+import { MachineLink, MachineLinkError } from "../src/main/junto/link/service";
+import { HostsService } from "../src/main/junto/hosts/service";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { ModelService } from "../src/main/junto/model/service";
 import { makeProcessIdentityMap, setProcessIdentityMapForTests } from "../src/main/junto/process-identity";
@@ -13,11 +15,13 @@ import { ActorSeatOccupy, makeActorSeatOccupy } from "../src/main/junto/term/act
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import { noSeatEnvironment, type SeatEnvironmentResolver } from "../src/main/junto/term/seat-process";
 import { makeSeatsChannel, type SeatsChannelOptions } from "../src/main/junto/term/seats-link";
+import { makeSeatsProcessClient } from "../src/main/junto/term/seats-client";
 import { getSeatCredentialRegistry, setSeatCredentialRegistryForTests } from "../src/main/junto/work/seat-credentials";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
 import { asCanvasName, type Node } from "../src/shared/model";
 import { EMPTY_LAUNCH_RECORD } from "../src/shared/region-environment";
+import { RemoteHost } from "../src/shared/remote-hosts";
 import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import { seat, terminal } from "./support/model-nodes";
@@ -218,5 +222,65 @@ describe("seats link start", () => {
     }) });
     await expect(f.start()).rejects.toThrow("Required source is missing");
     expect(f.fake.controllers).toHaveLength(0);
+  });
+
+  it("reads occupancy without starting and activates only the exact live generation", async () => {
+    const f = await fixture();
+    expect(await f.start({ ...request, _tag: "Get" })).toEqual({
+      _tag: "Vacant", canvas, seatId: localSeat.id, machine: THIS_MACHINE,
+    });
+    await expect(f.start({ ...request, _tag: "Activate", generation: "old" })).rejects.toThrow("vacant");
+    expect(f.pin).not.toHaveBeenCalled();
+    expect(f.fake.controllers).toHaveLength(0);
+    const started = f.channel.decodeResponse(await f.start()) as { generation: string };
+    expect(await f.start({ ...request, _tag: "Get" })).toEqual(started);
+    expect(await f.start({ ...request, _tag: "Activate", generation: started.generation })).toEqual(started);
+    await expect(f.start({ ...request, _tag: "Activate", generation: "old" })).rejects.toThrow("generation changed");
+    expect(f.fake.controllers).toHaveLength(1);
+    expect(f.pin).toHaveBeenCalledOnce();
+  });
+
+  it("routes the process client over the seats link without forwarding a launch plan", async () => {
+    const f = await fixture();
+    const host = Schema.decodeUnknownSync(RemoteHost)({
+      id: THIS_MACHINE, label: "Mini", isThisMachine: false, sshEndpoint: "mini", capabilities: ["terminal"],
+    });
+    const requestLink = vi.fn((_machine: string, channel: string, payload: unknown) => {
+      expect(channel).toBe("seats");
+      return f.channel.handleRequest(f.context, payload).pipe(Effect.mapError((cause) =>
+        new MachineLinkError(cause instanceof Error ? cause.message : String(cause))));
+    });
+    const unused = Effect.die("unused machine operation");
+    const links = MachineLink.of({
+      setChannels: () => unused, listen: () => unused,
+      connect: () => Effect.succeed({ machineName: THIS_MACHINE, installationId: editor, boundAt: "2026-10-09" }),
+      connectSetup: () => unused, disconnect: () => unused, peerBuild: () => unused,
+      sendEvent: () => unused, request: requestLink,
+    });
+    const hosts = HostsService.of({
+      get: () => Effect.succeed(host), list: unused, doctor: unused, doctorSnapshot: unused,
+      upsert: () => unused, remove: () => unused, test: () => unused,
+    });
+    const client = makeSeatsProcessClient(THIS_MACHINE, (effect) => f.runtime.runPromise(effect.pipe(
+      Effect.provideService(HostsService, hosts), Effect.provideService(MachineLink, links),
+    )));
+    expect(await client.get(localSeat.bindingId)).toBeUndefined();
+    const live = await client.createAgentSeat({
+      admission: "occupy", bindingId: localSeat.bindingId, canvasName: canvas, nodeId: localSeat.id,
+      harness: localSeat.harness, agentKey: localSeat.agentKey,
+      spawnIntent: { documentLaunch: { kind: "harness", argv: ["untrusted-executable"], cwd: "/untrusted-folder" }, resumeRequested: false },
+    });
+    expect(live).toMatchObject({ bindingId: localSeat.bindingId, nodeId: localSeat.id, hostId: THIS_MACHINE, status: "running" });
+    expect(await client.get(localSeat.bindingId)).toEqual(live);
+    expect(requestLink.mock.calls.map((call) => call[2])).toEqual([
+      { ...request, _tag: "Get" }, request, { ...request, _tag: "Get" },
+    ]);
+    expect(f.fake.controllers[0]?.spec.cwd).toBe(tmpdir());
+    expect(f.fake.controllers[0]?.spec.command).not.toContain("untrusted");
+    expect(await client.createAgentSeat({
+      admission: "activate", bindingId: localSeat.bindingId, canvasName: canvas, nodeId: localSeat.id,
+      harness: localSeat.harness, agentKey: localSeat.agentKey, expectedEpoch: live.epoch,
+    })).toEqual(live);
+    expect(f.fake.controllers).toHaveLength(1);
   });
 });

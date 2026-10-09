@@ -21,7 +21,7 @@ describe("actor seat production architecture", () => {
     expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home)");
   });
 
-  it("keeps mutable machine identity and router glue in the live adapter", () => {
+  it("keeps mutable machine identity and the seats link client in the live adapter", () => {
     const live = source(
       "src/main/junto/term/actor-seat-occupy-live.ts",
     );
@@ -29,7 +29,8 @@ describe("actor seat production architecture", () => {
     expect(live).toContain("const installation = yield* MachineRepository");
     expect(live).toContain("localHostId: () =>");
     expect(live).toContain("installation.machineName.pipe(");
-    expect(live).toContain("termPlane.router.clientForOccupy(hostId)");
+    expect(live).toContain("makeSeatsProcessClient(hostId)");
+    expect(live).not.toContain("termPlane.router.clientForOccupy");
     expect(live).not.toContain("router.isLocalHostId");
   });
 
