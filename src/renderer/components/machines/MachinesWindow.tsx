@@ -16,6 +16,7 @@ import {
   MACHINE_ACTION_LABEL,
   MACHINE_STEP_PHASE_WORD,
   harnessName,
+  harnessSignInLine,
   harnessesSeatsLack,
   machineActions,
   machineCondition,
@@ -220,11 +221,15 @@ function MachineDetail({
               `None found. Install a harness on ${where} to run seats on it.`
             ) : (
               <ul className="grid gap-0.5" data-testid="machine-harnesses">
-                {harnesses.map((row) => (
-                  <li key={row.harness} data-harness={row.harness} data-installed={row.installed}>
-                    {harnessName(row.harness)}: {row.installed ? "found" : "not found"}
-                  </li>
-                ))}
+                {harnesses.map((row) => {
+                  const signIn = harnessSignInLine(row);
+                  return (
+                    <li key={row.harness} data-harness={row.harness} data-installed={row.installed} data-sign-in={row.signIn}>
+                      {harnessName(row.harness)}: {row.installed ? "found" : "not found"}
+                      {signIn ? <span data-testid="machine-harness-sign-in">. {signIn}</span> : null}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </Fact>

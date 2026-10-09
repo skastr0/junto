@@ -53,7 +53,11 @@ const fakeOwner = () => {
       ...rest,
       ...(installationId === undefined ? {} : { installationId }),
     }));
-  const harnesses = [{ harness: "claude", installed: true }, { harness: "codex", installed: false }];
+  const harnesses = [
+    { harness: "claude", installed: true, signIn: "keychain-login-unavailable" },
+    { harness: "codex", installed: false, signIn: "not-installed" },
+    { harness: "amp", installed: true, signIn: "sign-in-unverified" },
+  ];
   const copyRequest = (name: string) =>
     requests.filter((entry) => entry.args.name === name && (entry.op === "machine.send" || entry.op === "machine.update")).at(-1)!;
   /** What the owner returns for an install that finished. */
@@ -72,7 +76,7 @@ const fakeOwner = () => {
       case "machine.status":
         if (name === undefined) {
           return ok(request, {
-            build: BUILD, form: "macbook", installationId: `inst-${THIS_MACHINE}`, machineName: THIS_MACHINE,
+            build: BUILD, form: "macbook", keychain: "unavailable", installationId: `inst-${THIS_MACHINE}`, machineName: THIS_MACHINE,
             juntoHome: "/Users/op/.junto", pid: 41, ready: true,
           });
         }
@@ -233,7 +237,11 @@ it("shows this machine's build and harnesses, and no way to remove it", () => {
   const detail = byTest("machine-detail")!;
   expect(detail.getAttribute("data-machine")).toBe(THIS_MACHINE);
   expect(detail.textContent).toContain(BUILD.slice(0, 12));
-  expect([...byTest("machine-harnesses")!.children].map((item) => item.textContent)).toEqual(["Claude Code: found", "Codex: not found"]);
+  expect([...byTest("machine-harnesses")!.children].map((item) => item.textContent)).toEqual([
+    "Claude Code: found. A sign-in kept in this Mac's keychain cannot be used here. Log in to its desktop, then update Junto.",
+    "Codex: not found",
+    "Amp: found. Sign-in not checked",
+  ]);
   expect(byTest("machine-action-remove")).toBeNull();
 });
 

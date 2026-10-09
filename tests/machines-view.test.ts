@@ -7,6 +7,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { MachineListData, MachineOwnStatus, MachinePeerStatus } from "../src/shared/machine-control";
 import {
+  harnessSignInLine,
   harnessesSeatsLack,
   machineActions,
   machineCondition,
@@ -54,9 +55,9 @@ const listed = (more: Record<string, unknown> = {}, machine: Record<string, unkn
 const own = (): MachineRead => ({
   kind: "own",
   status: Schema.decodeUnknownSync(MachineOwnStatus)({
-    build: BUILD, form: "macbook", installationId: "inst-studio", machineName: THIS_MACHINE, juntoHome: "/Users/op/.junto", pid: 41, ready: true,
+    build: BUILD, form: "macbook", keychain: "available", installationId: "inst-studio", machineName: THIS_MACHINE, juntoHome: "/Users/op/.junto", pid: 41, ready: true,
   }),
-  harnesses: [{ harness: "claude", installed: true }, { harness: "codex", installed: false }],
+  harnesses: [{ harness: "claude", installed: true, signIn: "sign-in-unverified" }, { harness: "codex", installed: false, signIn: "not-installed" }],
 });
 
 const peer = (more: Record<string, unknown> = {}): MachineRead => ({
@@ -64,7 +65,7 @@ const peer = (more: Record<string, unknown> = {}): MachineRead => ({
   status: Schema.decodeUnknownSync(MachinePeerStatus)({
     machineName: OTHER_MACHINE,
     reachable: true,
-    harnesses: [{ harness: "claude", installed: true }, { harness: "codex", installed: false }],
+    harnesses: [{ harness: "claude", installed: true, signIn: "sign-in-unverified" }, { harness: "codex", installed: false, signIn: "not-installed" }],
     missingSecrets: [],
     ...more,
   }),
@@ -305,6 +306,22 @@ describe("what a machine has and lacks", () => {
     const read = peer({ missingSecrets: ["ANTHROPIC_API_KEY", "GH_TOKEN"] });
     expect(machineMissingSecrets(read)).toEqual(["ANTHROPIC_API_KEY", "GH_TOKEN"]);
     expect(machineMissingSecrets(own())).toEqual([]);
+  });
+});
+
+describe("what the window says about a harness's sign-in", () => {
+  it("says nothing for a harness that is not installed", () => {
+    expect(harnessSignInLine({ harness: "codex", installed: false, signIn: "not-installed" })).toBeUndefined();
+  });
+
+  it("says the sign-in was not checked, never signed in or signed out", () => {
+    expect(harnessSignInLine({ harness: "amp", installed: true, signIn: "sign-in-unverified" })).toBe("Sign-in not checked");
+  });
+
+  it("says a keychain sign-in cannot be used and what to do", () => {
+    expect(harnessSignInLine({ harness: "claude", installed: true, signIn: "keychain-login-unavailable" })).toBe(
+      "A sign-in kept in this Mac's keychain cannot be used here. Log in to its desktop, then update Junto.",
+    );
   });
 });
 

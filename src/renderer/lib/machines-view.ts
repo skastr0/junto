@@ -367,6 +367,20 @@ export const machineHarnesses = (read: MachineRead | undefined): ReadonlyArray<M
   return undefined;
 };
 
+/**
+ * What the window says about an installed harness's sign-in, or nothing.
+ * Junto reads no credential and launches no harness to find out, so no line
+ * ever says signed in or signed out.
+ */
+export const harnessSignInLine = (row: MachineHarness): string | undefined => {
+  if (!row.installed) return undefined;
+  if (row.signIn === "sign-in-unverified") return "Sign-in not checked";
+  if (row.signIn === "keychain-login-unavailable") {
+    return "A sign-in kept in this Mac's keychain cannot be used here. Log in to its desktop, then update Junto.";
+  }
+  return undefined;
+};
+
 /** Names of the secrets a machine lacks. Names only: a value never reaches the window. */
 export const machineMissingSecrets = (read: MachineRead | undefined): ReadonlyArray<string> =>
   read?.kind === "peer" && read.status.reachable ? read.status.missingSecrets : [];
