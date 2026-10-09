@@ -41,7 +41,7 @@ import {
 import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessPlane } from "./junto/app-process-plane";
 import { AppRuntime, setMachineControlReadiness } from "./runtime";
-import { MachineCoreStatus, MachineCoreRows } from "./core-runtime";
+import { MachineCoreStatus, MachineCoreRows, MachineCoreSeats } from "./core-runtime";
 import { MachineOwnerControl } from "./junto/hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./junto/link/service";
 import { AgentSignalRepository } from "./junto/signals/repository";
@@ -1469,8 +1469,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       }));
 
     try {
-      const [link, machineStatus, rows] = await AppRuntime.runPromise(Effect.all([MachineLink, MachineCoreStatus, MachineCoreRows]));
-      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler }));
+      const [link, machineStatus, rows, seats] = await AppRuntime.runPromise(Effect.all([MachineLink, MachineCoreStatus, MachineCoreRows, MachineCoreSeats]));
+      await AppRuntime.runPromise(link.setChannels({ status: machineStatus.handler, rows: rows.handler, seats: seats.handler }));
       machineLinkListener = await AppRuntime.runPromise(link.listen(termControlHome));
       if (shutdownAdmissionClosed) machineLinkListener.beginShutdown();
     } catch (error) {

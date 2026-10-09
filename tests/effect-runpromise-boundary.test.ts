@@ -5,9 +5,8 @@
  * Context Effect.runPromise except the permanent host/post-dispose allowlist.
  * Debt is ratcheted empty after V4-DEBT-ZERO. Kernel/work never permanent.
  *
- * V4-ENTRY: domain Effects in main/remote
- * entry + IPC files enter only via AppRuntime / RemoteRuntime — zero bare
- * Effect.runPromise call sites in those four surfaces.
+ * V4-ENTRY: domain Effects in core, shell and IPC entries use their warm
+ * ManagedRuntime — zero bare Effect.runPromise call sites.
  *
  * Allowlist file: scripts/effect-runpromise-allowlist.json
  * Scanner:        scripts/lint-effect-runpromise.ts
@@ -26,6 +25,7 @@ const ENTRY_SURFACES = [
   "src/main/index.ts",
   "src/main/ipc.ts",
   "src/main/junto/ipc.ts",
+  "src/main/junto/core.ts",
   "src/main/junto-remote.ts",
 ] as const;
 
@@ -142,7 +142,7 @@ describe("effect-runpromise boundary (S0)", () => {
 });
 
 describe("V4-ENTRY managed runtime domain entry", () => {
-  it("has zero bare Effect.runPromise in index/ipc/junto-ipc/junto-remote", () => {
+  it("has zero bare Effect.runPromise in core, shell and IPC entries", () => {
     const bad: string[] = [];
     for (const rel of ENTRY_SURFACES) {
       const source = readFileSync(path.join(ROOT, rel), "utf8");
@@ -154,7 +154,7 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     expect(bad, bad.join("\n")).toEqual([]);
   });
 
-  it("routes domain entry via AppRuntime (CC) or RemoteRuntime (Remote)", () => {
+  it("routes domain entry through the warm core or shell runtime", () => {
     // Cement: entry surfaces import and call the warm ManagedRuntime, not bare.
     const cc = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8");
     const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8");
@@ -166,7 +166,10 @@ describe("V4-ENTRY managed runtime domain entry", () => {
       path.join(ROOT, "src/main/junto-remote.ts"),
       "utf8",
     );
+    const core = readFileSync(path.join(ROOT, "src/main/junto/core.ts"), "utf8");
 
+    expect(core).toMatch(/makeCoreRuntime/);
+    expect(core).toMatch(/runtime\.runPromise/);
     expect(cc).toMatch(/AppRuntime\.runPromise/);
     expect(cc).toMatch(/AppRuntime\.runFork/);
     expect(ipc).toMatch(/AppRuntime\.runPromise/);
@@ -174,7 +177,7 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     expect(remote).toMatch(/RemoteRuntime\.runPromise/);
     expect(remote).toMatch(/RemoteRuntime\.runFork/);
 
-    // Exactly one ManagedRuntime.make construction per process role (S1 + V4-ENTRY).
+    // Keep the construction sites explicit, including the unshipped legacy root.
     // Pure-Node scan: CI runners do not all ship ripgrep.
     const constructions: string[] = [];
     const walk = (dir: string): void => {
@@ -200,6 +203,10 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     expect(
       constructions.map((l) => l.split(":")[0]).sort(),
       constructions.join("\n"),
-    ).toEqual(["src/main/remote-runtime.ts", "src/main/runtime.ts"]);
+    ).toEqual([
+      "src/main/core-runtime.ts",
+      "src/main/remote-runtime.ts",
+      "src/main/runtime.ts",
+    ]);
   });
 });

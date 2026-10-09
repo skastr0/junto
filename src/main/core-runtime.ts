@@ -20,6 +20,7 @@ import type { RowExchange } from "./junto/work/exchange/session";
 import { messageDelivery } from "./junto/work/message-delivery";
 import { makeMachineExchangeQuery } from "./junto/work/exchange/queries";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse } from "@shared/operator-control";
+import { makeSeatsChannel } from "./junto/term/seats-link";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -42,6 +43,14 @@ export class MachineCoreRows extends Context.Service<MachineCoreRows, {
   readonly handler: LinkChannelHandler;
 }>()("@junto/MachineCoreRows") {}
 
+export class MachineCoreSeats extends Context.Service<MachineCoreSeats, {
+  readonly handler: LinkChannelHandler;
+}>()("@junto/MachineCoreSeats") {}
+
+const machineCoreSeatsLayer = Layer.effect(MachineCoreSeats,
+  makeSeatsChannel().pipe(Effect.map(handler => ({ handler }))),
+);
+
 const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* () {
   const machines = yield* MachineRepository;
   const links = yield* MachineLink;
@@ -55,8 +64,12 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
       })).catch(() => undefined);
     },
   });
+  messageDelivery.followLinks((canvas, nodeId) => Effect.runPromiseWith(context)(exchange.routed(canvas, nodeId)));
   const stopFollowing = yield* followLocalCommits(exchange);
-  yield* Effect.addFinalizer(() => Effect.sync(stopFollowing));
+  yield* Effect.addFinalizer(() => Effect.sync(() => {
+    stopFollowing();
+    messageDelivery.followLinks(undefined);
+  }));
   return { exchange, handler: makeRowsChannel(exchange) };
 }));
 
@@ -98,6 +111,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const links = machineLinkLayer(options.build);
   const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
+  const seats = Layer.provideMerge(machineCoreSeatsLayer, rows);
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
     const machineStatus = yield* MachineCoreStatus;
@@ -138,7 +152,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       ),
     });
   }));
-  return Layer.provideMerge(owner, rows);
+  return Layer.provideMerge(owner, seats);
 };
 
 /** One StateEngine reference feeds identity, registry, link and owner commands. */

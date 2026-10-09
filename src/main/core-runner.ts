@@ -3,12 +3,14 @@ import type { SqlClient } from "effect/unstable/sql";
 import type { ModelService } from "./junto/model/service";
 import type { MachineRepository } from "./junto/machines/repository";
 import type { SeatSessionRepository } from "./junto/seat-sessions/repository";
+import type { MachineLink } from "./junto/link/service";
+import type { HostsService } from "./junto/hosts/service";
 
-type SessionServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient;
+type CoreServices = ModelService | MachineRepository | SeatSessionRepository | SqlClient.SqlClient | MachineLink | HostsService;
 
 /** Promise callbacks enter the process's existing core, never a shell runtime. */
 export interface CoreRunner {
-  readonly runPromise: <A, E>(effect: Effect.Effect<A, E, SessionServices>) => Promise<A>;
+  readonly runPromise: <A, E>(effect: Effect.Effect<A, E, CoreServices>) => Promise<A>;
 }
 
 let installed: CoreRunner | undefined;

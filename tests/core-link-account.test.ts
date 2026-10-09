@@ -31,11 +31,11 @@ const connectPeer = async (home: string, hello: typeof LinkHelloSchema.Type) => 
   const closed = new Promise<void>(resolve => { socket.once("close", () => resolve()); });
   socket.write(JSON.stringify({ type: "hello", ...hello }) + "\n");
   return {
-    request: async (id: string) => {
+    request: async (id: string, channel: "status" | "seats" = "status", payload: unknown = { kind: "machine" }) => {
       const response = new Promise<LinkFrame>(resolve => {
         receive = frame => { if (frame.type === "response" && frame.id === id) resolve(frame); };
       });
-      socket.write(JSON.stringify({ type: "request", id, channel: "status", payload: { kind: "machine" } }) + "\n");
+      socket.write(JSON.stringify({ type: "request", id, channel, payload }) + "\n");
       return Promise.race([response, closed.then(() => undefined)]);
     },
     close: async () => { socket.destroy(); await closed; },
@@ -70,6 +70,9 @@ it("admits account-local links only for the live name, installation and build pi
       type: "response", id: "admitted", channel: "status", ok: true,
       payload: { machineName: "book", reachable: true },
     });
+    expect(await peer.request("seat-start", "seats", { _tag: "Start", canvas: "missing-canvas", seatId: "missing-seat" }))
+      .toMatchObject({ type: "response", id: "seat-start", channel: "seats", ok: false });
+    expect(await peer.request("still-admitted")).toMatchObject({ type: "response", id: "still-admitted", ok: true });
     await core.runtime.runPromise(machines.retirePeer(pinned.machineName));
     expect(await peer.request("retired")).toBeUndefined();
     expect(peer.frames.some(frame => frame.type === "response" && frame.id === "retired")).toBe(false);

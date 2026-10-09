@@ -1,5 +1,4 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { installCoreRunner } from "./core-runner";
 import { ObservabilityLoggerLive } from "./junto/observability";
 import {
   ChatServiceFromHermesLive,
@@ -160,5 +159,4 @@ export const RemoteRuntime = ManagedRuntime.make(
     never
   >,
 );
-installCoreRunner(RemoteRuntime);
 

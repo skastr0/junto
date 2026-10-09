@@ -11,6 +11,7 @@ import { ModelService } from "../src/main/junto/model/service";
 import { coreControlSocketPath } from "../src/main/junto/link/listener";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 import { decodeOperatorResponse, encodeOperatorFrame, operatorControlSocketPath } from "../src/shared/operator-control";
+import { decodeWorkResponse, encodeWorkFrame, workControlDir, workControlSocketPath } from "../src/shared/work-control";
 
 it("starts the core in a fresh home and answers machine.status through the account socket", async () => {
   const home = await mkdtemp("/tmp/junto-core-");
@@ -38,12 +39,28 @@ it("starts the core in a fresh home and answers machine.status through the accou
     expect(response.success).toMatchObject({
       ok: true, op: "machine.status", data: { build, juntoHome: home, pid: process.pid, ready: true },
     });
+    const workPath = workControlSocketPath(workControlDir(home));
+    const workReply = await new Promise<string>((resolve, reject) => {
+      const socket = createConnection(workPath);
+      let response = "";
+      socket.setEncoding("utf8");
+      socket.once("connect", () => socket.write(encodeWorkFrame({ token: "not-a-seat-credential", op: "ping" })));
+      socket.on("data", chunk => {
+        response += chunk;
+        if (response.includes("\n")) { socket.destroy(); resolve(response); }
+      });
+      socket.once("error", reject);
+    });
+    const workResponse = decodeWorkResponse(JSON.parse(workReply));
+    expect(Result.isSuccess(workResponse)).toBe(true);
+    if (Result.isFailure(workResponse)) throw new Error(workResponse.failure.message);
+    expect(workResponse.success).toMatchObject({ ok: false, op: "ping", error: { type: "AuthError" } });
     const database = new DatabaseSync(join(home, ".junto/state/junto.db"), { readOnly: true });
     try {
       expect(database.prepare("PRAGMA user_version").get()?.user_version).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(database.prepare("SELECT COUNT(*) AS count FROM canvases").get()?.count).toBe(0);
     } finally { database.close(); }
-    for (const path of [operatorControlSocketPath(home), coreControlSocketPath(home)]) {
+    for (const path of [operatorControlSocketPath(home), coreControlSocketPath(home), workPath]) {
       expect((await lstat(path)).mode & 0o777).toBe(0o600);
       expect((await lstat(dirname(path))).mode & 0o777).toBe(0o700);
     }
@@ -52,6 +69,7 @@ it("starts the core in a fresh home and answers machine.status through the accou
     await expect(coreRunner.runPromise(listCanvases)).rejects.toThrow("Junto core is not running");
     expect(existsSync(operatorControlSocketPath(home))).toBe(false);
     expect(existsSync(coreControlSocketPath(home))).toBe(false);
+    expect(existsSync(workPath)).toBe(false);
   } finally {
     await core?.close();
     await rm(home, { recursive: true, force: true });
