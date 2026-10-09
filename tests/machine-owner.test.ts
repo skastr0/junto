@@ -14,7 +14,7 @@ import { makeMachineOwnerActions, type MachineOwnerOptions } from "../src/main/j
 import { MachineInstallError } from "../src/shared/machine-install";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
 import { SshTransport } from "../src/main/junto/ssh";
-import { MachineOwnStatus } from "../src/shared/machine-control";
+import { MachineOwnStatus, type MachinePeerStatus } from "../src/shared/machine-control";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorRequest, decodeOperatorResponse } from "../src/shared/operator-control";
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
 
@@ -34,8 +34,9 @@ const fixture = async (overrides: Partial<MachineOwnerOptions> = {}) => {
   let failReload = false;
   const hosts = await runtime.runPromise(HostsService);
   const owner = await runtime.runPromise(makeMachineOwnerActions({
-    ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), installationId: "own-install", machineName: "macbook", juntoHome: "/home/user/probe", pid: 71, ready: true })),
+    ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), installationId: "own-install", machineName: "macbook", juntoHome: "/home/user/probe", pid: 71, ready: true, form: "mac-mini" as const })),
     ownHarnesses: Effect.succeed({ machineName: "macbook", reachable: true, harnesses: [{ harness: "codex", installed: true }] }),
+    peerBuild: () => Effect.succeed(undefined),
     peerStatus: name => Effect.sync(() => { probed.push(name); return { machineName: name, reachable: false, harnesses: [], missingSecrets: [] }; }),
     copy: () => Effect.die("copy not part of this fixture"),
     disconnect: name => Effect.sync(() => { disconnected.push(name); }),
@@ -114,10 +115,10 @@ it("preserves an activated install failure and its transition receipt", async ()
 
 it("refuses owner status and extra fields returned by a peer callback", async () => {
   for (const extra of [
-    { build: "a".repeat(64), juntoHome: "/home/user/private", pid: 71, ready: true },
+    { build: "a".repeat(64), juntoHome: "/home/user/private", pid: 71, ready: true, form: "mac-mini" as const },
     { secretValue: "private" },
   ]) {
-    const f = await fixture({ peerStatus: name => Effect.succeed({ machineName: name, installationId: Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), machineName: name, installationId: "mini-install", juntoHome: "/home/user/private", pid: 71, ready: true }).installationId, reachable: true, harnesses: [], missingSecrets: [], ...extra }) });
+    const f = await fixture({ peerStatus: name => Effect.succeed({ machineName: name, installationId: Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), machineName: name, installationId: "mini-install", juntoHome: "/home/user/private", pid: 71, ready: true, form: "mac-mini" as const }).installationId, reachable: true, harnesses: [], missingSecrets: [], ...extra }) });
     await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
     await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
     const response = await f.call("machine.status", { name: "mini" });
@@ -125,4 +126,37 @@ it("refuses owner status and extra fields returned by a peer callback", async ()
     expect(JSON.stringify(response)).not.toContain("/home/user/private");
     expect(JSON.stringify(response)).not.toContain("secretValue");
   }
+});
+
+it("refuses an exact owner-only status reply on the peer path", async () => {
+  const f = await fixture({ peerStatus: name => Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({
+    build: "a".repeat(64), machineName: name, installationId: "mini-install", form: "mac-mini" as const,
+    juntoHome: "/home/user/private", pid: 71, ready: true,
+  })) as unknown as Effect.Effect<MachinePeerStatus> });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  const response = await f.call("machine.status", { name: "mini" });
+  expect(response.ok).toBe(false);
+  expect(JSON.stringify(response)).not.toContain("/home/user/private");
+});
+
+it("marks only a bound peer with a known different hello build as needing an update", async () => {
+  let build: string | undefined = "b".repeat(64);
+  const f = await fixture({ peerBuild: () => Effect.succeed(build) });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  const flag = async () => {
+    const response = await f.call("machine.list", {});
+    if (!response.ok || response.op !== "machine.list") throw new Error("list failed");
+    expect(response.data.machines.find(row => row.machine.isThisMachine)?.needsUpdate).toBe(false);
+    return response.data.machines.find(row => row.machine.id === "mini")?.needsUpdate;
+  };
+  expect(await flag()).toBe(false);
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  expect(await flag()).toBe(true);
+  build = "a".repeat(64);
+  expect(await flag()).toBe(false);
+  build = undefined;
+  expect(await flag()).toBe(false);
+  build = "invalid-peer-build";
+  expect((await f.call("machine.list", {})).ok).toBe(false);
 });

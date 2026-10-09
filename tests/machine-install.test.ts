@@ -29,7 +29,7 @@ vi.mock("../src/main/junto/hosts/install-service", () => ({
       fixture.loaded = true; fixture.pid = 71;
       const generation = await readlink(join(fixture.root, "current"));
       const manifest = JSON.parse(await readFile(join(fixture.root, generation, "manifest.json"), "utf8"));
-      await writeFile(join(fixture.home, ".status.json"), JSON.stringify({ ok: true, command: "machine status", data: { build: manifest.build, installationId: "install-one", machineName: "mini", juntoHome: fixture.home, pid: 71, ready: true } }));
+      await writeFile(join(fixture.home, ".status.json"), JSON.stringify({ ok: true, command: "machine status", data: { build: manifest.build, installationId: "install-one", machineName: "mini", juntoHome: fixture.home, pid: 71, ready: true, form: "mac-mini" } }));
     },
     removeDefinition: async () => { fixture.definitionRemoved = true; },
   }),

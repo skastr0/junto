@@ -4,7 +4,7 @@ import {
   OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse,
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,
 } from "@shared/operator-control";
-import { MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
+import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
 import { MachineInstallError, type MachineInstallResult } from "@shared/machine-install";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { MachineRepository } from "../machines/repository";
@@ -16,6 +16,7 @@ export interface MachineOwnerOptions {
   readonly ownStatus: Effect.Effect<MachineOwnStatus, unknown>;
   readonly ownHarnesses: Effect.Effect<MachineHarnesses, unknown>;
   readonly peerStatus: (name: string) => Effect.Effect<MachinePeerStatus, unknown>;
+  readonly peerBuild: (name: string) => Effect.Effect<string | undefined, unknown>;
   readonly copy: (host: RemoteHost, input: MachineCopyInput) => Effect.Effect<MachineInstallResult, unknown>;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
 }
@@ -52,11 +53,14 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         const listed = yield* hosts.list;
         const pins = yield* machines.peers;
         const ownId = yield* machines.installationId;
-        return { machines: listed.map(machine => {
+        const ownBuild = yield* options.ownStatus.pipe(Effect.flatMap(status => Schema.decodeUnknownEffect(MachineBuild)(status.build)));
+        return { machines: yield* Effect.forEach(listed, machine => Effect.gen(function* () {
           const pin = pins.find(row => row.machineName === machine.id);
-          return { machine, setUp: machine.isThisMachine || pin !== undefined,
+          const reportedBuild = machine.isThisMachine || pin === undefined ? undefined : yield* options.peerBuild(machine.id);
+          const peerBuild = reportedBuild === undefined ? undefined : yield* Schema.decodeUnknownEffect(MachineBuild)(reportedBuild);
+          return { machine, setUp: machine.isThisMachine || pin !== undefined, needsUpdate: peerBuild !== undefined && peerBuild !== ownBuild,
             ...(machine.isThisMachine ? { installationId: ownId } : pin === undefined ? {} : { installationId: pin.installationId }) };
-        }) };
+        })) };
       }
       case "machine.add": {
         const input = request.args;

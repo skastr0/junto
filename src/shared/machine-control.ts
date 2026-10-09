@@ -6,8 +6,12 @@ import { HarnessId } from "./managed-terminal-templates";
 import { isValidMachineName } from "./machine-identity";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
+export const MachineBuild = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/)));
+export const MachineForm = Schema.Literals(["macbook", "mac-mini", "mac-studio", "mac", "linux"]);
+export type MachineForm = typeof MachineForm.Type;
 export const MachineOwnStatus = Schema.Struct({
-  build: Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
+  build: MachineBuild,
+  form: MachineForm,
   installationId: InstallationId,
   machineName: MachineName,
   juntoHome: MachineAbsolutePath,
@@ -34,6 +38,7 @@ export const MachineHarnesses = Schema.Struct({
 export type MachineHarnesses = typeof MachineHarnesses.Type;
 export const MachinePeerStatus = Schema.Struct({
   ...MachineHarnesses.fields,
+  form: Schema.optionalKey(MachineForm),
   installationId: Schema.optionalKey(InstallationId),
   missingSecrets: Schema.Array(Schema.String.pipe(Schema.check(Schema.isMaxLength(128)))).pipe(Schema.check(Schema.isMaxLength(256))),
   detail: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(1024)))),
@@ -42,7 +47,7 @@ export type MachinePeerStatus = typeof MachinePeerStatus.Type;
 export const MachineStatusData = Schema.Union([MachineOwnStatus, MachinePeerStatus]);
 export type MachineStatusData = typeof MachineStatusData.Type;
 export const MachineListData = Schema.Struct({
-  machines: Schema.Array(Schema.Struct({ machine: RemoteHost, setUp: Schema.Boolean, installationId: Schema.optionalKey(InstallationId) })).pipe(Schema.check(Schema.isMaxLength(32))),
+  machines: Schema.Array(Schema.Struct({ machine: RemoteHost, setUp: Schema.Boolean, needsUpdate: Schema.Boolean, installationId: Schema.optionalKey(InstallationId) })).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type MachineListData = typeof MachineListData.Type;
 export const MachineAddInput = Schema.Struct({
@@ -55,7 +60,7 @@ export const MachineAddInput = Schema.Struct({
   installRoot: Schema.optionalKey(MachineAbsolutePath),
 });
 export type MachineAddInput = typeof MachineAddInput.Type;
-export const MachineCopyInput = Schema.Struct({ name: MachineName, bundle: MachineAbsolutePath });
+export const MachineCopyInput = Schema.Struct({ name: MachineName, bundle: Schema.optionalKey(MachineAbsolutePath) });
 export type MachineCopyInput = typeof MachineCopyInput.Type;
 export const MachineRemoved = Schema.Struct({ machineName: MachineName, removed: Schema.Literal(true) });
 export type MachineRemoved = typeof MachineRemoved.Type;

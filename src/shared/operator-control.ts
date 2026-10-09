@@ -38,7 +38,7 @@ export const operatorControlDir = (home: string): string =>
 export const operatorControlSocketPath = (home: string): string =>
   `${operatorControlDir(home)}/control.sock`;
 
-const RequestId = Schema.String.pipe(
+export const RequestId = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
   Schema.check(Schema.isMaxLength(64)),
   Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]+$/u)),
