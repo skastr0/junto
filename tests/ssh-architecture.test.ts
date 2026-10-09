@@ -117,9 +117,6 @@ describe("SSH architecture", () => {
       "src/main/junto/station/openssh-bootstrap.ts",
       "src/main/junto/station/openssh-peer-exchange.ts",
       "src/main/junto/station/fleet-propagation.ts",
-      // Content transfer renders the fixed helper/stat/stream protocol over
-      // the shared SSH capability; it does not construct an SSH process.
-      "src/main/junto/content/transfer.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {
