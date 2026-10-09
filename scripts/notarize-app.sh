@@ -90,7 +90,6 @@ require_cmd() {
 
 require_cmd asc
 require_cmd xcrun
-require_cmd python3
 require_cmd ditto
 require_cmd shasum
 require_cmd node
@@ -216,23 +215,25 @@ clear_stale_notarization_receipt() {
   local parsed sub stapled cdhash
   [[ -f "$receipt" && ! -L "$receipt" ]] || return 0
   if ! parsed="$(
-    python3 - "$receipt" <<'PY'
-import json, sys
-path = sys.argv[1]
-try:
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-except Exception as e:
-    print(f"UNREADABLE\t{e}", file=sys.stderr)
-    sys.exit(2)
-if not isinstance(data, dict):
-    print("BAD_SHAPE", file=sys.stderr)
-    sys.exit(2)
-sub = data.get("zipSha256Submitted") or ""
-stapled = data.get("zipSha256Stapled") or ""
-cd = data.get("appCdHash") or ""
-print(f"{sub}\t{stapled}\t{cd}")
-PY
+    node - "$receipt" <<'JS'
+const fs = require("node:fs");
+const path = process.argv[2];
+let data;
+try {
+  data = JSON.parse(fs.readFileSync(path, "utf8"));
+} catch (error) {
+  console.error(`UNREADABLE\t${error.message}`);
+  process.exit(2);
+}
+if (data === null || typeof data !== "object" || Array.isArray(data)) {
+  console.error("BAD_SHAPE");
+  process.exit(2);
+}
+const sub = data.zipSha256Submitted || "";
+const stapled = data.zipSha256Stapled || "";
+const cd = data.appCdHash || "";
+console.log(`${sub}\t${stapled}\t${cd}`);
+JS
   )"; then
     log "clearing unreadable notarization receipt (cannot verify byte binding)"
     rm -f -- "$receipt"
@@ -287,8 +288,8 @@ refresh_mac_updater_metadata() {
     err "refresh-mac-updater-metadata failed"
     return 1
   fi
-  size="$(printf '%s' "$raw" | python3 -c 'import json,sys; print(json.load(sys.stdin)["size"])')"
-  sha512="$(printf '%s' "$raw" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha512"])')"
+  size="$(printf '%s' "$raw" | node -e 'const v = JSON.parse(require("node:fs").readFileSync(0, "utf8")).size; if (v === undefined) process.exit(1); console.log(String(v));')"
+  sha512="$(printf '%s' "$raw" | node -e 'const v = JSON.parse(require("node:fs").readFileSync(0, "utf8")).sha512; if (v === undefined) process.exit(1); console.log(String(v));')"
   [[ -n "$size" && -n "$sha512" ]] || {
     err "updater metadata helper returned incomplete size/sha512"
     return 1
@@ -433,43 +434,72 @@ fi
 
 # Parse submission id + status from asc JSON (handles data object or list).
 parse_submit() {
-  python3 - "$SUBMIT_LOG" <<'PY'
-import json, sys
-path = sys.argv[1]
-with open(path, encoding="utf-8") as f:
-    raw = f.read().strip()
-if not raw:
-    print("EMPTY", file=sys.stderr)
-    sys.exit(2)
-# Some CLIs emit multiple JSON values; take the last object.
-decoder = json.JSONDecoder()
-idx = 0
-obj = None
-while idx < len(raw):
-    while idx < len(raw) and raw[idx].isspace():
-        idx += 1
-    if idx >= len(raw):
-        break
-    obj, end = decoder.raw_decode(raw, idx)
-    idx = end
-if obj is None:
-    print("NO_JSON", file=sys.stderr)
-    sys.exit(2)
-data = obj.get("data", obj) if isinstance(obj, dict) else obj
-if isinstance(data, list):
-    if not data:
-        print("EMPTY_DATA", file=sys.stderr)
-        sys.exit(2)
-    data = data[0]
-if not isinstance(data, dict):
-    print("BAD_SHAPE", file=sys.stderr)
-    sys.exit(2)
-attrs = data.get("attributes") or {}
-status = attrs.get("status") or data.get("status") or ""
-sid = data.get("id") or attrs.get("id") or ""
-name = attrs.get("name") or ""
-print(f"{sid}\t{status}\t{name}")
-PY
+  node - "$SUBMIT_LOG" <<'JS'
+const fs = require("node:fs");
+const raw = fs.readFileSync(process.argv[2], "utf8").trim();
+if (raw.length === 0) {
+  console.error("EMPTY");
+  process.exit(2);
+}
+// Some CLIs emit multiple JSON values; take the last object.
+const endOfValue = (text, start) => {
+  const first = text[start];
+  if (first !== "{" && first !== "[" && first !== '"') {
+    let end = start;
+    while (end < text.length && !/[\s{}\[\],"]/.test(text[end])) end += 1;
+    return end;
+  }
+  let depth = 0;
+  let inString = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (char === "\\") index += 1;
+      else if (char === '"') {
+        inString = false;
+        if (depth === 0) return index + 1;
+      }
+    } else if (char === '"') inString = true;
+    else if (char === "{" || char === "[") depth += 1;
+    else if (char === "}" || char === "]") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return text.length;
+};
+let idx = 0;
+let obj;
+while (idx < raw.length) {
+  while (idx < raw.length && /\s/.test(raw[idx])) idx += 1;
+  if (idx >= raw.length) break;
+  const end = endOfValue(raw, idx);
+  obj = JSON.parse(raw.slice(idx, end));
+  idx = end;
+}
+if (obj === undefined || obj === null) {
+  console.error("NO_JSON");
+  process.exit(2);
+}
+const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+let data = isRecord(obj) && "data" in obj ? obj.data : obj;
+if (Array.isArray(data)) {
+  if (data.length === 0) {
+    console.error("EMPTY_DATA");
+    process.exit(2);
+  }
+  data = data[0];
+}
+if (!isRecord(data)) {
+  console.error("BAD_SHAPE");
+  process.exit(2);
+}
+const attrs = data.attributes || {};
+const status = attrs.status || data.status || "";
+const sid = data.id || attrs.id || "";
+const name = attrs.name || "";
+console.log(`${sid}\t${status}\t${name}`);
+JS
 }
 
 if ! submit_line="$(parse_submit)"; then
@@ -569,41 +599,43 @@ bash "$SCRIPT_DIR/make-mac-dmg.sh" \
   --volname "${PRODUCT_NAME} ${APP_VERSION}" || exit 1
 if [[ -f "$DMG_PATH" && -f "$LATEST_MAC_YML" ]]; then
   # Bind dmg size/sha512 in latest-mac.yml (zip already bound by refresh helper).
-  python3 - "$LATEST_MAC_YML" "$DMG_PATH" <<'PY'
-import base64, hashlib, pathlib, sys
-yml_path = pathlib.Path(sys.argv[1])
-dmg = pathlib.Path(sys.argv[2])
-data = dmg.read_bytes()
-sha = base64.b64encode(hashlib.sha512(data).digest()).decode()
-size = len(data)
-name = dmg.name
-lines = yml_path.read_text(encoding="utf-8").splitlines()
-out = []
-i = 0
-while i < len(lines):
-    line = lines[i]
-    out.append(line)
-    if f"url: {name}" in line or line.strip().endswith(name):
-        i += 1
-        while i < len(lines) and (
-            lines[i].lstrip().startswith("sha512:")
-            or lines[i].lstrip().startswith("size:")
-            or lines[i].strip() == ""
-        ):
-            if lines[i].lstrip().startswith("sha512:"):
-                indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
-                out.append(f"{indent}sha512: {sha}")
-            elif lines[i].lstrip().startswith("size:"):
-                indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
-                out.append(f"{indent}size: {size}")
-            else:
-                out.append(lines[i])
-            i += 1
-        continue
-    i += 1
-yml_path.write_text("\n".join(out) + "\n", encoding="utf-8")
-print(f"latest-mac.yml dmg bound: {name} size={size}")
-PY
+  node - "$LATEST_MAC_YML" "$DMG_PATH" <<'JS'
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const ymlPath = process.argv[2];
+const dmg = process.argv[3];
+const data = fs.readFileSync(dmg);
+const sha = crypto.createHash("sha512").update(data).digest("base64");
+const size = data.length;
+const name = path.basename(dmg);
+const lines = fs.readFileSync(ymlPath, "utf8").split(/\r\n|\r|\n/);
+if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+const out = [];
+let i = 0;
+while (i < lines.length) {
+  const line = lines[i];
+  out.push(line);
+  if (line.includes(`url: ${name}`) || line.trim().endsWith(name)) {
+    i += 1;
+    while (i < lines.length && (
+      lines[i].trimStart().startsWith("sha512:") ||
+      lines[i].trimStart().startsWith("size:") ||
+      lines[i].trim() === ""
+    )) {
+      const indent = lines[i].slice(0, lines[i].length - lines[i].trimStart().length);
+      if (lines[i].trimStart().startsWith("sha512:")) out.push(`${indent}sha512: ${sha}`);
+      else if (lines[i].trimStart().startsWith("size:")) out.push(`${indent}size: ${size}`);
+      else out.push(lines[i]);
+      i += 1;
+    }
+    continue;
+  }
+  i += 1;
+}
+fs.writeFileSync(ymlPath, `${out.join("\n")}\n`, "utf8");
+console.log(`latest-mac.yml dmg bound: ${name} size=${size}`);
+JS
 fi
 
 if [[ "$SKIP_SPCTL" -eq 0 ]]; then
@@ -622,36 +654,41 @@ else
   log "skipping spctl (--skip-spctl)"
 fi
 
-python3 - "$STAGED_RECEIPT" "$PRODUCT_NAME" "$APP_BUNDLE_ID" "$APP_PATH" "$ZIP_SRC" "$ZIP_SHA" "$ZIP_SHA_STAPLED" "$APP_CDHASH" "$SUBMISSION_ID" "$NOTARY_STATUS" "$SUBMIT_NAME" "$ZIP_SIZE_STAPLED" "$ZIP_SHA512_STAPLED" "$BLOCKMAP_PATH" "$LATEST_MAC_YML" "$UPDATER_YML_UPDATED" <<'PY'
-import datetime
-import json
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-yml_updated = sys.argv[16] == "1"
-receipt = {
-    "product": sys.argv[2],
-    "bundleId": sys.argv[3],
-    "appPath": sys.argv[4],
-    "zipPath": sys.argv[5],
-    "zipSha256Submitted": sys.argv[6],
-    "zipSha256Stapled": sys.argv[7],
-    "appCdHash": sys.argv[8],
-    "submissionId": sys.argv[9],
-    "status": sys.argv[10],
-    "submittedName": sys.argv[11],
-    "zipSizeStapled": int(sys.argv[12]),
-    "zipSha512Stapled": sys.argv[13],
-    "blockmapPath": sys.argv[14],
-    "latestMacYmlPath": sys.argv[15],
-    "latestMacYmlUpdated": yml_updated,
-    "tool": "asc notarization submit",
-    "completedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+node - "$STAGED_RECEIPT" "$PRODUCT_NAME" "$APP_BUNDLE_ID" "$APP_PATH" "$ZIP_SRC" "$ZIP_SHA" "$ZIP_SHA_STAPLED" "$APP_CDHASH" "$SUBMISSION_ID" "$NOTARY_STATUS" "$SUBMIT_NAME" "$ZIP_SIZE_STAPLED" "$ZIP_SHA512_STAPLED" "$BLOCKMAP_PATH" "$LATEST_MAC_YML" "$UPDATER_YML_UPDATED" <<'JS'
+const fs = require("node:fs");
+const argv = process.argv.slice(1);
+const path = argv[1];
+const ymlUpdated = argv[16] === "1";
+if (!/^\s*[+-]?\d+\s*$/.test(argv[12])) {
+  console.error(`invalid stapled zip size: ${argv[12]}`);
+  process.exit(1);
 }
-path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-print(path)
-PY
+const receipt = {
+  product: argv[2],
+  bundleId: argv[3],
+  appPath: argv[4],
+  zipPath: argv[5],
+  zipSha256Submitted: argv[6],
+  zipSha256Stapled: argv[7],
+  appCdHash: argv[8],
+  submissionId: argv[9],
+  status: argv[10],
+  submittedName: argv[11],
+  zipSizeStapled: Number(argv[12]),
+  zipSha512Stapled: argv[13],
+  blockmapPath: argv[14],
+  latestMacYmlPath: argv[15],
+  latestMacYmlUpdated: ymlUpdated,
+  tool: "asc notarization submit",
+  completedAt: new Date().toISOString().replace("Z", "000+00:00"),
+};
+const json = JSON.stringify(receipt, null, 2).replace(
+  /[\u0080-\uffff]/g,
+  (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+);
+fs.writeFileSync(path, `${json}\n`, "utf8");
+console.log(path);
+JS
 
 assert_output_unchanged "$SUBMIT_RECEIPT_PATH" "$SUBMIT_RECEIPT_ID" || exit 1
 assert_output_unchanged "$RECEIPT_PATH" "$RECEIPT_ID" || exit 1

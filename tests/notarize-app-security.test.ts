@@ -35,7 +35,7 @@ function temporaryRoot(): string {
 function mockRequiredCommands(directory: string): string {
   const bin = join(directory, "bin");
   mkdirSync(bin);
-  for (const command of ["asc", "xcrun", "python3", "ditto", "shasum"]) {
+  for (const command of ["asc", "xcrun", "ditto", "shasum"]) {
     const path = join(bin, command);
     writeFileSync(path, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     chmodSync(path, 0o700);
@@ -95,10 +95,10 @@ afterEach(() => {
 describe("notarization path capabilities", () => {
   it("has syntactically valid shell and a data-only receipt writer", () => {
     expect(spawnSync("/bin/bash", ["-n", script]).status).toBe(0);
-    expect(source).toContain("<<'PY'");
-    expect(source).toContain("sys.argv[2]");
-    expect(source).not.toContain('pathlib.Path("$RECEIPT_PATH")');
-    expect(source).not.toMatch(/python3\s+-\s+"\$RECEIPT_PATH"[^\n]*<<PY/);
+    expect(source).toContain("<<'JS'");
+    expect(source).toContain("product: argv[2]");
+    expect(source).not.toContain('writeFileSync("$RECEIPT_PATH"');
+    expect(source).not.toMatch(/node\s+-\s+"\$RECEIPT_PATH"[^\n]*<<JS/);
   });
 
   it("refuses ambient release-root mutation authority before loading shared paths", () => {
@@ -191,7 +191,7 @@ describe("notarization path capabilities", () => {
     expect(source).toContain('assert_same_identity "replaced release zip" "$ZIP_SRC" "$STAGED_ZIP_ID"');
   });
 
-  it("never opens durable release outputs for tool or Python writes", () => {
+  it("never opens durable release outputs for tool or script writes", () => {
     expect(source).toContain('SUBMIT_LOG="$STAGING_DIR/notarization-submit.json"');
     expect(source).toContain('SUBMIT_ERR="$STAGING_DIR/notarization-submit.err"');
     expect(source).toContain('NOTARY_LOG="$STAGING_DIR/notarization-log.json"');
@@ -253,7 +253,7 @@ describe("notarization path capabilities", () => {
       'clear_stale_notarization_receipt "$RECEIPT_PATH" "$ZIP_SHA" "$APP_CDHASH"',
     );
     const submit = source.indexOf("asc notarization submit \\");
-    const receiptWrite = source.indexOf('"zipSha256Stapled": sys.argv[7]');
+    const receiptWrite = source.indexOf("zipSha256Stapled: argv[7]");
     expect(clearFn).toBeGreaterThanOrEqual(0);
     expect(call).toBeGreaterThan(clearFn);
     expect(submit).toBeGreaterThan(call);
