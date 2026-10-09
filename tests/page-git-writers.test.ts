@@ -3,6 +3,7 @@ import { asCanvasName, asNodeId, type Node, type NodeOf } from "../src/shared/mo
 import { editLink, setGitCwd, setPageBinding } from "../src/renderer/lib/mutations";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { state$ } from "../src/renderer/lib/state";
+import { OTHER_MACHINE } from "./support/machines";
 import { page } from "./support/model-nodes";
 
 const name = "page-git-writers";
@@ -32,15 +33,17 @@ describe("page and git writers change their fields alone", () => {
   it("binding changes profile and host only, omitting a field already equal", () => {
     const before = open(loadedPage());
     const show = vi.spyOn(modelStore, "show");
-    setPageBinding("target", { profile: " personal ", host: " local " });
-    expect(held()).toEqual({ ...before, profile: "personal", host: "local" });
-    expect(show).toHaveBeenCalledExactlyOnceWith({ _tag: "Edit", canvas: name, id: before.id, change: { kind: "page", profile: "personal", host: "local" } });
-    setPageBinding("target", { profile: "second", host: "local" });
+    setPageBinding("target", { profile: " personal ", host: ` ${OTHER_MACHINE} ` });
+    expect(held()).toEqual({ ...before, profile: "personal", host: OTHER_MACHINE });
+    expect(show).toHaveBeenCalledExactlyOnceWith({ _tag: "Edit", canvas: name, id: before.id, change: { kind: "page", profile: "personal", host: OTHER_MACHINE } });
+    setPageBinding("target", { profile: "second", host: OTHER_MACHINE });
     expect(show).toHaveBeenLastCalledWith({ _tag: "Edit", canvas: name, id: before.id, change: { kind: "page", profile: "second" } });
-    expect(held()).toEqual({ ...before, profile: "second", host: "local" });
-    setPageBinding("target", { profile: "second", host: "local" });
-    setPageBinding("target", { profile: "", host: "local" });
+    expect(held()).toEqual({ ...before, profile: "second", host: OTHER_MACHINE });
+    setPageBinding("target", { profile: "second", host: OTHER_MACHINE });
+    setPageBinding("target", { profile: "", host: OTHER_MACHINE });
     setPageBinding("target", { profile: "second", host: "../bad" });
+    // No machine is called local: a page cannot be moved to one.
+    setPageBinding("target", { profile: "third", host: "local" });
     expect(show).toHaveBeenCalledTimes(2);
   });
 
