@@ -188,12 +188,14 @@ The one interface three seats build against.
   (`machines/`); the machine list (`hosts/`) holds routes and presentation.
 - Who is at the other end. The trust unit is the OS account. The end that
   opens a link trusts the SSH route the operator chose and the installation id
-  pinned for it. The end that receives one accepts a first peer id only while
-  the machine is being set up; a hello never enrolls itself or picks an
-  existing peer, and a changed id or name is refused. That id is an assertion
-  by an account allowed to log in, not proof of an installation. The first
-  version adds no keys of its own, and the link runs with SSH agent, X11 and
-  port forwarding off. Before a second machine may open links, this is
+  pinned for it, which it learns from the first checked hello and never from
+  anything else. The end that receives a link is told its peer by the owner's
+  setup command, run over that SSH account before any hello; it admits no
+  channel until a hello matches that pin exactly. A hello never enrolls itself
+  or picks an existing peer, and a changed id or name is refused. That id is
+  an assertion by an account allowed to log in, not proof of an installation.
+  The first version adds no keys of its own, and the link runs with SSH agent,
+  X11 and port forwarding off. Before a second machine may open links, this is
   revisited: a link-only key bound to its opener is the candidate.
 - Owners: `remote-send` the SSH side, the relay command and the link session
   (hello, frames, the channel registry with a closed decoder per channel);
