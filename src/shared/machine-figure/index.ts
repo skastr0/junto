@@ -5,6 +5,7 @@ export {
   machineFigureKey,
   machineFigureSvg,
   machineGenome,
+  machineStage,
   type MachineDetail,
   type MachineFigureRequest,
   type MachineFigureState,

@@ -153,6 +153,12 @@ function paletteFor(genome: MachineGenome, mode: ThemeMode, drained: boolean): P
   };
 }
 
+/** The ground a machine stands on when it is given room: its own tile and halo. */
+export function machineStage(name: string, mode: ThemeMode, hue?: string): { readonly tile: string; readonly halo: string } {
+  const palette = paletteFor(machineGenome(name, hue), mode, false);
+  return { tile: palette.tile, halo: palette.halo };
+}
+
 // --- geometry ---------------------------------------------------------------
 
 type V3 = readonly [number, number, number];

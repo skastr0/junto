@@ -1,0 +1,206 @@
+/* The look of the Machines window: the shelf, where every machine stands as a
+   solid with its name and one line of state, and the stage, where the chosen
+   one is given room. Colour comes from theme tokens and from the machine's
+   own tile; nothing here moves at rest. */
+
+.machine-shelf {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+}
+
+.machine-shelf__place {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 6px 10px 10px;
+  text-align: left;
+}
+
+.machine-shelf__place > .machine-figure {
+  align-self: center;
+}
+
+.machine-shelf__place:hover {
+  background: var(--color-overlay-1);
+}
+
+.machine-shelf__place[aria-selected="true"] {
+  border-color: var(--color-stroke);
+  background: var(--color-raise);
+  box-shadow: inset 0 -2px 0 var(--color-amber);
+}
+
+.machine-shelf__name {
+  max-width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.machine-shelf__state {
+  margin-top: 2px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: 1.35;
+}
+
+/* The line turns amber when the machine needs the operator. */
+.machine-shelf__place[data-needs-you="true"] .machine-shelf__state {
+  color: var(--color-amber-fg);
+}
+
+.machine-shelf__empty {
+  display: grid;
+  min-height: 170px;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 10px;
+  padding: 12px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.machine-shelf__empty::before {
+  content: "+";
+  color: var(--color-faint);
+  font-family: var(--font-display);
+  font-size: 44px;
+  line-height: 1;
+}
+
+.machine-stage {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-height: 330px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-stroke);
+  background: var(--machine-tile);
+}
+
+.machine-stage::before {
+  content: "";
+  position: absolute;
+  top: -45px;
+  left: 60px;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background: var(--machine-halo);
+}
+
+.machine-stage__figure {
+  position: relative;
+  flex: none;
+  margin-left: 70px;
+}
+
+.machine-stage__words {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  padding: 24px 32px 24px 36px;
+}
+
+.machine-stage__eyebrow {
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.machine-stage__label {
+  margin: 6px 0 10px;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.machine-stage__headline {
+  color: var(--color-ink);
+  font-size: 14px;
+}
+
+.machine-stage__advice {
+  max-width: 44ch;
+  margin-top: 6px;
+  color: var(--color-dim);
+  font-size: var(--text-body-lg);
+  line-height: 1.5;
+}
+
+.machine-stage__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.machine-steps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  border-bottom: 1px solid var(--color-stroke);
+  padding: 16px 28px;
+  color: var(--color-faint);
+  font-size: var(--text-body-lg);
+}
+
+.machine-steps i {
+  display: block;
+  height: 8px;
+  margin-bottom: 8px;
+  border: 1.5px solid var(--color-dim);
+  border-radius: 4px;
+}
+
+.machine-steps [data-phase="done"],
+.machine-steps [data-phase="now"] {
+  color: var(--color-ink);
+}
+
+.machine-steps [data-phase="done"] i {
+  border-color: var(--color-amber);
+  background: var(--color-amber);
+}
+
+.machine-steps [data-phase="now"] i {
+  background: linear-gradient(90deg, var(--color-amber) 40%, transparent 40%);
+}
+
+.machine-facts {
+  padding: 14px 28px 24px;
+}
+
+.machine-facts > div {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  border-bottom: 1px solid var(--color-overlay-3);
+  padding: 7px 0;
+}
