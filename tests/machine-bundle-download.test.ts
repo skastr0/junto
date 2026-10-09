@@ -11,31 +11,37 @@ import { acquireMachineBundleCache, releaseMachineBundleCache, pruneMachineBundl
 import { MachineInstallError } from "../src/shared/machine-install";
 import { decodeMachineReleaseCatalog, MACHINE_RELEASE_ORIGIN, MAX_MACHINE_UNPACKED_BYTES } from "../src/shared/machine-release";
 import type { MachineSendEvent } from "../src/shared/machine-progress";
+import { machineTarHeader } from "../scripts/machine-release";
 
 const homes: string[] = [];
 afterEach(async () => { for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true }); });
 const hash = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
 interface Member extends HeaderData { readonly path: string; readonly body: Buffer }
-const tar = (members: readonly Member[]): Buffer => gzipSync(Buffer.concat([
+const tar = (members: readonly Member[], legacy = false, headers?: (member: Member) => Buffer): Buffer => gzipSync(Buffer.concat([
   ...members.flatMap(member => {
     const header = new Header({ ...member, size: member.size ?? member.body.length, mode: member.mode ?? 0o644, uid: 0, gid: 0, mtime: new Date(0), type: member.type ?? "File" });
     header.encode();
-    return [header.block!, member.body, Buffer.alloc((512 - member.body.length % 512) % 512)];
+    if (legacy) {
+      header.block!.fill(0, 257, 512); header.block!.fill(32, 148, 156);
+      const checksum = header.block!.reduce((sum, byte) => sum + byte, 0);
+      header.block!.write(checksum.toString(8).padStart(6, "0") + "\0 ", 148, 8, "ascii");
+    }
+    return [headers?.(member) ?? header.block!, member.body, Buffer.alloc((512 - member.body.length % 512) % 512)];
   }), Buffer.alloc(1024),
 ]));
-const fixture = async (options: { members?: (members: Member[]) => Member[]; manifestBuild?: string; manifestTarget?: string; manifestHash?: string } = {}) => {
+const fixture = async (options: { members?: (members: Member[]) => Member[]; legacy?: boolean; headers?: (member: Member) => Buffer; coreBody?: Buffer; manifestBuild?: string; manifestTarget?: string; manifestHash?: string } = {}) => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "junto-download-test-"))); homes.push(home);
   const build = "a".repeat(64);
   const files: Member[] = [
     { path: "bin/junto", mode: 0o755, body: Buffer.from("cli fixture\n") },
     { path: "bin/node", mode: 0o755, body: Buffer.from("node fixture\n") },
-    { path: "core/junto.cjs", mode: 0o644, body: Buffer.from("core fixture\n") },
+    { path: "core/junto.cjs", mode: 0o644, body: options.coreBody ?? Buffer.from("core fixture\n") },
   ];
   const manifest = Buffer.from(JSON.stringify({ build: options.manifestBuild ?? build, target: options.manifestTarget ?? "darwin-arm64", node: "26.10.0", appVersion: "0.7.0",
     files: files.map(file => ({ path: file.path, mode: file.mode, bytes: file.body.length, sha256: hash(file.body) })),
   }));
   const members = [...files, { path: "manifest.json", body: manifest }];
-  const bytes = tar(options.members?.(members) ?? members);
+  const bytes = tar(options.members?.(members) ?? members, options.legacy, options.headers);
   const archive = { target: "darwin-arm64", archivePath: `/machines/${build}/darwin-arm64.tar.gz`, archiveBytes: bytes.length, archiveSha256: hash(bytes), manifestSha256: options.manifestHash ?? hash(manifest) };
   const catalog = decodeMachineReleaseCatalog({ schema: "junto/machine-release/v1", build, appVersion: "0.7.0", origin: MACHINE_RELEASE_ORIGIN, archives: [archive] });
   const cache = join(home, ".junto/cache/machine-bundles");
@@ -76,6 +82,12 @@ it("downloads from the pinned origin, checks actual bytes and reuses a verified 
   expect(cached.core).toBe("core fixture\n"); expect(f.fetcher).toHaveBeenCalledTimes(1); expect(cachedEvents).toEqual([]);
   await expect(readFile(join(cached.bundle, "manifest.json"))).rejects.toMatchObject({ code: "ENOENT" });
   expect(await readdir(f.cache)).toEqual([f.build]);
+});
+
+it("admits the release packager's headers across decompression blocks and file padding", async () => {
+  const coreBody = Buffer.alloc(33_001, "x");
+  const f = await fixture({ coreBody, headers: member => machineTarHeader(member.path, member.body.length, member.mode ?? 0o644) });
+  expect((await run(f.acquire)).core).toBe(coreBody.toString());
 });
 
 it("refuses corrupt cache bytes, retires only that file, and downloads on the next explicit action", async () => {
@@ -127,6 +139,20 @@ it("bounds member count and rejects file/directory collisions", async () => {
     const f = await fixture({ members });
     expect((await errorFrom(f.acquire)).message).toContain("download failed its check");
   }
+});
+
+it.each([
+  { kind: "one empty PAX header", count: 1 },
+  { kind: "130 empty PAX headers before four files", count: 130 },
+  { kind: "V7 headers", count: 0, legacy: true },
+])("refuses $kind even with matching release pins", async ({ count, legacy }) => {
+  const f = await fixture({ legacy, members: members => [
+    ...Array.from({ length: count }, (_, index) => ({ path: `extension-${index}`, type: "ExtendedHeader" as const, body: Buffer.alloc(0) })),
+    ...members,
+  ] }), events: MachineSendEvent[] = [];
+  await expect(run(f.acquire, events)).rejects.toMatchObject({ message: expect.stringContaining("download failed its check") });
+  expect(events.some(event => event.event === "machine-download" && event.state === "downloaded")).toBe(false);
+  expect((await readdir(f.cache)).filter(name => name.startsWith(".attempt-"))).toEqual([]);
 });
 
 it.each([{ manifestHash: "b".repeat(64) }, { manifestBuild: "b".repeat(64) }, { manifestTarget: "linux-x64" },
