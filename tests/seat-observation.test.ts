@@ -12,7 +12,6 @@ import {
   makeSeatObservation,
   type SeatObservationDeps,
 } from "../src/main/junto/work/seat-observation";
-import { THIS_MACHINE } from "./support/machines";
 
 // Focused tests for the seat wait/observe service. Everything is injected: the
 // service's contract is about authority, ordering and bounds, none of which
@@ -110,7 +109,6 @@ const makeHarness = (input: {
   >();
 
   const deps: SeatObservationDeps = {
-    thisMachine: () => THIS_MACHINE,
     // No case here puts a task on a board: there is nothing to read.
     readTask: () => Effect.succeed(undefined),
     readTopology: () => Effect.succeed(currentDoc),
@@ -281,7 +279,6 @@ describe("seat.wait", () => {
   it("does not lose a transition delivered synchronously at registration", async () => {
     let reads = 0;
     const service = makeSeatObservation({
-      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => Effect.succeed(peerDoc()),
       subscribeCanvasChanges: () => () => {},
@@ -315,7 +312,6 @@ describe("seat.wait", () => {
     const revoked = peerDoc([]);
     let reads = 0;
     const service = makeSeatObservation({
-      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
@@ -388,7 +384,6 @@ describe("seat.wait", () => {
     );
     let reads = 0;
     const service = makeSeatObservation({
-      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
@@ -439,7 +434,6 @@ describe("seat.wait", () => {
     const revoked = peerDoc([]);
     let reads = 0;
     const service = makeSeatObservation({
-      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
@@ -518,7 +512,7 @@ describe("seat.wait", () => {
     expect(failure(exit)?.type).toBe("ScopeError");
   });
 
-  it("refuses a managed seat that runs on another host", async () => {
+  it("refuses a seat that runs on another machine, by the one law that decides it", async () => {
     const harness = makeHarness({
       doc: doc(
         [
@@ -535,11 +529,11 @@ describe("seat.wait", () => {
     );
     const error = failure(exit);
     expect(error?.type).toBe("ScopeError");
-    expect(error?.details?.reason).toBe("crew-local-seat-only");
-    expect(error?.details?.received).toBe("station-b");
+    expect(error?.details?.reason).toBe("other_machine");
+    expect(error?.message).toContain("station-b");
   });
 
-  it("refuses --any when every authorized peer is on another host", async () => {
+  it("refuses --any when every connected peer is on another machine: none holds the port", async () => {
     const harness = makeHarness({
       doc: doc(
         [
@@ -556,7 +550,7 @@ describe("seat.wait", () => {
     );
     const error = failure(exit);
     expect(error?.type).toBe("ScopeError");
-    expect(error?.details?.reason).toBe("crew-local-seat-only");
+    expect(error?.message).toContain("no authorized peer seat holds the seat.wait port");
   });
 
   it("ignores a remote peer's matching state for --any", async () => {
@@ -846,7 +840,7 @@ describe("seat.read", () => {
     }
   });
 
-  it("refuses to read a managed seat that runs on another host", async () => {
+  it("refuses to read a seat that runs on another machine", async () => {
     const harness = makeHarness({
       doc: doc(
         [
@@ -863,7 +857,7 @@ describe("seat.read", () => {
     );
     const error = failure(exit);
     expect(error?.type).toBe("ScopeError");
-    expect(error?.details?.reason).toBe("crew-local-seat-only");
+    expect(error?.details?.reason).toBe("other_machine");
     // Nothing was read: the refusal is up front, not a fallback to a stale grid.
     expect(harness.gridReads()).toBe(0);
   });

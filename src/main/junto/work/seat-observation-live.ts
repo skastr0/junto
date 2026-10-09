@@ -15,7 +15,6 @@ import { terminalObserverPlane } from "../term/observer";
 import { termPlane } from "../term/plane";
 import { onWorkMutation } from "./mutation-seam";
 import { makeSeatObservation, type SeatObservation } from "./seat-observation";
-import { thisMachineName } from "../term/machine-name";
 
 /**
  * The live seat observation service reads topology and selected Work rows
@@ -29,7 +28,6 @@ export const liveSeatObservation = (): Effect.Effect<
   Effect.gen(function* () {
     const work = yield* WorkService;
     return makeSeatObservation({
-      thisMachine: thisMachineName,
       readTopology: (canvasName) =>
         work.readTopology(canvasName).pipe(Effect.map((read) => read.canvas),
           Effect.mapError(

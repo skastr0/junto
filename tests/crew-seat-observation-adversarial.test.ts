@@ -8,7 +8,6 @@ import type {
   ObserverGridWindow,
 } from "../src/main/junto/term/observer";
 import { makeSeatObservation } from "../src/main/junto/work/seat-observation";
-import { THIS_MACHINE } from "./support/machines";
 
 // Independent adversarial seam tests for the seat wait/observe contract
 // (historical crew contract, deleted by operator ruling 2026-09-16). The service's own rules: authority is re-derived
@@ -52,7 +51,6 @@ const makeHarness = (input: {
   let seatSubscribed = false;
 
   const service = makeSeatObservation({
-    thisMachine: () => THIS_MACHINE,
     readTask: () => Effect.succeed(undefined),
     readTopology: () => Effect.succeed(doc),
     subscribeCanvasChanges: (listener) => {
@@ -233,7 +231,6 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     let reads = 0;
     let subscribed = false;
     const service = makeSeatObservation({
-      thisMachine: () => THIS_MACHINE,
       readTask: () => Effect.succeed(undefined),
     readTopology: () => {
         reads += 1;
@@ -301,7 +298,6 @@ describe("crew seat observation — adversarial authority and ordering", () => {
       (canvasName: string | undefined, nodeId: string | undefined) => void
     >();
     const service = makeSeatObservation({
-      thisMachine: () => THIS_MACHINE,
       // First read resolves targets; by the post-event revalidation the
       // edge is gone — the answer must be ScopeError, not the stale match.
       readTask: () => Effect.succeed(undefined),
@@ -339,11 +335,10 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     }
   });
 
-  // A local seat whose delivery surface flips to another host mid-wait stops
-  // being observable here — the same resolver runs on every revalidation, so
-  // the wait must fail closed rather than keep waiting on a grid this process
-  // no longer owns.
-  it("seat.wait fails closed when the seat's surface flips to a remote host mid-wait", async () => {
+  // A seat moved to another machine mid-wait stops being observable here: the
+  // same admission runs on every revalidation, so the wait must fail closed
+  // rather than keep waiting on a grid this process no longer owns.
+  it("seat.wait fails closed when the seat moves to another machine mid-wait", async () => {
     const local = docWith(
       [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
       [messagesEdge],
@@ -371,7 +366,7 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     if (Exit.isFailure(exit)) {
       const error = failureOf(exit);
       expect(error?.type).toBe("ScopeError");
-      expect(error?.details?.reason).toBe("crew-local-seat-only");
+      expect(error?.details?.reason).toBe("other_machine");
     }
   });
 

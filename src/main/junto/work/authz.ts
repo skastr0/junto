@@ -480,15 +480,36 @@ export const scopeDenialToWorkError = (
       return scopeError(denial.caller, denial.target, "not_connected");
     case "no_port":
     case "role_law":
-    case "route":
-    case "placement_unknown":
       return scopeError(denial.caller, denial.target, "wrong_kind", {
         kind: extra?.kind,
         op: extra?.op,
       });
+    case "other_machine":
+      return {
+        type: "ScopeError",
+        message: denial.message,
+        details: {
+          target: denial.target,
+          caller: denial.caller,
+          reason: "other_machine",
+          hint: "a seat on another machine can be mailed and nothing else",
+          next_step: "send it mail with junto msg send",
+          retryable: false,
+        },
+      };
     case "unknown_node":
       return scopeError(denial.caller, denial.target, "invisible");
   }
+};
+
+/**
+ * The machine the canvas's own kinds are on, for the law. A caller is a seat
+ * on this machine: where this machine edits the canvas that is the editing
+ * machine, and a copy of a canvas holds none of those kinds.
+ */
+const callerMachine = (doc: Canvas, callerId: string): string => {
+  const caller = findNode(doc, callerId);
+  return caller !== undefined && "host" in caller ? caller.host : "";
 };
 
 /**
@@ -528,7 +549,7 @@ export const admitWorkTarget = (
     );
   }
 
-  const view = canvasToCapabilityView(doc);
+  const view = canvasToCapabilityView(doc, { editingMachine: callerMachine(doc, callerId) });
   const result = admitPure(
     view,
     asNodeId(callerId),
@@ -567,7 +588,7 @@ export const heldGrantsOnEdge = (
   callerId: string,
   targetId: string,
 ): ReadonlyArray<Port> => {
-  const view = canvasToCapabilityView(doc);
+  const view = canvasToCapabilityView(doc, { editingMachine: callerMachine(doc, callerId) });
   const caller = asNodeId(callerId);
   const target = asNodeId(targetId);
   return ALL_PORTS.filter((port) =>
