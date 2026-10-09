@@ -242,7 +242,8 @@ still open.
 | `remote-send` | putting Junto on a machine: the windowless bundle for Mac and Linux, the copy, the per-user service, the build check, update, harness detection, and the SSH plane review |
 | `remote-cut` | everything on the cut list outside those three areas, with its tests and documents |
 | `remote-seats` | a seat on another machine: `term/`, `seat-sessions/`, `region-env/` and the seats channel of the link |
-| `remote-window` | the Machines window, the machine picker on seats and regions, unreachable and missing-harness states, and the copy |
+| `remote-window` | the Machines window's structure, data and actions, the machine picker on seats and regions, unreachable and missing-harness states, and the copy |
+| `remote-design` | how a machine looks: the machine figure in three dimensions and its states, and the look of the Machines window. No dithering |
 | `remote-verify` | the exercise scripts, the stand-in harness and the acceptance run |
 | `remote-security` | independent review of the security model; the security doctrine |
 
@@ -309,6 +310,7 @@ git show --stat --oneline HEAD
 | Security review and the doctrine | `remote-security` | doctrine rewritten and agreed by every seat: `fef22553a`, `03cb81f71`; reviews each landing at the boundary |
 | A seat on another machine | `remote-seats` | first slice in progress: the session pin leaves the seat row |
 | The Machines window | `remote-window` | staffed; first slice: the renderer reads machines by name |
+| How a machine looks | `remote-design` | staffed at the operator's request; first a proof he can look at |
 
 **The cut.** Closed at `9e80c1edc` with typecheck and the whole unit suite
 green on a clean export of that commit (8,485 passed, none failed). Since the
