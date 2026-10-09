@@ -4,7 +4,7 @@
  * Any uncertain failure preserves the remote root for explicit inspection.
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
@@ -99,63 +99,12 @@ export function assertOrderedUpdate(before: MachineInstallResult, observedBefore
 const attempt = <A>(run: () => Promise<A>) => Effect.tryPromise({
   try: run, catch: cause => cause instanceof Error ? cause : new Error(String(cause)),
 });
-const CREATE = `import json,os,pathlib,tempfile,sys
-p=pathlib.Path(tempfile.mkdtemp(prefix='.junto-install-exercise-',dir=pathlib.Path.home()))
-(p/'exercise-owner').write_text(sys.argv[1])
-print(json.dumps({'root':str(p)}))`;
-const OBSERVE = `import json,os,pathlib,re,subprocess,sys
-x=json.loads(sys.argv[1]); root=pathlib.Path(x['root'])
-assert not root.is_symlink() and root.stat().st_uid==os.getuid()
-assert (root/'exercise-owner').read_text()==x['owner']
-home=root/'home'; install=root/'install'
-env={k:v for k,v in os.environ.items() if not k.startswith('JUNTO_')}
-env['JUNTO_HOME']=str(home)
-r=subprocess.run([str(install/'current/bin/junto'),'machine','status','{}'],env=env,capture_output=True,text=True,timeout=5,check=True)
-envelope=json.loads(r.stdout); assert envelope['ok'] is True and envelope['command']=='machine status'
-status=envelope['data']; pid=status['pid']; assert isinstance(pid,int) and pid>0
-ps=subprocess.run(['/bin/ps','-p',str(pid),'-o','pid=,pgid=,sess=,lstart='],env={**env,'LC_ALL':'C','TZ':'UTC'},capture_output=True,text=True,timeout=5,check=True)
-assert not ps.stderr.strip()
-line=ps.stdout.strip().split(None,3); assert len(line)==4 and int(line[0])==pid
-print(json.dumps({'status':status,'epoch':{'pid':pid,'startKey':line[3]},'selected':os.readlink(install/'current')}))`;
-const UNINSTALL = `import json,os,pathlib,subprocess,sys
-x=json.loads(sys.argv[1]); root=pathlib.Path(x['root'])
-assert not root.is_symlink() and root.stat().st_uid==os.getuid()
-assert (root/'exercise-owner').read_text()==x['owner']
-home=root/'home'; install=root/'install'
-env={k:v for k,v in os.environ.items() if not k.startswith('JUNTO_')}
-env.update(JUNTO_HOME=str(home),LC_ALL='C',TZ='UTC')
-args=json.dumps({'juntoHome':str(home),'installRoot':str(install)})
-r=subprocess.run([str(install/'current/bin/junto'),'machine','uninstall-local',args],env=env,capture_output=True,text=True,timeout=40,check=True)
-receipt=json.loads(r.stdout)
-assert receipt['ok'] is True and receipt['command']=='machine uninstall-local'
-data=receipt['data']; assert data['disposition']=='stopped' and data['definitionRemoved'] is True
-assert data['serviceLabel']==x['serviceLabel'] and data['juntoHome']==str(home) and data['installRoot']==str(install)
-pid=x['epoch']['pid']; assert isinstance(pid,int) and pid>0
-ps=subprocess.run(['/bin/ps','-p',str(pid),'-o','pid=,pgid=,sess=,lstart='],env=env,capture_output=True,text=True,timeout=5)
-assert ps.returncode in (0,1) and not ps.stderr.strip()
-if ps.stdout.strip():
- line=ps.stdout.strip().split(None,3)
- assert len(line)==4 and int(line[0])==pid and line[3]!=x['epoch']['startKey']
-label=x['serviceLabel']
-if sys.platform=='darwin':
- definition=pathlib.Path.home()/'Library/LaunchAgents'/(label+'.plist')
- observed=subprocess.run(['/bin/launchctl','print','user/'+str(os.getuid())+'/'+label],capture_output=True,text=True,timeout=5)
- assert observed.returncode==113
-else:
- definition=pathlib.Path.home()/'.config/systemd/user'/(label+'.service')
- observed=subprocess.run(['/usr/bin/systemctl','--user','show',label+'.service','--property=LoadState,MainPID'],capture_output=True,text=True,timeout=5,check=True)
- fields=dict(line.split('=',1) for line in observed.stdout.strip().splitlines())
- assert fields=={'LoadState':'not-found','MainPID':'0'}
-assert not definition.exists() and not definition.is_symlink()
-print(json.dumps({'uninstall':receipt,'epochGone':True,'definitionGone':True,'serviceAbsent':True}))`;
-const REMOVE_ROOT = `import json,os,pathlib,shutil,stat,sys
-x=json.loads(sys.argv[1]); root=pathlib.Path(x['root']); marker=root/'exercise-owner'
-assert root.parent==pathlib.Path.home().resolve() and root.name.startswith('.junto-install-exercise-')
-assert not root.is_symlink() and root.stat().st_uid==os.getuid()
-assert stat.S_ISREG(marker.lstat().st_mode) and marker.stat().st_uid==os.getuid()
-assert marker.read_text()==x['owner']
-shutil.rmtree(root)
-print(json.dumps({'removed':not root.exists()}))`;
+const CREATE = [
+  "set -eu", "umask 077",
+  'root=$(mktemp -d "$HOME/.junto-install-exercise-XXXXXXXX")',
+  'printf %s "$1" > "$root/exercise-owner"',
+  'printf "%s\\n" "$root"',
+].join("\n");
 
 const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
   if (process.env.JUNTO_APP_RUN_LOCK_HELD !== "1") return yield* Effect.fail(new Error("run through scripts/with-app-run-lock.sh"));
@@ -190,19 +139,22 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
     ok: false, receipts, sshTarget: input.sshTarget, steps: {},
   };
   const save = () => attempt(() => writeFile(join(receipts, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n"));
-  const ssh = (code: string, argument: string) => Effect.gen(function* () {
-    const command = yield* makeRemoteCommand("python3", ["-c", code, argument]);
+  const remoteSource = yield* attempt(() => readFile(new URL("./machine-install-exercise-remote.cjs", import.meta.url), "utf8"));
+  const ssh = (operation: string, argument: string) => Effect.gen(function* () {
+    const { root } = JSON.parse(argument) as { root: string };
+    const code = remoteSource + "\nconsole.log(JSON.stringify(exercise(process.argv[1], JSON.parse(process.argv[2]))));";
+    const command = yield* makeRemoteCommand(join(root, "install/current/bin/node"), ["-e", code, operation, argument]);
     const reply = yield* transport.transfer(dedicatedStream(target, command), Stream.empty, 60_000);
     return reply.stdout;
   });
   const run = Effect.gen(function* () {
-    const created = yield* ssh(CREATE, owner).pipe(Effect.flatMap(Schema.decodeUnknownEffect(
-      Schema.fromJsonString(Schema.Struct({ root: MachineAbsolutePath })))));
-    const root = created.root;
+    const createCommand = yield* makeRemoteCommand("/bin/sh", ["-c", CREATE, "junto-exercise", owner]);
+    const created = yield* transport.transfer(dedicatedStream(target, createCommand), Stream.empty, 60_000);
+    const root = yield* Schema.decodeUnknownEffect(MachineAbsolutePath)(created.stdout.trim());
     receipt.root = root;
     yield* save();
     const paths = { juntoHome: join(root, "home"), installRoot: join(root, "install") };
-    const observe = () => ssh(OBSERVE, JSON.stringify({ root, owner })).pipe(
+    const observe = () => ssh("observe", JSON.stringify({ root, owner })).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(Observation))));
     const first = yield* attempt(() => exerciseMachineLink({
       bundle: localBundle, remoteBundle: input.bundle, receipts,
@@ -249,7 +201,7 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
         assertOrderedUpdate(resend, afterResend, update, afterUpdate);
       });
     }
-    const cleanup = yield* ssh(UNINSTALL, JSON.stringify({ root, owner, serviceLabel: update.serviceLabel, epoch: afterUpdate.epoch })).pipe(
+    const cleanup = yield* ssh("uninstall", JSON.stringify({ root, owner, serviceLabel: update.serviceLabel, epoch: afterUpdate.epoch })).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(Cleanup))));
     receipt.steps.uninstall = cleanup;
     yield* save();
@@ -261,7 +213,7 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
         transitions[0]!.service === (update.provider === "launchd" ? "unloaded" : "inactive"),
         "uninstall did not quiesce the observed candidate epoch");
     });
-    const removed = yield* ssh(REMOVE_ROOT, JSON.stringify({ root, owner })).pipe(
+    const removed = yield* ssh("remove", JSON.stringify({ root, owner })).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Struct({ removed: Schema.Literal(true) })))));
     receipt.steps.cleanup = removed;
     receipt.ok = true;
