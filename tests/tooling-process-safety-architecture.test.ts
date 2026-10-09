@@ -12,8 +12,7 @@ const sourceFiles = (directory: string): ReadonlyArray<string> =>
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
     const extension = extname(path);
-    return [".ts", ".tsx", ".js", ".mjs", ".sh", ".py"].includes(extension) ||
-      path.endsWith("/e2e/fakes/bin/ssh")
+    return [".ts", ".tsx", ".js", ".mjs", ".sh", ".py"].includes(extension)
       ? [path]
       : [];
   });

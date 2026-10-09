@@ -20,22 +20,11 @@ import {
   SettingsLive,
   SettingsService,
 } from "../../src/main/junto/settings/service";
-import { HostsPersistence, makeHostsRegistry } from "../../src/main/junto/hosts/registry";
-import { HostsPersistenceLive } from "../../src/main/junto/hosts/service";
-import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import {
   WorkRepositoryLive,
 } from "../../src/main/junto/work/repository";
-import {
-  StationRepository,
-  StationRepositoryLive,
-} from "../../src/main/junto/station/repository";
-import {
-  StationFleetTargetRepository,
-  StationFleetTargetRepositoryLive,
-} from "../../src/main/junto/station/fleet-target-repository";
 export interface Sandbox {
   readonly root: string;
   readonly userDataDir: string;
@@ -44,9 +33,9 @@ export interface Sandbox {
 
 /**
  * macOS caps AF_UNIX socket paths at roughly 104 bytes (sun_path). The work,
- * station, canvas, term, and browser control sockets all live under
- * `<home>/.junto/<plane>/control.sock`; with the canonical renamed
- * home that is 35 bytes of suffix, so the temp root must leave room. A stock
+ * operator, canvas, term, and browser control sockets all live under
+ * `<home>/.junto/<plane>/control.sock`; with the canonical
+ * home that is 36 bytes of suffix, so the temp root must leave room. A stock
  * `os.tmpdir()` on macOS expands to a long /var/folders/... path and pushes
  * every control socket over the limit — bind() then fails EINVAL and the app
  * fail-closes at boot. Prefer `os.tmpdir()`, but fall back to the short
@@ -55,7 +44,7 @@ export interface Sandbox {
  */
 const controlSocketFits = (root: string): boolean => {
   // Longest control plane suffix under the canonical home.
-  const suffix = join("home", ".junto", "station", "control.sock");
+  const suffix = join("home", ".junto", "operator", "control.sock");
   // 6 random chars from mkdtemp + the "junto-e2e-" prefix.
   const longest = join(root, "junto-e2e-abcdef", suffix);
   return Buffer.byteLength(longest) <= 103;
@@ -125,7 +114,7 @@ export const writeFixtureModel = async (
 ): Promise<void> => {
   const state = makeStateEngineLive(databasePath ?? join(sandbox.homeDir, ".junto", "state", "junto.db"));
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    WorkRepositoryLive, StationRepositoryLive, SettingsLive, StationFleetTargetRepositoryLive,
+    WorkRepositoryLive, SettingsLive,
   ), state);
   const runtime = ManagedRuntime.make(Layer.provideMerge(
     Layer.provide(ModelService.layer, WorkModelDependentsLive), repositories,
@@ -133,15 +122,9 @@ export const writeFixtureModel = async (
   try {
     await runtime.runPromise(Effect.gen(function* () {
       const model = yield* ModelService;
-      const stations = yield* StationRepository;
       const settings = yield* SettingsService;
-      const fleetTargets = yield* StationFleetTargetRepository;
       const sql = yield* SqlClient.SqlClient;
       yield* settings.setStationTopology({ role: "command-center", hostId: "local", supervisedPreferred: true });
-      const installationId = yield* stations.installationId;
-      for (const host of new Set(fixture.nodes.flatMap((node) => node.kind === "agent" ? [node.host] : []))) {
-        if (host !== "local") yield* fleetTargets.bind({ hostId: host, stationInstallationId: installationId });
-      }
       yield* sql.withTransaction(Effect.gen(function* () {
         const exists = (yield* model.listCanvases()).some((canvas) => canvas === name);
         if (exists) yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RemoveCanvas", canvas: name }), "operator");
@@ -166,9 +149,7 @@ export const removeFixtureCanvases = async (
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
-      StationRepositoryLive,
       SettingsLive,
-      StationFleetTargetRepositoryLive,
     ),
     state,
   );
@@ -217,27 +198,6 @@ export const writeFixtureUsageState = async (
            last_live_at = excluded.last_live_at,
            updated_at = excluded.updated_at`,
     ));
-  } finally {
-    await runtime.dispose();
-  }
-};
-
-/** Seed enrolled hosts into the same explicit SQLite database Electron opens. */
-export const writeFixtureHosts = async (
-  sandbox: Sandbox,
-  hosts: ReadonlyArray<RemoteHost>,
-): Promise<void> => {
-  const runtime = ManagedRuntime.make(
-    HostsPersistenceLive.pipe(Layer.provide(
-      makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")),
-    )),
-  );
-  try {
-    const persistence = await runtime.runPromise(HostsPersistence);
-    const registry = makeHostsRegistry(persistence, (e) => runtime.runPromise(e));
-    for (const host of hosts) {
-      await registry.upsert(host);
-    }
   } finally {
     await runtime.dispose();
   }

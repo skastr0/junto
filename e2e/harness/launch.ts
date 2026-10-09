@@ -26,7 +26,6 @@ import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
-import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import {
   seedClaudeModelCache,
@@ -40,7 +39,6 @@ import {
   removeFixtureCanvases,
   writeFixtureAgentSignals,
   writeFixtureModel,
-  writeFixtureHosts,
   writeFixtureRetiredCommercialState,
   writeFixtureUsageState,
   type Sandbox,
@@ -75,7 +73,7 @@ const PLATFORM_ELECTRON_ARGS =
 // AudioContext and <audio> element in the process is silent.
 const MUTE_AUDIO = "--mute-audio";
 
-// e2e/fakes/bin/{ssh,hermes} — stock-protocol emulators (see
+// e2e/fakes/bin/hermes — a stock-protocol emulator (see
 // e2e/fakes/*.ts for the scenario-file contract each one reads). The system
 // floor is the minimal set every adapter still needs (/bin/sh, coreutils);
 // nothing above it, so an operator CLI on the real PATH can never leak in.
@@ -110,8 +108,6 @@ export interface LaunchOptions {
    * OPERATOR_DISPLAY.windowContentSize. The default window is 1320x900.
    */
   readonly windowContentSize?: { readonly width: number; readonly height: number };
-  /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
-  readonly seedHosts?: ReadonlyArray<RemoteHost>;
   /** Preserve stale historical commercial rows while proving ordinary startup. */
   readonly seedRetiredCommercialState?: boolean;
   /**
@@ -471,9 +467,6 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     if (seedAgentSignals.length > 0) {
       await writeFixtureAgentSignals(sandbox, seedAgentSignals);
     }
-    if (options.seedHosts !== undefined) {
-      await writeFixtureHosts(sandbox, options.seedHosts);
-    }
     if (options.seedUsage !== undefined) {
       await writeFixtureUsageState(sandbox, options.seedUsage);
     }
@@ -620,8 +613,7 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
 
     if (options.firstRunIntro !== true) {
       // Through the same settings IPC the introduction itself writes; the
-      // push closes it if the renderer painted it first. A Remote station
-      // face has no introduction and no settings writer to wait for.
+      // push closes it if the renderer painted it first.
       await page.waitForFunction(() => Boolean(window.junto?.settingsPatch), undefined, { timeout: 30_000 });
       await page.evaluate(async () => {
         await window.junto?.settingsPatch({ advanced: { onboardingSeen: true } });
