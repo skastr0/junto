@@ -1,6 +1,5 @@
 import { state$ } from "./state";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
-import type { FleetPeerCompatibilitySnapshot } from "@shared/fleet-compatibility-snapshot";
 import type {
   StationProtocolObservation,
   StationRemoteObservation,
@@ -16,7 +15,6 @@ export interface FleetProbeState {
   readonly protocol?: StationProtocolObservation;
   readonly linuxCapabilities?: LinuxHostCapabilityObservation;
   readonly observation?: StationRemoteObservation;
-  readonly compatibility?: FleetPeerCompatibilitySnapshot;
 }
 
 /** Warm the lazy Fleet chunk before the operator clicks. */
@@ -108,9 +106,6 @@ export const probeHost = async (id: string): Promise<void> => {
             ...(result.observation === undefined
               ? {}
               : { observation: result.observation }),
-            ...(result.compatibility === undefined
-              ? {}
-              : { compatibility: result.compatibility }),
           }
         : {
             status: "unreachable",
@@ -124,9 +119,6 @@ export const probeHost = async (id: string): Promise<void> => {
             ...(result.observation === undefined
               ? {}
               : { observation: result.observation }),
-            ...(result.compatibility === undefined
-              ? {}
-              : { compatibility: result.compatibility }),
           },
     );
   } catch (error) {

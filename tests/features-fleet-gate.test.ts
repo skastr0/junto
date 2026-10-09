@@ -15,7 +15,7 @@ describe("Fleet product gate", () => {
     expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(false);
   });
 
-  it("gates main hosts IPC, fleet start, overlay import, preload, CLI, and remote occupy", () => {
+  it("gates main hosts IPC, overlay import, preload, and remote occupy, with no fleet CLI or operator op", () => {
     const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
     const app = readFileSync("src/renderer/App.tsx", "utf8");
     const fleetState = readFileSync("src/renderer/lib/fleet-state.ts", "utf8");
@@ -43,10 +43,11 @@ describe("Fleet product gate", () => {
       "if (!__JUNTO_FLEET_UI_ENABLED__) return;",
     );
     expect(preload).toContain("...(FLEET_UI_ENABLED ? hostsApi : {})");
-    expect(cli).toContain('dispatch.args[0] === "fleet"');
-    expect(coordinator).toContain("if (!FLEET_UI_ENABLED)");
+    // The fleet CLI group, the operator's fleet ops and the fleet doctor are gone.
+    expect(cli).not.toMatch(/fleet/iu);
+    expect(coordinator).not.toMatch(/fleet/iu);
+    expect(doctor).not.toMatch(/fleet/iu);
     expect(router).toContain("if (!FLEET_UI_ENABLED)");
-    expect(doctor).toContain("const remoteHosts = FLEET_UI_ENABLED");
     expect(settings).toContain("ensureDefaultCommandCenter");
   });
 

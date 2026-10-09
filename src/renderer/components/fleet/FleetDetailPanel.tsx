@@ -53,7 +53,6 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { LinuxHostCapabilities } from "../LinuxHostCapabilities";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
 import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
-import { FleetCompatibilitySection } from "./FleetCompatibilitySection";
 import { fleetMachineIcon } from "./FleetNodes";
 
 export type FleetSelection =
@@ -659,10 +658,6 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           </div>
         ) : null}
       </section>
-
-      {probe?.compatibility === undefined ? null : (
-        <FleetCompatibilitySection snapshot={probe.compatibility} />
-      )}
 
       <StationDiagnostics observation={probe?.observation} />
       <StationSynchronization observation={probe?.observation} />

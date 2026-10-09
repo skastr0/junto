@@ -46,7 +46,6 @@ import { OperatorModalHost } from "./components/operator-modal/OperatorModalHost
 import { closeOperatorModal } from "./lib/operator-modal";
 import { FocusSwitcherHud } from "./components/FocusSwitcherHud";
 import { LiveConversationHost } from "./components/live/LiveConversation";
-import { RemoteStationFace } from "./components/remote/RemoteStationFace";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -557,10 +556,6 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-
-  if (stationRole === "remote") {
-    return <RemoteStationFace />;
-  }
 
   return (
     <div className="junto-app flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--color-ground)" }}>
