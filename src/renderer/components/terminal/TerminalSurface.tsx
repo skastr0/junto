@@ -789,9 +789,8 @@ export function TerminalSurface({
     : binding?.kind === "native"
       ? binding.hostId
       : thisMachine;
-  const pinSessionId = node.kind === "agent" ? node.sessionId : undefined;
   const [loadPhase, setLoadPhase] = useState<SessionLoadPhase | null>(() =>
-    initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
+    initialSessionLoadPhase({ agentSeat }),
   );
   // Attach effect must not re-run on every canvas node identity change.
   const nodeRef = useRef(node);
@@ -1475,17 +1474,15 @@ export function TerminalSurface({
     let attachDone = false;
     let lastSeq: bigint | undefined;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
-    // Agent seats: starting|resuming → attaching (finding when pin unknown).
+    // The host reports whether it resumed its named session.
     // Geography shells: attaching only.
     const startPhase = initialSessionLoadPhase({
       agentSeat,
-      sessionId: pinSessionId,
     });
     setLoadPhase(startPhase);
     setStatus(
       sessionLoadPresentation({
         phase: startPhase,
-        sessionId: pinSessionId,
       }).label,
     );
     // Long ensure/attach without progress → stuck chrome (crimson).
@@ -1495,7 +1492,6 @@ export function TerminalSurface({
       setStatus(
         sessionLoadPresentation({
           phase: "stuck",
-          sessionId: pinSessionId,
         }).label,
       );
     }, SESSION_LOAD_STUCK_MS);
@@ -1640,7 +1636,6 @@ export function TerminalSurface({
       setStatus(
         sessionLoadPresentation({
           phase: "attaching",
-          sessionId: pinSessionId,
         }).label,
       );
       void api
@@ -1840,7 +1835,6 @@ export function TerminalSurface({
           setStatus(
             sessionLoadPresentation({
               phase: started,
-              sessionId: pinSessionId,
             }).label,
           );
           await awaitLiveGeneration(result.epoch);
@@ -1956,7 +1950,7 @@ export function TerminalSurface({
       if (!agentSeat) {
         setLoadPhase("starting");
         setStatus(
-          sessionLoadPresentation({ phase: "starting", sessionId: pinSessionId })
+          sessionLoadPresentation({ phase: "starting" })
             .label,
         );
         const result = await ensureTerminalRunning(node, { resume: false, canvas: canvasName });
@@ -1969,12 +1963,11 @@ export function TerminalSurface({
       }
       setKillPhase("idle");
       setLoadPhase(
-        initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
+        initialSessionLoadPhase({ agentSeat }),
       );
       setStatus(
         sessionLoadPresentation({
-          phase: initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
-          sessionId: pinSessionId,
+          phase: initialSessionLoadPhase({ agentSeat }),
         }).label,
       );
       setAttachKey((key) => key + 1);
@@ -1997,7 +1990,7 @@ export function TerminalSurface({
   const showLoadOverlay =
     isSessionLoadActive(loadPhase) && !showDeadOverlay && !attached;
   const loadPresentation = isSessionLoadActive(loadPhase)
-    ? sessionLoadPresentation({ phase: loadPhase, sessionId: pinSessionId })
+    ? sessionLoadPresentation({ phase: loadPhase })
     : null;
   const killCopy = killActionCopy({
     phase: processDead
@@ -2129,7 +2122,6 @@ export function TerminalSurface({
                 <SessionLoadSpinner
                   variant="inline"
                   phase={loadPresentation.phase}
-                  sessionId={pinSessionId}
                 />
               ) : (
                 <>
@@ -2159,7 +2151,6 @@ export function TerminalSurface({
                   size: attached ? geomLabel : "",
                   host: hostId,
                   harness: harness ?? "",
-                  sessionId: pinSessionId ?? "",
                 }}
               />
             ) : null}
@@ -2246,7 +2237,6 @@ export function TerminalSurface({
             <div className="native-terminal-surface__load">
               <SessionLoadSpinner
                 phase={loadPresentation.phase}
-                sessionId={pinSessionId}
               />
             </div>
           ) : null}

@@ -1,4 +1,6 @@
-import { modelFixture, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
+import type { Sandbox } from "../harness/sandbox";
+import { readSeatSession } from "../harness/seat-session";
+import { modelFixture, modelSeatSession, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
 import { grantOverseer, readModelSeat } from "../harness/model";
 /**
  * The overseer's offboard commands, typed in an overseer seat [fake-tui].
@@ -83,7 +85,7 @@ const MODE_ONLY_WITH_ASK = "mode is only allowed when action is ask";
 
 /** A codex seat that names a session, seeded the way seat-sessions.spec.ts does. */
 const sessionSeat = (id: string, label: string, x: number, y: number): Seat =>
-  modelSeat({ id, label, x, y, sessionId: `sess-overseercli-${id}` });
+  modelSeat({ id, label, x, y });
 
 const O = modelSeat({ id: "overseer", label: "Overseer", x: 60, y: 80 });
 const W = sessionSeat("working", "Working", 360, 80);
@@ -95,7 +97,7 @@ const NODES = [O, W, I, R, N, PEER];
 const DOC: ModelFixture = modelFixture(NODES, [
   modelMessagesWire("e-peer-working", PEER.id, W.id, NODES),
   modelMessagesWire("e-peer-idle", PEER.id, I.id, NODES),
-]);
+], [W, I, R].map(seat => modelSeatSession(seat, `sess-overseercli-${seat.id}`)));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,9 +120,8 @@ const sessionOf = (page: Page, nodeId: string): Promise<TerminalSessionSummary |
 const isLive = (session: TerminalSessionSummary | undefined): boolean =>
   session?.status === "running" || session?.status === "starting";
 
-const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
-  return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
-};
+const sessionPin = async (sandbox: Sandbox, nodeId: string): Promise<string | undefined> =>
+  readSeatSession(sandbox, nodeId);
 
 const opData = (envelope: WorkEnvelope): Record<string, unknown> => {
   expect(envelope.ok, JSON.stringify(envelope)).toBe(true);
@@ -305,7 +306,7 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     const wInputBefore3 = await w.stdinLog();
     const wMailBefore3 = await crewMessageCount(page, CANVAS, W.id);
     const iInputBefore3 = await i.stdinLog();
-    const iSessionBefore = await nodeSessionId(page, I.id);
+    const iSessionBefore = await sessionPin(sandbox, I.id);
     const s3 = await run("3", o, ["overseer", "agent", "offboard", input({ nodeIds: [W.id, I.id, "nope"], action: "now" })]);
     // A refused seat is not a command error: the result prints whole, and the exit code says so.
     expectPass("3", s3, "overseer agent offboard", 1);
@@ -323,7 +324,7 @@ test("[fake-tui] the overseer's offboard commands: rules, status, now, ask, a re
     await soft.poll(async () => isLive(await sessionOf(page, I.id)), { message: "step 3: I rests (no process on the seat)", timeout: 15_000 }).toBe(false);
     soft(await i.stdinLog(), "step 3: nothing was typed into I").toBe(iInputBefore3);
     soft(iSessionBefore, "step 3: I named a session before").toBe("sess-overseercli-idle");
-    await soft.poll(() => nodeSessionId(page, I.id), { message: "step 3: I's node no longer names its old session", timeout: 15_000 }).not.toBe(iSessionBefore);
+    await soft.poll(() => sessionPin(sandbox, I.id), { message: "step 3: I's node no longer names its old session", timeout: 15_000 }).not.toBe(iSessionBefore);
     await shot("3-after-now");
 
     // ── 4. offboard now: the seat with no process ──────────────────────────

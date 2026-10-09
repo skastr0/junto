@@ -1,28 +1,7 @@
-/**
- * Capture → proof → canvas. The half of the cold-resume loop that was missing.
- *
- * A capture harness (Codex, Kimi, Muse, Devin, Cursor, Antigravity, Prime
- * Agent) never accepts a session id from Junto: it mints its own and
- * announces it — in a hook payload, an env echo, or a labeled card once one
- * exists. Kimi 0.34.0+ starts with a blank welcome-card `Session:` line; that
- * spawn card is not a receipt. The id is scraped later if the card fills,
- * then proved against `~/.kimi-code/sessions/<workDirKey>/<id>/`. Until a
- * proven id is written to the seat's node, it lives only in this process's
- * diagnostic map, so the next wake opens a brand-new session and the
- * operator's conversation is gone even though the harness still has it on disk.
- *
- * Three rules hold here, because the input is terminal text:
- *
- * - **Proof before persistence.** PTY output is untrusted — arbitrary command
- *   output contains uuid-shaped strings. Nothing is written until
- *   `harnessSessionExists` finds the harness's own durable state for that id.
- * - **Capture harnesses only.** A pin harness already carries the authorial id
- *   the node minted, and a provisioned thread (Amp) is filled in before the PTY
- *   opens. Letting scraped text overwrite either would hand the seat to a
- *   session the node does not own.
- * - **Never a hard failure.** This is recovery, not a spawn gate. A failed
- *   probe or write leaves the seat exactly as it was: running, with the id
- *   still in the process-local map for this generation.
+/** Prove an announced session against harness-local state, then record the
+ * current occupant's pin. A delayed receipt cannot replace a named session or
+ * write after its generation has left the seat. Failed probes keep retrying
+ * on the bounded ladder while the process stays running.
  */
 
 import {
@@ -34,30 +13,31 @@ import { harnessSessionExists } from "./session-existence";
 export type CapturedSeatSession = {
   readonly canvasName: string;
   readonly nodeId: string;
+  readonly bindingId: string;
   readonly harness: string;
   readonly sessionId: string;
   readonly cwd?: string;
   /**
    * Is the generation that announced this id still the seat's own? The proof
    * ladder runs for seconds; a seat that offboards or is replaced meanwhile
-   * must not have its node rewritten with the session it just left. Absent
+   * must not have its pin replaced with the session it just left. Absent
    * means the caller makes no such claim and the id is written as before.
    */
   readonly isCurrent?: () => boolean;
 };
 
 export type CapturePersistOutcome =
-  /** Written to the session column; the next wake resumes this session. */
+  /** Written to the local seat store; the next wake resumes this session. */
   | "written"
-  /** The node already names this session — nothing to do. */
+  /** The store already names this session — nothing to do. */
   | "already-stored"
   /** No harness-local state proves the id yet (or ever). Not written. */
   | "unverified"
-  /** Pin / provisioned / unknown harness: the node's id is not ours to set. */
+  /** Pin / provisioned / unknown harness: the pin is not ours to set. */
   | "not-captured"
   /** The generation that announced the id is no longer the seat's. Not written. */
   | "not-current"
-  /** The canvas write itself failed. */
+  /** The store write itself failed. */
   | "failed";
 
 /** Only a capture harness's session id may be learned from the running seat. */
@@ -69,37 +49,24 @@ type SessionIdWriter = (
   input: CapturedSeatSession,
 ) => Promise<CapturePersistOutcome>;
 
-const writeSessionIdToCanvas: SessionIdWriter = async (input) => {
+const writeSessionIdToStore: SessionIdWriter = async (input) => {
   // Imported at call time: this module sits under the terminal host, which the
   // runtime layer itself pulls in. A top-level import would close that loop.
-  const [{ AppRuntime }, { ModelService }, { Effect, Schema }, { SqlClient }, { Command }] = await Promise.all([
-    import("../../runtime"), import("../model/service"), import("effect"), import("effect/unstable/sql"), import("@shared/model"),
+  const [{ coreRunner }, { recordSeatSessionId }] = await Promise.all([
+    import("../../core-runner"), import("./seat-session-id"),
   ]);
-  let outcome: CapturePersistOutcome = "already-stored";
-  await AppRuntime.runPromise(Effect.gen(function* () {
-    const model = yield* ModelService;
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql.withTransaction(Effect.gen(function* () {
-      if (input.isCurrent && !input.isCurrent()) { outcome = "not-current"; return; }
-      const canvas = yield* model.canvas(input.canvasName);
-      const node = canvas.nodes.get(input.nodeId as never);
-      if (node?.kind !== "agent" || node.harness !== input.harness) { outcome = "not-current"; return; }
-      if (node.sessionId?.trim() === input.sessionId) return;
-      yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RecordSession", canvas: input.canvasName,
-        id: input.nodeId, sessionId: input.sessionId }), "runtime");
-      outcome = "written";
-    }));
-  }) as never);
-  return outcome;
+  return coreRunner.runPromise(recordSeatSessionId({ ...input, onlyIfAbsent: true,
+    capture: { bindingId: input.bindingId, harness: input.harness, isCurrent: input.isCurrent ?? (() => true) },
+  }));
 };
 
-let writer: SessionIdWriter = writeSessionIdToCanvas;
+let writer: SessionIdWriter = writeSessionIdToStore;
 
-/** Test seam. Pass undefined to restore the canvas writer. */
+/** Test seam. Pass undefined to restore the store writer. */
 export const __setCapturedSessionWriterForTest = (
   next: SessionIdWriter | undefined,
 ): void => {
-  writer = next ?? writeSessionIdToCanvas;
+  writer = next ?? writeSessionIdToStore;
 };
 
 /**
@@ -135,6 +102,7 @@ export const persistCapturedSessionId = async (
     return await writer({
       canvasName,
       nodeId,
+      bindingId: input.bindingId,
       harness,
       sessionId,
       ...(cwd ? { cwd } : {}),

@@ -74,8 +74,6 @@ export const Seat = Schema.Struct({
   bindingId: BindingId,
   harness: HarnessId,
   launch: Schema.optionalKey(Launch),
-  /** The harness's own session or thread id, for resuming it cold. */
-  sessionId: Schema.optionalKey(Schema.String),
   onRemove: TerminalOnRemove,
 });
 export type Seat = typeof Seat.Type;

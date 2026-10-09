@@ -156,21 +156,8 @@ export class ModelService extends Context.Service<ModelService>()(
                 }
                 if (header.seq >= input.seq) return { installed: false as const, seq: header.seq };
               }
-              // A seat's machine keeps the session it recorded for its own seat.
-              const sessions = new Map<string, string>();
-              if (header !== undefined) {
-                for (const node of yield* records.listNodes(input.canvas)) {
-                  if (node.kind === "agent" && node.sessionId !== undefined) sessions.set(node.id, node.sessionId);
-                }
-              }
-              const nodes = input.nodes.map((node): Node => {
-                if (node.kind !== "agent") return node;
-                const { sessionId: _sent, ...seat } = node;
-                const kept = sessions.get(node.id);
-                return kept === undefined ? seat : { ...seat, sessionId: kept };
-              });
-              yield* records.replaceCanvas({ ...input, nodes });
-              const replaced = canvasFromOpened({ canvas: input.canvas, seq: input.seq, nodes, wires: input.wires });
+              yield* records.replaceCanvas(input);
+              const replaced = canvasFromOpened({ canvas: input.canvas, seq: input.seq, nodes: input.nodes, wires: input.wires });
               yield* stage(input.canvas, replaced);
               yield* afterSqlCommit(sql, () => {
                 held.set(input.canvas, replaced);
@@ -204,12 +191,11 @@ export class ModelService extends Context.Service<ModelService>()(
           ),
         );
         if (
-          (source === "runtime" && command._tag !== "RecordSession") ||
-          (command._tag === "GrantOverseer" && source !== "operator") ||
-          (command._tag === "RecordSession" && source !== "runtime")
+          source === "runtime" ||
+          (command._tag === "GrantOverseer" && source !== "operator")
         ) {
           return yield* refused(
-            "Only the operator changes overseer authority; the runtime only records seat sessions.",
+            "Only the operator changes overseer authority. Canvas changes require operator or overseer authoring.",
           );
         }
         yield* Effect.annotateCurrentSpan("canvas", command.canvas);
@@ -251,10 +237,8 @@ export class ModelService extends Context.Service<ModelService>()(
                 });
                 return { seq: 0 };
               }
-              // A machine changes only the canvases it edits; any other it
-              // holds is a copy. Recording a seat's own session is the one
-              // write a seat's machine makes to its row in a copy.
-              if (command._tag !== "RecordSession" && !(yield* records.editsCanvas(command.canvas))) {
+              // A machine changes only the canvases it edits.
+              if (!(yield* records.editsCanvas(command.canvas))) {
                 return yield* refused(
                   "This canvas is edited on another machine; this machine holds a copy of it.",
                 );
@@ -278,7 +262,6 @@ export class ModelService extends Context.Service<ModelService>()(
                 node.kind === "agent" &&
                 node.overseer &&
                 source !== "operator" &&
-                command._tag !== "RecordSession" &&
                 !(source === "overseer" && presentation)
                   ? Effect.fail(
                       refused(
@@ -512,19 +495,6 @@ export class ModelService extends Context.Service<ModelService>()(
                   yield* saveNode(edited, Object.keys(step.change).every((key) => key === "kind" || key === "label"));
                   break;
                 }
-                case "RecordSession": {
-                  const node = yield* requireNode(step.id);
-                  if (node.kind !== "agent")
-                    return yield* refused(
-                      "This command requires an agent seat.",
-                    );
-                  yield* saveNode(
-                    yield* decodeNode(
-                      patch(node, { sessionId: step.sessionId }),
-                    ),
-                  );
-                  break;
-                }
                 case "Reseat": {
                   const node = yield* requireNode(step.id);
                   if (node.kind !== "agent") return yield* refused("Reseat requires an agent seat.");
@@ -534,7 +504,7 @@ export class ModelService extends Context.Service<ModelService>()(
                     return yield* refused("A seat or terminal already uses this session binding on this canvas.");
                   yield* records.requireSeatHost(step.host);
                   reseatedBindings.add(JSON.stringify([node.host, node.bindingId]));
-                  yield* saveNode(yield* decodeNode(patch(node, { agentKey: step.agentKey, bindingId: step.bindingId, harness: step.harness, host: step.host, launch: step.launch ?? null, sessionId: null, overseer: false })));
+                  yield* saveNode(yield* decodeNode(patch(node, { agentKey: step.agentKey, bindingId: step.bindingId, harness: step.harness, host: step.host, launch: step.launch ?? null, overseer: false })));
                   break;
                 }
                 case "WriteSheet": {

@@ -1,98 +1,64 @@
-/**
- * Writing a seat's session id onto its node.
- *
- * Two harness families need this and they learn the id at opposite ends of the
- * spawn: a provisioned harness (Amp) is told its thread before the PTY opens,
- * while a capture harness (Muse) only reveals its id after the process is
- * already running. Both end in the same place — the seat session column — because that is the one field a cold wake reads to resume the
- * exact session rather than starting a new one.
- *
- * Transactional by construction: a full-document write from this path could
- * lose a concurrent edit, and an id that goes missing is a seat that silently
- * forks its session on the next wake.
- */
-
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { isThisMachine } from "@shared/machine-name";
-import { Command } from "@shared/model";
 import { coreRunner } from "../../core-runner";
 import { ModelService } from "../model/service";
+import { SeatSessionRepository } from "../seat-sessions/repository";
 import { MachineRepository } from "../machines/repository";
 
-type SeatSessionIdInput = {
+export type SeatSessionIdInput = {
   readonly canvasName: string;
   readonly nodeId: string;
   readonly sessionId: string;
+  readonly bindingId?: string;
+  readonly harness?: string;
+  readonly cwd?: string;
   readonly onlyIfAbsent?: boolean;
   readonly capture?: {
     readonly bindingId: string;
     readonly harness: string;
-    /** Revalidated inside the authorial transaction, after any queued await. */
     readonly isCurrent: () => boolean;
   };
 };
 
-/**
- * Captured ids belong to one harness on one installation, across canvases.
- * This existing writer is Command Center authoring: Remote was already
- * refused by authorial admission and needs a separate home-owned capture route.
- */
-const persistSeatSessionId = (input: SeatSessionIdInput) => Effect.gen(function* () {
+/** Revalidate the occupant inside the same transaction that records its pin. */
+export const recordSeatSessionId = Effect.fn("SeatSession.recordId")(function* (input: SeatSessionIdInput) {
   const model = yield* ModelService;
+  const sessions = yield* SeatSessionRepository;
+  const machines = yield* MachineRepository;
   const sql = yield* SqlClient.SqlClient;
-  yield* sql.withTransaction(Effect.gen(function* () {
-    const current = yield* model.canvas(input.canvasName);
-    const target = current.nodes.get(input.nodeId as never);
-    if (target?.kind !== "agent") return yield* Effect.fail(new Error("session target is not an agent seat"));
-    const capture = input.capture;
-    const record = (canvas: string, id: string) => model.command(Schema.decodeUnknownSync(Command)({
-      _tag: "RecordSession", canvas, id, sessionId: input.sessionId,
-    }), "runtime");
-    if (capture === undefined) {
-      if (input.onlyIfAbsent && target.sessionId?.trim()) return;
-      yield* record(input.canvasName, target.id);
-      return;
-    }
-    const machines = yield* MachineRepository;
+  return yield* sql.withTransaction(Effect.gen(function* () {
+    const target = (yield* model.canvas(input.canvasName)).nodes.get(input.nodeId as never);
+    const bindingId = input.capture?.bindingId ?? input.bindingId;
+    const harness = input.capture?.harness ?? input.harness;
+    if (input.capture && !input.capture.isCurrent())
+      return yield* Effect.fail(new Error("session capture generation changed"));
     const machineName = yield* machines.machineName;
-    if (!capture.isCurrent()) return yield* Effect.fail(new Error("session capture generation changed"));
-    if (target.bindingId !== capture.bindingId || target.harness !== capture.harness || !isThisMachine(target.host, machineName))
-      return yield* Effect.fail(new Error("session capture target changed or belongs to another installation"));
-    const aliases: { canvas: string; id: string }[] = [];
-    for (const name of yield* model.listCanvases()) {
-      for (const node of (yield* model.canvas(name)).nodes.values()) {
-        if (node.kind !== "agent" || node.harness !== capture.harness || !isThisMachine(node.host, machineName)) continue;
-        const existing = node.sessionId?.trim();
-        if (existing === input.sessionId && node.bindingId !== capture.bindingId)
-          return yield* Effect.fail(new Error("captured harness session already belongs to another seat"));
-        if (node.bindingId === capture.bindingId) {
-          if (existing && existing !== input.sessionId)
-            return yield* Effect.fail(new Error("capture cannot replace the seat's named session"));
-          aliases.push({ canvas: name, id: node.id });
-        }
-      }
-    }
-    for (const alias of aliases) yield* record(alias.canvas, alias.id);
+    if (target?.kind !== "agent" || !isThisMachine(target.host, machineName))
+      return yield* Effect.fail(new Error("session target belongs to another installation or is not an agent seat"));
+    if (bindingId === undefined || target.bindingId !== bindingId || (harness !== undefined && target.harness !== harness))
+      return yield* Effect.fail(new Error("session target binding or harness changed"));
+    const existing = yield* sessions.current(target.id, bindingId);
+    if (existing?.sessionId === input.sessionId) return "already-stored" as const;
+    if (existing !== undefined && input.capture !== undefined)
+      return yield* Effect.fail(new Error("capture cannot replace the seat's named session"));
+    if (existing !== undefined && input.onlyIfAbsent)
+      return yield* Effect.fail(new Error("the seat already has another named session"));
+    const observation = { seatId: target.id, bindingId, harness: target.harness, sessionId: input.sessionId,
+      ...(input.cwd ?? target.launch?.cwd ? { cwd: input.cwd ?? target.launch?.cwd } : {}) };
+    if (yield* sessions.ownedByOtherSeat(observation))
+      return yield* Effect.fail(new Error("harness session already belongs to another seat"));
+    yield* sessions.record(observation);
+    return "written" as const;
   }));
 });
 
-/**
- * Persist the id, or report why it did not land. Never throws: a caller in a
- * PTY event path must not be taken down by a canvas write.
- */
+/** PTY and provisioning callbacks enter the machine's existing core. */
 export const writeSeatSessionId = async (input: SeatSessionIdInput): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> => {
   try {
-    await coreRunner.runPromise(
-      persistSeatSessionId(input),
-    );
+    await coreRunner.runPromise(recordSeatSessionId(input));
     return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: error !== null && typeof error === "object" && "message" in error && typeof error.message === "string"
-        ? error.message
-        : String(error),
-    };
+  } catch (cause) {
+    return { ok: false, reason: cause instanceof Error ? cause.message : String(cause) };
   }
 };

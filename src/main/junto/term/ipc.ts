@@ -1,5 +1,6 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { ModelService } from "../model/service";
+import { SeatSessionRepository } from "../seat-sessions/repository";
 import type { JuntoApi } from "@shared/ipc";
 import {
   IPC_CHANNELS,
@@ -194,6 +195,16 @@ export const registerTerminalIpc = (
     return node;
   };
 
+  ipcMain.handle(IPC_CHANNELS.modelSeatLaunchState, async (event, input: Parameters<JuntoApi["modelSeatLaunchState"]>[0]) => {
+    assertTrusted(event);
+    const node = await readSeat(input?.canvas, input?.id);
+    if (node.kind !== "agent") return { hasSession: false };
+    if (!router.isLocalHostId(node.host)) return deny("This seat runs on another machine.");
+    const session = await AppRuntime.runPromise(Effect.flatMap(SeatSessionRepository,
+      (sessions) => sessions.current(node.id, node.bindingId)));
+    return { hasSession: session?.harness === node.harness };
+  });
+
   ipcMain.handle(IPC_CHANNELS.modelStart, async (event, input: Parameters<JuntoApi["modelStart"]>[0]) => {
     assertTrusted(event);
     const node = await readSeat(input?.canvas, input?.id);
@@ -223,14 +234,13 @@ export const registerTerminalIpc = (
     const { ensureSeatSessionId } = await import("./seat-session-before-start");
     const provisioned = await ensureSeatSessionId({ canvasName: input.canvas, nodeId: node.id, bindingId: node.bindingId,
       harness: node.harness, documentLaunch: node.launch,
-      ...(node.sessionId ? { storedSessionId: node.sessionId } : {}),
       ...(node.launch?.cwd ? { cwd: node.launch.cwd } : {}),
     });
     if (!provisioned.ok) return deny(`terminal ipc: ${node.harness} session unavailable — ${provisioned.reason}`);
     const { makeManagedSpawnIntent } = await import("./managed-spawn-plan");
     const spawnIntent = makeManagedSpawnIntent({ nodeId: node.id, harness: node.harness,
       documentLaunch: node.launch, agentKey: node.agentKey, cwd: node.launch?.cwd,
-      sessionId: provisioned.sessionId || node.sessionId,
+      sessionId: provisioned.sessionId || undefined,
       resume: provisioned.minted ? false : input.resume !== false,
     });
     await assertCurrent();

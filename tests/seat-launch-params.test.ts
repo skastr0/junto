@@ -17,18 +17,16 @@ import { planManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
 const seat = (
   harness: "claude" | "codex" | "hermes" | "devin" | "amp",
   params: Parameters<typeof planSeatLaunch>[0]["params"] = {},
-  sessionId?: string,
 ): Seat =>
   modelSeat("agent-1", {
     label: "Seat" as never,
     agentKey: `local:${harness}` as never,
     bindingId: "binding-1" as never,
     harness,
-    ...(sessionId ? { sessionId: sessionId as never } : {}),
     launch: planSeatLaunch({
       harness,
       params,
-      base: { cwd: "/work", ...(sessionId ? { sessionId } : {}) },
+      base: { cwd: "/work" },
     }).launch as Seat["launch"],
   });
 
@@ -46,9 +44,8 @@ describe("seat start parameters", () => {
     });
   });
 
-  it("relaunch is a new launch alone, on the same session and in the same folder", () => {
-    const session = "11111111-1111-4111-8111-111111111111";
-    const node = seat("claude", { model: "opus" }, session);
+  it("relaunch is a new launch alone, without a session id and in the same folder", () => {
+    const node = seat("claude", { model: "opus" });
     const next = seatRelaunch(node, {
       model: "sonnet",
       permissionMode: "bypassPermissions",
@@ -61,7 +58,7 @@ describe("seat start parameters", () => {
     expect(next?.launch.extraArgs).toEqual(["--verbose"]);
     const argv = next?.launch.argv ?? [];
     expect(argv).toEqual(expect.arrayContaining(["--model", "sonnet", "--permission-mode", "bypassPermissions", "--verbose"]));
-    expect(argv).toContain(session);
+    expect(argv).not.toContain("--session-id");
   });
 
   it("clearing a parameter returns it to the template default", () => {
@@ -120,28 +117,28 @@ describe("Amp parameters respect the existing thread", () => {
 
   it("allows mode and features before provisioning, but refuses to rewrite a named thread", () => {
     const newSeat = seat("amp", { mode: "low" });
-    expect(seatLaunchParamsChangeError(newSeat, { mode: "fixture-reviewer", extraArgs: ["--fast"] })).toBeUndefined();
+    expect(seatLaunchParamsChangeError(newSeat, { mode: "fixture-reviewer", extraArgs: ["--fast"] }, false)).toBeUndefined();
     expect(seatRelaunch(newSeat, { mode: "fixture-reviewer" })?.launch.argv).toContain("fixture-reviewer");
 
-    const existing = seat("amp", { mode: "low" }, threadId);
-    expect(seatLaunchParamsChangeError(existing, { mode: "high" })).toContain("mode");
-    expect(seatRelaunch(existing, { mode: "high" })).toBeUndefined();
-    expect(seatLaunchParamsChangeError(existing, {})).toContain("mode");
-    expect(seatLaunchParamsChangeError(existing, { mode: "LOW" })).toBeUndefined();
+    const existing = seat("amp", { mode: "low" });
+    expect(seatLaunchParamsChangeError(existing, { mode: "high" }, true)).toContain("mode");
+    expect(seatRelaunch(existing, { mode: "high" }, true)).toBeUndefined();
+    expect(seatLaunchParamsChangeError(existing, {}, true)).toContain("mode");
+    expect(seatLaunchParamsChangeError(existing, { mode: "LOW" }, true)).toBeUndefined();
   });
 
   it("keeps startup features while allowing client flags, without promising CLI feature mutation", () => {
-    const existing = seat("amp", { mode: "low", extraArgs: ["--features", "plaid", "--no-color"] }, threadId);
-    expect(seatLaunchParamsChangeError(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] })).toBeUndefined();
-    expect(seatLaunchParamsChangeError(existing, { mode: "low", extraArgs: ["--fast"] })).toContain("features");
-    expect(seatRelaunch(existing, { mode: "low", extraArgs: [] })).toBeUndefined();
+    const existing = seat("amp", { mode: "low", extraArgs: ["--features", "plaid", "--no-color"] });
+    expect(seatLaunchParamsChangeError(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] }, true)).toBeUndefined();
+    expect(seatLaunchParamsChangeError(existing, { mode: "low", extraArgs: ["--fast"] }, true)).toContain("features");
+    expect(seatRelaunch(existing, { mode: "low", extraArgs: [] }, true)).toBeUndefined();
 
-    const relaunched = seatRelaunch(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] });
+    const relaunched = seatRelaunch(existing, { mode: "low", extraArgs: ["--features", "plaid", "--no-notifications"] }, true);
     expect(relaunched?.launch.extraArgs).toEqual(["--features", "plaid", "--no-notifications"]);
   });
 
   it("resumes the exact Amp thread without reapplying its creation mode or features", () => {
-    const node = seat("amp", { mode: "fixture-reviewer", extraArgs: ["--features=pro", "--fast", "--no-notifications"] }, threadId);
+    const node = seat("amp", { mode: "fixture-reviewer", extraArgs: ["--features=pro", "--fast", "--no-notifications"] });
     expect(planManagedSpawn({
       harness: "amp",
       sessionId: threadId,
@@ -180,11 +177,11 @@ describe("extra arguments ride every launch of the seat", () => {
   });
 
   it("are re-passed when the spawn planner replans the seat", () => {
-    const node = seat("claude", { extraArgs: ["--add-dir", "/tmp/x"] }, "22222222-2222-4222-8222-222222222222");
+    const node = seat("claude", { extraArgs: ["--add-dir", "/tmp/x"] });
     const plan = planManagedSpawn({
       harness: "claude",
       documentLaunch: node.launch,
-      sessionId: node.sessionId,
+      sessionId: "22222222-2222-4222-8222-222222222222",
       resume: false,
     });
     expect(plan?.launch.argv).toEqual(expect.arrayContaining(["--add-dir", "/tmp/x"]));
@@ -219,7 +216,7 @@ describe("profiles and squads carry the start parameters", () => {
       permissionMode: "bypassPermissions",
       extraArgs: ["--add-dir", "/tmp/x", "--verbose"],
     });
-    const placed = seatFromProfile(body!, { x: 0, y: 0, host: "local", cwd: "/work" });
+    const placed = seatFromProfile(body!, { x: 0, y: 0, host: "workbench", cwd: "/work" });
     if (!placed.ok) throw new Error(placed.message);
     const launch = placed.node.launch;
     expect(launch?.extraArgs).toEqual(["--add-dir", "/tmp/x", "--verbose"]);

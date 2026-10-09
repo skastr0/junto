@@ -14,16 +14,14 @@ import {
 
 export function SessionLoadSpinner({
   phase,
-  sessionId,
   className,
   variant = "pill",
 }: {
   readonly phase: SessionLoadPhase;
-  readonly sessionId?: string | null;
   readonly className?: string;
   readonly variant?: "pill" | "inline";
 }) {
-  const presentation = sessionLoadPresentation({ phase, sessionId });
+  const presentation = sessionLoadPresentation({ phase });
   return (
     <div
       className={[

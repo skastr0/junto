@@ -1,15 +1,13 @@
 /**
- * Seat sessions in the running app: the canvas recorder that notices every
- * session id a seat is given, the listing that finds each session's transcript
- * on disk, and the offboard event the offboard closer listens for.
+ * Seat session transcript lookup, occupant retirement and offboard events.
  */
 import { Effect } from "effect";
 import type { OffboardMode, SeatSession } from "@shared/seat-sessions";
 import type { Canvas } from "@shared/model";
 import { ModelService } from "../model/service";
 import { harnessSessionLocation } from "../term/session-existence";
-import { SeatSessionRepository, type SeatSessionObservation } from "./repository";
-import { seatSessionsOnCanvas, seatSessionTransitions } from "./transitions";
+import { SeatSessionRepository } from "./repository";
+import { seatSessionTransitions } from "./transitions";
 
 /** Where the harness keeps one recorded session, when it can be found now. */
 const locate = (session: SeatSession, cwd?: string): string | undefined =>
@@ -42,15 +40,7 @@ export const listSeatSessions = (
     );
   });
 
-const recordAll = (
-  repository: SeatSessionRepository["Service"],
-  observations: ReadonlyArray<SeatSessionObservation>,
-) =>
-  Effect.forEach(observations, (observation) => repository.record(observation).pipe(Effect.ignore), {
-    discard: true,
-  });
-
-/** Apply one canvas commit's session changes. Never fails: history is best effort. */
+/** Retire a replaced occupant without closing a newly pinned session. */
 export const recordCanvasChange = (
   detail: { readonly previous?: Canvas; readonly next?: Canvas } | undefined,
 ): Effect.Effect<void, never, SeatSessionRepository> =>
@@ -58,31 +48,24 @@ export const recordCanvasChange = (
     if (detail === undefined) return;
     const repository = yield* SeatSessionRepository;
     for (const transition of seatSessionTransitions(detail.previous, detail.next)) {
-      if (transition.kind === "start") {
-        yield* repository.record(transition.observation).pipe(Effect.ignore);
-      } else {
-        yield* repository.end(transition.seatId, transition.reason, transition.sessionId).pipe(Effect.ignore);
-      }
+      yield* repository.end(transition.seatId, "reseat", undefined, transition.bindingId).pipe(Effect.ignore);
     }
   });
 
 /**
- * Record every seat's current session from the live canvases, then follow
- * each commit. Idempotent at boot: a session already open is left alone, and
- * one that changed while Junto was closed ends as replaced.
+ * Follow occupant changes only. Session pins are written by execution, never
+ * reconstructed from a canvas copy or from the newest historical session.
  */
 export const startSeatSessionRecorder = (
   run: (effect: Effect.Effect<void, never, SeatSessionRepository>) => void,
 ): Effect.Effect<() => void, never, ModelService | SeatSessionRepository> =>
   Effect.gen(function* () {
     const model = yield* ModelService;
-    const repository = yield* SeatSessionRepository;
     const previous = new Map<string, Canvas>();
     for (const name of yield* model.listCanvases().pipe(Effect.orElseSucceed(() => []))) {
       const canvas = yield* model.canvas(name).pipe(Effect.orElseSucceed(() => undefined));
       if (!canvas) continue;
       previous.set(name, canvas);
-      yield* recordAll(repository, seatSessionsOnCanvas(canvas));
     }
     const changed = model.subscribeChanges((event, next) => {
       const before = previous.get(event.canvas);

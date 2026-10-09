@@ -1,4 +1,5 @@
-import { modelFixture, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
+import { readSeatSession } from "../harness/seat-session";
+import { modelFixture, modelSeatSession, modelMessagesWire, modelSeat, type ModelFixture } from "../harness/model";
 import { readModelSeat } from "../harness/model";
 /**
  * Seat offboard [fake-tui]: what happens to a seat after its agent runs
@@ -79,9 +80,9 @@ const NUDGE = buildOnboardNudge();
 const soft = expect.configure({ soft: true });
 
 /** A seat with an explicit session to close. */
-const SEAT = modelSeat({ id: SEAT_ID, label: "Closer", x: 120, y: 220, sessionId: FIRST_SESSION });
+const SEAT = modelSeat({ id: SEAT_ID, label: "Closer", x: 120, y: 220 });
 const PEER = modelSeat({ id: PEER_ID, label: "Peer", x: 480, y: 220 });
-const DOC: ModelFixture = modelFixture([SEAT, PEER], [modelMessagesWire("e-peer-closer", PEER.id, SEAT.id, [SEAT, PEER])]);
+const DOC: ModelFixture = modelFixture([SEAT, PEER], [modelMessagesWire("e-peer-closer", PEER.id, SEAT.id, [SEAT, PEER])], [modelSeatSession(SEAT, FIRST_SESSION)]);
 
 // ---------------------------------------------------------------------------
 // Launch, evidence
@@ -316,10 +317,9 @@ const sessionOf = (page: Page, nodeId: string): Promise<TerminalSessionSummary |
 const isLive = (session: TerminalSessionSummary | undefined): boolean =>
   session?.status === "running" || session?.status === "starting";
 
-/** The session id the seat's node names (seat-sessions.spec.ts:36, 69: `sessionId`). */
-const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
-  return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
-};
+/** The machine's private pin for this seat. */
+const sessionPin = async (sandbox: Sandbox, nodeId: string): Promise<string | undefined> =>
+  readSeatSession(sandbox, nodeId);
 
 /** Where the seat's latest offboard stands, as the operator's panel reads it (shared/seat-sessions.ts SEAT_OFFBOARD_STAGES). */
 const offboardStage = async (page: Page, nodeId: string): Promise<string> => {
@@ -368,7 +368,7 @@ const offboardMidTurn = async (
   const peer = await startSeat(junto, PEER);
   const oldReady = await seat.ready();
   const oldEpoch = (await sessionOf(page, SEAT_ID))?.epoch;
-  expect(await nodeSessionId(page, SEAT_ID), "the session the seat starts on").toBe(FIRST_SESSION);
+  expect(await sessionPin(sandbox, SEAT_ID), "the session the seat starts on").toBe(FIRST_SESSION);
 
   if (options.onboardFirst) {
     opData(await seat.op("onboard", {}));
@@ -486,7 +486,7 @@ test("O1 [fake-tui] offboard to rest: the seat moves on at once and rests, the o
     await shot("resting");
 
     // A different session id than before.
-    const freshSession = await nodeSessionId(page, SEAT_ID);
+    const freshSession = await sessionPin(sandbox, SEAT_ID);
     // Codex captures its session id from the harness (managed-terminal-templates
     // capabilityBadges.sessionId "capture"), so the close CLEARS the node's id
     // (seat-sessions/rotate.ts:83-84 mints one only for a "pin" harness) and the
@@ -517,7 +517,7 @@ test("O1 [fake-tui] offboard to rest: the seat moves on at once and rests, the o
     mark("the fresh process received the mail");
     expect(await inputOf(sandbox, SEAT_ID, 1), "the old session's input is as it was when offboard returned").toBe(closed.oldInputAtOffboard);
     expect(await inputOf(sandbox, SEAT_ID, 1), "the mail did not go to the old session").not.toContain(wakeMail);
-    expect(await nodeSessionId(page, SEAT_ID), "the node still names the fresh session").toBe(freshSession);
+    expect(await sessionPin(sandbox, SEAT_ID), "the node still names the fresh session").toBe(freshSession);
     await expect
       .poll(
         async () =>
@@ -558,7 +558,7 @@ const continueFlow = async (
   const freshAt = mark("a fresh process is up");
   check(await isAlive(closed.seat), "the old process still runs beside the fresh one").toBe(true);
   note(testInfo, `${id}-offboard-to-fresh-ms`, String(freshAt - closed.idleAt));
-  const freshSession = await nodeSessionId(page, SEAT_ID);
+  const freshSession = await sessionPin(sandbox, SEAT_ID);
   check(freshSession, "the node no longer names the closed session").not.toBe(FIRST_SESSION);
   note(testInfo, `${id}-session-ids`, `${FIRST_SESSION} then ${String(freshSession)}`);
 

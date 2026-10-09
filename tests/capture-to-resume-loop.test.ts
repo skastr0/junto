@@ -243,6 +243,7 @@ describe("cold resume is proven per capture harness", () => {
 const seat = (over: Partial<CapturedSeatSession> = {}): CapturedSeatSession => ({
   canvasName: "factory",
   nodeId: "agent-1",
+  bindingId: "bind-1",
   harness: "codex",
   sessionId: "0199a0b1-c2d3-4e5f-8a9b-0c1d2e3f4a5b",
   ...over,
@@ -281,6 +282,7 @@ describe("persisting a captured session id", () => {
     expect(seen[0]).toMatchObject({
       canvasName: "factory",
       nodeId: "agent-1",
+  bindingId: "bind-1",
       sessionId: input.sessionId,
     });
   });

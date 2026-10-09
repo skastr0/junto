@@ -24,20 +24,22 @@ const seat = modelSeat("amp-seat", {
   agentKey: "local:amp" as never,
   bindingId: "amp-binding" as never,
   harness: "amp",
-  sessionId: "T-00000000-0000-4000-8000-000000000001" as never,
   launch: planSeatLaunch({ harness: "amp", params, base: { cwd: "/work" } }).launch as never,
 });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(getJuntoApi).mockReturnValue({ modelSeatLaunchState: vi.fn(async () => ({ hasSession: true })) } as never);
+});
 
 describe("Amp parameter changes before restart", () => {
   it.each([
     { ...params, mode: "high" },
     { ...params, extraArgs: ["--fast", "--no-color"] },
-  ])("refuses a thread-owned change before reading, saving or stopping anything", async (next) => {
+  ])("refuses a thread-owned change after reading session state and before saving or stopping anything", async (next) => {
     const before = structuredClone(seat);
     expect(await performSeatRelaunch(seat, next)).toMatchObject({ ok: false });
-    expect(getJuntoApi).not.toHaveBeenCalled();
+    expect(getJuntoApi).toHaveBeenCalledOnce();
     expect(commitCommands).not.toHaveBeenCalled();
     expect(flushPendingCanvasSave).not.toHaveBeenCalled();
     expect(killTerminal).not.toHaveBeenCalled();

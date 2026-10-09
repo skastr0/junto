@@ -68,7 +68,6 @@ export const reseatCommand = (
   const parts = seatParts({
     ...reseatChoicesFromConfiguration(choices, cwd ? cwd : undefined),
     host: seat.host,
-    sessionFromMain: true,
   });
   return {
     _tag: "Reseat",

@@ -1,4 +1,5 @@
-import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
+import { readSeatSession } from "../harness/seat-session";
+import { modelFixture, modelSeatSession, modelMessagesWire, modelSeat } from "../harness/model";
 import { readModelSeat } from "../harness/model";
 /**
  * Seat offboard, wherever the operator is looking, and against everything
@@ -188,7 +189,7 @@ const soft = expect.configure({ soft: true });
 
 /** A codex seat with a session to close, seeded the way seat-sessions.spec.ts does (line 36). */
 const codexSeat = (id: string, label: string, x: number, y: number): Seat =>
-  modelSeat({ id, label, x, y, sessionId: `${CODEX_SESSION}-${id}` });
+  modelSeat({ id, label, x, y });
 
 const MAILER = modelSeat({ id: MAILER_ID, label: "Mailer", x: 480, y: 380 });
 
@@ -196,7 +197,7 @@ const MAILER = modelSeat({ id: MAILER_ID, label: "Mailer", x: 480, y: 380 });
 const fixtureOf = (seats: ReadonlyArray<Seat>): ModelFixture => {
   const nodes = [...seats, MAILER];
   const edges: Wire[] = seats.map((seat) => modelMessagesWire(`e-mailer-${seat.id}`, MAILER.id, seat.id, nodes));
-  return modelFixture(nodes, edges);
+  return modelFixture(nodes, edges, seats.map(seat => modelSeatSession(seat, `${CODEX_SESSION}-${seat.id}`)));
 };
 
 // ---------------------------------------------------------------------------
@@ -525,10 +526,9 @@ const sessionOf = (page: Page, nodeId: string): Promise<TerminalSessionSummary |
 const isLive = (session: TerminalSessionSummary | undefined): boolean =>
   session?.status === "running" || session?.status === "starting";
 
-/** The session id the seat's node names (`sessionId`). A codex seat's is cleared at the close (rotate.ts:83-84). */
-const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
-  return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
-};
+/** The private pin is ended when the seat offboards. */
+const sessionPin = async (sandbox: Sandbox, nodeId: string): Promise<string | undefined> =>
+  readSeatSession(sandbox, nodeId);
 
 const offboardStage = async (page: Page, nodeId: string): Promise<string> => {
   const all = (await page.evaluate(() => window.junto!.seatOffboardProgressList?.() ?? [])) as ReadonlyArray<SeatOffboardProgress>;
@@ -1120,7 +1120,7 @@ const focusViewFlow = (mode: "rest" | "continue"): void => {
         expect(await launches(sandbox, SEAT.id), "a resting seat starts no process by itself").toBe(1);
         await evidence.shot(page, "3-resting-in-the-same-view");
       }
-      soft(await nodeSessionId(page, SEAT.id), "the node no longer names the old session").not.toBe(`${CODEX_SESSION}-${SEAT.id}`);
+      soft(await sessionPin(sandbox, SEAT.id), "the node no longer names the old session").not.toBe(`${CODEX_SESSION}-${SEAT.id}`);
       await checkOldOutputHidden(evidence, page, SEAT.id, marker, surface);
 
       // The whole time: one surface, the same element, never none.
@@ -1316,7 +1316,7 @@ test("SB [fake-tui] four seats in the grid offboard in the same second, mid-turn
       } else {
         soft(counts, `${id}: none in the old generation, exactly one in the fresh one`).toEqual([0, 1]);
       }
-      soft(await nodeSessionId(page, id), `${id}: its node no longer names the old session`).not.toBe(`${CODEX_SESSION}-${id}`);
+      soft(await sessionPin(sandbox, id), `${id}: its node no longer names the old session`).not.toBe(`${CODEX_SESSION}-${id}`);
       await checkNoFailedStartCopy(cell(id), `${id} tile`);
       await checkOldOutputHidden(evidence, page, id, markers.get(id)!, cell(id));
       mark(`${id} tile text: ${JSON.stringify(((await cell(id).allTextContents().catch(() => [])) as string[]).join(" ").replace(/\s+/gu, " ").trim().slice(0, 300))}`);
@@ -1420,7 +1420,7 @@ test("SB-again-codex [fake-tui] a second offboard from a fresh Codex session, wh
         freshInput: await inputOf(sandbox, SEAT.id, 2),
         processes: await launches(sandbox, SEAT.id),
         epoch: (await sessionOf(page, SEAT.id))?.epoch,
-        session: await nodeSessionId(page, SEAT.id),
+        session: await sessionPin(sandbox, SEAT.id),
         stage: await offboardStage(page, SEAT.id),
       });
     const before = await stateOf();
@@ -1449,11 +1449,11 @@ test("SB-again-claude [fake-tui] a seat on a pin harness offboards again from it
   // The Claude-template fake of SF (see there for what it does not emulate):
   // a pin harness, so the fresh session has a session id from its launch.
   const OLD_SESSION = "22222222-2222-4222-8222-222222222222";
-  const SEAT = modelSeat({ id: "claudia", key: "local:claudia", label: "Claudia", harness: "claude", x: 120, y: 220, sessionId: OLD_SESSION });
+  const SEAT = modelSeat({ id: "claudia", key: "local:claudia", label: "Claudia", harness: "claude", x: 120, y: 220 });
   const claudeIdle = { mode: "attention", text: CLAUDE_IDLE } as const;
   const claudeWorking = { mode: "attention", text: CLAUDE_WORKING } as const;
 
-  await walk(testInfo, "SB-again-claude", modelFixture([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SB-again-claude", modelFixture([SEAT], [], [modelSeatSession(SEAT, OLD_SESSION)]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     /** Leave the next process an empty Claude prompt box to come up on. */
@@ -1477,7 +1477,7 @@ test("SB-again-claude [fake-tui] a seat on a pin harness offboards again from it
     const first = await offboardRun(junto, testInfo, SEAT.id, 1, (await sessionOf(page, SEAT.id))?.epoch, NEXT);
     await checkMovedOn(expect, evidence, SEAT.id, first);
     await checkContinued(expect, evidence, junto, SEAT.id, first);
-    const secondSession = await nodeSessionId(page, SEAT.id);
+    const secondSession = await sessionPin(sandbox, SEAT.id);
     mark(`session ids so far: ${OLD_SESSION} then ${String(secondSession)}`);
     expect(secondSession, "the fresh session has a pinned id at once").toBeTruthy();
     expect(secondSession, "and it is not the first one").not.toBe(OLD_SESSION);
@@ -1498,7 +1498,7 @@ test("SB-again-claude [fake-tui] a seat on a pin harness offboards again from it
     await evidence.shot(page, "1-two-old-processes");
 
     // Three sessions, three different ids.
-    const thirdSession = await nodeSessionId(page, SEAT.id);
+    const thirdSession = await sessionPin(sandbox, SEAT.id);
     mark(`session ids: ${OLD_SESSION}, ${String(secondSession)}, ${String(thirdSession)}`, "session-ids");
     expect(thirdSession, "the third session has a pinned id").toBeTruthy();
     expect(new Set([OLD_SESSION, secondSession, thirdSession]).size, "all three session ids differ").toBe(3);
@@ -1522,7 +1522,7 @@ test("SB-again-claude [fake-tui] a seat on a pin harness offboards again from it
     await windDown(expect, evidence, junto, SEAT.id, first, { idle: claudeIdle, settledLines: 2 });
     expect(await isAlive(genSeat(sandbox, SEAT.id, 3)), "the seat's third process runs on").toBe(true);
     soft(isLive(await sessionOf(page, SEAT.id)), "the seat is live on it").toBe(true);
-    soft(await nodeSessionId(page, SEAT.id), "and still names its third session").toBe(thirdSession);
+    soft(await sessionPin(sandbox, SEAT.id), "and still names its third session").toBe(thirdSession);
     await evidence.shot(page, "2-both-wound-down");
   });
 });
@@ -1983,7 +1983,7 @@ test("SK [fake-tui] junto run from the old process after the offboard is refused
       JSON.stringify({
         freshInput: await inputOf(sandbox, SEAT.id, 2),
         mailerInput: await inputOf(sandbox, MAILER_ID, 1),
-        session: await nodeSessionId(page, SEAT.id),
+        session: await sessionPin(sandbox, SEAT.id),
         stage: await offboardStage(page, SEAT.id),
         processes: await launches(sandbox, SEAT.id),
         epoch: (await sessionOf(page, SEAT.id))?.epoch,
@@ -2196,8 +2196,8 @@ const quitFlow = (variant: "winding-down" | "fresh-held"): void => {
         soft(counts.reduce((sum, count) => sum + count, 0), "at most one continuation line across both app lifetimes").toBeLessThanOrEqual(1);
       }
       mark(`continuation.pending on disk at the end: ${String(existsSync(pendingFile))}`, "pending-file-at-end");
-      mark(`node session id at the end: ${String(await nodeSessionId(page, SEAT.id))}`, "session-id-at-end");
-      soft(await nodeSessionId(page, SEAT.id), "the node no longer names the old session").not.toBe(`${CODEX_SESSION}-${SEAT.id}`);
+      mark(`node session id at the end: ${String(await sessionPin(sandbox, SEAT.id))}`, "session-id-at-end");
+      soft(await sessionPin(sandbox, SEAT.id), "the node no longer names the old session").not.toBe(`${CODEX_SESSION}-${SEAT.id}`);
       soft(await inputOf(sandbox, SEAT.id, 1), "nothing reached the old process after its offboard, to its end").toBe(run.before);
       await evidence.shot(page, "3-at-the-end");
     } catch (error) {
@@ -2238,9 +2238,9 @@ test("SF [fake-tui] a Claude-template seat that offboards to continue launches o
   // (it ignores --session-id and --resume; the wrapper records them).
   const OLD_SESSION = "11111111-1111-4111-8111-111111111111";
   const template = templateFor("claude");
-  const SEAT = modelSeat({ id: "claudia", key: "local:claudia", label: "Claudia", harness: "claude", x: 120, y: 220, sessionId: OLD_SESSION });
+  const SEAT = modelSeat({ id: "claudia", key: "local:claudia", label: "Claudia", harness: "claude", x: 120, y: 220 });
 
-  await walk(testInfo, "SF", modelFixture([SEAT]), async (junto, evidence) => {
+  await walk(testInfo, "SF", modelFixture([SEAT], [], [modelSeatSession(SEAT, OLD_SESSION)]), async (junto, evidence) => {
     const { page, sandbox } = junto;
     const { mark } = evidence;
     await crewPlayFactory(page);
@@ -2290,7 +2290,7 @@ test("SF [fake-tui] a Claude-template seat that offboards to continue launches o
     soft(fresh, "nor any continue flag").not.toContain("--continue");
 
     // Claude pins: the node carries a new, non-empty session id.
-    const nodeSession = await nodeSessionId(page, SEAT.id);
+    const nodeSession = await sessionPin(sandbox, SEAT.id);
     expect(nodeSession, "the node names a session").toBeTruthy();
     expect(nodeSession, "and it is not the old one").not.toBe(OLD_SESSION);
     soft(nodeSession, "it is the one the fresh process was launched on").toBe(freshPin);

@@ -4,7 +4,7 @@ import { IPC_CHANNELS } from "../src/shared/ipc";
 import { Node, type Node as ModelNode } from "../src/shared/model";
 import { Schema } from "effect";
 import { AppRuntime } from "../src/main/runtime";
-import * as ampSeatThread from "../src/main/junto/term/amp-seat-thread";
+import * as seatSessionBeforeStart from "../src/main/junto/term/seat-session-before-start";
 import { registerTerminalIpc } from "../src/main/junto/term/ipc";
 import type { TermPlane } from "../src/main/junto/term/plane";
 import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
@@ -141,7 +141,7 @@ describe("terminal IPC node-delete admission", () => {
     const base = agentNode("amp-low", "workbench", "amp", "local:amp-low");
     const launch = { kind: "harness" as const, argv: ["amp", "--no-ide", "-m", "low"], cwd: "/work" };
     const node = Schema.decodeUnknownSync(Node)({ ...base, launch });
-    const provision = vi.spyOn(ampSeatThread, "ensureProvisionedSessionId").mockResolvedValue({
+    const provision = vi.spyOn(seatSessionBeforeStart, "ensureSeatSessionId").mockResolvedValue({
       ok: true,
       sessionId: "T-00000000-0000-4000-8000-000000000001",
       minted: true,
@@ -158,6 +158,7 @@ describe("terminal IPC node-delete admission", () => {
       expect(provision).toHaveBeenCalledExactlyOnceWith({
         canvasName: "factory",
         nodeId: "node-amp-low",
+        bindingId: "amp-low",
         harness: "amp",
         cwd: "/work",
         documentLaunch: launch,

@@ -1,19 +1,17 @@
+import { InstallationId } from "../src/shared/installation-id";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelStoresLive, readSeeded, seedCanvas } from "./support/seed-canvas";
 import { seat } from "./support/model-nodes";
 import { asNodeId, type Node } from "../src/shared/model";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import { StationFleetTargetRepository, StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
-import { makeContentServiceLive } from "../src/main/junto/content/service";
-import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { InstallationId } from "../src/shared/installation-id";
+import { ModelService } from "../src/main/junto/model/service";
+import { ModelDependents } from "../src/main/junto/model/dependents";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 
 // Keep the public writer's app-runtime boundary while executing its actual
 // Effect against a disposable, fully composed canvas authority store.
@@ -27,9 +25,9 @@ const OTHER_SESSION = "1787761862883-1787761862883720000-97d25f70d04d6c5e";
 /** One seat, named `agent`, on the session the test gives it. */
 const agentDoc = (
   bindingId: string,
-  options: { readonly harness?: "fx" | "muse"; readonly host?: string; readonly sessionId?: string } = {},
+  options: { readonly harness?: "fx" | "muse"; readonly host?: string; readonly seatId?: string } = {},
 ): ReadonlyArray<Node> => [
-  seat("agent", {
+  seat(options.seatId ?? bindingId, {
     width: 240,
     height: 120,
     label: "Agent",
@@ -38,19 +36,14 @@ const agentDoc = (
     bindingId: bindingId as never,
     harness: (options.harness ?? "fx") as never,
     launch: { kind: "harness", argv: [options.harness ?? "fx"] },
-    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
   }),
 ];
 
 const makeRuntime = (root: string) => ManagedRuntime.make(Layer.provideMerge(
-  ModelStoresLive,
+  Layer.provide(ModelService.layer, ModelDependents.empty),
   Layer.provideMerge(
-    Layer.mergeAll(
-      WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
-      makeSettingsLive({ ensureDefaultCommandCenter: false }),
-      makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
-    ),
-    Layer.mergeAll(makeStateEngineLive(join(root, "state.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
+    Layer.mergeAll(makeSeatSessionRepositoryLive(join(root, "seats")), makeMachineRepositoryLive({ defaultName: () => "command" })),
+    makeStateEngineLive(join(root, "state.db")),
   ),
 ));
 
@@ -61,20 +54,19 @@ const fixture = async () => {
   root = await mkdtemp(join(tmpdir(), "vc-session-ownership-"));
   const live = runtime = makeRuntime(root);
   app.runPromise.mockImplementation((effect) => live.runPromise(effect));
-  const settings = await live.runPromise(SettingsService);
-  await live.runPromise(settings.setStationTopology({ role: "command-center", hostId: "command", supervisedPreferred: true }));
+  await live.runPromise(Effect.flatMap(MachineRepository, machine => machine.configureName("command")));
   return {
     runtime: live,
     write: (name: string, nodes: ReadonlyArray<Node>) => live.runPromise(seedCanvas(name, nodes)),
     sessionId: async (name: string) => {
-      const held = (await live.runPromise(readSeeded(name))).nodes.get(asNodeId("agent"));
-      return held?.kind === "agent" ? held.sessionId : undefined;
+      const held = [...(await live.runPromise(readSeeded(name))).nodes.values()].find(node => node.kind === "agent");
+      return held?.kind === "agent" ? (await live.runPromise(Effect.flatMap(SeatSessionRepository, repo => repo.current(held.id, held.bindingId))))?.sessionId : undefined;
     },
   };
 };
 
 const capture = (canvasName: string, bindingId: string, sessionId = SESSION, harness = "fx", isCurrent = () => true) =>
-  writeSeatSessionId({ canvasName, nodeId: "agent", sessionId, onlyIfAbsent: true, capture: { bindingId, harness, isCurrent } });
+  writeSeatSessionId({ canvasName, nodeId: bindingId, sessionId, onlyIfAbsent: true, capture: { bindingId, harness, isCurrent } });
 
 afterEach(async () => {
   await runtime?.dispose();
@@ -122,14 +114,13 @@ describe("captured session persistence ownership", () => {
 
   it("does not collide a session on another installation or capture its projected seat", async () => {
     const f = await fixture();
-    const fleet = await f.runtime.runPromise(StationFleetTargetRepository);
-    await f.runtime.runPromise(fleet.bind({ hostId: "local", stationInstallationId: Schema.decodeUnknownSync(InstallationId)("install_remote") }));
-    await f.write("remote", agentDoc("remote-seat", { host: "local", sessionId: SESSION }));
+    await f.runtime.runPromise(Effect.flatMap(MachineRepository, machine => machine.pinPeer({ machineName: "mini", installationId: Schema.decodeUnknownSync(InstallationId)("remote-install") })));
+    await f.write("remote", agentDoc("remote-seat", { host: "mini" }));
     await f.write("local", agentDoc("local-seat"));
 
     expect(await capture("local", "local-seat")).toEqual({ ok: true });
     expect(await capture("remote", "remote-seat", OTHER_SESSION)).toMatchObject({ ok: false, reason: expect.stringContaining("another installation") });
-    expect(await f.sessionId("remote")).toBe(SESSION);
+    expect(await f.sessionId("remote")).toBeUndefined();
   });
 
   it("updates the same seat's cross-canvas aliases together", async () => {
@@ -158,8 +149,8 @@ describe("captured session persistence ownership", () => {
   it("retains the non-capture writer used by provisioned harnesses", async () => {
     const f = await fixture();
     await f.write("seat", agentDoc("a"));
-    expect(await writeSeatSessionId({ canvasName: "seat", nodeId: "agent", sessionId: SESSION })).toEqual({ ok: true });
-    expect(await writeSeatSessionId({ canvasName: "seat", nodeId: "agent", sessionId: OTHER_SESSION })).toEqual({ ok: true });
+    expect(await writeSeatSessionId({ canvasName: "seat", nodeId: "a", bindingId: "a", harness: "fx", sessionId: SESSION })).toEqual({ ok: true });
+    expect(await writeSeatSessionId({ canvasName: "seat", nodeId: "a", bindingId: "a", harness: "fx", sessionId: OTHER_SESSION })).toEqual({ ok: true });
     expect(await f.sessionId("seat")).toBe(OTHER_SESSION);
   });
 });

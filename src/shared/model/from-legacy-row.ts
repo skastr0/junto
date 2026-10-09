@@ -865,7 +865,6 @@ const decodeStoredKind = (row: LegacyNodeRow, thisMachine: string): Node => {
         harness: old.terminal?.harness,
         onRemove: old.terminal?.onDelete ?? "detach",
         ...present("launch", old.terminal?.launch),
-        ...present("sessionId", old.terminal?.sessionId),
       });
     case "terminal":
       return decodeNode({

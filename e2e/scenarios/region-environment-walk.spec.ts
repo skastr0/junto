@@ -1,4 +1,5 @@
-import { modelFixture, modelRegion, modelSeat, readModelCanvas, readModelSeat, type ModelFixture } from "../harness/model";
+import { readSeatSession } from "../harness/seat-session";
+import { modelFixture, modelSeatSession, modelRegion, modelSeat, readModelCanvas, readModelSeat, type ModelFixture } from "../harness/model";
 /**
  * Region Environment screen, visual walk [fake-tui]: twelve steps (S1 to S12), one
  * test each except S12, which shares S4's test and state, every state a person would want to look at saved as a
@@ -70,9 +71,9 @@ const OUTER = { id: "org", label: "Org", x: 40, y: 40, width: 700, height: 440 }
 const INNER = { id: "team", label: "Team", x: 80, y: 140, width: 440, height: 260 } as const;
 
 /** The one seat inside Team keeps its explicit harness session. */
-const SEAT = modelSeat({ id: "worker", key: "local:worker", label: "Worker", x: 120, y: 250, sessionId: SESSION });
+const SEAT = modelSeat({ id: "worker", key: "local:worker", label: "Worker", x: 120, y: 250 });
 const walkFixture = (innerSources?: ReadonlyArray<EnvSource>): ModelFixture =>
-  modelFixture([regionNode(OUTER), regionNode({ ...INNER, ...(innerSources ? { sources: innerSources } : {}) }), SEAT]);
+  modelFixture([regionNode(OUTER), regionNode({ ...INNER, ...(innerSources ? { sources: innerSources } : {}) }), SEAT], [], [modelSeatSession(SEAT, SESSION)]);
 
 // ---------------------------------------------------------------------------
 // Launch, theme, evidence
@@ -1512,7 +1513,7 @@ test("S10 restart to apply [fake-tui]: changing a source lists the running seat,
       .toBe(true);
     await soft(stale, "the seat leaves the list").toHaveCount(0, { timeout: 30_000 });
     await soft.poll(sessionNow, { message: "the session after the restart", timeout: 30_000 }).toBe(SESSION);
-    soft((await readModelSeat(page, CANVAS, SEAT.id))?.sessionId, "the seat's stored session id").toBe(SESSION);
+    soft(readSeatSession(sandbox, SEAT.id), "the seat's stored session id").toBe(SESSION);
     note(testInfo, "S10-restart-argv", JSON.stringify((await seat.ready()).argv));
     await soft(dialog.locator(".region-env__error"), "no restart problem is shown").toHaveCount(0);
     await settled(dialog);

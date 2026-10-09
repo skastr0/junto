@@ -1,4 +1,5 @@
-import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
+import { readSeatSession } from "../harness/seat-session";
+import { modelFixture, modelSeatSession, modelMessagesWire, modelSeat } from "../harness/model";
 import { readModelCanvas, readModelSeat, grantOverseer } from "../harness/model";
 /**
  * PTY team checklist walk [fake-tui]: one test per checklist line, named by
@@ -849,9 +850,9 @@ test("B5 [fake-tui] editing a source while a seat runs offers Restart to apply, 
   const SESSION = "sess-walk-0001";
   const vault = regionNode({ ...VAULT, sources: [plainValue("src-foo", "FOO", "bar")] });
   // A seat with a named session to keep.
-  const runner = modelSeat({ id: "runner", label: "Runner", x: 100, y: 200, sessionId: SESSION });
+  const runner = modelSeat({ id: "runner", label: "Runner", x: 100, y: 200 });
 
-  await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([vault, runner]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
+  await walk(testInfo, { seedModels: { [CANVAS]: modelFixture([vault, runner], [], [modelSeatSession(runner, SESSION)]) }, afterSeed: installWalkSeatHarness }, async (junto) => {
     const { page, sandbox } = junto;
     await crewPlayFactory(page);
     const seat = await startSeat(junto, runner);
@@ -898,7 +899,7 @@ test("B5 [fake-tui] editing a source while a seat runs offers Restart to apply, 
     await expectSeatState(page, runner.id, /^(idle|working)$/u);
 
     await expect.poll(sessionNow, { message: "the session after the restart", timeout: 30_000 }).toBe(SESSION);
-    expect((await readModelSeat(page, CANVAS, runner.id))?.sessionId, "the seat's stored session id").toBe(SESSION);
+    expect(readSeatSession(sandbox, runner.id), "the seat's stored session id").toBe(SESSION);
     note(testInfo, "B5-restart-argv", JSON.stringify((await seat.ready()).argv));
     await expect.poll(async () => opData(await seat.op("env.report", {})).restartToApply, { timeout: 15_000 }).toBe(false);
     await shot(page, testInfo, "B5-restarted-on-new-value");

@@ -16,14 +16,14 @@ describe("actor seat production architecture", () => {
     }
   });
 
-  it("keeps mutable station identity and router glue in the live adapter", () => {
+  it("keeps mutable machine identity and router glue in the live adapter", () => {
     const live = source(
       "src/main/junto/term/actor-seat-occupy-live.ts",
     );
 
-    expect(live).toContain("const installation = yield* StationRepository");
+    expect(live).toContain("const installation = yield* MachineRepository");
     expect(live).toContain("localHostId: () =>");
-    expect(live).toContain("installation.configuration.pipe(");
+    expect(live).toContain("installation.machineName.pipe(");
     expect(live).toContain("termPlane.router.clientForOccupy(hostId)");
     expect(live).not.toContain("router.isLocalHostId");
   });

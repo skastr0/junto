@@ -195,21 +195,12 @@ describe("hyphenated model effort slugs", () => {
 
 // ── Pin at authoring, resume at wake ───────────────────────────────────────
 
-describe("a cursor seat carries its session from the moment it is authored", () => {
-  it("mints a UUID, stores it on the node, and pins it on argv", () => {
-    const node = newSeat({ x: 0, y: 0, z: 0 }, {
-      harness: "cursor",
-      host: "local",
-      cwd: "/Users/me/proj",
-    });
-    const sid = node.sessionId!;
-    expect(sid).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
-    const argv = node.launch!.argv!;
-    expect(argv).toContain("--new-session-id");
-    expect(argv[argv.indexOf("--new-session-id") + 1]).toBe(sid);
-    expect(argv).not.toContain("--resume");
+describe("a cursor seat uses a machine-owned named session at start", () => {
+  it("authors launch choices without minting a session", () => {
+    const node = newSeat({ x: 0, y: 0, z: 0 }, { harness: "cursor", host: "workbench", cwd: "/Users/me/proj" });
+    expect(node).not.toHaveProperty("sessionId");
+    expect(node.launch?.argv).not.toContain("--new-session-id");
+    expect(node.launch?.argv).not.toContain("--resume");
   });
 
   it("resume:true without proof re-pins instead of resuming a session that is not there", () => {
@@ -217,12 +208,12 @@ describe("a cursor seat carries its session from the moment it is authored", () 
     __setSessionExistenceHomeForTest(tempHome());
     const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "cursor",
-      host: "local",
+      host: "workbench",
       cwd: "/Users/me/proj",
     });
-    const sid = node.sessionId!;
+    const sid = "12345678-1234-4234-8234-123456789abc";
     const { launch } = launchForManagedSpawn({
-      sessionId: node.sessionId,
+      sessionId: sid,
       nodeId: node.id,
       harness: "cursor",
       documentLaunch: node.launch,
@@ -240,17 +231,17 @@ describe("a cursor seat carries its session from the moment it is authored", () 
     const home = tempHome();
     const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "cursor",
-      host: "local",
+      host: "workbench",
       cwd: "/Users/me/proj",
     });
-    const sid = node.sessionId!;
+    const sid = "12345678-1234-4234-8234-123456789abc";
     seedCursorChat(home, sid);
     __setSessionExistenceHomeForTest(home);
     expect(harnessSessionExists({ harness: "cursor", sessionId: sid })).toBe(
       true,
     );
     const { launch } = launchForManagedSpawn({
-      sessionId: node.sessionId,
+      sessionId: sid,
       nodeId: node.id,
       harness: "cursor",
       documentLaunch: node.launch,

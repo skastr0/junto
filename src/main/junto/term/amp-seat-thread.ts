@@ -85,11 +85,12 @@ const storedSessionId = (
 /**
  * Return the seat's provisioned session id, minting and persisting one on the
  * first call. Harnesses that do not use provisioned sessions return `ok` with
- * whatever the node already carries, so a caller can run this unconditionally.
+ * the existing machine-owned pin, so a caller can run this unconditionally.
  */
 export const ensureProvisionedSessionId = async (input: {
   readonly canvasName: string;
   readonly nodeId: string;
+  readonly bindingId: string;
   readonly harness: string;
   readonly storedSessionId?: string;
   readonly cwd?: string;
@@ -116,6 +117,9 @@ export const ensureProvisionedSessionId = async (input: {
     canvasName: input.canvasName,
     nodeId: input.nodeId,
     sessionId: minted.sessionId,
+    bindingId: input.bindingId,
+    harness,
+    onlyIfAbsent: true,
   });
   if (!stored.ok) {
     // The thread exists but the node does not know about it. Refusing here

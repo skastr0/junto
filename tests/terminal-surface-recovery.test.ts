@@ -71,12 +71,11 @@ const OPERATOR_STOPPED = 23;
 
 const REASON = "Codex could not start: the folder ~/gone does not exist";
 const EXIT_REASON = "Claude Code exited by itself with code 1: Error: Session ID 421f87b3 is already in use.";
-const PIN = "421f87b3-5a95-474e-9164-85bb2d7d1ac6";
 
 const agentNode = seat("seat-node", { label: "Codex", agentKey: "local:codex", bindingId: "seat" as never, harness: "codex" });
 
 /** A brand-new Claude Code seat: its session id is pinned at creation. */
-const pinnedNode = seat("seat-node", { label: "Claude Code", agentKey: "local:claude", bindingId: "seat" as never, harness: "claude", sessionId: PIN });
+const pinnedNode = seat("seat-node", { label: "Claude Code", agentKey: "local:claude", bindingId: "seat" as never, harness: "claude" });
 
 const cleanups: (() => void)[] = [];
 
@@ -439,7 +438,7 @@ describe("TerminalSurface load label on a pinned seat", () => {
     expect(hooks.states[LOAD_PHASE]).toBe("finding");
   });
 
-  it("reads as a new session on the first start, even with a pinned id", async () => {
+  it("reads as a new session on the first start, after the machine answered", async () => {
     ensureMock.mockResolvedValue({ ok: true, resuming: false, epoch: "gen-1" });
     stallBeforeAttach().render();
     await vi.advanceTimersByTimeAsync(10);
@@ -454,6 +453,6 @@ describe("TerminalSurface load label on a pinned seat", () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(hooks.states[LOAD_PHASE]).toBe("resuming");
-    expect(hooks.states[STATUS]).toBe("resuming 421f87b3…");
+    expect(hooks.states[STATUS]).toBe("resuming session");
   });
 });

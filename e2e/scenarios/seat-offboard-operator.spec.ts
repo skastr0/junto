@@ -1,4 +1,5 @@
-import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
+import { readSeatSession } from "../harness/seat-session";
+import { modelFixture, modelSeatSession, modelMessagesWire, modelSeat } from "../harness/model";
 import { readModelSeat, grantOverseer } from "../harness/model";
 /** Operator offboard gestures and settings, without waits for product time to pass. */
 import { existsSync } from "node:fs";
@@ -61,8 +62,12 @@ const bindingOf = (nodeId: string): string => `local:${nodeId}`;
 const sessionIdOf = (nodeId: string): string => `sess-operator-${nodeId}-0001`;
 
 /** A fake Codex seat. With `session`, its node names a session to close (seat-offboard.spec.ts:77-80). */
-const seatNode = (id: string, label: string, x: number, y: number, session = true): Seat =>
-  modelSeat({ id, label, x, y, ...(session ? { sessionId: sessionIdOf(id) } : {}) });
+const sessionPins = new WeakMap<Seat, string>();
+const seatNode = (id: string, label: string, x: number, y: number, session = true): Seat => {
+  const seat = modelSeat({ id, label, x, y });
+  if (session) sessionPins.set(seat, sessionIdOf(id));
+  return seat;
+};
 
 /** Cards are 240 by 96 (harness/sandbox.ts:539-540): three to a row, clear of each other. */
 const COLUMN = [100, 400, 700] as const;
@@ -70,7 +75,10 @@ const ROW = [220, 440] as const;
 
 const fixtureOf = (nodes: ReadonlyArray<Node>, mail: ReadonlyArray<readonly [from: string, to: string]> = []): ModelFixture => {
   const edges: Wire[] = mail.map(([from, to]) => modelMessagesWire(`e-${from}-${to}`, from, to, [...nodes]));
-  return modelFixture([...nodes], edges);
+  return modelFixture([...nodes], edges, nodes.flatMap(node => {
+    const pin = node.kind === "agent" ? sessionPins.get(node) : undefined;
+    return node.kind === "agent" && pin ? [modelSeatSession(node, pin)] : [];
+  }));
 };
 
 /** Where this spec plants a session's transcript (see the header). */
@@ -164,10 +172,9 @@ const opData = (envelope: WorkEnvelope): Record<string, unknown> => {
   return ((envelope as { readonly data?: unknown }).data ?? {}) as Record<string, unknown>;
 };
 
-/** The session id the seat's node names. */
-const nodeSessionId = async (page: Page, nodeId: string): Promise<string | undefined> => {
-  return (await readModelSeat(page, CANVAS, nodeId))?.sessionId;
-};
+/** The machine's private pin for this seat. */
+const sessionPin = async (sandbox: Sandbox, nodeId: string): Promise<string | undefined> =>
+  readSeatSession(sandbox, nodeId);
 
 /** Where the seat's latest offboard stands, as the closer keeps it (shared/seat-sessions.ts:215-231). */
 const progressOf = async (page: Page, nodeId: string): Promise<SeatOffboardProgress | undefined> => {
@@ -1109,7 +1116,7 @@ test("S5r-cli [fake-tui] the overseer's CLI closes a resting seat that had a tur
       // The grant, through the human seam (overseer-offboard-cli.spec.ts:264-279).
       await grantOverseer(page, CANVAS, BOSS.id);
       await expect(card(page, "boss").locator(".junto-node")).toHaveAttribute("data-overseer", "true", { timeout: 15_000 });
-      expect(await nodeSessionId(page, "tia"), "Tia still names her session after the grant").toBe(sessionIdOf("tia"));
+      expect(await sessionPin(sandbox, "tia"), "Tia still names her session after the grant").toBe(sessionIdOf("tia"));
       expect(await launches(sandbox, "tia"), "and was not started again").toBe(1);
       note(testInfo, "S5r-cli-rules-after-the-grant", JSON.stringify(await page.evaluate(async () => (await window.junto!.settingsGet()).settings?.offboard)));
       before = await inputOf(sandbox, "tia", 1);
@@ -1149,7 +1156,7 @@ test("S5r-cli [fake-tui] the overseer's CLI closes a resting seat that had a tur
       const progress = await progressOf(page, "tia");
       note(testInfo, "S5r-cli-progress", JSON.stringify(progress ?? null));
       soft(progress?.stage, "the seat's offboard stands at resting").toBe("resting");
-      soft(await nodeSessionId(page, "tia"), "the seat no longer names the closed session").not.toBe(sessionIdOf("tia"));
+      soft(await sessionPin(sandbox, "tia"), "the seat no longer names the closed session").not.toBe(sessionIdOf("tia"));
       soft(await launches(sandbox, "tia"), "nothing was started by the close").toBe(1);
       soft(offboardLines().join("\n"), "no [offboard] line says failed").not.toMatch(/failed/u);
       await shot(page, "S5r-cli.1", "closed-by-the-overseer-cli");
@@ -1161,7 +1168,7 @@ test("S5r-cli [fake-tui] the overseer's CLI closes a resting seat that had a tur
       await expect.poll(() => launches(sandbox, "tia"), { message: "a process starts for the mail", timeout: 90_000 }).toBe(2);
       await soft.poll(() => inputOf(sandbox, "tia", 2), { message: "the mail on the fresh session's input", timeout: 60_000 }).toContain(mail);
       soft(await inputOf(sandbox, "tia", 1), "nothing was typed into the closed session").toBe(before);
-      soft(await nodeSessionId(page, "tia"), "it does not name the closed session").not.toBe(sessionIdOf("tia"));
+      soft(await sessionPin(sandbox, "tia"), "it does not name the closed session").not.toBe(sessionIdOf("tia"));
       const onboard = opData(await tia.op("onboard", {}));
       note(testInfo, "S5r-cli-onboard-payload", JSON.stringify(onboard));
       const without = onboard.previous_session_without_notes as { readonly session_id?: unknown; readonly ended_by?: unknown } | undefined;

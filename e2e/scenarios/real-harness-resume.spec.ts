@@ -1,3 +1,5 @@
+import { THIS_MACHINE } from "../../tests/support/machines";
+import { readSeatSession } from "../harness/seat-session";
 import { installModelFixture } from "../harness/model";
 import { readModelSeat } from "../harness/model";
 /**
@@ -221,10 +223,10 @@ for (const c of CASES) {
     // Harnesses key trust by the resolved path (/private/tmp on macOS).
     const cwd = realpathSync(folder);
     const seatId = `resume-${c.harness}`;
-    // The operator's authoring path: it mints the pin a pin harness needs.
+    // The operator authors choices; the machine pins the harness session at start.
     const seat = seatParts({
       harness: c.harness,
-      host: "local",
+      host: THIS_MACHINE,
       cwd,
       ...(c.choices?.model ? { model: c.choices.model } : {}),
       ...(c.choices?.effort ? { effort: c.choices.effort } : {}),
@@ -260,15 +262,15 @@ for (const c of CASES) {
         .slice(-40)
         .join("\n");
 
-    const { page } = junto;
+    const { page, sandbox } = junto;
     const get = (): Promise<TerminalSessionSummary | undefined> =>
       page.evaluate(
         async (id) => (window as unknown as { junto: Api }).junto.terminalGet(id),
         bindingId,
       );
     let canvas = "";
-    const sessionIdOnNode = async (): Promise<string | undefined> =>
-      (await readModelSeat(page, canvas, seatId))?.sessionId;
+    const sessionPin = async (): Promise<string | undefined> =>
+      readSeatSession(sandbox, seatId, bindingId);
     const prompt = (text: string) =>
       page.evaluate(
         async ([id, body, name, node]) =>
@@ -345,12 +347,12 @@ for (const c of CASES) {
       await waitForScreen(new RegExp(`(^|\\D)${ack}(\\D|$)`), 180_000, "turn 1 reply");
 
       await expect
-        .poll(sessionIdOnNode, { timeout: 60_000, intervals: [1_000, 2_000, 5_000] })
+        .poll(sessionPin, { timeout: 60_000, intervals: [1_000, 2_000, 5_000] })
         .toBeTruthy()
         .catch((cause: unknown) => {
           throw new Error(`session id never landed on the seat.\n[main log]\n${seatLog()}`, { cause });
         });
-      const sessionId = (await sessionIdOnNode())!;
+      const sessionId = (await sessionPin())!;
       verdict.sessionId = sessionId;
       const firstGen = await get();
 
@@ -391,13 +393,13 @@ for (const c of CASES) {
         verdict.cause = String(error).slice(0, 600);
       }
       verdict.recalled = recalled;
-      verdict.resumedSessionId = await sessionIdOnNode();
+      verdict.resumedSessionId = await sessionPin();
 
       const causes: string[] = [];
       if (!verdict.resuming) causes.push("host did not report the second generation as resuming");
       if (!recalled) causes.push("reply did not recall the code word");
       if (verdict.resumedSessionId !== sessionId) {
-        causes.push(`node session changed ${sessionId} -> ${String(verdict.resumedSessionId)}`);
+        causes.push(`private session pin changed ${sessionId} -> ${String(verdict.resumedSessionId)}`);
       }
       verdict.result = causes.length === 0 ? "pass" : "fail";
       verdict.cause = causes.length === 0 ? "resumed and recalled" : `${causes.join("; ")}. ${verdict.cause === "did not finish" ? "" : verdict.cause}`.trim();

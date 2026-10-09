@@ -9,7 +9,10 @@ import { Command } from "../src/shared/model";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { SeatSessionRepository, makeSeatSessionRepositoryLive } from "../src/main/junto/seat-sessions/repository";
+import { makeThisMachine } from "../src/shared/remote-hosts";
+import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
 import { ActorSeatOccupy, makeActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import { TermPlane } from "../src/main/junto/term/plane";
@@ -36,6 +39,9 @@ afterEach(async () => {
 });
 
 const fixture = async () => {
+  const previousHosts = hostsSnapshot();
+  setHostsSnapshot([makeThisMachine("workbench")]);
+  cleanups.push(async () => setHostsSnapshot(previousHosts));
   const root = await mkdtemp(join(tmpdir(), "junto-start-quit-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const entered = deferred<void>();
@@ -44,7 +50,7 @@ const fixture = async () => {
   const host = new LocalSessionHost(fake.authority, { shutdownGraceMs: 5, killGraceMs: 5, lateExitGraceMs: 5 });
   const plane = new TermPlane(host);
   const occupy = makeActorSeatOccupy({
-    local: host, localHostId: () => Effect.succeed("local"),
+    local: host, localHostId: () => Effect.succeed("workbench"),
     clientForOccupy: async () => { throw new Error("unexpected remote start"); },
     seatEnvironment: () => { entered.resolve(); return environment.promise; },
   });
@@ -52,7 +58,7 @@ const fixture = async () => {
     Layer.succeed(ActorSeatOccupy, occupy),
     Layer.provideMerge(
       Layer.provide(ModelService.layer, ModelDependents.empty),
-      Layer.provideMerge(StationRepositoryLive, makeStateEngineLive(join(root, "state.db"))),
+      Layer.provideMerge(Layer.mergeAll(makeMachineRepositoryLive({ defaultName: () => "workbench" }), makeSeatSessionRepositoryLive(join(root, "seats"))), makeStateEngineLive(join(root, "state.db"))),
     ),
   ));
   cleanups.push(async () => {
@@ -66,9 +72,8 @@ const fixture = async () => {
   const command = (input: unknown) => runtime.runPromise(model.command(Schema.decodeUnknownSync(Command)(input), "operator"));
   await command({ _tag: "CreateCanvas", canvas: "quit" });
   const sql = await runtime.runPromise(SqlClient.SqlClient);
-  await runtime.runPromise(sql`INSERT INTO station_configuration(singleton, role, host_id, supervised_preferred, configured_at)
-    VALUES (1, 'command-center', 'local', 0, ${new Date().toISOString()})`);
-  await command({ _tag: "Add", canvas: "quit", nodes: [node], wires: [] });
+  await runtime.runPromise(Effect.flatMap(MachineRepository, machine => machine.configureName("workbench")));
+  await command({ _tag: "Add", canvas: "quit", nodes: [{ ...node, host: "workbench" }], wires: [] });
   type Handler = (...args: readonly unknown[]) => unknown;
   const handlers = new Map<string, Handler>();
   registerTerminalIpc({ handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never, plane, {
@@ -117,7 +122,7 @@ describe("seat start across quit", () => {
     await expect(writeSeatSessionId({ canvasName: "quit", nodeId: "seat", sessionId: "captured-session", onlyIfAbsent: true,
       capture: { bindingId: f.node.bindingId, harness: "codex", isCurrent: () => true },
     })).resolves.toEqual({ ok: true });
-    expect((await f.runtime.runPromise(f.model.open("quit"))).nodes[0]).toMatchObject({ sessionId: "captured-session" });
+    expect(await f.runtime.runPromise(Effect.flatMap(SeatSessionRepository, sessions => sessions.current("seat", f.node.bindingId)))).toMatchObject({ sessionId: "captured-session" });
     await f.runtime.dispose();
   });
 

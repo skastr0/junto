@@ -78,7 +78,7 @@ export type SeatLaunchPlan = {
 /**
  * Resolve the stored launch for `harness` with `params`. `base` supplies what
  * the operator does not edit here: the working directory, the Hermes profile
- * and provider, and the pinned session id.
+ * and provider,.
  */
 export const planSeatLaunch = (input: {
   readonly harness: HarnessId;
@@ -87,7 +87,6 @@ export const planSeatLaunch = (input: {
     readonly cwd?: string;
     readonly profile?: string;
     readonly provider?: string;
-    readonly sessionId?: string;
   };
 }): SeatLaunchPlan => {
   const { harness, params, base } = input;
@@ -99,12 +98,6 @@ export const planSeatLaunch = (input: {
   const cwd = trimmed(base?.cwd);
   const profile = trimmed(base?.profile);
   const provider = trimmed(base?.provider);
-  // Pin harnesses carry their minted id on the stored argv; every other
-  // session shape is added by the spawn planner from the node's session id.
-  const pinned =
-    templateFor(harness).capabilityBadges.sessionId === "pin"
-      ? trimmed(base?.sessionId)
-      : undefined;
   const resolved = resolveManagedLaunch(
     harness,
     {
@@ -116,7 +109,6 @@ export const planSeatLaunch = (input: {
       ...(permissionMode ? { permissionMode } : {}),
       ...(extra.args.length > 0 ? { extraArgs: extra.args } : {}),
       ...(cwd ? { cwd } : {}),
-      ...(pinned ? { sessionId: pinned } : {}),
     },
     {},
   );
@@ -139,8 +131,9 @@ export const planSeatLaunch = (input: {
 export const seatLaunchParamsChangeError = (
   seat: Seat,
   params: SeatLaunchParams,
+  hasSession: boolean,
 ): string | undefined => {
-  if (harnessOf(seat) !== "amp" || !seat.sessionId?.trim()) return undefined;
+  if (harnessOf(seat) !== "amp" || !hasSession) return undefined;
   const stored = recoverDocumentLaunchChoices("amp", seat.launch);
   if ((trimmed(stored.mode) ?? "").toLowerCase() !== (trimmed(params.mode) ?? "").toLowerCase()) {
     return "Amp resumes the thread's saved mode. Restarting cannot change it; use Amp's dial before the first message, or re-seat from Launch.";
@@ -162,10 +155,11 @@ export const seatLaunchParamsChangeError = (
 export const seatRelaunch = (
   seat: Seat,
   params: SeatLaunchParams,
+  hasSession = false,
 ): { readonly launch: Launch; readonly rejected: readonly RejectedExtraArg[] } | undefined => {
   const harness = harnessOf(seat);
   if (!harness) return undefined;
-  if (seatLaunchParamsChangeError(seat, params)) return undefined;
+  if (seatLaunchParamsChangeError(seat, params, hasSession)) return undefined;
   const recovered = recoverDocumentLaunchChoices(harness, seat.launch);
   const plan = planSeatLaunch({
     harness,
@@ -174,7 +168,6 @@ export const seatRelaunch = (
       cwd: seat.launch?.cwd,
       profile: recovered.profile,
       provider: recovered.provider,
-      sessionId: seat.sessionId,
     },
   });
   return { launch: plan.launch, rejected: plan.rejected };

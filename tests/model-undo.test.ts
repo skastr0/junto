@@ -14,7 +14,7 @@ const name = asCanvasName("factory");
 const seat = (id: string, over: Record<string, unknown> = {}): Node =>
   ({
     kind: "agent", id, x: 0, y: 0, width: 216, height: 96, z: 0,
-    agentKey: `local:${id}`, label: id, host: "local", overseer: false,
+    agentKey: `local:${id}`, label: id, host: "workbench", overseer: false,
     bindingId: `binding-${id}`, harness: "claude", onRemove: "detach", ...over,
   }) as unknown as Node;
 
@@ -76,11 +76,11 @@ describe("the way back from a command", () => {
     roundTrips(command);
   });
 
-  it("a seat comes back with its agent key, binding and session", () => {
-    const canvas = canvasOf([seat("lead", { sessionId: "sess-1" })]);
+  it("a seat comes back with its agent key and binding", () => {
+    const canvas = canvasOf([seat("lead")]);
     const [add] = back(canvas, { _tag: "Remove", canvas: name, nodes: ["lead" as Node["id"]], wires: [] });
     if (add?._tag !== "Add") throw new Error("expected an Add");
-    expect(add.nodes[0]).toMatchObject({ agentKey: "local:lead", bindingId: "binding-lead", sessionId: "sess-1" });
+    expect(add.nodes[0]).toMatchObject({ agentKey: "local:lead", bindingId: "binding-lead" });
   });
 
   it("a move goes back, and takes the old size only when the move resized", () => {
@@ -150,11 +150,10 @@ describe("the way back from a command", () => {
 });
 
 describe("authority is never part of undo", () => {
-  it("has no way back from a grant, a session record or a whole canvas", () => {
+  it("has no way back from a grant or a whole canvas", () => {
     const canvas = canvasOf([seat("lead")]);
     const never: Command[] = [
       { _tag: "GrantOverseer", canvas: name, id: "lead" as Node["id"], overseer: true },
-      { _tag: "RecordSession", canvas: name, id: "lead" as Node["id"], sessionId: "s" },
       { _tag: "CreateCanvas", canvas: name },
       { _tag: "RemoveCanvas", canvas: name },
     ];
@@ -248,10 +247,10 @@ describe("order, seats and batches", () => {
   });
 
   it("a reseat goes back to the agent it was, in a new session", () => {
-    const before = canvasOf([seat("lead", { sessionId: "old-session", launch: { kind: "harness", argv: ["claude"] } })]);
+    const before = canvasOf([seat("lead", { launch: { kind: "harness", argv: ["claude"] } })]);
     const command = {
       _tag: "Reseat", canvas: name, id: "lead" as Node["id"],
-      agentKey: "local:codex", bindingId: "binding-new", harness: "codex", host: "local", launch: null,
+      agentKey: "local:codex", bindingId: "binding-new", harness: "codex", host: "workbench", launch: null,
     } as unknown as Command;
     expect(inverseOf(before, command)).toEqual({ _tag: "Irreversible", why: "missing" });
     const after = canvasAfter(before, command);
@@ -261,7 +260,7 @@ describe("order, seats and batches", () => {
     const step = back(before, command, { newBinding: () => "binding-fresh" });
     expect(step).toEqual([{
       _tag: "Reseat", canvas: name, id: "lead", agentKey: "local:lead", bindingId: "binding-fresh",
-      harness: "claude", host: "local", launch: { kind: "harness", argv: ["claude"] },
+      harness: "claude", host: "workbench", launch: { kind: "harness", argv: ["claude"] },
     }]);
     expect(run(after, step).nodes.get("lead" as Node["id"])).toMatchObject({
       agentKey: "local:lead", bindingId: "binding-fresh", harness: "claude",
@@ -272,7 +271,7 @@ describe("order, seats and batches", () => {
     const before = canvasOf([seat("lead", { overseer: true })]);
     const command = {
       _tag: "Reseat", canvas: name, id: "lead" as Node["id"],
-      agentKey: "local:codex", bindingId: "binding-new", harness: "codex", host: "local", launch: null,
+      agentKey: "local:codex", bindingId: "binding-new", harness: "codex", host: "workbench", launch: null,
     } as unknown as Command;
     const after = canvasAfter(before, command);
     expect(after.nodes.get("lead" as Node["id"])).toMatchObject({ overseer: false });

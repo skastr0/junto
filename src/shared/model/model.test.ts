@@ -9,7 +9,7 @@ const seat = {
   ...placed,
   agentKey: "local:claude",
   label: "canvas-lead",
-  host: "local",
+  host: "studio",
   overseer: false,
   bindingId: "01M46VAYSKXYFKW4QX1NHBXCCP",
   harness: "claude",
@@ -122,9 +122,9 @@ describe("commands", () => {
     expect(Exit.isFailure(run(decodeNode({ ...placed, kind: "sheet", ...grid })))).toBe(true);
   });
 
-  it("has an edit for every kind", () => {
+  it("has an edit for each authored kind and none for a read-only peer", () => {
     const kinds = NodeEdit.members.map((member) => member.fields.kind.literal);
-    expect([...kinds].sort()).toEqual([...NODE_KINDS].sort());
+    expect([...kinds].sort()).toEqual(NODE_KINDS.filter(kind => kind !== "peer").sort());
   });
 
   it("has no command that carries a whole canvas", () => {
@@ -136,7 +136,6 @@ describe("commands", () => {
       "GrantOverseer",
       "Move",
       "Recolor",
-      "RecordSession",
       "Remove",
       "RemoveCanvas",
       "Reseat",

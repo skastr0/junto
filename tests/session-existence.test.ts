@@ -433,12 +433,12 @@ describe("spawn replan resume gate", () => {
     delete process.env.JUNTO_HOME;
     const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "grok",
-      host: "local",
+      host: "workbench",
       cwd: "/Users/me/proj",
     });
-    const sid = node.sessionId!;
+    const sid = "12345678-1234-4234-8234-123456789abc";
     const { launch } = launchForManagedSpawn({
-      sessionId: node.sessionId,
+      sessionId: sid,
       nodeId: node.id,
       harness: "grok",
       documentLaunch: node.launch,
@@ -457,16 +457,16 @@ describe("spawn replan resume gate", () => {
     const cwd = "/Users/me/proj";
     const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "grok",
-      host: "local",
+      host: "workbench",
       cwd,
     });
-    const sid = node.sessionId!;
+    const sid = "12345678-1234-4234-8234-123456789abc";
     mkdirSync(join(home, ".grok", "sessions", encodeGrokSessionCwd(cwd), sid), {
       recursive: true,
     });
     __setSessionExistenceHomeForTest(home);
     const { launch } = launchForManagedSpawn({
-      sessionId: node.sessionId,
+      sessionId: sid,
       nodeId: node.id,
       harness: "grok",
       documentLaunch: node.launch,

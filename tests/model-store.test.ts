@@ -170,16 +170,16 @@ describe("model store", () => {
     const { store } = harness(() => ({
       canvas,
       seq: 1,
-      nodes: [seat("a", { sessionId: "s1" }), seat("b")],
+      nodes: [seat("a", { harness: "codex" }), seat("b")],
       wires: [wire("w", "a", "b")],
     }));
     store.open(canvas);
     await store.ready(canvas);
     await store.send({ _tag: "Edit", canvas, id: "a" as never, change: { kind: "agent", label: "lead", launch: null } });
-    const a = store.node$(canvas, "a").peek() as { label: string; sessionId?: string };
+    const a = store.node$(canvas, "a").peek() as { label: string; harness: string };
     expect(a.label).toBe("lead");
     expect("launch" in a).toBe(false);
-    expect(a.sessionId).toBe("s1");
+    expect(a.harness).toBe("codex");
     await store.send({ _tag: "Remove", canvas, nodes: ["b" as never], wires: [] });
     expect(store.canvas$(canvas).nodeIds.peek()).toEqual(["a"]);
     expect(store.canvas$(canvas).wireIds.peek()).toEqual([]);

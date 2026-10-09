@@ -211,7 +211,7 @@ export const ensureManagedSeatRunning = (
       );
     // Same provisioning step the operator-initiated create runs, for the same
     // reason: a provisioned-session harness has no launch shape without its
-    // thread id, and the id must be on the node before the PTY opens.
+    // thread id, and the private pin must exist before the PTY opens.
     const provisioned = yield* Effect.promise(() =>
       ensureSeatSessionId({
         canvasName,
@@ -219,9 +219,6 @@ export const ensureManagedSeatRunning = (
         bindingId: node.bindingId,
         harness: surface.harness,
         documentLaunch: surface.launch,
-        ...(node.sessionId
-          ? { storedSessionId: node.sessionId }
-          : {}),
         ...(surface.launch?.cwd ? { cwd: surface.launch.cwd } : {}),
       }),
     );

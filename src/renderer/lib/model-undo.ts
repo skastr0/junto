@@ -251,7 +251,7 @@ export const canvasAfter = (canvas: Canvas, command: Command): Canvas => {
     case "Reseat": {
       const seat = canvas.nodes.get(command.id);
       if (seat === undefined || seat.kind !== "agent") return canvas;
-      const { sessionId: _ended, launch: _was, ...rest } = seat;
+      const { launch: _was, ...rest } = seat;
       const nodes = new Map(canvas.nodes);
       // Another agent takes the seat, and takes no authority with it.
       nodes.set(seat.id, {
@@ -274,14 +274,6 @@ export const canvasAfter = (canvas: Canvas, command: Command): Canvas => {
       nodes.set(seat.id, { ...seat, overseer: command.overseer });
       return { ...canvas, nodes };
     }
-    case "RecordSession": {
-      const seat = canvas.nodes.get(command.id);
-      if (seat === undefined || seat.kind !== "agent") return canvas;
-      const { sessionId: _was, ...rest } = seat;
-      const nodes = new Map(canvas.nodes);
-      nodes.set(seat.id, command.sessionId === null ? rest : { ...rest, sessionId: command.sessionId });
-      return { ...canvas, nodes };
-    }
     default:
       return canvas;
   }
@@ -299,7 +291,7 @@ export const asOneAct = (canvas: Command["canvas"], commands: ReadonlyArray<Comm
 };
 
 /** Commands a batch may not hold: authority, a runtime record, a whole canvas, another batch. */
-const UNBATCHABLE: ReadonlySet<string> = new Set(["Batch", "GrantOverseer", "RecordSession", "CreateCanvas", "RemoveCanvas"]);
+const UNBATCHABLE: ReadonlySet<string> = new Set(["Batch", "GrantOverseer", "CreateCanvas", "RemoveCanvas"]);
 
 const batchable = (command: Command): command is CanvasCommand => !UNBATCHABLE.has(command._tag);
 

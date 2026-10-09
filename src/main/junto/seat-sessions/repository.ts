@@ -26,11 +26,12 @@ export class SeatSessionPersistenceError extends Schema.TaggedError<SeatSessionP
   },
 ) {}
 
-/** A seat's session as the canvas names it: harness, id, and working directory. */
+/** A harness session owned by this machine's seat. */
 export type SeatSessionObservation = {
   readonly seatId: string;
   readonly sessionId: string;
   readonly harness: string;
+  readonly bindingId?: string;
   readonly cwd?: string;
   /**
    * Why the seat's open session (if it is another one) ends as this one
@@ -58,8 +59,8 @@ export type SeatSessionOffboard = SeatSessionObservation & {
 
 /**
  * Every harness session each agent seat has run (`seat_sessions`), and the
- * notes the seat's agent left for each. The canvas recorder writes a row when
- * a seat's session id changes; `junto offboard` writes the notes.
+ * notes the seat's agent left for each. The open row is its durable resume
+ * pin, independent of whether its process is running.
  */
 export class SeatSessionRepository extends Context.Service<SeatSessionRepository,
   {
@@ -73,11 +74,25 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     readonly record: (
       observation: SeatSessionObservation,
     ) => Effect.Effect<SeatSessionRecordOutcome, SeatSessionPersistenceError>;
+    /** The open session of this occupant, never the newest ended session. */
+    readonly current: (
+      seatId: string,
+      bindingId: string,
+    ) => Effect.Effect<SeatSessionObservation | undefined, SeatSessionPersistenceError>;
+    /** Atomically keep this occupant's pin, or record one before its process starts. */
+    readonly pin: (
+      observation: SeatSessionObservation & { readonly bindingId: string },
+    ) => Effect.Effect<{ readonly sessionId: string; readonly minted: boolean }, SeatSessionPersistenceError>;
+    /** A capture cannot take another seat's session, including its ended history. */
+    readonly ownedByOtherSeat: (
+      observation: SeatSessionObservation,
+    ) => Effect.Effect<boolean, SeatSessionPersistenceError>;
     /** End the seat's open session, when it is still `sessionId` if given. */
     readonly end: (
       seatId: string,
       reason: SeatSessionEndReason,
       sessionId?: string,
+      bindingId?: string,
     ) => Effect.Effect<string | undefined, SeatSessionPersistenceError>;
     /** The seat's sessions, newest first. */
     readonly list: (seatId: string) => Effect.Effect<ReadonlyArray<SeatSession>, SeatSessionPersistenceError>;
@@ -123,6 +138,7 @@ const SessionRow = Schema.Struct({
   seat_id: Schema.String,
   session_id: Schema.String,
   harness: Schema.String,
+  binding_id: Schema.NullOr(Schema.String),
   cwd: Schema.NullOr(Schema.String),
   transcript_path: Schema.NullOr(Schema.String),
   notes_path: Schema.String,
@@ -137,7 +153,7 @@ const SessionRow = Schema.Struct({
 });
 
 const COLUMNS =
-  "s.seat_id, s.session_id, s.harness, s.cwd, s.transcript_path, s.notes_path, s.gist, s.started_at, s.ended_at, s.end_reason, s.offboarded_at, " +
+  "s.seat_id, s.session_id, s.harness, s.binding_id, s.cwd, s.transcript_path, s.notes_path, s.gist, s.started_at, s.ended_at, s.end_reason, s.offboarded_at, " +
   "d.detached_at AS drain_detached_at, d.ended_at AS drain_ended_at, d.ended_how AS drain_ended_how";
 
 /** A session with what became of its process after it offboarded, if it did. */
@@ -221,7 +237,11 @@ export const makeSeatSessionRepositoryLive = (
         const cwd = bounded(observation.cwd, 4096);
         const current = yield* openRow(seatId);
         const open = current._tag === "None" ? undefined : current.value;
-        if (open?.session_id === sessionId) return { started: false };
+        if (open?.session_id === sessionId) {
+          if (observation.bindingId !== undefined && open.binding_id === null)
+            yield* sql`UPDATE seat_sessions SET binding_id = ${observation.bindingId} WHERE seat_id = ${seatId} AND session_id = ${sessionId}`;
+          return { started: false };
+        }
         if (open !== undefined) {
           yield* sql`
             UPDATE seat_sessions SET ended_at = ${Math.max(now, Number(open.started_at))}, end_reason = ${observation.endReason ?? "replaced"}
@@ -231,13 +251,13 @@ export const makeSeatSessionRepositoryLive = (
         const known = yield* knownRow([seatId, sessionId]);
         if (known._tag === "Some") {
           yield* sql`
-            UPDATE seat_sessions SET ended_at = NULL, end_reason = NULL, harness = ${harness}, cwd = COALESCE(${cwd}, cwd)
+            UPDATE seat_sessions SET ended_at = NULL, end_reason = NULL, harness = ${harness}, binding_id = ${observation.bindingId ?? null}, cwd = COALESCE(${cwd}, cwd)
             WHERE seat_id = ${seatId} AND session_id = ${sessionId}
           `;
         } else {
           yield* sql`
-            INSERT INTO seat_sessions(seat_id, session_id, harness, cwd, notes_path, started_at)
-            VALUES (${seatId}, ${sessionId}, ${harness}, ${cwd}, ${notesPathFor(seatId, sessionId)}, ${now})
+            INSERT INTO seat_sessions(seat_id, session_id, harness, binding_id, cwd, notes_path, started_at)
+            VALUES (${seatId}, ${sessionId}, ${harness}, ${observation.bindingId ?? null}, ${cwd}, ${notesPathFor(seatId, sessionId)}, ${now})
           `;
         }
         return { started: true, ...(open ? { ended: open.session_id } : {}) };
@@ -248,11 +268,35 @@ export const makeSeatSessionRepositoryLive = (
       }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.record"),
       Effect.mapError(persistence("record")));
 
-      const end = Effect.fn("seat-sessions.end")(function* (seatId: string, reason: SeatSessionEndReason, sessionId?: string) {
+      const current = Effect.fn("seat-sessions.current")(function* (seatId: string, bindingId: string) {
+        const open = yield* openRow(seatId);
+        if (open._tag === "None" || open.value.binding_id !== bindingId) return undefined;
+        const row = open.value;
+        return { seatId, sessionId: row.session_id, harness: row.harness, bindingId,
+          ...(row.cwd ? { cwd: row.cwd } : {}) } satisfies SeatSessionObservation;
+      }, Effect.mapError(persistence("current")));
+
+      const pin = Effect.fn("seat-sessions.pin")(function* (observation: SeatSessionObservation & { readonly bindingId: string }) {
+        const existing = yield* current(observation.seatId, observation.bindingId);
+        if (existing !== undefined && existing.harness === observation.harness)
+          return { sessionId: existing.sessionId, minted: false };
+        yield* recordIn({ ...observation, endReason: "reseat" }, Date.now());
+        return { sessionId: observation.sessionId, minted: true };
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.pin"),
+      Effect.mapError((cause) => cause instanceof SeatSessionPersistenceError ? cause : persistence("pin")(cause)));
+
+      const ownedByOtherSeat = Effect.fn("seat-sessions.owner")(function* (observation: SeatSessionObservation) {
+        const rows = yield* sql`SELECT seat_id FROM seat_sessions WHERE harness = ${observation.harness}
+          AND session_id = ${observation.sessionId} AND seat_id <> ${observation.seatId} LIMIT 1`;
+        return rows.length !== 0;
+      }, Effect.mapError(persistence("owner")));
+
+      const end = Effect.fn("seat-sessions.end")(function* (seatId: string, reason: SeatSessionEndReason, sessionId?: string, bindingId?: string) {
         const current = yield* openRow(seatId);
         if (current._tag === "None") return undefined;
         const open = current.value;
         if (sessionId !== undefined && open.session_id !== sessionId) return undefined;
+        if (bindingId !== undefined && open.binding_id !== bindingId) return undefined;
         yield* sql`
           UPDATE seat_sessions SET ended_at = ${Math.max(Date.now(), Number(open.started_at))}, end_reason = ${reason}
           WHERE seat_id = ${seatId} AND session_id = ${open.session_id}
@@ -358,6 +402,9 @@ export const makeSeatSessionRepositoryLive = (
       return SeatSessionRepository.of({
         notesPathFor,
         record,
+        current,
+        pin,
+        ownedByOtherSeat,
         end,
         list,
         offboard,

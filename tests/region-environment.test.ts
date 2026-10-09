@@ -86,9 +86,9 @@ describe("plan", () => {
   it("is empty for a seat in no region, an unknown node, and a region without an environment", () => {
     const d = canvas({ sources: [value("a", "A", "1")] });
     for (const target of [{ seat: "out" }, { seat: "nope" }, { region: "nope" }, { region: "in" }]) {
-      expect(planRegionEnvironment(d, target, "local").sources).toEqual([]);
+      expect(planRegionEnvironment(d, target, "studio").sources).toEqual([]);
     }
-    expect(planRegionEnvironment(canvas(), { seat: "in" }, "local")).toEqual({
+    expect(planRegionEnvironment(canvas(), { seat: "in" }, "studio")).toEqual({
       regions: [
         { regionId: "outer", regionLabel: "Outer", sealed: false },
         { regionId: "inner", regionLabel: "Inner", sealed: false },
@@ -103,7 +103,7 @@ describe("plan", () => {
       { sources: [value("o1", "A", "outer"), value("o2", "B", "outer")] },
       { sources: [value("i1", "A", "inner")] },
     );
-    const plan = planRegionEnvironment(d, { seat: "in" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "in" }, "studio");
     expect(plan.sources.map((s) => `${s.regionId}/${s.source.id}`)).toEqual([
       "outer/o1",
       "outer/o2",
@@ -111,7 +111,7 @@ describe("plan", () => {
     ]);
     // A seat only in the outer region gets only the outer sources.
     expect(
-      planRegionEnvironment(d, { seat: "mid" }, "local").sources.map((s) => s.source.id),
+      planRegionEnvironment(d, { seat: "mid" }, "studio").sources.map((s) => s.source.id),
     ).toEqual(["o1", "o2"]);
   });
 
@@ -120,13 +120,13 @@ describe("plan", () => {
       { sources: [value("o1", "A", "outer")], folders: ["/outer"] },
       { sealed: true, sources: [value("i1", "B", "inner")], folders: ["/inner"] },
     );
-    const plan = planRegionEnvironment(d, { seat: "in" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "in" }, "studio");
     expect(plan.regions).toEqual([{ regionId: "inner", regionLabel: "Inner", sealed: true }]);
     expect(plan.sources.map((s) => s.source.id)).toEqual(["i1"]);
     expect(plan.folders).toEqual(["/inner"]);
     // The seal protects what is inside it, not the outer region's own seats.
     expect(
-      planRegionEnvironment(d, { seat: "mid" }, "local").sources.map((s) => s.source.id),
+      planRegionEnvironment(d, { seat: "mid" }, "studio").sources.map((s) => s.source.id),
     ).toEqual(["o1"]);
   });
 
@@ -135,13 +135,13 @@ describe("plan", () => {
       { sources: [value("o1", "A", "outer")], folders: ["/outer"] },
       { sources: [value("i1", "A", "inner")], folders: ["/inner", "/outer"] },
     );
-    expect(planRegionEnvironment(d, { region: "inner" }, "local")).toEqual(
-      planRegionEnvironment(d, { seat: "in" }, "local"),
+    expect(planRegionEnvironment(d, { region: "inner" }, "studio")).toEqual(
+      planRegionEnvironment(d, { seat: "in" }, "studio"),
     );
-    expect(planRegionEnvironment(d, { region: "outer" }, "local")).toEqual(
-      planRegionEnvironment(d, { seat: "mid" }, "local"),
+    expect(planRegionEnvironment(d, { region: "outer" }, "studio")).toEqual(
+      planRegionEnvironment(d, { seat: "mid" }, "studio"),
     );
-    expect(planRegionEnvironment(d, { region: "inner" }, "local").folders).toEqual([
+    expect(planRegionEnvironment(d, { region: "inner" }, "studio").folders).toEqual([
       "/outer",
       "/inner",
     ]);
@@ -158,11 +158,11 @@ describe("plan", () => {
     ]);
   });
 
-  it("reads `local` as the machine resolving, and a given rect over the saved one", () => {
+  it("does not treat a relative local source as this machine, and uses a given rect", () => {
     const d = canvas({ sources: [value("l", "A", "1", { host: "local" })] });
     expect(
       planRegionEnvironment(d, { seat: "mid" }, "mac").sources.map((s) => s.skippedHost),
-    ).toEqual([false]);
+    ).toEqual([true]);
     // `out` is saved outside every region, but it was just dragged inside.
     const moved = { x: 700, y: 700, width: 50, height: 40 };
     expect(planRegionEnvironment(d, { seat: "out" }, "mac").sources).toEqual([]);
@@ -182,7 +182,7 @@ describe("merge and report", () => {
       { sources: [value("o1", "A", "outer"), value("o2", "B", "outer")] },
       { sources: [value("i1", "A", "inner-first"), value("i2", "A", "inner-last")] },
     );
-    const plan = planRegionEnvironment(d, { seat: "in" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "in" }, "studio");
     const merged = mergeRegionEnvironment(plan, outcomesFor(plan));
     expect(merged.env).toEqual({ A: "inner-last", B: "outer" });
     expect(merged.report.map((r) => [r.regionId, r.sourceId, r.status, r.names])).toEqual([
@@ -205,7 +205,7 @@ describe("merge and report", () => {
         value("v", "A", "later"),
       ],
     });
-    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "studio");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, { file: ok({ A: "file", B: "file" }) }),
@@ -226,7 +226,7 @@ describe("merge and report", () => {
         value("v", "A", "1"),
       ],
     });
-    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "studio");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, {
@@ -252,7 +252,7 @@ describe("merge and report", () => {
         value("other", "B", "2", { required: true, host: "elsewhere" }),
       ],
     });
-    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "studio");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, {
@@ -282,7 +282,7 @@ describe("merge and report", () => {
         value("p", "PATH", "/opt/bin"),
       ],
     });
-    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "studio");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, { file: ok({ KEEP: "1", JUNTO_SEAT: "x", PRIME_AGENT_INTERNAL_ROLE: "w" }) }),
@@ -306,7 +306,7 @@ describe("merge and report", () => {
 
   it("never puts a value in the report", () => {
     const d = canvas({ sources: [value("v", "A", "SECRET-CANARY")] });
-    const plan = planRegionEnvironment(d, { seat: "mid" }, "local");
+    const plan = planRegionEnvironment(d, { seat: "mid" }, "studio");
     const merged = mergeRegionEnvironment(
       plan,
       outcomesFor(plan, { v: ok({ A: "SECRET-CANARY", JUNTO_X: "SECRET-CANARY" }) }),
@@ -318,7 +318,7 @@ describe("merge and report", () => {
 
 describe("what a running seat was launched with", () => {
   const record = (d: Canvas, target = "in") => {
-    const plan = planRegionEnvironment(d, { seat: target }, "local");
+    const plan = planRegionEnvironment(d, { seat: target }, "studio");
     return launchRecordOf(plan, mergeRegionEnvironment(plan, outcomesFor(plan)));
   };
 
@@ -344,8 +344,8 @@ describe("what a running seat was launched with", () => {
     // Reordering inside a region changes who wins, so it counts.
     const ab = canvas({ sources: [value("a", "A", "1"), value("b", "A", "2")] });
     const ba = canvas({ sources: [value("b", "A", "2"), value("a", "A", "1")] });
-    expect(regionEnvironmentFingerprint(planRegionEnvironment(ab, { seat: "mid" }, "local"))).not.toBe(
-      regionEnvironmentFingerprint(planRegionEnvironment(ba, { seat: "mid" }, "local")),
+    expect(regionEnvironmentFingerprint(planRegionEnvironment(ab, { seat: "mid" }, "studio"))).not.toBe(
+      regionEnvironmentFingerprint(planRegionEnvironment(ba, { seat: "mid" }, "studio")),
     );
   });
 

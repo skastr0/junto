@@ -23,6 +23,8 @@ import { openAgentEditor } from "../../lib/agent-editor-state";
 import { useHarnessLaunchOptions } from "../../lib/harness-launch-options";
 import { performSeatRelaunch } from "../../lib/seat-relaunch";
 import { terminal$ } from "../../lib/terminal-state";
+import { state$ } from "../../lib/state";
+import { getJuntoApi } from "../../lib/junto-api";
 import { Button, IconButton, Input, Select } from "../ui";
 import type { AgentEditorDraft, AgentEditorSectionProps } from "../agent-editor/sections";
 import "./customize.css";
@@ -60,7 +62,7 @@ type ParamsFormProps = {
   readonly stored: SeatLaunchParams;
   /** Working folder shown in nothing, but part of the resolved launch. */
   readonly cwd?: string;
-  readonly sessionId?: string;
+  readonly hasSession?: boolean;
   readonly lead: string;
   /** Called with every edit, already sanitized. */
   readonly onDraft?: (params: SeatLaunchParams) => void;
@@ -73,10 +75,10 @@ type ParamsFormProps = {
 };
 
 /** The fields, the harness's own options, and the resolved command. */
-function ParamsForm({ harness, stored, cwd, sessionId, lead, onDraft, footer }: ParamsFormProps) {
+function ParamsForm({ harness, stored, cwd, hasSession, lead, onDraft, footer }: ParamsFormProps) {
   const template = templateFor(harness);
   const spec = template.argvSpec;
-  const ampThread = harness === "amp" && Boolean(sessionId?.trim());
+  const ampThread = harness === "amp" && hasSession === true;
   const [model, setModel] = useState(stored.model ?? "");
   const [effort, setEffort] = useState(stored.effort ?? "");
   const [mode, setMode] = useState(stored.mode ?? "");
@@ -106,9 +108,9 @@ function ParamsForm({ harness, stored, cwd, sessionId, lead, onDraft, footer }: 
   );
   const preview = useMemo(
     () => ampThread
-      ? resolveManagedLaunch(harness, { ...current, cwd, resumeId: sessionId }, {}).argv ?? []
+      ? resolveManagedLaunch(harness, { ...current, cwd, sessionId: "<saved thread>" }, {}).argv ?? []
       : planSeatLaunch({ harness, params: current, base: { cwd } }).launch.argv ?? [],
-    [harness, current, cwd, sessionId, ampThread],
+    [harness, current, cwd, ampThread],
   );
   const changed = seatLaunchParamsDiffer({ ...stored, extraArgs: stored.extraArgs ?? [] }, current);
 
@@ -332,6 +334,18 @@ function SeatParams({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [hasSession, setHasSession] = useState(harness === "amp");
+  const canvas = use$(() => terminal$.canvasByNodeId[node.id].get() ?? state$.canvasName.get());
+  useEffect(() => {
+    let current = true;
+    if (harness !== "amp") { setHasSession(false); return; }
+    const api = getJuntoApi();
+    if (!api?.modelSeatLaunchState) return;
+    void api.modelSeatLaunchState({ canvas, id: node.id }).then((read) => {
+      if (current) setHasSession(read.hasSession);
+    }).catch(() => undefined);
+    return () => { current = false; };
+  }, [canvas, node.id, node.bindingId, harness]);
   const bindingId: string = node.bindingId;
   const running = use$(() => {
     const status = bindingId ? terminal$.sessionByBindingId[bindingId].get()?.status : undefined;
@@ -361,14 +375,14 @@ function SeatParams({
       harness={harness}
       stored={stored}
       cwd={node.launch?.cwd}
-      sessionId={node.sessionId}
+      hasSession={hasSession}
       lead={harness === "amp"
-        ? node.sessionId
+        ? hasSession
           ? "Client options for this Amp seat. Saving restarts its viewer and resumes the same thread."
           : "Choices for this seat's next Amp thread. Mode and startup features are set when the private thread is created."
         : `What ${templateFor(harness).displayName} is started with on this seat. Saving restarts a running agent on the new parameters and resumes the same session.`}
       footer={({ params, changed, settle }) => {
-        const changeError = seatLaunchParamsChangeError(node, params);
+        const changeError = seatLaunchParamsChangeError(node, params, hasSession);
         return (
           <>
             <div className="customize-params__actions">

@@ -168,9 +168,7 @@ export const exportCanvasCopy = (
   for (const node of source.nodes) {
     if (node.kind === "agent") {
       if (node.host === target.machineName) {
-        // The session a seat runs is its machine's own record, never the editing machine's.
-        const { sessionId: _session, ...seat } = node;
-        seats.push(seat);
+        seats.push(node);
       } else {
         peers.push({
           kind: "peer",

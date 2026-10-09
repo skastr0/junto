@@ -147,7 +147,6 @@ import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
 import { continuationPathOf, readNotesFile, readEndedMarker } from "../seat-sessions/notes-file";
-import { seatSessionOnNode } from "../seat-sessions/transitions";
 import type { SeatSessionObservation } from "../seat-sessions/repository";
 import { getCapturedSessionId } from "../term/session-id-store";
 import { harnessSessionExists } from "../term/session-existence";
@@ -911,12 +910,14 @@ const seatConfigurationOf = (node: Node) =>
   });
 
 /**
- * The caller seat's current harness session: the id its node names, or an id
+ * The caller seat's current harness session: its store pin, or an id
  * the seat announced that the harness's own files already prove.
  */
-const currentSeatSession = (node: Node): SeatSessionObservation | undefined => {
-  const named = seatSessionOnNode(node);
-  if (named) return named;
+const currentSeatSession = (node: Node, repository: SeatSessionRepository["Service"]) => Effect.gen(function* () {
+  const named = node.kind === "agent"
+    ? yield* repository.current(node.id, node.bindingId).pipe(Effect.orElseSucceed(() => undefined))
+    : undefined;
+  if (named?.harness === (node.kind === "agent" ? node.harness : undefined)) return named;
   const surface = node.kind === "agent" ? node : undefined;
   if (surface === undefined) return undefined;
   const captured = getCapturedSessionId(surface.bindingId);
@@ -924,8 +925,8 @@ const currentSeatSession = (node: Node): SeatSessionObservation | undefined => {
   if (!captured || !harnessSessionExists({ harness: surface.harness, sessionId: captured, ...(cwd ? { cwd } : {}) })) {
     return undefined;
   }
-  return { seatId: node.id, sessionId: captured, harness: surface.harness, ...(cwd ? { cwd } : {}) };
-};
+  return { seatId: node.id, bindingId: surface.bindingId, sessionId: captured, harness: surface.harness, ...(cwd ? { cwd } : {}) };
+});
 
 /**
  * Look for a seat's session id right now. A harness that mints its own id is
@@ -951,7 +952,7 @@ const lookForSeatSession = (node: Node): Effect.Effect<SeatSessionObservation | 
   return Effect.promise(() => lookup(surface.bindingId).catch(() => undefined)).pipe(
     Effect.map((sessionId) =>
       sessionId?.trim()
-        ? { seatId: node.id, sessionId: sessionId.trim(), harness: surface.harness, ...(cwd ? { cwd } : {}) }
+        ? { seatId: node.id, bindingId: surface.bindingId, sessionId: sessionId.trim(), harness: surface.harness, ...(cwd ? { cwd } : {}) }
         : undefined,
     ),
   );
@@ -986,7 +987,7 @@ const pastSessionsOf = (node: Node, pastNotes: number) =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(SeatSessionRepository);
     if (Option.isNone(store)) return undefined;
-    const current = currentSeatSession(node);
+    const current = yield* currentSeatSession(node, store.value);
     const recorded = yield* listSeatSessions(node.id, current?.cwd).pipe(
       Effect.provideService(SeatSessionRepository, store.value),
     );
@@ -1298,7 +1299,7 @@ const dispatchOp = (
       // writes only its own current session's notes.
       const self = findNode(board, caller.nodeId)!;
       // Not known yet: look once, now, before refusing.
-      const current = currentSeatSession(self) ?? (yield* lookForSeatSession(self));
+      const current = (yield* currentSeatSession(self, store.value)) ?? (yield* lookForSeatSession(self));
       if (current === undefined) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "InvalidTransition",

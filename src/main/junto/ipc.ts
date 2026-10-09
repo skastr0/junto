@@ -1881,7 +1881,8 @@ export const registerJuntoIpc = (): void => {
             if (read._tag === "Failure") return undefined;
             const node = read.success.nodes.get(asNodeId(seatId));
             if (node?.kind !== "agent") return undefined;
-            const sessionId = node.sessionId?.trim();
+            const sessions = yield* SeatSessionRepository;
+            const sessionId = (yield* sessions.current(node.id, node.bindingId))?.sessionId;
             return {
               bindingId: node.bindingId,
               local: termPlane.router.isLocalHostId(node.host),

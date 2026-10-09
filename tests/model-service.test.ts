@@ -322,33 +322,8 @@ it("keeps a sheet grid off Opened and placement events and admits seat authority
         }),
         "operator",
       );
-      expect(
-        (yield* model
-          .command(
-            decode({
-              _tag: "RecordSession",
-              canvas: "factory",
-              id: "seat",
-              sessionId: "known",
-            }),
-            "operator",
-          )
-          .pipe(Effect.result))._tag,
-      ).toBe("Failure");
-      yield* model.command(
-        decode({
-          _tag: "RecordSession",
-          canvas: "factory",
-          id: "seat",
-          sessionId: "known",
-        }),
-        "runtime",
-      );
-      expect(
-        (yield* model.open("factory")).nodes.find(
-          (node) => node.kind === "agent",
-        ),
-      ).toMatchObject({ overseer: true, sessionId: "known" });
+      expect(() => decode({ _tag: "RecordSession", canvas: "factory", id: "seat", sessionId: "known" })).toThrow();
+      expect((yield* model.open("factory")).nodes.find(node => node.kind === "agent")).toMatchObject({ overseer: true });
       yield* Fiber.interrupt(subscriber);
     }),
   ));
@@ -459,8 +434,7 @@ it("refuses overseer occupant changes and rolls back presentation steps before t
       { _tag: "Move", canvas: "factory", moves: [{ id: "seat", x: 5, y: 6 }] },
     ]) expect((yield* model.command(decode(step), "runtime").pipe(Effect.result))._tag).toBe("Failure");
     expect(events).toEqual([]);
-    yield* model.command(decode({ _tag: "RecordSession", canvas: "factory", id: "seat", sessionId: "captured" }), "runtime");
-    expect((yield* model.open("factory")).nodes[0]).toMatchObject({ overseer: true, sessionId: "captured" });
+    expect((yield* model.open("factory")).nodes[0]).toMatchObject({ overseer: true });
     stop();
   })),
 );
@@ -468,7 +442,7 @@ it("refuses overseer occupant changes and rolls back presentation steps before t
 it("refuses protected-seat edits, runtime commands, duplicate bindings and duplicate relationships", () =>
   run((model) =>
     Effect.gen(function* () {
-      const protectedSeat = { ...seat, overseer: true, sessionId: "restored" };
+      const protectedSeat = { ...seat, overseer: true };
       yield* model.command(
         decode({
           _tag: "Add",
@@ -526,16 +500,7 @@ it("refuses protected-seat edits, runtime commands, duplicate bindings and dupli
         expect(result._tag).toBe("Failure");
       }
       expect((yield* model.open("factory")).seq).toBe(1);
-      yield* model.command(
-        decode({
-          _tag: "RecordSession",
-          canvas: "factory",
-          id: "seat",
-          sessionId: "next",
-        }),
-        "runtime",
-      );
-      expect((yield* model.open("factory")).seq).toBe(2);
+
     }),
   ));
 
@@ -654,9 +619,8 @@ it("restores a node's exact z through Move", () => run((model) => Effect.gen(fun
   expect((yield* model.open("factory")).nodes[0].z).toBe(-20);
 })));
 
-it("reseats a node without changing its wires and clears its old session and launch", () => run((model, _sql, db) => Effect.gen(function* () {
+it("reseats a node without changing its wires and clears its launch", () => run((model, _sql, db) => Effect.gen(function* () {
   yield* model.command(decode({ _tag: "Add", canvas: "factory", nodes: [seat, { ...seat, id: "peer", bindingId: "peer-binding" }], wires: [{ id: "mail", from: "seat", to: "peer", verb: "messages" }] }), "operator");
-  yield* model.command(decode({ _tag: "RecordSession", canvas: "factory", id: "seat", sessionId: "old-session" }), "runtime");
   const wires = (yield* model.open("factory")).wires;
   const reseat = { _tag: "Reseat", canvas: "factory", id: "seat", agentKey: "local:new-agent", bindingId: "new-binding", harness: "claude", host: THIS_MACHINE };
   yield* model.command(decode(reseat), "operator");
@@ -665,7 +629,6 @@ it("reseats a node without changing its wires and clears its old session and lau
   expect(changed).not.toHaveProperty("sessionId");
   expect(changed).not.toHaveProperty("launch");
   expect((yield* model.open("factory")).wires).toEqual(wires);
-  expect(db.prepare("SELECT session_id FROM seats WHERE id='seat'").get()!.session_id).toBeNull();
   expect((yield* model.command(decode({ ...reseat, bindingId: "peer-binding" }), "operator").pipe(Effect.result))._tag).toBe("Failure");
   yield* model.command(decode({ _tag: "GrantOverseer", canvas: "factory", id: "seat", overseer: true }), "operator");
   expect((yield* model.command(decode({ ...reseat, bindingId: "third-binding" }), "overseer").pipe(Effect.result))._tag).toBe("Failure");

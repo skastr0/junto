@@ -46,7 +46,7 @@ const edit = <const K extends NodeKind, Fields extends Schema.Struct.Fields>(
  * What may be changed on a node after it is made, per kind. Not here, because
  * they are not ordinary edits: a seat's `agentKey` and a session's `bindingId`
  * (who the thing is), a seat's `overseer` (a grant of authority, with its own
- * command) and its `sessionId` (recorded by the runtime, not typed).
+ * command). Harness session pins belong to execution state.
  */
 export const NodeEdit = Schema.Union([
   edit("agent", {
@@ -195,12 +195,6 @@ export const Command = Schema.TaggedUnion({
    * from the operator, never from a seat and never as part of another edit.
    */
   GrantOverseer: { canvas: CanvasName, id: NodeId, overseer: Schema.Boolean },
-  /** Record the harness session a seat is now running, or that it has none. */
-  RecordSession: {
-    canvas: CanvasName,
-    id: NodeId,
-    sessionId: Schema.NullOr(Schema.String),
-  },
   CreateCanvas: { canvas: CanvasName },
   RemoveCanvas: { canvas: CanvasName },
 });

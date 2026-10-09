@@ -2,7 +2,7 @@
  * Close a seat's session after it offboards, and start the next one or not.
  *
  * Called by the offboard closer the moment `junto offboard` has been
- * answered, mid-turn: the turn in flight is cut. The seat's current session ends as `offboard`, its node
+ * answered, mid-turn: the turn in flight is cut. The seat's current session ends as `offboard`, its machine store
  * gets a fresh session id (a new pin, or none for a harness that announces
  * its own), and the running process stops. With `wake` (the default) the
  * kernel starts the seat again under the usual rules: this installation's
@@ -15,9 +15,8 @@
  * Offboard notes are the agent's to write; rotating never writes them.
  */
 import { randomUUID } from "node:crypto";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { isThisMachine } from "@shared/machine-name";
-import { Command } from "@shared/model";
 import { SqlClient } from "effect/unstable/sql";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 
@@ -43,7 +42,7 @@ export type RotatingSeat = {
   readonly canvasName: string;
   readonly bindingId: string;
   readonly harness: string;
-  /** The session the node names now. */
+  /** The current occupant's named session. */
   readonly sessionId?: string;
   /** This installation runs the seat. */
   readonly local: boolean;
@@ -59,8 +58,8 @@ export type DetachedGeneration = {
 export type SeatRotatePorts = {
   readonly locate: (seatId: string, canvasName?: string) => Promise<RotatingSeat | undefined>;
   readonly endSession: (seatId: string, sessionId: string) => Promise<void>;
-  readonly reopenSession: (seatId: string, sessionId: string, harness: string) => Promise<void>;
-  /** Replace the node's session id (or clear it); false when the seat changed hands. */
+  readonly reopenSession: (seatId: string, sessionId: string, harness: string, bindingId: string) => Promise<void>;
+  /** Replace the occupant's session pin (or clear it); false when the seat changed hands. */
   readonly writeSessionId: (seat: RotatingSeat, seatId: string, next: string | undefined) => Promise<boolean>;
   /**
    * Take the running generation off the seat, now. From the moment this
@@ -110,8 +109,8 @@ export const rotateSeatSession = async (
   // The seat lets go of the old process first, before anything is awaited
   // on its behalf: from here the seat is the fresh session's.
   const old = await ports.detach(seat, seatId, ended);
-  // End the session as offboard before the new id lands, so the canvas
-  // recorder sees no open session to call replaced.
+  // End the session as offboard before the new id lands, so replacing the pin
+  // retains the offboard reason.
   if (ended) await ports.endSession(seatId, ended);
   const written = await ports.writeSessionId(seat, seatId, next).catch(() => false);
   if (!written) {
@@ -120,8 +119,8 @@ export const rotateSeatSession = async (
     // session is two owners of one session: stop it now. The session is the
     // seat's again in the history; its next wake resumes it.
     await old.stopNow().catch(() => undefined);
-    if (ended) await ports.reopenSession(seatId, ended, seat.harness);
-    return { ok: false, reason: "could not give the seat a fresh session on its canvas" };
+    if (ended) await ports.reopenSession(seatId, ended, seat.harness, seat.bindingId);
+    return { ok: false, reason: "could not record the fresh session for this seat" };
   }
   const woke = options.wake === false ? false : await ports.wake(seat, seatId).catch(() => false);
   return { ok: true, ...(ended ? { ended } : {}), ...(next ? { next } : {}), woke };
@@ -149,13 +148,12 @@ export const offboardAndRotate = async (
 ): Promise<SeatRotateResult> => {
   // Imported at call time: this module is reached from app composition, and
   // the runtime graph imports the terminal plane and canvases in turn.
-  const [{ AppRuntime }, { ModelService }, { MachineRepository }, { SeatSessionRepository }, { mainAuthoringGate }] =
+  const [{ AppRuntime }, { ModelService }, { MachineRepository }, { SeatSessionRepository }] =
     await Promise.all([
       import("../../runtime"),
       import("../model/service"),
       import("../machines/repository"),
       import("./repository"),
-      import("../main-authoring-gate"),
     ]);
   const [{ termPlane }, { forgetAutoRestartSpend }, { KernelService }] = await Promise.all([
     import("../term/plane"),
@@ -176,7 +174,8 @@ export const offboardAndRotate = async (
               if (node?.kind !== "agent") continue;
               const machines = yield* MachineRepository;
               const machineName = yield* machines.machineName;
-              const sessionId = node.sessionId?.trim();
+              const sessions = yield* SeatSessionRepository;
+              const sessionId = (yield* sessions.current(node.id, node.bindingId))?.sessionId;
               return {
                 canvasName: name,
                 bindingId: node.bindingId,
@@ -194,28 +193,37 @@ export const offboardAndRotate = async (
             Effect.ignore,
           ),
         ),
-      reopenSession: (id, sessionId, harness) =>
-        AppRuntime.runPromise(
-          Effect.flatMap(SeatSessionRepository, (sessions) => sessions.record({ seatId: id, sessionId, harness })).pipe(
-            Effect.ignore,
-          ),
-        ),
+      reopenSession: (id, sessionId, harness, bindingId) =>
+        AppRuntime.runPromise(Effect.gen(function* () {
+          const model = yield* ModelService;
+          const sql = yield* SqlClient.SqlClient;
+          const sessions = yield* SeatSessionRepository;
+          yield* sql.withTransaction(Effect.gen(function* () {
+            const candidates = [];
+            for (const name of yield* model.listCanvases())
+              candidates.push((yield* model.canvas(name)).nodes.get(id as never));
+            if (!candidates.some((node) => node?.kind === "agent" && node.bindingId === bindingId && node.harness === harness)) return;
+            if (yield* sessions.current(id, bindingId)) return;
+            yield* sessions.record({ seatId: id, sessionId, harness, bindingId });
+          }));
+        })),
       writeSessionId: (seat, id, next) =>
-        mainAuthoringGate.run("seat-sessions.rotate", () =>
-          AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const model = yield* ModelService;
-              const sql = yield* SqlClient.SqlClient;
-              return yield* sql.withTransaction(Effect.gen(function* () {
-                const candidate = (yield* model.canvas(seat.canvasName)).nodes.get(id as never);
-                if (candidate?.kind !== "agent" || candidate.bindingId !== seat.bindingId) return false;
-                yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RecordSession", canvas: seat.canvasName,
-                  id, sessionId: next ?? null }), "runtime");
-                return true;
-              }));
-            }),
-          ),
-        ),
+        AppRuntime.runPromise(Effect.gen(function* () {
+          const model = yield* ModelService;
+          const sql = yield* SqlClient.SqlClient;
+          const sessions = yield* SeatSessionRepository;
+          const machines = yield* MachineRepository;
+          return yield* sql.withTransaction(Effect.gen(function* () {
+            const candidate = (yield* model.canvas(seat.canvasName)).nodes.get(id as never);
+            const machineName = yield* machines.machineName;
+            if (candidate?.kind !== "agent" || candidate.bindingId !== seat.bindingId || candidate.harness !== seat.harness ||
+              !isThisMachine(candidate.host, machineName)) return false;
+            if (next === undefined) yield* sessions.end(id, "offboard", undefined, seat.bindingId);
+            else yield* sessions.record({ seatId: id, bindingId: seat.bindingId, sessionId: next, harness: seat.harness,
+              ...(candidate.launch?.cwd ? { cwd: candidate.launch.cwd } : {}) });
+            return true;
+          }));
+        })),
       detach: async (seat, id, endedSessionId) => {
         // A rotation is deliberate, not a crash: it spends none of the seat's
         // automatic restarts, now or at the wake that follows a rest.

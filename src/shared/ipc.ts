@@ -153,6 +153,7 @@ export const IPC_CHANNELS = {
   modelSheetRead: "junto:model-sheet-read",
   modelSheetChanged: "junto:model-sheet-changed",
   modelStart: "junto:model-start",
+  modelSeatLaunchState: "junto:model-seat-launch-state",
   modelStop: "junto:model-stop",
   getSnapshots: "junto:get-snapshots",
   refreshSnapshots: "junto:refresh-snapshots",
@@ -775,6 +776,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   }) => Promise<TerminalSessionSummary>;
   /** Stop the session of a seat or terminal. The node stays on the canvas. */
   readonly modelStop: (input: { readonly canvas: string; readonly id: string }) => Promise<void>;
+  /** Creation settings remain locked after a seat acquired its named session. */
+  readonly modelSeatLaunchState: (input: { readonly canvas: string; readonly id: string }) => Promise<{ readonly hasSession: boolean }>;
   readonly getSnapshots: () => Promise<SnapshotState>;
   // Kernel state and control (headless kernel in main process).
   readonly getKernelState: () => Promise<KernelSnapshot>;

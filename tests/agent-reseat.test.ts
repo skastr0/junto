@@ -62,7 +62,7 @@ describe("skip reseat confirm preference", () => {
  */
 describe("reseatSeat: a re-seat said as one command", () => {
   const seatRow = () => {
-    const row = newSeat({ x: 120, y: 240, z: 3 }, { harness: "claude", host: "local", cwd: "/Users/me/Projects/junto", label: "cli-identity" });
+    const row = newSeat({ x: 120, y: 240, z: 3 }, { harness: "claude", host: "studio", cwd: "/Users/me/Projects/junto", label: "cli-identity" });
     const fresh = row;
     return { fresh, row };
   };
@@ -73,7 +73,7 @@ describe("reseatSeat: a re-seat said as one command", () => {
     expect(command._tag).toBe("Reseat");
     expect(command.id).toBe(row.id);
     expect(command.harness).toBe("grok");
-    expect(command.agentKey).toBe("local:grok");
+    expect(command.agentKey).toBe("studio:grok");
     expect(command.host).toBe(row.host);
     expect(command.bindingId).not.toBe(row.bindingId);
     // The working directory the seat was launched in is kept.
@@ -95,11 +95,11 @@ describe("reseatSeat: a re-seat said as one command", () => {
       expect(result).toEqual({ ok: true });
       const after = modelStore.canvasOf("factory").nodes.get(row.id);
       expect(after).toMatchObject({
-        kind: "agent", harness: "grok", agentKey: "local:grok", label: "cli-identity",
+        kind: "agent", harness: "grok", agentKey: "studio:grok", label: "cli-identity",
         x: before?.x, y: before?.y, width: before?.width, height: before?.height,
       });
       expect(after?.kind === "agent" ? after.bindingId : undefined).not.toBe(row.bindingId);
-      expect(after?.kind === "agent" ? after.sessionId : "none").toBeUndefined();
+      expect(after).not.toHaveProperty("sessionId");
     } finally {
       release();
     }

@@ -313,7 +313,6 @@ export type SeatSession = {
   readonly size: string;
   readonly host: string;
   readonly harness: string;
-  readonly sessionId: string;
 };
 
 const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
@@ -321,7 +320,6 @@ const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
   ["size", "size"],
   ["host", "host"],
   ["harness", "harness"],
-  ["sessionId", "session"],
 ];
 
 /** Renders only for actor-role nodes: every actor has a mailbox with the kernel. */

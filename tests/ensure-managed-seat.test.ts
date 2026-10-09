@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Node, type Seat } from "../src/shared/model";
 import { InstallationId } from "../src/shared/installation-id";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
@@ -7,7 +7,7 @@ import {
   ActorSeatOccupy,
   type ActorOccupySpec,
 } from "../src/main/junto/term/actor-seat-occupy";
-import * as ampSeatThread from "../src/main/junto/term/amp-seat-thread";
+import * as seatSessionBeforeStart from "../src/main/junto/term/seat-session-before-start";
 import { termPlane } from "../src/main/junto/term/plane";
 import {
   AUTO_RESTART_BACKOFF_MS,
@@ -143,6 +143,10 @@ const runningSummary = {
 } as const;
 
 describe("managed-seat occupation", () => {
+  beforeEach(() => {
+    vi.spyOn(seatSessionBeforeStart, "ensureSeatSessionId").mockResolvedValue({ ok: true, sessionId: "", minted: false });
+  });
+  afterEach(() => vi.restoreAllMocks());
   it("routes a vacant spawn through ActorSeatOccupy", async () => {
     resetAutoRestartBudgetsForTest();
     const fixture = managedFixture();
@@ -229,7 +233,7 @@ describe("managed-seat occupation", () => {
     const fixture = managedFixture();
     const launch = { kind: "harness" as const, argv: ["amp", "--no-ide", "-m", "low"], cwd: "/work" };
     const node: Seat = { ...fixture.node, agentKey: "box-a:amp" as Seat["agentKey"], harness: "amp", launch };
-    const provision = vi.spyOn(ampSeatThread, "ensureProvisionedSessionId").mockResolvedValue({
+    const provision = vi.spyOn(seatSessionBeforeStart, "ensureSeatSessionId").mockResolvedValue({
       ok: true,
       sessionId: "T-00000000-0000-4000-8000-000000000001",
       minted: true,
@@ -250,6 +254,7 @@ describe("managed-seat occupation", () => {
       expect(provision).toHaveBeenCalledExactlyOnceWith({
         canvasName: "factory",
         nodeId: "actor",
+        bindingId: "binding-alpha",
         harness: "amp",
         cwd: "/work",
         documentLaunch: launch,

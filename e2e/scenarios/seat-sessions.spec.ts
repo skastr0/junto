@@ -1,4 +1,5 @@
-import { modelFixture, modelSeat, readModelSeat } from "../harness/model";
+import { readSeatSession } from "../harness/seat-session";
+import { modelFixture, modelSeat, modelSeatSession, readModelSeat } from "../harness/model";
 /**
  * Seat sessions [fake-tui]: after a seat moves to a second session,
  * `junto onboard` lists the first one's notes as history. Sessions are
@@ -11,8 +12,8 @@ import { modelFixture, modelSeat, readModelSeat } from "../harness/model";
  * process asks of Junto afterwards is refused. So the second `onboard` comes
  * from a fresh process on the seat, once the first is gone: the two share the
  * fixture's one folder per seat, and only one of them may answer there. The
- * fresh process's session id arrives on the canvas node the way a new capture
- * sets it; the app's recorder turns that into history.
+ * fresh process's session id arrives through runtime capture in the machine's
+ * private session store; its predecessor remains history.
  *
  *   bun run test:e2e:fast e2e/scenarios/seat-sessions.spec.ts
  */
@@ -33,7 +34,7 @@ const SEAT = "seat-ada";
 const FIRST = "sess-first-0001";
 const SECOND = "01a0e983-fee2-7ff2-97db-b10259aa4d84";
 
-const seatNode = modelSeat({ id: SEAT, key: `local:${SEAT}`, label: "ada", x: 80, y: 80, sessionId: FIRST });
+const seatNode = modelSeat({ id: SEAT, key: `local:${SEAT}`, label: "ada", x: 80, y: 80 });
 
 /** The process is still there: signal 0 asks without touching it. */
 const isRunning = (pid: number): boolean => {
@@ -53,7 +54,7 @@ const data = (envelope: WorkEnvelope): Record<string, any> => {
 test("a seat's second session onboards with the first one's notes", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const junto = await launchJunto({
-    seedModels: { [CANVAS]: modelFixture([seatNode]) },
+    seedModels: { [CANVAS]: modelFixture([seatNode], [], [modelSeatSession(seatNode, FIRST)]) },
     afterSeed: installCrewSeatHarness,
   });
   const mainLog: string[] = [];
@@ -84,12 +85,12 @@ test("a seat's second session onboards with the first one's notes", async ({}, t
     // A fresh process takes the seat, started from the node as the offboard left it.
     const rested = await readModelSeat(page, CANVAS, SEAT);
     expect(rested, "the same seat remains after offboard").toBeDefined();
-    expect(rested!.sessionId, "the node no longer names the closed session").not.toBe(FIRST);
+    expect(readSeatSession(sandbox, SEAT), "the private pin no longer names the closed session").not.toBe(FIRST);
     const fresh = await crewOccupySeat(page, CANVAS, rested!, seat);
     expect(fresh.pid, "a fresh process is on the seat").not.toBe(first.pid);
 
     // The fake harness writes the same session_meta receipt Codex writes.
-    // Runtime discovery owns RecordSession; the renderer cannot mint it.
+    // Runtime discovery records the private pin; the canvas cannot mint it.
     const at = new Date();
     const pad = (value: number) => String(value).padStart(2, "0");
     const dir = join(sandbox.homeDir, ".codex", "sessions", String(at.getFullYear()), pad(at.getMonth() + 1), pad(at.getDate()));
@@ -102,7 +103,7 @@ test("a seat's second session onboards with the first one's notes", async ({}, t
     await seat.control({ screen: { mode: "working" } });
     await expect.poll(async () => (await page.evaluate(() => window.junto!.agentSeatStateSnapshot()))
       .find((event) => event.bindingId === rested!.bindingId)?.state, { timeout: 30_000 }).toBe("working");
-    await expect.poll(async () => (await readModelSeat(page, CANVAS, SEAT))?.sessionId,
+    await expect.poll(async () => readSeatSession(sandbox, SEAT),
       { message: "runtime capture stored the second session", timeout: 30_000 }).toBe(SECOND);
     await seat.control({ screen: { mode: "idle" } });
 

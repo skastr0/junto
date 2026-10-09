@@ -228,11 +228,11 @@ describe("ensureProvisionedSessionId", () => {
       threadId: "T-00000000-0000-4000-8000-000000000001",
     });
     const store = vi.spyOn(seatSession, "writeSeatSessionId").mockResolvedValue({ ok: true });
-    const node = newSeat({ x: 0, y: 0, z: 0 }, { harness: "amp", host: "local", mode: "low" });
+    const node = newSeat({ x: 0, y: 0, z: 0 }, { harness: "amp", host: "workbench", mode: "low" });
     try {
       expect(await ensureProvisionedSessionId({
         canvasName: "factory",
-        nodeId: "n1",
+        nodeId: "n1", bindingId: "binding-n1",
         harness: "amp",
         cwd: "/work",
         documentLaunch: node.launch,
@@ -244,8 +244,9 @@ describe("ensureProvisionedSessionId", () => {
       expect(provision).toHaveBeenCalledExactlyOnceWith({ cwd: "/work", mode: "low" });
       expect(store).toHaveBeenCalledExactlyOnceWith({
         canvasName: "factory",
-        nodeId: "n1",
+        nodeId: "n1", bindingId: "binding-n1",
         sessionId: "T-00000000-0000-4000-8000-000000000001",
+        harness: "amp", onlyIfAbsent: true,
       });
     } finally {
       provision.mockRestore();
@@ -260,7 +261,7 @@ describe("ensureProvisionedSessionId", () => {
     const store = vi.spyOn(seatSession, "writeSeatSessionId").mockResolvedValue({ ok: true });
     try {
       await ensureProvisionedSessionId({
-        canvasName: "factory", nodeId: "n1", harness: "amp",
+        canvasName: "factory", nodeId: "n1", bindingId: "binding-n1", harness: "amp",
         documentLaunch: {
           kind: "harness", argv: ["amp", "--no-ide", "--mode=fixture-reviewer", "--features", "plaid"],
           extraArgs: ["--features", "plaid"],
@@ -280,7 +281,7 @@ describe("ensureProvisionedSessionId", () => {
     try {
       const result = await ensureProvisionedSessionId({
         canvasName: "factory",
-        nodeId: "n1",
+        nodeId: "n1", bindingId: "binding-n1",
         harness: "amp",
         storedSessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
         documentLaunch: { kind: "harness", argv: ["amp", "-m", "low"] },
@@ -301,7 +302,7 @@ describe("ensureProvisionedSessionId", () => {
   it("passes non-provisioned harnesses straight through", async () => {
     const result = await ensureProvisionedSessionId({
       canvasName: "factory",
-      nodeId: "n1",
+      nodeId: "n1", bindingId: "binding-n1",
       harness: "claude",
       storedSessionId: "5a2f1f6c-1f1e-4c7a-9a1e-3f0f5b2a7c11",
     });
@@ -355,7 +356,7 @@ describe("an Amp seat authored from the picker", () => {
   it("stores the picked mode in the node's launch argv", () => {
     const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "amp",
-      host: "local",
+      host: "workbench",
       mode: "ultra",
     });
     const argv = node.launch?.argv ?? [];
@@ -363,7 +364,7 @@ describe("an Amp seat authored from the picker", () => {
     expect(argv).toContain("-m");
     expect(argv[argv.indexOf("-m") + 1]).toBe("ultra");
     // The thread is Amp's to mint, so the node carries no session id yet.
-    expect(node.sessionId).toBeUndefined();
+    expect(node).not.toHaveProperty("sessionId");
   });
 
   it("offers Amp's built-in modes as a fallback, and no model list", () => {

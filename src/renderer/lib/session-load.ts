@@ -33,21 +33,10 @@ export const SESSION_LOAD_TONE_HEX: Record<SessionLoadTone, string> = {
 /** After this many ms in a non-terminal load phase, surface as stuck. */
 export const SESSION_LOAD_STUCK_MS = 12_000;
 
-const shortId = (id: string): string => {
-  const trimmed = id.trim();
-  if (trimmed.length <= 10) return trimmed;
-  return `${trimmed.slice(0, 8)}…`;
-};
-
-/**
- * Resolve spinner presentation for the current load phase.
- * `sessionId` is only used for the resuming label (truncated).
- */
+/** Resolve the operator-facing load state without exposing harness ids. */
 export const sessionLoadPresentation = (input: {
   readonly phase: SessionLoadPhase;
-  readonly sessionId?: string | null;
 }): SessionLoadPresentation => {
-  const sid = input.sessionId?.trim();
   switch (input.phase) {
     case "finding":
       return {
@@ -67,7 +56,7 @@ export const sessionLoadPresentation = (input: {
       return {
         phase: "resuming",
         tone: "violet",
-        label: sid ? `resuming ${shortId(sid)}` : "resuming session",
+        label: "resuming session",
         hex: SESSION_LOAD_TONE_HEX.violet,
       };
     case "attaching":
@@ -87,22 +76,10 @@ export const sessionLoadPresentation = (input: {
   }
 };
 
-/**
- * First active load phase for an actor seat open, before the host answers.
- * A pinned session id only names the session a seat would use; it never
- * proves one exists, so a pinned seat is "finding" until the host says
- * whether it resumed. No pin starts fresh. Non-agent shells skip to attach.
- */
+/** The machine resolves its pin before reporting start or resume. */
 export const initialSessionLoadPhase = (input: {
   readonly agentSeat: boolean;
-  readonly sessionId?: string | null;
-}): SessionLoadPhase => {
-  if (!input.agentSeat) return "attaching";
-  if (input.sessionId === undefined || input.sessionId === null) {
-    return "starting";
-  }
-  return "finding";
-};
+}): SessionLoadPhase => input.agentSeat ? "finding" : "attaching";
 
 /** Load phase once the host started a generation: resume only when it proved one. */
 export const startedSessionLoadPhase = (input: {

@@ -22,6 +22,7 @@ import {
   openTerminal,
 } from "./terminal-actions";
 import { terminal$ } from "./terminal-state";
+import { state$ } from "./state";
 import { closeTerminalView } from "./dock-state";
 
 /** How long a stopping harness gets before the restart is reported as stuck. */
@@ -143,9 +144,20 @@ export const performSeatRelaunch = async (
   seat: Seat,
   params: SeatLaunchParams,
 ): Promise<SeatRelaunchResult> => {
-  const changeError = seatLaunchParamsChangeError(seat, params);
+  let hasSession = false;
+  if (seat.harness === "amp") {
+    const api = getJuntoApi();
+    if (!api?.modelSeatLaunchState) return { ok: false, message: "Junto cannot read this seat's start settings yet." };
+    try {
+      const canvas = terminal$.canvasByNodeId[seat.id].peek() ?? state$.canvasName.peek();
+      hasSession = (await api.modelSeatLaunchState({ canvas, id: seat.id })).hasSession;
+    } catch (cause) {
+      return { ok: false, message: cause instanceof Error ? cause.message : "Junto could not read this seat's start settings." };
+    }
+  }
+  const changeError = seatLaunchParamsChangeError(seat, params, hasSession);
   if (changeError) return { ok: false, message: changeError };
-  const relaunched = seatRelaunch(seat, params);
+  const relaunched = seatRelaunch(seat, params, hasSession);
   if (!relaunched) return { ok: false, message: "not a managed agent seat" };
   const node = seat;
   const next = { ...seat, launch: relaunched.launch };

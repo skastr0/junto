@@ -14,13 +14,12 @@ describe("sessionLoadPresentation", () => {
     expect(sessionLoadPresentation({ phase: "stuck" }).tone).toBe("crimson");
   });
 
-  it("resumes with truncated session id and violet tone", () => {
+  it("shows a violet resuming label", () => {
     const p = sessionLoadPresentation({
       phase: "resuming",
-      sessionId: "01KYYRTMWV8K31NMBMNJ91RM43",
     });
     expect(p.tone).toBe("violet");
-    expect(p.label).toBe("resuming 01KYYRTM…");
+    expect(p.label).toBe("resuming session");
   });
 
   it("resuming without id still labels resume", () => {
@@ -33,18 +32,12 @@ describe("sessionLoadPresentation", () => {
 describe("initialSessionLoadPhase", () => {
   it("non-agent shells go straight to attaching", () => {
     expect(
-      initialSessionLoadPhase({ agentSeat: false, sessionId: "x" }),
+      initialSessionLoadPhase({ agentSeat: false }),
     ).toBe("attaching");
   });
 
-  it("a pin alone never reads as resuming; without a pin the seat starts new", () => {
-    expect(
-      initialSessionLoadPhase({ agentSeat: true, sessionId: "abc" }),
-    ).toBe("finding");
-    expect(initialSessionLoadPhase({ agentSeat: true })).toBe("starting");
-    expect(initialSessionLoadPhase({ agentSeat: true, sessionId: "  " })).toBe(
-      "finding",
-    );
+  it("finds the machine's session before deciding how to start", () => {
+    expect(initialSessionLoadPhase({ agentSeat: true })).toBe("finding");
   });
 });
 

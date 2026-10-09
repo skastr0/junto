@@ -25,8 +25,7 @@ import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
 import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
@@ -46,8 +45,7 @@ const makeRuntime = (root: string) => {
       WorkRepositoryLive,
       CrewRepositoryLive,
       makeSeatSessionRepositoryLive(join(root, "seats")),
-      StationRepositoryLive,
-      StationFleetTargetRepositoryLive,
+      makeMachineRepositoryLive({ defaultName: () => "workbench" }),
       SettingsLive,
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
     ),
@@ -64,11 +62,11 @@ const makeRuntime = (root: string) => {
 const claude = (id: string, x: number, sessionId?: string) =>
   seat(id, {
     x,
+    host: "workbench",
     width: 120,
     height: 48,
     bindingId: `bind-${id}` as never,
     launch: { kind: "harness", argv: ["claude"] },
-    ...(sessionId ? { sessionId } : {}),
   });
 
 let root: string;
@@ -84,8 +82,9 @@ beforeEach(async () => {
   runtime = makeRuntime(root);
   const settings = await runtime.runPromise(SettingsService);
   await runtime.runPromise(
-    settings.setStationTopology({ role: "command-center", hostId: "local", supervisedPreferred: true }),
+    settings.setMachinePreferences({ supervisedPreferred: true }),
   );
+  await runtime.runPromise(Effect.flatMap(MachineRepository, machine => machine.configureName("workbench")));
   await writeSession("s1");
   const processMap = makeProcessIdentityMap();
   processMap.bind(process.pid, { agentKey: "local:agent" });
@@ -109,22 +108,14 @@ afterEach(async () => {
 });
 
 const writeSession = async (sessionId: string | undefined) => {
-  // The canvas is made once; after that only the seat's session changes.
-  const held = await runtime.runPromise(Effect.flatMap(ModelService, (model) => model.listCanvases()));
-  if (!held.some((name) => name === CANVAS)) {
-    await runtime.runPromise(seedCanvas(CANVAS, [claude("agent", 0, sessionId), claude("other", 200, "other-session")]));
-  } else {
-    await runtime.runPromise(Effect.flatMap(ModelService, (model) => model.command(
-      { _tag: "RecordSession", canvas: asCanvasName(CANVAS), id: asNodeId("agent"), sessionId: sessionId ?? null },
-      "runtime",
-    )));
+  const held = await runtime.runPromise(Effect.flatMap(ModelService, model => model.listCanvases()));
+  if (!held.some(name => name === CANVAS)) {
+    await runtime.runPromise(seedCanvas(CANVAS, [claude("agent", 0), claude("other", 200)]));
   }
-  // What the app's canvas recorder does on this commit.
-  if (sessionId) {
-    await runtime.runPromise(
-      Effect.flatMap(SeatSessionRepository, (r) => r.record({ seatId: "agent", sessionId, harness: "claude" })),
-    );
-  }
+  await runtime.runPromise(Effect.flatMap(SeatSessionRepository, r => sessionId
+    ? r.record({ seatId: "agent", bindingId: "bind-agent", sessionId, harness: "claude" }).pipe(Effect.asVoid)
+    : r.end("agent", "offboard", undefined, "bind-agent").pipe(Effect.asVoid)));
+
 };
 
 const call = (body: unknown): Promise<any> =>

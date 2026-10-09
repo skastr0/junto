@@ -1,5 +1,5 @@
 /**
- * Seat sessions: recording a seat's sessions as its canvas node names them,
+ * Seat sessions: recording a seat's sessions in its machine store,
  * ending and reopening them, writing offboard notes, and finding transcripts.
  * Every store and home lives under a temp root.
  */
@@ -49,44 +49,44 @@ const repo = Effect.gen(function* () {
   return yield* SeatSessionRepository;
 });
 
-const seat = (id: string, terminal: { harness?: HarnessId; bindingId?: string; sessionId?: string; cwd?: string }): Node =>
+const seat = (id: string, terminal: { harness?: HarnessId; bindingId?: string; cwd?: string }): Node =>
   seatNode(id, {
     width: 120,
     height: 48,
     bindingId: (terminal.bindingId ?? `bind-${id}`) as never,
     harness: terminal.harness ?? "claude",
     launch: { kind: "harness", argv: ["claude"], ...(terminal.cwd ? { cwd: terminal.cwd } : {}) },
-    ...(terminal.sessionId ? { sessionId: terminal.sessionId } : {}),
   });
 
 const doc = (...nodes: Node[]): Canvas => canvasOf(nodes);
 
 describe("seat session transitions", () => {
-  it("starts a session when a seat's id appears or changes, and names why the old one ended", () => {
-    const a = seat("a", {});
-    const pinned = seat("a", { sessionId: "s1" });
-    expect(seatSessionTransitions(doc(a), doc(pinned))).toEqual([
-      { kind: "start", observation: { seatId: "a", sessionId: "s1", harness: "claude", endReason: "replaced" } },
-    ]);
-    // Same id: nothing happened to the session.
-    expect(seatSessionTransitions(doc(pinned), doc({ ...pinned, x: 40 }))).toEqual([]);
-    // A new binding or harness is a reseat.
-    const reseated = seat("a", { sessionId: "s2", harness: "codex", bindingId: "bind-2" });
-    expect(seatSessionTransitions(doc(pinned), doc(reseated))[0]).toMatchObject({
-      kind: "start",
-      observation: { sessionId: "s2", harness: "codex", endReason: "reseat" },
-    });
-    // A cleared id ends the session; a removed seat keeps its history.
-    expect(seatSessionTransitions(doc(pinned), doc(a))).toEqual([
-      { kind: "end", seatId: "a", sessionId: "s1", reason: "replaced" },
-    ]);
-    expect(seatSessionTransitions(doc(pinned), doc())).toEqual([]);
-    // Notes and other nodes are not seats.
+  it("retires the former occupant on a changed binding or harness only", () => {
+    const original = seat("a", {});
+    expect(seatSessionTransitions(undefined, doc(original))).toEqual([]);
+    expect(seatSessionTransitions(doc(original), doc({ ...original, x: 40 }))).toEqual([]);
+    const changed = seat("a", { harness: "codex", bindingId: "bind-2" });
+    expect(seatSessionTransitions(doc(original), doc(changed))).toEqual([{ seatId: "a", bindingId: "bind-a" }]);
+    expect(seatSessionTransitions(doc(original), doc())).toEqual([]);
     expect(seatSessionTransitions(undefined, doc(note("n")))).toEqual([]);
   });
 });
 
 describe("SeatSessionRepository", () => {
+  it("concurrent pinning keeps one id and a delayed reseat cannot end a new occupant", async () => {
+    const r = await run(repo);
+    const pins = await Promise.all(["s1", "s2"].map(sessionId => run(r.pin({
+      seatId: "a", bindingId: "bind-a", harness: "claude", sessionId,
+    }))));
+    expect(pins[0]?.sessionId).toBe(pins[1]?.sessionId);
+    expect(pins.filter(pin => pin.minted)).toHaveLength(1);
+    expect(await run(r.current("a", "new-binding"))).toBeUndefined();
+    await run(r.pin({ seatId: "a", bindingId: "new-binding", harness: "claude", sessionId: "fresh" }));
+    await run(recordCanvasChange({ previous: doc(seat("a", {})), next: doc(seat("a", { bindingId: "new-binding" })) }));
+    expect(await run(r.current("a", "new-binding"))).toMatchObject({ sessionId: "fresh" });
+    expect(await run(r.current("a", "bind-a"))).toBeUndefined();
+  });
+
   it("keeps an ordered history: one open session, ended ones with their reason", async () => {
     const sessions = await run(
       Effect.gen(function* () {
@@ -94,7 +94,6 @@ describe("SeatSessionRepository", () => {
         expect(yield* r.record({ seatId: "a", sessionId: "s1", harness: "claude" })).toEqual({ started: true });
         // Seeing the open session again is a no-op.
         expect(yield* r.record({ seatId: "a", sessionId: "s1", harness: "claude" })).toEqual({ started: false });
-        yield* Effect.sleep("2 millis");
         expect(
           yield* r.record({ seatId: "a", sessionId: "s2", harness: "codex", endReason: "reseat" }),
         ).toEqual({ started: true, ended: "s1" });
@@ -170,7 +169,7 @@ describe("SeatSessionRepository", () => {
     expect(seatSessionNotesPath("/r", "../x", "../../y")).toMatch(/^\/r\/id-[0-9a-f]{32}\/sessions\/id-[0-9a-f]{32}\.md$/);
   });
 
-  it("records what a canvas commit did and lists each session with its transcript", async () => {
+  it("records local pins and lists each session with its transcript", async () => {
     const home = join(root, "home");
     __setSessionExistenceHomeForTest(home);
     const cwd = "/Users/me/proj";
@@ -180,11 +179,9 @@ describe("SeatSessionRepository", () => {
 
     const sessions = await run(
       Effect.gen(function* () {
-        yield* recordCanvasChange({ previous: doc(seat("a", { cwd })), next: doc(seat("a", { cwd, sessionId: "s1" })) });
-        yield* recordCanvasChange({
-          previous: doc(seat("a", { cwd, sessionId: "s1" })),
-          next: doc(seat("a", { cwd, sessionId: "s2" })),
-        });
+        const r = yield* SeatSessionRepository;
+        yield* r.record({ seatId: "a", bindingId: "bind-a", harness: "claude", sessionId: "s1", cwd });
+        yield* r.record({ seatId: "a", bindingId: "bind-a", harness: "claude", sessionId: "s2", cwd });
         return yield* listSeatSessions("a");
       }),
     );

@@ -57,7 +57,6 @@ export const nodeToRow = (canvas: string, node: Node): SqlValues => {
         host: node.host,
         binding_id: node.bindingId,
         harness: node.harness,
-        session_id: node.sessionId ?? null,
         on_remove: node.onRemove,
         overseer: Number(node.overseer),
         ...launchColumns(node.launch),
@@ -166,7 +165,6 @@ export const nodeFromRow = (kind: NodeKind, row: SqlRow): Node => {
         harness: row.harness,
         onRemove: row.on_remove,
         overseer: row.overseer === 1,
-        ...optional(row, "session_id", "sessionId"),
         ...launchFromRow(row),
       };
       break;

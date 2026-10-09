@@ -1,4 +1,5 @@
-import { modelFixture, modelSeat, readModelSeat } from "../harness/model";
+import { readSeatSession } from "../harness/seat-session";
+import { modelFixture, modelSeat, modelSeatSession, readModelSeat } from "../harness/model";
 /** Amp's creation choices and same-thread client options, in the isolated app. */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,14 +20,13 @@ const ampSeat = (id: string, existing: boolean): Seat => modelSeat({
     params: { mode: "low", extraArgs: existing ? ["--features", "plaid"] : [] },
     base: { cwd: "/tmp" },
   }).launch,
-  ...(existing ? { sessionId: THREAD } : {}),
 });
 
 test.use({
   juntoOptions: {
     windowContentSize: { width: 1320, height: 1000 },
     seedHarnessInstalls: ["amp"],
-    seedModels: { "amp-params": modelFixture([ampSeat("amp-new", false), ampSeat("amp-existing", true)]) },
+    seedModels: { "amp-params": modelFixture([ampSeat("amp-new", false), ampSeat("amp-existing", true)], [], [modelSeatSession(ampSeat("amp-existing", true), THREAD)]) },
     afterSeed: async (sandbox) => {
       // Only the public native output format is faked. No live Amp account,
       // thread, plugin, settings file, or inference is involved in this fixture.
@@ -91,7 +91,7 @@ const openParams = async (page: Page, id: string) => {
 const readSeat = (page: Page, id: string) => readModelSeat(page, "amp-params", id);
 
 for (const theme of ["Dark", "Bright"] as const) {
-  test(`Amp params and re-seat respect native thread ownership (${theme})`, async ({ junto: { page } }) => {
+  test(`Amp params and re-seat respect native thread ownership (${theme})`, async ({ junto: { page, sandbox } }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await expect(page.locator('.react-flow__node[data-id="amp-new"]')).toBeVisible({ timeout: 30_000 });
@@ -142,7 +142,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(existing.getByRole("button", { name: /^--execute/ })).toBeDisabled();
     await expect(existing.getByRole("button", { name: /^--visibility/ })).toBeDisabled();
     await expect(existing.getByTestId("seat-start-params-preview"))
-      .toHaveText(`amp --no-ide threads continue ${THREAD}`);
+      .toHaveText('amp --no-ide threads continue "<saved thread>"');
     await existing.getByRole("textbox", { name: "Filter options" }).fill("features");
     await page.screenshot({ path: join(SHOTS, `${tag}-same-thread.png`) });
 
@@ -156,12 +156,12 @@ for (const theme of ["Dark", "Bright"] as const) {
     await existing.getByRole("textbox", { name: "Extra arguments" }).fill("--features plaid --no-color");
     await expect(existing.getByRole("alert")).toHaveCount(0);
     await expect(existing.getByTestId("seat-start-params-preview"))
-      .toHaveText(`amp --no-ide threads continue ${THREAD} --no-color`);
+      .toHaveText('amp --no-ide threads continue "<saved thread>" --no-color');
     await existing.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => {
       const node = await readSeat(page, "amp-existing");
       return {
-        sessionId: node?.sessionId,
+        sessionId: readSeatSession(sandbox, "amp-existing", node?.bindingId),
         bindingId: node?.bindingId,
         extraArgs: node?.launch?.extraArgs,
       };
@@ -186,7 +186,7 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(confirmation.getByText("Amp (eclipse)", { exact: true })).toBeVisible();
     await page.screenshot({ path: join(SHOTS, `${tag}-reseat-confirmation.png`) });
     await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
-    expect((await readSeat(page, "amp-existing"))?.sessionId).toBe(THREAD);
+    expect(readSeatSession(sandbox, "amp-existing")).toBe(THREAD);
     expect(errors).toEqual([]);
   });
 }

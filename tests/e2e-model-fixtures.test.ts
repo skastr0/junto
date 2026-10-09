@@ -3,20 +3,21 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { expect, it, vi } from "vitest";
 import { createSandbox, destroySandbox, writeFixtureModel } from "../e2e/harness/sandbox";
-import { installModelFixture, modelFixture, modelMessagesWire, modelNote, modelRegion, modelSeat, modelTerminal, modelWire, readModelCanvas, commandModel, modelNode } from "../e2e/harness/model";
+import { installModelFixture, modelFixture, modelSeatSession, modelMessagesWire, modelNote, modelRegion, modelSeat, modelTerminal, modelWire, readModelCanvas, commandModel, modelNode } from "../e2e/harness/model";
 import { ModelService } from "../src/main/junto/model/service";
 import { ModelDependents } from "../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeSeatSessionRepositoryLive, SeatSessionRepository } from "../src/main/junto/seat-sessions/repository";
 import { Command, Wire } from "../src/shared/model";
 
 it("seeds native kinds and sink names into the durable model, keeping grids separate", async () => {
   const sandbox = await createSandbox();
   try {
     const rows = [modelRegion({ id: "region", label: "Lab", instruction: "Keep receipts" }),
-      modelSeat({ id: "seat-a", key: "local:a", label: "A", sessionId: "named-session" }),
+      modelSeat({ id: "seat-a", key: "local:a", label: "A" }),
       modelSeat({ id: "seat-b" }),
       modelTerminal({ id: "shell", bindingId: "shell", label: "Shell" })];
-    await writeFixtureModel(sandbox, "native", modelFixture(rows, [modelMessagesWire("mail", "seat-a", "seat-b", rows, ["msg.list"])]));
+    await writeFixtureModel(sandbox, "native", modelFixture(rows, [modelMessagesWire("mail", "seat-a", "seat-b", rows, ["msg.list"])], [modelSeatSession(rows[1] as never, "named-session")]));
     const frame = { x: 0, y: 0, width: 240, height: 100, z: 0 };
     const grid = { columns: [{ id: "c", name: "Value" }], rows: [{ id: "r", cells: { c: "123" } }] };
     await writeFixtureModel(sandbox, "sinks", { ...modelFixture([
@@ -24,13 +25,15 @@ it("seeds native kinds and sink names into the durable model, keeping grids sepa
       modelNode({ ...frame, id: "requests", kind: "requests", name: "Inbox" }),
       modelNode({ ...frame, id: "sheet", kind: "sheet", label: "Grid" }),
     ]), sheets: { sheet: grid } });
-    const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"))));
+    const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty), Layer.provideMerge(makeSeatSessionRepositoryLive(join(sandbox.homeDir, ".junto", "seats")), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")))));
     try {
       await runtime.runPromise(Effect.gen(function* () {
         const model = yield* ModelService;
         const native = yield* model.open("native");
         expect(native.nodes.map((node) => node.kind)).toEqual(["region", "agent", "agent", "terminal"]);
-        expect(native.nodes[1]).toMatchObject({ label: "A", bindingId: "local:a", harness: "codex", sessionId: "named-session" });
+        expect(native.nodes[1]).toMatchObject({ label: "A", bindingId: "local:a", harness: "codex" });
+        expect(native.nodes[1]).not.toHaveProperty("sessionId");
+        expect(yield* Effect.flatMap(SeatSessionRepository, repo => repo.current("seat-a", "local:a"))).toMatchObject({ sessionId: "named-session" });
         expect(native.nodes[2]).toMatchObject({ label: "seat-b", agentKey: "local:seat-b", bindingId: "local:seat-b" });
         expect(native.wires).toMatchObject([{ from: "seat-a", to: "seat-b", verb: "messages", mask: ["msg.list"] }]);
         const sinks = yield* model.open("sinks");
@@ -96,7 +99,7 @@ it("installs a native scenario topology in one event and rolls back an invalid r
 it("applies a native fixture edit in one event and refuses authored runtime session fields", async () => {
   const sandbox = await createSandbox();
   try {
-    await writeFixtureModel(sandbox, "proof", modelFixture([modelNote("note", "before"), modelSeat({ id: "seat", key: "local:a", label: "A", sessionId: "runtime-id" })]));
+    await writeFixtureModel(sandbox, "proof", modelFixture([modelNote("note", "before"), modelSeat({ id: "seat", key: "local:a", label: "A" })]));
     const runtime = ManagedRuntime.make(Layer.provideMerge(Layer.provide(ModelService.layer, ModelDependents.empty), makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db"))));
     try {
       const model = await runtime.runPromise(ModelService);

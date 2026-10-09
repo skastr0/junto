@@ -116,22 +116,6 @@ it("tells every follower of the canvas to read it again", () =>
     }),
   ));
 
-it("keeps the session a seat's own machine recorded for it, and takes none from the copy", () =>
-  run((model, db) =>
-    Effect.gen(function* () {
-      yield* model.installCopy(copy(7));
-      yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "RecordSession", canvas, id: "peer", sessionId: "the-mini-session" }), "runtime");
-      yield* model.installCopy(copy(9, { nodes: [region, own("peer", { sessionId: "sent-by-the-editing-machine" }), peer("lead")] }));
-      expect(db.prepare("SELECT session_id FROM seats WHERE id = 'peer'").get()).toEqual({ session_id: "the-mini-session" });
-
-      yield* model.installCopy(copy(10, { nodes: [region, own("peer"), own("peer-two", { sessionId: "sent-by-the-editing-machine" })] }));
-      expect(db.prepare("SELECT id, session_id FROM seats ORDER BY id").all()).toEqual([
-        { id: "peer", session_id: "the-mini-session" },
-        { id: "peer-two", session_id: null },
-      ]);
-    }),
-  ));
-
 it("lets nothing on a copy be changed here", () =>
   run((model) =>
     Effect.gen(function* () {

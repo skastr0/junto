@@ -179,7 +179,7 @@ describe("an id announced by a generation that is no longer the seat's is not st
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `rollout-${SID}.jsonl`), "");
   };
-  const seat = { canvasName: "factory", nodeId: "agent-1", harness: "codex", sessionId: SID };
+  const seat = { canvasName: "factory", nodeId: "agent-1", bindingId: "bind-1", harness: "codex", sessionId: SID };
 
   it("refuses before the write when the generation has been replaced", async () => {
     const home = temp("drain-persist-");

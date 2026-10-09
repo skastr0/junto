@@ -9,9 +9,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { thisMachineName } from "../term/machine-name";
-import { isThisMachine } from "@shared/machine-name";
 import { Effect } from "effect";
+import { isThisMachine } from "@shared/machine-name";
+import { MachineRepository } from "../machines/repository";
 import type { Canvas, Node } from "@shared/model";
 import type { OffboardBy, OffboardRules, OffboardRulesPatch } from "@shared/seat-offboard";
 import { defaultOffboardRules } from "@shared/seat-offboard";
@@ -24,6 +24,7 @@ import {
 import { offboardRules } from "@shared/settings";
 import { AppRuntime } from "../../runtime";
 import { ModelService } from "../model/service";
+import { SeatSessionRepository } from "./repository";
 import { PausePlane } from "../pause-plane";
 import { SettingsService } from "../settings/service";
 import { seatStateRuntime } from "../term/agent-state/runtime";
@@ -90,16 +91,18 @@ const titleOf = (node: Node): string | undefined => {
   return "label" in node ? node.label?.trim() || undefined : undefined;
 };
 
-const seatOf = (
+const seatOf = async (
   canvasName: string,
   node: Node,
   paused: boolean,
-): OffboardSeat | undefined => {
+): Promise<OffboardSeat | undefined> => {
   if (node.kind !== "agent") return undefined;
   const surface = { ...node, hostId: node.host };
   const live = termPlane.host.get(surface.bindingId);
   const running = live !== undefined && live.status !== "exited";
-  const sessionId = node.sessionId?.trim();
+  const sessionId = await AppRuntime.runPromise(
+    Effect.flatMap(SeatSessionRepository, (sessions) => sessions.current(node.id, node.bindingId)),
+  ).then((session) => session?.sessionId);
   const title = titleOf(node);
   const state = !running
     ? undefined
@@ -115,7 +118,7 @@ const seatOf = (
     ...(title ? { title } : {}),
     bindingId: surface.bindingId,
     harness: surface.harness,
-    local: isThisMachine(surface.hostId, thisMachineName()),
+    local: isThisMachine(surface.hostId, await AppRuntime.runPromise(Effect.flatMap(MachineRepository, (machine) => machine.machineName))),
     ...(sessionId ? { sessionId } : {}),
     running,
     ...(state ? { state } : {}),
@@ -193,7 +196,7 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
         const found = (await documents()).find((entry) => entry.canvasName === canvasName);
         const node = found?.doc.nodes.get(seatId as never);
         if (!found || !node) return undefined;
-        const seat = seatOf(canvasName, node, await pausedOn(canvasName));
+        const seat = await seatOf(canvasName, node, await pausedOn(canvasName));
         if (seat) cwds.set(seat.bindingId, cwdOf(found.doc, seatId));
         return seat;
       },
@@ -202,7 +205,7 @@ export const startOperatorOffboard = (input: OperatorOffboardLiveInput): (() => 
         for (const { canvasName, doc } of await documents()) {
           const paused = await pausedOn(canvasName);
           for (const node of doc.nodes.values()) {
-            const seat = seatOf(canvasName, node, paused);
+            const seat = await seatOf(canvasName, node, paused);
             if (!seat) continue;
             cwds.set(seat.bindingId, cwdOf(doc, node.id));
             out.push(seat);

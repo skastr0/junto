@@ -194,16 +194,13 @@ describe("session id parsing + authorial pin", () => {
   const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  it("newSeat pins UUID sessionId for claude/grok", () => {
+  it("newSeat authors choices without minting a harness session", () => {
     for (const harness of ["claude", "grok"] as const) {
-      const n = newSeat({ x: 0, y: 0, z: 0 }, { harness, host: "local" });
-      const sid = n.sessionId;
-      expect(sid).toMatch(UUID_RE);
+      const n = newSeat({ x: 0, y: 0, z: 0 }, { harness, host: "workbench" });
+      expect(n).not.toHaveProperty("sessionId");
       expect(n.harness).toBe(harness);
       expect(n.bindingId).toBeTruthy();
-      const argv = n.launch?.argv ?? [];
-      expect(argv).toContain("--session-id");
-      expect(argv).toContain(sid);
+      expect(n.launch?.argv).not.toContain("--session-id");
     }
   });
 
@@ -211,25 +208,25 @@ describe("session id parsing + authorial pin", () => {
     for (const harness of ["codex", "hermes"] as const) {
       const n = newSeat({ x: 0, y: 0, z: 0 }, {
         harness,
-        host: "local",
+        host: "workbench",
         ...(harness === "hermes" ? { profile: "default" } : {}),
       });
-      expect(n.sessionId).toBeUndefined();
+      expect(n).not.toHaveProperty("sessionId");
       const argv = n.launch?.argv ?? [];
       expect(argv).not.toContain("--session-id");
     }
   });
 
-  it("spawn replan uses a stored authoring pin without implicitly resuming", () => {
+  it("spawn replan uses a stored machine pin without implicitly resuming", () => {
     delete process.env.JUNTO_HOME;
     const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "claude",
-      host: "local",
+      host: "workbench",
     });
-    const sid = node.sessionId!;
+    const sid = "12345678-1234-4234-8234-123456789abc";
     expect(sid).toMatch(UUID_RE);
     const { launch } = launchForManagedSpawn({
-      sessionId: node.sessionId,
+      sessionId: sid,
       nodeId: node.id,
       harness: "claude",
       documentLaunch: node.launch,
@@ -246,12 +243,12 @@ describe("session id parsing + authorial pin", () => {
     delete process.env.JUNTO_HOME;
     const node = newSeat({ x: 0, y: 0, z: 0 }, {
       harness: "claude",
-      host: "local",
+      host: "workbench",
     });
-    const sid = node.sessionId!;
+    const sid = "12345678-1234-4234-8234-123456789abc";
     // No FS proof → pin path even with resume:true (fail open).
     const unproven = launchForManagedSpawn({
-      sessionId: node.sessionId,
+      sessionId: sid,
       nodeId: node.id,
       harness: "claude",
       documentLaunch: node.launch,

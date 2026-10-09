@@ -92,8 +92,17 @@ export const modelMessagesWire = (
   ...modelWire(id, from, to, "messages", nodes), ...(mask === undefined ? {} : { mask }),
 });
 
-export const modelFixture = (nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire> = []): ModelFixture => ({
+export const modelSeatSession = (seat: Seat, sessionId: string): SeatSessionObservation => ({
+  seatId: seat.id, bindingId: seat.bindingId, harness: seat.harness, sessionId,
+  ...(seat.launch?.cwd ? { cwd: seat.launch.cwd } : {}),
+});
+
+export const modelFixture = (
+  nodes: ReadonlyArray<Node>, wires: ReadonlyArray<Wire> = [],
+  seatSessions: ReadonlyArray<SeatSessionObservation> = [],
+): ModelFixture => ({
   nodes: nodes.map((node, z) => decodeNode({ ...node, z })), wires,
+  ...(seatSessions.length ? { seatSessions } : {}),
 });
 
 export const modelSeedCommands = (name: string, fixture: ModelFixture): ReadonlyArray<Command> => {

@@ -2523,6 +2523,7 @@ export class LocalSessionHost extends EventEmitter {
       {
         canvasName,
         nodeId,
+        bindingId: rec.bindingId,
         harness,
         sessionId,
         ...(rec.cwd ? { cwd: rec.cwd } : {}),
