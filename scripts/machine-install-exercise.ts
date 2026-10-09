@@ -3,24 +3,28 @@
  * Run under with-app-run-lock.sh with {sshTarget,bundle,updateBundle} JSON.
  * Any uncertain failure preserves the remote root for explicit inspection.
  */
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Stream } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 import { loadJsonInput } from "../src/cli/core/json";
 import { executeJsonCommandWithVerdict } from "../src/cli/core/output";
 import { inspectMachineBundle } from "../src/main/junto/hosts/bundle";
 import { sendMachine } from "../src/main/junto/hosts/send";
-import { parseSshEndpoint, SshTransportLive } from "../src/main/junto/ssh";
+import { parseSshRoute, SshTransport, SshTransportLive } from "../src/main/junto/ssh";
+import { makeRemoteCommand } from "../src/main/junto/ssh/domain";
+import { dedicatedStream } from "../src/main/junto/ssh/program";
 import { MachineOwnStatus } from "../src/shared/machine-control";
-import { MachineAbsolutePath, MachineInstallResult, MachineUninstallResult } from "../src/shared/machine-install";
+import { MachineAbsolutePath, MachineInstallResult, MachineSendInput, MachineUninstallResult } from "../src/shared/machine-install";
 
 const Input = Schema.Struct({
-  sshTarget: Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-zA-Z0-9_][a-zA-Z0-9_.@-]*$/))),
+  sshTarget: MachineSendInput.fields.sshTarget,
+  sshPort: MachineSendInput.fields.sshPort,
+  sshIdentityFile: MachineSendInput.fields.sshIdentityFile,
+  sshKnownHostsFile: MachineSendInput.fields.sshKnownHostsFile,
+  sshHostKeyAlias: MachineSendInput.fields.sshHostKeyAlias,
   bundle: MachineAbsolutePath,
   updateBundle: MachineAbsolutePath,
 });
@@ -89,8 +93,6 @@ export function assertOrderedUpdate(before: MachineInstallResult, observedBefore
     "update still reports the incumbent process epoch");
 }
 
-const exec = promisify(execFile);
-const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 const attempt = <A>(run: () => Promise<A>) => Effect.tryPromise({
   try: run, catch: cause => cause instanceof Error ? cause : new Error(String(cause)),
 });
@@ -154,7 +156,14 @@ print(json.dumps({'removed':not root.exists()}))`;
 
 const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
   if (process.env.JUNTO_APP_RUN_LOCK_HELD !== "1") return yield* Effect.fail(new Error("run through scripts/with-app-run-lock.sh"));
-  const target = yield* parseSshEndpoint(input.sshTarget);
+  const target = yield* parseSshRoute({
+    endpoint: input.sshTarget,
+    identityFile: input.sshIdentityFile,
+    port: input.sshPort,
+    knownHostsFile: input.sshKnownHostsFile,
+    hostKeyAlias: input.sshHostKeyAlias,
+  });
+  const transport = yield* SshTransport;
   const firstBundle = yield* attempt(() => inspectMachineBundle(input.bundle));
   const nextBundle = yield* attempt(() => inspectMachineBundle(input.updateBundle));
   if (firstBundle.build === nextBundle.build || firstBundle.target !== nextBundle.target) {
@@ -167,10 +176,9 @@ const exercise = (input: typeof Input.Type) => Effect.gen(function* () {
     ok: false, receipts, sshTarget: input.sshTarget, steps: {},
   };
   const save = () => attempt(() => writeFile(join(receipts, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n"));
-  const ssh = (code: string, argument: string) => attempt(async () => {
-    const reply = await exec("/usr/bin/ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-      "-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "ClearAllForwardings=yes",
-      input.sshTarget, `python3 -c ${quote(code)} ${quote(argument)}`], { timeout: 60_000, maxBuffer: 256 * 1024 });
+  const ssh = (code: string, argument: string) => Effect.gen(function* () {
+    const command = yield* makeRemoteCommand("python3", ["-c", code, argument]);
+    const reply = yield* transport.transfer(dedicatedStream(target, command), Stream.empty, 60_000);
     return reply.stdout;
   });
   const run = Effect.gen(function* () {
