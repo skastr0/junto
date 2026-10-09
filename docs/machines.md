@@ -195,9 +195,12 @@ The one interface three seats build against.
   version adds no keys of its own, and the link runs with SSH agent, X11 and
   port forwarding off. Before a second machine may open links, this is
   revisited: a link-only key bound to its opener is the candidate.
-- Owners: `remote-send` the SSH side and the relay command; `remote-core` the
-  socket and the channels inside the core; `remote-work` the `rows` channel;
-  `remote-seats` the `seats` channel; `remote-send` the `status` channel.
+- Owners: `remote-send` the SSH side, the relay command and the link session
+  (hello, frames, the channel registry with a closed decoder per channel);
+  `remote-core` the windowless root (`src/main/headless.ts`), the owner
+  socket and the socket the relay connects to; `remote-work` the `rows`
+  channel; `remote-seats` the `seats` channel; `remote-send` the `status`
+  channel. Nothing received over a link is used before its closed decode.
 
 ## Not carried
 
@@ -330,6 +333,17 @@ and the tests (`remote-cut`), `term/` and `seat-sessions/` (`remote-seats`),
 the renderer (`remote-window`). Leftovers are being closed. It closes when
 `remote-verify` has typecheck and the whole unit suite green on a clean
 export. Until then nobody packages or runs main.
+
+**The path to two machines talking.** Nothing has crossed a real link yet.
+Work is ordered by four live runs on this Mac and the mini, each a receipt
+from `remote-verify`:
+
+| Run | What it proves | State |
+|---|---|---|
+| A. Send and hello | Junto is sent to the mini, its core runs under the per-user service, a link opens, `machine.status` answers over it | waits on the windowless root; relay landed: `c837a3a30` |
+| B. A copy and a row | a canvas copy lands on the mini, one row crosses each way | waits on A, the copy frame and the admission law |
+| C. A seat there | the MacBook starts a seat on the mini, it onboards, mail goes both ways | waits on B and the seats channel |
+| D. The MacBook quits | the seat keeps running, held mail arrives on return | waits on C |
 
 ## Test machines
 
