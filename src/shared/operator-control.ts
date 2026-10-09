@@ -196,6 +196,7 @@ export const OperatorErrorBody = Schema.Struct({
     retryable: Schema.optionalKey(Schema.Boolean),
     disposition: Schema.optionalKey(MachineInstallError.fields.disposition),
     transitions: MachineInstallError.fields.transitions,
+    installed: Schema.optionalKey(MachineInstallResult),
   })),
 });
 export type OperatorErrorBody = typeof OperatorErrorBody.Type;

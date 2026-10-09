@@ -11,7 +11,7 @@ import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/main/junto/hosts/state
 import { HostRegistryRows, resetDefaultHostsRegistryForTests } from "../src/main/junto/hosts/registry";
 import { HostsService, HostsServiceLive } from "../src/main/junto/hosts/service";
 import { makeMachineOwnerActions, type MachineOwnerOptions } from "../src/main/junto/hosts/machine-owner";
-import { MachineInstallError } from "../src/shared/machine-install";
+import { MachineInstallError, MachineSetupError, MachineInstallResult } from "../src/shared/machine-install";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
 import { SshTransport } from "../src/main/junto/ssh";
 import { MachineOwnStatus, type MachinePeerStatus } from "../src/shared/machine-control";
@@ -19,6 +19,10 @@ import { OPERATOR_PROTOCOL_VERSION, decodeOperatorRequest, decodeOperatorRespons
 import { hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
 
 const cleanup: Array<() => Promise<void>> = [];
+const readyInstall = () => Schema.decodeUnknownSync(MachineInstallResult)({
+  build: "a".repeat(64), juntoHome: "/home/probe", installRoot: "/home/probe/install", directory: "/home/probe/install/builds/build",
+  serviceLabel: "test-service", provider: "launchd", updated: false, disposition: "ready", installationId: "mini-install", machineName: "mini", pid: 71, transitions: [{ step: "ready", pid: 71 }],
+});
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); resetDefaultHostsRegistryForTests(); setHostsSnapshot([]); });
 const fixture = async (overrides: Partial<MachineOwnerOptions> = {}) => {
   const database = new DatabaseSync(":memory:");
@@ -159,4 +163,34 @@ it("marks only a bound peer with a known different hello build as needing an upd
   expect(await flag()).toBe(false);
   build = "invalid-peer-build";
   expect((await f.call("machine.list", {})).ok).toBe(false);
+});
+
+it("returns the installed receipt when setup failed after a successful copy", async () => {
+  const installed = readyInstall();
+  const f = await fixture({ copy: () => Effect.fail(new MachineSetupError({ message: "Junto is installed, but the name is bound to another installation; choose another name", retryable: false, installed })) });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  const response = await f.call("machine.send", { name: "mini" });
+  expect(response.ok).toBe(false);
+  if (!response.ok) expect(response.error.details).toEqual({ retryable: false, installed });
+  expect(Result.isSuccess(decodeOperatorResponse(response))).toBe(true);
+});
+
+it("holds removal until an in-flight copy completes so setup cannot revive a removed route", async () => {
+  let announce!: () => void;
+  let finish!: (receipt: MachineInstallResult) => void;
+  const started = new Promise<void>(resolve => { announce = resolve; });
+  const copying = new Promise<MachineInstallResult>(resolve => { finish = resolve; });
+  const f = await fixture({ copy: () => Effect.promise(() => { announce(); return copying; }) });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  const sent = f.call("machine.update", { name: "mini" });
+  await started;
+  const removed = f.call("machine.remove", { name: "mini" });
+  await Promise.resolve();
+  expect(f.database.prepare("SELECT retired_at FROM machine_peers WHERE machine_name='mini'").get()?.retired_at).toBeNull();
+  expect(f.disconnected).toEqual([]);
+  finish(readyInstall());
+  expect((await sent).ok).toBe(true);
+  expect((await removed).ok).toBe(true);
+  expect(f.disconnected).toEqual(["mini"]);
 });

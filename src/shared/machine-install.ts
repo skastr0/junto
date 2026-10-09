@@ -86,6 +86,13 @@ export class MachineInstallError extends Schema.TaggedError<MachineInstallError>
   transitions: Schema.optionalKey(Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(5)))),
 }) {}
 
+/** Installation finished; retry setup or connection without copying the package again. */
+export class MachineSetupError extends Schema.TaggedError<MachineSetupError>()("MachineSetupError", {
+  message: Schema.String,
+  retryable: Schema.Literal(false),
+  installed: MachineInstallResult,
+}) {}
+
 export const MachineSendInput = Schema.Struct({
   sshPort: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 })))),
   sshIdentityFile: Schema.optionalKey(MachineAbsolutePath),

@@ -1,11 +1,11 @@
-import { Context, Effect, Result, Schema } from "effect";
+import { Context, Effect, Result, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
   OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse,
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,
 } from "@shared/operator-control";
 import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
-import { MachineInstallError, type MachineInstallResult, type MachineInstallEvent } from "@shared/machine-install";
+import { MachineInstallError, MachineSetupError, type MachineInstallResult, type MachineInstallEvent } from "@shared/machine-install";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { MachineRepository } from "../machines/repository";
 import { StateTransactionOperation } from "../state/service";
@@ -31,6 +31,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   const hosts = yield* HostsService;
   const rows = yield* HostRegistryRows;
   const sql = yield* SqlClient.SqlClient;
+  const mutationLock = yield* Semaphore.make(1);
   const notFound = (name: string) => new RemoteHostsError("not_found", `unknown machine: ${name}`);
   const selected = (name: string) => hosts.get(name).pipe(Effect.flatMap(host =>
     host === undefined ? Effect.fail(notFound(name)) : Effect.succeed(host)));
@@ -117,7 +118,9 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     }
   });
   return {
-    dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineInstallEvent) => void) => run(request, onTransition).pipe(
+    dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineInstallEvent) => void) =>
+      (request.op === "machine.list" || request.op === "machine.status" || request.op === "machine.harnesses"
+        ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition))).pipe(
       Effect.map(data => {
         const decoded = decodeOperatorResponse({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true, data });
         if (Result.isSuccess(decoded)) return decoded.success;
@@ -133,6 +136,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
               disposition: cause.disposition,
               ...(cause.transitions === undefined ? {} : { transitions: cause.transitions }),
             } : {}),
+            ...(cause instanceof MachineSetupError ? { installed: cause.installed } : {}),
           } },
       } as const)),
     ),
