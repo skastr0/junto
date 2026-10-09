@@ -30,7 +30,7 @@
 import { Schema } from "effect";
 import { EnvSource, RegionEnvironment, type Canvas, type EnvSourceKind, type Region, type Frame } from "./model";
 import { regionStack, regionName } from "./model/canvas";
-import { DEFAULT_STATION_HOST_ID } from "./station";
+import { isThisMachine } from "./machine-name";
 import {
   SPAWN_ENV_SCRUB,
   SPAWN_ENV_SCRUB_PREFIXES,
@@ -273,11 +273,7 @@ export const planRegionEnvironment = (
         regionLabel,
         source,
         key: sourceKey(region.id, source.id),
-        // `local` in a document means the machine reading it.
-        skippedHost:
-          source.host !== undefined &&
-          source.host !== hostId &&
-          source.host !== DEFAULT_STATION_HOST_ID,
+        skippedHost: source.host !== undefined && !isThisMachine(source.host, hostId),
       });
     }
     for (const folder of environment?.folders ?? []) {
