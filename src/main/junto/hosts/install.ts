@@ -118,7 +118,7 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
         if (incumbent.pid !== before.pid || incumbent.juntoHome !== juntoHome) throw new Error("running core does not match this install");
         if (installationId !== undefined && incumbent.installationId !== installationId) throw new Error("running core installation identity changed");
         installationId = incumbent.installationId;
-        if (previous === generation && incumbent.build === manifest.build && incumbent.ready) {
+        if (previous === generation && incumbent.build === manifest.build && incumbent.ready && before.matchesDesiredPlacement) {
           record({ step: "ready", pid: incumbent.pid });
           return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated: false, disposition: "ready", installationId, machineName: incumbent.machineName, pid: incumbent.pid, transitions };
         }

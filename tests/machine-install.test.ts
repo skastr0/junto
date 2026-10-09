@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ home: "", root: "", loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", collideCopy: false, stopSelections: [] as string[], starts: 0, definitionRemoved: false }));
+const fixture = vi.hoisted(() => ({ home: "", root: "", loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", collideCopy: false, stopSelections: [] as string[], starts: 0, definitionRemoved: false, matchesDesiredPlacement: true }));
 vi.mock("node:os", async original => ({ ...await original<typeof import("node:os")>(), homedir: () => fixture.home }));
 vi.mock("node:fs/promises", async original => {
   const fs = await original<typeof import("node:fs/promises")>();
@@ -26,7 +26,7 @@ vi.mock("../src/main/junto/process-epoch", () => ({
 vi.mock("../src/main/junto/hosts/install-service", () => ({
   machineService: async () => ({
     provider: "launchd",
-    observe: async () => ({ loaded: fixture.loaded, pid: fixture.pid }),
+    observe: async () => ({ loaded: fixture.loaded, pid: fixture.pid, matchesDesiredPlacement: fixture.matchesDesiredPlacement }),
     stop: async () => {
       fixture.stopSelections.push(await readlink(join(fixture.root, "current")));
       if (fixture.stopFailure) throw new Error("stop outcome unknown");
@@ -35,7 +35,7 @@ vi.mock("../src/main/junto/hosts/install-service", () => ({
     start: async () => {
       fixture.starts++;
       if (fixture.startFailure) throw new Error("start outcome unknown");
-      fixture.loaded = true; fixture.pid = 71;
+      fixture.loaded = true; fixture.pid = 71; fixture.matchesDesiredPlacement = true;
       const generation = await readlink(join(fixture.root, "current"));
       const manifest = JSON.parse(await readFile(join(fixture.root, generation, "manifest.json"), "utf8"));
       await writeFile(join(fixture.home, ".status.json"), JSON.stringify({ ok: true, command: "machine status", data: { build: manifest.build, installationId: "install-one", machineName: "mini", juntoHome: fixture.home, pid: 71, ready: true, form: "mac-mini" } }));
@@ -66,7 +66,7 @@ const errorFrom = async (bundle: string) => Effect.runPromise(installMachine({ b
 
 beforeEach(async () => {
   scratch = await realpath(await mkdtemp(join(tmpdir(), "junto-install-test-")));
-  Object.assign(fixture, { home: scratch, root: join(scratch, "install"), loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", collideCopy: false, stopSelections: [], starts: 0, definitionRemoved: false });
+  Object.assign(fixture, { home: scratch, root: join(scratch, "install"), loaded: false, pid: 0, stopped: false, stopFailure: false, startFailure: false, copiedFrom: "", collideCopy: false, stopSelections: [], starts: 0, definitionRemoved: false, matchesDesiredPlacement: true });
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
 afterEach(async () => { vi.restoreAllMocks(); await rm(scratch, { recursive: true, force: true }); });
@@ -173,6 +173,18 @@ await release();`;
     expect(error.message).toContain("do not match");
     expect(error.disposition).toBe("staged");
     expect(fixture.starts).toBe(1);
+  });
+
+  it("moves an existing service on a same-build resend when its session is wrong", async () => {
+    const bundle = await makeBundle("a".repeat(64));
+    const first = await install(bundle);
+    fixture.matchesDesiredPlacement = false;
+    const second = await install(bundle);
+    expect(second.updated).toBe(false);
+    expect(second.installationId).toBe(first.installationId);
+    expect(second.transitions.map(event => event.step)).toEqual(["verified", "quiescent", "selected", "started", "ready"]);
+    expect(fixture.starts).toBe(2);
+    expect(fixture.stopSelections).toEqual([`builds/${first.build}-${process.platform}-${process.arch}`]);
   });
 
   it("rejects a different, self-consistent bundle substituted during copy", async () => {
