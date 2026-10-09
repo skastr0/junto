@@ -90,9 +90,9 @@ describe("login item state round-trip", () => {
   it("never invokes Apple Login Items outside macOS", () => {
     const app = mockApp({ openAtLogin: true });
     const provider = createStartupProvider(app, "linux");
-    expect(provider.provider).toBe("systemd-supervision");
-    expect(provider.get()).toMatchObject({ ok: false, provider: "systemd-supervision" });
-    expect(provider.set(true).provider).toBe("systemd-supervision");
+    expect(provider.provider).toBe("unsupported");
+    expect(provider.get()).toMatchObject({ ok: false, provider: "unsupported" });
+    expect(provider.set(true).provider).toBe("unsupported");
     expect(app.sets).toEqual([]);
   });
 

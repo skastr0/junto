@@ -26,14 +26,6 @@ export interface StartupProviderPort {
   readonly set: (openAtLogin: unknown) => LoginItemOpResult;
 }
 
-const unsupportedStartupProvider = (platform: NodeJS.Platform): StartupProvider =>
-  platform === "linux" ? "systemd-supervision" : "unsupported";
-
-const unsupportedStartupMessage = (provider: StartupProvider): string =>
-  provider === "systemd-supervision"
-    ? "Apple Login Items are unavailable on Linux; Remotes run under systemd user supervision."
-    : "Apple Login Items are only available on macOS.";
-
 export const readLoginItemState = (electronApp: LoginItemApp): LoginItemState => {
   const raw = electronApp.getLoginItemSettings();
   return {
@@ -84,12 +76,11 @@ export const createStartupProvider = (
   platform: NodeJS.Platform = process.platform,
 ): StartupProviderPort => {
   if (platform !== "darwin") {
-    const provider = unsupportedStartupProvider(platform);
-    const message = unsupportedStartupMessage(provider);
+    const message = "Apple Login Items are only available on macOS.";
     return Object.freeze({
-      provider,
-      get: () => loginItemOpFail(message, provider),
-      set: () => loginItemOpFail(message, provider),
+      provider: "unsupported",
+      get: () => loginItemOpFail(message, "unsupported"),
+      set: () => loginItemOpFail(message, "unsupported"),
     });
   }
 

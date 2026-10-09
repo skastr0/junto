@@ -155,14 +155,14 @@ const DEFAULT_SETTINGS_SECTION: PanelSection = FLEET_UI_ENABLED
  */
 const SUPERVISED_RUNTIME_HELP =
   "Records whether this installation prefers a platform supervisor " +
-  "(macOS LaunchAgent; Linux Remote systemd user unit) to own the long-running " +
+  "(a macOS LaunchAgent) to own the long-running " +
   "process — auto-restart after crashes and keep-alive across logout/reboot. " +
   "This toggle does not install or remove the supervisor; install supervised " +
   "startup via the packaged installer or `bun run app:install:supervised`. " +
-  "Doctor warns if preference and actual LaunchAgent/unit state disagree. " +
-  "Tradeoff: supervised is more durable for a Command Center or Remote left " +
-  "running unattended; unsupervised is simpler for local development and " +
-  "attaching a debugger.";
+  "Doctor warns if preference and actual LaunchAgent state disagree. " +
+  "Tradeoff: supervised is more durable for a machine left running " +
+  "unattended; unsupervised is simpler for local development and attaching " +
+  "a debugger.";
 
 type ThemeChoice = "system" | "dark" | "bright";
 
@@ -512,7 +512,7 @@ function AdvancedSection() {
   const [loginItemLoading, setLoginItemLoading] = useState(true);
   const [loginItemError, setLoginItemError] = useState<string | undefined>();
   const [loginItemBusy, setLoginItemBusy] = useState(false);
-  const [startupProvider, setStartupProvider] = useState<"apple-login-items" | "systemd-supervision" | "unsupported">();
+  const [startupProvider, setStartupProvider] = useState<"apple-login-items" | "unsupported">();
 
   // OS is source of truth — read real getLoginItemSettings on every open; never assume.
   useEffect(() => {
@@ -638,10 +638,6 @@ function AdvancedSection() {
             aria-label="Start Junto at login"
             onCheckedChange={(on) => void onToggleLoginItem(on)}
           />
-        </FieldRow>
-      ) : startupProvider === "systemd-supervision" ? (
-        <FieldRow group label="Startup" hint="Remotes on Linux run as a systemd user service.">
-          <span className="settings-field__value" aria-label="Systemd user supervision">systemd user</span>
         </FieldRow>
       ) : (
         <FieldRow group label="Startup" hint="Not available on this platform.">

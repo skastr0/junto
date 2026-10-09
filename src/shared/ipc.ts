@@ -1244,7 +1244,7 @@ export interface LoginItemState {
 }
 
 /** Startup authority is platform-owned; renderer copy never grants it. */
-export type StartupProvider = "apple-login-items" | "systemd-supervision" | "unsupported";
+export type StartupProvider = "apple-login-items" | "unsupported";
 
 export interface LoginItemOpResult {
   readonly ok: boolean;
