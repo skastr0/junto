@@ -15,7 +15,6 @@ import { inspectMachineBundle } from "./bundle";
 
 const exec = promisify(execFile);
 const installError = (cause:unknown) => new MachineInstallError({message:cause instanceof Error?cause.message:String(cause),retryable:true,disposition:"staged"});
-const uncertainError = (cause:unknown) => new MachineInstallError({message:cause instanceof Error?cause.message:String(cause),retryable:false,disposition:"uncertain"});
 const Success = Schema.Struct({ok:Schema.Literal(true),command:Schema.Literal("machine install-local"),data:MachineInstallResult});
 const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Literal("machine install-local"), error: Schema.Struct({
   type: Schema.Literal("MachineInstallError"), message: Schema.String.pipe(Schema.check(Schema.isMaxLength(4096))),
@@ -84,6 +83,6 @@ export const sendMachine = (
     return new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions });
   };
   const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000,observe).pipe(Effect.mapError(transferError));
-  const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim(), { onExcessProperty: "error" }).pipe(Effect.mapError(uncertainError));
+  const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim(), { onExcessProperty: "error" }).pipe(Effect.mapError(transferError));
   return response.data;
 }));

@@ -32,6 +32,21 @@ it("preserves a closed installer failure receipt from the chosen SSH account", a
   expect(error.transitions).toEqual(transitions);
   expect(error.retryable).toBe(false);
 });
+
+it("retains observed selection when a successful transfer has a malformed final response", async () => {
+  const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target" }));
+  const transition = { step: "selected" as const, build: "a".repeat(64) };
+  const transport = SshTransport.of({ run: () => Effect.die("unexpected"), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
+    transfer: (_program, input, _timeout, onStderr) => Stream.runDrain(input).pipe(Effect.andThen(Effect.sync(() => {
+      onStderr?.(new TextEncoder().encode(JSON.stringify({ event: "machine-install", juntoHome: "/home/probe", installRoot: "/home/probe/install", ...transition }) + "\n"));
+      return { stdout: "not a JSON receipt", stderr: "" };
+    }))),
+  });
+  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  expect(error.disposition).toBe("uncertain");
+  expect(error.transitions).toEqual([transition]);
+  expect(error.retryable).toBe(false);
+});
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 it("sends only install selections and retains nonretryable transfer uncertainty", async () => {
