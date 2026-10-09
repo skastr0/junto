@@ -44,8 +44,6 @@ import type { Task } from "@shared/work-model";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorSeatId } from "@shared/actor-seat";
 import {
-} from "@shared/remote-hosts";
-import {
   type ActorRef,
   type SinkRef,
 } from "@shared/work-protocol";
@@ -55,6 +53,7 @@ import type {
 } from "@shared/ipc";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
+import { ModelRecords } from "../model/records";
 import { SnapshotsService } from "../snapshots";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
@@ -531,10 +530,18 @@ const makeKernelService = (
   work: WorkShape,
   workRepository: WorkRepositoryShape,
   actorSeatOccupy: Context.Service.Shape<typeof ActorSeatOccupy>,
+  records: Context.Service.Shape<typeof ModelRecords>,
 ): KernelServiceShape => {
   // What the cycle reads: each canvas as the model holds it, and beside it
   // the work the work service answers for it.
   const worlds = new Map<string, World>();
+  const editingMachineFor = (canvasName: string, scope: ActiveMachineScope) =>
+    Effect.gen(function* () {
+      if (!scope.ready) return undefined;
+      const editor = yield* records.canvasEditor(canvasName);
+      if (editor === scope.installationId) return scope.machineName;
+      return (yield* machines.peers).find((peer) => peer.installationId === editor)?.machineName;
+    }).pipe(Effect.orElseSucceed(() => undefined));
   const snapshotListeners = new Set<(snapshot: KernelSnapshot) => void>();
 
   // Host runners bound on first start() from AppRuntime / RemoteRuntime.
@@ -743,12 +750,15 @@ const makeKernelService = (
         if (!state.playing) continue;
         const { canvas } = world;
 
+        const editingMachine = yield* editingMachineFor(canvasName, scope);
+        if (editingMachine === undefined) continue;
         const wanted = actorsNeedingWake(
           canvas,
           workOf(world),
           canvasName,
           registry.resolve,
           {
+            editingMachine,
             claimEligible: (task, actor, sink) =>
               taskAdmissionState(task, sink.contract, Date.now()) ===
                 "claimable" &&
@@ -859,12 +869,15 @@ const makeKernelService = (
         if (!generationIsActive(generation)) return;
         const state = pause.stateFor(canvasName);
         if (!state.playing) continue;
+        const editingMachine = yield* editingMachineFor(canvasName, scope);
+        if (editingMachine === undefined) continue;
         const selections = selectFactoryClaims(
           world.canvas,
           workOf(world),
           canvasName,
           registry.resolve,
           {
+            editingMachine,
             actorEligible: (actor) => {
               const actorRef = registry.resolve({
                 canvasName,
@@ -1498,6 +1511,7 @@ export const KernelLive = Layer.effect(
     const work = yield* WorkService;
     const workRepository = yield* WorkRepository;
     const actorSeatOccupy = yield* ActorSeatOccupy;
+    const records = yield* ModelRecords;
     // No Runtime capture (V4-KERNEL / V4-PROGRAM / migration/runtime.md).
     // Domain Effects exit only after start(host) binds AppRuntime / RemoteRuntime.
     return makeKernelService(
@@ -1510,6 +1524,7 @@ export const KernelLive = Layer.effect(
       work,
       workRepository,
       actorSeatOccupy,
+      records,
     );
   }),
 );
