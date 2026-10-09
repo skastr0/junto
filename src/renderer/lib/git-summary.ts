@@ -5,8 +5,8 @@ import type { Canvas, Node } from "@shared/model";
 import { modelStore } from "./use-model";
 import type { GitSummary } from "@shared/git";
 import { resolveRegionCwd } from "@shared/region-defaults";
-import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { getJuntoApi } from "./junto-api";
+import { isOnMachine, thisMachineName } from "./machines";
 import { isOperatorModalOpen, openOperatorModalFrom, type OperatorModalPlaces } from "./operator-modal";
 import { state$ } from "./state";
 
@@ -25,14 +25,18 @@ export const GIT_SUMMARY_POLL_MS = 10_000;
 
 /**
  * The folder whose repository speaks for a seat: where it was launched,
- * else its region's folder for its host (innermost region that names one).
- * Undefined for a seat on another host: its folder is not on this machine,
- * and nothing is read there.
+ * else its region's folder for its machine (innermost region that names one).
+ * Undefined for a seat on another machine: its folder is not on this one,
+ * and nothing is read there. `machine` is this machine's name.
  */
-export const seatGitFolder = (doc: Canvas | undefined, node: Node | undefined): string | undefined => {
+export const seatGitFolder = (
+  doc: Canvas | undefined,
+  node: Node | undefined,
+  machine: string = thisMachineName(),
+): string | undefined => {
   if (node?.kind !== "agent" && node?.kind !== "terminal") return undefined;
   const host = node.host;
-  if (host !== LOCAL_HOST_ID) return undefined;
+  if (!isOnMachine(host, machine)) return undefined;
   const launched = node.launch?.cwd?.trim();
   if (launched) return launched;
   return resolveRegionCwd(doc, node.x, node.y, host);

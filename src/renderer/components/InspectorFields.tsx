@@ -13,11 +13,9 @@ import {
 } from "@shared/features";
 import {
   asNodeId,
-  placementLabel,
   type FactoryRoleName,
 } from "@shared/physics";
 import { canvasToCapabilityView } from "@shared/physics/view";
-import { resolveHostPlacement } from "@shared/physics/placement";
 import { addEdge } from "../lib/edge-mutations";
 import { releaseFocus } from "../lib/focus-ownership";
 import { regionEdited } from "../lib/model-edits";
@@ -28,13 +26,13 @@ import {
 } from "@shared/cron-expression";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
+import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../lib/machines";
 import { physicsKind, roleOfKind } from "../lib/model-kind";
 import { useCanvas, useNode, useNodeOf, useNodeValue } from "../lib/use-model";
 import { asNodeId as asModelNodeId, wireGrant, wireKinds } from "@shared/model";
-import { LOCAL_HOST } from "@shared/model/base";
 import { titleOf } from "@shared/model/title";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
-import { Chip, Select, type ChipTone } from "./ui";
+import { Chip, Select } from "./ui";
 import { RegionRules } from "./rules";
 import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
 
@@ -105,36 +103,23 @@ export function NodeCapabilityInventory({ nodeId }: { readonly nodeId: string })
   );
 }
 
-const placementTone = (runtimeTag: "Cc" | "Station"): ChipTone =>
-  runtimeTag === "Station" ? "cyan" : "amber";
-
-/**
- * Placement chips — where the node runs, and nothing more. Placement is data:
- * it names the host, it never gates a port.
- */
+/** The machine a node runs on, as the operator named it, and nothing more. */
 export function NodePlacementSection({ nodeId }: { readonly nodeId: string }) {
   // The machine a node runs on is the one field of it this reads.
   const host = useNodeValue(use$(state$.canvasName), nodeId, (held) =>
-    held !== undefined && "host" in held ? held.host : LOCAL_HOST,
+    held !== undefined && "host" in held ? held.host : undefined,
   );
-  const placement = useMemo(() => resolveHostPlacement(host), [host]);
-  const label = placementLabel(placement);
-  const assign = placement.assignment ?? "—";
-  const tone = placementTone(placement.runtime._tag);
-  const title = [
-    placement.runtime._tag === "Station" ? "remote machine" : "command center",
-    placement.assignment ? `host ${placement.assignment}` : "unassigned",
-  ].join(" — ");
+  const thisMachine = useThisMachineName();
+  const machines = useMachines();
+  if (host === undefined) return null;
+  const here = isOnMachine(host, thisMachine);
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">placement</div>
-      <div className="inspector-flags" role="list" aria-label="Node placement" title={title}>
-        <Chip tone={tone} title={`placement: ${label}`}>
-          {label}
-        </Chip>
-        <Chip tone="steel" title={`assignment: ${assign}`}>
-          {assign}
+      <div className="inspector-section__label">machine</div>
+      <div className="inspector-flags" role="list" aria-label="Machine">
+        <Chip tone={here ? "amber" : "cyan"} title={here ? "Runs on this machine" : "Runs on another machine"}>
+          {machineLabelIn(machines, host)}
         </Chip>
       </div>
     </div>
@@ -214,7 +199,7 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
 export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
   const node = useRtsNodes(use$(state$.canvasName), [nodeId])[0];
   const storedProfile = node?.kind === "page" ? node.profile : "personal";
-  const storedHost = node?.kind === "page" ? node.host : "local";
+  const storedHost = node?.kind === "page" ? node.host : "";
   const [profile, setProfile] = useState(storedProfile);
   const [host, setHost] = useState(storedHost);
 

@@ -50,17 +50,17 @@ describe("new nodes", () => {
     ["image", () => newImage(spot, "junto-content://sha/abc")],
     ["region", () => newRegion(spot)],
     ["git", () => newGit(spot, "/repo", "junto")],
-    ["seat", () => newSeat(spot, { harness: "claude", host: "local" })],
-    ["terminal", () => newTerminal(spot, { launch: { kind: "shell", cwd: "/work" } })],
-    ["page", () => newPage(spot, "https://example.com")],
+    ["seat", () => newSeat(spot, { harness: "claude", host: "studio" })],
+    ["terminal", () => newTerminal(spot, { host: "studio", launch: { kind: "shell", cwd: "/work" } })],
+    ["page", () => newPage(spot, "https://example.com", { host: "studio" })],
     ...on(TASKS_ENABLED, "task board", () => newTaskBoard(spot)),
     ...on(REQUESTS_ENABLED, "requests", () => newRequests(spot)),
     ...on(ARTIFACTS_ENABLED, "artifacts", () => newArtifacts(spot)),
     ...on(BOARD_ENABLED, "board", () => newBoard(spot)),
     ...on(PAD_ENABLED, "pad", () => newPad(spot)),
     ...on(SHEET_ENABLED, "sheet", () => newSheet(spot)),
-    ["cron", () => newCron(spot, "local")],
-    ["relay", () => newRelay(spot, "local")],
+    ["cron", () => newCron(spot, "studio")],
+    ["relay", () => newRelay(spot, "studio")],
   ];
 
   it.each(made)("a new %s is one the contract accepts, at whole numbers and the z it was given", (_label, make) => {
@@ -76,7 +76,7 @@ describe("new nodes", () => {
 
   it("mints a different id each time", () => {
     expect(newNote(spot).id).not.toBe(newNote(spot).id);
-    expect(newTerminal(spot).bindingId).not.toBe(newTerminal(spot).bindingId);
+    expect(newTerminal(spot, { host: "studio" }).bindingId).not.toBe(newTerminal(spot, { host: "studio" }).bindingId);
   });
 
   it("stacks a new node above what is there", () => {
@@ -87,26 +87,28 @@ describe("new nodes", () => {
   it("refuses a host that is not one", () => {
     expect(() => newCron(spot, "not a host")).toThrow();
     expect(() => newSeat(spot, { harness: "claude", host: "" })).toThrow();
+    expect(() => newTerminal(spot, { host: "" })).toThrow();
+    expect(() => newPage(spot, "https://example.com", { host: " " })).toThrow();
   });
 });
 
 describe("a new seat", () => {
   it("is never an overseer and detaches when removed", () => {
-    expect(newSeat(spot, { harness: "claude", host: "local" })).toMatchObject({
-      kind: "agent", overseer: false, onRemove: "detach", host: "local", harness: "claude",
-      agentKey: "local:claude",
+    expect(newSeat(spot, { harness: "claude", host: "studio" })).toMatchObject({
+      kind: "agent", overseer: false, onRemove: "detach", host: "studio", harness: "claude",
+      agentKey: "studio:claude",
     });
   });
 
   it("is named by the operator's label, else by its dials", () => {
-    expect(seatParts({ harness: "claude", host: "local", label: "  planner " }).label).toBe("planner");
-    const dialled = seatParts({ harness: "claude", host: "local", model: "opus" }).label;
+    expect(seatParts({ harness: "claude", host: "studio", label: "  planner " }).label).toBe("planner");
+    const dialled = seatParts({ harness: "claude", host: "studio", model: "opus" }).label;
     expect(dialled).toContain("opus");
     expect(dialled).not.toContain("\n");
   });
 
   it("starts in the directory it was given", () => {
-    expect(seatParts({ harness: "claude", host: "local", cwd: "/work/junto" }).launch).toMatchObject({
+    expect(seatParts({ harness: "claude", host: "studio", cwd: "/work/junto" }).launch).toMatchObject({
       kind: "harness", cwd: "/work/junto",
     });
   });

@@ -6,32 +6,32 @@ import {
 import { newSeat } from "../src/renderer/lib/model-factories";
 
 const configured: AgentHostChoice = {
-  id: "local",
-  agentHost: "local",
-  label: "local (unavailable)",
+  id: "studio",
+  agentHost: "studio",
+  label: "studio",
 };
 
 describe("agent host authoring", () => {
-  it("offers only enrolled terminal hosts and carries the Hermes routing key", () => {
+  it("offers only machines that run terminals, this machine first, and carries the Hermes routing key", () => {
     const choices = actorHostChoicesFromEnrollment(
       [
         {
           id: "box-1",
           label: "Build box",
-          kind: "remote",
+          isThisMachine: false,
           capabilities: ["terminal", "hermes"],
           hermesId: "hermes-box",
         },
         {
           id: "browser-only",
           label: "Browser only",
-          kind: "remote",
+          isThisMachine: false,
           capabilities: ["browser"],
         },
         {
-          id: "local",
-          label: "This machine",
-          kind: "local",
+          id: "studio",
+          label: "Studio",
+          isThisMachine: true,
           capabilities: ["terminal"],
         },
       ],
@@ -39,22 +39,30 @@ describe("agent host authoring", () => {
     );
 
     expect(choices).toEqual([
-      { id: "local", agentHost: "local", label: "This machine" },
-      {
-        id: "box-1",
-        agentHost: "hermes-box",
-        label: "Build box (remote)",
-      },
+      { id: "studio", agentHost: "studio", label: "Studio" },
+      { id: "box-1", agentHost: "hermes-box", label: "Build box" },
     ]);
   });
 
-  it("keeps the configured installation visible when enrollment is unavailable", () => {
+  it("orders by what a row says, never by what a machine is called", () => {
+    const choices = actorHostChoicesFromEnrollment(
+      [
+        { id: "alpha", label: "Alpha", isThisMachine: false, capabilities: ["terminal"] },
+        { id: "zulu", label: "Zulu", isThisMachine: true, capabilities: ["terminal"] },
+      ],
+      { id: "zulu", agentHost: "zulu", label: "zulu" },
+    );
+
+    expect(choices.map((choice) => choice.id)).toEqual(["zulu", "alpha"]);
+  });
+
+  it("keeps this machine offered when the list is unavailable", () => {
     expect(actorHostChoicesFromEnrollment([], configured)).toEqual([
       configured,
     ]);
   });
 
-  it("stamps the selected host-local path into the stable actor node", () => {
+  it("stamps the selected machine's folder into the stable actor node", () => {
     const node = newSeat({ x: 10, y: 20, z: 0 }, {
       harness: "grok",
       host: "build-box",

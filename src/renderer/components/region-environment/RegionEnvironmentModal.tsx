@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { ulid } from "ulid";
 import { getJuntoApi } from "../../lib/junto-api";
+import { thisMachineName } from "../../lib/machines";
 import { flushPendingCanvasSave, setRegionEnvironment } from "../../lib/mutations";
 import { regionEnvironmentPort } from "../../lib/region-environment-port";
 import { restartSeatOnSameSession } from "../../lib/seat-relaunch";
@@ -16,10 +16,10 @@ import type { ReadDirectory } from "./PathBrowser";
 import { RegionEnvironmentScreen } from "./RegionEnvironmentScreen";
 
 /** The same listing the folder paths control browses, on this machine. */
-const readLocalDirectory: ReadDirectory = async (path) => {
+const readThisMachineDirectory: ReadDirectory = async (path) => {
   const api = getJuntoApi();
   if (!api?.hostDirectoryRead) throw new Error("host directory listing is unavailable");
-  return api.hostDirectoryRead(LOCAL_HOST_ID, path);
+  return api.hostDirectoryRead(thisMachineName(), path);
 };
 
 /**
@@ -66,7 +66,7 @@ export function RegionEnvironmentModal({
           environment={environment}
           port={port}
           newId={ulid}
-          readDirectory={readLocalDirectory}
+          readDirectory={readThisMachineDirectory}
           seatName={(seatId) => {
             const seat = nodeAt(state$.canvasName.peek(), seatId);
             return seat?.kind === "agent" ? titleOf(seat) : undefined;

@@ -18,6 +18,7 @@ import {
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import { getJuntoApi } from "../../lib/junto-api";
+import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../../lib/machines";
 import { xtermThemeFor } from "../../lib/terminal-theme";
 import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
@@ -780,11 +781,14 @@ export function TerminalSurface({
     : binding?.kind === "native"
       ? binding.bindingId
       : "";
+  // A node with no binding yet is one this machine is about to start.
+  const thisMachine = useThisMachineName();
+  const machines = useMachines();
   const hostId = agentSeat
-    ? binding?.hostId ?? "local"
+    ? binding?.hostId ?? thisMachine
     : binding?.kind === "native"
       ? binding.hostId
-      : "local";
+      : thisMachine;
   const pinSessionId = node.kind === "agent" ? node.sessionId : undefined;
   const [loadPhase, setLoadPhase] = useState<SessionLoadPhase | null>(() =>
     initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
@@ -2101,9 +2105,9 @@ export function TerminalSurface({
               {label}
             </span>
             {overseer ? <OverseerMark size="session" /> : null}
-            {hostId !== "local" ? (
-              <Chip tone="steel" title={`Runs on ${hostId}`}>
-                {hostId}
+            {!isOnMachine(hostId, thisMachine) ? (
+              <Chip tone="steel" title={`Runs on ${machineLabelIn(machines, hostId)}`}>
+                {machineLabelIn(machines, hostId)}
               </Chip>
             ) : null}
             {/* Nothing is said while the session is simply running. Loading,

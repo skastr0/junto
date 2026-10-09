@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { resolveRegionCwd } from "@shared/region-defaults";
 import { newGit } from "../../lib/model-factories";
 import { topZ } from "../../lib/model-edits";
+import { thisMachineName } from "../../lib/machines";
 import { addNode } from "../../lib/mutations";
 import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
@@ -17,7 +17,7 @@ const regionCwdAt = (anchor: { readonly x: number; readonly y: number }): string
     modelStore.canvasOf(state$.canvasName.peek()),
     anchor.x + GIT_SIZE.width / 2,
     anchor.y + GIT_SIZE.height / 2,
-    LOCAL_HOST_ID,
+    thisMachineName(),
   );
 
 export const createGitAt = (
@@ -31,7 +31,7 @@ export const createGitAt = (
   state$.focusNodeId.set(node.id);
 };
 
-/** Stamp from the containing region's host path when one exists. */
+/** Stamp from the containing region's folder on this machine when one exists. */
 export const createGitFromRegion = (
   anchor: { readonly x: number; readonly y: number },
 ): boolean => {
@@ -70,7 +70,7 @@ export function GitWizard({
           <div className="mt-1 font-mono text-[16px] font-semibold text-ink">New git</div>
         </div>
         <HostDirectoryPicker
-          hostId={LOCAL_HOST_ID}
+          hostId={thisMachineName()}
           initialPath={seed || "~"}
           resetKey={seed || "~"}
           inputAriaLabel="Git repository folder"

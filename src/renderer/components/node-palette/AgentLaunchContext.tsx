@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, FolderOpen, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import { LOCAL_HOST_ID } from "@shared/remote-hosts";
-import { FLEET_UI_ENABLED, HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import { FLEET_UI_ENABLED } from "@shared/features";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
-import { getJuntoApi } from "../../lib/junto-api";
+import { loadMachines, machineLabel, thisMachineName } from "../../lib/machines";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import {
   actorHostChoicesFromEnrollment,
@@ -26,15 +25,10 @@ export type AgentLaunchContextValue = {
   readonly cwd: string;
 };
 
+/** A new seat goes on this machine unless the operator picks another. */
 export const defaultAgentLaunchContext = (): AgentLaunchContextValue => {
-  const host = state$.settings.station.hostId.peek() || LOCAL_HOST_ID;
-  return {
-    host,
-    agentHost: HERMES_INTEGRATION_ENABLED
-      ? state$.settings.station.agentHostId.peek() || host
-      : host,
-    cwd: "",
-  };
+  const host = thisMachineName();
+  return { host, agentHost: host, cwd: "" };
 };
 
 export type AgentLaunchContextProps = {
@@ -62,7 +56,7 @@ const configuredHost = (): AgentHostChoice => {
   return {
     id: context.host,
     agentHost: context.agentHost,
-    label: context.host === LOCAL_HOST_ID ? "this machine" : context.host,
+    label: machineLabel(context.host),
   };
 };
 
@@ -73,7 +67,7 @@ const centerOf = (position: AgentLaunchContextProps["position"]) => ({
 
 /**
  * Persistent launch settings for the next agent in the palette. Folder browsing
- * stays deliberately small: the existing host-aware tree only opens on demand.
+ * stays deliberately small: the folder tree for the chosen machine only opens on demand.
  */
 export function AgentLaunchContext({
   position,
@@ -109,14 +103,14 @@ export function AgentLaunchContext({
   useEffect(() => {
     if (!FLEET_UI_ENABLED) return;
     let live = true;
-    void getJuntoApi()?.hostsList?.().then((result) => {
-      if (!live || !result.ok || !result.hosts) return;
-      const next = actorHostChoicesFromEnrollment(result.hosts, configured);
+    void loadMachines().then((machines) => {
+      if (!live || machines.length === 0) return;
+      const next = actorHostChoicesFromEnrollment(machines, configured);
       setHosts(next);
       setHostId((current) =>
         next.some((host) => host.id === current) ? current : configured.id,
       );
-    }).catch(() => undefined);
+    });
     return () => { live = false; };
   }, [configured]);
 
@@ -232,9 +226,9 @@ export function AgentLaunchContext({
       >
         {FLEET_UI_ENABLED ? (
           <label className="grid gap-1 text-[10px] uppercase tracking-[0.1em] text-dim">
-            Agent host
+            Machine
             <Select
-              aria-label="Agent host"
+              aria-label="Machine"
               value={hostId}
               options={hosts.map((host) => ({ value: host.id, label: host.label }))}
               onChange={selectHost}

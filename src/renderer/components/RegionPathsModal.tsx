@@ -2,35 +2,29 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { FLEET_UI_ENABLED } from "@shared/features";
-import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { stripEmptyRegionPaths } from "@shared/region-defaults";
 import { trimTrailingSlash } from "../lib/directory-picker";
+import {
+  loadMachines,
+  machineChoices,
+  useMachines,
+  useThisMachineName,
+  type MachineChoice,
+} from "../lib/machines";
 import { setRegionDefaults } from "../lib/mutations";
 import { state$ } from "../lib/state";
 import { useNodeOf } from "../lib/use-model";
-import { getJuntoApi } from "../lib/junto-api";
 import { FocusSurface } from "./FocusSurface";
 import { HostDirectoryPicker } from "./node-palette/HostDirectoryPicker";
 import { Button, IconButton, OverlayHeader } from "./ui";
 import "./RegionPathsModal.css";
 
-type HostOpt = { readonly id: string; readonly label: string };
-
-const sortHosts = (opts: HostOpt[]): HostOpt[] =>
-  [...opts].sort((a, b) => {
-    if (a.id === LOCAL_HOST_ID) return -1;
-    if (b.id === LOCAL_HOST_ID) return 1;
-    return a.label.localeCompare(b.label);
-  });
-
-const labelForHost = (
-  id: string,
-  enrolled: ReadonlyArray<HostOpt>,
-): string => enrolled.find((h) => h.id === id)?.label ?? id;
+const labelOf = (id: string, machines: ReadonlyArray<MachineChoice>): string =>
+  machines.find((machine) => machine.id === id)?.label ?? id;
 
 /**
- * Region host→cwd editor.
- * Left: host list + add. Right: filesystem for the selected host.
+ * A region's folder on each machine.
+ * Left: the machines that have one, and add. Right: that machine's folders.
  */
 export function RegionPathsModal({
   nodeId,
@@ -40,6 +34,8 @@ export function RegionPathsModal({
   readonly onClose: () => void;
 }) {
   const node = useNodeOf(use$(state$.canvasName), nodeId, "region");
+  const thisMachine = useThisMachineName();
+  const listed = useMachines();
   const storedPaths =
     node?.defaults?.paths;
   const pathsFingerprint = useMemo(
@@ -53,27 +49,37 @@ export function RegionPathsModal({
     [storedPaths],
   );
 
-  const [enrolled, setEnrolled] = useState<HostOpt[]>([
-    { id: LOCAL_HOST_ID, label: "this machine" },
-  ]);
-  /** Draft path by host id. */
+  /** Every machine that can be given a folder: the listed ones, and any a
+      stored folder still names. */
+  const machines = useMemo(() => {
+    const known = machineChoices(listed, thisMachine);
+    const ids = new Set(known.map((machine) => machine.id));
+    const stored = Object.keys(storedPaths ?? {})
+      .filter((id) => !ids.has(id))
+      .sort()
+      .map((id) => ({ id, label: id }));
+    return [...known, ...stored];
+    // The fingerprint stands for the stored folders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listed, thisMachine, pathsFingerprint]);
+  /** Draft folder by machine. */
   const [pathsByHost, setPathsByHost] = useState<Record<string, string>>(() => ({
     ...(storedPaths ?? {}),
   }));
-  /** Hosts present in the sidebar (order preserved). Without the fleet
-      surface, local is always present and selected; stored remote paths ride
-      along untouched so save never drops them. */
+  /** Machines in the sidebar (order preserved). Without the machines
+      surface, this machine is always present and selected; folders stored for
+      other machines ride along untouched so save never drops them. */
   const [hostIds, setHostIds] = useState<string[]>(() => {
     const ids = Object.keys(storedPaths ?? {});
     if (!FLEET_UI_ENABLED) {
-      return ids.includes(LOCAL_HOST_ID) ? ids : [...ids, LOCAL_HOST_ID];
+      return ids.includes(thisMachine) ? ids : [...ids, thisMachine];
     }
-    return ids.length > 0 ? ids : [LOCAL_HOST_ID];
+    return ids.length > 0 ? ids : [thisMachine];
   });
   const [selectedHostId, setSelectedHostId] = useState<string>(() =>
     FLEET_UI_ENABLED
-      ? Object.keys(storedPaths ?? {})[0] ?? LOCAL_HOST_ID
-      : LOCAL_HOST_ID,
+      ? Object.keys(storedPaths ?? {})[0] ?? thisMachine
+      : thisMachine,
   );
 
   useEffect(() => {
@@ -81,52 +87,23 @@ export function RegionPathsModal({
     const ids = Object.keys(next);
     setPathsByHost(next);
     if (!FLEET_UI_ENABLED) {
-      setHostIds(ids.includes(LOCAL_HOST_ID) ? ids : [...ids, LOCAL_HOST_ID]);
-      setSelectedHostId(LOCAL_HOST_ID);
+      setHostIds(ids.includes(thisMachine) ? ids : [...ids, thisMachine]);
+      setSelectedHostId(thisMachine);
       return;
     }
-    setHostIds(ids.length > 0 ? ids : [LOCAL_HOST_ID]);
-    setSelectedHostId(ids[0] ?? LOCAL_HOST_ID);
-  }, [nodeId, pathsFingerprint]);
+    setHostIds(ids.length > 0 ? ids : [thisMachine]);
+    setSelectedHostId(ids[0] ?? thisMachine);
+  }, [nodeId, pathsFingerprint, thisMachine]);
 
   useEffect(() => {
-    if (!FLEET_UI_ENABLED) return;
-    const api = getJuntoApi();
-    void api
-      ?.hostsList?.()
-      .then((res) => {
-        if (!res?.ok || !Array.isArray(res.hosts)) return;
-        const opts = res.hosts
-          .filter((h) => typeof h.id === "string" && h.id.length > 0)
-          .map((h) => ({
-            id: h.id,
-            label:
-              h.label?.trim() ||
-              (h.id === LOCAL_HOST_ID ? "this machine" : h.id),
-          }));
-        const seen = new Set<string>();
-        const merged: HostOpt[] = [];
-        for (const opt of opts) {
-          if (seen.has(opt.id)) continue;
-          seen.add(opt.id);
-          merged.push(opt);
-        }
-        if (merged.length === 0) {
-          merged.push({ id: LOCAL_HOST_ID, label: "this machine" });
-        }
-        for (const id of Object.keys(storedPaths ?? {})) {
-          if (seen.has(id)) continue;
-          seen.add(id);
-          merged.push({ id, label: id });
-        }
-        setEnrolled(sortHosts(merged));
-      })
-      .catch(() => undefined);
-  }, [nodeId, pathsFingerprint]);
+    if (FLEET_UI_ENABLED) void loadMachines();
+  }, [nodeId]);
 
-  if (!node) return null;
+  // A folder is kept by machine name, so nothing can be edited before this
+  // machine's name is known.
+  if (!node || !thisMachine) return null;
 
-  const unusedHosts = enrolled.filter((h) => !hostIds.includes(h.id));
+  const unusedHosts = machines.filter((h) => !hostIds.includes(h.id));
   const selectedPath = pathsByHost[selectedHostId] ?? "";
 
   const addHost = () => {
@@ -140,7 +117,7 @@ export function RegionPathsModal({
   const removeHost = (hostId: string) => {
     setHostIds((ids) => {
       const next = ids.filter((id) => id !== hostId);
-      const remaining = next.length > 0 ? next : [LOCAL_HOST_ID];
+      const remaining = next.length > 0 ? next : [thisMachine];
       setSelectedHostId((current) => (current === hostId ? remaining[0]! : current));
       return remaining;
     });
@@ -193,8 +170,8 @@ export function RegionPathsModal({
           className={`region-paths__body${FLEET_UI_ENABLED ? "" : " region-paths__body--single"}`}
         >
           {FLEET_UI_ENABLED ? (
-          <aside className="region-paths__sidebar" aria-label="Hosts">
-            <ul className="region-paths__host-list" role="listbox" aria-label="Hosts with paths">
+          <aside className="region-paths__sidebar" aria-label="Machines">
+            <ul className="region-paths__host-list" role="listbox" aria-label="Machines with a folder">
               {hostIds.map((hostId) => {
                 const active = hostId === selectedHostId;
                 const path = (pathsByHost[hostId] ?? "").trim();
@@ -209,7 +186,7 @@ export function RegionPathsModal({
                       onClick={() => setSelectedHostId(hostId)}
                     >
                       <span className="region-paths__host-name">
-                        {labelForHost(hostId, enrolled)}
+                        {labelOf(hostId, machines)}
                       </span>
                       <span className="region-paths__host-path">
                         {hasPath ? path : "no path"}
@@ -219,8 +196,8 @@ export function RegionPathsModal({
                       tone="danger"
                       size="sm"
                       className="region-paths__host-remove"
-                      aria-label={`Remove ${labelForHost(hostId, enrolled)}`}
-                      title="Remove host"
+                      aria-label={`Remove ${labelOf(hostId, machines)}`}
+                      title="Remove machine"
                       onClick={() => removeHost(hostId)}
                     >
                       <Trash2 size={12} />
@@ -238,7 +215,7 @@ export function RegionPathsModal({
               onClick={addHost}
             >
               <Plus size={14} aria-hidden />
-              add host
+              add machine
             </Button>
           </aside>
           ) : null}
@@ -246,16 +223,16 @@ export function RegionPathsModal({
           <section className="region-paths__main" aria-label="Directory">
             {FLEET_UI_ENABLED ? (
               <div className="region-paths__main-label">
-                {labelForHost(selectedHostId, enrolled)}
+                {labelOf(selectedHostId, machines)}
               </div>
             ) : null}
             <div className="region-paths__picker">
               <HostDirectoryPicker
                 key={selectedHostId}
-                hostId={selectedHostId || LOCAL_HOST_ID}
+                hostId={selectedHostId || thisMachine}
                 initialPath={selectedPath.trim() || "~"}
                 resetKey={`${selectedHostId}\0${pathsFingerprint}`}
-                inputAriaLabel={`Working directory for ${labelForHost(selectedHostId, enrolled)}`}
+                inputAriaLabel={`Working directory for ${labelOf(selectedHostId, machines)}`}
                 onSelect={(path) => setPath(selectedHostId, path)}
                 onDraftChange={(draft) => setPath(selectedHostId, draft)}
               />

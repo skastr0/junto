@@ -76,7 +76,7 @@ const openFolderPicker = async (
   deck: Locator,
 ): Promise<Locator> => {
   const launchContext = deck.getByRole("region", { name: "Launch context" });
-  await expect(launchContext.getByLabel("Agent host")).toBeVisible();
+  await expect(launchContext.getByLabel("Machine")).toBeVisible();
   await launchContext
     .getByRole("button", { name: "Choose starting folder" })
     .click();
@@ -146,7 +146,7 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       agentPane.getByRole("button", { name: "Hermes", exact: true }),
     ];
 
-    await expect(launchContext.getByLabel("Agent host")).toBeVisible();
+    await expect(launchContext.getByLabel("Machine")).toBeVisible();
     await expect(
       launchContext
         .getByRole("button", { name: "Choose starting folder" }),

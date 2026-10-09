@@ -1,8 +1,5 @@
 import type { HostsOpResult } from "@shared/ipc";
-import {
-  LOCAL_HOST_ID,
-  TERMINAL_HOST_CAPABILITY,
-} from "@shared/remote-hosts";
+import { TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { mergeHarnessLaunchDefaults } from "@shared/harness-settings";
@@ -49,7 +46,9 @@ export type AgentHostChoice = {
 
 type EnrolledHost = NonNullable<HostsOpResult["hosts"]>[number];
 
-/** Exact enrolled choices for creating one actor seat. */
+const labelOf = (host: EnrolledHost): string => host.label.trim() || host.id;
+
+/** The machines a new seat can be placed on: this machine first, the rest by label. */
 export const actorHostChoicesFromEnrollment = (
   hosts: ReadonlyArray<EnrolledHost>,
   configured: AgentHostChoice,
@@ -66,21 +65,17 @@ export const actorHostChoicesFromEnrollment = (
       seen.add(host.id);
       return true;
     })
+    .sort((left, right) => {
+      if (left.isThisMachine !== right.isThisMachine) return left.isThisMachine ? -1 : 1;
+      return labelOf(left).localeCompare(labelOf(right));
+    })
     .map((host) => ({
       id: host.id,
       agentHost: HERMES_INTEGRATION_ENABLED
         ? host.hermesId ?? host.id
         : host.id,
-      label:
-        host.kind === "remote"
-          ? `${host.label || host.id} (remote)`
-          : host.label || host.id,
-    }))
-    .sort((left, right) => {
-      if (left.id === LOCAL_HOST_ID) return -1;
-      if (right.id === LOCAL_HOST_ID) return 1;
-      return left.label.localeCompare(right.label);
-    });
+      label: labelOf(host),
+    }));
   return enrolled.some((host) => host.id === configured.id)
     ? enrolled
     : [configured, ...enrolled];

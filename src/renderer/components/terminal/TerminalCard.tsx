@@ -14,6 +14,7 @@ import {
   shouldRefreshSessionFromTerminalEvent,
 } from "../../lib/terminal-session-refresh";
 import { getJuntoApi } from "../../lib/junto-api";
+import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../../lib/machines";
 import { renameTerminalNode } from "../../lib/mutations";
 import { useNodeFieldOf } from "../../lib/use-model";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
@@ -56,6 +57,8 @@ export function TerminalCard({
   const name = useNodeFieldOf(canvas, id, "terminal", (terminal) => terminal.label ?? "") ?? "";
   const launch = useNodeFieldOf(canvas, id, "terminal", (terminal) => terminal.launch);
   const native = bindingId !== undefined && hostId !== undefined ? { bindingId, hostId } : undefined;
+  const thisMachine = useThisMachineName();
+  const machines = useMachines();
   const [session, setSession] = useState<TerminalSessionSummary>();
   const seatEvent = use$(
     agentSeat$.byBindingId[
@@ -144,7 +147,9 @@ export function TerminalCard({
     return <div className="text-body text-dim">unbound terminal</div>;
   const { label, presentation, seatState, subtitle, activity, complete } = status;
   // One line: what it runs or why it stopped, and where when it is not here.
-  const line = native.hostId === "local" ? subtitle : `${subtitle} on ${native.hostId}`;
+  const line = isOnMachine(native.hostId, thisMachine)
+    ? subtitle
+    : `${subtitle} on ${machineLabelIn(machines, native.hostId)}`;
   const commitRename = (nextFirst: string) => {
     renameTerminalNode(id, nextFirst);
   };

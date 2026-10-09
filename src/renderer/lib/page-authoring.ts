@@ -1,16 +1,11 @@
-import { DEFAULT_STATION_HOST_ID } from "@shared/station";
-
 /**
- * Page placement policy shared by every authoring entry point.
+ * The machine a new page goes on, shared by every authoring entry point.
  *
  * A containing region's page.host is an explicit human selection and wins.
- * Source surfaces (Host Services) preserve their own host as fallback;
- * generic Add Page supplies the current station as fallback.
+ * Otherwise the page goes where its source is: the machine of the surface it
+ * was made from, which for a plain Add page is this machine.
  */
 export const resolveAuthoredPageHost = (
   regionHost: string | undefined,
-  sourceHost: string | undefined,
-): string =>
-  regionHost?.trim() ||
-  sourceHost?.trim() ||
-  DEFAULT_STATION_HOST_ID;
+  sourceHost: string,
+): string => regionHost?.trim() || sourceHost.trim();

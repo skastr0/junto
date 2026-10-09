@@ -11,6 +11,7 @@ import {
   type DirectoryPage,
 } from "../../lib/directory-picker";
 import { getJuntoApi } from "../../lib/junto-api";
+import { machineLabelIn, useMachines } from "../../lib/machines";
 import { Button, Combobox, IconButton } from "../ui";
 
 /** Typing a path settles before the listing follows it. */
@@ -42,6 +43,7 @@ export function HostDirectoryPicker({
   readonly onDraftChange?: (draft: string) => void;
   readonly inputAriaLabel?: string;
 }) {
+  const machines = useMachines();
   const [draft, setDraft] = useState(initialPath?.trim() || "~");
   const [page, setPage] = useState<DirectoryPage>();
   const [loading, setLoading] = useState(false);
@@ -176,7 +178,7 @@ export function HostDirectoryPicker({
   if (!loading && error) {
     status = <div role="alert" className={`${STATUS_CLASS} text-crimson-fg`}>{error}</div>;
   } else if (!snapshot) {
-    status = <div role="status" className={`${STATUS_CLASS} text-dim`}>Reading {hostId}…</div>;
+    status = <div role="status" className={`${STATUS_CLASS} text-dim`}>Reading {machineLabelIn(machines, hostId)}…</div>;
   }
   const empty = loading ? null : (
     <div className={`${STATUS_CLASS} text-dim`}>

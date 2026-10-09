@@ -13,6 +13,7 @@ import {
   type ChatItem,
 } from "../../lib/chat-state";
 import { chatActivity } from "../../lib/activity";
+import { thisMachineName } from "../../lib/machines";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { Dropdown, OverlayHeader } from "../ui";
 import { ChatTranscript } from "./ChatTranscript";
@@ -191,7 +192,7 @@ export function ChatView({
     pendingPermission: Boolean(pendingPermission),
     hasBusyTools: tools.some((tool) => tool.status === "pending" || tool.status === "in_progress"),
   });
-  const station = agentKey.split(":")[0] || "local";
+  const station = agentKey.split(":")[0] || thisMachineName();
   const statusText =
     status === "live"
       ? `${station} - ACP - live`

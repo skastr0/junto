@@ -136,30 +136,35 @@ describe("what a review says it is of", () => {
 });
 
 describe("the folder that speaks for a seat", () => {
+  const HERE = "macbook";
   const atlas = (more: Partial<Seat> = {}): Seat =>
-    seat("seat", { label: "Atlas" as never, x: 50, y: 50, width: 100, height: 60, bindingId: "git-seat" as never, ...more });
+    seat("seat", { label: "Atlas" as never, x: 50, y: 50, width: 100, height: 60, bindingId: "git-seat" as never, host: HERE as never, ...more });
   const canvasWith = (node: Seat) =>
     canvasOf([
-      region("outer", { x: 0, y: 0, width: 1000, height: 1000 }, { label: "Team" as never, defaults: { paths: { local: "/outer" } } as never }),
-      region("inner", { x: 10, y: 10, width: 400, height: 400 }, { label: "Docs" as never, defaults: { paths: { local: "/inner", studio: "/remote" } } as never }),
+      region("outer", { x: 0, y: 0, width: 1000, height: 1000 }, { label: "Team" as never, defaults: { paths: { [HERE]: "/outer" } } as never }),
+      region("inner", { x: 10, y: 10, width: 400, height: 400 }, { label: "Docs" as never, defaults: { paths: { [HERE]: "/inner", studio: "/elsewhere" } } as never }),
       node,
     ]);
 
   it("is where it was launched, first", () => {
     const node = atlas({ launch: { kind: "harness", argv: ["claude"], cwd: " /launched " } });
-    expect(seatGitFolder(canvasWith(node), node)).toBe("/launched");
+    expect(seatGitFolder(canvasWith(node), node, HERE)).toBe("/launched");
   });
-  it("else its innermost region's folder for its host", () => {
+  it("else its innermost region's folder for its machine", () => {
     const node = atlas();
-    expect(seatGitFolder(canvasWith(node), node)).toBe("/inner");
+    expect(seatGitFolder(canvasWith(node), node, HERE)).toBe("/inner");
   });
-  it("is nothing for a seat on another host: its folder is not on this machine", () => {
+  it("is nothing for a seat on another machine: its folder is not on this one", () => {
     const node = atlas({ host: "studio" as never, launch: { kind: "harness", argv: ["claude"], cwd: "/launched" } });
-    expect(seatGitFolder(canvasWith(node), node)).toBeUndefined();
+    expect(seatGitFolder(canvasWith(node), node, HERE)).toBeUndefined();
+  });
+  it("is nothing before this machine's name is known", () => {
+    const node = atlas({ launch: { kind: "harness", argv: ["claude"], cwd: "/launched" } });
+    expect(seatGitFolder(canvasWith(node), node, "")).toBeUndefined();
   });
   it("is nothing with no launch folder and no region folder", () => {
     const node = atlas({ x: 5000, y: 5000 });
-    expect(seatGitFolder(canvasWith(node), node)).toBeUndefined();
+    expect(seatGitFolder(canvasWith(node), node, HERE)).toBeUndefined();
   });
 });
 

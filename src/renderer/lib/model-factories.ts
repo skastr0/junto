@@ -90,15 +90,15 @@ export const newSeat = (spot: Spot, choices: SeatChoices): NodeOf<"agent"> => ({
   onRemove: "detach",
 });
 
-/** A plain terminal. Its session starts when it is opened. */
+/** A plain terminal on the machine named `host`. Its session starts when it is opened. */
 export const newTerminal = (
   spot: Spot,
-  options: { readonly host?: string; readonly launch?: Launch; readonly label?: string } = {},
+  options: { readonly host: string; readonly launch?: Launch; readonly label?: string },
 ): NodeOf<"terminal"> => ({
   kind: "terminal",
   ...placed("terminal", spot, INSTRUMENT_NODE_SIZE),
   ...(options.label?.trim() ? { label: options.label.trim() } : {}),
-  host: options.host?.trim() || "local",
+  host: requireHostId(options.host),
   bindingId: newBinding(),
   ...(options.launch ? { launch: options.launch } : {}),
   onRemove: "detach",
@@ -106,21 +106,21 @@ export const newTerminal = (
 
 // ── Surfaces agents work against ────────────────────────────────────────────
 
-/** An in-app browser page. The profile is a name; cookies stay with the browser. */
+/** An in-app browser page on the machine named `host`. The profile is a name; cookies stay with the browser. */
 export const newPage = (
   spot: Spot,
   url: string,
   options: {
-    readonly host?: string;
+    readonly host: string;
     readonly profile?: string;
     readonly onRemove?: NodeOf<"page">["onRemove"];
-  } = {},
+  },
 ): NodeOf<"page"> => ({
   kind: "page",
   ...placed("page", spot, { width: 260, height: 110 }),
   url,
   profile: options.profile?.trim() || "personal",
-  host: options.host?.trim() || "local",
+  host: requireHostId(options.host),
   onRemove: options.onRemove ?? "kill-session",
 });
 

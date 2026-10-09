@@ -441,7 +441,7 @@ const CREW_NODES: ReadonlyArray<Node> = CREW.map(
       id: seat.id,
       label: seat.name,
       agentKey: `tour:${seat.name}`,
-      host: "local",
+      host: "tour",
       bindingId: `tour:${seat.name}`,
       harness: seat.harness,
       overseer: false,

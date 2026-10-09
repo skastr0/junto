@@ -55,11 +55,11 @@ test("region folder paths — empty, save, escape", async ({ junto }) => {
 
   let dialog = await openRegionPaths(page, regionEmpty.id);
   await expect(dialog.getByText("Folder paths", { exact: true })).toBeVisible();
-  // Empty bag seeds one local host row + host directory picker (not a bare text field).
-  await expect(dialog.getByRole("listbox", { name: "Hosts with paths" })).toBeVisible();
+  // An empty bag seeds one row for this machine and its directory picker (not a bare text field).
+  await expect(dialog.getByRole("listbox", { name: "Machines with a folder" })).toBeVisible();
   await expect(dialog.getByRole("combobox", { name: /Working directory for /i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /use this folder/i })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: /add host/i })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /add machine/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /save/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Close folder paths" })).toBeVisible();
 
@@ -95,7 +95,7 @@ test("region folder paths — multi-host seed + remove", async ({ junto }) => {
   });
 
   let dialog = await openRegionPaths(page, regionFilled.id);
-  await expect(dialog.getByRole("listbox", { name: "Hosts with paths" })).toBeVisible();
+  await expect(dialog.getByRole("listbox", { name: "Machines with a folder" })).toBeVisible();
   // The picker shows the selected host only — local is the first stored key.
   await expect(
     dialog.getByRole("combobox", { name: /Working directory for /i }),
