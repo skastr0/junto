@@ -31,12 +31,14 @@ const basis = { kind: "canvas" as const, canvasName: "factory", seq: 1 };
 /** `lead` lives on the editing machine, `peer` and `peer-two` on the mini, `far` on a third machine. */
 const homes: Record<string, InstallationId> = { lead: EDITOR, peer: MINI, "peer-two": MINI, far: OTHER };
 const placement: CanvasPlacement = {
+  canvasId: "canvas-factory",
   editor: EDITOR,
   holds: (machine) => machine === EDITOR || Object.values(homes).includes(machine),
   seatOf: (nodeId) => (homes[nodeId] === undefined ? undefined : { seatId: actor(nodeId).seatId, machine: homes[nodeId]! }),
 };
 /** A second canvas that only the editing machine holds: its one seat is `lead`. */
 const privatePlacement: CanvasPlacement = {
+  canvasId: "canvas-private",
   editor: EDITOR,
   holds: (machine) => machine === EDITOR,
   seatOf: (nodeId) => (nodeId === "lead" ? { seatId: actor("lead").seatId, machine: EDITOR } : undefined),
@@ -88,6 +90,10 @@ const boot = async (self: InstallationId, canvases: ReadonlyArray<string> = ["fa
     placement: (canvasName) =>
       Effect.succeed(!canvases.includes(canvasName) ? undefined : canvasName === "private" ? privatePlacement : placement),
     mailArrived: (_canvas, nodeId, message: Message) => arrived.push({ nodeId, messageId: message.messageId }),
+    // These machines already hold their canvases; tests/work-exchange-copy.test.ts sends copies.
+    cutCopy: () => Effect.succeed(undefined),
+    copySent: () => Effect.void,
+    installCopy: () => Effect.die("no copy is sent between these machines"),
   });
   const machine: Machine = { self, root, runtime, repository, exchange, arrived };
   machines.set(self, machine);
@@ -157,7 +163,14 @@ const frameFrom = async (from: Machine): Promise<RowsFrame> => {
     from.repository.exchangeRows({ canvasName: "factory", writer: from.self, after: "0", limit: 64 }),
   );
   return JSON.parse(
-    JSON.stringify({ kind: "rows", canvasName: "factory", writer: from.self, facts: page.rows.map((row) => row.fact), through: page.through }),
+    JSON.stringify({
+      kind: "rows",
+      canvasName: "factory",
+      canvasId: "canvas-factory",
+      writer: from.self,
+      facts: page.rows.map((row) => row.fact),
+      through: page.through,
+    }),
   ) as RowsFrame;
 };
 
@@ -313,7 +326,13 @@ describe("a canvas a machine does not hold", () => {
 
     // The mini claims the canvas anyway: it is offered nothing of it.
     await editor.runtime.runPromise(
-      editor.exchange.receive(MINI, { kind: "have", canvases: [{ canvasName: "private", writers: [] }, { canvasName: "factory", writers: [] }] }),
+      editor.exchange.receive(MINI, {
+        kind: "have",
+        canvases: [
+          { canvasName: "private", canvasId: "canvas-private", writers: [] },
+          { canvasName: "factory", canvasId: "canvas-factory", writers: [] },
+        ],
+      }),
     );
     for (const queued of queue) expect(JSON.stringify(queued.frame)).not.toContain("private");
     // Nor is it reported caught up on it.
@@ -323,7 +342,23 @@ describe("a canvas a machine does not hold", () => {
   });
 
   it("takes no rows for it from that machine, not even an empty frame", async () => {
-    await refused(editor, MINI, { kind: "rows", canvasName: "private", writer: MINI, facts: [], through: "9" });
+    await refused(editor, MINI, { kind: "rows", canvasName: "private", canvasId: "canvas-private", writer: MINI, facts: [], through: "9" });
+  });
+
+  it("keeps apart two canvases of one name: another canvas's word is not kept, and its rows are refused", async () => {
+    // The mini speaks of a canvas named factory that is not the one the editing machine holds.
+    await editor.runtime.runPromise(
+      editor.exchange.receive(MINI, { kind: "have", canvases: [{ canvasName: "factory", canvasId: "another-factory", writers: [] }] }),
+    );
+    expect(queue).toEqual([]);
+    expect(editor.exchange.status().find((status) => status.peer === MINI)!.caughtUp).toEqual([]);
+    const honest = await frameFrom(mini);
+    await refused(editor, MINI, { ...honest, canvasId: "another-factory" });
+    // The mini says what it really holds again, and the exchange goes on.
+    await editor.runtime.runPromise(
+      editor.exchange.receive(MINI, { kind: "have", canvases: [{ canvasName: "factory", canvasId: "canvas-factory", writers: await cursors(mini) }] }),
+    );
+    await settle();
   });
 });
 

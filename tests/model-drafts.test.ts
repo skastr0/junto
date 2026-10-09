@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Result, Schema } from "effect";
 import { Node, NodeDraft, SEAT_FIELDS_MAIN_WORKS_OUT, Wire, WireDraft } from "../src/shared/model";
+import { THIS_MACHINE } from "./support/machines";
 
 // A draft is the model's node or wire with only what main decides left out.
 
@@ -12,7 +13,7 @@ const at = { x: 0, y: 0, width: 200, height: 100 };
 const seat = { kind: "agent", ...at, harness: "claude" };
 /** The same seat as the model holds it once main has worked it out. */
 const seated = {
-  ...seat, agentKey: "local:claude", label: "Builder", host: "local", onRemove: "detach",
+  ...seat, agentKey: "local:claude", label: "Builder", host: THIS_MACHINE, onRemove: "detach",
   overseer: false, bindingId: "seat-1",
 };
 
@@ -20,17 +21,17 @@ describe("a node draft", () => {
   it("is every model kind without an id or a place in the stack", () => {
     const drafts: ReadonlyArray<Record<string, unknown>> = [
       seat,
-      { kind: "terminal", ...at, host: "local", bindingId: "term-1", onRemove: "detach" },
-      { kind: "page", ...at, host: "local", url: "https://example.com", profile: "default", onRemove: "kill-session" },
+      { kind: "terminal", ...at, host: THIS_MACHINE, bindingId: "term-1", onRemove: "detach" },
+      { kind: "page", ...at, host: THIS_MACHINE, url: "https://example.com", profile: "default", onRemove: "kill-session" },
       { kind: "task", ...at },
       { kind: "requests", ...at },
       { kind: "artifacts", ...at },
       { kind: "board", ...at },
       { kind: "pad", ...at },
       { kind: "sheet", ...at },
-      { kind: "cron", ...at, host: "local", expression: "0 9 * * 1" },
-      { kind: "relay", ...at, host: "local" },
-      { kind: "watcher", ...at, host: "local" },
+      { kind: "cron", ...at, host: THIS_MACHINE, expression: "0 9 * * 1" },
+      { kind: "relay", ...at, host: THIS_MACHINE },
+      { kind: "watcher", ...at, host: THIS_MACHINE },
       { kind: "note", ...at, text: "hello" },
       { kind: "label", ...at, text: "hello" },
       { kind: "file", ...at, path: "/tmp/a.md" },
@@ -73,7 +74,7 @@ describe("a node draft", () => {
   });
 
   it("drafts a terminal with the command it runs", () => {
-    const shell = { kind: "terminal", ...at, host: "local", onRemove: "detach" };
+    const shell = { kind: "terminal", ...at, host: THIS_MACHINE, onRemove: "detach" };
     expect(decodes(NodeDraft, shell)).toBe(true);
     expect(decodes(NodeDraft, { ...shell, bindingId: "term-1", launch: { kind: "command", argv: ["htop"] } })).toBe(true);
   });

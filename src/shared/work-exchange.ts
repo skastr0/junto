@@ -1,15 +1,21 @@
 /**
- * The row exchange between two machines (docs/machines.md, rules 4 to 6).
+ * The row exchange between two machines (docs/machines.md, rules 2 and 4 to 6).
  *
  * A row is a work fact, identified by its writer and sequence. Two machines
  * tell each other how far they are caught up, per canvas and writer, and each
- * sends the other what it lacks and is entitled to. Everything here is pure:
- * the frames, the closed list of rows that may cross, and the three questions
- * a receiver asks before it takes a row.
+ * sends the other what it lacks and is entitled to. The machine that edits a
+ * canvas also sends each other machine its copy of it. Everything here is
+ * pure: the frames, the closed list of rows that may cross, and the three
+ * questions a receiver asks before it takes a row.
+ *
+ * A canvas is named in a frame by its name and its id. Two machines can each
+ * have a canvas of one name; the id says which one a frame is about.
  */
 import { Schema } from "effect";
 import type { ActorSeatId } from "./actor-seat";
+import { CanvasCopy } from "./canvas-copy";
 import { InstallationId } from "./installation-id";
+import { Seq } from "./model";
 import { WorkCanvasName, OPERATOR_SEAT_ID, operatorActorRef } from "./work-reference";
 import { WorkFact } from "./work-protocol";
 
@@ -63,12 +69,15 @@ export const ExchangeFact = WorkFact.pipe(
 );
 export type ExchangeFact = typeof ExchangeFact.Type;
 
+const CanvasId = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(128)));
+
 /** How far the sender of this frame is caught up, per canvas and writer. */
 export const HaveFrame = Schema.Struct({
   kind: Schema.Literal("have"),
   canvases: Schema.Array(
     Schema.Struct({
       canvasName: WorkCanvasName,
+      canvasId: CanvasId,
       writers: Schema.Array(Schema.Struct({ writer: InstallationId, through: ExchangeThrough })),
     }),
   ),
@@ -83,19 +92,42 @@ export type HaveFrame = typeof HaveFrame.Type;
 export const RowsFrame = Schema.Struct({
   kind: Schema.Literal("rows"),
   canvasName: WorkCanvasName,
+  canvasId: CanvasId,
   writer: InstallationId,
   facts: Schema.Array(ExchangeFact).pipe(Schema.check(Schema.isMaxLength(EXCHANGE_MAX_FACTS_PER_FRAME))),
   through: ExchangeThrough,
 });
 export type RowsFrame = typeof RowsFrame.Type;
 
-export const ExchangeFrame = Schema.Union([HaveFrame, RowsFrame]);
+/**
+ * A canvas, cut for the machine this frame is sent to. Only the machine that
+ * edits a canvas sends its copy.
+ */
+export const CopyFrame = Schema.Struct({ kind: Schema.Literal("copy"), copy: CanvasCopy });
+export type CopyFrame = typeof CopyFrame.Type;
+
+/**
+ * The answer to a copy this machine will not hold: it already has a canvas of
+ * that name which is not this one, its own or another machine's.
+ */
+export const CopyRefusedFrame = Schema.Struct({
+  kind: Schema.Literal("copy-refused"),
+  canvasName: WorkCanvasName,
+  canvasId: CanvasId,
+  seq: Seq,
+  reason: Schema.Literal("a-canvas-of-that-name"),
+});
+export type CopyRefusedFrame = typeof CopyRefusedFrame.Type;
+
+export const ExchangeFrame = Schema.Union([HaveFrame, RowsFrame, CopyFrame, CopyRefusedFrame]);
 export type ExchangeFrame = typeof ExchangeFrame.Type;
 
 export const decodeExchangeFrame = Schema.decodeUnknownResult(ExchangeFrame, { onExcessProperty: "error" });
 
 /** Where the seats of one canvas live, as one machine holds it. */
 export type CanvasPlacement = {
+  /** Which canvas of that name this is. */
+  readonly canvasId: string;
   /** The machine that may change the canvas; it keeps all of it. */
   readonly editor: InstallationId;
   /** Does this machine hold the canvas: it edits it, or one of its seats is on it. */

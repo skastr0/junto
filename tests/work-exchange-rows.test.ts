@@ -24,6 +24,7 @@ const seat = (digit: string) => Schema.decodeUnknownSync(ActorSeatId)(`seat_${di
 
 /** `lead` lives on the editing machine, `peer` on the mini, `far` on a third machine. */
 const placement: CanvasPlacement = {
+  canvasId: "canvas-factory",
   editor,
   holds: (machine) => machine === editor || machine === mini || machine === other,
   seatOf: (nodeId) =>
@@ -137,15 +138,46 @@ describe("the rows that may cross machines", () => {
 
   it("bounds a frame and refuses a frame it does not know", () => {
     const one = mail(editor, lead, "peer");
-    const frame = (facts: unknown[]) => ({ kind: "rows", canvasName: "factory", writer: editor, facts, through: "1" });
+    const frame = (facts: unknown[]) => ({ kind: "rows", canvasName: "factory", canvasId: "canvas-factory", writer: editor, facts, through: "1" });
     expect(Result.isSuccess(decodeExchangeFrame(frame([one])))).toBe(true);
     expect(Result.isSuccess(decodeExchangeFrame(frame(Array.from({ length: EXCHANGE_MAX_FACTS_PER_FRAME + 1 }, () => one))))).toBe(false);
     expect(Result.isSuccess(decodeExchangeFrame({ ...frame([]), through: "007" }))).toBe(false);
     expect(Result.isSuccess(decodeExchangeFrame({ ...frame([]), extra: true }))).toBe(false);
     expect(Result.isSuccess(decodeExchangeFrame({ kind: "claim", canvasName: "factory" }))).toBe(false);
     expect(
-      Result.isSuccess(decodeExchangeFrame({ kind: "have", canvases: [{ canvasName: "factory", writers: [{ writer: mini, through: "0" }] }] })),
+      Result.isSuccess(
+        decodeExchangeFrame({ kind: "have", canvases: [{ canvasName: "factory", canvasId: "canvas-factory", writers: [{ writer: mini, through: "0" }] }] }),
+      ),
     ).toBe(true);
+    // A frame names its canvas by id as well as by name.
+    const { canvasId: _id, ...unnamed } = frame([]);
+    expect(Result.isSuccess(decodeExchangeFrame(unnamed))).toBe(false);
+    expect(Result.isSuccess(decodeExchangeFrame({ kind: "have", canvases: [{ canvasName: "factory", writers: [] }] }))).toBe(false);
+  });
+
+  it("knows a copy and its refusal, each exactly as written", () => {
+    const copy = {
+      canvasName: "factory",
+      canvasId: "canvas-factory",
+      seq: 3,
+      editor,
+      target: mini,
+      seats: [],
+      peers: [],
+      terminals: [],
+      regions: [],
+      wires: [],
+      guidance: [],
+      references: [],
+      playing: true,
+    };
+    expect(Result.isSuccess(decodeExchangeFrame({ kind: "copy", copy }))).toBe(true);
+    expect(Result.isSuccess(decodeExchangeFrame({ kind: "copy", copy: { ...copy, notes: [] } }))).toBe(false);
+    expect(Result.isSuccess(decodeExchangeFrame({ kind: "copy", copy: { ...copy, target: undefined } }))).toBe(false);
+    const refusal = { kind: "copy-refused", canvasName: "factory", canvasId: "canvas-factory", seq: 3, reason: "a-canvas-of-that-name" };
+    expect(Result.isSuccess(decodeExchangeFrame(refusal))).toBe(true);
+    expect(Result.isSuccess(decodeExchangeFrame({ ...refusal, reason: "busy" }))).toBe(false);
+    expect(Result.isSuccess(decodeExchangeFrame({ ...refusal, detail: "x" }))).toBe(false);
   });
 
   it("orders sequences by value, past the range of a number", () => {

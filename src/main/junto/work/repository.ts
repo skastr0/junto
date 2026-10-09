@@ -8184,6 +8184,9 @@ export const WorkRepositoryLive = Layer.effect(
             if (placement === undefined) {
               return yield* Effect.fail(refuseExchange("this machine does not hold that canvas"));
             }
+            if (placement.canvasId !== frame.canvasId) {
+              return yield* Effect.fail(refuseExchange("this machine holds another canvas of that name"));
+            }
             if (!peerMayPassOn(peer, frame.writer, placement)) {
               return yield* Effect.fail(
                 refuseExchange("that machine may not pass on this writer's rows for this canvas"),

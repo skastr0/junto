@@ -24,11 +24,12 @@ import {
   squadSummary,
   type SquadIds,
 } from "../src/renderer/lib/squads";
+import { THIS_MACHINE } from "./support/machines";
 
 const seat = (id: string, x: number, y: number, harness: "claude" | "codex" = "claude"): NodeOf<"agent"> => ({
   ...newSeat({ x, y, z: 0 }, {
     harness,
-    host: "local",
+    host: THIS_MACHINE,
     cwd: "~/work",
     label: id,
     ...(harness === "claude" ? { model: "opus", effort: "high" } : {}),
@@ -36,7 +37,7 @@ const seat = (id: string, x: number, y: number, harness: "claude" | "codex" = "c
   id: asNodeId(id),
 });
 
-const LAUNCH = { host: "local", cwd: "~/elsewhere" } as const;
+const LAUNCH = { host: THIS_MACHINE, cwd: "~/elsewhere" } as const;
 const empty = canvasOf([]);
 const note = (id: string, x: number, y: number) => noteNode(id, id, { x, y });
 const edge = (id: string, from: string, to: string, more: Partial<Wire> = {}): Wire =>
@@ -105,7 +106,7 @@ describe("decodeSquadBody", () => {
           harness: "claude",
           label: "reviewer",
           entityName: "local:claude",
-          host: "local",
+          host: THIS_MACHINE,
           launch: { argv: ["claude", "--model", "opus", "--effort", "high", "--session-id", "{squad-session}"], cwd: "~/old" },
           pinSession: true,
           dx: 0,
@@ -201,7 +202,7 @@ describe("placeSquad", () => {
   });
 
   it("asks for a folder instead of minting seats that cannot start", () => {
-    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), { host: "local" });
+    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), { host: THIS_MACHINE });
     expect(placed.needsFolder).toBe(true);
     expect(placed.nodes).toEqual([]);
   });
@@ -227,7 +228,7 @@ describe("placeSquad", () => {
 
   it("lands inside a region and takes the region's folder for the host", () => {
     const region = regionNode("region", { x: 0, y: 0, width: 1200, height: 800 },
-      { defaults: { paths: { local: "~/region-folder" } } });
+      { defaults: { paths: { [THIS_MACHINE]: "~/region-folder" } } });
     const placed = placeSquad(squad, { x: 1150, y: 750 }, canvasOf([region]), counter(), LAUNCH);
     expect(placed.regionId).toBe("region");
     for (const node of placed.nodes) {

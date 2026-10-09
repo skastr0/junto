@@ -1,13 +1,20 @@
 /**
- * The row exchange over open links (docs/machines.md, rules 4 to 7).
+ * The row exchange over open links (docs/machines.md, rules 2 and 4 to 7).
  *
- * The same code runs at both ends of a link. On open, each end says how far it
- * is caught up; each answers with the rows the other lacks and is entitled to;
- * after that a local commit is pushed to every open link. Nothing here knows
- * which end opened the link, and nothing about a peer is kept once its link
- * closes.
+ * The same code runs at both ends of a link. On open, each end sends the
+ * copies of the canvases it edits that the other has a seat on, then says how
+ * far it is caught up; each answers with the rows the other lacks and is
+ * entitled to; after that a local commit is pushed to every open link.
+ * Nothing here knows which end opened the link, and nothing about a peer is
+ * kept once its link closes.
+ *
+ * A copy goes before any word about its canvas. A machine says nothing of a
+ * canvas it does not hold, so it sends its own catch-up again once it has
+ * taken a copy, and the machine that sent the copy sends its own after it:
+ * each end then hears of the canvas only once it holds it.
  */
 import { Effect, Result, Semaphore } from "effect";
+import type { CanvasCopy } from "@shared/canvas-copy";
 import type { InstallationId } from "@shared/installation-id";
 import type { Message } from "@shared/work-model";
 import {
@@ -16,15 +23,19 @@ import {
   decodeExchangeFrame,
   entitledTo,
   type CanvasPlacement,
+  type CopyRefusedFrame,
   type ExchangeFrame,
   type HaveFrame,
 } from "@shared/work-exchange";
 import type { WorkRepositoryShape } from "../repository";
 
-/** One open link, as the exchange sees it: who is there and how to send. */
+/**
+ * One open link, as the exchange sees it: who is there and how to send. A
+ * frame that cannot be sent ends the exchange on that link.
+ */
 export type ExchangeLink = {
   readonly peer: InstallationId;
-  readonly send: (frame: ExchangeFrame) => Effect.Effect<void>;
+  readonly send: (frame: ExchangeFrame) => Effect.Effect<void, unknown>;
 };
 
 export type RowExchangeDeps = {
@@ -39,7 +50,27 @@ export type RowExchangeDeps = {
   readonly placement: (canvasName: string) => Effect.Effect<CanvasPlacement | undefined>;
   /** Mail that arrived for a seat, for this machine to deliver if the seat is here. */
   readonly mailArrived: (canvasName: string, nodeId: string, message: Message) => void;
+  /**
+   * This machine's canvas, cut for that machine. Absent when this machine does
+   * not edit the canvas or that machine has no seat on it.
+   */
+  readonly cutCopy: (canvasName: string, peer: InstallationId) => Effect.Effect<CanvasCopy | undefined, unknown>;
+  /**
+   * A copy is about to leave for the machine it was cut for. Kept before it is
+   * sent: a row may state only a canvas count its writer was sent.
+   */
+  readonly copySent: (copy: CanvasCopy) => Effect.Effect<void, unknown>;
+  /**
+   * Take a copy from the machine that edits the canvas. `refused` when this
+   * machine already has a canvas of that name which is not this one. Fails
+   * for a copy no honest machine sends.
+   */
+  readonly installCopy: (copy: CanvasCopy) => Effect.Effect<CopyInstalled, unknown>;
 };
+
+export type CopyInstalled =
+  | { readonly installed: boolean; readonly seq: number }
+  | { readonly refused: CopyRefusedFrame["reason"] };
 
 /** A peer broke the exchange: the link must close. */
 export class ExchangeClosed extends Error {
@@ -54,12 +85,20 @@ export type ExchangeLinkStatus = {
     readonly writer: InstallationId;
     readonly through: string;
   }>;
+  /** The copies this machine sent that machine on this link, by canvas, at their count. */
+  readonly copies: ReadonlyArray<{ readonly canvasName: string; readonly canvasId: string; readonly seq: number }>;
+  /** The copies that machine would not take, and why. */
+  readonly refused: ReadonlyArray<Omit<CopyRefusedFrame, "kind">>;
 };
 
 type LinkState = {
   readonly link: ExchangeLink;
   /** `canvas`, then `writer`, to the sequence the peer is caught up through. */
   readonly have: Map<string, Map<InstallationId, string>>;
+  /** The copy last sent on this link, by canvas. */
+  readonly copies: Map<string, { readonly canvasId: string; readonly seq: number }>;
+  /** What the peer would not take, by canvas. */
+  readonly refused: Map<string, Omit<CopyRefusedFrame, "kind">>;
   readonly turn: Semaphore.Semaphore;
 };
 
@@ -69,6 +108,9 @@ const closed = (cause: unknown): ExchangeClosed =>
 export const makeRowExchange = (deps: RowExchangeDeps) => {
   const links = new Map<InstallationId, LinkState>();
 
+  const send = (state: LinkState, frame: ExchangeFrame): Effect.Effect<void, ExchangeClosed> =>
+    state.link.send(frame).pipe(Effect.mapError(closed));
+
   /** How far this machine is caught up, on the canvases that peer holds too and no other. */
   const haveFrameFor = (peer: InstallationId): Effect.Effect<HaveFrame, ExchangeClosed> =>
     Effect.gen(function* () {
@@ -76,10 +118,36 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       for (const canvasName of yield* deps.canvases) {
         const placement = yield* deps.placement(canvasName);
         if (placement === undefined || !placement.holds(peer)) continue;
-        canvases.push({ canvasName, writers: yield* deps.repository.exchangeHave(canvasName) });
+        canvases.push({
+          canvasName,
+          canvasId: placement.canvasId,
+          writers: yield* deps.repository.exchangeHave(canvasName),
+        });
       }
       return { kind: "have" as const, canvases };
     }).pipe(Effect.mapError(closed));
+
+  /**
+   * Send a peer this machine's copy of one canvas, when there is one for it
+   * and it is not the one already sent on this link. True when a copy went.
+   */
+  const sendCopy = (state: LinkState, canvasName: string): Effect.Effect<boolean, ExchangeClosed> =>
+    Effect.gen(function* () {
+      const copy = yield* deps.cutCopy(canvasName, state.link.peer).pipe(Effect.mapError(closed));
+      if (copy === undefined) return false;
+      const sent = state.copies.get(canvasName);
+      if (sent !== undefined && sent.canvasId === copy.canvasId && sent.seq >= copy.seq) return false;
+      yield* deps.copySent(copy).pipe(Effect.mapError(closed));
+      yield* send(state, { kind: "copy", copy });
+      state.copies.set(canvasName, { canvasId: copy.canvasId, seq: copy.seq });
+      state.refused.delete(canvasName);
+      return true;
+    });
+
+  const sendHave = (state: LinkState): Effect.Effect<void, ExchangeClosed> =>
+    Effect.gen(function* () {
+      yield* send(state, yield* haveFrameFor(state.link.peer));
+    });
 
   /** Send a peer everything of one writer and canvas it lacks and is entitled to. */
   const sendWriter = (
@@ -100,7 +168,14 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
           .filter((row) => entitledTo(state.link.peer, row.fact, placement, row.mailAuthorNodeId))
           .map((row) => row.fact);
         if (facts.length > 0 || compareSequence(page.through, after) > 0) {
-          yield* state.link.send({ kind: "rows", canvasName, writer, facts, through: page.through });
+          yield* send(state, {
+            kind: "rows",
+            canvasName,
+            canvasId: placement.canvasId,
+            writer,
+            facts,
+            through: page.through,
+          });
           have.set(writer, page.through);
         }
         if (!page.more) return;
@@ -148,11 +223,26 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
             for (const canvas of frame.canvases) {
               const placement = yield* deps.placement(canvas.canvasName);
               if (placement === undefined || !placement.holds(peer)) continue;
+              // The same name on two machines can be two canvases.
+              if (placement.canvasId !== canvas.canvasId) continue;
               state.have.set(canvas.canvasName, new Map(canvas.writers.map((entry) => [entry.writer, entry.through])));
             }
             for (const canvasName of state.have.keys()) yield* offer(state, canvasName);
           }),
         );
+        return;
+      }
+      if (frame.kind === "copy") {
+        yield* inTurn(state, takeCopy(state, frame.copy));
+        return;
+      }
+      if (frame.kind === "copy-refused") {
+        const sent = state.copies.get(frame.canvasName);
+        if (sent === undefined || sent.canvasId !== frame.canvasId) {
+          return yield* Effect.fail(new ExchangeClosed("a refusal of a copy this machine did not send"));
+        }
+        const { kind: _kind, ...refusal } = frame;
+        state.refused.set(frame.canvasName, refusal);
         return;
       }
       const applied = yield* deps.repository
@@ -163,11 +253,47 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       if (applied.taken > 0) yield* committed(frame.canvasName, peer);
     });
 
-  /** A local commit, or rows just taken, on a canvas: push to every other open link. */
+  /**
+   * A copy arrived. Only the machine that edits a canvas sends its copy, and
+   * only to the machine it was cut for; anything else closes the link. A copy
+   * this machine cannot hold is answered, never dropped.
+   */
+  const takeCopy = (state: LinkState, copy: CanvasCopy): Effect.Effect<void, ExchangeClosed> =>
+    Effect.gen(function* () {
+      if (copy.target !== deps.self) return yield* Effect.fail(new ExchangeClosed("a copy cut for another machine"));
+      if (copy.editor !== state.link.peer) {
+        return yield* Effect.fail(new ExchangeClosed("only the machine that edits a canvas sends its copy"));
+      }
+      const outcome = yield* deps.installCopy(copy).pipe(Effect.mapError(closed));
+      if ("refused" in outcome) {
+        yield* send(state, {
+          kind: "copy-refused",
+          canvasName: copy.canvasName,
+          canvasId: copy.canvasId,
+          seq: copy.seq,
+          reason: outcome.refused,
+        });
+        return;
+      }
+      // This machine holds the canvas now, or a newer one: say how far it is caught up on it.
+      if (outcome.installed) yield* sendHave(state);
+    });
+
+  /**
+   * A local commit, or rows just taken, on a canvas: push to every other open
+   * link. A canvas this machine edits goes first as its copy, when it changed.
+   */
   const committed = (canvasName: string, except?: InstallationId): Effect.Effect<void, ExchangeClosed> =>
     Effect.forEach(
       [...links.values()].filter((state) => state.link.peer !== except),
-      (state) => inTurn(state, offer(state, canvasName)),
+      (state) =>
+        inTurn(
+          state,
+          Effect.gen(function* () {
+            if (yield* sendCopy(state, canvasName)) yield* sendHave(state);
+            yield* offer(state, canvasName);
+          }),
+        ),
       { discard: true },
     );
 
@@ -175,8 +301,21 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
     /** A link opened: remember it and say how far this machine is caught up. */
     opened: (link: ExchangeLink): Effect.Effect<void, ExchangeClosed> =>
       Effect.gen(function* () {
-        links.set(link.peer, { link, have: new Map(), turn: Semaphore.makeUnsafe(1) });
-        yield* link.send(yield* haveFrameFor(link.peer));
+        const state: LinkState = {
+          link,
+          have: new Map(),
+          copies: new Map(),
+          refused: new Map(),
+          turn: Semaphore.makeUnsafe(1),
+        };
+        links.set(link.peer, state);
+        yield* inTurn(
+          state,
+          Effect.gen(function* () {
+            for (const canvasName of yield* deps.canvases) yield* sendCopy(state, canvasName);
+            yield* sendHave(state);
+          }),
+        );
       }),
     closed: (peer: InstallationId): void => {
       links.delete(peer);
@@ -191,6 +330,8 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         caughtUp: [...state.have].flatMap(([canvasName, writers]) =>
           [...writers].map(([writer, through]) => ({ canvasName, writer, through })),
         ),
+        copies: [...state.copies].map(([canvasName, sent]) => ({ canvasName, ...sent })),
+        refused: [...state.refused.values()],
       })),
   };
 };

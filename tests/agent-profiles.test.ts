@@ -16,9 +16,10 @@ import {
   resolvedPortrait,
   seatFromProfile,
 } from "../src/renderer/lib/agent-profiles";
+import { THIS_MACHINE } from "./support/machines";
 
 const claude = (id: string): NodeOf<"agent"> => ({
-  ...newSeat({ x: 0, y: 0, z: 0 }, { harness: "claude", host: "local", cwd: "~/work", label: "Ada", model: "opus", effort: "high" }),
+  ...newSeat({ x: 0, y: 0, z: 0 }, { harness: "claude", host: THIS_MACHINE, cwd: "~/work", label: "Ada", model: "opus", effort: "high" }),
   id: asNodeId(id),
 });
 
@@ -90,7 +91,7 @@ describe("seatFromProfile", () => {
   const body = profileBodyOfSeat(claude("seat-1"), { guidanceOf: () => ({ soul: "Careful." }) })!;
 
   it("mints a fresh seat with the same harness and dials, here, with its soul to save", () => {
-    const placed = seatFromProfile(body, { x: 40, y: 80, host: "local", cwd: "~/other-project" });
+    const placed = seatFromProfile(body, { x: 40, y: 80, host: THIS_MACHINE, cwd: "~/other-project" });
     expect(placed.ok).toBe(true);
     if (!placed.ok) return;
     const terminal = placed.node;
@@ -104,15 +105,15 @@ describe("seatFromProfile", () => {
   });
 
   it("two placements are two seats: new ids, bindings, and sessions", () => {
-    const a = seatFromProfile(body, { x: 0, y: 0, host: "local", cwd: "~/w" });
-    const b = seatFromProfile(body, { x: 0, y: 0, host: "local", cwd: "~/w" });
+    const a = seatFromProfile(body, { x: 0, y: 0, host: THIS_MACHINE, cwd: "~/w" });
+    const b = seatFromProfile(body, { x: 0, y: 0, host: THIS_MACHINE, cwd: "~/w" });
     if (!a.ok || !b.ok) throw new Error("placement failed");
     expect(a.node.id).not.toBe(b.node.id);
     expect(a.node.bindingId).not.toBe(b.node.bindingId);
   });
 
   it("refuses a harness this build cannot run instead of placing something adjacent", () => {
-    const placed = seatFromProfile({ ...body, harness: "harness-from-later" }, { x: 0, y: 0, host: "local", cwd: "~/w" });
+    const placed = seatFromProfile({ ...body, harness: "harness-from-later" }, { x: 0, y: 0, host: THIS_MACHINE, cwd: "~/w" });
     expect(placed).toMatchObject({ ok: false });
   });
 
