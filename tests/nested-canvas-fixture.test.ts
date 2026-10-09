@@ -105,7 +105,7 @@ describe("real canvas shape from a database copy", () => {
     const geometry = "canvas_name,id,z_index,x,y,width,height,color,created_at,updated_at";
     const times = "'2000-01-01', '2000-01-01'";
     db.exec(`
-      INSERT INTO canvases VALUES ('factory', 'c1', '2000-01-01', '2000-01-01', 0);
+      INSERT INTO canvases(canvas_name, canvas_id, created_at, updated_at, seq) VALUES ('factory', 'c1', '2000-01-01', '2000-01-01', 0);
       INSERT INTO regions (${geometry}, label, hold) VALUES
         ('factory', 'outer', 0, 0, 0, 2000, 1200, '4', ${times}, 'Secret outer', 0),
         ('factory', 'inner', 1, 100, 100, 900, 600, NULL, ${times}, 'Secret inner', 0);

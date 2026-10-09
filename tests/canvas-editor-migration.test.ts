@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { ModelRecords } from "../src/main/junto/model/records";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
@@ -110,6 +111,16 @@ describe("state migration 17 -> 18 (the machine that edits each canvas)", () => 
         }),
       );
       expect(editors).toEqual({ held: "command-center-v1", created: "command-center-v1", missing: undefined });
+      const edits = await runtime.runPromise(
+        Effect.gen(function* () {
+          const records = yield* ModelRecords;
+          const sql = yield* SqlClient.SqlClient;
+          const own = yield* records.editsCanvas("factory");
+          yield* sql`UPDATE canvases SET editor_installation_id = 'another-machine' WHERE canvas_name = 'another'`;
+          return { own, copy: yield* records.editsCanvas("another"), missing: yield* records.editsCanvas("no-such-canvas") };
+        }),
+      );
+      expect(edits).toEqual({ own: true, copy: false, missing: true });
     } finally {
       await runtime.dispose();
     }

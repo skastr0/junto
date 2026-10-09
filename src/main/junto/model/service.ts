@@ -197,6 +197,14 @@ export class ModelService extends Context.Service<ModelService>()(
                 });
                 return { seq: 0 };
               }
+              // A machine changes only the canvases it edits; any other it
+              // holds is a copy. Recording a seat's own session is the one
+              // write a seat's machine makes to its row in a copy.
+              if (command._tag !== "RecordSession" && !(yield* records.editsCanvas(command.canvas))) {
+                return yield* refused(
+                  "This canvas is edited on another machine; this machine holds a copy of it.",
+                );
+              }
               const current = yield* canvas(command.canvas);
               const nodesById = new Map(current.nodes);
               const wiresById = new Map(current.wires);

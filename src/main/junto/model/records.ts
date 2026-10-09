@@ -102,6 +102,27 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           failure("canvasEditor"),
         ),
       );
+      const canvasEdits = SqlSchema.findAll({
+        Request: Schema.String,
+        Result: Schema.Struct({ edits: Schema.Number }),
+        execute: (canvas) =>
+          sql`SELECT COALESCE(
+              editor_installation_id IS NULL
+              OR editor_installation_id = (SELECT installation_id FROM station_installation WHERE singleton = 1),
+              0
+            ) AS edits
+            FROM canvases WHERE canvas_name=${canvas}`,
+      });
+      /**
+       * Does this machine edit that canvas. A canvas held as a copy is edited
+       * on another machine; a canvas that does not exist is no copy.
+       */
+      const editsCanvas = Effect.fn("ModelRecords.editsCanvas")((canvas: string) =>
+        canvasEdits(canvas).pipe(
+          Effect.map((rows) => rows[0] === undefined || rows[0].edits === 1),
+          failure("editsCanvas"),
+        ),
+      );
       const canvasNames = SqlSchema.findAll({
         Request: Schema.Void,
         Result: CanvasNameRow,
@@ -330,6 +351,7 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         requireSeatHost,
         getCanvas,
         canvasEditor,
+        editsCanvas,
         listCanvases,
         listCanvasSummaries: () => listCanvasSummaries(undefined).pipe(failure("listCanvasSummaries")),
         kindOf,
