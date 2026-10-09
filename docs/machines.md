@@ -138,6 +138,15 @@ The one interface three seats build against.
 - A machine is known by the short name the operator gives it, the `host` on a
   seat. The machine list maps that name to its SSH target. Its installation id
   is learned at the first hello and may not change afterwards.
+- Who is at the other end. The trust unit is the OS account. The end that
+  opens a link trusts the SSH route the operator chose and the installation id
+  pinned for it. The end that receives one accepts a first peer id only while
+  the machine is being set up; a hello never enrolls itself or picks an
+  existing peer, and a changed id or name is refused. That id is an assertion
+  by an account allowed to log in, not proof of an installation. The first
+  version adds no keys of its own, and the link runs with SSH agent, X11 and
+  port forwarding off. Before a second machine may open links, this is
+  revisited: a link-only key bound to its opener is the candidate.
 - Owners: `remote-send` the SSH side and the relay command; `remote-core` the
   socket and the channels inside the core; `remote-work` the `rows` channel;
   `remote-seats` the `seats` channel; `remote-send` the `status` channel.
