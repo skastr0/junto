@@ -28,7 +28,7 @@ const base: LegacyNodeRow = {
 };
 
 describe("pure old-row conversion", () => {
-  it("converts a managed seat with defaults, launch and named session", () => {
+  it("converts a managed seat with defaults and launch, leaving the named session out of the node", () => {
     const launch = {
       kind: "harness",
       argv: ["codex"],
@@ -63,7 +63,6 @@ describe("pure old-row conversion", () => {
       overseer: false,
       bindingId: "bound",
       harness: "codex",
-      sessionId: "known",
       onRemove: "detach",
       launch,
     });

@@ -10,6 +10,7 @@ import {
   SchedulerRepository,
   type SchedulerRepositoryOptions,
 } from "../src/main/junto/scheduler/repository";
+import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
 const run = async <A, E>(
   program: Effect.Effect<A, E, SchedulerRepository | SqlClient.SqlClient>,
@@ -29,20 +30,20 @@ test("expression claims deduplicate the full identity", () => run(Effect.gen(fun
   const repository = yield* SchedulerRepository;
   const sql = yield* SqlClient.SqlClient;
   const input = {
-    homeStation: "local", timerKey: "cron-a", scheduleId: "weekday", dueAtEpochMs: 100,
+    homeStation: THIS_MACHINE, timerKey: "cron-a", scheduleId: "weekday", dueAtEpochMs: 100,
     nextDueAtEpochMs: 700, nowEpochMs: 113,
   };
   expect(yield* repository.claimExpression(input)).toEqual({ _tag: "Claimed", dueAtEpochMs: 100, nextDueAtEpochMs: 700 });
   expect(yield* repository.claimExpression(input)).toEqual({ _tag: "Duplicate" });
-  expect(yield* repository.claimExpression({ ...input, homeStation: "remote" })).toMatchObject({ _tag: "Claimed" });
+  expect(yield* repository.claimExpression({ ...input, homeStation: OTHER_MACHINE })).toMatchObject({ _tag: "Claimed" });
   expect(yield* repository.claimExpression({ ...input, scheduleId: "weekend" })).toMatchObject({ _tag: "Claimed" });
   expect(yield* repository.claimExpression({ ...input, nextDueAtEpochMs: 100 })).toEqual({
     _tag: "Ineligible", reason: "invalid-expression-claim",
   });
   expect(yield* sql`SELECT home_station, schedule_id, claim_slot, due_slot, coalesced_missed_slots
     FROM scheduler_interval_firings ORDER BY home_station, schedule_id`.values).toEqual([
-    ["local", "weekday", "100", "100", "0"], ["local", "weekend", "100", "100", "0"],
-    ["remote", "weekday", "100", "100", "0"],
+    [OTHER_MACHINE, "weekday", "100", "100", "0"],
+    [THIS_MACHINE, "weekday", "100", "100", "0"], [THIS_MACHINE, "weekend", "100", "100", "0"],
   ]);
 })));
 
@@ -51,7 +52,7 @@ test("a failed claim leaves no firing behind", async () => {
     const repository = yield* SchedulerRepository;
     const sql = yield* SqlClient.SqlClient;
     expect(yield* Effect.result(repository.claimExpression({
-      homeStation: "local", timerKey: "cron-a", scheduleId: "weekday", dueAtEpochMs: 100,
+      homeStation: THIS_MACHINE, timerKey: "cron-a", scheduleId: "weekday", dueAtEpochMs: 100,
       nextDueAtEpochMs: 700, nowEpochMs: 113,
     }))).toMatchObject({
       _tag: "Failure", failure: { _tag: "SchedulerPersistenceError", operation: "claim-expression", message: "clock unavailable" },
@@ -64,8 +65,8 @@ test("a failed claim leaves no firing behind", async () => {
 
 test("reconciliation refuses an invalid home or timer key", () => run(Effect.gen(function* () {
   const repository = yield* SchedulerRepository;
-  expect(yield* repository.reconcileHome("local", ["factory::cron-a"])).toBe(0);
-  expect(yield* Effect.result(repository.reconcileHome("local", [""]))).toMatchObject({
+  expect(yield* repository.reconcileHome(THIS_MACHINE, ["factory::cron-a"])).toBe(0);
+  expect(yield* Effect.result(repository.reconcileHome(THIS_MACHINE, [""]))).toMatchObject({
     _tag: "Failure", failure: { _tag: "SchedulerInputError", operation: "reconcile-home" },
   });
 })));

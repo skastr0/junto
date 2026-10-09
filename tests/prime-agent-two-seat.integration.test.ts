@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { seedThisMachine } from "./support/seed-this-machine";
 import { createAppProcessPlane } from "../src/main/junto/app-process-plane";
 import {
   getProcessIdentityMap,
@@ -195,6 +196,7 @@ describe("Prime Agent two-seat real-process integration", () => {
     let processPlaneDrained = false;
 
     setProcessIdentityMapForTests(undefined);
+    seedThisMachine();
     const identities = getProcessIdentityMap();
     resetSessionIdStoreForTest();
     for (const key of forbiddenKeys) process.env[key] = `ambient-${key}`;
