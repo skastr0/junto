@@ -338,8 +338,25 @@ export. Until then nobody packages or runs main.
 
 **Paused.** The operator paused all work with the name window still open.
 All nine seats confirmed: finished work committed, the rest left in the tree,
-nothing running, waiting for the word resume. Main is at `4b6fe6e13`. On
-resume, in order:
+nothing running, waiting for the word resume. Main is at `4b6fe6e13`.
+
+**On resume, the live run comes first.** 220 commits landed before any
+program had started on a second machine, because the one piece every live
+run needs was last in the order. That order is reversed:
+
+- `remote-core`, `remote-send` and `remote-verify` do nothing but run A until
+  `remote-verify` holds a receipt from the mini: land the root with its
+  helper in the bundle, land the session, build the bundle, start it on this
+  Mac in a home of its own, then send it to the mini.
+- A defect that a run finds is fixed where it is found. Review of the link
+  follows the first receipt and comes before any build is handed to the
+  operator.
+- Every other seat works the list below and starts nothing new until run A
+  has its receipt.
+- After A, each of B, C and D gets the same treatment: the shortest path to
+  a receipt from two machines, then the hardening.
+
+The rest, for the other seats:
 
 1. Done while pausing: `remote-core` committed the kernel fix (`4b6fe6e13`),
    the only two typecheck errors on a clean export of `db8e06871`.
@@ -358,10 +375,8 @@ resume, in order:
 3. `remote-verify` reruns the gate; a green run closes the name window.
 4. Rule 9 still has no test at the seats start payload (`remote-seats`); the
    rows channel got one in `969e945c5`.
-5. Then run A: it waits on the windowless root (`remote-core`) and the link
-   session (`remote-send`). Both are in the tree, uncommitted and unverified,
-   as is the seats start handler (`remote-seats`): not to be built or run as
-   they are.
+5. The seats start handler (`remote-seats`) is in the tree, uncommitted and
+   unverified; it waits for run B.
 
 What blocks run A, read on the paused tree at `a90cc6891`:
 
