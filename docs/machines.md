@@ -354,11 +354,15 @@ status (`59409daf5`) and its window lines (`878a47646`).
 
 Open, not finished:
 - One full-suite gate on current main, and a security read of `a32615924`.
-- Release 0.7.0 with Machines on, the operator's call: the Remove confirm
-  goes through `askConfirm` (`e46aab4b8`) and `fleetUi` is on in the ship
-  profile (`0bc2f47b5`). Still to do: the release build embeds both
-  bundles, the version bump, one full gate, and the packaged app opened
-  once on a disposable copy of the operator's home.
+- Release 0.7.0 with Machines on is cut, the operator's call, from
+  `d6c828640`, unsigned, not published:
+  `~/.junto-release-builds/d6c828640.../release/mac-arm64/Junto.app`. The
+  packaged app opened a copy of the operator's real home: schema 13 to 21,
+  the Factory canvas with its 152 nodes and 257 wires, the Machines window,
+  a clean quit (`~/junto-receipts/release-0.7.0-20261009/release-receipt.json`).
+  The live runs owed above are now the operator's own run; what he finds is
+  a patch version. The shared lane was not rerun after the test-only lane
+  fix `20c6c36cf`.
 - Leftovers of the old unit: `publishSystemdGenerationReadiness` has no
   caller, `supervision/systemd-user.ts` and `systemctl-runner.ts` still
   describe it.
