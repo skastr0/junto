@@ -36,10 +36,11 @@ nor use its absence to excuse missing checks on Junto-owned APIs.
 ## Authority inside Junto
 
 Each canvas names one editing installation. Only that installation commits
-canvas changes. Other machines keep a read-only copy. A seat belongs to one
-machine, which starts its occupant, mints its generation credential, owns its
-terminal and stores its work. Names and installation ids identify resources;
-knowing one is not permission to use it.
+canvas changes. Other machines keep a read-only copy. Local execution facts,
+including the harness session pin, belong in the seat's own state, not in
+that copy. A seat belongs to one machine, which starts its occupant, mints
+its generation credential, owns its terminal and stores its work. Names and
+installation ids identify resources; knowing one is not permission to use it.
 
 The core is the sole normal opener of its product database, `junto.db`, and
 its install-local bookkeeping database. The window, CLIs, relays, installers
@@ -127,9 +128,12 @@ remains the operator's responsibility.
 
 Hello must finish before data channels open. Both builds must match exactly;
 build equality is compatibility, not authenticity. Unknown channels, malformed
-frames and unauthorized operations close the link. Bound frame size, buffered
-bytes, clients, outstanding requests and transfer size; terminal output and
-reconnects must not exhaust the core or block its local work indefinitely.
+frames and unauthorized operations close the link. A valid announcement about
+a canvas the peer does not participate in is ignored before storage or status;
+it grants nothing and need not close the link. An unauthorized rows frame
+still closes it. Bound frame size, buffered bytes, clients, outstanding
+requests and transfer size; terminal output and reconnects must not exhaust
+the core or block its local work indefinitely.
 
 The transport is symmetric. Authority depends on the bound peer and the
 canvas, never on which end opened the connection:
