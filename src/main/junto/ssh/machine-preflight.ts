@@ -14,6 +14,16 @@ case "$platform $architecture" in
   *) actual=unsupported ;;
 esac
 [ "$actual" = "$1" ] || problem "This package is for $1; this machine is $platform $architecture"
+meets_version() {
+  printf '%s\n' "$1" | awk -F. -v major="$2" -v minor="$3" 'NF >= 2 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && ($1 > major || ($1 == major && $2 >= minor)) {good=1} END {exit !good}'
+}
+case "$platform" in
+  Darwin) version=$(/usr/bin/sw_vers -productVersion 2>/dev/null)
+    meets_version "$version" 13 5 || problem 'This Mac needs macOS 13.5 or later' ;;
+  Linux) version=$(/usr/bin/getconf GNU_LIBC_VERSION 2>/dev/null)
+    case "$version" in 'glibc '*) meets_version "$(printf '%s' "$version" | cut -d ' ' -f 2)" 2 34 || problem 'This Linux machine needs glibc 2.34 or later' ;;
+      *) problem 'This Linux machine needs glibc 2.34 or later' ;; esac ;;
+esac
 python=""
 for candidate in /usr/bin/python3 /bin/python3; do
   if [ -x "$candidate" ]; then python=$candidate; break; fi
