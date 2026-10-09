@@ -24,6 +24,8 @@ import { UsageLive } from "./junto/usage/live";
 import { HostsServiceLive } from "./junto/hosts";
 import { SshTransportLive } from "./junto/ssh";
 import { StateEngineLive } from "./junto/state/engine";
+import { MachineRepositoryLive } from "./junto/machines/repository";
+import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
 import { StationFleetTargetRepositoryLive } from "./junto/station/fleet-target-repository";
 import {
   StationRepositoryLive,
@@ -95,6 +97,8 @@ const StateRepositoriesLive = Layer.provideMerge(
     RemoteSettingsLive,
     SchedulerRepositoryLive,
     StationRepositoryLive,
+    MachineRepositoryLive,
+    SeatSessionRepositoryLive,
     StationFleetTargetRepositoryLive,
     makeContentServiceLive(),
   ),

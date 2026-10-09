@@ -46,14 +46,7 @@ export const migrateMachineConfiguration = (
 
 export const migrateMachinePeers = (
   database: StateSchemaMigrationDatabase,
-  ownName: string,
 ): void => {
-  admitName(ownName);
   database.exec(MACHINE_PEERS_STATE_SCHEMA_SQL);
-  database.prepare(`
-    INSERT INTO machine_peers(machine_name, installation_id, bound_at, retired_at)
-    SELECT CASE WHEN host_id = 'local' THEN ? ELSE host_id END,
-      station_installation_id, bound_at, retired_at FROM station_fleet_targets
-  `).run(ownName);
   database.exec("DROP TABLE station_fleet_targets");
 };

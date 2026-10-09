@@ -46,6 +46,7 @@ import { HostsService, HostsServiceLive } from "./junto/hosts";
 import { SshTransportLive } from "./junto/ssh";
 import { primeHostsSnapshot } from "./junto/hosts/snapshot";
 import { StateEngineLive } from "./junto/state/engine";
+import { MachineRepositoryLive } from "./junto/machines/repository";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import {
   StationFleetTargetRepositoryLive,
@@ -91,6 +92,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     SettingsLive,
     SchedulerRepositoryLive,
     StationRepositoryLive,
+    MachineRepositoryLive,
     StationFleetTargetRepositoryLive,
     makeContentServiceLive(),
   ),

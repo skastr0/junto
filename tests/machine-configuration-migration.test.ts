@@ -13,7 +13,7 @@ const convert = (database: DatabaseSync, name: string): void => {
   try {
     migrateMachineIdentity(database);
     migrateMachineConfiguration(database, name);
-    migrateMachinePeers(database, name);
+    migrateMachinePeers(database);
     database.exec("COMMIT");
   } catch (cause) {
     database.exec("ROLLBACK");
@@ -22,7 +22,7 @@ const convert = (database: DatabaseSync, name: string): void => {
 };
 
 describe("machine configuration conversion", () => {
-  it("preserves installation identity, peer pins and supervision while removing roles", () => {
+  it("preserves installation identity and supervision and starts with no peer pins", () => {
     const database = open();
     try {
       database.exec(`
@@ -34,11 +34,11 @@ describe("machine configuration conversion", () => {
       convert(database, "macbook");
       expect(database.prepare("SELECT * FROM installation").get()).toEqual({ singleton: 1, installation_id: "this-install", created_at: "2026-10-09" });
       expect(database.prepare("SELECT * FROM machine_configuration").get()).toEqual({ singleton: 1, machine_name: "macbook", supervised_preferred: 1, configured_at: "2026-10-09" });
-      expect(database.prepare("SELECT * FROM machine_peers").get()).toEqual({ machine_name: "mini", installation_id: "mini-install", bound_at: "2026-10-08", retired_at: null });
+      expect(database.prepare("SELECT * FROM machine_peers").all()).toEqual([]);
+      expect(database.prepare("SELECT installation_id FROM known_installations ORDER BY installation_id").all()).toEqual([{ installation_id: "mini-install" }, { installation_id: "this-install" }]);
+      expect(database.prepare("SELECT name FROM sqlite_schema WHERE name = 'station_fleet_targets'").get()).toBeUndefined();
       expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(() => database.exec("UPDATE installation SET installation_id = 'changed'")).toThrow("immutable");
-      expect(() => database.exec("UPDATE machine_peers SET machine_name = 'changed'")).toThrow("immutable");
-      expect(() => database.exec("UPDATE machine_peers SET installation_id = 'this-install'")).toThrow("immutable");
     } finally { database.close(); }
   });
 
@@ -53,17 +53,19 @@ describe("machine configuration conversion", () => {
     } finally { database.close(); }
   });
 
-  it("retains an inactive peer pin and the preexisting foreign-key relationships", () => {
+  it("discards inactive and own-name pins while preserving referenced installation history", () => {
     const database = open();
     try {
       database.exec(`
-        INSERT INTO station_known_installations VALUES ('mini-install', 'yesterday');
+        INSERT INTO station_known_installations VALUES ('mini-install', 'yesterday'), ('this-install', 'yesterday');
         INSERT INTO station_fleet_targets VALUES ('mini', 'mini-install', 'yesterday', 'today');
+        INSERT INTO station_fleet_targets VALUES ('local', 'this-install', 'yesterday', NULL);
         CREATE TABLE witness(id TEXT REFERENCES station_known_installations(installation_id)) STRICT;
         INSERT INTO witness VALUES ('mini-install');
       `);
       convert(database, "macbook");
-      expect(database.prepare("SELECT retired_at FROM machine_peers").get()).toEqual({ retired_at: "today" });
+      expect(database.prepare("SELECT * FROM machine_peers").all()).toEqual([]);
+      expect(database.prepare("SELECT * FROM witness").get()).toEqual({ id: "mini-install" });
       expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(database.prepare("PRAGMA foreign_key_list(witness)").get()!.table).toBe("known_installations");
     } finally { database.close(); }
