@@ -4,7 +4,6 @@
     "src/renderer/components/CanvasMagnifier.css": 1,
     "src/renderer/components/DigestPanel.tsx": 1,
     "src/renderer/components/InspectorFields.tsx": 5,
-    "src/renderer/components/InspectorPanel.tsx": 2,
     "src/renderer/components/ObservabilityPanel.tsx": 9,
     "src/renderer/components/RegionPathsModal.css": 3,
     "src/renderer/components/RendererErrorBoundary.tsx": 3,

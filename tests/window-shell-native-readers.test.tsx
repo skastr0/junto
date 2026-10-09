@@ -11,7 +11,6 @@ import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
 import { terminal$ } from "../src/renderer/lib/terminal-state";
 import { sidebarSections$ } from "../src/renderer/lib/sidebar-sections";
 import { actorTerminalRailsPx } from "../src/renderer/lib/focus-measure";
-import { InspectorPanel } from "../src/renderer/components/InspectorPanel";
 import { SeatMessageForm, SeatMessageToolbarAction } from "../src/renderer/components/nodes/SeatMessage";
 import { WorkFocusShell } from "../src/renderer/components/workbench/WorkFocusShell";
 
@@ -71,19 +70,6 @@ afterEach(async () => {
   state$.canvasName.set(""); state$.selectedNodeId.set("");
   (window as unknown as { junto: unknown }).junto = oldApi;
   vi.unstubAllGlobals();
-});
-
-it("inspects a native selected note, follows text changes, and closes when it is removed", async () => {
-  publish("note", { kind: "note", text: "Before\nBody before" });
-  state$.selectedNodeId.set("note");
-  await mount(<InspectorPanel />);
-  expect(document.querySelector(".inspector-title")?.textContent).toBe("Before");
-  expect(document.body.textContent).toContain("Body before");
-  await act(async () => { publish("note", { kind: "note", text: "After\nBody after" }); await flush(); });
-  expect(document.querySelector(".inspector-title")?.textContent).toBe("After");
-  expect(document.body.textContent).toContain("Body after");
-  await act(async () => { modelStore.node$(canvas, "note").delete(); await flush(); });
-  expect(document.querySelector(".inspector-panel")).toBeNull();
 });
 
 it("messages the native seat's current binding and follows its name and removal", async () => {

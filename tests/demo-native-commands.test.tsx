@@ -8,7 +8,6 @@ import type { DemoScenario } from "../src/shared/demo";
 import { modelStore } from "../src/renderer/lib/use-model";
 import { EMPTY_SETTINGS, state$ } from "../src/renderer/lib/state";
 import { flushPendingCanvasSave, undo } from "../src/renderer/lib/mutations";
-import { InspectorPanel } from "../src/renderer/components/InspectorPanel";
 import { executeBeat, resetDemoCanvas } from "../src/renderer/demo/ops";
 import { demo$, startTake, stopTake } from "../src/renderer/demo/conductor";
 import { demoScenarios } from "../src/renderer/demo/scenarios";
@@ -65,7 +64,6 @@ afterEach(async () => {
 });
 
 it("shows beat additions through the native store and removes incident wires in one act", async () => {
-  await act(async () => { root.render(<InspectorPanel />); });
   await act(async () => {
     executeBeat(scenario, { at: 0, ops: [
       { kind: "add-nodes", nodes: [seat, decodeNode({ id: "queue", kind: "task", name: "Backlog", x: 110, y: 220, width: 240, height: 96, z: 0 })] },
@@ -76,13 +74,11 @@ it("shows beat additions through the native store and removes incident wires in 
   });
   expect(command).toHaveBeenCalledOnce();
   expect(command.mock.calls[0]![0]).toMatchObject({ _tag: "Batch", steps: [{ _tag: "Add" }, { _tag: "Add" }] });
-  expect(document.querySelector(".inspector-title")?.textContent).toBe("Backlog");
   expect(modelStore.wire$(canvas, "work").peek()?.verb).toBe("works");
   await act(async () => { executeBeat(scenario, { at: 1, ops: [{ kind: "remove-nodes", ids: ["queue"] }] }); await flush(); });
   expect(command.mock.calls[1]![0]).toEqual({ _tag: "Remove", canvas, nodes: ["queue"], wires: ["work"] });
   expect(modelStore.node$(canvas, "queue").peek()).toBeUndefined();
   expect(modelStore.wire$(canvas, "work").peek()).toBeUndefined();
-  expect(document.querySelector(".inspector-panel")).toBeNull();
   await act(async () => { undo(); await flush(); });
   expect(command).toHaveBeenCalledTimes(2);
 });
