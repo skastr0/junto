@@ -5,6 +5,7 @@
 
 import { asNodeId, asWireId, type BindingId, type Node, type NodeOf, type Wire } from "@shared/model";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
+import { DEMO_THIS_MACHINE } from "../machine";
 
 // --- small deterministic helpers --------------------------------------------
 
@@ -153,7 +154,7 @@ const crewSpec = (n: number): CrewSpec => {
   return {
     id: `demo-h${nn}`,
     n,
-    host: n % 2 === 1 ? "local" : "mac_mini",
+    host: n % 2 === 1 ? DEMO_THIS_MACHINE : "mac_mini",
     paneId: `w1:p${nn}`,
     terminalId: `term-p${nn}`,
     agent,
@@ -296,8 +297,8 @@ const demoAgent: NodeOf<"agent"> = {
   y: 160,
   width: 240,
   height: 96,
-  agentKey: "local:profile-13",
-  host: "local",
+  agentKey: `${DEMO_THIS_MACHINE}:profile-13`,
+  host: DEMO_THIS_MACHINE,
   bindingId: "demo-profile-13" as BindingId,
   harness: "hermes",
   overseer: false,

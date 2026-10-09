@@ -13,6 +13,7 @@
 
 import { asNodeId, type BindingId, type Node, type NodeOf } from "@shared/model";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
+import { DEMO_THIS_MACHINE } from "../machine";
 
 // --- beat accumulator ---------------------------------------------------------
 // Exactly one DemoBeat per distinct `.at` — ops sharing a beat are merged.
@@ -95,26 +96,26 @@ const crewNode = (spec: CrewSpec): NodeOf<"terminal"> => ({
 const spawn = (spec: CrewSpec): readonly DemoOp[] => [addNodesOp([crewNode(spec)])];
 
 // --- the crew roster ----------------------------------------------------------
-// Region A: build lane (local). Region B: deep research (local).
-// Region C: mac_mini remote. Finale rows fill remaining seats.
+// Region A: build lane, on this machine. Region B: deep research, on this machine.
+// Region C: on the mac_mini. Finale rows fill remaining seats.
 
 const A = [
-  crew(1, "local", "rivet", "typecheck pass", 0, 0),
-  crew(2, "local", "brisk", "release notes", 300, 0),
-  crew(3, "local", "mote", "canvas sync", 600, 0),
-  crew(4, "local", "ward", "sfx regen", 900, 0),
-  crew(5, "local", "relay", "landing copy pass", 0, 180),
-  crew(6, "local", "vector", "og plates", 300, 180),
-  crew(7, "local", "gauge", "kernel cycle", 600, 180),
-  crew(8, "local", "folio", "session digests", 900, 180),
+  crew(1, DEMO_THIS_MACHINE, "rivet", "typecheck pass", 0, 0),
+  crew(2, DEMO_THIS_MACHINE, "brisk", "release notes", 300, 0),
+  crew(3, DEMO_THIS_MACHINE, "mote", "canvas sync", 600, 0),
+  crew(4, DEMO_THIS_MACHINE, "ward", "sfx regen", 900, 0),
+  crew(5, DEMO_THIS_MACHINE, "relay", "landing copy pass", 0, 180),
+  crew(6, DEMO_THIS_MACHINE, "vector", "og plates", 300, 180),
+  crew(7, DEMO_THIS_MACHINE, "gauge", "kernel cycle", 600, 180),
+  crew(8, DEMO_THIS_MACHINE, "folio", "session digests", 900, 180),
 ] as const;
 
 const B = [
-  crew(9, "local", "rivet", "pricing research", 0, 540),
-  crew(10, "local", "brisk", "competitor scan", 300, 540),
-  crew(11, "local", "mote", "docs outline", 600, 540),
-  crew(12, "local", "ward", "reader survey", 0, 720),
-  crew(13, "local", "relay", "citation check", 300, 720),
+  crew(9, DEMO_THIS_MACHINE, "rivet", "pricing research", 0, 540),
+  crew(10, DEMO_THIS_MACHINE, "brisk", "competitor scan", 300, 540),
+  crew(11, DEMO_THIS_MACHINE, "mote", "docs outline", 600, 540),
+  crew(12, DEMO_THIS_MACHINE, "ward", "reader survey", 0, 720),
+  crew(13, DEMO_THIS_MACHINE, "relay", "citation check", 300, 720),
 ] as const;
 
 const C = [
@@ -127,7 +128,7 @@ const C = [
 ] as const;
 
 const FINALE = [
-  crew(20, "local", "ward", "changelog", 600, 720),
+  crew(20, DEMO_THIS_MACHINE, "ward", "changelog", 600, 720),
   crew(21, "mac_mini", "relay", "backup verify", 1920, 540),
   crew(22, "mac_mini", "vector", "queue drain", 1920, 720),
 ] as const;

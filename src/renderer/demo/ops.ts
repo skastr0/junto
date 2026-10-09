@@ -9,8 +9,10 @@ import { commitCommands } from "../lib/mutations";
 import { added, moved, removed, topZ } from "../lib/model-edits";
 import { canvasAfter } from "../lib/model-undo";
 import { selectNodes, state$ } from "../lib/state";
+import { thisMachineName } from "../lib/machines";
 import { playDemoCue } from "../lib/sound";
 import { demoCamera } from "./camera-bridge";
+import { onDemoMachine } from "./machine";
 
 // Demo/scripting engine only. Applies one scenario beat's ops against the
 // live app: graph ops become one command act (no undo entry — this is a film
@@ -30,7 +32,8 @@ const commandsForBeat = (canvas: Canvas, ops: ReadonlyArray<DemoOp>): ReadonlyAr
     switch (op.kind) {
       case "add-nodes": {
         const z = topZ(at);
-        next = added(at, op.nodes.map((node, index) => ({ ...node, z: z + index })));
+        const machine = thisMachineName();
+        next = added(at, op.nodes.map((node, index) => ({ ...onDemoMachine(node, machine), z: z + index })));
         break;
       }
       case "add-edges": {
