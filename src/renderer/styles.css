@@ -958,29 +958,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .field-filter-tray button { border: 1px solid var(--color-stroke); border-radius: 4px; color: var(--color-dim); padding: 3px 5px; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
 .field-filter-tray button:hover { border-color: color-mix(in oklab, var(--color-ink) 42%, transparent); color: var(--color-ink); }
 
-/* Height capped so the panel never covers the RTS bottom bar / minimap
-   (bar ≈ 120px + 18px padding + gap). Body scrolls inside that budget. */
-.inspector-panel {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  z-index: 20; /* below RTS bar (25) so any residual overflow loses */
-  display: flex;
-  width: min(280px, calc(100vw - 36px));
-  max-height: calc(100% - 18px - 148px);
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-xl);
-  background: color-mix(in oklab, var(--color-inset) 94%, transparent);
-  box-shadow: 0 18px 45px var(--color-shadow-1);
-  backdrop-filter: blur(18px);
-}
-.inspector-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex: 0 0 auto; border-bottom: 1px solid var(--color-overlay-4); padding: 14px 14px 12px; }
-.inspector-eyebrow { color: var(--color-cyan-fg); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-title { overflow: hidden; margin-top: 7px; color: var(--color-ink); font-family: var(--font-display); font-size: var(--text-hero); letter-spacing: var(--tracking-label); line-height: 1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-.inspector-close { display: grid; height: 26px; width: 26px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-md); color: var(--color-faint); }
-.inspector-close:hover { background: var(--color-overlay-3); color: var(--color-ink); }
 .inspector-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 13px 14px 14px; }
 .inspector-detail { color: var(--color-dim); font-size: var(--text-label); line-height: var(--leading-open); overflow-wrap: anywhere; }
 .inspector-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 14px; }
@@ -1069,13 +1046,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .inspector-editor input:focus, .inspector-editor textarea:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
 .inspector-section { margin-top: 16px; }
 .inspector-section__label { display: flex; align-items: center; gap: 6px; color: var(--color-amber-fg); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-color-dot { display: inline-block; width: 7px; height: 7px; border: 1px solid var(--color-stroke-hi); border-radius: 50%; }
-.inspector-colors { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.inspector-color-toggle { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid; border-radius: var(--radius-md); transition: transform .18s ease, background .18s ease, border-color .18s ease; }
-.inspector-color-toggle:hover { transform: translateY(-1px); border-color: color-mix(in oklab, var(--color-ink) 60%, transparent) !important; }
-.inspector-color-toggle span { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
-.inspector-color-toggle--default { border-color: var(--color-stroke); background: var(--color-overlay-1); }
-.inspector-color-toggle--default span { border: 1px dashed var(--color-dim); background: transparent; box-shadow: none; }
 .inspector-background { display: grid; gap: 7px; margin-top: 8px; }
 .inspector-background input, .inspector-background select { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
 .inspector-background input::placeholder { color: var(--color-faint); }
@@ -1109,9 +1079,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .inspector-edge-ends button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--color-overlay-4); border-radius: var(--radius-sm); background: var(--color-overlay-1); color: var(--color-faint); padding: 7px 6px; font-size: var(--text-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
 .inspector-edge-ends button:hover, .inspector-edge-ends button.is-active { border-color: color-mix(in oklab, var(--color-main) 48%, transparent); background: color-mix(in oklab, var(--color-main) 10%, transparent); color: var(--color-amber); }
 
-@media (max-width: 760px) {
-  .inspector-panel { top: auto; right: 10px; bottom: 130px; left: 10px; width: auto; max-height: 42vh; }
-}
 .field-empty { width: 290px; text-align: center; }
 .field-empty__reticle { position: relative; width: 68px; height: 68px; margin: 0 auto 18px; border: 1px solid color-mix(in oklab, var(--color-main) 34%, transparent); border-radius: 50%; box-shadow: 0 0 35px color-mix(in oklab, var(--color-main) 6%, transparent); }
 .field-empty__reticle::before, .field-empty__reticle::after { content: ""; position: absolute; background: color-mix(in oklab, var(--color-main) 32%, transparent); }
