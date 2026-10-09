@@ -1,14 +1,8 @@
 import { Schema } from "effect";
-import { remoteStationContractVersion } from "./remote-station-release";
+import { isValidMachineName } from "./machine-identity";
 
-// Durable remote-host enrollment lives in the app-owned StateEngine database.
-// Source only synthesizes the immutable local host — remote machines are
-// enrolled through product APIs, never source constants or editable files.
-
-export const REMOTE_HOSTS_VERSION = remoteStationContractVersion(
-  "Remote hosts read model",
-  1,
-);
+/** Machine registry read model, separate from the link protocol. */
+export const REMOTE_HOSTS_VERSION = 1;
 
 export const TERMINAL_HOST_CAPABILITY = "terminal" as const;
 export const BROWSER_HOST_CAPABILITY = "browser" as const;
@@ -17,15 +11,11 @@ export const HostCapability = Schema.Literals([BROWSER_HOST_CAPABILITY,
 TERMINAL_HOST_CAPABILITY,]);
 export type HostCapability = typeof HostCapability.Type;
 
-/** local = this machine; remote = OpenSSH endpoint (alias or user@host). */
-export const HostKind = Schema.Literals(["local", "remote"]);
-export type HostKind = typeof HostKind.Type;
-
 /** Product host id: stable, option-safe, not a leading dash. */
 export const HostId = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
   Schema.check(Schema.isMaxLength(64)),
-  Schema.check(Schema.isPattern(/^(?!-)[A-Za-z0-9][A-Za-z0-9._-]*$/)),
+  Schema.check(Schema.makeFilter(isValidMachineName)),
 );
 export type HostId = typeof HostId.Type;
 
@@ -35,7 +25,7 @@ export const HostLabel = Schema.String.pipe(
 );
 export type HostLabel = typeof HostLabel.Type;
 
-/** SSH config alias, user@host, or IPv6 literal. Custom ports belong in ~/.ssh/config. */
+/** SSH config alias, user@host, or IPv6 literal; the port is separate. */
 export const HostSshEndpoint = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
   Schema.check(Schema.isMaxLength(255)),
@@ -75,11 +65,16 @@ export type HermesHostKey = typeof HermesHostKey.Type;
 export const RemoteHost = Schema.Struct({
   id: HostId,
   label: HostLabel,
-  kind: HostKind,
-  /** Optional SSH route. Local rows omit it; remotes may omit until enrolled with a route. */
+  isThisMachine: Schema.Boolean,
+  /** A machine may be known before it has an outbound SSH route. */
   sshEndpoint: Schema.optionalKey(HostSshEndpoint),
   /** Optional OpenSSH-owned identity selector for this exact route. */
   sshIdentityFile: Schema.optionalKey(HostSshIdentityFile),
+  sshPort: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: 65535 })))),
+  sshKnownHostsFile: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(1024)), Schema.check(Schema.isPattern(/^\/[A-Za-z0-9._/@+-]+$/)))),
+  sshHostKeyAlias: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(255)), Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)))),
+  juntoHome: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(2048)), Schema.check(Schema.isPattern(/^\/[^\u0000-\u001f\u007f]*$/)))),
+  installRoot: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(2048)), Schema.check(Schema.isPattern(/^\/[^\u0000-\u001f\u007f]*$/)))),
   /** Explicit first-contact policy; changed known keys still fail closed. */
   sshHostKeyPolicy: Schema.optionalKey(HostSshHostKeyPolicy),
   capabilities: Schema.Array(HostCapability).pipe(
@@ -87,7 +82,7 @@ export const RemoteHost = Schema.Struct({
     Schema.check(Schema.isMaxLength(4)),
   ),
   hermesId: Schema.optionalKey(HermesHostKey),
-  /** Fleet-overlay presentation (color/glyph). Presentational; additive. */
+  /** Machine presentation. */
   appearance: Schema.optionalKey(Schema.Struct({
     color: Schema.optionalKey(Schema.String),
     glyph: Schema.optionalKey(Schema.String),
@@ -101,90 +96,40 @@ export const RemoteHostsDocument = Schema.Struct({
 });
 export type RemoteHostsDocument = typeof RemoteHostsDocument.Type;
 
-/**
- * Stable routing id for this process / this station.
- * Not an enrollment fact — remotes are enrolled; this machine is the runtime.
- */
-export const LOCAL_HOST_ID = "local" as const;
-
-/**
- * Surfaces this Junto process always owns. Persisted state may store a local
- * row for presentation (label/hermesId/appearance), but capabilities for local
- * are always this code default.
- */
-export const LOCAL_STATION_CAPABILITIES: ReadonlyArray<HostCapability> = [
-  TERMINAL_HOST_CAPABILITY,
-  BROWSER_HOST_CAPABILITY,
-  "hermes",
+/** Surfaces available on the running machine, never a stored claim. */
+export const THIS_MACHINE_CAPABILITIES: ReadonlyArray<HostCapability> = [
+  TERMINAL_HOST_CAPABILITY, BROWSER_HOST_CAPABILITY, "hermes",
 ];
-
-export type LocalHostPresentation = {
+export type MachinePresentation = {
   readonly label?: string;
   readonly hermesId?: HermesHostKey;
   readonly appearance?: RemoteHost["appearance"];
 };
-
-/** Build the this-machine host record from code defaults + optional presentation. */
-export const makeLocalHost = (
-  presentation: LocalHostPresentation = {},
-): RemoteHost => ({
-  id: LOCAL_HOST_ID,
-  label: presentation.label?.trim() || LOCAL_HOST_ID,
-  kind: "local",
-  capabilities: [...LOCAL_STATION_CAPABILITIES],
-  ...(presentation.hermesId ? { hermesId: presentation.hermesId } : {}),
-  ...(presentation.appearance ? { appearance: presentation.appearance } : {}),
-});
-
-/**
- * Runtime projection: remotes stay user-authored; local is always the code
- * default (caps from process fact). Optional `label` is the dynamic display
- * name (e.g. OS hostname) when the stored label is absent or still "local".
- */
-export const projectHostsWithCodeDefaultLocal = (
-  hosts: ReadonlyArray<RemoteHost>,
-  options: { readonly label?: string } = {},
-): ReadonlyArray<RemoteHost> => {
-  const remotes = hosts.filter(
-    (host) => host.kind === "remote" && host.id !== LOCAL_HOST_ID,
-  );
-  const stored = hosts.find(
-    (host) => host.id === LOCAL_HOST_ID && host.kind === "local",
-  );
-  const storedLabel = stored?.label?.trim();
-  const label =
-    storedLabel && storedLabel !== LOCAL_HOST_ID
-      ? storedLabel
-      : options.label?.trim() || storedLabel || LOCAL_HOST_ID;
-  return [
-    makeLocalHost({
-      label,
-      hermesId: stored?.hermesId,
-      appearance: stored?.appearance,
-    }),
-    ...remotes,
-  ];
+export const makeThisMachine = (name: string, presentation: MachinePresentation = {}): RemoteHost => {
+  if (!isValidMachineName(name)) throw new Error("this machine requires its persisted short name");
+  return {
+    id: name, label: presentation.label?.trim() || name, isThisMachine: true,
+    capabilities: [...THIS_MACHINE_CAPABILITIES],
+    ...(presentation.hermesId ? { hermesId: presentation.hermesId } : {}),
+    ...(presentation.appearance ? { appearance: presentation.appearance } : {}),
+  };
 };
+/** Preserve durable identity and presentation; restore process-owned capabilities. */
+export const projectMachines = (hosts: ReadonlyArray<RemoteHost>): ReadonlyArray<RemoteHost> =>
+  hosts.map(host => host.isThisMachine ? makeThisMachine(host.id, host) : host);
 
-/** Seed / fail-closed document: this machine only (code default). */
-export const defaultRemoteHostsDocument = (): RemoteHostsDocument => ({
-  version: REMOTE_HOSTS_VERSION,
-  hosts: [makeLocalHost()],
+/** Before hydration no machine identity is assumed. */
+export const defaultRemoteHostsDocument = (name?: string): RemoteHostsDocument => ({
+  version: REMOTE_HOSTS_VERSION, hosts: name === undefined ? [] : [makeThisMachine(name)],
 });
-
-export const hostHasCapability = (
-  host: RemoteHost,
-  capability: HostCapability,
-): boolean =>
-  host.id === LOCAL_HOST_ID || host.kind === "local"
-    ? LOCAL_STATION_CAPABILITIES.includes(capability)
-    : host.capabilities.includes(capability);
+export const hostHasCapability = (host: RemoteHost, capability: HostCapability): boolean =>
+  (host.isThisMachine ? THIS_MACHINE_CAPABILITIES : host.capabilities).includes(capability);
 
 export const hermesKeyFor = (host: RemoteHost): string =>
   host.hermesId ?? host.id;
 
 export const isLocalHost = (host: RemoteHost): boolean =>
-  host.kind === "local" || host.id === LOCAL_HOST_ID;
+  host.isThisMachine;
 
 export class RemoteHostsError extends Error {
   readonly code: "io" | "validation" | "not_found" | "conflict";

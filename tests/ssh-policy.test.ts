@@ -42,7 +42,7 @@ const runPromise = <A, E = never>(
 ): Promise<A> => Effect.runPromise(effect as Effect.Effect<A, E, never>);
 
 afterEach(async () => {
-  setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+  setHostsSnapshot(defaultRemoteHostsDocument("macbook").hosts);
   await Promise.all(temporaryDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -278,11 +278,11 @@ describe("SSH policy surface", () => {
 
   it("renders Hermes operations through shared one-shots and isolated ACP streams", async () => {
     setHostsSnapshot([
-      ...defaultRemoteHostsDocument().hosts,
+      ...defaultRemoteHostsDocument("macbook").hosts,
       {
         id: "studio",
         label: "studio",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "studio",
         capabilities: ["hermes"],
       },
@@ -318,12 +318,12 @@ describe("SSH policy surface", () => {
 
   it("admits only the canonical hermesId when it differs from the product host id", () => {
     setHostsSnapshot([
-      ...defaultRemoteHostsDocument().hosts,
+      ...defaultRemoteHostsDocument("macbook").hosts,
       {
         id: "studio",
         hermesId: "fleet-a",
         label: "studio",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "studio",
         capabilities: ["hermes"],
       },

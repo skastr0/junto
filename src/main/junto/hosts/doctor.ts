@@ -14,7 +14,7 @@ export type RemoteHostsDoctorSnapshot = {
 
 /** Reachability only. A successful SSH connection does not prove Junto is running. */
 export const testHostConnection = (ssh: SshTransportShape, host: RemoteHost) =>
-  host.kind === "local"
+  host.isThisMachine
     ? Effect.succeed({ ok: true, detail: "This machine is available", reachability: "reachable" as const })
     : parseHostSshRoute(host).pipe(
         Effect.flatMap((target) => ssh.warm(target)),
@@ -35,7 +35,7 @@ export const runRemoteHostsDoctorSnapshot = (
       try: () => registry.list(),
       catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
     });
-    const remotes = hosts.filter((host) => host.kind === "remote");
+    const remotes = hosts.filter((host) => !host.isThisMachine);
     const results = yield* Effect.forEach(remotes, (host) =>
       testHostConnection(ssh, host).pipe(Effect.map((result) => ({ host, result }))),
       { concurrency: 4 },

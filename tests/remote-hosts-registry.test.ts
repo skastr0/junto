@@ -16,7 +16,6 @@ import {
   defaultRemoteHostsDocument,
   hermesKeyFor,
 } from "../src/shared/remote-hosts";
-import { ProductPlanesLive } from "../src/main/runtime";
 import {
   HostsService,
   HostsPersistenceLive,
@@ -29,9 +28,6 @@ import {
   type HostsRegistry,
 } from "../src/main/junto/hosts/registry";
 import {
-  makeStateEngineLive,
-} from "../src/main/junto/state/engine";
-import {
   findHostByHermesId,
   findHostById,
   hostsSnapshot,
@@ -40,6 +36,13 @@ import {
   subscribeHostsSnapshot,
 } from "../src/main/junto/hosts/snapshot";
 import { SshTransport } from "../src/main/junto/ssh/service";
+import { DatabaseSync } from "node:sqlite";
+import { Reactivity } from "effect/unstable/reactivity";
+import { SqlClient } from "effect/unstable/sql";
+import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/main/junto/hosts/state-schema";
+import { makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { MACHINE_STATE_SCHEMA_SQL } from "../src/main/junto/machines/state-schema";
 import { acpVerboseLogging } from "../src/main/junto/chat/acp-client";
 
 const dirs: string[] = [];
@@ -50,10 +53,22 @@ const stateByPath = new Map<
   Context.Service.Shape<typeof HostsPersistence>
 >();
 
+const registryRuntime = (databasePath: string) => {
+  const database = new DatabaseSync(databasePath);
+  if (!database.prepare("SELECT name FROM sqlite_master WHERE name='host_registry'").get()) {
+    database.exec(MACHINE_STATE_SCHEMA_SQL + MACHINE_REGISTRY_STATE_SCHEMA_SQL);
+    database.exec("CREATE TABLE host_registry_state(singleton INTEGER PRIMARY KEY, version INTEGER NOT NULL, initialized_at TEXT NOT NULL) STRICT");
+  }
+  const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
+  const machines = makeMachineRepositoryLive({defaultName: () => "macbook"}).pipe(Layer.provideMerge(sql));
+  const runtime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provideMerge(machines)));
+  return { runPromise: runtime.runPromise.bind(runtime), dispose: async () => { await runtime.dispose(); database.close(); } };
+};
+
 const testRegistry = async (databasePath: string) => {
   let state = stateByPath.get(databasePath);
   if (!state) {
-    const runtime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
+    const runtime = registryRuntime(databasePath);
     state = await runtime.runPromise(HostsPersistence);
     stateByPath.set(databasePath, state);
     stateDisposers.push(() => runtime.dispose());
@@ -73,7 +88,7 @@ afterEach(async () => {
     ),
   );
   resetDefaultHostsRegistryForTests();
-  setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+  setHostsSnapshot(defaultRemoteHostsDocument("macbook").hosts);
   delete process.env.JUNTO_ACP_VERBOSE;
   delete process.env.JUNTO_DEBUG;
   if (originalHome === undefined) delete process.env.HOME;
@@ -87,7 +102,7 @@ describe("remote hosts registry", () => {
     const { registry } = await testRegistry(join(root, "junto.db"));
 
     const hosts = await registry.list();
-    expect(hosts.map((host) => host.id)).toEqual(["local"]);
+    expect(hosts.map((host) => host.id)).toEqual(["macbook"]);
     expect(hosts[0]?.capabilities).toEqual(
       expect.arrayContaining(["terminal", "browser", "hermes"]),
     );
@@ -101,7 +116,7 @@ describe("remote hosts registry", () => {
     const written = await registry.upsert({
       id: "studio",
       label: "Studio",
-      kind: "remote",
+      isThisMachine: false,
       sshEndpoint: "studio",
       sshIdentityFile: "/Users/operator/.ssh/studio_ed25519",
       sshHostKeyPolicy: "accept-new",
@@ -117,26 +132,26 @@ describe("remote hosts registry", () => {
 
     const cold = makeHostsRegistry(state, (e) => Effect.runPromise(e));
     expect((await cold.list()).map((host) => host.id)).toEqual([
-      "local",
+      "macbook",
       "studio",
     ]);
-    await expect(cold.remove("local")).rejects.toMatchObject({
+    await expect(cold.remove("macbook")).rejects.toMatchObject({
       code: "conflict",
     });
     await cold.upsert({
-      id: "local",
+      id: "macbook",
       label: "This machine",
-      kind: "local",
+      isThisMachine: true,
       capabilities: ["terminal"],
     });
-    const local = await cold.get("local");
+    const local = await cold.get("macbook");
     expect(local?.label).toBe("This machine");
     expect(local?.capabilities).toHaveLength(3);
     await expect(
       cold.upsert({
-        id: "local",
+        id: "macbook",
         label: "Forged remote",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "forged",
         capabilities: ["hermes"],
       }),
@@ -145,7 +160,7 @@ describe("remote hosts registry", () => {
     await cold.upsert({
       id: "render",
       label: "Render",
-      kind: "remote",
+      isThisMachine: false,
       sshEndpoint: "render",
       capabilities: ["terminal"],
     });
@@ -153,19 +168,19 @@ describe("remote hosts registry", () => {
     await cold.upsert({
       id: "render",
       label: "Render updated",
-      kind: "remote",
+      isThisMachine: false,
       sshEndpoint: "render",
       capabilities: ["terminal"],
     });
     await cold.upsert({
       id: "build",
       label: "Build",
-      kind: "remote",
+      isThisMachine: false,
       sshEndpoint: "build",
       capabilities: ["terminal"],
     });
     expect((await cold.list()).map((host) => host.id)).toEqual([
-      "local",
+      "macbook",
       "render",
       "build",
     ]);
@@ -176,13 +191,13 @@ describe("remote hosts registry", () => {
     dirs.push(root);
     const databasePath = join(root, "junto.db");
 
-    const firstRuntime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
+    const firstRuntime = registryRuntime(databasePath);
     try {
       const state = await firstRuntime.runPromise(HostsPersistence);
       await makeHostsRegistry(state, (e) => Effect.runPromise(e)).upsert({
         id: "studio",
         label: "Studio",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "studio",
         capabilities: ["hermes"],
       });
@@ -190,12 +205,12 @@ describe("remote hosts registry", () => {
       await firstRuntime.dispose();
     }
 
-    const secondRuntime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
+    const secondRuntime = registryRuntime(databasePath);
     try {
       const state = await secondRuntime.runPromise(HostsPersistence);
       expect(
         (await makeHostsRegistry(state, (e) => Effect.runPromise(e)).list()).map((host) => host.id),
-      ).toEqual(["local", "studio"]);
+      ).toEqual(["macbook", "studio"]);
     } finally {
       await secondRuntime.dispose();
     }
@@ -208,7 +223,7 @@ describe("remote hosts registry", () => {
     await registry.upsert({
       id: "studio",
       label: "Studio",
-      kind: "remote",
+      isThisMachine: false,
       sshEndpoint: "shared",
       capabilities: ["hermes"],
       hermesId: "compute",
@@ -218,7 +233,7 @@ describe("remote hosts registry", () => {
       registry.upsert({
         id: "render",
         label: "Render",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "shared",
         capabilities: ["terminal"],
       }),
@@ -230,7 +245,7 @@ describe("remote hosts registry", () => {
       registry.upsert({
         id: "render",
         label: "Render",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "render",
         capabilities: ["hermes"],
         hermesId: "compute",
@@ -240,9 +255,26 @@ describe("remote hosts registry", () => {
       message: expect.stringContaining("duplicate hermes id"),
     });
     expect((await registry.list()).map((host) => host.id)).toEqual([
-      "local",
+      "macbook",
       "studio",
     ]);
+  });
+
+  it("persists strict route selections and distinguishes ports on the same gateway", async () => {
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-pinned-")); dirs.push(root);
+    const { registry, state } = await testRegistry(join(root, "junto.db"));
+    const route = { id: "sandbox-one", label: "Sandbox", isThisMachine: false,
+      sshEndpoint: "user@gateway", sshPort: 19049,
+      sshKnownHostsFile: "/Users/operator/.ssh/pinned/one", sshHostKeyAlias: "sandbox-one",
+      sshIdentityFile: "/Users/operator/.ssh/key", sshHostKeyPolicy: "system" as const,
+      juntoHome: "/home/user/probe", installRoot: "/home/user/probe/install", capabilities: ["terminal" as const] };
+    await registry.upsert(route);
+    const cold = makeHostsRegistry(state, e => Effect.runPromise(e));
+    expect(await cold.get(route.id)).toEqual(route);
+    await cold.upsert({ ...route, id: "sandbox-two", sshPort: 19050 });
+    await expect(cold.upsert({ ...route, id: "duplicate" })).rejects.toMatchObject({ code: "validation" });
+    await expect(cold.upsert({ ...route, sshHostKeyPolicy: "accept-new" })).rejects.toMatchObject({ code: "validation" });
+    expect((await cold.list()).map(host => host.id)).toEqual(["macbook", "sandbox-one", "sandbox-two"]);
   });
 
   it("rejects excess renderer host fields before registry mutation", async () => {
@@ -267,7 +299,7 @@ describe("remote hosts registry", () => {
         service.upsert({
           id: "studio",
           label: "Studio",
-          kind: "remote",
+          isThisMachine: false,
           sshEndpoint: "studio",
           capabilities: ["hermes"],
           legacyToken: "retired-host-credential",
@@ -281,16 +313,16 @@ describe("remote hosts registry", () => {
       expect(result.failure.message).toContain("legacyToken");
     }
     expect(mutationCount).toBe(0);
-    expect((await registry.list()).map((host) => host.id)).toEqual(["local"]);
+    expect((await registry.list()).map((host) => host.id)).toEqual(["macbook"]);
   });
 
   it("resolves optional hermesId aliases without product-specific defaults", () => {
     setHostsSnapshot([
-      ...defaultRemoteHostsDocument().hosts,
+      ...defaultRemoteHostsDocument("macbook").hosts,
       {
         id: "fleet-1",
         label: "Fleet One",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "fleet-1",
         capabilities: ["hermes"],
         hermesId: "f1",
@@ -300,7 +332,7 @@ describe("remote hosts registry", () => {
     expect(host?.id).toBe("fleet-1");
     expect(hermesKeyFor(host!)).toBe("f1");
     expect(hostsWithCapability("hermes").map((row) => row.id)).toEqual([
-      "local",
+      "macbook",
       "fleet-1",
     ]);
   });
@@ -309,14 +341,14 @@ describe("remote hosts registry", () => {
     const root = await mkdtemp(join(tmpdir(), "junto-hosts-boot-"));
     dirs.push(root);
     process.env.HOME = root;
-    const databasePath = join(root, ".junto", "state", "junto.db");
-    const setupRuntime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
+    const databasePath = join(root, "junto.db");
+    const setupRuntime = registryRuntime(databasePath);
     try {
       const state = await setupRuntime.runPromise(HostsPersistence);
       await makeHostsRegistry(state, (e) => Effect.runPromise(e)).upsert({
         id: "studio",
         label: "Studio",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "studio-ssh",
         capabilities: ["hermes"],
       });
@@ -325,10 +357,10 @@ describe("remote hosts registry", () => {
     }
     resetDefaultHostsRegistryForTests();
     // Stale local-only snapshot — route must not appear until SQLite hydrates.
-    setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    setHostsSnapshot(defaultRemoteHostsDocument("macbook").hosts);
     expect(findHostById("studio") !== undefined).toBe(false);
 
-    const reopen = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
+    const reopen = registryRuntime(databasePath);
     try {
       const state = await reopen.runPromise(HostsPersistence);
       const registry = makeHostsRegistry(state, (e) => Effect.runPromise(e));
@@ -343,7 +375,7 @@ describe("remote hosts registry", () => {
         service.upsert({
           id: "render",
           label: "Render",
-          kind: "remote",
+          isThisMachine: false,
           sshEndpoint: "render-ssh",
           capabilities: ["terminal"],
         }),
@@ -353,7 +385,7 @@ describe("remote hosts registry", () => {
           service.upsert({
             id: "duplicate",
             label: "Duplicate",
-            kind: "remote",
+            isThisMachine: false,
             sshEndpoint: "render-ssh",
             capabilities: ["terminal"],
           }),
@@ -369,9 +401,9 @@ describe("remote hosts registry", () => {
         newRoute: findHostById("render") !== undefined,
       }).toEqual({
         firstRoute: true,
-        listedIds: ["local", "studio"],
+        listedIds: ["macbook", "studio"],
         rejected: "Failure",
-        reloadedIds: ["local", "render"],
+        reloadedIds: ["macbook", "render"],
         oldRoute: false,
         newRoute: true,
       });
@@ -385,7 +417,7 @@ describe("remote hosts registry", () => {
     dirs.push(root);
     const { registry } = await testRegistry(join(root, "junto.db"));
     await registry.list();
-    setHostsSnapshot(defaultRemoteHostsDocument().hosts);
+    setHostsSnapshot(defaultRemoteHostsDocument("macbook").hosts);
 
     let release!: () => void;
     let entered!: () => void;
@@ -411,7 +443,7 @@ describe("remote hosts registry", () => {
       service.upsert({
         id: "studio",
         label: "Studio",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "studio",
         capabilities: ["terminal"],
       }),
@@ -422,11 +454,11 @@ describe("remote hosts registry", () => {
     await interrupted;
 
     expect((await registry.list()).map((host) => host.id)).toEqual([
-      "local",
+      "macbook",
       "studio",
     ]);
     expect(hostsSnapshot().map((host) => host.id)).toEqual([
-      "local",
+      "macbook",
       "studio",
     ]);
   });
@@ -444,11 +476,11 @@ describe("remote hosts registry", () => {
     try {
       expect(() =>
         setHostsSnapshot([
-          ...defaultRemoteHostsDocument().hosts,
+          ...defaultRemoteHostsDocument("macbook").hosts,
           {
             id: "studio",
             label: "Studio",
-            kind: "remote",
+            isThisMachine: false,
             sshEndpoint: "studio-ssh",
             capabilities: ["terminal"],
           },
@@ -478,19 +510,19 @@ describe("remote hosts registry", () => {
       registry.upsert({
         id: "wrong-port",
         label: "Wrong port",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "example.com:2222",
         capabilities: ["terminal"],
       }),
     ).rejects.toMatchObject({
       code: "validation",
-      message: expect.stringContaining("custom ports in ~/.ssh/config"),
+      message: expect.stringContaining("a separate SSH port"),
     });
     await expect(
       registry.upsert({
         id: "empty-user",
         label: "Empty user",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "@example.com",
         capabilities: ["terminal"],
       }),
@@ -499,7 +531,7 @@ describe("remote hosts registry", () => {
       registry.upsert({
         id: "bracketed-ipv6",
         label: "Bracketed IPv6",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "ops@[2001:db8::10]",
         capabilities: ["hermes"],
       }),
@@ -508,7 +540,7 @@ describe("remote hosts registry", () => {
     const ipv6 = await registry.upsert({
       id: "ipv6",
       label: "IPv6",
-      kind: "remote",
+      isThisMachine: false,
       sshEndpoint: "ops@2001:db8::10",
       capabilities: ["hermes"],
     });
@@ -518,7 +550,7 @@ describe("remote hosts registry", () => {
     const scopedIpv6 = await registry.upsert({
       id: "scoped-ipv6",
       label: "Scoped IPv6",
-      kind: "remote",
+      isThisMachine: false,
       sshEndpoint: "ops@fe80::1%lo0",
       capabilities: ["terminal"],
     });
@@ -536,7 +568,7 @@ describe("remote hosts registry", () => {
       registry.upsert({
         id: "studio",
         label: "Studio",
-        kind: "remote",
+        isThisMachine: false,
         sshEndpoint: "studio",
         capabilities: ["browser", "browser"],
       }),

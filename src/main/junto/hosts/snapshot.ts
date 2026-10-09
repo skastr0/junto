@@ -2,7 +2,7 @@ import {
   defaultRemoteHostsDocument,
   hermesKeyFor,
   hostHasCapability,
-  projectHostsWithCodeDefaultLocal,
+  projectMachines,
   type HostCapability,
   type RemoteHost,
 } from "@shared/remote-hosts";
@@ -23,8 +23,8 @@ const sameHosts = (
 export const hostsSnapshot = (): ReadonlyArray<RemoteHost> => snapshot;
 
 export const setHostsSnapshot = (hosts: ReadonlyArray<RemoteHost>): void => {
-  // Local caps are process fact — never trust a stripped row in tests or IPC.
-  const next = projectHostsWithCodeDefaultLocal(hosts);
+  // Own capabilities are process fact; identity comes from the hydrated row.
+  const next = projectMachines(hosts);
   const previous = snapshot;
   snapshot = next;
   if (sameHosts(previous, next)) return;
@@ -65,13 +65,13 @@ export const findHostByHermesId = (hermesId: string): RemoteHost | undefined =>
 
 export const sshEndpointForHostId = (id: string): string | undefined => {
   const host = findHostById(id);
-  if (!host || host.kind !== "remote") return undefined;
+  if (!host || host.isThisMachine) return undefined;
   return host.sshEndpoint;
 };
 
 export const sshEndpointForHermesId = (hermesId: string): string | undefined => {
   const host = findHostByHermesId(hermesId);
-  if (!host || host.kind !== "remote") return undefined;
+  if (!host || host.isThisMachine) return undefined;
   return host.sshEndpoint;
 };
 

@@ -47,9 +47,9 @@ export class TailscalePeerCache {
    * refreshes in background when stale (returns last good immediately).
    */
   resolveHost(hostId: string): string | undefined {
-    if (hostId === "local") return undefined;
     const host = findHostById(hostId);
-    const sshEndpoint = host?.kind === "remote" ? host.sshEndpoint : undefined;
+    if (host?.isThisMachine) return undefined;
+    const sshEndpoint = host !== undefined && !host.isThisMachine ? host.sshEndpoint : undefined;
     const query = { hostId, sshEndpoint };
 
     const age = this.now() - this.fetchedAt;

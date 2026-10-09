@@ -122,7 +122,7 @@ export const MACHINE_REGISTRY_STATE_SCHEMA_SQL = `
     ),
     label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 64),
     is_this_machine INTEGER NOT NULL CHECK (is_this_machine IN (0, 1)),
-    ssh_endpoint TEXT UNIQUE,
+    ssh_endpoint TEXT,
     ssh_port INTEGER CHECK (ssh_port IS NULL OR ssh_port BETWEEN 1 AND 65535),
     ssh_known_hosts_file TEXT CHECK (
       ssh_known_hosts_file IS NULL OR (
@@ -182,6 +182,9 @@ export const MACHINE_REGISTRY_STATE_SCHEMA_SQL = `
       (is_this_machine = 0 AND (capability_mask & 8) = 0 AND effective_hermes_id IS NULL)
     )
   ) STRICT;
+
+  CREATE UNIQUE INDEX host_registry_route_unique
+    ON host_registry(ssh_endpoint, coalesce(ssh_port, 0)) WHERE ssh_endpoint IS NOT NULL;
 
   CREATE UNIQUE INDEX host_registry_one_own
     ON host_registry(is_this_machine) WHERE is_this_machine = 1;

@@ -1,16 +1,15 @@
-import { hostname } from "node:os";
 import { isIP } from "node:net";
 import { Context, Effect, Layer, Option, Schema } from "effect";
+import { isValidMachineName } from "@shared/machine-identity";
+import { MachineRepository } from "../machines/repository";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import {
-  LOCAL_HOST_ID,
   REMOTE_HOSTS_VERSION,
   RemoteHostsError,
-  defaultRemoteHostsDocument,
   hermesKeyFor,
   hostHasCapability,
-  makeLocalHost,
-  projectHostsWithCodeDefaultLocal,
+  makeThisMachine,
+  projectMachines,
   type HostCapability,
   type RemoteHost,
   type RemoteHostsDocument,
@@ -34,7 +33,12 @@ const CAPABILITIES_IN_STORAGE_ORDER = [
 type HostRow = {
   readonly id: string;
   readonly label: string;
-  readonly kind: string;
+  readonly is_this_machine: 0 | 1;
+  readonly ssh_port: number | null;
+  readonly ssh_known_hosts_file: string | null;
+  readonly ssh_host_key_alias: string | null;
+  readonly junto_home: string | null;
+  readonly install_root: string | null;
   readonly ssh_endpoint: string | null;
   readonly ssh_identity_file: string | null;
   readonly ssh_host_key_policy: "system" | "accept-new" | null;
@@ -76,11 +80,13 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
     );
   }
 
+  if (hosts.filter(host => host.isThisMachine).length !== 1) throw new RemoteHostsError("validation", "registry requires exactly one own machine");
   const ids = new Set<string>();
   const endpoints = new Set<string>();
   const hermesKeys = new Set<string>();
 
   for (const host of hosts) {
+    if (!isValidMachineName(host.id)) throw new RemoteHostsError("validation", "machine needs a real short name");
     if (ids.has(host.id)) {
       throw new RemoteHostsError("validation", `duplicate host id: ${host.id}`);
     }
@@ -93,32 +99,11 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
       );
     }
 
-    if (host.kind === "local") {
-      if (host.id !== LOCAL_HOST_ID) {
-        throw new RemoteHostsError(
-          "validation",
-          `only id "${LOCAL_HOST_ID}" may use kind local (got ${host.id})`,
-        );
-      }
-      if (host.sshEndpoint) {
-        throw new RemoteHostsError(
-          "validation",
-          `local host ${host.id} must not set sshEndpoint`,
-        );
-      }
-      if (host.sshIdentityFile || host.sshHostKeyPolicy) {
-        throw new RemoteHostsError(
-          "validation",
-          `local host ${host.id} must not set SSH route policy`,
-        );
+    if (host.isThisMachine) {
+      if (host.sshEndpoint || host.sshIdentityFile || host.sshHostKeyPolicy || host.sshPort || host.sshKnownHostsFile || host.sshHostKeyAlias || host.juntoHome || host.installRoot) {
+        throw new RemoteHostsError("validation", "this machine cannot carry an outbound route");
       }
     } else {
-      if (host.id === LOCAL_HOST_ID) {
-        throw new RemoteHostsError(
-          "validation",
-          `host id "${LOCAL_HOST_ID}" must use kind local`,
-        );
-      }
       if (host.capabilities.length === 0) {
         throw new RemoteHostsError(
           "validation",
@@ -129,17 +114,18 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
         if (!isSupportedSshDestination(host.sshEndpoint)) {
           throw new RemoteHostsError(
             "validation",
-            `remote host ${host.id} sshEndpoint must be an SSH config alias, user@host, or IPv6 literal; configure custom ports in ~/.ssh/config`,
+            `remote host ${host.id} sshEndpoint must be an SSH config alias, user@host, or IPv6 literal; set a separate SSH port`,
           );
         }
-        if (endpoints.has(host.sshEndpoint)) {
+        const routeKey = `${host.sshEndpoint}\0${host.sshPort ?? 0}`;
+        if (endpoints.has(routeKey)) {
           throw new RemoteHostsError(
             "validation",
             "duplicate remote sshEndpoint",
           );
         }
-        endpoints.add(host.sshEndpoint);
-      } else if (host.sshIdentityFile || host.sshHostKeyPolicy) {
+        endpoints.add(routeKey);
+      } else if (host.sshIdentityFile || host.sshHostKeyPolicy || host.sshPort || host.sshKnownHostsFile || host.sshHostKeyAlias) {
         throw new RemoteHostsError(
           "validation",
           `remote host ${host.id} cannot set SSH route policy without an endpoint`,
@@ -147,6 +133,9 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
       }
     }
 
+    if (host.sshKnownHostsFile !== undefined && host.sshHostKeyPolicy === "accept-new") {
+      throw new RemoteHostsError("validation", "a pinned known-hosts file requires strict checking");
+    }
     if (hostHasCapability(host, "hermes")) {
       const key = hermesKeyFor(host);
       if (hermesKeys.has(key)) {
@@ -160,26 +149,12 @@ const validateHosts = (hosts: ReadonlyArray<RemoteHost>): void => {
   }
 };
 
-const thisMachineLabel = (): string => {
-  try {
-    const name = hostname().trim();
-    return name.length > 0 ? name : LOCAL_HOST_ID;
-  } catch {
-    return LOCAL_HOST_ID;
-  }
-};
-
-const projectDocument = (
-  document: RemoteHostsDocument,
-): RemoteHostsDocument => ({
-  version: REMOTE_HOSTS_VERSION,
-  hosts: projectHostsWithCodeDefaultLocal(document.hosts, {
-    label: thisMachineLabel(),
-  }),
+const projectDocument = (document: RemoteHostsDocument): RemoteHostsDocument => ({
+  version: REMOTE_HOSTS_VERSION, hosts: projectMachines(document.hosts),
 });
 
 const capabilityMask = (host: RemoteHost): number | null => {
-  if (host.kind === "local") return null;
+  if (host.isThisMachine) return null;
   return host.capabilities.reduce(
     (mask, capability) => mask | CAPABILITY_BITS[capability],
     0,
@@ -196,8 +171,8 @@ const capabilitiesFromMask = (
 };
 
 const rowToHost = (row: HostRow): RemoteHost => {
-  if (row.kind === "local") {
-    return makeLocalHost({
+  if (row.is_this_machine === 1) {
+    return makeThisMachine(row.id, {
       label: row.label,
       ...(row.hermes_id === null ? {} : { hermesId: row.hermes_id }),
       ...(row.appearance_color === null && row.appearance_glyph === null
@@ -218,8 +193,13 @@ const rowToHost = (row: HostRow): RemoteHost => {
   return {
     id: row.id,
     label: row.label,
-    kind: "remote",
+    isThisMachine: false,
     ...(row.ssh_endpoint === null ? {} : { sshEndpoint: row.ssh_endpoint }),
+    ...(row.ssh_port === null ? {} : { sshPort: row.ssh_port }),
+    ...(row.ssh_known_hosts_file === null ? {} : { sshKnownHostsFile: row.ssh_known_hosts_file }),
+    ...(row.ssh_host_key_alias === null ? {} : { sshHostKeyAlias: row.ssh_host_key_alias }),
+    ...(row.junto_home === null ? {} : { juntoHome: row.junto_home }),
+    ...(row.install_root === null ? {} : { installRoot: row.install_root }),
     ...(row.ssh_identity_file === null
       ? {}
       : { sshIdentityFile: row.ssh_identity_file }),
@@ -246,7 +226,12 @@ const rowToHost = (row: HostRow): RemoteHost => {
 const HostRowSchema = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
-  kind: Schema.Literals(["local", "remote"]),
+  is_this_machine: Schema.Literals([0, 1]),
+  ssh_port: Schema.NullOr(Schema.Number),
+  ssh_known_hosts_file: Schema.NullOr(Schema.String),
+  ssh_host_key_alias: Schema.NullOr(Schema.String),
+  junto_home: Schema.NullOr(Schema.String),
+  install_root: Schema.NullOr(Schema.String),
   ssh_endpoint: Schema.NullOr(Schema.String),
   ssh_identity_file: Schema.NullOr(Schema.String),
   ssh_host_key_policy: Schema.NullOr(Schema.Literals(["system", "accept-new"])),
@@ -279,6 +264,7 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
 }>()("@junto/HostRegistryRows") {
   static readonly layer = Layer.effect(this, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const machines = yield* MachineRepository;
     const selectInitialized = SqlSchema.findOneOption({
       Request: Schema.Void,
       Result: Schema.Struct({ singleton: Schema.Number }),
@@ -291,7 +277,7 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
     const selectHosts = SqlSchema.findAll({
       Request: Schema.Void,
       Result: HostRowSchema,
-      execute: () => sql`SELECT id, label, kind, ssh_endpoint, ssh_identity_file,
+      execute: () => sql`SELECT id, label, is_this_machine, ssh_endpoint, ssh_identity_file, ssh_port, ssh_known_hosts_file, ssh_host_key_alias, junto_home, install_root,
         ssh_host_key_policy, capability_mask, hermes_id, appearance_color, appearance_glyph,
         sort_order FROM host_registry ORDER BY sort_order`,
     });
@@ -299,22 +285,27 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
       const rows = yield* selectHosts(undefined);
       const hosts = rows.map(rowToHost);
       yield* Effect.try({ try: () => validateHosts(hosts), catch: (cause) => hostRowsError("read", cause) });
-      return { version: REMOTE_HOSTS_VERSION, hosts };
+      return { version: REMOTE_HOSTS_VERSION, hosts } as const;
     }).pipe(Effect.mapError((cause) => hostRowsError("read", cause)));
     const write = Effect.fn("HostRegistryRows.write")(function* (host: RemoteHost, sortOrder: number) {
       const mask = capabilityMask(host);
       const effectiveHermesId = hostHasCapability(host, "hermes") ? hermesKeyFor(host) : null;
       yield* sql`INSERT INTO host_registry(
-        id, label, kind, ssh_endpoint, ssh_identity_file, ssh_host_key_policy,
+        id, label, is_this_machine, ssh_endpoint, ssh_identity_file, ssh_host_key_policy, ssh_port, ssh_known_hosts_file, ssh_host_key_alias, junto_home, install_root,
         capability_mask, hermes_id, effective_hermes_id, appearance_color, appearance_glyph, sort_order
-      ) VALUES (${host.id}, ${host.label}, ${host.kind},
-        ${host.kind === "remote" ? host.sshEndpoint ?? null : null},
-        ${host.kind === "remote" ? host.sshIdentityFile ?? null : null},
-        ${host.kind === "remote" ? host.sshHostKeyPolicy ?? null : null},
+      ) VALUES (${host.id}, ${host.label}, ${host.isThisMachine ? 1 : 0},
+        ${!host.isThisMachine ? host.sshEndpoint ?? null : null},
+        ${!host.isThisMachine ? host.sshIdentityFile ?? null : null},
+        ${!host.isThisMachine ? host.sshHostKeyPolicy ?? null : null},
+        ${!host.isThisMachine ? host.sshPort ?? null : null},
+        ${!host.isThisMachine ? host.sshKnownHostsFile ?? null : null},
+        ${!host.isThisMachine ? host.sshHostKeyAlias ?? null : null},
+        ${!host.isThisMachine ? host.juntoHome ?? null : null},
+        ${!host.isThisMachine ? host.installRoot ?? null : null},
         ${mask}, ${host.hermesId ?? null}, ${effectiveHermesId},
         ${host.appearance?.color ?? null}, ${host.appearance?.glyph ?? null}, ${sortOrder})
       ON CONFLICT(id) DO UPDATE SET
-        label = excluded.label, kind = excluded.kind, ssh_endpoint = excluded.ssh_endpoint,
+        label = excluded.label, ssh_port = excluded.ssh_port, ssh_known_hosts_file = excluded.ssh_known_hosts_file, ssh_host_key_alias = excluded.ssh_host_key_alias, junto_home = excluded.junto_home, install_root = excluded.install_root, ssh_endpoint = excluded.ssh_endpoint,
         ssh_identity_file = excluded.ssh_identity_file, ssh_host_key_policy = excluded.ssh_host_key_policy,
         capability_mask = excluded.capability_mask, hermes_id = excluded.hermes_id,
         effective_hermes_id = excluded.effective_hermes_id, appearance_color = excluded.appearance_color,
@@ -331,7 +322,7 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
         return yield* HostsStateError.make({ operation: "initialize-write",
           message: "host registry rows exist without initialization metadata", cause: undefined });
       }
-      yield* write(defaultRemoteHostsDocument().hosts[0]!, 0);
+      yield* write(makeThisMachine(yield* machines.machineName), 0);
       yield* sql`INSERT INTO host_registry_state(singleton, version, initialized_at) VALUES (1, 1, ${initializedAt})`;
     }, Effect.mapError((cause) => hostRowsError("ensure", cause)));
     const selectOrder = SqlSchema.findOneOption({
@@ -344,8 +335,9 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
     });
     const upsert = Effect.fn("HostRegistryRows.upsert")(function* (host: RemoteHost) {
       const current = yield* read;
-      const entry = host.id === LOCAL_HOST_ID
-        ? makeLocalHost({ label: host.label, hermesId: host.hermesId, appearance: host.appearance }) : host;
+      const own = current.hosts.find(row => row.isThisMachine);
+      if (host.isThisMachine !== (host.id === own?.id)) return yield* Effect.fail(new RemoteHostsError("validation", "machine ownership cannot change"));
+      const entry = host.isThisMachine ? makeThisMachine(host.id, host) : host;
       const nextHosts = [...current.hosts];
       const index = nextHosts.findIndex((row) => row.id === entry.id);
       if (index >= 0) nextHosts[index] = entry;
@@ -449,21 +441,9 @@ export const makeHostsRegistry = (
       ),
     upsert: async (host) => {
       await ensure();
-      if (
-        (host.kind === "local" && host.id !== LOCAL_HOST_ID) ||
-        (host.id === LOCAL_HOST_ID && host.kind !== "local")
-      ) {
-        throw new RemoteHostsError(
-          "validation",
-          `host id "${LOCAL_HOST_ID}" and kind local are an immutable pair`,
-        );
-      }
-      if (host.kind === "local" && host.sshEndpoint !== undefined) {
-        throw new RemoteHostsError(
-          "validation",
-          "the local host cannot carry an enrollment sshEndpoint",
-        );
-      }
+      const own = (await load()).hosts.find(row => row.isThisMachine);
+      if (host.isThisMachine !== (host.id === own?.id)) throw new RemoteHostsError("validation", "machine ownership cannot change");
+      if (host.isThisMachine && host.sshEndpoint !== undefined) throw new RemoteHostsError("validation", "this machine cannot carry an outbound SSH route");
 
       const next = await runRegistryEffect(
         persistence.upsert(host).pipe(Effect.map(projectDocument)),
@@ -472,7 +452,7 @@ export const makeHostsRegistry = (
     },
     remove: async (id) => {
       await ensure();
-      if (id === LOCAL_HOST_ID) {
+      if ((await load()).hosts.find(row => row.id === id)?.isThisMachine) {
         throw new RemoteHostsError(
           "conflict",
           "cannot remove this machine",

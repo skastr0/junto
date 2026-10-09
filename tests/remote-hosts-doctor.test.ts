@@ -6,13 +6,13 @@ import type { HostsRegistry } from "../src/main/junto/hosts/registry";
 import type { SshTransportShape } from "../src/main/junto/ssh/service";
 import { SshExitError } from "../src/main/junto/ssh/domain";
 
-const remote = { id: "mini", label: "Mini", kind: "remote", sshEndpoint: "mac-mini", capabilities: ["terminal"] } as RemoteHost;
+const remote = { id: "mini", label: "Mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal"] } as RemoteHost;
 const sshWith = (warm: SshTransportShape["warm"]) => ({ warm }) as SshTransportShape;
 
 describe("machine reachability", () => {
   it("does not contact SSH for this machine", async () => {
     const warm = vi.fn();
-    expect(await Effect.runPromise(testHostConnection(sshWith(warm), defaultRemoteHostsDocument().hosts[0]!)))
+    expect(await Effect.runPromise(testHostConnection(sshWith(warm), defaultRemoteHostsDocument("macbook").hosts[0]!)))
       .toMatchObject({ ok: true, reachability: "reachable" });
     expect(warm).not.toHaveBeenCalled();
   });
@@ -25,7 +25,7 @@ describe("machine reachability", () => {
 
   it("reports a refused link while retaining other machines", async () => {
     const ssh = sshWith(() => Effect.fail(new SshExitError({ endpoint: "mac-mini", operation: "master-warm", code: 255, detail: "permission denied" })));
-    const registry = { list: async () => [...defaultRemoteHostsDocument().hosts, remote] } as unknown as HostsRegistry;
+    const registry = { list: async () => [...defaultRemoteHostsDocument("macbook").hosts, remote] } as unknown as HostsRegistry;
     const snapshot = await Effect.runPromise(runRemoteHostsDoctorSnapshot(registry, ssh));
     expect(snapshot.check.status).toBe("warning");
     expect(snapshot.observations).toEqual([{ hostId: "mini", endpoint: "mac-mini", source: "live", reachability: "unreachable", reachabilityError: "permission denied" }]);

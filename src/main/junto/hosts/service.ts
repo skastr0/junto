@@ -193,8 +193,8 @@ export const HostsServiceLive = Layer.effect(
       Effect.catch(() =>
         Effect.sync(() => {
           // A corrupt/unavailable database must not mint stale remote routing
-          // or brick this-machine surfaces. Registry methods still surface the
-          // typed failure while synchronous routing fails closed to local.
+          // or invent machine identity. Registry methods still surface the
+          // typed failure while synchronous routing stays empty.
           setHostsSnapshot(defaultRemoteHostsDocument().hosts);
         }),
       ),
