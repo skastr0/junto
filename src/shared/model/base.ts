@@ -22,9 +22,6 @@ export const asCanvasName = (name: string): CanvasName => name as CanvasName;
 export { NodeId, asNodeId } from "../physics/schema";
 export { HostId } from "../remote-hosts";
 
-/** The machine a seat, terminal or page runs on. `local` is this one. */
-export const LOCAL_HOST: HostId = "local";
-
 /** A preset number ("1" to "6") or a hex colour, as the palette writes it. */
 export const Color = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),

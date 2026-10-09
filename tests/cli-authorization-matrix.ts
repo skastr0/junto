@@ -14,6 +14,7 @@ import {
   type WellKnownKind,
 } from "../src/shared/physics";
 import { canvasToCapabilityView } from "../src/shared/physics/view";
+import { THIS_MACHINE } from "./support/machines";
 import {
   artifacts,
   board,
@@ -248,7 +249,7 @@ export const generateCliAuthorizationMatrix = (): ReadonlyArray<CliMatrixCell> =
               edge === undefined ? [] : [edge],
             );
             const result = admitPure(
-              canvasToCapabilityView(canvas),
+              canvasToCapabilityView(canvas, { editingMachine: THIS_MACHINE }),
               asNodeId("source"),
               asNodeId("target"),
               port,

@@ -58,7 +58,7 @@ export type FactoryClaimSelection = {
  *   `works` compiles it. A seat that merely `contributes` holds `tasks.claim`
  *   and may take work of its own accord; the factory never hands it any.
  * - **admitted** — the seat may actually run `tasks.claim` on this sink now:
- *   the sink offers the port, the placement route allows it, the edge is live.
+ *   the sink offers the port, the seat is on the sink's machine, the edge is live.
  *
  * Before verbs, the port alone answered both, which made every wired seat a
  * conscript. It no longer does.
@@ -75,7 +75,9 @@ export const selectFactoryClaims = (
   work: WorkRead,
   canvasName: string,
   resolveActorRef: ActorRefResolver,
-  opts?: {
+  opts: {
+    /** The machine that edits this canvas; its boards and their tasks are on it. */
+    readonly editingMachine: string;
     readonly actorEligible?: (actor: Seat) => boolean;
     /** Per-task actor admission, e.g. a recent operator-release grace. */
     readonly claimEligible?: (
@@ -90,11 +92,11 @@ export const selectFactoryClaims = (
   const selections: FactoryClaimSelection[] = [];
   const busy = new Set<ActorSeatId>([
     ...busyActorSeatIds(canvas, work),
-    ...(opts?.busyActorSeatIds ?? []),
+    ...(opts.busyActorSeatIds ?? []),
   ]);
-  const actorEligible = opts?.actorEligible ?? (() => true);
-  const claimEligible = opts?.claimEligible ?? (() => true);
-  const capabilityView = canvasToCapabilityView(canvas);
+  const actorEligible = opts.actorEligible ?? (() => true);
+  const claimEligible = opts.claimEligible ?? (() => true);
+  const capabilityView = canvasToCapabilityView(canvas, { editingMachine: opts.editingMachine });
 
   const byNodeId = <N extends { readonly id: string }>(left: N, right: N) =>
     left.id.localeCompare(right.id);
@@ -176,6 +178,8 @@ export const actorsNeedingWake = (
   canvasName: string,
   resolveActorRef: ActorRefResolver,
   opts: {
+    /** The machine that edits this canvas; its boards and their tasks are on it. */
+    readonly editingMachine: string;
     /** True when the actor needs no start — already live, or not ours. */
     readonly isAwake: (actor: Seat) => boolean;
     readonly claimEligible?: (
@@ -188,12 +192,14 @@ export const actorsNeedingWake = (
   const claimEligible = opts.claimEligible;
   const covered = new Set(
     selectFactoryClaims(canvas, work, canvasName, resolveActorRef, {
+      editingMachine: opts.editingMachine,
       ...(claimEligible ? { claimEligible } : {}),
       actorEligible: opts.isAwake,
     }).map(claimKey),
   );
   return new Set(
     selectFactoryClaims(canvas, work, canvasName, resolveActorRef, {
+      editingMachine: opts.editingMachine,
       ...(claimEligible ? { claimEligible } : {}),
     })
       .filter((selection) => !covered.has(claimKey(selection)))

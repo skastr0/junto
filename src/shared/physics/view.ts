@@ -1,18 +1,11 @@
 import { HashMap, HashSet, Option } from "effect";
 import { productNodeKindEnabled } from "../features";
-import { LOCAL_HOST } from "../model/base";
 import type { Canvas } from "../model/canvas";
 import { nodesOf, regionMembers } from "../model/canvas";
 import type { Node } from "../model/kinds";
 import { wireGrant, type Wire } from "../model/wire";
 import type { CapabilityView, NodeMeta } from "./admit";
 import { directedEdgeKey, undirectedEdgeKey } from "./admit";
-import {
-  DEFAULT_PLACEMENT_TOPOLOGY,
-  resolveHostPlacement,
-  type NodePlacement,
-  type PlacementTopology,
-} from "./placement";
 import { asNodeId, type NodeId, type Port } from "./schema";
 
 // Pure canvas → CapabilityView adapter. No Node, no live process-bind.
@@ -23,16 +16,10 @@ import { asNodeId, type NodeId, type Port } from "./schema";
 
 export type CapabilityViewOptions = {
   /**
-   * Fleet topology for placement resolve (I18). Default treats `local` as
-   * Command Center and every other host as Station — product path without a
-   * live PlacementView producer.
+   * The machine that edits this canvas. A kind that stays with the canvas (a
+   * board, a note, a region) names no machine of its own and is on this one.
    */
-  readonly topology?: PlacementTopology;
-  /**
-   * Explicit placement map. When set, replaces topology resolve (tests:
-   * facility, unknown-by-omission, forced tiers).
-   */
-  readonly placement?: HashMap.HashMap<NodeId, NodePlacement>;
+  readonly editingMachine: string;
 };
 
 /**
@@ -50,6 +37,10 @@ export type VerbCapabilityView = CapabilityView & {
 const metaOfNode = (node: Node): NodeMeta =>
   node.kind === "region"
     ? { kind: undefined, isGroup: true }
+    : node.kind === "peer"
+      // Another machine's seat: an actor for the role law and for what a wire
+      // to it compiles, marked so admission lets it be mailed and nothing else.
+      ? { kind: "agent", isGroup: false, peer: true }
     : {
         kind:
           node.kind === "note" || node.kind === "file" || node.kind === "link"
@@ -59,24 +50,20 @@ const metaOfNode = (node: Node): NodeMeta =>
       };
 
 /**
- * The same view from a canvas. A thing that names no host is on this one.
+ * The same view from a canvas. A node's machine is the name on its row; a
+ * node that carries none is on the machine that edits the canvas.
  */
 export const canvasToCapabilityView = (
   canvas: Pick<Canvas, "nodes" | "wires">,
-  options?: CapabilityViewOptions,
+  options: CapabilityViewOptions,
 ): VerbCapabilityView => {
-  const topology = options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY;
   let nodeMeta = HashMap.empty<NodeId, NodeMeta>();
-  let placement = HashMap.empty<NodeId, NodePlacement>();
+  let machine = HashMap.empty<NodeId, string>();
   const kinds = new Map<string, string>();
   for (const node of canvas.nodes.values()) {
     nodeMeta = HashMap.set(nodeMeta, node.id, metaOfNode(node));
-    if (node.kind !== "region") kinds.set(node.id, node.kind);
-    placement = HashMap.set(
-      placement,
-      node.id,
-      resolveHostPlacement("host" in node ? node.host : LOCAL_HOST, topology),
-    );
+    if (node.kind !== "region") kinds.set(node.id, node.kind === "peer" ? "agent" : node.kind);
+    machine = HashMap.set(machine, node.id, "host" in node ? node.host : options.editingMachine);
   }
   const joins: Array<Join> = [];
   for (const wire of canvas.wires.values()) {
@@ -89,7 +76,7 @@ export const canvasToCapabilityView = (
     regions: nodesOf(canvas, "region").map((region) =>
       regionMembers(canvas, region).map((node) => node.id),
     ),
-    placement: options?.placement ?? placement,
+    machine,
   });
 };
 
@@ -107,9 +94,9 @@ const viewOf = (input: {
   readonly joins: Iterable<Join>;
   /** The members of each region, regions themselves left out. */
   readonly regions: Iterable<ReadonlyArray<string>>;
-  readonly placement: HashMap.HashMap<NodeId, NodePlacement>;
+  readonly machine: HashMap.HashMap<NodeId, string>;
 }): VerbCapabilityView => {
-  const { nodeMeta, kinds, placement } = input;
+  const { nodeMeta, kinds, machine } = input;
 
   // Claimability is a capability: an endpoint kind a product gate turned off
   // takes no factory handoff, even when a historical `works` edge survives.
@@ -186,7 +173,7 @@ const viewOf = (input: {
     }
   }
 
-  return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, claimable, placement };
+  return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, claimable, machine };
 };
 
 /** Whether the relationship between two nodes lets the tick claim work. */

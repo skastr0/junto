@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Wire, decodeWire, wireGrant, wireKinds, type Canvas } from "../src/shared/model";
 import { admitPure, asNodeId, type Port } from "../src/shared/physics";
 import { canvasToCapabilityView } from "../src/shared/physics/view";
+import { THIS_MACHINE } from "./support/machines";
 import { canvasOf, seat, wire } from "./support/model-nodes";
 
 // What a messages wire between two seats lets each do to the other, and that
@@ -18,7 +19,7 @@ const messages = (mask?: readonly Port[]): Wire => ({
 const canvasWith = (wires: readonly Wire[]): Canvas => canvasOf(seats, wires);
 
 const allows = (canvas: Canvas, from: string, to: string, port: Port): boolean =>
-  Result.isSuccess(admitPure(canvasToCapabilityView(canvas), asNodeId(from), asNodeId(to), port));
+  Result.isSuccess(admitPure(canvasToCapabilityView(canvas, { editingMachine: THIS_MACHINE }), asNodeId(from), asNodeId(to), port));
 
 /** Whether a wire read from outside the process is taken. */
 const decodes = (input: unknown): boolean =>

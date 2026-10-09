@@ -2,32 +2,26 @@ import { Effect, Result, HashMap, HashSet, Option, Schema } from "effect";
 import { offersOf, resolveSpec, roleOf } from "./kinds";
 import { grantLawForRoles, selectGrant } from "./laws";
 import {
-  routeAllowed,
-  type NodePlacement,
-} from "./placement";
-import {
   Port,
   PortGrant,
   asNodeId,
   type NodeId,
 } from "./schema";
 
-// Pure admit: possession of undirected edge + role law + port facet + placement.
-// Region co-membership is visibility-only — never a port grant.
-// Placement is the inter-runtime half (I18/I19): third input alongside
-// connectivity and offers — not a fourth role.
+// Pure admit: possession of undirected edge + role law + port facet, and the
+// machine each end is on. Region co-membership is visibility-only — never a
+// port grant. Two ends on different machines can mail each other and nothing
+// else: mail waits, so it needs no live route.
 
 export const ScopeDenialReason = Schema.Literals(["invisible", "not_connected",
 "no_port",
 "role_law",
 "unknown_node",
-/** Stale / missing placement projection — fail closed (I18). */
-"placement_unknown",
 /**
- * Cross-runtime route is not CC↔Station (e.g. Station↔Station).
- * Names the missing CC route — never silently relayed as no_port.
+ * The two ends are on different machines and the port is not mail. Never
+ * relayed as no_port: the seat is told the target can only be mailed.
  */
-"route",]);
+"other_machine",]);
 export type ScopeDenialReason = typeof ScopeDenialReason.Type;
 
 export class ScopeDenial extends Schema.TaggedError<ScopeDenial>()("ScopeDenial", {
@@ -49,6 +43,12 @@ export class Granted extends Schema.Class<Granted>("Granted")({
 export type NodeMeta = {
   readonly kind: string | undefined;
   readonly isGroup: boolean;
+  /**
+   * A seat of another machine, as a machine holding a copy of the canvas sees
+   * it. It can be mailed. It never acts from here: its seat acts on its own
+   * machine, from the full row that machine holds.
+   */
+  readonly peer?: boolean;
 };
 
 /**
@@ -56,9 +56,9 @@ export type NodeMeta = {
  * Connectivity is undirected. edgePortMask keys are undirected pair keys
  * (`min\0max`); missing key means no port attenuation (full KindSpec.offers).
  *
- * `placement` is the inter-runtime view (I18). Missing map entry for caller
- * or target → placement_unknown (fail closed). The view of a canvas fills it
- * from each node's host, or a test hands it a map; it never invents liveness.
+ * `machine` names the machine each node is on. The view of a canvas fills it
+ * for every node: the name on the node's row, or the machine that edits the
+ * canvas for a kind that stays with the canvas.
  */
 export type CapabilityView = {
   readonly nodeMeta: HashMap.HashMap<NodeId, NodeMeta>;
@@ -67,7 +67,7 @@ export type CapabilityView = {
   readonly edgePortMask: HashMap.HashMap<string, HashSet.HashSet<Port>>;
   /** Directional grants do not gain authority from the reverse edge. */
   readonly directedEdgePortMask?: HashMap.HashMap<string, HashSet.HashSet<Port>>;
-  readonly placement: HashMap.HashMap<NodeId, NodePlacement>;
+  readonly machine: HashMap.HashMap<NodeId, string>;
 };
 
 /** Stable undirected edge key for port-mask lookup. */
@@ -113,65 +113,55 @@ const isRegionPeer = (
   return HashSet.has(peers.value, target);
 };
 
-const placementOf = (
-  view: CapabilityView,
-  id: NodeId,
-): NodePlacement | undefined => {
-  const opt = HashMap.get(view.placement, id);
+const machineOf = (view: CapabilityView, id: NodeId): string | undefined => {
+  const opt = HashMap.get(view.machine, id);
   return Option.isSome(opt) ? opt.value : undefined;
 };
 
+/** The one port that crosses machines. Mail waits, so it needs no live route. */
+const CROSS_MACHINE_PORT: Port = "msg.send";
+
+const otherMachine = (
+  caller: NodeId,
+  target: NodeId,
+  port: Port,
+  machine: string | undefined,
+): ScopeDenial =>
+  denial(
+    "other_machine",
+    caller,
+    target,
+    `"${target}" runs on another machine${machine === undefined ? "" : ` (${machine})`}; from here it can only be mailed`,
+    port,
+  );
+
 /**
- * Placement checks ordered before ports:
- * 1. unknown placement → deny
- * 2. cross-runtime must be CC↔Station
+ * Ordered before ports. On one machine nothing is decided here. Across two,
+ * only mail goes on to the role law, the mask and the offers; every other
+ * port is denied. Which machine edits the canvas, and which opened a link,
+ * do not enter. A node the view named no machine for is not known to be on
+ * this one, so it is treated as on another.
  */
-const checkPlacement = (
+const checkMachines = (
   view: CapabilityView,
   caller: NodeId,
   target: NodeId,
   port: Port,
+  targetIsPeer: boolean,
 ): ScopeDenial | undefined => {
-  const callerPlace = placementOf(view, caller);
-  const targetPlace = placementOf(view, target);
-
-  if (callerPlace === undefined || targetPlace === undefined) {
-    const missing = callerPlace === undefined ? caller : target;
-    return denial(
-      "placement_unknown",
-      caller,
-      target,
-      `placement unknown for "${missing}" — fail closed (stale or missing projection)`,
-      port,
-    );
-  }
-
-  if (!routeAllowed(callerPlace, targetPlace)) {
-    const callerRt =
-      callerPlace.runtime._tag === "Station"
-        ? `station(${callerPlace.runtime.hostId})`
-        : callerPlace.runtime._tag.toLowerCase();
-    const targetRt =
-      targetPlace.runtime._tag === "Station"
-        ? `station(${targetPlace.runtime.hostId})`
-        : targetPlace.runtime._tag.toLowerCase();
-    return denial(
-      "route",
-      caller,
-      target,
-      `route denied ${callerRt} → ${targetRt}: cross-runtime actions require a Command Center route (Station↔Station is not representable as a grant)`,
-      port,
-    );
-  }
-
-  return undefined;
+  if (port === CROSS_MACHINE_PORT) return undefined;
+  const callerMachine = machineOf(view, caller);
+  const targetMachine = machineOf(view, target);
+  const same =
+    !targetIsPeer && callerMachine !== undefined && callerMachine === targetMachine;
+  return same ? undefined : otherMachine(caller, target, port, targetMachine);
 };
 
 /**
  * Admit `caller` to invoke `port` on `target` under pure graph physics.
  * Process-bind is a separate plane (occupant) — not checked here.
  *
- * Order: nodes → connectivity → placement → role law → ports.
+ * Order: nodes → peer caller → connectivity → machines → role law → ports.
  *
  * Effect Result is `Result<A, E>` (success first): Right = Granted, Left = ScopeDenial.
  */
@@ -191,6 +181,18 @@ export const admitPure = (
         caller,
         target,
         `unknown node "${Option.isNone(callerMeta) ? caller : target}"`,
+        port,
+      ),
+    );
+  }
+
+  if (callerMeta.value.peer === true) {
+    return Result.fail(
+      denial(
+        "other_machine",
+        caller,
+        target,
+        `"${caller}" is a seat on another machine; it acts from there, not from this copy of the canvas`,
         port,
       ),
     );
@@ -219,9 +221,9 @@ export const admitPure = (
     );
   }
 
-  const placementDenial = checkPlacement(view, caller, target, port);
-  if (placementDenial !== undefined) {
-    return Result.fail(placementDenial);
+  const machineDenial = checkMachines(view, caller, target, port, targetMeta.value.peer === true);
+  if (machineDenial !== undefined) {
+    return Result.fail(machineDenial);
   }
 
   const callerSpec = resolveSpec(callerMeta.value);

@@ -8,7 +8,6 @@ import {
   resolveSpec,
   roleOf,
   type ActorKindName,
-  type CapabilityViewOptions,
 } from "@shared/physics";
 import { Result } from "effect";
 
@@ -120,16 +119,17 @@ export const resolveBrowserCaller = (
  * Admit caller → page for browser.automate via canvas physics.
  * Requires undirected edge + actor role + page offers the port.
  * Region co-membership alone returns false (not_connected / invisible).
- * Optional view options carry placement topology (I18) when the caller
- * knows the Command Center host id.
  */
 export const admitBrowserPage = (
   doc: Canvas,
   callerId: string,
   pageNodeId: string,
-  viewOptions?: CapabilityViewOptions,
 ): boolean => {
-  const view = canvasToCapabilityView(doc, viewOptions);
+  // A seat or terminal and a page each name their machine, so the machine of
+  // a kind that names none never enters here; the caller's own stands in.
+  const caller = findNode(doc, callerId);
+  if (caller === undefined || !("host" in caller)) return false;
+  const view = canvasToCapabilityView(doc, { editingMachine: caller.host });
   const result = admitPure(
     view,
     asNodeId(callerId),
@@ -143,7 +143,6 @@ export const admitBrowserPage = (
 export const connectedPageNodeIds = (
   doc: Canvas,
   callerId: string,
-  viewOptions?: CapabilityViewOptions,
 ): ReadonlyArray<string> => {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -157,7 +156,7 @@ export const connectedPageNodeIds = (
     if (other === undefined || seen.has(other)) continue;
     const node = findNode(doc, other);
     if (!isPageNode(node)) continue;
-    if (!admitBrowserPage(doc, callerId, other, viewOptions)) continue;
+    if (!admitBrowserPage(doc, callerId, other)) continue;
     seen.add(other);
     out.push(other);
   }
@@ -169,10 +168,9 @@ export const connectedPageRefs = (
   doc: Canvas,
   canvasName: string,
   callerId: string,
-  viewOptions?: CapabilityViewOptions,
 ): ReadonlyArray<NodeRefKey> => {
   const refs: NodeRefKey[] = [];
-  for (const nodeId of connectedPageNodeIds(doc, callerId, viewOptions)) {
+  for (const nodeId of connectedPageNodeIds(doc, callerId)) {
     try {
       refs.push(formatNodeRef({ canvasName, nodeId }));
     } catch {

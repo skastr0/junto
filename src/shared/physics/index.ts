@@ -88,24 +88,6 @@ export type {
 } from "./admit";
 
 export {
-  DEFAULT_PLACEMENT_TOPOLOGY,
-  PlacementView,
-  PlacementViewNull,
-  RuntimePlacement,
-  mapPlacementView,
-  nullPlacementView,
-  placementLabel,
-  routeAllowed,
-  sameRuntime,
-} from "./placement";
-export type {
-  NodePlacement,
-  PlacementTopology,
-  PlacementViewService,
-  RuntimePlacement as RuntimePlacementValue,
-} from "./placement";
-
-export {
   OPS_BY_SINK,
   PortForWorkOp,
   TARGET_WORK_OPS,
