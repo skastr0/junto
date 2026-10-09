@@ -53,26 +53,18 @@ describe("settings contract", () => {
     expect(settings.appearance.theme).toBe("system");
     expect(settings.browser.maxVisibleSurfaces).toBe(2);
     expect(settings.browser.maxWarmSessions).toBe(3);
-    expect(settings.fleet.ditherLevel).toBe("fine");
-    expect(settings.fleet.remoteManagedInstalls).toBe(false);
     expect(settings.advanced.logsExplorer).toBe(false);
   });
 
-  it("applySettingsPatch merges ordinary and fleet sections", () => {
+  it("applySettingsPatch merges ordinary sections", () => {
     const next = applySettingsPatch(defaultSettings(), {
       appearance: { reduceMotion: true },
       browser: { maxVisibleSurfaces: 4 },
-      fleet: {
-        ditherLevel: "balanced",
-        remoteManagedInstalls: true,
-      },
     });
     expect(next.appearance.reduceMotion).toBe(true);
     expect(next.appearance.theme).toBe("system");
     expect(next.browser.maxVisibleSurfaces).toBe(4);
     expect(next.browser.maxWarmSessions).toBe(3);
-    expect(next.fleet.ditherLevel).toBe("balanced");
-    expect(next.fleet.remoteManagedInstalls).toBe(true);
   });
 
   it("rejects the retired topologyIntegrity field at every decode boundary", () => {
@@ -110,7 +102,7 @@ describe("settings contract", () => {
     ).toBe(true);
     expect(
       Result.isFailure(
-        decodePatchInput({ fleet: { ditherLevel: "ultra" } }),
+        decodePatchInput({ fleet: { remoteManagedInstalls: true } }),
       ),
     ).toBe(true);
     expect(
@@ -262,31 +254,6 @@ describe("SQLite settings service", () => {
     });
   });
 
-  it("turns an old default-on remoteManagedInstalls row off until explicit opt-in", async () => {
-    const first = await openService();
-    const defaults = await run(first.service.get);
-    expect(defaults.fleet.remoteManagedInstalls).toBe(false);
-    const body = await run(
-      first.sql<{ body: string }>`SELECT body FROM settings_preferences WHERE singleton = 1`.pipe(Effect.map((rows) => rows[0]?.body)),
-    );
-    const encoded = JSON.stringify({
-      ...JSON.parse(String(body)) as Record<string, unknown>,
-      fleet: { ditherLevel: "fine", remoteManagedInstalls: true },
-    });
-    await run(
-      first.sql.withTransaction(first.sql`UPDATE settings_preferences SET body = ${encoded} WHERE singleton = 1`),
-    );
-    const second = await openService();
-    const repaired = await run(second.service.get);
-    expect(repaired.fleet.remoteManagedInstalls).toBe(false);
-    expect(repaired.fleet.remoteManagedInstallsConsented).toBeUndefined();
-    const optedIn = await run(
-      second.service.patch({ fleet: { remoteManagedInstalls: true } }),
-    );
-    expect(optedIn.fleet.remoteManagedInstalls).toBe(true);
-    expect(optedIn.fleet.remoteManagedInstallsConsented).toBe(true);
-  });
-
   it("persists preferences and canonical machine configuration across restart", async () => {
     const first = await openService();
     await run(
@@ -297,10 +264,6 @@ describe("SQLite settings service", () => {
     await run(
       first.service.patch({
         appearance: { reduceMotion: true },
-        fleet: {
-          ditherLevel: "coarse",
-          remoteManagedInstalls: true,
-        },
       }),
     );
 
@@ -308,8 +271,6 @@ describe("SQLite settings service", () => {
     const reloaded = await run(second.service.get);
     expect(reloaded.machine.name).toBe(defaultMachineName());
     expect(reloaded.appearance.reduceMotion).toBe(true);
-    expect(reloaded.fleet.ditherLevel).toBe("coarse");
-    expect(reloaded.fleet.remoteManagedInstalls).toBe(true);
   });
 
   it("commits generic preference patches without rewriting machine configuration", async () => {
@@ -337,7 +298,6 @@ describe("SQLite settings service", () => {
         [
           service.patch({ appearance: { reduceMotion: true } }),
           service.patch({ browser: { maxVisibleSurfaces: 4 } }),
-          service.patch({ fleet: { remoteManagedInstalls: true } }),
         ],
         { concurrency: "unbounded" },
       ),
@@ -345,7 +305,6 @@ describe("SQLite settings service", () => {
     const settings = await run(service.get);
     expect(settings.appearance.reduceMotion).toBe(true);
     expect(settings.browser.maxVisibleSurfaces).toBe(4);
-    expect(settings.fleet.remoteManagedInstalls).toBe(true);
   });
 
   it("publishes subscribers only after a successful commit", async () => {

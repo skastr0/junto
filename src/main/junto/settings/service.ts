@@ -314,44 +314,6 @@ const writeInitialSettings = Effect.fn("settings.write-initial")(function* (
   yield* sql.unsafe(INSERT_INITIALIZATION_SQL, [updatedAt]);
 });
 
-/**
- * Old default-on Remote package mutation is not affirmative consent. Rewrite
- * the stored fleet row once when it still carries that inherited `true`.
- */
-const repairFleetConsent = (
-  sql: SqlClient.SqlClient,
-  configuration: MachineConfigurationService,
-): Effect.Effect<void, SettingsError> =>
-  transaction(
-    sql,
-    "settings.repair-fleet-consent",
-    Effect.gen(function* () {
-      const rows = yield* readRows(sql, configuration);
-      if (rows.preferences === undefined) return;
-      const body = yield* Effect.try({ try: () => parseBody(
-        "stored settings preferences",
-        rows.preferences!.body,
-      ), catch: stateFailure("decode") });
-      const fleet =
-        typeof body === "object" && body !== null && "fleet" in body
-          ? (body as { fleet?: { remoteManagedInstalls?: unknown; remoteManagedInstallsConsented?: unknown } }).fleet
-          : undefined;
-      if (
-        fleet?.remoteManagedInstalls !== true
-        || fleet.remoteManagedInstallsConsented === true
-      ) {
-        return;
-      }
-      const stored = yield* Effect.try({ try: () => decodeRows(rows), catch: stateFailure("decode") });
-      if (stored === undefined) return;
-      yield* writePreferences(
-        sql,
-        stored.settings,
-        new Date().toISOString(),
-      );
-    }),
-  );
-
 const initializeSettings = (
   sql: SqlClient.SqlClient,
   configuration: MachineConfigurationService,
@@ -431,7 +393,6 @@ export const makeSettingsService = (
       openFileCredentialStore(join(dirname(databasePath), "credentials"));
     yield* ensureMachineConfiguration(sql, machineConfiguration);
     yield* initializeSettings(sql, machineConfiguration);
-    yield* repairFleetConsent(sql, machineConfiguration);
     const migrated = yield* Effect.result(
       transaction(sql, "settings.migrate-provider-secrets", Effect.gen(function* () {
         yield* reconcileCredentialVault(bindings, credentials);

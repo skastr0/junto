@@ -251,32 +251,6 @@ export const PortraitsSettings = Schema.Struct({
 });
 export type PortraitsSettings = typeof PortraitsSettings.Type;
 
-export const FleetDitherLevel = Schema.Literals(["fine", "balanced",
-"coarse",]);
-export type FleetDitherLevel = typeof FleetDitherLevel.Type;
-
-/**
- * Fleet operator prefs (not secrets). Remote deployment kill switch; the UI
- * shows disabled controls when false and main re-gates every invoke.
- */
-export const FleetSettings = Schema.Struct({
-  /** Ordered-dither density for the Fleet map. */
-  ditherLevel: FleetDitherLevel,
-  /**
-   * When false, managed Remote deployment refuses even if the release line
-   * enables it. Fresh Command Centers require an explicit operator opt-in.
-   * A stored `true` without `remoteManagedInstallsConsented` is the old
-   * default, not affirmative consent, and decode treats it as off.
-   */
-  remoteManagedInstalls: Schema.Boolean,
-  /**
-   * Set only when the operator explicitly enables managed Remote installs
-   * through Settings. Absent on rows written before this field.
-   */
-  remoteManagedInstallsConsented: Schema.optionalKey(Schema.Boolean),
-});
-export type FleetSettings = typeof FleetSettings.Type;
-
 export const MachineSettings = Schema.Struct({
   /** Empty only in a client before the first settings read. */
   name: Schema.String.pipe(Schema.check(Schema.makeFilter((value) => value === "" || isValidMachineName(value)))),
@@ -850,7 +824,6 @@ export const Settings = Schema.Struct({
   advanced: AdvancedSettings,
   audio: AudioSettings,
   machine: MachineSettings,
-  fleet: FleetSettings,
   /**
    * Optional so rows written before the Agents settings surface still decode.
    * Absent ≡ empty byHarness (product defaults for every seat).
@@ -1022,12 +995,6 @@ export const HarnessesPatch = Schema.Struct({
 });
 export type HarnessesPatch = typeof HarnessesPatch.Type;
 
-export const FleetPatch = Schema.Struct({
-  ditherLevel: Schema.optionalKey(FleetDitherLevel),
-  remoteManagedInstalls: Schema.optionalKey(Schema.Boolean),
-});
-export type FleetPatch = typeof FleetPatch.Type;
-
 export const MachinePatch = Schema.Struct({
   name: Schema.optionalKey(Schema.String),
   supervisedPreferred: Schema.optionalKey(Schema.Boolean),
@@ -1077,7 +1044,6 @@ export const SettingsPatch = Schema.Struct({
   advanced: Schema.optionalKey(AdvancedPatch),
   audio: Schema.optionalKey(AudioPatch),
   machine: Schema.optionalKey(MachinePatch),
-  fleet: Schema.optionalKey(FleetPatch),
   harnesses: Schema.optionalKey(HarnessesPatch),
   terminal: Schema.optionalKey(TerminalPatch),
   live: Schema.optionalKey(LivePatch),
@@ -1095,7 +1061,6 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "advanced",
 "audio",
 "machine",
-"fleet",
 "harnesses",
 "terminal",
 "live",
@@ -1178,34 +1143,6 @@ export const defaultTerminal = (): TerminalSettings => ({
   copyOnSelect: false,
 });
 
-/** Remote package mutation is disabled until the operator explicitly allows it. */
-export const defaultFleet = (): FleetSettings => ({
-  ditherLevel: "fine",
-  remoteManagedInstalls: false,
-});
-
-/**
- * Old default-on rows are not affirmative consent. Only a stored `true` that
- * also carries `remoteManagedInstallsConsented` remains on.
- */
-export const effectiveRemoteManagedInstalls = (
-  fleet: FleetSettings,
-): boolean =>
-  fleet.remoteManagedInstalls === true
-  && fleet.remoteManagedInstallsConsented === true;
-
-export const sanitizeFleetConsent = (fleet: FleetSettings): FleetSettings => {
-  if (effectiveRemoteManagedInstalls(fleet)) {
-    return {
-      ...fleet,
-      remoteManagedInstalls: true,
-      remoteManagedInstallsConsented: true,
-    };
-  }
-  const { remoteManagedInstallsConsented: _retired, ...rest } = fleet;
-  return { ...rest, remoteManagedInstalls: false };
-};
-
 export const sanitizeToolDirectories = (
   directories: ReadonlyArray<string>,
 ): string[] => {
@@ -1284,7 +1221,6 @@ export const defaultSettings = (): Settings => ({
   advanced: defaultAdvanced(),
   audio: defaultAudio(),
   machine: defaultMachine(),
-  fleet: defaultFleet(),
   harnesses: defaultHarnesses(),
   terminal: defaultTerminal(),
   live: defaultLive(),
@@ -1311,8 +1247,6 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultAudio();
     case "machine":
       return defaultMachine();
-    case "fleet":
-      return defaultFleet();
     case "harnesses":
       return defaultHarnesses();
     case "terminal":
@@ -1420,20 +1354,6 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       advanced: patch.advanced.toolDirectories === undefined
         ? advanced
         : { ...advanced, toolDirectories: sanitizeToolDirectories(patch.advanced.toolDirectories) },
-    };
-  }
-  if (patch.fleet) {
-    const fleet = mergeSection(next.fleet, patch.fleet);
-    next = {
-      ...next,
-      fleet: patch.fleet.remoteManagedInstalls === undefined
-        ? fleet
-        : patch.fleet.remoteManagedInstalls
-          ? { ...fleet, remoteManagedInstalls: true, remoteManagedInstallsConsented: true }
-          : (() => {
-              const { remoteManagedInstallsConsented: _retired, ...rest } = fleet;
-              return { ...rest, remoteManagedInstalls: false };
-            })(),
     };
   }
   if (patch.machine) {

@@ -8,7 +8,6 @@ import {
   CanvasSettings,
   FeedSettings,
   KeyboardSettings,
-  FleetSettings,
   HarnessesSettings,
   PortraitsSettings,
   KernelSettings,
@@ -26,7 +25,6 @@ import {
   defaultLive,
   defaultProviders,
   defaultTerminal,
-  sanitizeFleetConsent,
   type Settings,
 } from "@shared/settings";
 import { persistableProviders } from "../credentials/redact";
@@ -61,7 +59,6 @@ export const StoredSettingsPreferences = Schema.Struct({
   browser: BrowserPrefs,
   advanced: AdvancedSettings,
   audio: AudioSettings,
-  fleet: FleetSettings,
   /** Absent on rows written before the Agents settings surface. */
   harnesses: Schema.optionalKey(HarnessesSettings),
   /**
@@ -135,7 +132,6 @@ export const preferencesFromSettings = (
   browser: settings.browser,
   advanced: settings.advanced,
   audio: settings.audio,
-  fleet: settings.fleet,
   harnesses: settings.harnesses ?? defaultHarnesses(),
   terminal: settings.terminal ?? defaultTerminal(),
   live: settings.live ?? defaultLive(),
@@ -209,7 +205,6 @@ export const decodeStoredSettings = (
     browser: prefs.browser,
     advanced: prefs.advanced,
     audio: prefs.audio,
-    fleet: sanitizeFleetConsent(prefs.fleet),
     harnesses: prefs.harnesses ?? defaultHarnesses(),
     terminal: prefs.terminal ?? defaultTerminal(),
     live: prefs.live ?? defaultLive(),
