@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import type { RemoteHost } from "@shared/remote-hosts";
-import type { StationRemoteObservation } from "@shared/station-status";
 import { parseHostSshRoute } from "../ssh/domain";
 import { formatSshFailure } from "../ssh/format";
 import type { SshTransportShape } from "../ssh/service";
@@ -9,7 +8,13 @@ import type { HostsRegistry } from "./registry";
 
 export type RemoteHostsDoctorSnapshot = {
   readonly check: ServiceCheck;
-  readonly observations: ReadonlyArray<StationRemoteObservation>;
+  readonly observations: ReadonlyArray<{
+    readonly hostId: string;
+    readonly endpoint: string;
+    readonly source: "live";
+    readonly reachability: "reachable" | "unreachable";
+    readonly reachabilityError?: string;
+  }>;
 };
 
 /** Reachability only. A successful SSH connection does not prove Junto is running. */
