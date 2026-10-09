@@ -84,11 +84,13 @@ if [[ "${JUNTO_PREVIEW_BUILD:-}" == "1" ]]; then
   SIGN_ARGS+=("--config.mac.extendInfo.CFBundleDisplayName=Junto PREVIEW")
 fi
 if [[ "$SIGN" -eq 1 ]]; then
+  [[ "${JUNTO_MACHINE_RELEASE_BUILD:-}" == "1" ]] || { err "signed releases require machine archive pins from the signed build command"; exit 1; }
   SIGN_IDENTITY="$("$BUN_EXECUTABLE" "$SCRIPT_DIR/mac-signing-config.mjs" --builder-identity)"
   SIGN_ARGS=(--config.mac.forceCodeSigning=true "--config.mac.identity=$SIGN_IDENTITY")
 fi
 # Ordinary builds never discover or consume credentials from a local keychain.
 CSC_IDENTITY_AUTO_DISCOVERY=false bunx --no-install electron-builder --mac --publish never \
+  --config "$SCRIPT_DIR/electron-builder-config.mjs" \
   --config.mac.notarize=false "${SIGN_ARGS[@]}" --config.directories.output="$ATTEMPT_DIR"
 DRAFT_APP="$ATTEMPT_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
 DRAFT_ZIP="$ATTEMPT_DIR/Junto-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.zip"
@@ -112,6 +114,9 @@ else
 fi
 if [[ "$VERIFY" -eq 1 ]]; then
   bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"
+fi
+if [[ "$SIGN" -eq 1 ]]; then
+  bun "$SCRIPT_DIR/machine-release-publication.ts" "$APP_SRC" "$REPO_ROOT/dist/machine-release" "$ATTEMPT_DIR"
 fi
 
 bun "$SCRIPT_DIR/finalize-linux-package.ts" publish-attempt \

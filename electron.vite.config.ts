@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { buildIdentity } from "./scripts/build-identity";
+import { machineReleaseCatalogForBuild, machineReleaseCatalogConstant } from "./scripts/machine-release-catalog";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
@@ -31,10 +32,12 @@ export default defineConfig(({ command, mode }) => {
   };
 
   const resolvedBuildFeatures = resolveBuildFeatures(process.env);
+  const machineCatalog = machineReleaseCatalogForBuild(process.cwd(), preview);
 
   const productDefines = {
     __JUNTO_BUILD_ID__: JSON.stringify(buildIdentity(process.cwd())),
     __JUNTO_PREVIEW_BUILD__: JSON.stringify(process.env.JUNTO_PREVIEW_BUILD === "1"),
+    __JUNTO_MACHINE_RELEASE_CATALOG__: machineCatalog === undefined ? "undefined" : JSON.stringify(machineReleaseCatalogConstant(machineCatalog)),
     ...updateDefines,
     __JUNTO_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.JUNTO_MAC_SIGNING_IDENTITY ?? ""),
     __JUNTO_MAC_TEAM_ID__: JSON.stringify(process.env.JUNTO_MAC_TEAM_ID ?? ""),

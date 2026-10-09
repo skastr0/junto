@@ -31,7 +31,8 @@ import { validateRawAsarArchive } from "./package-runtime-provenance";
 import { MACHINE_PAYLOAD_MACHO_PATHS } from "./machine-payloads.mjs";
 import { checkMachinePackage, sourceMachinePackage, type MachinePackageExpectation } from "./machine-package";
 import { isCiSourcePackage } from "./source-package-mode";
-import { machineSigningIdentifier, machineNeedsJit } from "./sign-machine-bundle.mjs";
+import { machineSigningIdentifier, machineNeedsJit, machineMachOFiles } from "./sign-machine-bundle.mjs";
+import { auditMachineReleaseApp } from "./machine-release-publication";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -862,6 +863,19 @@ const readSignedEntitlements = (filePath: string): unknown => {
   }
 };
 
+/** The same Darwin policy applies before sealing an external archive. */
+export const auditMachineBundleSignatures = async (root: string, signing: MacSigningConfig = resolveMacSigningConfig()): Promise<void> => {
+  const expected = MACHINE_PAYLOAD_MACHO_PATHS.map(file => file.slice("Contents/Resources/machines/darwin-arm64/".length)).sort();
+  const actual = (await machineMachOFiles(root)).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("machine Mach-O inventory does not match its signing policy");
+  for (const relative of actual) {
+    const filePath = path.join(root, relative);
+    runFixedCommand("/usr/bin/codesign", ["--verify", "--strict", filePath]);
+    validateMachOCodesignMetadata(parseCodesignMetadata(runFixedCommand("/usr/bin/codesign", ["-d", "--verbose=4", filePath])), machineSigningIdentifier(relative), signing);
+    validateEntitlementProfile(readSignedEntitlements(filePath), machineNeedsJit(relative) ? "jit" : "none", { ...MACOS_RUNTIME_POLICY, profiles: { none: {}, jit: { "com.apple.security.cs.allow-jit": true } } });
+  }
+};
+
 const auditMachOObjects = async (
   appPath: string,
   declaredMinimumSystemVersion: string,
@@ -870,7 +884,7 @@ const auditMachOObjects = async (
 ): Promise<PackageAuditReceipt["machO"]> => {
   const actualPaths = await enumerateMachOPaths(appPath);
   validateMachOInventory(actualPaths, policy);
-  await auditMachinePayloads(appPath, await sourceMachinePackage());
+  await auditMachineReleaseApp(appPath, await sourceMachinePackage());
   for (const relativePath of actualPaths.filter(entry => MACHINE_PAYLOAD_MACHO_PATHS.includes(entry))) {
     const relative = relativePath.slice("Contents/Resources/machines/darwin-arm64/".length);
     const filePath = path.join(appPath, relativePath);

@@ -82,6 +82,13 @@ if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
 fi
 if [[ "$SIGN" -eq 1 ]]; then
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/mac-signing-config.mjs" --check
+  if [[ "${JUNTO_PREVIEW_BUILD:-}" == "1" ]]; then
+    printf 'junto: error: Preview builds cannot enter the machine release lane\n' >&2
+    exit 1
+  fi
+elif [[ -n "${JUNTO_MACHINE_RELEASE_BUILD:-}" ]]; then
+  printf 'junto: error: machine release mode belongs to the signed release command\n' >&2
+  exit 1
 fi
 export JUNTO_FEATURE_PROFILE="${JUNTO_FEATURE_PROFILE:-ship}"
 FEATURE_DEVIATION="$(
@@ -141,6 +148,17 @@ if [[ "$VERIFY" -eq 1 ]]; then
 elif [[ "$FAST" -eq 0 ]]; then
   bun run typecheck
 fi
+if [[ "$SIGN" -eq 1 ]]; then
+  export JUNTO_MACHINE_RELEASE_BUILD=1
+fi
+
+if [[ "$TARGET" == "mac" && "${JUNTO_CI_SOURCE_PACKAGE:-}" != "1" && ( "$COMPILE_ONLY" -eq 0 || "$SIGN" -eq 1 ) ]] && "$BUN_EXECUTABLE" -e 'import {resolveBuildFeatures} from "./scripts/build-features"; process.exit(resolveBuildFeatures().features.fleetUi === false ? 1 : 0)'; then
+  bash "$SCRIPT_DIR/build-machine-payloads.sh"
+  if [[ "$SIGN" -eq 1 ]]; then
+    printf 'junto: sealing external machine archives …\n'
+    "$BUN_EXECUTABLE" "$SCRIPT_DIR/machine-release.ts"
+  fi
+fi
 
 printf 'junto: building fresh package runtimes …\n'
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
@@ -151,10 +169,6 @@ printf 'junto: standalone CLI → dist/junto …\n'
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   printf 'junto: compile-only done (fresh runtime cohort + standalone CLI). Skip packaging.\n'
   exit 0
-fi
-
-if [[ "$TARGET" == "mac" && "${JUNTO_CI_SOURCE_PACKAGE:-}" != "1" ]] && "$BUN_EXECUTABLE" -e 'import {resolveBuildFeatures} from "./scripts/build-features"; process.exit(resolveBuildFeatures().features.fleetUi === false ? 1 : 0)'; then
-  bash "$SCRIPT_DIR/build-machine-payloads.sh"
 fi
 
 args=()

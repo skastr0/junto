@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -106,7 +106,7 @@ export const buildMachine = async (input: BuildMachineInput) => {
       external: ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "electron"],
       // Bun otherwise replaces __filename with each source module's build path.
       banner: "const __JUNTO_CORE_FILENAME__ = __filename;",
-      define: { __filename: "__JUNTO_CORE_FILENAME__", __JUNTO_BUILD_ID__: JSON.stringify(build), __JUNTO_APP_VERSION__: JSON.stringify(pkg.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), ...featureViteDefines(features) },
+      define: { __filename: "__JUNTO_CORE_FILENAME__", __JUNTO_BUILD_ID__: JSON.stringify(build), __JUNTO_APP_VERSION__: JSON.stringify(pkg.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), __JUNTO_MACHINE_RELEASE_CATALOG__: "undefined", ...featureViteDefines(features) },
       plugins: [{name: "native-fs", setup(builder) {
         builder.onResolve({filter: /^original-fs$/}, () => ({path: "native", namespace: "native-fs"}));
         builder.onLoad({filter: /.*/, namespace: "native-fs"}, () => ({contents: 'module.exports = require("node:fs");', loader: "js"}));
@@ -127,6 +127,15 @@ export const buildMachine = async (input: BuildMachineInput) => {
     await stageMachinePty(stage, input.target);
     run(process.execPath, ["build", "--compile", `--target=bun-${input.target}`, "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig", "--no-compile-autoload-tsconfig", "--no-compile-autoload-package-json", "--external=original-fs", ...featureBunDefineArgs(features), `--define=APP_VERSION=${JSON.stringify(pkg.version)}`, `--define=__JUNTO_BUILD_ID__=${JSON.stringify(build)}`, "--outfile", join(stage, "bin/junto"), join(repoRoot, "src/cli/main.ts")], repoRoot);
     if (buildIdentity(repoRoot) !== build) throw new Error("source changed during build; rebuild this bundle");
+    const node = join(stage, "bin/node");
+    const nodeMetadata = await lstat(node);
+    if (!nodeMetadata.isFile() || nodeMetadata.isSymbolicLink() || nodeMetadata.nlink !== 1 || nodeMetadata.uid !== process.getuid?.()) throw new Error("Node stripping requires an owned regular staging file");
+    if (input.target === "darwin-arm64") {
+      run("/usr/bin/strip", ["-S", "-x", node]);
+      // Unsigned source builds still need the arm64 loader's ad-hoc seal.
+      // Releases receive their Developer ID seal below, before the manifest.
+      if (!process.env.JUNTO_MAC_SIGNING_IDENTITY && !process.env.JUNTO_MAC_TEAM_ID) run("/usr/bin/codesign", ["--force", "--sign", "-", node]);
+    } else run("strip", ["--strip-unneeded", node]);
     await normalizeMachineBundleModes(stage);
     await signMachineBundle(stage, input.target);
     await normalizeMachineBundleModes(stage);
