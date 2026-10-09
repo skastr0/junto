@@ -354,10 +354,11 @@ status (`59409daf5`) and its window lines (`878a47646`).
 
 Open, not finished:
 - One full-suite gate on current main, and a security read of `a32615924`.
-- `bun run lint:layers` fails on `MachinesWindow.tsx:362`, a native confirm
-  on Remove; route it through `askConfirm`. This fails `bun run verify`.
-- A release does not carry Machines yet: `fleetUi` is off in the ship
-  profile and only `scripts/preview.sh` builds and embeds the bundles.
+- Release 0.7.0 with Machines on, the operator's call: the Remove confirm
+  goes through `askConfirm` (`e46aab4b8`) and `fleetUi` is on in the ship
+  profile (`0bc2f47b5`). Still to do: the release build embeds both
+  bundles, the version bump, one full gate, and the packaged app opened
+  once on a disposable copy of the operator's home.
 - Leftovers of the old unit: `publishSystemdGenerationReadiness` has no
   caller, `supervision/systemd-user.ts` and `systemctl-runner.ts` still
   describe it.
