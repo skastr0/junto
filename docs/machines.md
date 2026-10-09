@@ -321,6 +321,46 @@ git show --stat --oneline HEAD
 
 ## Progress
 
+**Where we stopped, 9 October.** The operator closed the day here. Read this
+first.
+
+Proven on real machines (the Preview on this Mac, the Mac mini, Linux), each
+with a receipt under `~/junto-receipts/resume-20261009/`: the Preview build
+with both bundles inside; send, update, resend, uninstall and reinstall on
+three successive builds; a failed start that stops and recovers; a canvas
+copy and a mail row across the link; a seat on the mini with its briefing
+from this Mac; a real Amp seat on the mini answering mail from this Mac
+with nobody touching the mini; the Preview quit while seats on the mini
+kept mailing, and the held mail delivered on return; copy progress on a
+real transfer. The whole suite is green on `a31b6359d` (8,665 tests).
+
+On main, tested, not yet proven on a real machine. This is the owed
+validation, in order:
+1. Signals cross machines (`806373f23`, `a3a8e7a6e`): repeat run D with a
+   feedback written while this Mac is away showing in the Preview's feed on
+   return, and an answer reaching `junto signal list` on the mini.
+2. The Mac service in the graphical session (`688920ba7`): the mini's
+   existing background install updated from the Preview lands in
+   `gui/<uid>`, the keychain reads usable from a seat there, then the
+   standing cycle.
+3. The quit fix (`a31b6359d`): the Preview quits cleanly with a link open.
+   A forced close fails the run.
+4. The mail drive fix (`70aa48ac4`) and the step wording (`666e7d92c`) ride
+   the same build.
+
+Open, not finished:
+- Late login leaves two services (`remote-security`, reproducer in
+  `gate-688920ba7/security-login-race.json`). `remote-send` has the repair:
+  ours in both places is ours to repair, keep the graphical one.
+- The sign-in status fields and their window lines (`remote-core`,
+  `remote-cut`): keychain available or not per machine, three states per
+  harness, never a claim of signed in or out.
+- Install fault cases not yet run: a transfer cut midway, a full disk, a
+  wrong SSH target.
+- The operator's own: sign in again to Codex and Claude Code on the mini;
+  then a run on the real Factory canvas with a build we hand over.
+
+
 | Slice | Owner | State |
 |---|---|---|
 | Review and contract | `remote-lead` | done: `959ec0e98`, `83b1badb7` |
