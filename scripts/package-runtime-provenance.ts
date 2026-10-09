@@ -156,9 +156,6 @@ const requireTarget = (value: unknown): PackageTarget => {
 const sha256 = (body: Uint8Array | string): string =>
   createHash("sha256").update(body).digest("hex");
 
-export const sha256File = async (file: string): Promise<string> =>
-  sha256(await readFile(file));
-
 const lstatIfPresent = async (file: string) => {
   try {
     return await lstat(file);

@@ -52,19 +52,9 @@ const ALLOWED = new Set([
   // with what replaced them.
   "scripts/preview-db-check.ts",
   "tests/preview-state.test.ts",
-  // Tests of the unhooked station, frozen with it.
-  "tests/actor-projection-barrier.test.ts",
-  "tests/actor-seat.test.ts",
-  "tests/work-replication.test.ts",
-  "tests/work-v2-state-schema.test.ts",
-  // The old shapes, frozen for those tests alone; no product source imports them.
+  // The old shapes, kept for migration tests; no product source imports them.
   "tests/fixtures/frozen-canvas-types.ts",
   "tests/helpers/authorial-material.ts",
-  "tests/helpers/canvas-authority-material.ts",
-  // Tests of the frozen copies the station keeps.
-  "tests/actor-surface.test.ts",
-  "tests/harness-id-closed.test.ts",
-  "tests/terminal-contracts.test.ts",
   // Guards that name the old word only to forbid it in output.
   "tests/overseer-canvas-commands.test.ts",
   "tests/rts-control-placement.test.tsx",
@@ -73,18 +63,12 @@ const ALLOWED = new Set([
   "tests/terminal-actor-entry-architecture.test.ts",
 ]);
 
-/** Tests of the unhooked station share its name. */
-const ALLOWED_PATTERNS = [/^tests\/station(?:[.-][\w.-]*)?\.test\.tsx?$/];
-
 /**
  * Things that stay exactly as they were written, old names included: old
  * databases written out for the migration tests, and the two below.
  */
 const ALLOWED_DIRS = [
   "tests/fixtures/state-v1/",
-  // The remote station is unhooked and inert, to be rebuilt separately; its
-  // code keeps the old shapes it was written against and nothing reaches it.
-  "src/main/junto/station/",
   // Records of measurements taken while the old document still existed.
   "docs/research/",
   "tests/fixtures/domain-cutover",
@@ -108,8 +92,7 @@ const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: ROOT })
   .split("\n")
   .filter(
     (file) =>
-      TEXT.test(file) && !ALLOWED.has(file) && !ALLOWED_DIRS.some((dir) => file.startsWith(dir)) &&
-      !ALLOWED_PATTERNS.some((pattern) => pattern.test(file)),
+      TEXT.test(file) && !ALLOWED.has(file) && !ALLOWED_DIRS.some((dir) => file.startsWith(dir)),
   );
 
 const hits = new Map<string, Map<string, Array<string>>>();
