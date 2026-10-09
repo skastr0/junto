@@ -59,6 +59,13 @@ a filesystem sandbox against the account that owns the files.
 The window calls the same closed owner commands for machine operations. It
 adds no authority of its own and cannot bypass their validation or admission.
 
+Ordinary edge-scoped calls compare the caller's and target's machine names.
+On the same machine, the existing edge, role and port checks apply. Across
+machines, only `msg.send` may pass those checks; every other port is refused
+with `other_machine`. Mail still requires a granting edge. The editing machine
+and the end that opened the link have no special reach under this rule.
+A copied `peer` row can be a mail target, never an admitted caller.
+
 Ordinary agents never write the canonical canvas through their work API.
 Own-seat onboarding, references, session notes and signals are narrow local
 facilities; they grant no reach to another seat. Signals may be raised without
