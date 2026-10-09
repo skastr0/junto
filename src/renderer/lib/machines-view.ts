@@ -5,7 +5,7 @@ import type {
   MachinePeerStatus,
 } from "@shared/machine-control";
 import { resolveMachineForm, type MachineFigureState, type MachineForm } from "@shared/machine-figure";
-import type { MachineInstallTransition } from "@shared/machine-install";
+import type { MachineInstallError, MachineInstallTransition } from "@shared/machine-install";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 
 // What the Machines window says about one machine, worked out from what the
@@ -17,6 +17,8 @@ import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 export type MachineListItem = MachineListData["machines"][number];
 export type MachineInstallStep = MachineInstallTransition["step"];
 export type MachineCopyOp = "send" | "update";
+/** Where a failed install left a machine, as the owner said it. */
+export type MachineInstallDisposition = MachineInstallError["disposition"];
 
 /** What the window last learned by asking a machine about itself. */
 export type MachineRead =
@@ -37,9 +39,16 @@ export type MachineCopy =
   | {
       readonly kind: "failed";
       readonly op: MachineCopyOp;
+      /** The command's id: a step that arrives late still belongs to it. */
+      readonly id: string;
       /** The plain reason, as the owner command said it. */
       readonly message: string;
+      /** The steps that were confirmed. One that is not here may still have happened. */
       readonly steps: ReadonlyArray<MachineInstallStep>;
+      /** Where the owner said the install left the machine. Absent: it did not say. */
+      readonly disposition?: MachineInstallDisposition;
+      /** The install finished, and what failed came after it. */
+      readonly installed: boolean;
     };
 
 /** The one state a machine is in, as the operator would name it. */
@@ -50,6 +59,10 @@ export type MachineCondition =
   | "updating"
   | "send-failed"
   | "update-failed"
+  | "send-unconfirmed"
+  | "update-unconfirmed"
+  | "sent-not-ready"
+  | "updated-not-ready"
   | "needs-update"
   | "checking"
   | "check-failed"
@@ -62,7 +75,14 @@ export const machineCondition = (
   copy: MachineCopy | undefined,
 ): MachineCondition => {
   if (copy?.kind === "running") return copy.op === "send" ? "sending" : "updating";
-  if (copy?.kind === "failed") return copy.op === "send" ? "send-failed" : "update-failed";
+  if (copy?.kind === "failed") {
+    const sent = copy.op === "send";
+    if (copy.installed) return sent ? "sent-not-ready" : "updated-not-ready";
+    // Only the owner saying the machine was left as it was makes this a plain
+    // failure. Any other ending, a timeout among them, may have changed it.
+    if (copy.disposition === "staged") return sent ? "send-failed" : "update-failed";
+    return sent ? "send-unconfirmed" : "update-unconfirmed";
+  }
   if (item.machine.isThisMachine) return "this-machine";
   if (!item.setUp) return "not-set-up";
   // A machine on another build refuses the link, so nothing else can be read from it.
@@ -86,6 +106,13 @@ export const machineActions = (condition: MachineCondition): ReadonlyArray<Machi
     case "needs-update":
     case "update-failed":
       return ["update", "remove"];
+    // Nothing is sent again unasked: the operator checks first, then decides.
+    case "send-unconfirmed":
+    case "sent-not-ready":
+      return ["check", "send", "remove"];
+    case "update-unconfirmed":
+    case "updated-not-ready":
+      return ["check", "update", "remove"];
     case "sending":
     case "updating":
       return [];
@@ -124,6 +151,48 @@ export const MACHINE_INSTALL_STEP_LABEL: Readonly<Record<MachineInstallStep, str
   ready: "Junto answered",
 };
 
+/**
+ * How one step of a send stands. `now` is the step being waited for and
+ * `ahead` the ones after it. `not-reached` is said only when the owner said
+ * the machine was left as it was; otherwise a step nobody confirmed is
+ * `unconfirmed`, because no word of a step is not word that it did not happen.
+ */
+export type MachineStepPhase = "done" | "now" | "ahead" | "not-reached" | "unconfirmed";
+
+export const MACHINE_STEP_PHASE_WORD: Readonly<Record<MachineStepPhase, string>> = {
+  done: "Done",
+  now: "Waiting",
+  ahead: "Waiting",
+  "not-reached": "Not reached",
+  unconfirmed: "Not confirmed",
+};
+
+export type MachineStepLine = {
+  readonly step: MachineInstallStep;
+  readonly label: string;
+  readonly phase: MachineStepPhase;
+};
+
+/** The steps of a send or an update, each with how it stands. None once the install itself finished. */
+export const machineStepLines = (copy: MachineCopy | undefined): ReadonlyArray<MachineStepLine> => {
+  if (copy === undefined || (copy.kind === "failed" && copy.installed)) return [];
+  const last = MACHINE_INSTALL_STEPS.reduce((seen, step, index) => (copy.steps.includes(step) ? index : seen), -1);
+  return MACHINE_INSTALL_STEPS.map((step, index) => {
+    const phase: MachineStepPhase = copy.steps.includes(step)
+      ? "done"
+      : index < last
+        ? "unconfirmed"
+        : copy.kind === "running"
+          ? index === last + 1
+            ? "now"
+            : "ahead"
+          : copy.disposition === "staged"
+            ? "not-reached"
+            : "unconfirmed";
+    return { step, label: MACHINE_INSTALL_STEP_LABEL[step], phase };
+  });
+};
+
 /** A step joins the ones already seen, once, in the order steps happen. */
 export const withInstallStep = (
   steps: ReadonlyArray<MachineInstallStep>,
@@ -136,16 +205,77 @@ export type MachineSummary = {
   readonly headline: string;
   /** What to do about it, when there is something to do. */
   readonly advice?: string;
+  /** The operator has something to do here. */
+  readonly needsYou: boolean;
 };
 
 const reason = (message: string | undefined, fallback: string): string => message?.trim() || fallback;
+
+const CONDITIONS_THAT_NEED_YOU: ReadonlySet<MachineCondition> = new Set([
+  "not-set-up",
+  "send-failed",
+  "update-failed",
+  "send-unconfirmed",
+  "update-unconfirmed",
+  "sent-not-ready",
+  "updated-not-ready",
+  "needs-update",
+  "check-failed",
+  "unreachable",
+]);
+
+/**
+ * What a machine that answered still lacks for the seats placed on it: a
+ * harness, a secret, or both. Such a machine is not ready, whatever its link says.
+ */
+const lackingLine = (
+  harnesses: ReadonlyArray<string>,
+  secrets: ReadonlyArray<string>,
+): Pick<MachineSummary, "headline" | "advice"> | undefined => {
+  if (harnesses.length === 0 && secrets.length === 0) return undefined;
+  const kinds = [
+    harnesses.length === 0 ? undefined : harnesses.length === 1 ? "a harness" : "harnesses",
+    secrets.length === 0 ? undefined : secrets.length === 1 ? "a secret" : "secrets",
+  ].filter((kind): kind is string => kind !== undefined);
+  const subject = kinds.join(" and ");
+  const one = harnesses.length + secrets.length === 1;
+  const needs = [
+    harnesses.length === 0 ? undefined : `${harnesses.map(harnessName).join(", ")} installed`,
+    secrets.length === 0 ? undefined : `${secrets.join(", ")} set`,
+  ].filter((need): need is string => need !== undefined);
+  return {
+    headline: `${subject.charAt(0).toUpperCase()}${subject.slice(1)} ${one ? "is" : "are"} missing`,
+    advice: `Seats here need ${needs.join(" and ")} on this machine.`,
+  };
+};
 
 export const machineSummary = (
   item: MachineListItem,
   read: MachineRead | undefined,
   copy: MachineCopy | undefined,
+  /** The harnesses the seats placed on this machine use. */
+  placed: { readonly harnesses: ReadonlyArray<string> } = { harnesses: [] },
 ): MachineSummary => {
-  switch (machineCondition(item, read, copy)) {
+  const condition = machineCondition(item, read, copy);
+  const lacking =
+    condition === "ready" || condition === "this-machine"
+      ? lackingLine(harnessesSeatsLack(read, placed.harnesses), machineMissingSecrets(read))
+      : undefined;
+  return {
+    ...conditionLine(item, read, copy, condition),
+    ...lacking,
+    needsYou: lacking !== undefined || CONDITIONS_THAT_NEED_YOU.has(condition),
+  };
+};
+
+const conditionLine = (
+  item: MachineListItem,
+  read: MachineRead | undefined,
+  copy: MachineCopy | undefined,
+  condition: MachineCondition,
+): Pick<MachineSummary, "headline" | "advice"> => {
+  const said = copy?.kind === "failed" ? copy.message : undefined;
+  switch (condition) {
     case "this-machine":
       return { headline: "This machine" };
     case "not-set-up":
@@ -155,15 +285,25 @@ export const machineSummary = (
     case "updating":
       return { headline: "Updating Junto" };
     case "send-failed":
-      return {
-        headline: "Junto could not be sent",
-        advice: reason(copy?.kind === "failed" ? copy.message : undefined, "Send it again."),
-      };
+      return { headline: "Junto could not be sent", advice: reason(said, "Send it again.") };
     case "update-failed":
+      return { headline: "Junto could not be updated", advice: reason(said, "Update it again.") };
+    // The command ended without the owner saying how it left the machine.
+    // Neither line says the install did not happen: it may have.
+    case "send-unconfirmed":
       return {
-        headline: "Junto could not be updated",
-        advice: reason(copy?.kind === "failed" ? copy.message : undefined, "Update it again."),
+        headline: "Could not confirm Junto was sent",
+        advice: reason(said, "Check this machine before you send again."),
       };
+    case "update-unconfirmed":
+      return {
+        headline: "Could not confirm Junto was updated",
+        advice: reason(said, "Check this machine before you update again."),
+      };
+    case "sent-not-ready":
+      return { headline: "Junto is on this machine, but it is not ready", advice: reason(said, "Check this machine.") };
+    case "updated-not-ready":
+      return { headline: "Junto was updated, but this machine is not ready", advice: reason(said, "Check this machine.") };
     case "needs-update":
       return {
         headline: "Runs a different build of Junto",
@@ -216,16 +356,8 @@ export const harnessesSeatsLack = (
 };
 
 /** How many machines want the operator, for the window's one status line. */
-export const machinesNeedingAttention = (conditions: ReadonlyArray<MachineCondition>): number =>
-  conditions.filter(
-    (condition) =>
-      condition === "not-set-up" ||
-      condition === "send-failed" ||
-      condition === "update-failed" ||
-      condition === "needs-update" ||
-      condition === "check-failed" ||
-      condition === "unreachable",
-  ).length;
+export const machinesNeedingAttention = (summaries: ReadonlyArray<MachineSummary>): number =>
+  summaries.filter((summary) => summary.needsYou).length;
 
 /** The form a machine is drawn in: the operator's choice, else what it said about itself, else its name. */
 export const machineForm = (item: MachineListItem, read: MachineRead | undefined): MachineForm =>

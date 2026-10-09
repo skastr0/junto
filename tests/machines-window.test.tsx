@@ -53,6 +53,15 @@ const fakeOwner = () => {
       ...(installationId === undefined ? {} : { installationId }),
     }));
   const harnesses = [{ harness: "claude", installed: true }, { harness: "codex", installed: false }];
+  const copyRequest = (name: string) =>
+    requests.filter((entry) => entry.args.name === name && (entry.op === "machine.send" || entry.op === "machine.update")).at(-1)!;
+  /** What the owner returns for an install that finished. */
+  const receipt = (name: string, updated = false) => ({
+    build: BUILD, juntoHome: "/home/op/.junto", installRoot: "/home/op/.junto-install", directory: "/home/op/.junto-install/builds/a",
+    serviceLabel: "com.junto.core", provider: "systemd-user", updated, disposition: "ready",
+    installationId: `inst-${name}`, machineName: name, pid: 77,
+    transitions: [{ step: "verified" }, { step: "quiescent" }, { step: "selected" }, { step: "started" }, { step: "ready" }],
+  });
   const machineCommand = vi.fn(async (request: Request): Promise<unknown> => {
     requests.push(request);
     const name = request.args.name as string | undefined;
@@ -109,22 +118,22 @@ const fakeOwner = () => {
     emit: (payload: unknown) => listener?.(payload),
     /** The copy to `name` succeeds: the machine is now set up on this build. */
     finishCopy: (name: string) => {
-      const request = requests.filter((entry) => entry.args.name === name && (entry.op === "machine.send" || entry.op === "machine.update")).at(-1)!;
+      const request = copyRequest(name);
       const entry = rows.find((candidate) => candidate.machine.id === name)!;
       entry.setUp = true; entry.needsUpdate = false; entry.installationId = `inst-${name}`;
-      copies.get(name)!(ok(request, {
-        build: BUILD, juntoHome: "/home/op/.junto", installRoot: "/home/op/.junto-install", directory: "/home/op/.junto-install/builds/a",
-        serviceLabel: "com.junto.core", provider: "systemd-user", updated: request.op === "machine.update", disposition: "ready",
-        installationId: `inst-${name}`, machineName: name, pid: 77,
-        transitions: [{ step: "verified" }, { step: "quiescent" }, { step: "selected" }, { step: "started" }, { step: "ready" }],
-      }));
+      copies.get(name)!(ok(request, receipt(name, request.op === "machine.update")));
     },
-    failCopy: (name: string, message: string) => {
-      const request = requests.filter((entry) => entry.args.name === name && entry.op !== "machine.status").at(-1)!;
-      copies.get(name)!(refuse(request, "io", message, {
-        retryable: false, disposition: "staged", transitions: [{ step: "verified" }],
-      }));
-    },
+    receipt,
+    /** The copy to `name` fails. Unless told otherwise, the owner says the machine was left as it was. */
+    failCopy: (
+      name: string,
+      message: string,
+      details: Record<string, unknown> = { retryable: false, disposition: "staged", transitions: [{ step: "verified" }] },
+    ) => copies.get(name)!(refuse(copyRequest(name), "io", message, details)),
+    /** Main answers the copy to `name` with whatever the test says, right or wrong. */
+    answerCopy: (name: string, answer: (request: Request) => unknown) => copies.get(name)!(answer(copyRequest(name))),
+    /** The window never hears back about the copy to `name`. */
+    dropCopy: (name: string) => copies.get(name)!(Promise.reject(new Error("junto: backend did not respond"))),
   };
 };
 
@@ -151,6 +160,8 @@ const type = async (label: string, value: string) => {
 };
 /** The add dialog's own button; the window's header has one with the same words. */
 const submitAdd = () => byTest("machine-add")?.querySelector<HTMLButtonElement>('button[type="submit"]');
+/** How each step of the selected machine's send stands, in order. */
+const phases = () => [...byTest("machine-steps")!.querySelectorAll("[data-step]")].map((item) => item.getAttribute("data-step-phase"));
 const button = (text: string) =>
   [...document.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === text);
 
@@ -186,7 +197,10 @@ it("lists every machine with the state it is in, this machine first", async () =
   expect(condition("build-box")).toBe("not-set-up");
   expect(condition("mini")).toBe("needs-update");
   expect(condition("ghost")).toBe("unreachable");
-  expect(byTest("machines-status")?.textContent).toBe("5 machines, 3 need you");
+  // One that answered and still lacks a secret needs the operator as much as one that did not answer.
+  expect(byTest("machines-status")?.textContent).toBe("5 machines, 4 need you");
+  expect(byTest(`machine-row-${OTHER_MACHINE}`)?.getAttribute("data-needs-you")).toBe("true");
+  expect(byTest(`machine-row-${THIS_MACHINE}`)?.getAttribute("data-needs-you")).toBe("false");
   // The pickers on the canvas read the same list.
   expect(state$.machines.peek().map((machine) => machine.id)).toContain("build-box");
 });
@@ -209,7 +223,10 @@ it("shows this machine's build and harnesses, and no way to remove it", () => {
 it("names a machine's missing secrets and shows no value", async () => {
   await select(OTHER_MACHINE);
   expect(byTest("machine-missing-secrets")?.textContent).toContain("ANTHROPIC_API_KEY, GH_TOKEN");
-  expect(byTest("machine-headline")?.textContent).toBe("Ready");
+  // It answered, and it is not ready: its row does not say Ready.
+  expect(byTest("machine-headline")?.textContent).toBe("Secrets are missing");
+  expect(byTest("machine-advice")?.textContent).toBe("Seats here need ANTHROPIC_API_KEY, GH_TOKEN set on this machine.");
+  expect(byTest(`machine-row-${OTHER_MACHINE}`)?.textContent).toContain("Secrets are missing");
 });
 
 it("says why a machine cannot be reached and what to do", async () => {
@@ -250,7 +267,89 @@ it("says why a send failed, keeps how far it got, and offers it again", async ()
   expect(byTest("machine-headline")?.textContent).toBe("Junto could not be sent");
   expect(byTest("machine-advice")?.textContent).toBe("This Junto has no build for a Linux machine");
   expect(byTest("machine-steps")!.querySelector('[data-step="verified"]')?.getAttribute("data-done")).toBe("true");
+  // The owner said the machine was left as it was, so the rest were not reached.
+  expect(phases()).toEqual(["done", "not-reached", "not-reached", "not-reached", "not-reached"]);
   expect(byTest("machine-action-send")).not.toBeNull();
+});
+
+it("does not say a send did not happen when it could not be confirmed, and does not send again", async () => {
+  await select("build-box");
+  await click(byTest("machine-action-send"));
+  const sent = owner.last("machine.send");
+  await act(async () => { owner.step(sent.id, "verified"); owner.step(sent.id, "quiescent"); await flush(); });
+  // The window never hears how it ended. On the machine, it finished.
+  owner.rows.find((entry) => entry.machine.id === "build-box")!.setUp = true;
+  owner.rows.find((entry) => entry.machine.id === "build-box")!.installationId = "inst-build-box";
+  await act(async () => { owner.dropCopy("build-box"); await flush(); });
+
+  expect(condition("build-box")).toBe("send-unconfirmed");
+  expect(byTest("machine-headline")?.textContent).toBe("Could not confirm Junto was sent");
+  expect(byTest("machine-advice")?.textContent).toBe("junto: backend did not respond");
+  // What was confirmed stays; what was not is not called unreached.
+  expect(phases()).toEqual(["done", "done", "unconfirmed", "unconfirmed", "unconfirmed"]);
+  expect(byTest("machine-steps")?.textContent).toContain("Not confirmed: Junto answered");
+  expect(byTest("machine-steps")?.textContent).not.toContain("Not reached");
+  // A step that arrives late still confirms that step.
+  await act(async () => { owner.step(sent.id, "selected"); await flush(); });
+  expect(phases()).toEqual(["done", "done", "done", "unconfirmed", "unconfirmed"]);
+  expect(owner.ops().filter((op) => op === "machine.send")).toHaveLength(1);
+
+  // Checking reads the list again, and the list says what is true.
+  const lists = owner.ops().filter((op) => op === "machine.list").length;
+  await click(byTest("machine-action-check"));
+  await settle();
+  expect(owner.ops().filter((op) => op === "machine.list")).toHaveLength(lists + 1);
+  expect(condition("build-box")).toBe("ready");
+  expect(owner.ops().filter((op) => op === "machine.send")).toHaveLength(1);
+});
+
+it("treats an install the owner is unsure of the same way", async () => {
+  await select("mini");
+  await click(byTest("machine-action-update"));
+  await act(async () => {
+    owner.failCopy("mini", "candidate readiness unconfirmed", {
+      retryable: false, disposition: "uncertain", transitions: [{ step: "verified" }, { step: "quiescent" }, { step: "selected" }, { step: "started" }],
+    });
+    await flush();
+  });
+  expect(condition("mini")).toBe("update-unconfirmed");
+  expect(byTest("machine-headline")?.textContent).toBe("Could not confirm Junto was updated");
+  expect(phases()).toEqual(["done", "done", "done", "done", "unconfirmed"]);
+  expect([...document.querySelectorAll('[data-testid^="machine-action-"]')].map((item) => item.getAttribute("data-testid"))).toEqual([
+    "machine-action-check", "machine-action-update", "machine-action-remove",
+  ]);
+});
+
+it("takes nothing from a failure meant for another command", async () => {
+  await select("build-box");
+  await click(byTest("machine-action-send"));
+  await act(async () => {
+    owner.answerCopy("build-box", (request) => ({
+      protocol: OPERATOR_PROTOCOL_VERSION, id: "window-other", op: request.op, ok: false,
+      error: { type: "io", message: "nothing was copied", details: { retryable: true, disposition: "staged", transitions: [{ step: "selected" }] } },
+    }));
+    await flush();
+  });
+  // Not a plain failure, not its reason, not its step.
+  expect(condition("build-box")).toBe("send-unconfirmed");
+  expect(byTest("machine-advice")?.textContent).toBe("Junto answered a different question.");
+  expect(phases()).toEqual(["unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed"]);
+});
+
+it("says Junto is on the machine when the install finished and what came after it failed", async () => {
+  await select("build-box");
+  await click(byTest("machine-action-send"));
+  await act(async () => {
+    owner.failCopy("build-box", "the machine did not answer its setup", { retryable: false, installed: owner.receipt("build-box") });
+    await flush();
+  });
+  expect(condition("build-box")).toBe("sent-not-ready");
+  expect(byTest("machine-headline")?.textContent).toBe("Junto is on this machine, but it is not ready");
+  expect(byTest("machine-advice")?.textContent).toBe("the machine did not answer its setup");
+  expect(byTest("machine-steps")).toBeNull();
+  // No second send, and still no setup call of the window's own.
+  expect(owner.ops().filter((op) => op === "machine.send")).toHaveLength(1);
+  expect(owner.ops()).not.toContain("machine.setup");
 });
 
 it("updates a machine on another build with one command", async () => {

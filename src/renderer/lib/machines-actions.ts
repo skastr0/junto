@@ -115,11 +115,18 @@ export const copyJunto = async (name: string, op: MachineCopyOp): Promise<void> 
   if (!answer.ok) {
     const running = machines$.copies[name].peek();
     const seen = running?.kind === "running" ? running.steps : [];
+    // What is kept is what was confirmed: the steps seen, the steps the owner
+    // listed, and where it said the install left the machine. Nothing is sent
+    // again from here; the operator decides.
+    const confirmed = [...answer.transitions, ...(answer.installed?.transitions ?? [])];
     machines$.copies[name].set({
       kind: "failed",
       op,
+      id,
       message: answer.message,
-      steps: answer.transitions.reduce((steps, transition) => withInstallStep(steps, transition.step), seen),
+      steps: confirmed.reduce((steps, transition) => withInstallStep(steps, transition.step), seen),
+      ...(answer.disposition === undefined ? {} : { disposition: answer.disposition }),
+      installed: answer.installed !== undefined,
     });
     return;
   }
@@ -132,6 +139,17 @@ export const dismissCopy = (name: string): void => {
   if (machines$.copies[name].peek()?.kind === "failed") machines$.copies[name].delete();
 };
 
+/**
+ * Check a machine again. After a send that failed or could not be confirmed,
+ * that means reading the list again too: whether Junto is on the machine is
+ * the list's to say, not the failed command's.
+ */
+export const checkMachineAgain = async (item: MachineListItem): Promise<void> => {
+  if (machines$.copies[item.machine.id].peek()?.kind !== "failed") return checkMachine(item);
+  dismissCopy(item.machine.id);
+  await refreshMachines();
+};
+
 /** Remove a machine from this one's list. The refusal, when there is one, is for the dialog. */
 export const removeMachine = async (name: string): Promise<MachineCommandRefusal | undefined> => {
   const removed = await machineCommand("machine.remove", { name });
@@ -140,10 +158,14 @@ export const removeMachine = async (name: string): Promise<MachineCommandRefusal
   return undefined;
 };
 
-/** Put a step on the row of the command it belongs to. A step for no command in flight is dropped. */
+/**
+ * Put a step on the row of the command it belongs to. A step that arrives
+ * after its command ended still confirms that step. A step for no command
+ * this window started is dropped.
+ */
 export const applyMachineProgress = (progress: MachineCommandProgress): void => {
   for (const [name, copy] of Object.entries(machines$.copies.peek())) {
-    if (copy.kind !== "running" || copy.id !== progress.id) continue;
+    if (copy.id !== progress.id) continue;
     machines$.copies[name].set({ ...copy, steps: withInstallStep(copy.steps, progress.event.step) });
     return;
   }

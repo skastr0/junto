@@ -14,6 +14,7 @@ import {
   machineForm,
   machineHarnesses,
   machineMissingSecrets,
+  machineStepLines,
   machineSummary,
   machinesNeedingAttention,
   withInstallStep,
@@ -74,6 +75,7 @@ describe("the state a machine is in", () => {
     expect(machineSummary(item, undefined, undefined)).toEqual({
       headline: "Added. Junto is not on it yet.",
       advice: "Send Junto to set it up.",
+      needsYou: true,
     });
     expect(machineActions("not-set-up")).toEqual(["send", "remove"]);
   });
@@ -88,15 +90,67 @@ describe("the state a machine is in", () => {
   });
 
   it("says why a send failed in the owner's own words, and offers it again", () => {
-    const failed: MachineCopy = { kind: "failed", op: "send", message: "This Junto has no build for a Linux machine", steps: ["verified"] };
+    // The owner said the machine was left as it was: that is what makes this a plain failure.
+    const failed: MachineCopy = {
+      kind: "failed", op: "send", id: "window-1", message: "This Junto has no build for a Linux machine",
+      steps: ["verified"], disposition: "staged", installed: false,
+    };
     const item = listed({ setUp: false });
     expect(machineCondition(item, undefined, failed)).toBe("send-failed");
     expect(machineSummary(item, undefined, failed)).toEqual({
       headline: "Junto could not be sent",
       advice: "This Junto has no build for a Linux machine",
+      needsYou: true,
     });
     expect(machineActions("send-failed")).toEqual(["send", "remove"]);
     expect(machineCondition(listed(), peer(), { ...failed, op: "update" })).toBe("update-failed");
+    expect(machineStepLines(failed).map((line) => line.phase)).toEqual(["done", "not-reached", "not-reached", "not-reached", "not-reached"]);
+  });
+
+  it("does not say a send did not happen unless the owner said so", () => {
+    const ended = (disposition?: "activated" | "uncertain"): Extract<MachineCopy, { kind: "failed" }> => ({
+      kind: "failed", op: "send", id: "window-1", message: "junto: backend did not respond",
+      steps: ["verified", "quiescent"], installed: false, ...(disposition === undefined ? {} : { disposition }),
+    });
+    const item = listed({ setUp: false });
+    // No word on how it ended, the new build switched in, or the owner itself unsure: all three may have changed the machine.
+    for (const copy of [ended(), ended("activated"), ended("uncertain")]) {
+      expect(machineCondition(item, undefined, copy)).toBe("send-unconfirmed");
+      expect(machineSummary(item, undefined, copy)).toEqual({
+        headline: "Could not confirm Junto was sent",
+        advice: "junto: backend did not respond",
+        needsYou: true,
+      });
+      // The steps that were confirmed stay; the rest are not said to be unreached.
+      expect(machineStepLines(copy).map((line) => line.phase)).toEqual(["done", "done", "unconfirmed", "unconfirmed", "unconfirmed"]);
+    }
+    expect(machineCondition(listed(), peer(), { ...ended("uncertain"), op: "update" })).toBe("update-unconfirmed");
+    expect(machineSummary(listed(), peer(), { ...ended(), op: "update", message: " " })).toMatchObject({
+      headline: "Could not confirm Junto was updated",
+      advice: "Check this machine before you update again.",
+    });
+    // Check first; sending again is the operator's choice, never the window's.
+    expect(machineActions("send-unconfirmed")).toEqual(["check", "send", "remove"]);
+    expect(machineActions("update-unconfirmed")).toEqual(["check", "update", "remove"]);
+  });
+
+  it("says Junto is on the machine when the install finished and what came after it failed", () => {
+    const copy: MachineCopy = {
+      kind: "failed", op: "send", id: "window-1", message: "the machine did not answer its setup",
+      steps: ["verified", "ready"], installed: true,
+    };
+    const item = listed({ setUp: false });
+    expect(machineCondition(item, undefined, copy)).toBe("sent-not-ready");
+    expect(machineSummary(item, undefined, copy)).toEqual({
+      headline: "Junto is on this machine, but it is not ready",
+      advice: "the machine did not answer its setup",
+      needsYou: true,
+    });
+    expect(machineCondition(listed(), peer(), { ...copy, op: "update" })).toBe("updated-not-ready");
+    expect(machineActions("sent-not-ready")).toEqual(["check", "send", "remove"]);
+    expect(machineActions("updated-not-ready")).toEqual(["check", "update", "remove"]);
+    // The install is over: there is no step left to report on.
+    expect(machineStepLines(copy)).toEqual([]);
   });
 
   it("needs an update when it runs another build, before anything is read from it", () => {
@@ -118,6 +172,7 @@ describe("the state a machine is in", () => {
     expect(machineSummary(listed(), silent, undefined)).toEqual({
       headline: "Cannot reach this machine",
       advice: "Check that it is on and that SSH reaches it.",
+      needsYou: true,
     });
     const said = peer({ reachable: false, harnesses: [], detail: "SSH refused the connection" });
     expect(machineSummary(listed(), said, undefined).advice).toBe("SSH refused the connection");
@@ -132,8 +187,33 @@ describe("the state a machine is in", () => {
 
   it("is ready once it has answered", () => {
     expect(machineCondition(listed(), peer(), undefined)).toBe("ready");
-    expect(machineSummary(listed(), peer(), undefined)).toEqual({ headline: "Ready" });
+    expect(machineSummary(listed(), peer(), undefined)).toEqual({ headline: "Ready", needsYou: false });
     expect(machineActions("ready")).toEqual(["check", "remove"]);
+  });
+
+  it("is not ready while seats placed on it lack a harness or a secret", () => {
+    expect(machineSummary(listed(), peer(), undefined, { harnesses: ["claude", "codex"] })).toEqual({
+      headline: "A harness is missing",
+      advice: "Seats here need Codex installed on this machine.",
+      needsYou: true,
+    });
+    expect(machineSummary(listed(), peer({ missingSecrets: ["ANTHROPIC_API_KEY", "GH_TOKEN"] }), undefined)).toEqual({
+      headline: "Secrets are missing",
+      advice: "Seats here need ANTHROPIC_API_KEY, GH_TOKEN set on this machine.",
+      needsYou: true,
+    });
+    expect(machineSummary(listed(), peer({ missingSecrets: ["GH_TOKEN"] }), undefined, { harnesses: ["codex"] })).toEqual({
+      headline: "A harness and a secret are missing",
+      advice: "Seats here need Codex installed and GH_TOKEN set on this machine.",
+      needsYou: true,
+    });
+    // The link's state is unchanged: it answered.
+    expect(machineCondition(listed(), peer({ missingSecrets: ["GH_TOKEN"] }), undefined)).toBe("ready");
+    // This machine too, and a harness no seat there uses is nobody's problem.
+    expect(machineSummary(thisMachine, own(), undefined, { harnesses: ["codex"] })).toMatchObject({ headline: "A harness is missing", needsYou: true });
+    expect(machineSummary(thisMachine, own(), undefined, { harnesses: ["claude"] })).toEqual({ headline: "This machine", needsYou: false });
+    // Nothing is said to be missing on a machine that has not answered.
+    expect(machineSummary(listed(), peer({ reachable: false, harnesses: [] }), undefined, { harnesses: ["codex"] }).headline).toBe("Cannot reach this machine");
   });
 
   it("never offers to remove this machine", () => {
@@ -146,6 +226,16 @@ describe("the steps of a send", () => {
     expect(withInstallStep([], "verified")).toEqual(["verified"]);
     expect(withInstallStep(["verified"], "verified")).toEqual(["verified"]);
     expect(withInstallStep(["verified", "started"], "quiescent")).toEqual(["verified", "quiescent", "started"]);
+  });
+
+  it("stand as done, waited for now, or still ahead while the send runs", () => {
+    const running = (steps: MachineCopy["steps"]): MachineCopy => ({ kind: "running", op: "send", id: "window-1", steps });
+    expect(machineStepLines(running([])).map((line) => line.phase)).toEqual(["now", "ahead", "ahead", "ahead", "ahead"]);
+    expect(machineStepLines(running(["verified", "quiescent"])).map((line) => line.phase)).toEqual(["done", "done", "now", "ahead", "ahead"]);
+    // A step nobody reported, before one that was: not confirmed, and not said to be skipped.
+    expect(machineStepLines(running(["verified", "selected"])).map((line) => line.phase)).toEqual(["done", "unconfirmed", "done", "now", "ahead"]);
+    expect(machineStepLines(running(["verified"]))[1]).toEqual({ step: "quiescent", label: "Old Junto stopped", phase: "now" });
+    expect(machineStepLines(undefined)).toEqual([]);
   });
 });
 
@@ -203,7 +293,21 @@ describe("what the figure is given", () => {
 
 describe("how many machines want the operator", () => {
   it("counts the ones with something to do, not the ones in flight or fine", () => {
-    expect(machinesNeedingAttention(["this-machine", "ready", "checking", "sending"])).toBe(0);
-    expect(machinesNeedingAttention(["not-set-up", "needs-update", "unreachable", "send-failed", "ready"])).toBe(4);
+    const sending: MachineCopy = { kind: "running", op: "send", id: "window-1", steps: [] };
+    const fine = [
+      machineSummary(thisMachine, own(), undefined),
+      machineSummary(listed(), peer(), undefined),
+      machineSummary(listed(), undefined, undefined),
+      machineSummary(listed({ setUp: false }), undefined, sending),
+    ];
+    expect(machinesNeedingAttention(fine)).toBe(0);
+    const wanting = [
+      machineSummary(listed({ setUp: false }), undefined, undefined),
+      machineSummary(listed({ needsUpdate: true }), undefined, undefined),
+      machineSummary(listed(), peer({ reachable: false, harnesses: [] }), undefined),
+      machineSummary(listed(), { kind: "failed", message: "refused" }, undefined),
+      machineSummary(listed(), peer({ missingSecrets: ["GH_TOKEN"] }), undefined),
+    ];
+    expect(machinesNeedingAttention([...fine, ...wanting])).toBe(5);
   });
 });

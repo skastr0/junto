@@ -38,6 +38,59 @@ describe("an owner machine command from the window", () => {
     }));
     expect(await machineCommand("machine.send", { name: OTHER_MACHINE })).toEqual({
       ok: false, type: "io", message: "SSH refused the connection", retryable: false, transitions: [{ step: "verified" }],
+      disposition: "staged",
+    });
+  });
+
+  it("keeps where the owner said a failed install left the machine", async () => {
+    for (const disposition of ["staged", "activated", "uncertain"] as const) {
+      withMain((request) => ({
+        protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
+        error: { type: "io", message: "candidate readiness unconfirmed", details: { retryable: false, disposition, transitions: [{ step: "verified" }, { step: "selected" }] } },
+      }));
+      expect(await machineCommand("machine.update", { name: OTHER_MACHINE })).toMatchObject({
+        ok: false, disposition, transitions: [{ step: "verified" }, { step: "selected" }],
+      });
+    }
+  });
+
+  it("keeps the receipt of an install that finished when what came after it failed", async () => {
+    const installed = {
+      build: "a".repeat(64), juntoHome: "/home/op/.junto", installRoot: "/home/op/.junto-install", directory: "/home/op/.junto-install/builds/a",
+      serviceLabel: "com.junto.core", provider: "systemd-user", updated: false, disposition: "ready",
+      installationId: "inst-atlas", machineName: OTHER_MACHINE, pid: 77, transitions: [{ step: "verified" }, { step: "ready" }],
+    };
+    withMain((request) => ({
+      protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
+      error: { type: "io", message: "the machine did not answer its setup", details: { retryable: false, installed } },
+    }));
+    const answer = await machineCommand("machine.send", { name: OTHER_MACHINE });
+    expect(answer).toMatchObject({ ok: false, message: "the machine did not answer its setup", installed });
+    expect(answer).not.toHaveProperty("disposition");
+  });
+
+  it("takes nothing from a refusal meant for another command", async () => {
+    // It says the machine was left as it was and that asking again is safe.
+    // It is not this command's, so none of that is this command's either.
+    const foreign = { type: "io", message: "nothing was copied", details: { retryable: true, disposition: "staged", transitions: [{ step: "selected" }] } };
+    const taken = { ok: false, type: "protocol_error", message: "Junto answered a different question.", retryable: false, transitions: [] };
+    withMain((request) => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: "window-other", op: request.op, ok: false, error: foreign }));
+    expect(await machineCommand("machine.send", { name: OTHER_MACHINE }, "window-1")).toEqual(taken);
+    withMain((request) => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: "machine.list", ok: false, error: foreign }));
+    expect(await machineCommand("machine.send", { name: OTHER_MACHINE }, "window-1")).toEqual(taken);
+    // Half a name is not a name.
+    withMain((request) => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, ok: false, error: foreign }));
+    expect(await machineCommand("machine.send", { name: OTHER_MACHINE }, "window-1")).toEqual(taken);
+  });
+
+  it("shows the reason of a refusal that names no command, and takes no fact from it", async () => {
+    // Main refuses this way before it has read the command.
+    withMain(() => ({
+      protocol: OPERATOR_PROTOCOL_VERSION, ok: false,
+      error: { type: "runtime_down", message: "Machine control is not ready", details: { retryable: true, disposition: "staged", transitions: [{ step: "ready" }] } },
+    }));
+    expect(await machineCommand("machine.send", { name: OTHER_MACHINE })).toEqual({
+      ok: false, type: "runtime_down", message: "Machine control is not ready", retryable: false, transitions: [],
     });
   });
 

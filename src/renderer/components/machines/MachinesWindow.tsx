@@ -5,9 +5,8 @@ import type { Canvas } from "@shared/model";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import {
   addMachine,
-  checkMachine,
+  checkMachineAgain,
   copyJunto,
-  dismissCopy,
   followMachineProgress,
   machines$,
   refreshMachines,
@@ -15,8 +14,7 @@ import {
 } from "../../lib/machines-actions";
 import {
   MACHINE_ACTION_LABEL,
-  MACHINE_INSTALL_STEPS,
-  MACHINE_INSTALL_STEP_LABEL,
+  MACHINE_STEP_PHASE_WORD,
   harnessName,
   harnessesSeatsLack,
   machineActions,
@@ -25,6 +23,7 @@ import {
   machineForm,
   machineHarnesses,
   machineMissingSecrets,
+  machineStepLines,
   machineSummary,
   machinesNeedingAttention,
   type MachineAction,
@@ -83,6 +82,7 @@ function MachineRow({
   readonly onSelect: () => void;
 }) {
   const label = labelOf(item);
+  const summary = machineSummary(item, read, copy, placed);
   return (
     <li role="presentation">
       <button
@@ -91,6 +91,7 @@ function MachineRow({
         aria-selected={selected}
         data-testid={`machine-row-${item.machine.id}`}
         data-machine-condition={machineCondition(item, read, copy)}
+        data-needs-you={summary.needsYou}
         className={[
           "flex w-full items-center gap-2.5 px-3 py-2 text-left",
           selected ? "bg-raise-2 text-ink" : "text-dim hover:text-ink",
@@ -109,7 +110,7 @@ function MachineRow({
         />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-body text-ink">{label}</span>
-          <span className="block truncate text-label text-dim">{machineSummary(item, read, copy).headline}</span>
+          <span className="block truncate text-label text-dim">{summary.headline}</span>
         </span>
       </button>
     </li>
@@ -141,7 +142,8 @@ function MachineDetail({
   const name = item.machine.id;
   const label = labelOf(item);
   const condition = machineCondition(item, read, copy);
-  const summary = machineSummary(item, read, copy);
+  const summary = machineSummary(item, read, copy, placed);
+  const steps = machineStepLines(copy);
   const harnesses = machineHarnesses(read);
   const lacking = harnessesSeatsLack(read, placed.harnesses);
   const missingSecrets = machineMissingSecrets(read);
@@ -153,8 +155,7 @@ function MachineDetail({
       case "update":
         return void copyJunto(name, "update");
       case "check":
-        dismissCopy(name);
-        return void checkMachine(item);
+        return void checkMachineAgain(item);
       case "remove":
         return onRemove();
     }
@@ -167,6 +168,7 @@ function MachineDetail({
       data-testid="machine-detail"
       data-machine={name}
       data-machine-condition={condition}
+      data-needs-you={summary.needsYou}
     >
       <div className="flex items-start gap-4">
         <MachineFigure
@@ -187,17 +189,19 @@ function MachineDetail({
         </div>
       </div>
 
-      {copy ? (
+      {steps.length > 0 ? (
         <ol className="mt-4 grid gap-1" aria-label="Steps" data-testid="machine-steps">
-          {MACHINE_INSTALL_STEPS.map((step) => {
-            const done = copy.steps.includes(step);
-            return (
-              <li key={step} className={done ? "text-body text-ink" : "text-body text-dim"} data-step={step} data-done={done}>
-                {done ? "Done: " : copy.kind === "running" ? "Waiting: " : "Not reached: "}
-                {MACHINE_INSTALL_STEP_LABEL[step]}
-              </li>
-            );
-          })}
+          {steps.map(({ step, label: stepLabel, phase }) => (
+            <li
+              key={step}
+              className={phase === "done" ? "text-body text-ink" : "text-body text-dim"}
+              data-step={step}
+              data-done={phase === "done"}
+              data-step-phase={phase}
+            >
+              {MACHINE_STEP_PHASE_WORD[phase]}: {stepLabel}
+            </li>
+          ))}
         </ol>
       ) : null}
 
@@ -404,7 +408,9 @@ function MachinesWindowOpen() {
   const removingItem = ordered.find((item) => item.machine.id === removing);
   const others = ordered.filter((item) => !item.machine.isThisMachine);
   const attention = machinesNeedingAttention(
-    ordered.map((item) => machineCondition(item, reads[item.machine.id], copies[item.machine.id])),
+    ordered.map((item) =>
+      machineSummary(item, reads[item.machine.id], copies[item.machine.id], placed.get(item.machine.id) ?? NOTHING_PLACED),
+    ),
   );
   const status = error
     ? "Could not read the machines"
