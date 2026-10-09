@@ -231,7 +231,7 @@ still open.
 | `remote-work` | the work plane: strip multi-machine task convergence and the rule that pins mail to one machine, drop dead tables, then build the row exchange |
 | `remote-send` | putting Junto on a machine: the windowless bundle for Mac and Linux, the copy, the per-user service, the build check, update, harness detection, and the SSH plane review |
 | `remote-cut` | everything on the cut list outside those three areas, with its tests and documents |
-| `remote-seats` | a seat on another machine: its terminal, state, folder, secrets, onboard and mail delivery |
+| `remote-seats` | a seat on another machine: `term/`, `seat-sessions/`, `region-env/` and the seats channel of the link |
 | `remote-window` | the Machines window, the machine picker on seats and regions, unreachable and missing-harness states, and the copy |
 | `remote-verify` | the exercise scripts, the stand-in harness and the acceptance run |
 | `remote-security` | independent review of the security model; the security doctrine |
@@ -297,7 +297,7 @@ git show --stat --oneline HEAD
 | SSH review, then send to the Mac mini | `remote-send` | review done; host deployment protocol cut: `883d4746b`, `82927347b`, `0c921a99a` |
 | Leaf cuts, stale documents, the guide | `remote-cut` | `915e9c33a`, `3a50b10f6`, `17dfa2337`, `d7846fa98`, `945f73bd7`; operator contract and CLI next |
 | Security review and the doctrine | `remote-security` | briefed |
-| A seat on another machine | `remote-seats` | not staffed; when the mini runs Junto |
+| A seat on another machine | `remote-seats` | staffed; first slice: the session pin leaves the seat row |
 | The Machines window | `remote-window` | not staffed; when the mini runs Junto |
 
 **The cut.** Done at `9e80c1edc`: 92,000 lines out since the baseline, with
