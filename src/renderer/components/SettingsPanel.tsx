@@ -34,13 +34,12 @@ import {
   type StateBackupId,
   type StateBackupInventoryEntry,
 } from "@shared/state-recovery";
-import { isCommandCenterFleetUi } from "../lib/canvas-boot";
 import { state$ } from "../lib/state";
 import {
   closeSettings,
   patchSettings,
   resetSettings,
-  setStationTopology,
+  setMachinePreferences,
 } from "../lib/settings-state";
 import { openIntro } from "../lib/first-run-intro";
 import {
@@ -119,9 +118,9 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
   ...(BROWSER_ENABLED
     ? [{ key: "browser", group: "App", label: "Browser", blurb: "" } as const]
     : []),
-  // Machine/station topology is fleet-adjacent (host id, supervised runtime).
+  // This machine's name and how it is kept running.
   ...(FLEET_UI_ENABLED
-    ? [{ key: "station", group: "App", label: "Machine", blurb: "" } as const]
+    ? [{ key: "machine", group: "App", label: "Machine", blurb: "" } as const]
     : []),
   // Built and in the app, off until turned on here. Absent when this build
   // ships nothing experimental.
@@ -143,9 +142,9 @@ const SECTIONS: ReadonlyArray<SectionItem> = [
   },
 ];
 
-/** Prefer first nav item when Machine is fleet-gated out. */
+/** Prefer first nav item when Machine is gated out. */
 const DEFAULT_SETTINGS_SECTION: PanelSection = FLEET_UI_ENABLED
-  ? "station"
+  ? "machine"
   : "appearance";
 
 /**
@@ -656,7 +655,7 @@ function AdvancedSection() {
 
 function InstallationFacts() {
   const status = use$(updateState$.status);
-  const station = use$(state$.settings.station);
+  const machineName = use$(state$.settings.machine.name);
   const install = status.install;
   const platformLabel =
     install === undefined
@@ -713,9 +712,9 @@ function InstallationFacts() {
               {feedLabel}
             </span>
           </FieldRow>
-          <FieldRow group label="Host id" hint="this machine across the fleet">
+          <FieldRow group label="Machine name" hint="what other machines call this one">
             <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>
-              {station.hostId.length > 0 ? station.hostId : "—"}
+              {machineName.length > 0 ? machineName : "—"}
             </span>
           </FieldRow>
           <FieldRow group label="Data location" hint="where Junto stores its data">
@@ -1025,28 +1024,13 @@ function StateRecoveryControls() {
   );
 }
 
-function StationSection() {
-  const station = use$(state$.settings.station);
-  const fleet = use$(state$.settings.fleet);
-  // Fleet UI: host identity, managed installs, and supervisor preference.
-  // Command Center–driven, not a free-form Settings form.
-  if (!FLEET_UI_ENABLED || !isCommandCenterFleetUi(station.role)) return null;
+function MachineSection() {
+  const machine = use$(state$.settings.machine);
+  if (!FLEET_UI_ENABLED) return null;
   return (
     <div className="settings-section" data-testid="settings-machine-section">
-      <FieldRow group label="This machine's host id">
-        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{station.hostId}</span>
-      </FieldRow>
-      <FieldRow label="Allow remote managed installs" hint="Deploy and update Junto on enrolled Remotes.">
-        <input
-          type="checkbox"
-          checked={fleet.remoteManagedInstalls}
-          aria-label="Allow remote managed installs"
-          onChange={(event) =>
-            void patchSettings({
-              fleet: { remoteManagedInstalls: event.target.checked },
-            })
-          }
-        />
+      <FieldRow group label="This machine's name" hint="What other machines call this one.">
+        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{machine.name}</span>
       </FieldRow>
       <FieldRow
         label="Prefer supervised runtime"
@@ -1055,11 +1039,10 @@ function StationSection() {
       >
         <input
           type="checkbox"
-          checked={station.supervisedPreferred}
+          checked={machine.supervisedPreferred}
           aria-label="Prefer supervised runtime"
-          disabled={station.role !== "command-center" && station.role !== ""}
           onChange={(event) =>
-            void setStationTopology({
+            void setMachinePreferences({
               supervisedPreferred: event.target.checked,
             })
           }
@@ -1083,8 +1066,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <NotificationSettingsSection />;
     case "offboard":
       return <OffboardSettingsSection />;
-    case "station":
-      return <StationSection />;
+    case "machine":
+      return <MachineSection />;
     case "updates":
       return <UpdatesSection />;
     case "audio":
@@ -1119,7 +1102,7 @@ const resettableSection = (section: PanelSection): SettingsSectionKey | undefine
   section === "updates" ||
   section === "experimental" ||
   section === "companion" ||
-  section === "station" ||
+  section === "machine" ||
   section === "briefing" ||
   section === "references"
     ? undefined
@@ -1143,11 +1126,7 @@ export function SettingsPanel() {
   const contentRef = useRef<HTMLDivElement>(null);
   const resultsId = useId();
 
-  const stationRole = use$(state$.settings.station.role);
-  const sections = useMemo(
-    () => SECTIONS.filter((item) => item.key !== "station" || isCommandCenterFleetUi(stationRole)),
-    [stationRole],
-  );
+  const sections = SECTIONS;
   const hits = useMemo(
     () =>
       searchSettings(
@@ -1199,7 +1178,7 @@ export function SettingsPanel() {
 
   if (!open) return null;
 
-  // Fleet-gated Machine may be absent — always render a nav-visible section.
+  // Machine may be gated out: always render a section the list shows.
   const activeSection: PanelSection = sections.some((item) => item.key === section)
     ? section
     : (sections[0]?.key ?? "appearance");

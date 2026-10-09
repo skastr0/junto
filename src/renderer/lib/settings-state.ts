@@ -1,8 +1,8 @@
 import type {
+  MachinePreferencesPatch,
   Settings,
   SettingsPatch,
   SettingsSectionKey,
-  StationPatch,
 } from "@shared/settings";
 import { state$ } from "./state";
 
@@ -92,22 +92,22 @@ export const resetSettings = async (section?: SettingsSectionKey): Promise<boole
 };
 
 /**
- * Topology transitions (role / hostId / CC ref / supervisedPreferred).
- * Uses the dedicated protected-topology IPC — never generic settingsPatch.
+ * This machine's own preferences. Its name is not one of them: a generic
+ * settings patch cannot change it either.
  */
-export const setStationTopology = async (station: StationPatch): Promise<boolean> => {
-  if (!window.junto?.settingsSetStationTopology) {
-    state$.settingsError.set("station topology API unavailable");
+export const setMachinePreferences = async (machine: MachinePreferencesPatch): Promise<boolean> => {
+  if (!window.junto?.settingsSetMachinePreferences) {
+    state$.settingsError.set("machine preferences API unavailable");
     return false;
   }
   try {
-    const result = await window.junto.settingsSetStationTopology(station);
+    const result = await window.junto.settingsSetMachinePreferences(machine);
     if (result.ok && result.settings) {
       state$.settings.set(result.settings);
       state$.settingsError.set("");
       return true;
     }
-    state$.settingsError.set(result.message ?? "topology update failed");
+    state$.settingsError.set(result.message ?? "machine preferences update failed");
     return false;
   } catch (error) {
     state$.settingsError.set(error instanceof Error ? error.message : String(error));

@@ -115,7 +115,7 @@ describe("finishing the introduction", () => {
 describe("the seen flag in the settings row", () => {
   it("decodes a row written before the introduction existed as unseen", () => {
     const stored = preferencesFromSettings(withSeen(undefined));
-    const settings = decodeStoredSettings(SETTINGS_VERSION, JSON.parse(JSON.stringify(stored)), defaultSettings().station);
+    const settings = decodeStoredSettings(SETTINGS_VERSION, JSON.parse(JSON.stringify(stored)), defaultSettings().machine);
     expect(settings.advanced.onboardingSeen).toBeUndefined();
   });
 
@@ -125,7 +125,7 @@ describe("the seen flag in the settings row", () => {
     const next = Result.getOrThrow(patched);
     expect(next.advanced.onboardingSeen).toBe(true);
     const stored = JSON.parse(JSON.stringify(preferencesFromSettings(next)));
-    expect(decodeStoredSettings(SETTINGS_VERSION, stored, next.station).advanced.onboardingSeen).toBe(true);
+    expect(decodeStoredSettings(SETTINGS_VERSION, stored, next.machine).advanced.onboardingSeen).toBe(true);
   });
 });
 

@@ -19,7 +19,7 @@ const PAGE_SOURCE: Readonly<Record<string, string>> = {
   notifications: "settings/NotificationSettingsSection.tsx",
   offboard: "settings/OffboardSettingsSection.tsx",
   companion: "settings/CompanionSettingsSection.tsx",
-  station: "SettingsPanel.tsx",
+  machine: "SettingsPanel.tsx",
   updates: "SettingsPanel.tsx",
   audio: "settings/SoundSettingsSection.tsx",
   browser: "SettingsPanel.tsx",
