@@ -116,10 +116,11 @@ const illegalKind = (node: Node, expected: string): WorkError =>
 
 /**
  * Group-ness is deliberately not consulted: these predicates read the authored
- * kind, exactly as the string lists they replace did.
+ * kind, exactly as the string lists they replace did. A peer is an agent seat
+ * of another machine: the same actor, with the same inbox to be mailed at.
  */
 const specOf = (node: Node) =>
-  resolveSpec({ isGroup: false, kind: node.kind });
+  resolveSpec({ isGroup: false, kind: node.kind === "peer" ? "agent" : node.kind });
 
 const isActorSpec = NodeSpec.$is("Actor");
 const isSinkSpec = NodeSpec.$is("Sink");

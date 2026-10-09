@@ -13,6 +13,9 @@ import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelRecords } from "../src/main/junto/model/records";
 import { ModelService } from "../src/main/junto/model/service";
 import { PausePlane, PausePlaneLive } from "../src/main/junto/pause-plane";
@@ -20,7 +23,10 @@ import { FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
 import { ReferencesRepository, ReferencesRepositoryLive } from "../src/main/junto/references/repository";
 import { onboardReferenceFields } from "../src/main/junto/references/seat-reads";
 import { SeatGuidanceRepository, SeatGuidanceRepositoryLive } from "../src/main/junto/seat-guidance/repository";
+import { makeSettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { makeRowsChannel, type RowsChannelContext } from "../src/main/junto/work/exchange/channel";
 import { followLocalCommits, makeLiveRowExchange } from "../src/main/junto/work/exchange/live";
 import type { RowExchange } from "../src/main/junto/work/exchange/session";
@@ -38,19 +44,22 @@ const command = Schema.decodeUnknownSync(Command);
 
 const makeRuntime = (root: string, name: string, installation: InstallationId) =>
   ManagedRuntime.make(
-    Layer.provideMerge(
+    Layer.provideMerge(WorkLive, Layer.provideMerge(
       ModelStoresLive,
       Layer.provideMerge(
         Layer.mergeAll(
           WorkRepositoryLive,
+          CrewRepositoryLive,
+          makeSettingsLive(),
+          makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
           SeatGuidanceRepositoryLive,
           ReferencesRepositoryLive,
           Layer.provideMerge(PausePlaneLive, FactoryPauseRepositoryLive),
           makeMachineRepositoryLive({ defaultName: () => name, makeInstallationId: () => installation }),
         ),
-        makeStateEngineLive(join(root, "junto.db")),
+        Layer.mergeAll(makeStateEngineLive(join(root, "junto.db")), makeInstallOpsLive(join(root, "install-ops.db"))),
       ),
-    ),
+    )),
   );
 
 type Machine = {
@@ -89,6 +98,7 @@ const boot = async (
   const exchange = await runtime.runPromise(
     Effect.gen(function* () {
       const machines = yield* MachineRepository;
+      yield* machines.configureName(name);
       for (const [machineName, installationId] of pins) yield* machines.pinPeer({ machineName, installationId });
       return yield* makeLiveRowExchange({
         mailArrived: (_canvas, nodeId, message) => arrived.push(`${nodeId} ${message.messageId}`),
@@ -409,6 +419,52 @@ describe("a local commit", () => {
     expect(macbook.exchange.linked(MINI)).toBe(false);
     // The mail is still in the log, for the next link.
     expect(await inbox(macbook, "peer")).toEqual(["never-leaves"]);
+  });
+});
+
+describe("mail a seat sends from the machine it lives on", () => {
+  /** `junto msg send` as the work service runs it: the seat's own identity, the canvas as its machine holds it. */
+  const send = (on: Machine, from: string, to: string, messageId: string) =>
+    on.runtime.runPromise(
+      Effect.gen(function* () {
+        const work = yield* WorkService;
+        const sender = (yield* (yield* ModelActorRefs).read("factory")).find((actor) => actor.nodeId === from);
+        if (sender === undefined) throw new Error(`no seat at ${from}`);
+        return yield* work.workMessageAppend(
+          "factory",
+          to,
+          null,
+          { messageId, role: "user", parts: [{ kind: "text", text: `from ${from}` }] },
+          sender,
+        );
+      }),
+    );
+
+  it("goes to a peer from a copy, and comes back the other way", async () => {
+    const { macbook, mini } = await pair();
+    const stop = [
+      await macbook.runtime.runPromise(followLocalCommits(macbook.exchange)),
+      await mini.runtime.runPromise(followLocalCommits(mini.exchange)),
+    ];
+    try {
+      await link(macbook, mini);
+      await settle();
+
+      // The seat on the mini mails the macbook's seat, a peer on the mini's copy.
+      expect(await send(mini, "peer", "lead", "from-the-mini")).toMatchObject({ ok: true });
+      await pushed();
+      await settle();
+      expect(await inbox(macbook, "lead")).toEqual(["from-the-mini"]);
+      expect(macbook.arrived).toEqual(["lead from-the-mini"]);
+
+      expect(await send(macbook, "lead", "peer", "from-the-macbook")).toMatchObject({ ok: true });
+      await pushed();
+      await settle();
+      expect(await inbox(mini, "peer")).toEqual(["from-the-macbook"]);
+      expect(mini.arrived).toEqual(["peer from-the-macbook"]);
+    } finally {
+      for (const off of stop) off();
+    }
   });
 });
 
