@@ -47,8 +47,9 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    briefing, references, folders and environment only for regions that hold
    one of its seats. Another machine's seat arrives as a peer: its id, label,
    machine and place on the canvas, and nothing it could be started from. A
-   peer can be addressed and never started. Notes, labels, files and links
-   stay on the editing machine. The editing machine keeps everything. Whatever a machine
+   peer can be addressed and never started. A plain terminal goes only to its
+   own machine. Notes, labels, files, links and every kind that is off stay on
+   the editing machine. The editing machine keeps everything. Whatever a machine
    once received it may still hold; removal does not take it back. There is
    no merging of concurrent edits.
    Nothing may assume a second editor can never exist: ids stay global, and a
