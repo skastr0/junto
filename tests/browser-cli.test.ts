@@ -309,6 +309,7 @@ describe("browser CLI packaging contract", () => {
     expect(pkg.build.extraResources).toEqual([
       { from: "dist/junto", to: "bin/junto" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
+      { from: "dist/machines", to: "machines" },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
     expect(cliBuildScript).toContain("--no-compile-autoload-dotenv");

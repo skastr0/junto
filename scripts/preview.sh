@@ -70,6 +70,7 @@ if [[ ! -f "$PREVIEW_HOME/.fresh-preview" ]]; then
 fi
 # Never inherit this seat's live control credentials or testing/runtime overrides.
 PREVIEW_LOCK_HOME="${JUNTO_APP_RUN_LOCK_HOME:-$PREVIEW_HOME/locks}"
+PREVIEW_MACHINE_BUNDLES="${JUNTO_PREVIEW_MACHINE_BUNDLES:-$ROOT/dist/machines}"
 while IFS= read -r name; do unset "$name"; done < <(compgen -v JUNTO_)
 export JUNTO_HOME="$PREVIEW_HOME" JUNTO_APP_RUN_LOCK_HOME="$PREVIEW_LOCK_HOME"
 COMMIT="$(git -C "$ROOT" rev-parse refs/heads/main)"
@@ -98,6 +99,20 @@ if [[ "$(bun --version)" != "$PINNED_BUN" ]]; then
   export PATH="$BUN_PREFIX/bin:$PATH"
 fi
 if [[ ! -f .preview-build-ready ]]; then
+  # The window sends these exact builds, so validate both before packaging.
+  JUNTO_FLEET_UI=1 bun -e '
+    import { inspectMachineBundle } from "./src/main/junto/hosts/bundle";
+    import { buildIdentity } from "./scripts/build-identity";
+    const build = buildIdentity(process.cwd());
+    for (const target of ["darwin-arm64", "linux-x64"]) {
+      const manifest = await inspectMachineBundle(process.argv[1] + "/" + target);
+      if (manifest.target !== target || manifest.build !== build) {
+        throw new Error("Rebuild the " + target + " machine bundle from this commit with JUNTO_FLEET_UI=1");
+      }
+    }
+  ' "$PREVIEW_MACHINE_BUNDLES"
+  mkdir -p dist
+  cp -cR "$PREVIEW_MACHINE_BUNDLES" dist/machines
   JUNTO_PREVIEW_BUILD=1 JUNTO_FLEET_UI=1 JUNTO_ALLOW_FEATURE_OVERRIDES=1 bash scripts/build-app.sh --target mac --fast
   printf '%s\n' "$COMMIT" > .preview-build-ready
 fi
@@ -111,4 +126,4 @@ if [[ "$MODE" == prepare ]]; then
   exit 0
 fi
 export JUNTO_HOME="$PREVIEW_HOME" JUNTO_PREVIEW=1
-exec "$APP/Contents/MacOS/Junto" --user-data-dir="$PREVIEW_HOME/.junto/electron-user-data"
+exec "$APP/Contents/MacOS/Junto" --junto-operator-control --user-data-dir="$PREVIEW_HOME/.junto/electron-user-data"
