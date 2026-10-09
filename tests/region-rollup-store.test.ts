@@ -9,6 +9,7 @@ import type { WorkSurfaceActivity } from "../src/shared/terminal";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 import { createModelStore } from "../src/renderer/lib/model-store";
 import { createRegionRollupStore } from "../src/renderer/lib/region-rollup-store";
+import { THIS_MACHINE } from "./support/machines";
 
 const name = asCanvasName("regions");
 const placed = { x: 10, y: 10, width: 40, height: 40, z: 0 };
@@ -17,7 +18,7 @@ const region = (id: string, x: number, width = 200) => node({ kind: "region", id
 const note = (id: string, x: number) => node({ kind: "note", id, x, text: id });
 const agent = (id: string, x = 10) => node({
   kind: "agent", id, x, label: id, agentKey: `local:${id}`, bindingId: `binding-${id}`,
-  host: "local", harness: "codex", overseer: false, onRemove: "detach",
+  host: THIS_MACHINE, harness: "codex", overseer: false, onRemove: "detach",
 });
 const wire = (id: string, from: string, to: string) => ({ id, from, to, verb: "contributes" }) as Wire;
 

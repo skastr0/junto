@@ -20,6 +20,7 @@ import {
   WORK_PROTOCOL_VERSION,
   encodeWorkFrame,
 } from "../src/shared/work-control";
+import { THIS_MACHINE } from "./support/machines";
 
 const succeeds = (result: Result.Result<unknown, unknown>): void => {
   expect(Result.isSuccess(result)).toBe(true);
@@ -106,7 +107,7 @@ describe("overseer command contract", () => {
       { operation: "node.delete", nodeIds: ["n1"] },
       { operation: "canvas.batch", steps: [move] },
       { operation: "agent.start", nodeId: "n1" },
-      { operation: "agent.reseat", nodeId: "n1", agentKey: "local:amp", harness: "amp", host: "local" },
+      { operation: "agent.reseat", nodeId: "n1", agentKey: "local:amp", harness: "amp", host: THIS_MACHINE },
       { operation: "edge.connect", wire: { from: "a", to: "b" } },
       { operation: "node.configure", nodeId: "n1", change: { kind: "agent", overseer: true } },
       { operation: "node.configure", nodeId: "n1", change: { kind: "note", apiKey: "secret" } },
@@ -121,13 +122,13 @@ describe("overseer command contract", () => {
     succeeds(decodeOverseerArgs("node.create", { node: seat }));
     succeeds(decodeOverseerArgs("node.create", {
       node: {
-        ...seat, id: "s1", color: "2", label: "Reviewer", host: "local", profile: "work", model: "opus",
+        ...seat, id: "s1", color: "2", label: "Reviewer", host: THIS_MACHINE, profile: "work", model: "opus",
         effort: "high", mode: "plan", permissionMode: "acceptEdits", cwd: "~/Projects/junto", onRemove: "kill-session",
       },
     }));
     // A plain terminal is the kind drafted with a command.
     succeeds(decodeOverseerArgs("node.create", {
-      node: { kind: "terminal", host: "local", onRemove: "detach", launch: { kind: "command", argv: ["htop"] }, x: 0, y: 0, width: 400, height: 300 },
+      node: { kind: "terminal", host: THIS_MACHINE, onRemove: "detach", launch: { kind: "command", argv: ["htop"] }, x: 0, y: 0, width: 400, height: 300 },
     }));
     succeeds(decodeOverseerArgs("node.create", {
       node: { kind: "region", label: "CLI", hold: false, x: 0, y: 0, width: 800, height: 600 },
@@ -257,7 +258,7 @@ describe("overseer command contract", () => {
     fails(decodeOverseerArgs("agent.reseat", { nodeId: "agent-2" }));
     succeeds(decodeOverseerArgs("agent.reseat", { nodeId: "agent-2", harness: "codex" }));
     succeeds(decodeOverseerArgs("agent.reseat", {
-      canvas: "work", nodeId: "agent-2", harness: "codex", host: "local", profile: "work",
+      canvas: "work", nodeId: "agent-2", harness: "codex", host: THIS_MACHINE, profile: "work",
       model: "gpt-5", effort: "high", mode: "plan", permissionMode: "acceptEdits",
     }));
     for (const extra of [
