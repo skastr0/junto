@@ -161,9 +161,9 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (peer === undefined) {
       if (frame.type !== "hello") throw new MachineLinkError("Link hello must be first");
       const { type: _type, ...hello } = frame;
-      if (hello.build !== self.build) throw new LinkBuildMismatch(hello);
       if (hello.installationId === self.installationId) throw new MachineLinkError("A Junto installation cannot link to itself");
       await options.admit(Object.freeze(hello));
+      if (hello.build !== self.build) throw new LinkBuildMismatch(hello);
       if (stopped !== undefined) return;
       peer = Object.freeze(hello);
       clearTimeout(helloTimer);

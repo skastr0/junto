@@ -12,6 +12,7 @@ import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/mach
 import { makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./junto/link/service";
 import { machineLinkLayer } from "./junto/link/live";
+import { LinkBuildMismatch } from "./junto/link/session";
 import type { LinkChannelHandler } from "./junto/link/types";
 import { probeManagedHarnessInstalls } from "./junto/term/templates/harness-install";
 import { makeRowsChannel } from "./junto/work/exchange/channel";
@@ -134,8 +135,8 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
         return yield* link.connect(host).pipe(
           Effect.andThen(link.request(name, "status", { kind: "machine" })),
           Effect.flatMap(Schema.decodeUnknownEffect(MachinePeerStatus, { onExcessProperty: "error" })),
-          Effect.catch(() => Effect.succeed({ machineName: name, reachable: false, installationId: pin.installationId,
-            harnesses: [], missingSecrets: [], detail: "Cannot reach this machine" })),
+          Effect.catch(cause => Effect.succeed({ machineName: name, reachable: cause instanceof LinkBuildMismatch, installationId: pin.installationId,
+            harnesses: [], missingSecrets: [], detail: cause instanceof LinkBuildMismatch ? "Update Junto on this machine" : "Cannot reach this machine" })),
         );
       }),
     });

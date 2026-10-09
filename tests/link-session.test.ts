@@ -1,7 +1,7 @@
 import { PassThrough } from "node:stream";
 import { Effect, Schema } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
-import { makeLinkSession, type LinkSessionOptions } from "../src/main/junto/link/session";
+import { LinkBuildMismatch, makeLinkSession, type LinkSessionOptions } from "../src/main/junto/link/session";
 import { LinkHelloSchema, decodeLinkFrame } from "../src/main/junto/link/protocol";
 import { MachineLinkError, type LinkChannelHandler, type LinkHello, type LinkSession } from "../src/main/junto/link/types";
 
@@ -45,6 +45,20 @@ it("refuses build mismatch and pin refusal without dispatching a channel", async
   expect(called).toBe(false);
   const refused = pair({ admit: async () => { throw new MachineLinkError("installation pin changed"); } });
   await expect(refused.left.ready).rejects.toThrow("installation pin changed");
+});
+
+it("checks the binding before reporting a build mismatch and never opens a channel", async () => {
+  const admit = vi.fn(async () => {});
+  const opened = vi.fn(() => Effect.void);
+  const f = raw({ admit, channels: { status: { ...channel(), opened } } });
+  const peer = hello("mini", "b".repeat(64));
+  f.send({ type: "hello", ...peer });
+  await expect(f.session.ready).rejects.toBeInstanceOf(LinkBuildMismatch);
+  expect(admit).toHaveBeenCalledWith(peer);
+  expect(opened).not.toHaveBeenCalled();
+  const refused = raw({ admit: async () => { throw new MachineLinkError("installation pin changed"); } });
+  refused.send({ type: "hello", ...peer });
+  await expect(refused.session.ready).rejects.toThrow("installation pin changed");
 });
 
 it("closes on excess channel payload fields before a handler sees them", async () => {

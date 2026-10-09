@@ -79,5 +79,9 @@ export const checkSeatMachine = async (name: string, now: number = Date.now()): 
   asked.set(name, now);
   const status = await machineCommand("machine.status", { name });
   // A refused question says nothing about the machine: the facts stay as they were.
-  if (status.ok && "reachable" in status.data) noteMachineStatus(name, status.data);
+  if (status.ok && "reachable" in status.data) {
+    noteMachineStatus(name, status.data);
+    // A refused build was still a checked hello. Read its current update flag.
+    await readMachineList();
+  }
 };

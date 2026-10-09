@@ -60,6 +60,13 @@ export const checkMachine = async (item: MachineListItem): Promise<void> => {
   setRead(name, { kind: "peer", status: status.data });
   // The seat cards on the canvas read the same answer.
   noteMachineStatus(name, status.data);
+  // The hello may have reported another build since the list was read.
+  const listed = await readMachineList();
+  if (listed.ok) {
+    machines$.items.set(listed.data.machines);
+    // A refused build did not answer questions about its harnesses or secrets.
+    if (listed.data.machines.find(row => row.machine.id === name)?.needsUpdate) machines$.reads[name].delete();
+  }
 };
 
 /**

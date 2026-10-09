@@ -6,7 +6,7 @@ import { RemoteHost } from "@shared/remote-hosts";
 import { MachineRepository, type MachinePeer } from "../machines/repository";
 import { parseHostSshRoute, SshTransport } from "../ssh";
 import { openMachineLink } from "../ssh/machine-commands";
-import { makeLinkSession } from "./session";
+import { LinkBuildMismatch, makeLinkSession } from "./session";
 import { LinkHelloSchema } from "./protocol";
 import { MachineLink, type MachineLinkListener } from "./service";
 import { startLinkListener } from "./listener";
@@ -47,7 +47,7 @@ export const makeMachineLink = (options: { readonly build: string }) => Effect.g
       if (setupId === undefined || setupCommitted) await activePeer(hello);
       // Only a checked existing binding can contribute a build warning.
       if (setupId === undefined || setupCommitted) builds.set(hello.machineName, hello.build);
-      if (hello.build !== own.build) throw new MachineLinkError(`Update Junto on ${hello.machineName} to match this build`);
+      if (hello.build !== own.build) throw new LinkBuildMismatch(hello);
       if (setupId !== undefined && !setupCommitted) {
         await run(machines.pinPeer({ machineName: hello.machineName, installationId: hello.installationId }));
         setupCommitted = true;

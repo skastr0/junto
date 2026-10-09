@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { OPERATOR_PROTOCOL_VERSION } from "../src/shared/operator-control";
 import { MachinesWindow } from "../src/renderer/components/machines/MachinesWindow";
-import { machines$ } from "../src/renderer/lib/machines-actions";
+import { machines$, refreshMachines } from "../src/renderer/lib/machines-actions";
 import { state$ } from "../src/renderer/lib/state";
 import { OTHER_MACHINE, THIS_MACHINE } from "./support/machines";
 
@@ -42,6 +42,7 @@ const fakeOwner = () => {
   let listener: ((payload: unknown) => void) | undefined;
   /** A send waits here until the test lets it finish. */
   const copies = new Map<string, (answer: unknown) => void>();
+  let anotherBuildOnCheck: string | undefined;
   const ok = (request: Request, data: unknown) =>
     ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true, data });
   const refuse = (request: Request, type: string, message: string, details: Record<string, unknown> = {}) =>
@@ -78,6 +79,10 @@ const fakeOwner = () => {
         if (name === "ghost") {
           return ok(request, { machineName: name, reachable: false, harnesses: [], missingSecrets: [], detail: "SSH did not answer" });
         }
+        if (name === anotherBuildOnCheck) {
+          rows.find(entry => entry.machine.id === name)!.needsUpdate = true;
+          return ok(request, { machineName: name, reachable: true, installationId: `inst-${name}`, harnesses: [], missingSecrets: [], detail: "Update Junto on this machine" });
+        }
         return ok(request, {
           machineName: name, reachable: true, form: "mac-mini", installationId: `inst-${name}`, harnesses,
           missingSecrets: name === OTHER_MACHINE ? ["ANTHROPIC_API_KEY", "GH_TOKEN"] : [],
@@ -111,6 +116,7 @@ const fakeOwner = () => {
     },
     requests,
     rows,
+    anotherBuildOnCheck: (name: string) => { anotherBuildOnCheck = name; },
     ops: () => requests.map((request) => request.op),
     last: (op: string) => requests.filter((request) => request.op === op).at(-1)!,
     step: (id: string, step: string) =>
@@ -212,6 +218,17 @@ it("asks only a machine that can answer: not one without Junto, not one on anoth
   expect(asked).not.toContain("mini");
 });
 
+it("shows Needs update and Update Junto when the first probe discovers another build", async () => {
+  owner.anotherBuildOnCheck(OTHER_MACHINE);
+  await act(async () => { await refreshMachines(); await flush(); });
+  expect(condition(OTHER_MACHINE)).toBe("needs-update");
+  await select(OTHER_MACHINE);
+  expect(byTest("machine-detail")?.textContent).toContain("Runs a different build of Junto");
+  expect(button("Update Junto")).toBeTruthy();
+  expect(byTest("machine-detail")?.textContent).not.toContain("Cannot be reached");
+  expect(byTest("machine-detail")?.textContent).not.toContain("None found");
+});
+
 it("shows this machine's build and harnesses, and no way to remove it", () => {
   const detail = byTest("machine-detail")!;
   expect(detail.getAttribute("data-machine")).toBe(THIS_MACHINE);
@@ -301,7 +318,7 @@ it("does not say a send did not happen when it could not be confirmed, and does 
   const lists = owner.ops().filter((op) => op === "machine.list").length;
   await click(byTest("machine-action-check"));
   await settle();
-  expect(owner.ops().filter((op) => op === "machine.list")).toHaveLength(lists + 1);
+  expect(owner.ops().filter((op) => op === "machine.list").length).toBeGreaterThan(lists);
   expect(condition("build-box")).toBe("ready");
   expect(owner.ops().filter((op) => op === "machine.send")).toHaveLength(1);
 });

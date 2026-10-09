@@ -6,6 +6,7 @@ import { startCore } from "../src/main/junto/core";
 import { coreControlSocketPath } from "../src/main/junto/link/listener";
 import { decodeLinkFrame, LinkHelloSchema, type LinkFrame } from "../src/main/junto/link/protocol";
 import { MachineRepository } from "../src/main/junto/machines/repository";
+import { MachineLink } from "../src/main/junto/link/service";
 
 const connectPeer = async (home: string, hello: typeof LinkHelloSchema.Type) => {
   const socket = createConnection(coreControlSocketPath(home));
@@ -52,17 +53,20 @@ it("admits account-local links only for the live name, installation and build pi
   try {
     core = await startCore({ home, build, bundles: {} });
     const machines = await core.runtime.runPromise(MachineRepository);
+    const link = await core.runtime.runPromise(MachineLink);
     await core.runtime.runPromise(machines.configureName("book"));
     await core.runtime.runPromise(machines.pinPeer({ machineName: pinned.machineName, installationId: pinned.installationId }));
     for (const hello of [
-      { ...pinned, machineName: "unknown" },
-      { ...pinned, installationId: "other-installation" },
+      { ...pinned, machineName: "unknown", build: "b".repeat(64) },
+      { ...pinned, installationId: "other-installation", build: "b".repeat(64) },
       { ...pinned, build: "b".repeat(64) },
     ]) {
       const peer = await connectPeer(home, Schema.decodeUnknownSync(LinkHelloSchema)(hello));
       peers.push(peer);
       expect(await peer.request("refused")).toBeUndefined();
       expect(peer.frames.some(frame => frame.type === "response")).toBe(false);
+      expect(await core.runtime.runPromise(link.peerBuild(pinned.machineName)))
+        .toBe(hello.installationId === pinned.installationId && hello.machineName === pinned.machineName ? hello.build : undefined);
     }
     const peer = await connectPeer(home, pinned);
     peers.push(peer);
@@ -70,6 +74,7 @@ it("admits account-local links only for the live name, installation and build pi
       type: "response", id: "admitted", channel: "status", ok: true,
       payload: { machineName: "book", reachable: true },
     });
+    expect(await core.runtime.runPromise(link.peerBuild(pinned.machineName))).toBe(build);
     expect(await peer.request("seat-start", "seats", { _tag: "Start", canvas: "missing-canvas", seatId: "missing-seat" }))
       .toMatchObject({ type: "response", id: "seat-start", channel: "seats", ok: false });
     expect(await peer.request("still-admitted")).toMatchObject({ type: "response", id: "still-admitted", ok: true });

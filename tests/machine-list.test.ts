@@ -169,14 +169,27 @@ describe("asking a machine for the seats placed on it", () => {
         };
   const ops = (owner: ReturnType<typeof withOwner>) => owner.mock.calls.map(([request]) => `${request.op} ${request.args.name ?? ""}`.trim());
 
-  it("reads the list once and asks the machine once, however many seats ask", async () => {
+  it("asks the machine once and reads the resulting facts, however many seats ask", async () => {
     const owner = withOwner(status({}));
     await Promise.all([checkSeatMachine(OTHER_MACHINE, 1_000), checkSeatMachine(OTHER_MACHINE, 1_000), checkSeatMachine(OTHER_MACHINE, 2_000)]);
-    expect(ops(owner)).toEqual(["machine.list", `machine.status ${OTHER_MACHINE}`]);
+    expect(ops(owner)).toEqual(["machine.list", `machine.status ${OTHER_MACHINE}`, "machine.list"]);
     expect(state$.machineFacts.peek()[OTHER_MACHINE]).toEqual({ setUp: true, needsUpdate: false, reachable: true, harnesses: ["claude"] });
     // Later, it may be asked again.
     await checkSeatMachine(OTHER_MACHINE, 40_000);
-    expect(ops(owner)).toEqual(["machine.list", `machine.status ${OTHER_MACHINE}`, "machine.list", `machine.status ${OTHER_MACHINE}`]);
+    expect(ops(owner)).toEqual(["machine.list", `machine.status ${OTHER_MACHINE}`, "machine.list", "machine.list", `machine.status ${OTHER_MACHINE}`, "machine.list"]);
+  });
+
+  it("shows a different build discovered by the first status check as needing an update", async () => {
+    let needsUpdate = false;
+    withOwner(request => {
+      if (request.op === "machine.list") {
+        return listing(LISTED.map(item => item.machine.id === OTHER_MACHINE ? { ...item, needsUpdate } : item))(request);
+      }
+      needsUpdate = true;
+      return status({ reachable: true, harnesses: [], detail: "Update Junto on this machine" })(request);
+    });
+    await checkSeatMachine(OTHER_MACHINE, 1_000);
+    expect(state$.machineFacts.peek()[OTHER_MACHINE]).toEqual({ setUp: true, needsUpdate: true });
   });
 
   it("does not ask a machine that has no link to answer over", async () => {
