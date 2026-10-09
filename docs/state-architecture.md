@@ -2,8 +2,8 @@
 
 **Status:** normative
 
-**Scope:** durable product state, canvas history, work-plane residency, Station
-coordination, scheduling, backup, and process ownership
+**Scope:** durable product state, canvases, scheduling, backup, and process
+ownership
 
 **Machines:** [machines.md](machines.md)
 
@@ -13,11 +13,10 @@ Junto has one storage architecture:
 one installation
   └── ~/.junto/state/junto.db
         └── one normal-runtime app StateEngine connection
-              ├── owner: Electron main (Command Center)
-              │          or displayless packaged Node process (Remote)
+              ├── owner: the Junto core on that machine
               ├── renderer IPC
-              ├── owner-local canvas/work/browser/station controls
-              └── typed Command Center → Station requests
+              ├── owner-local canvas/work/browser controls
+              └── a link to another machine's core
 ```
 
 There is no legacy store, compatibility mode, import-on-read, dual write, or
@@ -27,8 +26,7 @@ rollback to files.
 
 - The state directory is mode `0700`; `junto.db` is mode `0600`.
 - During normal operation each installation has one sole app runtime database
-  owner: Electron main on Command Center or the displayless packaged Node
-  Remote process on Remote.
+  owner: the Junto core on that machine.
 - `makeStateEngineLive` owns one scoped, private `node:sqlite` connection and
   publishes one Effect `SqlClient` alongside `StateEngine` metadata and backup.
   Repositories consume that shared client through typed services, never open
@@ -50,7 +48,7 @@ event-loop yield between chunks.
 
 Each repository owns its tables and decodes persisted rows at its SQL boundary.
 Cross-domain operations call typed participants such as `CanvasRecords`,
-`ContentManifest`, `StationConfigurationRepository`, and the Crew/Live
+`ContentManifest`, and the Crew/Live
 `...Within` operations instead of reaching into another owner's tables.
 Participants join the caller's transaction; the orchestrator selects the
 atomic boundary with `sql.withTransaction`. Nested owners use savepoints.
@@ -106,8 +104,8 @@ Routine startup evolution follows four explicit stages:
 3. **Deprecate.** Stop consuming and producing the old representation after
    parity is proven, but keep its bytes and never reuse its name or meaning.
 4. **Retire.** Physically remove only through a separate operator-approved
-   compaction after a coherent backup, exact replacement parity, no current
-   reader or writer, and fleet compatibility evidence.
+   compaction after a coherent backup, exact replacement parity and no current
+   reader or writer.
 
 The startup migration capability enforces the first three stages. It rejects
 row deletion, insertion into an installed table, overwriting an installed
@@ -161,9 +159,9 @@ transaction:
    no backup to retain.
 4. **Prove the candidate.** Run the candidate's exact migration chain against
    the clone, verify current schema identity and foreign keys, and exercise
-   Canvas, Work, Station, kernel-state, scheduler, and active-intent repository
+   Canvas, Work, kernel-state, scheduler, and active-intent repository
    decoders. Emit one strict readiness receipt. Do not start a renderer,
-   control socket, actor, browser, terminal, provider, or fleet runtime.
+   control socket, actor, browser, terminal, or provider runtime.
 5. **Choose reversibility.** If preflight fails or is interrupted before
    activation, delete only the disposable candidate tree and resume the
    unchanged incumbent. The verified backup remains retained.
@@ -182,38 +180,11 @@ transaction:
    fully healthy candidate launch. No automatic backup-retirement policy exists
    yet.
 
-The preflight receipt is a closed local installer proof, not a fourth product
-version axis or a Station protocol. Its `.../v1` discriminator freezes that
-receipt shape; it is not negotiated and grants no fleet authority.
+The preflight receipt is a closed local installer proof. Its `.../v1`
+discriminator freezes that receipt shape; it is not negotiated.
 
-Remote rollout is one installation at a time. Clone preflight proves data
-admission but not physical operation. A candidate is not fully healthy merely
-because preflight passed or a socket opened: post-activation qualification
-still includes package launch, Station round trips, simulation, and
-projection/work cursor continuity.
-
-## One schema, different residency
-
-Command Center and Remote run the same application and, at a given release,
-bootstrap the same role-independent schema. Because installations update
-independently, a fleet may temporarily contain different recognized schema
-versions. Those databases are never opened or attached across machines; wire
-compatibility is handled by the Station protocol. Role changes row residency
-and runtime behavior, not table shape.
-
-| State | Command Center | Remote |
-|---|---|---|
-| Canvas intent | Full authored generations and head | No authorial canvas |
-| Station projection | Immutable emitted versions + one desired head | Immutable installed versions + one active head |
-| Settings and topology | Local preferences + CC configuration | Local preferences + paired Remote configuration |
-| Hosts | Enrolled fleet registry | Local installation state only |
-| Work | CC-homed rows, every actor mailbox row, and integrated Remote replicas | Remote-home task/request/artifact/thread rows; no mailbox material rows |
-| Events and receipts | Route-scoped Work streams, pending commands, dispositions, and transport ACK cursors | Route-scoped Work streams, dispositions, and transport ACK cursors |
-| Browser/process resources | Resources physically owned here | Resources physically owned here |
-
-No row is concurrently authoritative in two installations. A move to another
-home is an explicit transfer with one cutover point. Code must not approximate
-that move with dual reads or dual writes.
+Clone preflight proves data admission but not physical operation. A candidate
+is not fully healthy merely because preflight passed or a socket opened.
 
 ## Canvases
 
@@ -229,166 +200,10 @@ transaction, advances that canvas's `seq` by one, and main emits one event
 carrying the rows that changed. Nothing reads, writes, compares or hashes a
 canvas as one value, and no history of whole canvases is kept.
 
-## Work plane and ordering
-
-Tasks, task transitions, requests, messages, artifacts, and receipts are
-normalized rows. Canvas nodes author the existence and placement of work
-surfaces; their live contents do not force a canvas generation.
-
-`WorkRepository` is the sole durable work/event authority. Every event identity
-is the route-local triple `(event_home, entity_home, seq)`. The sequence is
-monotonic only within that route, so two Remotes may each originate sequence
-one without ambiguity. Every Station API event has:
-
-- exactly one event-origin `InstallationId` and entity-authority
-  `InstallationId`;
-- a monotonic decimal logical sequence allocated within that route;
-- origin and received timestamps for display only;
-- a stable semantic content hash for idempotence.
-
-Ordering within a route compares logical sequences as integers. Wall-clock
-timestamps never order fleet history. Actor mailbox messages remain Command
-Center-homed; task/request thread messages share their exact parent row's
-home.
-
-Message append events carry an explicit closed destination:
-`mailbox`, `task(itemId)`, or `request(itemId)`. Mailbox facts materialize only
-in Command Center `work_messages`; a Remote that issued the corresponding
-command retains the returned fact/disposition as event state without creating
-a local mailbox row. Task and request appends materialize in
-`work_task_messages` only when the exact parent exists at the same
-`entity_home`. `Message.taskId` remains an A2A cross-reference and must not be
-used to infer residency; for task/request appends it must be present and agree
-with the explicit destination item ID.
-
-Artifacts may carry `task?: TaskRef`, where the reference contains
-`kind: "task"`, item ID, canvas name, and task-sink node ID. Unbound artifacts
-remain valid. A linked artifact is admitted only when the installed projection
-contains that canvas and a task-kind sink at the referenced node. Durable
-materialization then requires an exact already-claimed task at the artifact's
-`entity_home`. The artifact publisher seat is preserved independently and may
-differ from the task claimant.
-
-SQLite represents that optional reference as one nullable group:
-`task_canvas_name`, `task_node_id`, `task_id`, and `task_entity_home`. A
-composite foreign key targets
-`work_tasks(canvas_name, node_id, task_id, entity_home)`; a trigger requires
-the referenced task's claimant to be non-null. Partial references, missing or
-wrong sinks, cross-home references, and reference rewrites fail closed. There
-is no legacy artifact `taskId` decoder, item-ID-only lookup, or fallback path.
-
-A Command Center mutation homed on a Remote is first persisted as a pending
-command. It is not materialized at Command Center. The Remote atomically
-applies or causally rejects the command under its installed projection and
-emits an ordered durable disposition. An applied disposition materializes the
-command at Command Center; a rejected disposition resolves it into the
-rejection ledger. ACKs advance transport only and never confer material
-authority. Work Doctor exposes the status of locally issued pending, applied,
-and rejected commands; route rejection history remains an internal diagnostic
-surface.
-
-A submitted task claim is the one explicit work-home cutover. Claim is the
-atomic start of work (`submitted → working` plus one claimant), never an
-actor backlog. A Command Center-home queue may fan out to a Remote actor
-only through a live synchronous Command Center-to-Remote exchange. While that
-session is live, Command Center transactionally reserves one exact task and
-actor and persists the claim command; that commit is the attempt boundary. If
-either installation is already unreachable, no future claim is queued. A
-disconnect after commit may replay only the same unresolved identity. Once the
-Remote accepts the claim, the task remains homed there through terminal state
-and continues while Command Center is unavailable. A Remote-home queue may
-claim locally. Requests and artifacts are homed with their raising/publishing
-actor. Actor mailbox messages remain Command Center-homed; task/request thread
-messages share their exact parent row's home.
-
-## Station API
-
-The fleet protocol has five bounded, schema-decoded operations:
-
-| Verb | Purpose |
-|---|---|
-| `pair` | Bind one Remote installation to one Command Center installation |
-| `configure` | Commit Remote topology (role, host identity, supervision) |
-| `project` | Install one complete replace-only canvas projection |
-| `report` | Duplex exchange of strict Work commands, facts, dispositions, receipts, and cumulative full-route ACK cursors |
-| `status` | Report installation identity, configuration, projection, cursors, and readiness |
-
-Command Center invokes the `junto station-stdio` executable through the
-operator's enrolled OpenSSH route. It is one persistent bounded framed session:
-the helper accepts no arbitrary command or path, connects to the Remote app's
-owner-local Station socket, and relays correlated frames without opening
-`junto.db`. Command Center initiates the connection; once authenticated, the
-Remote may initiate only `report` on that same duplex session. It never dials
-Command Center or another Remote. OpenSSH authenticates the Remote host and
-operator account. The fixed helper's owner-local socket handoff is trusted
-same-user containment, not cryptographic proof of the SSH peer inside Electron
-main. Junto adds no bearer token, pairing secret, or parallel credential
-store; main strict-decodes and authorizes every request.
-
-Session loss does not create a second polling protocol. Each side reconnects
-and resumes from durable `(event_home, entity_home)` cursors. A future HTTPS
-adapter uses mutual TLS but preserves the same dispatcher and five verbs.
-
-The Station wire cannot represent `role: "command-center"`: `configure`
-strictly decodes `RemoteConfiguration`, and excess fields fail instead of being
-pruned. Command Center selection is a separate local main-process settings
-operation. Pairing and Command Center configuration are mutually exclusive in
-both directions and checked in the same transaction that would write either
-row. A successful Remote configuration also deletes every authorial
-`canvas_head`, generation document, and generation row in that transaction;
-the projection selected by `station_projection_head` is the Remote's only
-active canvas residency.
-
-Projection installation is monotonic:
-
-- a newer generation installs transactionally;
-- the same generation and hash is idempotent;
-- an older generation is stale;
-- the same generation with a different hash is a conflict.
-
-Reports send strict versioned Work records strictly after the peer's
-acknowledged full-route sequence. Cursors retain both `event_home` and
-`entity_home`; no transport context supplies a hidden half of identity. The
-receiver accepts only contiguous progress; gaps fail closed. A Remote writes
-the command disposition before acknowledging the command. Completed ACKs are
-durable, so replay or losing an outer response cannot duplicate semantic work.
-
-Before repository acceptance, Station admission checks any artifact
-`TaskRef` against the installed projection and rejects an absent canvas,
-absent sink, or non-task node. The repository remains authoritative for task
-row existence, non-null claimant, and same-home checks. Either failure occurs
-before incoming event persistence or cursor/ACK advancement.
-
-Every installation must be explicitly configured before Work may mutate.
-Configured role and host identity are immutable until an explicit transfer
-ceremony exists. Fleet `hostId → stationInstallationId` bindings are also
-immutable: removal retires the active target but preserves its identity
-tombstone; exact reactivation is allowed, while replacing it with a fresh
-installation requires a new host identity.
-
-Station projections are complete, replace-only canonical portfolio envelopes.
-Their canvas bodies pass the same strict authorial decoder as Command Center
-storage. Malformed, noncanonical, or runtime-work-bearing bodies fail before
-any projection or cursor state is persisted.
-
-Projection identity has its own monotonic sequence. It is not borrowed from
-`canvas_generations`, because fleet topology can change the compiled portfolio
-without changing authorial canvas content. Every version records
-`source_canvas_generation` and `source_intent_sha256` for audit.
-
-Command Center archives an exact compiled version before transport. Remote
-installation inserts that same immutable version and advances
-`station_projection_head` in one transaction. Both roles retain
-`station_projection_versions`; `(generation, content_sha256)` is a unique
-durable witness used for response-loss reconciliation and projected-intent
-fact validation. Replace-only therefore means one active head and no merge,
-not deletion of prior audit history.
-
 ## Independent ticks
 
-Ticks do not synchronize across installations. Each tick operates only on rows
-and schedulers homed locally. Therefore station cadence and phase alignment can
-affect only how soon an update is observed.
+Ticks do not synchronize across machines. Each tick operates only on rows and
+schedulers on its own machine.
 
 `everyMinutes` timers use an explicit coalescing catch-up rule: after a delayed
 or sleeping interval, evaluate at most one firing and advance to the latest due
@@ -426,8 +241,8 @@ Copying the live database, its WAL, its shared-memory file, or the wider
 no restore surface.
 
 Any app-owned backup protects only the current SQLite architecture. It does
-not preserve or restore a retired JSON, manifest, seal, or projection-file
-layout, and it cannot become a compatibility path for one.
+not preserve or restore a JSON, manifest or seal file layout, and it cannot
+become a compatibility path for one.
 
 When the content store holds binary objects, a coherent product unit is the
 StateEngine backup **plus** a content snapshot of every `content_refs` digest
@@ -446,7 +261,7 @@ The following are architectural defects, not compatibility features:
   JSON used as product state;
 - `topology.key`, `topology.seal`, `hosts.key`, or `hosts.seal`;
 - `incoming.frame`, `applied.ack`, drop directories, or SSH file mutation for
-  fleet coordination;
+  coordination between machines;
 - a renderer, CLI, bridge, or helper opening the production database;
 - a concurrent second product opener, per-service SQLite file, or direct
   connection outside `StateEngine`, except for the exact quiesced
@@ -458,32 +273,20 @@ The following are architectural defects, not compatibility features:
 
 A storage change is releasable only when:
 
-1. the whole schema boots on Command Center and Remote;
+1. the whole schema boots on every machine;
 2. one scoped `StateEngine` connection serves all repositories;
-3. canvas commits, work changes, topology changes, projection installs, and
-   ACK advancement are transactionally proven;
-4. linked artifact references prove projected task-sink presence, exact
-   claimed same-home SQLite identity, and publisher/claimant independence;
-5. mailbox and task/request message destinations prove their distinct
-   material residency without inference from `Message.taskId`;
-6. a Remote can continue its local simulation from its database while Command
-   Center is closed;
-7. reconnect retries converge by generation, route cursor, and durable command
-   disposition;
-8. headless and SSH helpers are proven to reach the app rather than the file;
-9. `VACUUM INTO` produces a coherent owner-only backup;
-10. backup inventory and export verify source and copy without providing
-    restore, overwrite, or downgrade;
-11. an older recognized SQLite version migrates in place with representative
-    rows and old column values preserved, while failure rolls back schema,
-    data, identity, and version;
-12. skipped-release fixtures prove the append-only chain from every supported
-    installed version;
-13. destructive SQL and structural contraction are rejected by the migration
-    capability;
-14. sealed candidate-clone preflight proves current repository decoding without
-    starting product runtime planes;
-15. package interruption tests prove a pre-activation failure resumes the
+3. canvas commits and work changes are transactionally proven;
+4. headless and SSH helpers are proven to reach the app rather than the file;
+5. `VACUUM INTO` produces a coherent owner-only backup;
+6. backup inventory and export verify source and copy without providing
+   restore, overwrite, or downgrade;
+7. an older recognized SQLite version migrates in place with representative
+   rows and old column values preserved, while failure rolls back schema,
+   data, identity, and version;
+8. skipped-release fixtures prove the append-only chain from every supported
+   installed version;
+9. sealed candidate-clone preflight proves current repository decoding without
+   starting product runtime planes;
+10. package interruption tests prove a pre-activation failure resumes the
     unchanged incumbent and a post-advance failure never launches the older
-    binary;
-16. repository search finds no retired product-state path.
+    binary.
