@@ -5,7 +5,7 @@ import { FLEET_UI_ENABLED } from "@shared/features";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
-import { loadMachines, machineLabel, thisMachineName } from "../../lib/machines";
+import { loadSetUpMachines, machineLabel, onThisMachine, thisMachineName } from "../../lib/machines";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import {
   actorHostChoicesFromEnrollment,
@@ -103,7 +103,8 @@ export function AgentLaunchContext({
   useEffect(() => {
     if (!FLEET_UI_ENABLED) return;
     let live = true;
-    void loadMachines().then((machines) => {
+    // A new seat can go only where Junto is set up.
+    void loadSetUpMachines().then((machines) => {
       if (!live || machines.length === 0) return;
       const next = actorHostChoicesFromEnrollment(machines, configured);
       setHosts(next);
@@ -199,6 +200,7 @@ export function AgentLaunchContext({
               checked={useRegionDefault}
               disabled={!region || !cwd}
               showRegionHint={!region}
+              machine={onThisMachine(hostId) ? "this machine" : selectedHost.label}
               onToggle={toggleRegionDefault}
               className="mt-0"
             />

@@ -24,12 +24,15 @@ export function RegionDefaultFolderOption({
   checked,
   disabled,
   showRegionHint,
+  machine,
   onToggle,
   className,
 }: {
   readonly checked: boolean;
   readonly disabled: boolean;
   readonly showRegionHint: boolean;
+  /** The machine the folder is on, as a line names it: "this machine", or another machine's label. */
+  readonly machine: string;
   readonly onToggle: (checked: boolean) => void;
   readonly className?: string;
 }) {
@@ -50,7 +53,7 @@ export function RegionDefaultFolderOption({
         onChange={(event) => onToggle(event.target.checked)}
       />
       <span>
-        <span className="block text-ink">Use this folder as region default for this host</span>
+        <span className="block text-ink">Use this folder for the region on {machine}</span>
         {showRegionHint ? (
           <span className="block pt-0.5 text-[10px]">Add a region to set up defaults and shared context</span>
         ) : null}

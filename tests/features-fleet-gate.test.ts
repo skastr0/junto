@@ -30,6 +30,11 @@ describe("Fleet product gate", () => {
     expect(machinesWindow).toContain(
       "if (!__JUNTO_FLEET_UI_ENABLED__) return;",
     );
+    // The canvas reads the machine list through the owner command client, and
+    // only where the machines surface is on: a ship build never loads it.
+    expect(readFileSync("src/renderer/lib/machines.ts", "utf8")).toContain(
+      'if (__JUNTO_FLEET_UI_ENABLED__) {\n    try {\n      const { readMachineList } = await import("./machine-list");',
+    );
     expect(preload).toContain("...(FLEET_UI_ENABLED ? hostsApi : {})");
     // The fleet CLI group, the operator's fleet ops and the fleet doctor are gone.
     expect(cli).not.toMatch(/fleet/iu);

@@ -7,7 +7,7 @@ import { addNode } from "../../lib/mutations";
 import { modelStore } from "../../lib/use-model";
 import { state$ } from "../../lib/state";
 import { openTerminal } from "../../lib/terminal-actions";
-import { loadMachines, machineChoices, thisMachineName, type MachineChoice } from "../../lib/machines";
+import { loadSetUpMachines, machineChoices, thisMachineName, type MachineChoice } from "../../lib/machines";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import { Button, Dialog, FieldLabel, Select } from "../ui";
 
@@ -49,7 +49,8 @@ export function TerminalWizard({
 
   useEffect(() => {
     let live = true;
-    void loadMachines().then((listed) => {
+    // Only a machine that is set up is offered: nothing could start on another.
+    void loadSetUpMachines().then((listed) => {
       if (!live) return;
       const name = thisMachineName();
       // This machine can always run a terminal; another must say it can.

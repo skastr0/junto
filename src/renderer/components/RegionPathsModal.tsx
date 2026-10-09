@@ -7,7 +7,9 @@ import { trimTrailingSlash } from "../lib/directory-picker";
 import {
   loadMachines,
   machineChoices,
+  machineLabelIn,
   useMachines,
+  useSetUpMachines,
   useThisMachineName,
   type MachineChoice,
 } from "../lib/machines";
@@ -36,6 +38,7 @@ export function RegionPathsModal({
   const node = useNodeOf(use$(state$.canvasName), nodeId, "region");
   const thisMachine = useThisMachineName();
   const listed = useMachines();
+  const setUp = useSetUpMachines();
   const storedPaths =
     node?.defaults?.paths;
   const pathsFingerprint = useMemo(
@@ -49,19 +52,19 @@ export function RegionPathsModal({
     [storedPaths],
   );
 
-  /** Every machine that can be given a folder: the listed ones, and any a
-      stored folder still names. */
+  /** Every machine that can be given a folder: the ones that are set up, and
+      any a stored folder still names, which keeps the label it is listed by. */
   const machines = useMemo(() => {
-    const known = machineChoices(listed, thisMachine);
+    const known = machineChoices(setUp, thisMachine);
     const ids = new Set(known.map((machine) => machine.id));
     const stored = Object.keys(storedPaths ?? {})
       .filter((id) => !ids.has(id))
       .sort()
-      .map((id) => ({ id, label: id }));
+      .map((id) => ({ id, label: machineLabelIn(listed, id) }));
     return [...known, ...stored];
     // The fingerprint stands for the stored folders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listed, thisMachine, pathsFingerprint]);
+  }, [listed, setUp, thisMachine, pathsFingerprint]);
   /** Draft folder by machine. */
   const [pathsByHost, setPathsByHost] = useState<Record<string, string>>(() => ({
     ...(storedPaths ?? {}),

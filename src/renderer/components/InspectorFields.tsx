@@ -34,7 +34,7 @@ import { titleOf } from "@shared/model/title";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { Chip, Select } from "./ui";
 import { RegionRules } from "./rules";
-import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
+import { BrowserProfileSelect, MachineSelect } from "./HostPickers";
 
 // ---------------------------------------------------------------------------
 // Canvas physics — capability inventory (read-only) + "limit this key" editor
@@ -220,9 +220,9 @@ export function PageBindingControl({ nodeId }: { readonly nodeId: string }) {
       <div className="inspector-section__label">browser binding</div>
       {FLEET_UI_ENABLED ? (
         <label className="inspector-editor">
-          <span>host</span>
-          <EnrolledHostSelect
-            ariaLabel="Page browser host"
+          <span>machine</span>
+          <MachineSelect
+            ariaLabel="Page browser machine"
             value={host}
             capability="browser"
             onChange={(next) => {
@@ -380,9 +380,9 @@ export function RegionPageDefaultsControl({ nodeId: regionId }: { readonly nodeI
       </label>
       {FLEET_UI_ENABLED ? (
         <label className="inspector-editor">
-          <span>host</span>
-          <EnrolledHostSelect
-            ariaLabel="Region page browser host default"
+          <span>machine</span>
+          <MachineSelect
+            ariaLabel="Region page browser machine default"
             value={pageHost}
             capability="browser"
             onChange={(next) => {

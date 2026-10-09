@@ -7,6 +7,7 @@ import {
   onMachineCommandProgress,
   type MachineCommandRefusal,
 } from "./machine-commands";
+import { readMachineList } from "./machine-list";
 import {
   withInstallStep,
   type MachineCopy,
@@ -14,7 +15,6 @@ import {
   type MachineListItem,
   type MachineRead,
 } from "./machines-view";
-import { state$ } from "./state";
 
 // What the Machines window knows and what it can do. Every read and every
 // action is one owner machine command; the window keeps no fact of its own
@@ -67,7 +67,8 @@ export const checkMachine = async (item: MachineListItem): Promise<void> => {
 export const refreshMachines = async (): Promise<void> => {
   machines$.loading.set(true);
   try {
-    const listed = await machineCommand("machine.list", {});
+    // The pickers on the canvas read the same list, from the same read.
+    const listed = await readMachineList();
     if (!listed.ok) {
       machines$.error.set(listed.message);
       return;
@@ -75,8 +76,6 @@ export const refreshMachines = async (): Promise<void> => {
     const items = listed.data.machines;
     machines$.error.set("");
     machines$.items.set(items);
-    // The pickers on the canvas read the same list.
-    state$.machines.set(items.map((item) => item.machine));
     const names = new Set(items.map((item) => item.machine.id));
     for (const name of Object.keys(machines$.reads.peek())) {
       if (!names.has(name)) machines$.reads[name].delete();

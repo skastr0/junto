@@ -8,6 +8,7 @@ import { defaultSettings, type Settings } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { ActorRef } from "@shared/work-protocol";
 import type { HotbarSlot } from "./hotbar-slots";
+import type { MachineFacts } from "./machines";
 
 export const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
 export const EMPTY_USAGE: UsageState = { snapshots: [] };
@@ -97,6 +98,8 @@ export const state$ = observable({
   /** The machine list as main last reported it (lib/machines.ts). Empty when
       the machines surface is off; this machine's name comes from settings. */
   machines: [] as ReadonlyArray<RemoteHost>,
+  /** By machine name: whether it is set up, from the same read as the list. */
+  machineFacts: {} as Record<string, MachineFacts>,
   /** The Machines window is open. What it shows lives with it (lib/machines-actions.ts). */
   machinesOpen: false,
   digest: null as DigestResult | null,

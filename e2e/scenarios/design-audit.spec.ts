@@ -419,7 +419,7 @@ test("capture every surface for design review", async () => {
     );
     await expect(
       folder.getByRole("checkbox", {
-        name: /use this folder as region default for this host/i,
+        name: /use this folder for the region on this machine/i,
       }),
     ).toBeVisible();
     await shot(page, "20c-agent-folder");
