@@ -355,6 +355,14 @@ together, from one commit of main. `remote-verify` holds the receipts:
 Then run B on the same two machines. No review gate before a run;
 `remote-security` reads the link after the first receipt.
 
+**Standing rule: real machines.** Nothing about machines is done on tests
+alone. A change to the root, the link, the exchange, a seat on another
+machine, the bundle or the install is done when `remote-verify` holds a
+receipt from real machines on a build cut from main: this Mac's Preview and
+the Mac mini always, a Linux machine whenever the change can differ there.
+Every cohort repeats the plain send, the update over a running build and the
+uninstall before anything new is tried on it.
+
 **No Python, anywhere. Operator's order, not open to argument.** A seat is
 its generation credential: one token per occupant generation, issued by main,
 in `JUNTO_WORK_TOKEN` (`docs/cli-harness-identity-qualification.md`). Reading
