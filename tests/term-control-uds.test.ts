@@ -1,3 +1,4 @@
+import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +27,7 @@ const cleanups: Array<() => Promise<void> | void> = [];
 let restoreHarnessBins: () => void = () => undefined;
 
 beforeEach(() => {
+  seedThisMachine();
   // Seat launches resolve their harness against the operator's install dirs and
   // fail closed when it is missing; keep that independent of the host machine.
   restoreHarnessBins = installHermeticHarnessBins();
@@ -46,6 +48,7 @@ afterEach(async () => {
   restoreHarnessBins();
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
+  clearMachines();
 });
 
 const fakeAuthority = () => makeFakeTerminalProcessAuthority(() => ({

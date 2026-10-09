@@ -1,3 +1,4 @@
+import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -76,7 +77,7 @@ const remoteSummary = (
       >
     >,
 ): TerminalSessionSummary => ({
-  hostId: "local",
+  hostId: "studio",
   detached: false,
   createdAt: 1,
   canvasName: "factory",
@@ -85,6 +86,7 @@ const remoteSummary = (
 });
 
 beforeEach(() => {
+  seedThisMachine();
   syntheticEpochs.clear();
   // Seat launches resolve their harness against the operator's install dirs and
   // fail closed when it is missing; keep that independent of the host machine.
@@ -107,6 +109,7 @@ afterEach(async () => {
   restoreHarnessBins();
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
+  clearMachines();
 });
 
 const vacantCommand = (bindingId: string, placement: "local" | "remote") => {

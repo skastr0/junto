@@ -1,3 +1,4 @@
+import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 /**
  * Region environment, resolved and launched. Fakes and temp folders only: a
  * fake source resolver stands in for every store, the canvas is an object in
@@ -117,7 +118,7 @@ describe("resolving a plan", () => {
     const resolved = await makeRegionEnvironmentResolution(fake.resolver, "/home/op").resolve(
       d,
       { seat: "in" },
-      "local",
+      "studio",
     );
     expect(fake.calls).toEqual(["k", "o", "i"]);
     expect(resolved.env).toEqual({ TOKEN: CANARY, A: "inner" });
@@ -138,7 +139,7 @@ describe("resolving a plan", () => {
       { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       { sources: [{ id: "gh", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "tok" }] },
     );
-    await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "local");
+    await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "studio");
     expect(fake.tokens.gh).toEqual({ EXAMPLE_AUTH_TOKEN: CANARY });
   });
 
@@ -154,7 +155,7 @@ describe("resolving a plan", () => {
         sources: [{ id: "gh", kind: "onepassword", name: "GH", ref: "op://v/i/f", tokenFrom: "tok" }],
       },
     );
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "in" }, "studio");
     // The outer token is neither resolved nor offered.
     expect(fake.calls).toEqual(["gh"]);
     expect("gh" in fake.tokens).toBe(true);
@@ -180,7 +181,7 @@ describe("resolving a plan", () => {
       { sources: [keychain("tok", "EXAMPLE_AUTH_TOKEN")] },
       { sources: [keychain("tok2", "T2")] },
     );
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { region: "inner" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { region: "inner" }, "studio");
     expect(
       resolved.report.map((r) => [r.regionLabel, r.regionId, r.sourceId, r.kind, r.names]),
     ).toEqual([
@@ -215,7 +216,7 @@ describe("resolving a plan", () => {
   it("a resolver that throws against its contract fails one source, not the launch", async () => {
     const fake = fakeResolver({ bad: "throw" });
     const d = doc({ sources: [keychain("bad", "B"), { id: "v", kind: "value", name: "A", value: "1" }] });
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "studio");
     expect(resolved.env).toEqual({ A: "1" });
     expect(resolved.report[0]).toMatchObject({ status: "error", names: ["B"], reason: "This source could not be read" });
     expect(JSON.stringify(resolved.report)).not.toContain(CANARY);
@@ -225,7 +226,7 @@ describe("resolving a plan", () => {
   it("a required source that cannot be read sets a refusal", async () => {
     const fake = fakeResolver({});
     const d = doc({ sources: [keychain("k", "TOKEN", { required: true })] });
-    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "local");
+    const resolved = await makeRegionEnvironmentResolution(fake.resolver).resolve(d, { seat: "mid" }, "studio");
     expect(resolved.refusal).toBe("Outer: TOKEN is required and could not be read. Not there");
   });
 
@@ -234,7 +235,7 @@ describe("resolving a plan", () => {
     const resolved = await makeRegionEnvironmentResolution(fakeResolver({}).resolver, "/home/op").resolve(
       d,
       { seat: "mid" },
-      "local",
+      "studio",
     );
     expect(resolved.folders).toEqual(["/home/op/notes", "/srv/shared", "/home/op"]);
   });
@@ -244,9 +245,9 @@ describe("resolving a plan", () => {
     const fake = fakeResolver({ file: ok({ FROM_FILE: "1" }) });
     const d = doc({ sources: [keychain("k", "TOKEN"), { id: "file", kind: "envFile", path: "/x.env" }] });
     const resolution = makeRegionEnvironmentResolution(fake.resolver);
-    const launched = (await resolution.resolve(d, { seat: "mid" }, "local")).record;
+    const launched = (await resolution.resolve(d, { seat: "mid" }, "studio")).record;
     fake.calls.length = 0;
-    const current = await resolution.current(d, { seat: "mid" }, "local");
+    const current = await resolution.current(d, { seat: "mid" }, "studio");
     expect(current).toEqual(launched);
     // Only the file, whose names are not written in the document, was read.
     expect(fake.calls).toEqual(["file"]);
@@ -267,7 +268,7 @@ describe("one service behind every surface", () => {
       service: makeRegionEnvironmentService({
         resolution: makeRegionEnvironmentResolution(fake.resolver, "/home/op"),
         readDoc: async () => d(),
-        hostId: async () => "local",
+        hostId: async () => "studio",
         launchRecord: (bindingId) => running[bindingId],
       }),
     };
@@ -377,6 +378,7 @@ describe("the launch applies it", () => {
   };
 
   beforeEach(() => {
+    seedThisMachine();
     // Generic launch tests own this synthetic variable, independent of host credentials.
     vi.stubEnv("REGION_TEST_VALUE", undefined);
     binDir = mkdtempSync(join(tmpdir(), "junto-region-env-bins-"));
@@ -409,6 +411,7 @@ describe("the launch applies it", () => {
     rmSync(binDir, { recursive: true, force: true });
     setProcessEpochReaderForTests(undefined);
     setProcessIdentityMapForTests(undefined);
+    clearMachines();
   });
 
   const agent = (harness: string) =>
@@ -708,7 +711,7 @@ describe("the launch applies it", () => {
         const service = makeRegionEnvironmentService({
           resolution: makeRegionEnvironmentResolution(fakeResolver({}).resolver, "/home/op"),
           readDoc: async () => doc,
-          hostId: async () => "local",
+          hostId: async () => "studio",
           launchRecord: () => undefined,
         });
         const { fake, router } = routerWith(async (seat) => {
@@ -718,7 +721,7 @@ describe("the launch applies it", () => {
         const node = [...doc.nodes.values()][1]!;
         const summary = await router.create({
           bindingId: "local:term-in",
-          hostId: "local",
+          hostId: "studio",
           canvasName: "regionterm",
           nodeId: node.id,
           seatRect: { x: node.x, y: node.y, width: node.width, height: node.height },

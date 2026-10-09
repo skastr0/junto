@@ -1,3 +1,4 @@
+import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -191,6 +192,7 @@ const releaseFence = (
 });
 
 beforeEach(() => {
+  seedThisMachine();
   setProcessIdentityMapForTests(makeProcessIdentityMap());
   setProcessEpochReaderForTests({
     snapshot: () =>
@@ -207,6 +209,7 @@ afterEach(async () => {
   while (rigs.length > 0) await rigs.pop()!.dispose();
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
+  clearMachines();
 });
 
 describe("terminal maintenance lease", () => {

@@ -1,3 +1,4 @@
+import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import type {
@@ -59,6 +60,7 @@ const makeSyntheticIdentityMap = () => makeProcessIdentityMap({
 });
 
 beforeEach(() => {
+  seedThisMachine();
   syntheticEpochs.clear();
   resetSessionIdStoreForTest();
   // Seat launches resolve their harness against the operator's install dirs and
@@ -88,6 +90,7 @@ afterEach(async () => {
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
   vi.restoreAllMocks();
+  clearMachines();
 });
 
 const hostWith = (

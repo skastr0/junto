@@ -1,3 +1,4 @@
+import { seedThisMachine, clearMachines } from "./support/seed-this-machine";
 /**
  * In-process both-ends actor occupy. No SSH, no network host.
  * Command Center side = ActorSeatOccupy + TermControlClient.
@@ -37,6 +38,7 @@ const actorSpawnIntent = () => ({
 } as const);
 
 beforeEach(() => {
+  seedThisMachine();
   // Seat launches resolve their harness against the operator's install dirs and
   // fail closed when it is missing; keep that independent of the host machine.
   restoreHarnessBins = installHermeticHarnessBins();
@@ -60,6 +62,7 @@ afterEach(async () => {
   __setSessionExistenceHomeForTest(undefined);
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
+  clearMachines();
 });
 
 const startPair = async () => {
