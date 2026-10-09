@@ -68,7 +68,7 @@ import { makeElectronBrowserViewAttachmentTarget } from "./junto/browser/view-ad
 import { makeElectronBrowserReadinessProductPath } from "./junto/browser/readiness-product-path";
 import { makeBrowserProductPathProbe } from "./junto/browser/readiness-probe";
 import { installBrowserProductPathProbe } from "./junto/station-readiness";
-import { findHostById, hostsSnapshot } from "./junto/hosts/snapshot";
+import { findHostById, hostsSnapshot, subscribeHostsSnapshot } from "./junto/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
 import { applyInterfaceScale, followInterfaceScale, refitInterfaceScale } from "./junto/interface-scale";
 import {
@@ -100,7 +100,6 @@ import {
 } from "./junto/canvas-control";
 import { KernelService } from "./junto/kernel/service";
 import { makeEdgeGrantService } from "./junto/browser/edge-grant";
-import { prepareDefaultBrowserStationAdmissionAuthority } from "./junto/browser/station-admission";
 import { configurePeerPidHelperRoots } from "./junto/process-identity";
 import { evaluateSchemaCompatibility } from "./junto/state/schema-version-probe";
 import { runStartupStateFailureDialog } from "./junto/state/startup-state-failure-dialog";
@@ -1719,15 +1718,12 @@ if (packagedSandboxDisablingSwitch !== undefined) {
               return [];
             }
           };
-          const stationAdmission =
-            await prepareDefaultBrowserStationAdmissionAuthority();
           const edgeGrant = makeEdgeGrantService({
             capabilities: composition.registry,
             resolvePageTarget: resolveBrowserPageTarget,
             listCanvasModels,
             station: () => composition.sessions.stationIdentity(),
             admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId),
-            admitStation: stationAdmission.admit,
             // Edge-delete (I10): same destroy path as capability terminate, but
             // keyed by (owner, page-ref) so sibling edges stay live.
             sessions: {
@@ -1737,14 +1733,14 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           });
           let canvasUnsubscribe: (() => void) | undefined;
           let admissionCleanupRan = false;
-          const stationUnsubscribe = stationAdmission.subscribe(() => {
-            edgeGrant.clear();
+          // A change to a host's declared capabilities revokes every grant.
+          const hostsUnsubscribe = subscribeHostsSnapshot((hosts, previous) => {
+            if (JSON.stringify(hosts) !== JSON.stringify(previous)) edgeGrant.clear();
           });
           unsubscribeCanvasEdgeGrants = () => {
             if (admissionCleanupRan) return;
             admissionCleanupRan = true;
-            stationUnsubscribe();
-            stationAdmission.close();
+            hostsUnsubscribe();
             canvasUnsubscribe?.();
             edgeGrant.clear();
           };

@@ -162,10 +162,6 @@ describe("browser edge-grant process-bind dual admit", () => {
     identity?: {
       readonly processMap: ProcessIdentityMap;
       readonly readPeerPid: PeerPidReader;
-      readonly admitStation?: () => Promise<
-        | { readonly ok: true; readonly maxTtlMs?: number }
-        | { readonly ok: false; readonly message: string }
-      >;
     },
   ) => {
     let sessionCounter = 0;
@@ -391,7 +387,6 @@ describe("browser edge-grant process-bind dual admit", () => {
           ? { ok: true, data: { ...TARGET, hostId: "render" } }
           : { ok: false, code: "not_found", message: "missing" },
       station: authority.station,
-      admitStation: async () => ({ ok: true }),
       admitBrowserHost: (hostId) => {
         const host = authority.findHost(hostId);
         return host === undefined
@@ -415,39 +410,6 @@ describe("browser edge-grant process-bind dual admit", () => {
       denial: "not_connected",
     });
     expect(capabilities.stats().activeCapabilities).toBe(0);
-  });
-
-  it("mints only when the Remote caller, document page, and resolved target share its host", async () => {
-    const doc = browserCanvas(true, { agent: "studio", page: "studio" });
-    const capabilities = makeBrowserCapabilityRegistry();
-    registries.push(capabilities);
-    const authority = stationAuthority("studio");
-    const edgeGrant = makeEdgeGrantService({
-      capabilities,
-      listCanvasModels: async () => [{ name: "work", doc: doc }],
-      resolvePageTarget: async (candidate) =>
-        candidate === REF_PAGE
-          ? { ok: true, data: { ...TARGET, hostId: "studio" } }
-          : { ok: false, code: "not_found", message: "missing" },
-      station: authority.station,
-      admitStation: async () => ({ ok: true }),
-      admitBrowserHost: (hostId) => {
-        const host = authority.findHost(hostId);
-        return host === undefined
-          ? {
-              ok: false as const,
-              code: "unsupported_capability" as const,
-              reason: "host-not-registered" as const,
-              message: "missing",
-            }
-          : { ok: true as const, host };
-      },
-    });
-
-    await expect(
-      edgeGrant.admitPrincipal({ agentKey: "local:default" }),
-    ).resolves.toMatchObject({ ok: true, targetCount: 1 });
-    expect(capabilities.stats().activeCapabilities).toBe(1);
   });
 
   it("refuses a resolver result that disagrees with its same-host page node", async () => {
@@ -734,32 +696,6 @@ describe("browser edge-grant process-bind dual admit", () => {
     expect(lease.signal.aborted).toBe(true);
     expect(capabilities.preflight(admission.secret, "pages", admission.expectedPrincipal))
       .toEqual({ ok: false, denial: "unauthorized" });
-    lease.release();
-  });
-
-  it("caps Remote edge authority to the remaining pull freshness", async () => {
-    const doc = browserCanvas(true);
-    const { edgeGrant, capabilities } = makeStack(doc, undefined, {
-      processMap: makeProcessIdentityMap(),
-      readPeerPid: () => process.pid,
-      admitStation: async () => ({ ok: true, maxTtlMs: 5_000 }),
-    });
-    const before = Date.now();
-    const admission = await edgeGrant.admitPrincipal({
-      agentKey: "local:default",
-    });
-    expect(admission.ok).toBe(true);
-    if (!admission.ok) return;
-    const lease = capabilities.authorize(
-      admission.secret,
-      { action: "pages" },
-      {
-        requestId: "00000000-0000-4000-8000-000000000077",
-        expectedPrincipal: admission.expectedPrincipal,
-      },
-    );
-    expect(lease.expiresAt).toBeGreaterThan(before + 3_000);
-    expect(lease.expiresAt).toBeLessThanOrEqual(before + 4_100);
     lease.release();
   });
 

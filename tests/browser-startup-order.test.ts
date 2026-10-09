@@ -41,9 +41,8 @@ describe("browser startup recovery gate", () => {
     expect(grant).toContain(
       "admitBrowserHost: (hostId) => composition.sessions.admitAutomationHost(hostId)",
     );
-    expect(grant).toContain("admitStation: stationAdmission.admit");
     expect(activation).toContain(
-      "const stationUnsubscribe = stationAdmission.subscribe(() =>",
+      "const hostsUnsubscribe = subscribeHostsSnapshot((hosts, previous) =>",
     );
     expect(activation).toContain("edgeGrant.clear()");
   });

@@ -21,7 +21,6 @@ import {
 import type { StationRole } from "@shared/station";
 import { parseNodeRef } from "@shared/node-ref";
 import type { BrowserHostCapabilityAdmission } from "./host-capability";
-import type { BrowserStationAdmissionResult } from "./station-admission";
 import {
   allTargetsLost,
   lostPageTargetsForCaller,
@@ -45,8 +44,6 @@ export interface CanvasChangeDetail {
 export const EDGE_GRANT_TTL_MS = 15 * 60 * 1_000;
 export const EDGE_GRANT_MAX_USES = 4_096;
 export const EDGE_GRANT_MAX_IN_FLIGHT = 8;
-/** Conservative issue-latency guard so registry expiry never crosses pull EOL. */
-export const EDGE_GRANT_STATION_EXPIRY_GUARD_MS = 1_000;
 
 const exactHttpOrigin = (value: string): string | undefined => {
   try {
@@ -149,11 +146,6 @@ export interface EdgeGrantDependencies {
    * still attenuate / revoke but live views are not destroyed here.
    */
   readonly sessions?: EdgeGrantSessionTeardown;
-  /**
-   * Private Remote freshness authority. Omission is accepted only for a local
-   * Command Center; a Remote can never fall through to ambient local state.
-   */
-  readonly admitStation?: () => Promise<BrowserStationAdmissionResult>;
   /** Current model rows from the main-owned service. */
   readonly listCanvasModels: () => Promise<
     ReadonlyArray<{ readonly name: string; readonly doc: Canvas }>
@@ -432,26 +424,6 @@ export const makeEdgeGrantService = (
     return undefined;
   };
 
-  const admitCurrentStation = async (): Promise<BrowserStationAdmissionResult> => {
-    if (dependencies.admitStation !== undefined) {
-      try {
-        return await dependencies.admitStation();
-      } catch {
-        return {
-          ok: false,
-          message: "station browser admission is unavailable",
-        };
-      }
-    }
-    return dependencies.station()?.role === "command-center"
-      ? { ok: true }
-      : {
-          ok: false,
-          message:
-            "Remote browser admission requires a current installed projection witness",
-        };
-  };
-
   const admitPrincipal = async (
     principal: ProcessPrincipal,
   ): Promise<EdgeGrantResult> => {
@@ -519,9 +491,11 @@ export const makeEdgeGrantService = (
     }
     const targetStationDenial = targetsAdmitPhysicalStation(targets);
     if (targetStationDenial !== undefined) return targetStationDenial;
-    const stationAdmission = await admitCurrentStation();
-    if (!stationAdmission.ok) {
-      return fail("station_not_ready", stationAdmission.message);
+    if (dependencies.station()?.role !== "command-center") {
+      return fail(
+        "station_not_ready",
+        "this machine's identity is not ready for browser work",
+      );
     }
     if (
       lastClearSequence > admissionStartedAt ||
@@ -535,22 +509,6 @@ export const makeEdgeGrantService = (
 
     const cacheKey = processKeyOf(principal);
     const now = wallNow();
-    const effectiveTtlMs = Math.min(
-      ttlMs,
-      stationAdmission.maxTtlMs === undefined
-        ? ttlMs
-        : stationAdmission.maxTtlMs -
-            EDGE_GRANT_STATION_EXPIRY_GUARD_MS,
-    );
-    if (
-      !Number.isSafeInteger(effectiveTtlMs) ||
-      effectiveTtlMs <= 0
-    ) {
-      return fail(
-        "station_not_ready",
-        "station browser admission freshness has expired",
-      );
-    }
     const existing = cache.get(cacheKey);
     if (existing !== undefined) {
       if (
@@ -622,7 +580,7 @@ export const makeEdgeGrantService = (
       grant = dependencies.capabilities.issue(capPrincipal, {
         actions: [...BROWSER_CAPABILITY_ACTIONS],
         targets,
-        ttlMs: effectiveTtlMs,
+        ttlMs,
         maxUses: EDGE_GRANT_MAX_USES,
         maxInFlight: EDGE_GRANT_MAX_IN_FLIGHT,
       });
