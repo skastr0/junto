@@ -2,6 +2,7 @@ import { appendFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { signMachineBundle } from "../scripts/sign-machine-bundle.mjs";
@@ -48,9 +49,12 @@ describe("immutable signed machine payloads", () => {
       vi.stubEnv("JUNTO_MAC_TEAM_ID", environment.JUNTO_MAC_TEAM_ID);
       vi.stubEnv("JUNTO_MAC_SIGNING_IDENTITY", environment.JUNTO_MAC_SIGNING_IDENTITY);
       signAsync.mockImplementation(async options => {
-        // Consume the actual osx-sign ignore contract over both target paths.
+        // osx-sign uses instanceof Array in its own realm, while the builder
+        // imports the custom hook through another realm.
+        const signingRealmArray = runInNewContext("Array");
+        const ignores = options.ignore instanceof signingRealmArray ? options.ignore : [options.ignore];
         for (const file of paths) {
-          const ignored = options.ignore.some((entry: (value: string) => boolean) => entry(file));
+          const ignored = ignores.some((entry: unknown) => typeof entry === "function" ? entry(file) : Boolean(file.match(String(entry))));
           expect(ignored).toBe(true);
           if (!ignored) appendFileSync(file, "second signature");
           expect(() => options.optionsForFile(file)).toThrow(/re-sign/);

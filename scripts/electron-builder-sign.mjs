@@ -130,7 +130,9 @@ export default async function signJuntoApp(options) {
     identityValidation: true,
     preAutoEntitlements: false,
     preEmbedProvisioningProfile: false,
-    ignore: [...inheritedIgnore, filePath => isMachinePayloadPath(appPath, filePath)],
+    // osx-sign normalizes with instanceof Array. The builder loads this hook in
+    // another realm, so pass one function rather than an array from this realm.
+    ignore: filePath => isMachinePayloadPath(appPath, filePath) || inheritedIgnore.some(rule => typeof rule === "function" ? rule(filePath) : Boolean(filePath.match(rule))),
     optionsForFile: (filePath) => {
       if (isMachinePayloadPath(appPath, filePath)) throw new Error("app signer attempted to re-sign a sealed machine payload");
       const canonicalFilePath = realpathSync(filePath);
