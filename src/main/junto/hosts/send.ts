@@ -9,6 +9,7 @@ import { Effect, Schema } from "effect";
 import * as NodeStream from "@effect/platform-node/NodeStream";
 import { MachineInstallError, MachineInstallResult, MachineInstallEvent, type MachineSendInput } from "@shared/machine-install";
 import { SshTransport, type SshTarget } from "../ssh";
+import { SshTransferExitError } from "../ssh/service";
 import { receiveMachineBundle } from "../ssh/machine-commands";
 import { inspectMachineBundle } from "./bundle";
 
@@ -16,6 +17,10 @@ const exec = promisify(execFile);
 const installError = (cause:unknown) => new MachineInstallError({message:cause instanceof Error?cause.message:String(cause),retryable:true,disposition:"staged"});
 const uncertainError = (cause:unknown) => new MachineInstallError({message:cause instanceof Error?cause.message:String(cause),retryable:false,disposition:"uncertain"});
 const Success = Schema.Struct({ok:Schema.Literal(true),command:Schema.Literal("machine install-local"),data:MachineInstallResult});
+const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Literal("machine install-local"), error: Schema.Struct({
+  type: Schema.Literal("MachineInstallError"), message: Schema.String.pipe(Schema.check(Schema.isMaxLength(4096))),
+  details: Schema.Struct({ retryable: Schema.Boolean, disposition: MachineInstallError.fields.disposition, transitions: MachineInstallError.fields.transitions }),
+}) });
 
 export const sendMachine = (
   target:SshTarget,
@@ -46,9 +51,10 @@ export const sendMachine = (
   const decoder = new TextDecoder();
   let pending = "";
   let events = 0;
+  const transitions: MachineInstallResult["transitions"][number][] = [];
   let dropped = false;
   const observe = (bytes: Uint8Array): void => {
-    if (onTransition === undefined || events >= 5) return;
+    if (events >= 5) return;
     for (const part of decoder.decode(bytes, { stream: true }).split(/(?<=\n)/)) {
       if (!dropped) pending += part;
       if (pending.length > 8192) { pending = ""; dropped = true; }
@@ -56,13 +62,28 @@ export const sendMachine = (
       if (!dropped) {
         try {
           const event = decodeEvent(JSON.parse(pending));
-          if (event._tag === "Success" && events < 5) { events++; onTransition(event.success); }
+          if (event._tag === "Success" && events < 5) {
+            events++;
+            const { event: _event, juntoHome: _home, installRoot: _root, ...transition } = event.success;
+            transitions.push(transition);
+            onTransition?.(structuredClone(event.success));
+          }
         } catch { /* Ordinary SSH diagnostics are not progress events. */ }
       }
       pending = ""; dropped = false;
     }
   };
-  const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000,observe).pipe(Effect.mapError(uncertainError));
-  const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim()).pipe(Effect.mapError(uncertainError));
+  const transferError = (cause: unknown): MachineInstallError => {
+    if (cause instanceof SshTransferExitError) {
+      const decoded = Schema.decodeUnknownResult(Schema.fromJsonString(Failure), { onExcessProperty: "error" })(cause.stderr.trim().split("\n").at(-1));
+      if (decoded._tag === "Success") return new MachineInstallError({ message: decoded.success.error.message,
+        disposition: decoded.success.error.details.disposition, retryable: false,
+        ...(decoded.success.error.details.transitions === undefined ? {} : { transitions: decoded.success.error.details.transitions }),
+      });
+    }
+    return new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions });
+  };
+  const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000,observe).pipe(Effect.mapError(transferError));
+  const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim(), { onExcessProperty: "error" }).pipe(Effect.mapError(uncertainError));
   return response.data;
 }));

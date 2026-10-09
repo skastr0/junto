@@ -5,9 +5,10 @@ import { Effect, Schema, Stream } from "effect";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
 import { sendMachine } from "../src/main/junto/hosts/send";
-import { parseSshRoute, SshInputError, SshTransport } from "../src/main/junto/ssh";
+import { parseSshEndpoint, parseSshRoute, SshInputError, SshTransport } from "../src/main/junto/ssh";
 import { InstallationId } from "../src/shared/installation-id";
 import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
+import { SshTransferExitError } from "../src/main/junto/ssh/service";
 import * as Command from "effect/unstable/process/ChildProcess";
 
 let root: string;
@@ -17,6 +18,19 @@ beforeEach(async () => {
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
   await chmod(join(root, "bin/node"), 0o755); await chmod(join(root, "bin/junto"), 0o755);
   await writeFile(join(root, "manifest.json"), JSON.stringify({ build: "a".repeat(64), target: "darwin-arm64", node: "26.10.0", appVersion: "1", files: await machineBundleFiles(root) }));
+});
+
+it("preserves a closed installer failure receipt from the chosen SSH account", async () => {
+  const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target" }));
+  const endpoint = await Effect.runPromise(parseSshEndpoint("user@target"));
+  const transitions = [{ step: "selected" as const, build: "a".repeat(64) }];
+  const transport = SshTransport.of({ run: () => Effect.die("unexpected"), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
+    transfer: (program, input) => Stream.runDrain(input).pipe(Effect.andThen(Effect.fail(new SshTransferExitError(endpoint, 1, "", JSON.stringify({ ok: false, command: "machine install-local", error: { type: "MachineInstallError", message: "service did not become ready", details: { disposition: "activated", retryable: false, transitions } } }))))),
+  });
+  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  expect(error.disposition).toBe("activated");
+  expect(error.transitions).toEqual(transitions);
+  expect(error.retryable).toBe(false);
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
