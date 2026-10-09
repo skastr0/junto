@@ -91,6 +91,8 @@ export type ExchangeLinkStatus = {
   readonly copies: ReadonlyArray<{ readonly canvasName: string; readonly canvasId: string; readonly seq: number }>;
   /** The copies that machine would not take, and why. */
   readonly refused: ReadonlyArray<Omit<CopyRefusedFrame, "kind">>;
+  /** Counts on this live link, never a claim of terminal delivery. */
+  readonly rows: ReadonlyArray<{ readonly canvasName: string; readonly sent: number; readonly taken: number }>;
 };
 
 type LinkState = {
@@ -101,6 +103,7 @@ type LinkState = {
   readonly copies: Map<string, { readonly canvasId: string; readonly seq: number }>;
   /** What the peer would not take, by canvas. */
   readonly refused: Map<string, Omit<CopyRefusedFrame, "kind">>;
+  readonly rows: Map<string, { sent: number; taken: number }>;
   readonly turn: Semaphore.Semaphore;
 };
 
@@ -178,6 +181,9 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
             facts,
             through: page.through,
           });
+          const counts = state.rows.get(canvasName) ?? { sent: 0, taken: 0 };
+          counts.sent += facts.length;
+          state.rows.set(canvasName, counts);
           have.set(writer, page.through);
         }
         if (!page.more) return;
@@ -250,6 +256,9 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       const applied = yield* deps.repository
         .applyExchangeRows({ peer, frame, placement: yield* deps.placement(frame.canvasName) })
         .pipe(Effect.mapError(closed));
+      const counts = state.rows.get(frame.canvasName) ?? { sent: 0, taken: 0 };
+      counts.taken += applied.taken;
+      state.rows.set(frame.canvasName, counts);
       for (const mail of applied.mail) deps.mailArrived(mail.canvasName, mail.nodeId, mail.message);
       // Rows taken from one machine go on to the others entitled to them.
       if (applied.taken > 0) yield* committed(frame.canvasName, peer);
@@ -316,6 +325,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
           have: new Map(),
           copies: new Map(),
           refused: new Map(),
+          rows: new Map(),
           turn: Semaphore.makeUnsafe(1),
         };
         links.set(link.peer, state);
@@ -334,6 +344,29 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
     committed: (canvasName: string) => committed(canvasName),
     /** Is a link open to that machine right now. */
     linked: (peer: InstallationId): boolean => links.has(peer),
+    /** Whether entitled rows have not yet been handed to this live link. */
+    waiting: (canvasName: string, peer: InstallationId): Effect.Effect<boolean, ExchangeClosed> => Effect.gen(function* () {
+      const state = links.get(peer);
+      if (state === undefined) return true;
+      const placement = yield* deps.placement(canvasName);
+      if (placement === undefined || !placement.holds(peer)) return false;
+      const have = state.have.get(canvasName);
+      if (have === undefined) return true;
+      const writers = placement.editor === deps.self
+        ? [...new Set([deps.self, ...(yield* deps.repository.exchangeWriters(canvasName).pipe(Effect.mapError(closed)))])]
+        : [deps.self];
+      for (const writer of writers) {
+        if (writer === peer) continue;
+        let after = have.get(writer) ?? "0";
+        for (;;) {
+          const page = yield* deps.repository.exchangeRows({ canvasName, writer, after, limit: EXCHANGE_MAX_FACTS_PER_FRAME }).pipe(Effect.mapError(closed));
+          if (page.rows.some(row => entitledTo(peer, row.fact, placement, row.mailAuthorNodeId))) return true;
+          if (!page.more) break;
+          after = page.through;
+        }
+      }
+      return false;
+    }),
     status: (): ReadonlyArray<ExchangeLinkStatus> =>
       [...links.values()].map((state) => ({
         peer: state.link.peer,
@@ -342,6 +375,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         ),
         copies: [...state.copies].map(([canvasName, sent]) => ({ canvasName, ...sent })),
         refused: [...state.refused.values()],
+        rows: [...state.rows].map(([canvasName, counts]) => ({ canvasName, ...counts })),
       })),
   };
 };

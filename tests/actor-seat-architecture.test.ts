@@ -6,14 +6,19 @@ const source = (relative: string): string =>
 
 describe("actor seat production architecture", () => {
   it("roots expose the actor WHEN without exposing a process HOW", () => {
-    for (const path of ["src/main/runtime.ts", "src/main/remote-runtime.ts"]) {
+    for (const path of ["src/main/core-product.ts", "src/main/remote-runtime.ts"]) {
       const root = source(path);
       expect(root, path).toContain("ActorSeatOccupyLive");
       expect(root, path).toMatch(
-        /Layer\.provideMerge\(\s*ActorSeatOccupyLive,\s*BaseWithPauseLive,\s*\)/u,
+        /Layer\.provideMerge\(\s*ActorSeatOccupyLive,\s*(?:BaseWithPauseLive|pause),?\s*\)/u,
       );
       expect(root, path).not.toContain("TerminalSeatProcess");
     }
+    for (const path of ["src/main/runtime.ts", "src/main/core-runtime.ts"]) {
+      expect(source(path), path).toContain("makeMachineCoreLayer");
+      expect(source(path), path).not.toContain("TerminalSeatProcess");
+    }
+    expect(source("src/main/core-runtime.ts")).toContain("makeCoreProductLayer(options.home)");
   });
 
   it("keeps mutable machine identity and router glue in the live adapter", () => {

@@ -1,22 +1,25 @@
-import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import {
   MachinePeerStatus,
   type MachineHarnesses,
   type MachineOwnStatus,
 } from "@shared/machine-control";
-import { makeStateEngineLive } from "./junto/state/engine";
-import { MachineRepository, MachineRepositoryLive } from "./junto/machines/repository";
-import { HostRegistryRows } from "./junto/hosts/registry";
-import { HostsService, HostsServiceLive } from "./junto/hosts/service";
+import { MachineRepository } from "./junto/machines/repository";
+import { HostsService } from "./junto/hosts/service";
 import { detectMachineForm } from "./junto/hosts/machine-form";
 import { makeMachineCopy, type MachineCopyOptions } from "./junto/hosts/machine-copy";
 import { MachineOwnerControl, makeMachineOwnerActions } from "./junto/hosts/machine-owner";
-import { SshTransportLive } from "./junto/ssh";
+import { makeCoreProductLayer } from "./core-product";
 import { MachineLink } from "./junto/link/service";
 import { machineLinkLayer } from "./junto/link/live";
 import type { LinkChannelHandler } from "./junto/link/types";
 import { probeManagedHarnessInstalls } from "./junto/term/templates/harness-install";
+import { makeRowsChannel } from "./junto/work/exchange/channel";
+import { followLocalCommits, makeLiveRowExchange } from "./junto/work/exchange/live";
+import type { RowExchange } from "./junto/work/exchange/session";
+import { messageDelivery } from "./junto/work/message-delivery";
+import { makeMachineExchangeQuery } from "./junto/work/exchange/queries";
+import { OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse } from "@shared/operator-control";
 
 export interface MachineCoreOptions {
   readonly home: string;
@@ -33,6 +36,29 @@ export class MachineCoreStatus extends Context.Service<MachineCoreStatus, {
   readonly harnesses: Effect.Effect<MachineHarnesses, unknown>;
   readonly handler: LinkChannelHandler;
 }>()("@junto/MachineCoreStatus") {}
+
+export class MachineCoreRows extends Context.Service<MachineCoreRows, {
+  readonly exchange: RowExchange;
+  readonly handler: LinkChannelHandler;
+}>()("@junto/MachineCoreRows") {}
+
+const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* () {
+  const machines = yield* MachineRepository;
+  const links = yield* MachineLink;
+  const context = yield* Effect.context<never>();
+  const exchange = yield* makeLiveRowExchange({
+    mailArrived: (canvas, nodeId, message) => messageDelivery.notifyAppended(canvas, nodeId, message),
+    linkFailed: (peer) => {
+      void Effect.runPromiseWith(context)(Effect.gen(function* () {
+        const machine = (yield* machines.peers).find(machine => machine.installationId === peer);
+        if (machine !== undefined) yield* links.disconnect(machine.machineName);
+      })).catch(() => undefined);
+    },
+  });
+  const stopFollowing = yield* followLocalCommits(exchange);
+  yield* Effect.addFinalizer(() => Effect.sync(stopFollowing));
+  return { exchange, handler: makeRowsChannel(exchange) };
+}));
 
 export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.effect(MachineCoreStatus, Effect.gen(function* () {
   const machines = yield* MachineRepository;
@@ -71,14 +97,17 @@ export const machineCoreStatusLayer = (options: MachineCoreOptions) => Layer.eff
 export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const links = machineLinkLayer(options.build);
   const status = Layer.provideMerge(machineCoreStatusLayer(options), links);
+  const rows = Layer.provideMerge(machineCoreRowsLayer, status);
   const owner = Layer.effect(MachineOwnerControl, Effect.gen(function* () {
     const link = yield* MachineLink;
     const machineStatus = yield* MachineCoreStatus;
+    const rows = yield* MachineCoreRows;
+    const exchangeQuery = yield* makeMachineExchangeQuery(rows.exchange);
     const hostsService = yield* HostsService;
     const machines = yield* MachineRepository;
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
-    return yield* makeMachineOwnerActions({
+    const actions = yield* makeMachineOwnerActions({
       ownStatus: machineStatus.own,
       ownHarnesses: machineStatus.harnesses,
       peerBuild: link.peerBuild,
@@ -96,17 +125,25 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
         );
       }),
     });
+    return MachineOwnerControl.of({ dispatch: (request, onTransition) => request.op !== "machine.exchange"
+      ? actions.dispatch(request, onTransition)
+      : exchangeQuery(request.args).pipe(
+        Effect.map(data => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: "machine.exchange" as const, ok: true as const, data })),
+        Effect.flatMap(response => {
+          const decoded = decodeOperatorResponse(response);
+          return decoded._tag === "Success" ? Effect.succeed(decoded.success) : Effect.fail(new Error("Exchange status exceeds its contract"));
+        }),
+        Effect.catch(() => Effect.succeed({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op,
+          ok: false as const, error: { type: "io" as const, message: "Could not read machine exchange state", details: { retryable: true } } })),
+      ),
+    });
   }));
-  return Layer.provideMerge(owner, status);
+  return Layer.provideMerge(owner, rows);
 };
 
 /** One StateEngine reference feeds identity, registry, link and owner commands. */
 export const makeMachineCoreLayer = (options: MachineCoreOptions) => {
-  const state = makeStateEngineLive(join(options.home, ".junto", "state", "junto.db"));
-  const identity = Layer.provideMerge(MachineRepositoryLive, state);
-  const registry = Layer.provideMerge(HostRegistryRows.layer, identity);
-  const hosts = Layer.provideMerge(HostsServiceLive, Layer.mergeAll(registry, SshTransportLive));
-  return Layer.provideMerge(makeMachineServicesLayer(options), hosts);
+  return Layer.provideMerge(makeMachineServicesLayer(options), makeCoreProductLayer(options.home));
 };
 
 export const makeCoreRuntime = (options: MachineCoreOptions) => ManagedRuntime.make(makeMachineCoreLayer(options));

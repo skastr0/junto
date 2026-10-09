@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { join } from "node:path";
 import type { MachineCoreOptions } from "../core-runtime";
 import { makeCoreRuntime } from "../core-runtime";
-import { MachineCoreStatus } from "../core-runtime";
+import { MachineCoreStatus, MachineCoreRows } from "../core-runtime";
 import { MachineOwnerControl } from "./hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./link/service";
 import { startOperatorControlServer, type OperatorControlServer } from "./operator-control";
@@ -44,8 +44,8 @@ export const startCore = async (options: CoreOptions) => {
     return closeFlight;
   };
   try {
-    const [actions, link, status] = await runtime.runPromise(Effect.all([MachineOwnerControl, MachineLink, MachineCoreStatus]));
-    await runtime.runPromise(link.setChannels({ status: status.handler }));
+    const [actions, link, status, rows] = await runtime.runPromise(Effect.all([MachineOwnerControl, MachineLink, MachineCoreStatus, MachineCoreRows]));
+    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler }));
     listener = await runtime.runPromise(link.listen(options.home));
     owner = await startOperatorControlServer({ home: options.home, dispatch: (request) => runtime.runPromise(actions.dispatch(request)) });
     admitted = true;

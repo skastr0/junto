@@ -169,7 +169,9 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       clearTimeout(helloTimer);
       resolveReady(peer);
       const ctx = context();
-      for (const channel of Object.values(channels)) if (channel?.opened !== undefined) void runOwned(channel.opened(ctx)).catch(cause => finish(cause));
+      for (const [name, channel] of Object.entries(channels)) if (channel?.opened !== undefined) {
+        enqueue(name as LinkChannel, async () => { await checkAdmission(); await runOwned(channel.opened!(ctx)); });
+      }
       return;
     }
     if (frame.type === "hello") throw new MachineLinkError("Link hello cannot be repeated");

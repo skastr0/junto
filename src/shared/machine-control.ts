@@ -4,6 +4,7 @@ import { MachineAbsolutePath, type MachineInstallResult } from "./machine-instal
 import { RemoteHost, HostLabel, HostSshEndpoint } from "./remote-hosts";
 import { HarnessId } from "./managed-terminal-templates";
 import { isValidMachineName } from "./machine-identity";
+import type { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
 export const MachineBuild = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/)));
@@ -68,7 +69,7 @@ export const MachineEmptyInput = Schema.Struct({});
 
 export const MachineOpName = Schema.Literals([
   "machine.add", "machine.list", "machine.send", "machine.status", "machine.update",
-  "machine.remove", "machine.harnesses", "machine.configure", "machine.setup",
+  "machine.remove", "machine.harnesses", "machine.configure", "machine.setup", "machine.exchange",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -81,6 +82,7 @@ export interface MachineArgsByOp {
   readonly "machine.harnesses": MachineStatusInput;
   readonly "machine.configure": MachineTargetInput;
   readonly "machine.setup": MachinePeerIdentity;
+  readonly "machine.exchange": MachineExchangeInput;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -92,4 +94,5 @@ export interface MachineDataByOp {
   readonly "machine.harnesses": MachineHarnesses;
   readonly "machine.configure": typeof MachineConfigured.Type;
   readonly "machine.setup": MachinePeerPin;
+  readonly "machine.exchange": MachineExchangeData;
 }

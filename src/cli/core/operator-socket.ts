@@ -93,7 +93,7 @@ const ndjsonCall = (
           new WireError({
             type: "ProtocolError",
             message: `operator request timed out after ${timeoutMs}ms`,
-            details: { retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" || request.op.startsWith("companion.") },
+            details: { retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" || request.op === "machine.exchange" || request.op.startsWith("companion.") },
           }),
         ),
       );

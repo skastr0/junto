@@ -6,6 +6,7 @@ import {
 } from "@shared/machine-control";
 import type { OperatorArgsByOp } from "@shared/operator-control";
 import { OperatorSocket } from "../core/operator-socket";
+import { MachineExchangeInput } from "@shared/machine-exchange";
 import { MachineInstallInput, MachineLocalPaths } from "@shared/machine-install";
 import { installMachine } from "../../main/junto/hosts/install";
 import { uninstallMachine } from "../../main/junto/hosts/uninstall";
@@ -43,5 +44,6 @@ export const machineCommand = Command.make("machine").pipe(
     ownerCommand("harnesses", "machine.harnesses", MachineStatusInput),
     ownerCommand("configure", "machine.configure", MachineTargetInput),
     ownerCommand("setup", "machine.setup", MachinePeerIdentity),
+    ownerCommand("exchange", "machine.exchange", MachineExchangeInput),
   ]),
 );

@@ -1,4 +1,3 @@
-import { CanvasControlQueries } from "./junto/canvas-control/queries";
 import { installCoreRunner } from "./core-runner";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -6,7 +5,7 @@ import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { ObservabilityLoggerLive } from "./junto/observability";
 import { resolveJuntoHome } from "@shared/junto-home";
-import { makeMachineServicesLayer } from "./core-runtime";
+import { makeMachineCoreLayer } from "./core-runtime";
 import { runningBuildIdentity } from "./junto/build-identity";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
@@ -15,45 +14,17 @@ import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
 import { ModelService } from "./junto/model/service";
-import { ChatServiceFromHermesLive, HermesPlaneLive } from "./junto/hermes/plane";
-import { HermesTransportLive } from "./junto/hermes/transport";
-import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
 import { termPlane } from "./junto/term/plane";
 import {
   assessNativeTerminalDoctor,
   probeNativeTerminalReadiness,
 } from "./junto/term/native-readiness";
-import { KernelLive, KernelService } from "./junto/kernel/service";
-import { KernelStateRepositoryLive } from "./junto/kernel/repository";
-import { PausePlaneLaunchPlayingLive } from "./junto/pause-plane";
-import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
-import { AgentSignalRepositoryLive } from "./junto/signals/repository";
-import { PortraitOverrideRepositoryLive } from "./junto/portraits/repository";
-import { CompanionDeviceRepositoryLive } from "./junto/companion/repository";
-import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
-import { SquadRepositoryLive } from "./junto/squads/repository";
-import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
-import { ReferencesRepositoryLive } from "./junto/references/repository";
-import { ReferencesFollowCanvasLive } from "./junto/references/follow-canvas";
-import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
-import { ProfileRepositoryLive } from "./junto/profiles/repository";
-import { WorkLive } from "./junto/work/service";
-import { WorkRevisionsLive, WorkRepositoryLive } from "./junto/work/repository";
-import { CrewRepositoryLive } from "./junto/work/crew-repository";
-import { makeContentServiceLive } from "./junto/content/service";
-import { InstallOpsLive } from "./junto/install-ops/engine";
-import { SettingsLive, SettingsService } from "./junto/settings/service";
-import { SnapshotsLive, SnapshotsService } from "./junto/snapshots";
-import { UsageLive } from "./junto/usage/live";
+import { KernelService } from "./junto/kernel/service";
+import { SettingsService } from "./junto/settings/service";
+import { SnapshotsService } from "./junto/snapshots";
 import { UsageService } from "./junto/usage/usage-service";
-import { HostsService, HostsServiceLive } from "./junto/hosts";
-import { HostRegistryRows } from "./junto/hosts/registry";
-import { SshTransportLive } from "./junto/ssh";
+import { HostsService } from "./junto/hosts";
 import { primeHostsSnapshot } from "./junto/hosts/snapshot";
-import { StateEngineLive } from "./junto/state/engine";
-import { MachineRepositoryLive } from "./junto/machines/repository";
-import { WorkModelDependentsLive } from "./junto/work/model-dependents";
-import { ModelLive } from "./junto/model/layer";
 import {
   deferredUpdateHostHooks,
   installUpdateProviderHandle,
@@ -62,71 +33,6 @@ import {
   makePlatformUpdateProvider,
   makeUpdateServiceLayer,
 } from "./junto/update";
-
-// Keep this exact layer value as the sole database owner in the runtime graph.
-// Effect memoizes layers by reference, so every repository below receives the
-// same scoped StateEngine connection even when the composed layers are reused
-// by more than one product plane.
-// Product StateEngine + install-ops (backfill ledger) are co-owned at this
-// boundary. ContentService needs both; install-ops.db is never product state.
-const StateRepositoriesLive = Layer.provideMerge(
-  Layer.mergeAll(
-    KernelStateRepositoryLive,
-    FactoryPauseRepositoryLive,
-    AgentSignalRepositoryLive,
-    PortraitOverrideRepositoryLive,
-    CompanionDeviceRepositoryLive,
-    WorkRepositoryLive,
-    WorkRevisionsLive,
-    CrewRepositoryLive,
-    SquadRepositoryLive,
-    SeatGuidanceRepositoryLive,
-    Layer.provideMerge(ReferencesFollowCanvasLive, ReferencesRepositoryLive),
-    SeatSessionRepositoryLive,
-    ProfileRepositoryLive,
-    // The usage plane reads operator provider credentials from settings, so
-    // the memoized SettingsService instance feeds it here (same reference).
-    Layer.provideMerge(UsageLive, SettingsLive),
-    SettingsLive,
-    SchedulerRepositoryLive,
-    MachineRepositoryLive,
-    makeContentServiceLive(),
-  ),
-  Layer.provideMerge(Layer.provide(ModelLive, WorkModelDependentsLive), Layer.mergeAll(StateEngineLive, InstallOpsLive)),
-);
-
-// The registry and SSH share the same product repositories.
-const HostsWithSshLive = Layer.provideMerge(
-  HostsServiceLive,
-  Layer.mergeAll(
-    SshTransportLive,
-    Layer.provideMerge(HostRegistryRows.layer, StateRepositoriesLive),
-  ),
-);
-
-// HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
-// Making that complete input feed the host-aware transports is the boot-order
-// barrier: no Hermes plane can construct before synchronous routing has
-// the persisted host inventory.
-const ProductTransportsLive = Layer.provideMerge(
-  HermesTransportLive,
-  HostsWithSshLive,
-);
-
-export const ProductPlanesLive = Layer.provideMerge(
-  HermesPlaneLive,
-  ProductTransportsLive,
-);
-
-const ProductPlanesWithChatLive = Layer.provideMerge(
-  ChatServiceFromHermesLive,
-  ProductPlanesLive,
-);
-
-const SnapshotsWithProductsLive = Layer.provideMerge(
-  SnapshotsLive,
-  ProductPlanesWithChatLive,
-);
 
 // UpdateService joins this ManagedRuntime — never a second runtime.
 // Host quiesce/relaunch hooks are late-bound from main/index after boot.
@@ -159,33 +65,6 @@ const UpdateServiceLive = Layer.unwrap(
   }),
 );
 
-const BaseLayer = Layer.mergeAll(
-  AppInfoLive,
-  CodexLive,
-  SnapshotsWithProductsLive,
-  HostsWithSshLive,
-  UpdateServiceLive,
-);
-
-// Pause plane sits between the base services and the acting planes so the
-// kernel, work control, and IPC all share ONE born-paused switch instance.
-// Every canvas played before comes back playing (pause-plane.ts LAUNCH).
-const BaseWithPauseLive = Layer.provideMerge(PausePlaneLaunchPlayingLive, BaseLayer);
-
-// The base provides this machine identity to the per-call actor admission while
-// retaining ActorSeatOccupy as a root service for KernelLive and other ingress.
-const BaseWithActorSeatOccupyLive = Layer.provideMerge(
-  ActorSeatOccupyLive,
-  BaseWithPauseLive,
-);
-
-const KernelWithWorkLive = Layer.provideMerge(KernelLive, WorkLive);
-
-const ProductRootLayer = Layer.provideMerge(
-  Layer.mergeAll(KernelWithWorkLive, CanvasControlQueries.layer),
-  BaseWithActorSeatOccupyLive,
-);
-
 let machineControlReady = (): boolean => false;
 export const setMachineControlReadiness = (ready: () => boolean): void => {
   machineControlReady = ready;
@@ -193,7 +72,7 @@ export const setMachineControlReadiness = (ready: () => boolean): void => {
 
 const MachineServicesLive = Layer.unwrap(Effect.sync(() => {
   const root = app.isPackaged ? join(process.resourcesPath, "machines") : join(app.getAppPath(), "dist", "machines");
-  return makeMachineServicesLayer({
+  return makeMachineCoreLayer({
     home: resolveJuntoHome(), build: runningBuildIdentity(), ready: () => machineControlReady(),
     bundles: Object.fromEntries(["darwin-arm64", "linux-x64"].flatMap(target => {
       const path = join(root, target);
@@ -202,10 +81,10 @@ const MachineServicesLive = Layer.unwrap(Effect.sync(() => {
   });
 }));
 
-export const RootLayer = Layer.provideMerge(MachineServicesLive, ProductRootLayer);
+export const RootLayer = MachineServicesLive;
 
 // The product owns one warm runtime and disposes it on shutdown.
-const AppLayer = Layer.mergeAll(RootLayer, ObservabilityLoggerLive);
+const AppLayer = Layer.mergeAll(RootLayer, AppInfoLive, CodexLive, UpdateServiceLive, ObservabilityLoggerLive);
 export const AppRuntime = ManagedRuntime.make(AppLayer);
 installCoreRunner(AppRuntime);
 

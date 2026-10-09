@@ -1812,17 +1812,14 @@ export const registerJuntoIpc = (): void => {
                     const canvas = yield* model.canvas(canvasName);
                     const node = canvas.nodes.get(asNodeId(nodeId));
                     const surface = node?.kind === "agent" ? {
-                      bindingId: node.bindingId, hostId: node.host,
+                      bindingId: node.bindingId,
                     } : undefined;
-                    if (
-                      surface === undefined ||
-                      !termPlane.router.isLocalHostId(surface.hostId)
-                    ) {
+                    if (surface === undefined) {
                       return {
                         ok: false as const,
                         code: "invalid" as const,
                         message:
-                          "Immediate prompts require a local managed seat",
+                          "Choose an agent seat for this message",
                       };
                     }
                     if (surface.bindingId !== bindingId) {
