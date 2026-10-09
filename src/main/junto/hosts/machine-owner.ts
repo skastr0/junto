@@ -1,11 +1,11 @@
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
   OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse,
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,
 } from "@shared/operator-control";
-import type { MachineOwnStatus, MachinePeerStatus, MachineHarnesses, MachineCopyInput } from "@shared/machine-control";
-import type { MachineInstallResult } from "@shared/machine-install";
+import { MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
+import { MachineInstallError, type MachineInstallResult } from "@shared/machine-install";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { MachineRepository } from "../machines/repository";
 import { StateTransactionOperation } from "../state/service";
@@ -38,7 +38,9 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     yield* other(name);
     const pin = yield* machines.peer(name);
     if (pin === undefined) return { machineName: name, reachable: false, harnesses: [], missingSecrets: [], detail: "Set up this machine first" } satisfies MachinePeerStatus;
-    const status = yield* options.peerStatus(name);
+    const status = yield* options.peerStatus(name).pipe(Effect.flatMap(value =>
+      Schema.decodeUnknownEffect(MachinePeerStatus, { onExcessProperty: "error" })(value)),
+      Effect.mapError(() => new RemoteHostsError("validation", "machine status did not match the peer contract")));
     if (status.machineName !== name || (status.installationId !== undefined && status.installationId !== pin.installationId)) {
       return yield* Effect.fail(new RemoteHostsError("conflict", "machine status does not match its setup binding"));
     }
@@ -94,16 +96,16 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args);
       case "machine.remove": {
         const name = request.args.name;
-        yield* sql.withTransaction(Effect.gen(function* () {
+        yield* Effect.uninterruptible(sql.withTransaction(Effect.gen(function* () {
           const current = yield* rows.read;
           const host = current.hosts.find(row => row.id === name);
           if (host === undefined) return yield* Effect.fail(notFound(name));
           if (host.isThisMachine) return yield* Effect.fail(new RemoteHostsError("conflict", "cannot remove this machine"));
           yield* machines.retirePeer(name);
           yield* rows.delete(name);
-        })).pipe(Effect.provideService(StateTransactionOperation, "machine.remove"));
+        })).pipe(Effect.provideService(StateTransactionOperation, "machine.remove"),
+          Effect.tap(() => options.disconnect(name))));
         yield* hosts.list;
-        yield* options.disconnect(name);
         return { machineName: name, removed: true };
       }
       default: return yield* Effect.fail(new RemoteHostsError("validation", "unsupported machine operation"));
@@ -120,7 +122,13 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       Effect.catch(cause => Effect.succeed({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
         error: { type: cause instanceof RemoteHostsError ? cause.code : "io",
           message: cause instanceof Error ? (cause.message.includes("pinned to another installation") ? `${cause.message}; choose another name` : cause.message).slice(0, 4096) : "machine operation failed",
-          details: { retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" } },
+          details: {
+            retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses",
+            ...(cause instanceof MachineInstallError ? {
+              disposition: cause.disposition,
+              ...(cause.transitions === undefined ? {} : { transitions: cause.transitions }),
+            } : {}),
+          } },
       } as const)),
     ),
   } satisfies MachineOwnerActions;

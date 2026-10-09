@@ -13,7 +13,7 @@ import {
   MachineListData, MachineStatusData, MachineRemoved, MachineHarnesses,
   type MachineArgsByOp, type MachineDataByOp,
 } from "./machine-control";
-import { MachineInstallResult } from "./machine-install";
+import { MachineInstallResult, MachineInstallError } from "./machine-install";
 import { RemoteHost } from "./remote-hosts";
 
 /** Owner-local control, admitted by OS peer ancestry rather than seat tokens. */
@@ -194,6 +194,8 @@ export const OperatorErrorBody = Schema.Struct({
     path: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(128)))),
     next_step: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(1_024)))),
     retryable: Schema.optionalKey(Schema.Boolean),
+    disposition: Schema.optionalKey(MachineInstallError.fields.disposition),
+    transitions: MachineInstallError.fields.transitions,
   })),
 });
 export type OperatorErrorBody = typeof OperatorErrorBody.Type;
