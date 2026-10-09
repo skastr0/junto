@@ -35,7 +35,14 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
   const compiler = createSshProgramCompiler({ controlDir: "/tmp/junto-copy-test", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} });
   let ownId = "";
   const transport = SshTransport.of({
-    run: () => Effect.sync(() => { calls.push("platform"); return { stdout: options.platform ?? "Darwin arm64\n", stderr: "" }; }),
+    run: program => Effect.sync(() => {
+      const command = compiler.oneShot(program).command;
+      if (!Command.isStandardCommand(command)) throw new Error("expected argv command");
+      if (command.args.at(-1)!.includes("junto-preflight")) {
+        calls.push("preflight"); return { stdout: "ready\n", stderr: "" };
+      }
+      calls.push("platform"); return { stdout: options.platform ?? "Darwin arm64\n", stderr: "" };
+    }),
     transfer: (program, input) => Effect.gen(function* () {
       yield* Stream.runDrain(input);
       const command = compiler.stream(program).command;
@@ -71,7 +78,7 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
 it("installs and configures before binding through the checked first hello", async () => {
   const f = await fixture();
   expect((await f.copy("send")).installationId).toBe(f.receipt.installationId);
-  expect(f.calls).toEqual(["platform", "disconnect", "install", "configure", "setup", "location", "hello"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "setup", "location", "hello"]);
   expect((await f.runtime.runPromise(f.repository.peer("mini")))?.installationId).toBe(f.receipt.installationId);
 });
 
@@ -79,7 +86,7 @@ it("updates an active pin without configuring or reviving a binding", async () =
   const f = await fixture();
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
   await f.copy("update");
-  expect(f.calls).toEqual(["platform", "disconnect", "install", "location", "connect"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect"]);
 });
 
 it("refuses update without setup before touching the target", async () => {

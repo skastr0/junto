@@ -24,7 +24,7 @@ it("preserves a closed installer failure receipt from the chosen SSH account", a
   const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target" }));
   const endpoint = await Effect.runPromise(parseSshEndpoint("user@target"));
   const transitions = [{ step: "selected" as const, build: "a".repeat(64) }];
-  const transport = SshTransport.of({ run: () => Effect.die("unexpected"), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
+  const transport = SshTransport.of({ run: () => Effect.succeed({ stdout: "ready\n", stderr: "" }), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
     transfer: (program, input) => Stream.runDrain(input).pipe(Effect.andThen(Effect.fail(new SshTransferExitError(endpoint, 1, "", JSON.stringify({ ok: false, command: "machine install-local", error: { type: "MachineInstallError", message: "service did not become ready", details: { disposition: "activated", retryable: false, transitions } } }))))),
   });
   const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
@@ -36,7 +36,7 @@ it("preserves a closed installer failure receipt from the chosen SSH account", a
 it("retains observed selection when a successful transfer has a malformed final response", async () => {
   const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target" }));
   const transition = { step: "selected" as const, build: "a".repeat(64) };
-  const transport = SshTransport.of({ run: () => Effect.die("unexpected"), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
+  const transport = SshTransport.of({ run: () => Effect.succeed({ stdout: "ready\n", stderr: "" }), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
     transfer: (_program, input, _timeout, onStderr) => Stream.runDrain(input).pipe(Effect.andThen(Effect.sync(() => {
       onStderr?.(new TextEncoder().encode(JSON.stringify({ event: "machine-install", juntoHome: "/home/probe", installRoot: "/home/probe/install", ...transition }) + "\n"));
       return { stdout: "not a JSON receipt", stderr: "" };
@@ -49,13 +49,28 @@ it("retains observed selection when a successful transfer has a malformed final 
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
+it("reports all failed preflight checks before any archive bytes are transferred", async () => {
+  const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target" }));
+  const problems = "Cannot send Junto:\n- Install Python 3\n- Make the install folder writable\nFix these problems, then send again.\n";
+  let transferred = false;
+  const transport = SshTransport.of({
+    run: () => Effect.succeed({ stdout: problems, stderr: "" }),
+    transfer: () => { transferred = true; return Effect.die("must not transfer"); },
+    connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
+  });
+  const error = await Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.flip));
+  expect(error.message).toBe(problems.trim());
+  expect(error.disposition).toBe("staged");
+  expect(transferred).toBe(false);
+});
+
 it("sends only install selections and retains nonretryable transfer uncertainty", async () => {
   const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target", port: 19049, knownHostsFile: "/tmp/operator-pin", hostKeyAlias: "sandbox-one" }));
   let remoteText = "";
   let copiedBytes = 0;
   const observed: unknown[] = [];
   const transport = SshTransport.of({
-    run: () => Effect.die("unexpected one-shot"),
+    run: () => Effect.succeed({ stdout: "ready\n", stderr: "" }),
     connect: () => Effect.die("unexpected link"),
     forward: () => Effect.die("unexpected forwarding"),
     warm: () => Effect.void, teardown: () => Effect.void,
