@@ -23,6 +23,7 @@ import {
   machineForm,
   machineHarnesses,
   machineMissingSecrets,
+  machineNamed,
   machineStepLines,
   machineSummary,
   machinesNeedingAttention,
@@ -148,6 +149,8 @@ function MachineDetail({
   const label = labelOf(item);
   const condition = machineCondition(item, read, copy);
   const summary = machineSummary(item, read, copy, placed);
+  // "This machine" only ever means the one the window runs on.
+  const where = machineNamed(item);
   const steps = machineStepLines(copy);
   const harnesses = machineHarnesses(read);
   const lacking = harnessesSeatsLack(read, placed.harnesses);
@@ -213,7 +216,7 @@ function MachineDetail({
         {harnesses ? (
           <Fact name="Harnesses">
             {harnesses.length === 0 ? (
-              "None found. Install a harness on this machine to run seats on it."
+              `None found. Install a harness on ${where} to run seats on it.`
             ) : (
               <ul className="grid gap-0.5" data-testid="machine-harnesses">
                 {harnesses.map((row) => (
@@ -228,18 +231,18 @@ function MachineDetail({
         {lacking.length > 0 ? (
           <Fact name="Seats need">
             <span data-testid="machine-harnesses-lacking">
-              {lacking.map(harnessName).join(", ")}. Install it on this machine, or move those seats.
+              {lacking.map(harnessName).join(", ")}. Install {lacking.length === 1 ? "it" : "them"} on {where}, or move those seats.
             </span>
           </Fact>
         ) : null}
         {missingSecrets.length > 0 ? (
           <Fact name="Missing secrets">
             <span data-testid="machine-missing-secrets">
-              {missingSecrets.join(", ")}. Set them on this machine; Junto never sends a secret between machines.
+              {missingSecrets.join(", ")}. Set {missingSecrets.length === 1 ? "it" : "them"} on {where}. Junto never sends a secret between machines.
             </span>
           </Fact>
         ) : null}
-        <Fact name="Seats here">
+        <Fact name="Seats">
           {placed.seats === 0
             ? "None on this canvas"
             : `${placed.seats} on this canvas`}

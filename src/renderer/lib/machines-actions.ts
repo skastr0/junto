@@ -55,7 +55,7 @@ export const checkMachine = async (item: MachineListItem): Promise<void> => {
   const status = await machineCommand("machine.status", { name });
   if (!status.ok) return setRead(name, { kind: "failed", message: status.message });
   if (!("reachable" in status.data)) {
-    return setRead(name, { kind: "failed", message: "Another machine answered for this one." });
+    return setRead(name, { kind: "failed", message: "Another machine answered in its place." });
   }
   setRead(name, { kind: "peer", status: status.data });
 };

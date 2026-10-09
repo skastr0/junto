@@ -225,13 +225,16 @@ it("names a machine's missing secrets and shows no value", async () => {
   expect(byTest("machine-missing-secrets")?.textContent).toContain("ANTHROPIC_API_KEY, GH_TOKEN");
   // It answered, and it is not ready: its row does not say Ready.
   expect(byTest("machine-headline")?.textContent).toBe("Secrets are missing");
-  expect(byTest("machine-advice")?.textContent).toBe("Seats here need ANTHROPIC_API_KEY, GH_TOKEN set on this machine.");
+  // Named by its label: in this window "this machine" is the one the operator sits at.
+  expect(byTest("machine-advice")?.textContent).toBe("Set ANTHROPIC_API_KEY, GH_TOKEN on Atlas. Its seats need them.");
+  expect(byTest("machine-missing-secrets")?.textContent).toBe("ANTHROPIC_API_KEY, GH_TOKEN. Set them on Atlas. Junto never sends a secret between machines.");
+  expect(byTest("machine-detail")?.textContent).not.toMatch(/this machine/iu);
   expect(byTest(`machine-row-${OTHER_MACHINE}`)?.textContent).toContain("Secrets are missing");
 });
 
 it("says why a machine cannot be reached and what to do", async () => {
   await select("ghost");
-  expect(byTest("machine-headline")?.textContent).toBe("Cannot reach this machine");
+  expect(byTest("machine-headline")?.textContent).toBe("Cannot be reached");
   expect(byTest("machine-advice")?.textContent).toBe("SSH did not answer");
 });
 
@@ -344,7 +347,7 @@ it("says Junto is on the machine when the install finished and what came after i
     await flush();
   });
   expect(condition("build-box")).toBe("sent-not-ready");
-  expect(byTest("machine-headline")?.textContent).toBe("Junto is on this machine, but it is not ready");
+  expect(byTest("machine-headline")?.textContent).toBe("Junto is on it, but it is not ready");
   expect(byTest("machine-advice")?.textContent).toBe("the machine did not answer its setup");
   expect(byTest("machine-steps")).toBeNull();
   // No second send, and still no setup call of the window's own.

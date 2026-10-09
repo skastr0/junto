@@ -14,6 +14,7 @@ import {
   machineForm,
   machineHarnesses,
   machineMissingSecrets,
+  machineNamed,
   machineStepLines,
   machineSummary,
   machinesNeedingAttention,
@@ -127,7 +128,7 @@ describe("the state a machine is in", () => {
     expect(machineCondition(listed(), peer(), { ...ended("uncertain"), op: "update" })).toBe("update-unconfirmed");
     expect(machineSummary(listed(), peer(), { ...ended(), op: "update", message: " " })).toMatchObject({
       headline: "Could not confirm Junto was updated",
-      advice: "Check this machine before you update again.",
+      advice: "Check it before you update again.",
     });
     // Check first; sending again is the operator's choice, never the window's.
     expect(machineActions("send-unconfirmed")).toEqual(["check", "send", "remove"]);
@@ -142,7 +143,7 @@ describe("the state a machine is in", () => {
     const item = listed({ setUp: false });
     expect(machineCondition(item, undefined, copy)).toBe("sent-not-ready");
     expect(machineSummary(item, undefined, copy)).toEqual({
-      headline: "Junto is on this machine, but it is not ready",
+      headline: "Junto is on it, but it is not ready",
       advice: "the machine did not answer its setup",
       needsYou: true,
     });
@@ -170,7 +171,7 @@ describe("the state a machine is in", () => {
     const silent = peer({ reachable: false, harnesses: [] });
     expect(machineCondition(listed(), silent, undefined)).toBe("unreachable");
     expect(machineSummary(listed(), silent, undefined)).toEqual({
-      headline: "Cannot reach this machine",
+      headline: "Cannot be reached",
       advice: "Check that it is on and that SSH reaches it.",
       needsYou: true,
     });
@@ -194,30 +195,66 @@ describe("the state a machine is in", () => {
   it("is not ready while seats placed on it lack a harness or a secret", () => {
     expect(machineSummary(listed(), peer(), undefined, { harnesses: ["claude", "codex"] })).toEqual({
       headline: "A harness is missing",
-      advice: "Seats here need Codex installed on this machine.",
+      advice: "Install Codex on Atlas. Its seats need it.",
       needsYou: true,
     });
     expect(machineSummary(listed(), peer({ missingSecrets: ["ANTHROPIC_API_KEY", "GH_TOKEN"] }), undefined)).toEqual({
       headline: "Secrets are missing",
-      advice: "Seats here need ANTHROPIC_API_KEY, GH_TOKEN set on this machine.",
+      advice: "Set ANTHROPIC_API_KEY, GH_TOKEN on Atlas. Its seats need them.",
       needsYou: true,
     });
     expect(machineSummary(listed(), peer({ missingSecrets: ["GH_TOKEN"] }), undefined, { harnesses: ["codex"] })).toEqual({
       headline: "A harness and a secret are missing",
-      advice: "Seats here need Codex installed and GH_TOKEN set on this machine.",
+      advice: "Install Codex and set GH_TOKEN on Atlas. Its seats need them.",
       needsYou: true,
     });
     // The link's state is unchanged: it answered.
     expect(machineCondition(listed(), peer({ missingSecrets: ["GH_TOKEN"] }), undefined)).toBe("ready");
     // This machine too, and a harness no seat there uses is nobody's problem.
-    expect(machineSummary(thisMachine, own(), undefined, { harnesses: ["codex"] })).toMatchObject({ headline: "A harness is missing", needsYou: true });
+    // Only the machine the window runs on is ever called this machine.
+    expect(machineSummary(thisMachine, own(), undefined, { harnesses: ["codex"] })).toEqual({
+      headline: "A harness is missing",
+      advice: "Install Codex on this machine. Its seats need it.",
+      needsYou: true,
+    });
     expect(machineSummary(thisMachine, own(), undefined, { harnesses: ["claude"] })).toEqual({ headline: "This machine", needsYou: false });
     // Nothing is said to be missing on a machine that has not answered.
-    expect(machineSummary(listed(), peer({ reachable: false, harnesses: [] }), undefined, { harnesses: ["codex"] }).headline).toBe("Cannot reach this machine");
+    expect(machineSummary(listed(), peer({ reachable: false, harnesses: [] }), undefined, { harnesses: ["codex"] }).headline).toBe("Cannot be reached");
   });
 
   it("never offers to remove this machine", () => {
     expect(machineActions("this-machine")).not.toContain("remove");
+  });
+});
+
+describe("the words for a machine", () => {
+  it("call only the machine the window runs on this machine", () => {
+    expect(machineNamed(thisMachine)).toBe("this machine");
+    expect(machineNamed(listed())).toBe("Atlas");
+    expect(machineNamed(listed({}, { label: " " }))).toBe(OTHER_MACHINE);
+    // No line about another machine says "this machine", except the one that means where its seats run from.
+    const failedCopy = (more: Partial<Extract<MachineCopy, { kind: "failed" }>>): MachineCopy => ({
+      kind: "failed", op: "send", id: "window-1", message: "", steps: [], installed: false, ...more,
+    });
+    const lines = [
+      machineSummary(listed({ setUp: false }), undefined, undefined),
+      machineSummary(listed({ setUp: false }), undefined, failedCopy({ disposition: "staged" })),
+      machineSummary(listed({ setUp: false }), undefined, failedCopy({})),
+      machineSummary(listed(), peer(), failedCopy({ op: "update" })),
+      machineSummary(listed({ setUp: false }), undefined, failedCopy({ installed: true })),
+      machineSummary(listed(), peer(), failedCopy({ op: "update", installed: true })),
+      machineSummary(listed(), undefined, undefined),
+      machineSummary(listed(), { kind: "failed", message: "" }, undefined),
+      machineSummary(listed(), peer({ reachable: false, harnesses: [] }), undefined),
+      machineSummary(listed(), peer({ missingSecrets: ["GH_TOKEN"] }), undefined, { harnesses: ["codex"] }),
+      machineSummary(listed(), peer(), undefined),
+    ];
+    for (const line of lines) {
+      expect(`${line.headline} ${line.advice ?? ""}`).not.toMatch(/this machine|\bhere\b/iu);
+    }
+    expect(machineSummary(listed({ needsUpdate: true }), undefined, undefined).advice).toBe(
+      "Update it before its seats can run from this machine.",
+    );
   });
 });
 

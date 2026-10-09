@@ -225,10 +225,20 @@ const CONDITIONS_THAT_NEED_YOU: ReadonlySet<MachineCondition> = new Set([
 ]);
 
 /**
+ * How a line names a machine. "This machine" is always the one the window
+ * runs on, so a line about any other machine says its label: a line that
+ * said "this machine" about another one would send the operator to the wrong
+ * computer.
+ */
+export const machineNamed = (item: MachineListItem): string =>
+  item.machine.isThisMachine ? "this machine" : item.machine.label.trim() || item.machine.id;
+
+/**
  * What a machine that answered still lacks for the seats placed on it: a
  * harness, a secret, or both. Such a machine is not ready, whatever its link says.
  */
 const lackingLine = (
+  item: MachineListItem,
   harnesses: ReadonlyArray<string>,
   secrets: ReadonlyArray<string>,
 ): Pick<MachineSummary, "headline" | "advice"> | undefined => {
@@ -239,13 +249,15 @@ const lackingLine = (
   ].filter((kind): kind is string => kind !== undefined);
   const subject = kinds.join(" and ");
   const one = harnesses.length + secrets.length === 1;
-  const needs = [
-    harnesses.length === 0 ? undefined : `${harnesses.map(harnessName).join(", ")} installed`,
-    secrets.length === 0 ? undefined : `${secrets.join(", ")} set`,
-  ].filter((need): need is string => need !== undefined);
+  const todo = [
+    harnesses.length === 0 ? undefined : `install ${harnesses.map(harnessName).join(", ")}`,
+    secrets.length === 0 ? undefined : `set ${secrets.join(", ")}`,
+  ]
+    .filter((step): step is string => step !== undefined)
+    .join(" and ");
   return {
     headline: `${subject.charAt(0).toUpperCase()}${subject.slice(1)} ${one ? "is" : "are"} missing`,
-    advice: `Seats here need ${needs.join(" and ")} on this machine.`,
+    advice: `${todo.charAt(0).toUpperCase()}${todo.slice(1)} on ${machineNamed(item)}. Its seats need ${one ? "it" : "them"}.`,
   };
 };
 
@@ -259,7 +271,7 @@ export const machineSummary = (
   const condition = machineCondition(item, read, copy);
   const lacking =
     condition === "ready" || condition === "this-machine"
-      ? lackingLine(harnessesSeatsLack(read, placed.harnesses), machineMissingSecrets(read))
+      ? lackingLine(item, harnessesSeatsLack(read, placed.harnesses), machineMissingSecrets(read))
       : undefined;
   return {
     ...conditionLine(item, read, copy, condition),
@@ -277,7 +289,7 @@ const conditionLine = (
   const said = copy?.kind === "failed" ? copy.message : undefined;
   switch (condition) {
     case "this-machine":
-      return { headline: "This machine" };
+      return read?.kind === "failed" ? { headline: "This machine", advice: read.message } : { headline: "This machine" };
     case "not-set-up":
       return { headline: "Added. Junto is not on it yet.", advice: "Send Junto to set it up." };
     case "sending":
@@ -293,17 +305,17 @@ const conditionLine = (
     case "send-unconfirmed":
       return {
         headline: "Could not confirm Junto was sent",
-        advice: reason(said, "Check this machine before you send again."),
+        advice: reason(said, "Check it before you send again."),
       };
     case "update-unconfirmed":
       return {
         headline: "Could not confirm Junto was updated",
-        advice: reason(said, "Check this machine before you update again."),
+        advice: reason(said, "Check it before you update again."),
       };
     case "sent-not-ready":
-      return { headline: "Junto is on this machine, but it is not ready", advice: reason(said, "Check this machine.") };
+      return { headline: "Junto is on it, but it is not ready", advice: reason(said, "Check it again.") };
     case "updated-not-ready":
-      return { headline: "Junto was updated, but this machine is not ready", advice: reason(said, "Check this machine.") };
+      return { headline: "Junto was updated, but it is not ready", advice: reason(said, "Check it again.") };
     case "needs-update":
       return {
         headline: "Runs a different build of Junto",
@@ -313,12 +325,12 @@ const conditionLine = (
       return { headline: "Checking" };
     case "check-failed":
       return {
-        headline: "Could not check this machine",
+        headline: "Could not be checked",
         advice: reason(read?.kind === "failed" ? read.message : undefined, "Check again."),
       };
     case "unreachable":
       return {
-        headline: "Cannot reach this machine",
+        headline: "Cannot be reached",
         advice: reason(
           read?.kind === "peer" ? read.status.detail : undefined,
           "Check that it is on and that SSH reaches it.",
