@@ -82,7 +82,9 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
 6. **Mail waits.** Mail to a seat whose machine is unreachable is accepted and
    held, the way mail to a stopped seat is held. It is delivered when a path
    exists. The sender is told which happened: delivered here, handed to a
-   link, or held.
+   link, or held. Between two machines a wire admits mail and nothing else
+   (`physics/admit.ts`, reason `other_machine`); which machine edits the
+   canvas or opened the link never enters that check.
 7. **Links are symmetric.** A link is one SSH session to the other machine's
    Junto. Either end may open one and it behaves the same once open. No code
    knows a "this side" and a "that side". In the first version only the
