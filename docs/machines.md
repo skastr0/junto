@@ -86,6 +86,32 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     seat's machine directly.
 12. **Harnesses are the operator's.** Junto reports which harness CLIs exist on
     each machine. It installs none and logs in to none.
+13. **An agent can exercise all of it, alone.** Every operation in this feature
+    has a command an agent can run and a result it can read: add, send, update
+    and remove a machine; place a seat on a machine, wire it, start and stop
+    it; read a terminal, mail, signals and a machine's state. The window calls
+    the same commands. Nothing needs the operator, a click, or the operator's
+    running Junto. A slice that can only be exercised by hand is not done.
+
+## The exercise
+
+How an agent proves the feature without the operator.
+
+- One script runs the whole acceptance run from fresh homes and prints a
+  receipt. Smaller scripts run each step alone, so a builder can iterate on
+  its own part.
+- Three targets, same script: this Mac under a second home over SSH (the fast
+  loop, any seat can run it), the Mac mini, and a Linux machine.
+- Both ends are windowless cores driven by commands. The editing machine in
+  the exercise is a windowless core on this Mac in its own home. The window is
+  tested apart, on top of commands that already work.
+- Seats in the exercise run a scripted stand-in for a harness that does what
+  it is told: onboard, send mail, raise a signal. A run is repeatable and
+  costs nothing. A pass with a real harness is a separate step.
+- A machine's home and install location are parameters, so several machines
+  can live on one host.
+- `remote-verify` owns the scripts and the stand-in. Each builder owns making
+  its part drivable.
 
 ## The link
 
