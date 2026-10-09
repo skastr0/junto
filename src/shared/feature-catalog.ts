@@ -239,7 +239,8 @@ export const SHIP_FEATURES: FeatureSet = {
   requests: false,
   artifacts: false,
   tasks: false,
-  fleetUi: false,
+  // Machines: the window, the owner commands and seats on other machines.
+  fleetUi: true,
   usage: false,
   helpMap: false,
   // The procedural sound engine, at a gentle default volume.

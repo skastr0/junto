@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { SHIP_FEATURES } from "../src/shared/feature-catalog";
 
 describe("Fleet product gate", () => {
-  it("keeps Fleet UI off in the ship catalog", () => {
-    expect(SHIP_FEATURES.fleetUi).toBe(false);
+  it("ships Machines on, with the gate still the way back off", () => {
+    expect(SHIP_FEATURES.fleetUi).toBe(true);
   });
 
   it("gates main hosts IPC, overlay import, preload, and remote occupy, with no fleet CLI or operator op", () => {

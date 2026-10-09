@@ -28,7 +28,8 @@ describe("compile-time feature profiles", () => {
       requests: false,
       artifacts: false,
       tasks: false,
-      fleetUi: false,
+      // Machines ships on.
+      fleetUi: true,
       usage: false,
       helpMap: false,
       // Sound ships on at a gentle default volume.

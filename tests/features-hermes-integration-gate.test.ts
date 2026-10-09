@@ -19,6 +19,7 @@ import {
 import { THIS_MACHINE_CAPABILITIES } from "../src/shared/remote-hosts";
 import { actorHostChoicesFromEnrollment } from "../src/renderer/components/node-palette/agent-launch-model";
 import { newSeat } from "../src/renderer/lib/model-factories";
+import { THIS_MACHINE } from "./support/machines";
 
 describe("Hermes integration product gate", () => {
   it("preserves durable decode vocabulary in every profile", () => {
@@ -58,21 +59,21 @@ describe("Hermes integration product gate", () => {
         expect(
           newSeat({ x: 0, y: 0, z: 0 }, {
             harness: "hermes",
-            host: "local",
+            host: THIS_MACHINE,
           }).harness,
         ).toBe("hermes");
       } else {
         expect(() =>
           newSeat({ x: 0, y: 0, z: 0 }, {
             harness: "hermes",
-            host: "local",
+            host: THIS_MACHINE,
           }),
         ).toThrow(/disabled/u);
       }
       expect(
         newSeat({ x: 0, y: 0, z: 0 }, {
           harness: "claude",
-          host: "local",
+          host: THIS_MACHINE,
         }).harness,
       ).toBe("claude");
       expect(THIS_MACHINE_CAPABILITIES).toContain("hermes");
@@ -89,7 +90,7 @@ describe("Hermes integration product gate", () => {
               hermesId: "hermes-a",
             },
           ],
-          { id: "local", agentHost: "local", label: "this machine" },
+          { id: THIS_MACHINE, agentHost: THIS_MACHINE, label: "this machine" },
         );
       expect(choices.find((choice) => choice.id === "station-a")).toMatchObject({
         id: "station-a",
