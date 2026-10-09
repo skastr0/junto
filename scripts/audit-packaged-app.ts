@@ -263,9 +263,9 @@ export const validateMacOSRuntimePolicy = (
       "macOS runtime policy must expose only empty and Electron JIT/audio profiles",
     );
   }
-  if (value.machO.length !== 24) {
+  if (value.machO.length !== 23) {
     throw new Error(
-      `macOS runtime policy must name exactly 24 Mach-O objects, got ${value.machO.length}`,
+      `macOS runtime policy must name exactly 23 Mach-O objects, got ${value.machO.length}`,
     );
   }
 

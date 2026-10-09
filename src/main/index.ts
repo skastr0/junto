@@ -815,7 +815,7 @@ const createWindow = () => {
     // focus and Dock stay undisturbed (see e2e-presentation.ts).
     ...e2eMainWindowOptions(e2ePresentation),
     webPreferences: {
-      preload: join(__dirname, "../preload/index.cjs"),
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -1349,7 +1349,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       if (app.isPackaged) {
         await installTrustedRendererProtocol(
           session.defaultSession.protocol,
-          join(__dirname, "../renderer"),
+          join(import.meta.dirname, "../renderer"),
         );
       }
       installTrustedRendererPermissionPolicy(
@@ -1822,7 +1822,12 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       // Schema-too-new is handled earlier; this covers StateEngine open and
       // other pre-window product startup failures.
       try {
-        await runStartupStateFailureDialog({ error, headless });
+        // An isolated harness run must not put a dialog on the operator's
+        // screen either; it logs and quits like headless.
+        await runStartupStateFailureDialog({
+          error,
+          headless: headless || e2eIsolateFocus,
+        });
       } catch (dialogError) {
         console.error("[startup] failure dialog failed:", dialogError);
       }

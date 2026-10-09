@@ -14,7 +14,11 @@
  * mapping.
  */
 
+import { createRequire } from "node:module";
 import { resolveThemeMode, type ThemeMode } from "@shared/theme";
+
+// The bundled ESM main has no ambient require.
+const require = createRequire(import.meta.url);
 
 /**
  * Junto's own default until a preference has been read. Deliberately

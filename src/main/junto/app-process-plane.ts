@@ -3,6 +3,7 @@ import {
   type ChildProcess,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
+import { createRequire } from "node:module";
 import type { Readable, Writable } from "node:stream";
 import type { IDisposable, IPty } from "node-pty";
 import {
@@ -25,6 +26,9 @@ import {
 
 export const APP_PROCESS_PLANE_QUIESCING_ERROR =
   "app process plane is shutting down";
+
+// The bundled ESM main has no ambient require; node-pty stays a runtime load.
+const require = createRequire(import.meta.url);
 
 export const APP_PROCESS_TERM_GRACE_MS = 1_000;
 export const APP_PROCESS_KILL_GRACE_MS = 1_500;
