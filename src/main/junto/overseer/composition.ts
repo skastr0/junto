@@ -1,9 +1,4 @@
-/**
- * Production overseer composition for Command Center and Remote.
- *
- * Wires executeOverseer through the process-bind work socket and the
- * CC-opened Remote Station session. Does not own admission or dispatch routing.
- */
+
 import { Effect, Result } from "effect";
 import { OverseerLiveExecution, type OverseerLiveExecutionConstraint } from "./live/execution";
 import type { Canvas } from "@shared/model";
@@ -15,7 +10,7 @@ import type {
   OverseerRequest,
   OverseerResult,
 } from "@shared/overseer-control";
-import type { InstallationId } from "@shared/station-api";
+import type { InstallationId } from "@shared/installation-id";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { ModelActorRefs } from "../model/actor-refs";
 import type { ModelService } from "../model/service";
@@ -141,7 +136,6 @@ export const captureTrustedWindowPng = (
     }
   };
 
-
 export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "interrupt"> => ({
   writePrompt: (bindingId, text, options) => {
     const drive = managedTerminalDriveForOverseer();
@@ -183,12 +177,6 @@ export const runOverseerProgram = <A, E>(
   signal: AbortSignal,
 ): Promise<A> => run(program, { signal });
 
-/**
- * Drain the captured authoring-gate Promise on interruption. Effect.tryPromise
- * aborts its signal without awaiting the underlying Promise, which would let
- * the Station handler finish while the inner gate / native finalizer still
- * occupies composition.
- */
 const awaitAuthoringGatePromise = (
   evaluate: (signal: AbortSignal) => Promise<OverseerResult>,
 ): Effect.Effect<OverseerResult, unknown> =>

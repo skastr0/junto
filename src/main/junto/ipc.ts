@@ -122,7 +122,6 @@ import { WorkRepository } from "./work/repository";
 import { CrewRepository } from "./work/crew-repository";
 import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition";
 import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
-import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
 import {
@@ -196,7 +195,6 @@ import {
   mainAuthoringGate,
   type MainAuthoringLabel,
 } from "./main-authoring-gate";
-import { StationStatusService } from "./station-status-store";
 
 /**
  * Wake excerpt for a notify-all on one topic: the latest post's text, else the
@@ -326,10 +324,6 @@ const resolveRendererActor = (
       : { ok: true, actor };
   });
 
-/**
- * Doctrine: only Command Center authors the canvas. Remote and unconfigured
- * installations must fail closed — never mint authorial power by defaulting to CC.
- */
 const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
   const settings = yield* SettingsService;
   const current = yield* settings.get;
@@ -430,7 +424,6 @@ export const registerJuntoIpc = (): void => {
     );
   }
 
-
   if (HERMES_INTEGRATION_ENABLED) {
     privilegedIpc.handle(IPC_CHANNELS.agentMessage, (_event, key: string, text: string) =>
       AppRuntime.runPromise(HermesPlane).then((plane) => plane.fetchAgentMessage(key, text)),
@@ -454,16 +447,10 @@ export const registerJuntoIpc = (): void => {
     AppRuntime.runPromise(Effect.map(KernelService, (kernel) => kernel.getSnapshot())),
   );
 
-  // Managed-seat activity lives in main. A renderer-only restart must hydrate
-  // local runtime facts plus last hop-delivered Remote events. Spawn-host
-  // wins if the same binding appears in both (they should not).
   privilegedIpc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () =>
     mergeSeatStateSnapshot(seatStateRuntime.currentEvents()),
   );
 
-  // Advisory seat-awareness projection. Display only: a renderer restart
-  // rehydrates the latest window revision and judgment per binding, and the
-  // renderer's decoder refuses anything it does not recognize.
   privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, () =>
     seatAwarenessPlane.currentEvents(),
   );
@@ -864,9 +851,6 @@ export const registerJuntoIpc = (): void => {
     },
   );
 
-  // Factory pause plane — canvas-level switch. start is idempotent hydration,
-  // so an early renderer read/write never races boot into the born-paused
-  // default composing a store write from an unhydrated map.
   privilegedIpc.handle(IPC_CHANNELS.factoryPauseState, (_event, canvas: string) =>
     AppRuntime.runPromise(
       Effect.gen(function* () {
@@ -1034,8 +1018,6 @@ export const registerJuntoIpc = (): void => {
       ),
   );
 
-  // work plane — renderer commands call repository-native WorkService verbs.
-  // Remote stations get a typed WorkOpResult (never a rejected IPC promise).
   const denyRemoteWork = Effect.gen(function* () {
     const settings = yield* SettingsService;
     const current = yield* settings.get;
@@ -1615,11 +1597,7 @@ export const registerJuntoIpc = (): void => {
       const kernel = yield* KernelService;
       const pause = yield* PausePlane;
       const settingsForSeed = yield* SettingsService;
-      const stationStatus = yield* StationStatusService;
       const stationForSeed = yield* settingsForSeed.get;
-      // Fresh Command Center (or unset) may seed. Remote never authors a seed.
-      // Domain Effect through warm AppRuntime — never bare Effect.runPromise
-      // (empty Context; S0/S1). Authoring gate still serializes the write.
       if (stationForSeed.station.role !== "remote") {
         yield* Effect.tryPromise({
           try: () =>
@@ -1660,18 +1638,8 @@ export const registerJuntoIpc = (): void => {
       }
       kernel.subscribe((snapshot) => {
         broadcast(IPC_CHANNELS.kernelChanged, snapshot);
-        // Fleet Doctor reads this bounded heartbeat over SSH. Never persist
-        // canvas names, node ids, agent identities, instructions, or tokens.
-        Effect.runFork(
-          stationStatus
-            .recordKernel(kernelRecordFromSnapshot(snapshot))
-            .pipe(Effect.ignore),
-        );
       });
 
-      // Managed-terminal drive: in-process agent-seat writes for factory typing.
-      // External control leases belong to interactive terminal clients; product
-      // automation must never steal them during claim delivery.
       let productAutomationSuspended = false;
       let checkoutWatch: CheckoutWatchSupervisor | undefined;
       const managedPulseReadyCancels = new Map<
@@ -1733,11 +1701,6 @@ export const registerJuntoIpc = (): void => {
           lines: snap?.lines,
         });
       };
-      // Single shared destination-drive recipe (managed-drive-factory);
-      // this callsite only supplies Command Center evidence sources.
-      // A seat that has offboarded is sealed until its process is gone. The
-      // fence tells generations apart by the host's own record, so it lifts
-      // the moment that process exits or a fresh one takes the binding.
       closingFence.setLiveGeneration((bindingId) => {
         const live = termPlane.host.get(bindingId);
         return live !== undefined && live.status !== "exited" ? live.epoch : undefined;
@@ -1813,8 +1776,6 @@ export const registerJuntoIpc = (): void => {
           ready: options?.ready ?? driveReady(bindingId),
           ...(options ?? {}),
         });
-      // Shared drive lifecycle (ACK/drain/generation cuts); product
-      // supervisory feeds below stay local to Command Center.
       attachManagedTerminalDriveRuntime(managedDrive, {
         subscribeHostEvents: (listener, options) =>
           termPlane.host.subscribeEvents((payload) => {
@@ -2239,8 +2200,6 @@ export const registerJuntoIpc = (): void => {
           return { ok: true };
         },
       );
-      // Supervisor transport wiring. Shared recipe — the Node Remote wires
-      // the same supervisor through its own destination drive.
       wireFactorySupervisor({
         supervisor: injectionSupervisor,
         interject: (bindingId, text) =>
@@ -2250,9 +2209,6 @@ export const registerJuntoIpc = (): void => {
         subscribeSnapshots: (listener) =>
           terminalObserverPlane.subscribeGlobal(listener),
       });
-      // Concrete factory closure: the suspension-conditional registration
-      // below wraps THIS closure. Wrapping the global dispatcher instead
-      // re-registers the wrapper itself and recurses on every pulse.
       const writeManagedPulse = factoryPulseTransport({
         pulse: { setDeliver: setManagedPulseDeliver },
         drive: managedDrive,
@@ -2260,9 +2216,6 @@ export const registerJuntoIpc = (): void => {
       });
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.subscribeEvents((payload) => {
-        // Drive lifecycle (compact ACK, generation cuts, Grok spawn gate)
-        // is owned by the shared runtime attach above; this feed keeps only
-        // Command Center product layers (pulses, capture, recovery epoch).
         if (payload.type === "output") return;
         if (payload.type !== "session") return;
         const bindingId = payload.bindingId;
@@ -2497,9 +2450,6 @@ export const registerJuntoIpc = (): void => {
       pause.subscribe((canvas, previous, current) => {
         if (pauseWasResumed(previous, current)) messageDelivery.onResumed(canvas);
       });
-      // Boot scan: mail pending from a previous process lifetime has no
-      // append event left — deliver the backlog once the canvas and station
-      // planes have settled.
       setTimeout(() => void messageDelivery.onBooted(), 10_000);
 
       const workRepository = yield* WorkRepository;
@@ -2526,8 +2476,6 @@ export const registerJuntoIpc = (): void => {
       // First usage fetch is fire-and-forget off the boot critical path;
       // provider fetches can take tens of seconds so it never blocks window open.
       if (USAGE_ENABLED) usage.start();
-      // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry; factory
-      // program is runFork (Effect control plane, not async IIFE).
       kernel.start({
         runPromise: (effect) => AppRuntime.runPromise(effect as never),
         runFork: (effect) => {
@@ -2535,8 +2483,6 @@ export const registerJuntoIpc = (): void => {
         },
       });
 
-      // Remote stations are switched off: the fleet supervisor is never
-      // started, so nothing compiles or sends a projection.
       settingsForSeed.subscribe((settings) => {
         syncCheckoutWatch(settings.station.role);
       });

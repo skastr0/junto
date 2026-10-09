@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { seat as seatNode, canvasOf } from "./support/model-nodes";
 import { Result, Schema } from "effect";
 import { resolveOverseerActor } from "../src/main/junto/overseer/admission";
-import { InstallationId } from "../src/shared/station-api";
+import { InstallationId } from "../src/shared/installation-id";
 import type { LiveSnapshot } from "../src/shared/overseer-live";
 import { LiveConversationBody } from "../src/renderer/components/live/LiveConversation";
 import { canStartOverseerLive, openOverseerLive, overseerLive$, readLiveAttention } from "../src/renderer/lib/overseer-live-state";

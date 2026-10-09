@@ -1,29 +1,6 @@
-/**
- * Node-only ManagedRuntime for a Remote station — single warm Effect entry.
- *
- * Canonical end state (docs/END_STATE-effect-foundation.md §S1 + V4-ENTRY):
- *
- *   boot  → ManagedRuntime.make(RemoteRootLayer) once  // RemoteRuntime below
- *   entry → RemoteRuntime.runPromise(handler)          // remote boot / station APIs
- *   loops → RemoteRuntime.runFork / same warm Context  // factory program (V4-PROGRAM)
- *   quit  → RemoteRuntime.dispose()                    // junto-remote drainAndExit
- *
- * Same laws as Command Center AppRuntime (src/main/runtime.ts):
- * - One ManagedRuntime per process; never rebuild per call.
- * - Domain Effects enter via RemoteRuntime.runPromise / runFork — not bare
- *   Effect.runPromise (empty Context; S0 fitness gate).
- * - V4-ENTRY: src/main/junto-remote.ts has zero bare Effect.runPromise; only
- *   RemoteRuntime for product domain work.
- * - Sole product store: StateEngine → junto.db. InstallOps co-composed for
- *   ContentService; install-ops.db is install-local, not product truth.
- *
- * Intentionally has no Electron shell, renderer host, browser host, update, or
- * Electron IPC. isPackaged is env / release-tree placement — never app.isPackaged.
- */
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { installCoreRunner } from "./core-runner";
 import { ObservabilityLoggerLive } from "./junto/observability";
-import { assessSupervisedRuntime } from "@shared/station";
 import {
   ChatServiceFromHermesLive,
   HermesPlaneLive,
@@ -46,14 +23,10 @@ import { SnapshotsLive } from "./junto/snapshots";
 import { UsageLive } from "./junto/usage/live";
 import { HostsServiceLive } from "./junto/hosts";
 import { SshTransportLive } from "./junto/ssh";
-import { StationStatusLive } from "./junto/station-status-store";
 import { StateEngineLive } from "./junto/state/engine";
 import { StationFleetTargetRepositoryLive } from "./junto/station/fleet-target-repository";
 import {
-  StationRepository,
   StationRepositoryLive,
-  type StationProjection,
-  type StationStatusFacts,
 } from "./junto/station/repository";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
@@ -67,12 +40,6 @@ import { resolve } from "node:path";
 // Packaged / product identity (Node-safe — never electron.app)
 // ---------------------------------------------------------------------------
 
-/**
- * True when this process is a release-tree candidate or forced via env.
- * Used for product packaging checks.
- * Staging extracts under ~/.junto/runtime/staging/… count as packaged
- * candidates during remote install cutover.
- */
 export const isRemotePackaged = (
   binaryPath: string = process.argv[1] ?? process.execPath,
 ): boolean => {
@@ -92,10 +59,6 @@ export const isRemotePackaged = (
   }
 };
 
-/**
- * Product version for protocol/station advertisements. Build injects
- * `__JUNTO_APP_VERSION__`; env override is for tests only.
- */
 declare const __JUNTO_APP_VERSION__: string | undefined;
 
 export const remoteAppVersion = (): string => {
@@ -131,7 +94,6 @@ const StateRepositoriesLive = Layer.provideMerge(
     Layer.provideMerge(UsageLive, RemoteSettingsLive),
     RemoteSettingsLive,
     SchedulerRepositoryLive,
-    StationStatusLive,
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
     makeContentServiceLive(),
@@ -193,10 +155,6 @@ const RemoteRootLayer = Layer.provideMerge(
   ),
 );
 
-// RemoteRuntime is the sole warm ManagedRuntime for the displayless Remote
-// process. Constructed once at module load; never remake. Callers: junto-remote
-// boot, station/work control bridges, product planes. Dispose exactly once on
-// SIGTERM/SIGINT via RemoteRuntime.dispose() in drainAndExit.
 const RemoteAppLayer = Layer.mergeAll(RemoteRootLayer, ObservabilityLoggerLive);
 export const RemoteRuntime = ManagedRuntime.make(
   RemoteAppLayer as Layer.Layer<
@@ -207,26 +165,3 @@ export const RemoteRuntime = ManagedRuntime.make(
 );
 installCoreRunner(RemoteRuntime);
 
-// ---------------------------------------------------------------------------
-// Pure readiness helpers (Node-safe reimplementation — no electron import)
-// ---------------------------------------------------------------------------
-
-export const supervisorAlignedForReadiness = (
-  input: Parameters<typeof assessSupervisedRuntime>[0],
-): boolean => assessSupervisedRuntime(input).aligned;
-
-export const stationProjectionInstalledForReadiness = (
-  facts: StationStatusFacts,
-  projection: StationProjection | undefined,
-): boolean => {
-  if (facts.configuration === undefined) return false;
-  if (facts.configuration.role === "command-center") return true;
-  return (
-    facts.projection !== undefined &&
-    projection !== undefined &&
-    projection.scope === "full" &&
-    projection.generation === facts.projection.generation &&
-    projection.contentSha256 === facts.projection.contentSha256 &&
-    projection.receivedAt === facts.projection.receivedAt
-  );
-};

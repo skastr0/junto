@@ -18,7 +18,7 @@ import { launchForManagedSpawnIntent } from "../src/main/junto/term/managed-spaw
 import { seat } from "./support/model-nodes";
 import { managedHarnessEnabled } from "../src/shared/features";
 import { InstallationId } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
+import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { ensureManagedSeatRunning } from "../src/main/junto/term/ensure-managed-seat";
 import { termPlane } from "../src/main/junto/term/plane";
 

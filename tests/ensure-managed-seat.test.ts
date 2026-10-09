@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { Node, type Seat } from "../src/shared/model";
 import { InstallationId } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
+import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import {
   ActorSeatOccupy,
   type ActorOccupySpec,

@@ -1,7 +1,7 @@
 import { Effect, Queue, Result } from "effect";
 import { asNodeId, type Canvas, type Seat } from "@shared/model";
 import type { OverseerCaller } from "@shared/overseer-control";
-import type { InstallationId } from "@shared/station-api";
+import type { InstallationId } from "@shared/installation-id";
 import type { ActorRef } from "@shared/work-reference";
 import type { WorkErrorBody } from "@shared/work-control";
 import { ModelActorRefs } from "../model/actor-refs";

@@ -7,7 +7,7 @@ import { CommandCenterConfiguration } from "../src/shared/station-api";
 import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { ModelService } from "../src/main/junto/model/service";
 import { StationRepository } from "../src/main/junto/station/repository";
-import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
+import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import {
   resolveOverseerActor,
   watchOverseerRevocation,

@@ -7,10 +7,8 @@ import {
 import { DisplayTimestamp } from "@shared/station-api";
 import { InstallationId } from "@shared/installation-id";
 import { StateTransactionOperation } from "../state/service";
-import { StationContextTagIds } from "./context-services";
 import { KnownInstallations } from "./known-installations";
 
-/** Fleet identity is host + station installation only. SSH routes live on the host registry. */
 export const StationFleetTargetIdentity = Schema.Struct({
   hostId: HostId,
   stationInstallationId: InstallationId,
@@ -75,7 +73,6 @@ export type StationFleetTargetRepositoryError =
   | StationFleetTargetCorruptRecordError
   | StationFleetTargetPersistenceError;
 
-// Station plane: canonical Context.Service (effect v4).
 export class StationFleetTargetRepository extends Context.Service<StationFleetTargetRepository,
   {
     readonly bind: (
@@ -103,7 +100,7 @@ export class StationFleetTargetRepository extends Context.Service<StationFleetTa
     readonly subscribeChanges: (
       listener: (hostId: HostIdValue) => void,
     ) => () => void;
-  }>()(StationContextTagIds.fleetTargetRepository) {}
+  }>()("@junto/StationFleetTargetRepository") {}
 
 const FleetTargetRow = Schema.Struct({
   host_id: HostId,
@@ -144,7 +141,6 @@ const persistenceError = (
         cause: error,
       });
 
-/** Physical deletion for host removal, distinct from fleet retirement. */
 export class StationFleetTargetCleanup extends Context.Service<StationFleetTargetCleanup, {
   readonly deleteForHost: (hostId: string) => Effect.Effect<void, StationFleetTargetPersistenceError>;
 }>()("@junto/StationFleetTargetCleanup") {

@@ -14,7 +14,7 @@ import { ModelActorRefs } from "../src/main/junto/model/actor-refs";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { StationFleetTargetRepositoryLive, StationFleetTargetRepository } from "../src/main/junto/station/fleet-target-repository";
 import { makeStationRepositoryLive } from "../src/main/junto/station/repository";
-import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
+import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 
 it("compiles aliases and host identity from native seats and refuses unresolved placement atomically", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-native-actor-refs-"));

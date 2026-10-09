@@ -25,7 +25,7 @@ import { ModelLive } from "../../src/main/junto/model/layer";
 import { ModelDependents } from "../../src/main/junto/model/dependents";
 import { makeStateEngineLive } from "../../src/main/junto/state/engine";
 import { SettingsLive } from "../../src/main/junto/settings/service";
-import { deriveActorSeatId } from "../../src/main/junto/station/actor-seat-compiler";
+import { deriveActorSeatId } from "../../src/main/junto/actor-seat-id";
 import { StationFleetTargetRepositoryLive } from "../../src/main/junto/station/fleet-target-repository";
 import { StationRepository, StationRepositoryLive } from "../../src/main/junto/station/repository";
 import {

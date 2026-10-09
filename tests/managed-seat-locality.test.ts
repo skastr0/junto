@@ -6,7 +6,7 @@ import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
+import { deriveActorSeatId } from "../src/main/junto/actor-seat-id";
 import { isManagedSeatRuntimeLocal } from "../src/main/junto/term/ensure-managed-seat";
 import { activeActorRegistry } from "../src/main/junto/kernel/service";
 

@@ -1,28 +1,5 @@
 import { CanvasControlQueries } from "./junto/canvas-control/queries";
 import { installCoreRunner } from "./core-runner";
-/**
- * Command Center product ManagedRuntime — single warm Effect entry for Electron main.
- *
- * Canonical end state (docs/END_STATE-effect-foundation.md §S1 + V4-ENTRY):
- *
- *   boot  → ManagedRuntime.make(RootLayer) once   // AppRuntime below
- *   IPC   → AppRuntime.runPromise(handler)        // adapters only (src/main/ipc.ts, junto/ipc.ts)
- *   loops → AppRuntime.runFork / same Context     // factory program (V4-PROGRAM)
- *   quit  → AppRuntime.dispose()                  // sole teardown; index.ts owns the call
- *
- * Laws:
- * - One ManagedRuntime per process role (CC = AppRuntime; Remote = RemoteRuntime).
- * - Never rebuild RootLayer or make() per IPC/handler call.
- * - Domain Effects enter via AppRuntime.runPromise / runFork — bare Effect.runPromise
- *   is empty Context (S0 fitness gate; permanent allowlist is host/post-dispose only).
- * - V4-ENTRY: src/main/index.ts, src/main/ipc.ts, src/main/junto/ipc.ts carry zero
- *   bare Effect.runPromise; only AppRuntime for product domain work.
- * - Sole product store: StateEngine → junto.db. InstallOps (install-ops.db) is
- *   install-local bookkeeping co-composed here so ContentService sees both; it is
- *   never a second product truth store.
- *
- * Remote stations use src/main/remote-runtime.ts (Node-only, no Electron shell).
- */
 import { existsSync } from "node:fs";
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
@@ -30,11 +7,6 @@ import { ObservabilityLoggerLive } from "./junto/observability";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import { linuxDesktopInstallStorageDoctor } from "./junto/update/linux-install";
-import { assessSupervisedRuntime } from "@shared/station";
-import {
-  assessStationDoctor,
-  kernelRecordFromSnapshot,
-} from "@shared/station-status";
 import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
@@ -67,32 +39,19 @@ import { CrewRepositoryLive } from "./junto/work/crew-repository";
 import { makeContentServiceLive } from "./junto/content/service";
 import { InstallOpsLive } from "./junto/install-ops/engine";
 import { SettingsLive, SettingsService } from "./junto/settings/service";
-import { probeSupervisedRuntime } from "./junto/settings/supervised-probe";
 import { SnapshotsLive, SnapshotsService } from "./junto/snapshots";
 import { UsageLive } from "./junto/usage/live";
 import { UsageService } from "./junto/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./junto/hosts";
 import { SshTransportLive } from "./junto/ssh";
 import { primeHostsSnapshot } from "./junto/hosts/snapshot";
-import {
-  StationStatusLive,
-  StationStatusService,
-} from "./junto/station-status-store";
-import {
-  createStationReadinessCoordinator,
-  stationReadinessMetadata,
-} from "./junto/station-readiness";
-import { workControlReadiness } from "./junto/work/control";
 import { StateEngineLive } from "./junto/state/engine";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import {
   StationFleetTargetRepositoryLive,
 } from "./junto/station/fleet-target-repository";
 import {
-  StationRepository,
   StationRepositoryLive,
-  type StationProjection,
-  type StationStatusFacts,
 } from "./junto/station/repository";
 import { WorkModelDependentsLive } from "./junto/work/model-dependents";
 import { ModelLive } from "./junto/model/layer";
@@ -131,7 +90,6 @@ const StateRepositoriesLive = Layer.provideMerge(
     Layer.provideMerge(UsageLive, SettingsLive),
     SettingsLive,
     SchedulerRepositoryLive,
-    StationStatusLive,
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
     makeContentServiceLive(),
@@ -230,14 +188,7 @@ export const RootLayer = Layer.provideMerge(
   BaseWithActorSeatOccupyLive,
 );
 
-// Observability logger is an additional Effect sink (ring buffer) — does not
-// replace the default pretty console logger.
-//
-// AppRuntime is the sole warm ManagedRuntime for Command Center main.
-// Constructed once at module load; never remake. Callers: Electron IPC adapters
-// (AppRuntime.runPromise), boot wiring in index.ts, and process loops that share
-// the same Context. Dispose exactly once on quit via AppRuntime.dispose()
-// (index.ts disposeRuntime / disposeRuntimeFailClosed).
+// The product owns one warm runtime and disposes it on shutdown.
 const AppLayer = Layer.mergeAll(RootLayer, ObservabilityLoggerLive);
 export const AppRuntime = ManagedRuntime.make(
   AppLayer as Layer.Layer<
@@ -247,76 +198,6 @@ export const AppRuntime = ManagedRuntime.make(
   >,
 );
 installCoreRunner(AppRuntime);
-
-export const supervisorAlignedForReadiness = (
-  input: Parameters<typeof assessSupervisedRuntime>[0],
-): boolean => assessSupervisedRuntime(input).aligned;
-
-export const stationProjectionInstalledForReadiness = (
-  facts: StationStatusFacts,
-  projection: StationProjection | undefined,
-): boolean => {
-  if (facts.configuration === undefined) return false;
-  if (facts.configuration.role === "command-center") return true;
-  return (
-    facts.projection !== undefined &&
-    projection !== undefined &&
-    projection.scope === "full" &&
-    projection.generation === facts.projection.generation &&
-    projection.contentSha256 === facts.projection.contentSha256 &&
-    projection.receivedAt === facts.projection.receivedAt
-  );
-};
-
-export interface CurrentStationReadinessOptions {
-  /** Tests and callers with a current supervisor observation may supply it. */
-  readonly supervisorAligned?: boolean;
-  readonly station?: Readonly<{
-    facts: StationStatusFacts;
-    projection?: StationProjection;
-  }>;
-}
-
-/** Deep product-path assessment for Doctor; it never gates station boot. */
-export const assessCurrentStationReadiness = (
-  options: CurrentStationReadinessOptions = {},
-) =>
-  Effect.gen(function* () {
-    const appInfo = yield* AppInfoService;
-    const repository = yield* StationRepository;
-    const kernel = yield* KernelService;
-    const stationInfo = yield* appInfo.stationInfo;
-    const station = options.station ??
-      (yield* Effect.all({
-        facts: repository.statusFacts,
-        projection: repository.projection,
-      }));
-    const configuration = station.facts.configuration;
-    const supervisorAligned = options.supervisorAligned ??
-      supervisorAlignedForReadiness({
-        role: configuration?.role ?? "",
-        hostId: configuration?.hostId ?? "unconfigured",
-        supervisedPreferred: configuration?.supervisedPreferred ?? false,
-        supervisedInstalled: yield* Effect.promise(() => probeSupervisedRuntime()),
-      });
-    // Region Pulse arming fault retired; kernel snapshot is always simulation-ready.
-    const simulationReady = true;
-    return yield* Effect.promise(() =>
-      createStationReadinessCoordinator().assess({
-        version: stationInfo.version,
-        ...(configuration === undefined ? {} : { configuration }),
-        packageIdentity: stationInfo.name,
-        supervisorAligned,
-        projectionInstalled: stationProjectionInstalledForReadiness(
-          station.facts,
-          station.projection,
-        ),
-        databaseReady: true,
-        workControlReady: workControlReadiness.ready(),
-        simulationReady,
-      }),
-    );
-  });
 
 export const buildDoctorReport = Effect.gen(function* () {
   // Ensure registry snapshot is current before host-aware doctor / transports.
@@ -333,98 +214,9 @@ export const buildDoctorReport = Effect.gen(function* () {
   const usage = yield* UsageService;
   const settings = yield* SettingsService;
   const hosts = yield* HostsService;
-  const stationRepository = yield* StationRepository;
-  const stationStatus = yield* StationStatusService;
 
   const station = yield* appInfo.stationInfo;
-  // One bounded SSH pass feeds both the host service row and the station fleet
-  // projection. Doctor must not double-probe a host and accidentally present
-  // observations from two different moments as one report.
   const hostsDoctorSnapshot = yield* hosts.doctorSnapshot;
-  const stationAssessment = yield* Effect.gen(function* () {
-    const stationState = yield* Effect.all({
-      facts: stationRepository.statusFacts,
-      projection: stationRepository.projection,
-      observations: stationStatus.read,
-    });
-    const registeredHosts = yield* Effect.result(hosts.list);
-    const registeredRemoteEndpoints =
-      registeredHosts._tag === "Success"
-        ? Object.fromEntries(
-            registeredHosts.success.flatMap((host) =>
-              host.kind === "remote" && host.sshEndpoint
-                ? [[host.id, host.sshEndpoint] as const]
-                : [],
-            ),
-          )
-        : undefined;
-    const supervisedInstalled = yield* Effect.promise(() => probeSupervisedRuntime());
-    const workControlReady = workControlReadiness.ready();
-    const kernelRecord = kernelRecordFromSnapshot(kernel.getSnapshot());
-    const configuration = stationState.facts.configuration;
-    const supervisorAligned = supervisorAlignedForReadiness({
-      role: configuration?.role ?? "",
-      hostId: configuration?.hostId ?? "unconfigured",
-      supervisedPreferred: configuration?.supervisedPreferred ?? false,
-      supervisedInstalled,
-    });
-    const stationDoctor = assessStationDoctor({
-      installationId: stationState.facts.installationId,
-      ...(configuration === undefined ? {} : { configuration }),
-      ...(stationState.facts.configuredAt === undefined
-        ? {}
-        : { configuredAt: stationState.facts.configuredAt }),
-      ...(stationState.facts.projection === undefined
-        ? {}
-        : { projection: stationState.facts.projection }),
-      receivedThrough: stationState.facts.receivedThrough,
-      version: station.version,
-      supervisedInstalled,
-      status: stationState.observations,
-      kernel: kernelRecord,
-      registeredRemoteEndpoints,
-      remoteObservations: hostsDoctorSnapshot.observations,
-      readiness: {
-        database: true,
-        workControl: workControlReady,
-        simulation: kernelRecord.fault === undefined,
-        session: workControlReady,
-      },
-    });
-    const readiness = yield* assessCurrentStationReadiness({
-      supervisorAligned,
-      station: {
-        facts: stationState.facts,
-        ...(stationState.projection === undefined
-          ? {}
-          : { projection: stationState.projection }),
-      },
-    });
-    const check = {
-      ...stationDoctor,
-      status: stationDoctor.status === "error"
-        ? "error"
-        : readiness.state === "ready" ? stationDoctor.status : "warning" as const,
-      detail: `${stationDoctor.detail}; readiness ${readiness.state}`,
-      metadata: {
-        ...(stationDoctor.metadata ?? {}),
-        ...stationReadinessMetadata(readiness),
-      },
-    } satisfies ServiceCheck;
-    return { check, compatibility: undefined };
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.succeed({
-        check: {
-          id: "station",
-          label: "Station",
-          status: "error" as const,
-          detail: error instanceof Error ? error.message : String(error),
-        } satisfies ServiceCheck,
-        compatibility: undefined,
-      }),
-    ),
-  );
 
   const serviceResults = yield* Effect.all(
     [
@@ -458,7 +250,6 @@ export const buildDoctorReport = Effect.gen(function* () {
   const services: ReadonlyArray<ServiceCheck> = [
     ...serviceResults,
     terminalCheck,
-    stationAssessment.check,
     ...(linuxInstallStorage === undefined ? [] : [linuxInstallStorage]),
   ];
   const recommendations = services
@@ -470,8 +261,5 @@ export const buildDoctorReport = Effect.gen(function* () {
     station,
     services,
     recommendations,
-    ...(stationAssessment.compatibility === undefined
-      ? {}
-      : { fleetCompatibility: stationAssessment.compatibility }),
   } satisfies DoctorReport;
 });

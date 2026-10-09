@@ -10,7 +10,7 @@ import { asNodeId, type NodeOf } from "../src/shared/model";
 import { seatParts } from "../src/shared/model/seat-parts";
 import { seat } from "./support/model-nodes";
 import type { OverseerCaller } from "../src/shared/overseer-control";
-import { InstallationId } from "../src/shared/station-api";
+import { InstallationId } from "../src/shared/installation-id";
 import {
   grantOverseer,
   ModelStoresLive,
