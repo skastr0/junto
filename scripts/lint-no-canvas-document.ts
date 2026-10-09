@@ -49,6 +49,10 @@ const ALLOWED = new Set([
   "tests/state-v1-fixture-migration.test.ts",
   "tests/audit-retired-state-signatures.test.ts",
   "tests/token-pressure-retired-data.test.ts",
+  // The preview check, which reads an old database's tables to compare them
+  // with what replaced them.
+  "scripts/preview-db-check.ts",
+  "tests/preview-state.test.ts",
   // Tests of the unhooked station, frozen with it.
   "tests/actor-projection-barrier.test.ts",
   "tests/actor-seat.test.ts",
