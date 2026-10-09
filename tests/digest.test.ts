@@ -71,7 +71,7 @@ team :: Foo, Bar
 region rollups
 team :: idle - 2 members
 
-factory physics
+canvas physics
 roles :: actors=1 sinks=0 schedulers=0 geography=3
 edges :: 0
 
@@ -139,7 +139,7 @@ const expected2 = [
   "solo :: idle - 1 member",
   "unnamed region :: idle - 0 members",
   "",
-  "factory physics",
+  "canvas physics",
   "roles :: actors=0 sinks=0 schedulers=0 geography=8",
   "edges :: 0",
   "",

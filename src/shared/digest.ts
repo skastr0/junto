@@ -27,7 +27,7 @@ import { rulesInForce, taskEpoch } from "./rules";
 // Fixed rendering order for the sources section, independent of fetch order.
 const SOURCE_ORDER: ReadonlyArray<EntitySource> = ["hermes"];
 
-// Fixed role count key order for the factory physics section.
+// Fixed role count key order for the canvas physics section.
 const ROLE_ORDER: ReadonlyArray<FactoryRole> = [
   "actor",
   "sink",
@@ -145,7 +145,7 @@ export const digestCanvas = (
     sections.push(rollupLines);
   }
 
-  // factory physics — derived roles (kind → roleOf/resolveSpec) + cheap
+  // canvas physics — derived roles (kind → roleOf/resolveSpec) + cheap
   // held-capability summary (criteria edges vs soft relates). Pure document;
   // no live process-bind / PIDs / occupancy.
   {
@@ -168,7 +168,7 @@ export const digestCanvas = (
       (role) => `${ROLE_COUNT_KEY[role]}=${roleCounts[role]}`,
     );
     sections.push([
-      "factory physics",
+      "canvas physics",
       `roles :: ${roleParts.join(" ")}`,
       `edges :: ${edges.length}`,
     ]);
