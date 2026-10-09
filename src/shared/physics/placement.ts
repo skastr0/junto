@@ -1,5 +1,4 @@
 import { Context, Data, HashMap, Layer, Schema } from "effect";
-import { DEFAULT_STATION_HOST_ID } from "../station";
 import { asNodeId, type NodeId, type Port } from "./schema";
 
 // Placement plane (I18/I19) — inter-runtime half of admit.
@@ -49,8 +48,11 @@ export type PlacementTopology = {
   readonly stationHostIds?: ReadonlySet<string>;
 };
 
+// The constant this named left with src/shared/station.ts. The literal holds
+// the old behaviour for the hours until this whole file goes: the admission
+// law is being rewritten to take a node's machine by name, with no classes.
 export const DEFAULT_PLACEMENT_TOPOLOGY: PlacementTopology = {
-  commandCenterHostId: DEFAULT_STATION_HOST_ID,
+  commandCenterHostId: "local",
 };
 
 // ---------------------------------------------------------------------------
