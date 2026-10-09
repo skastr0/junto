@@ -25,9 +25,9 @@ import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
-import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { MachineRepositoryLive } from "../src/main/junto/machines/repository";
+import { SettingsLive } from "../src/main/junto/settings/service";
+import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
@@ -46,8 +46,7 @@ const makeRuntime = (root: string) => {
       WorkRepositoryLive,
       CrewRepositoryLive,
       SeatGuidanceRepositoryLive,
-      StationRepositoryLive,
-      StationFleetTargetRepositoryLive,
+      MachineRepositoryLive,
       SettingsLive,
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
     ),
@@ -92,10 +91,7 @@ beforeEach(async () => {
   mkdirSync(workHome, { recursive: true });
   process.env.JUNTO_WORK_HOME = workHome;
   runtime = makeRuntime(root);
-  const settings = await runtime.runPromise(SettingsService);
-  await runtime.runPromise(
-    settings.setStationTopology({ role: "command-center", hostId: "local", supervisedPreferred: true }),
-  );
+  await runtime.runPromise(nameThisMachine);
   const processMap = makeProcessIdentityMap();
   processMap.bind(process.pid, { agentKey: "local:agent" });
   server = await startWorkControlServer({

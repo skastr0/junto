@@ -18,8 +18,8 @@ import {
   WorkRepositoryLive,
 } from "../../src/main/junto/work/repository";
 import { WorkLive, WorkService } from "../../src/main/junto/work/service";
-import { StationRepositoryLive } from "../../src/main/junto/station/repository";
-import { StationFleetTargetRepositoryLive } from "../../src/main/junto/station/fleet-target-repository";
+import { MachineRepositoryLive } from "../../src/main/junto/machines/repository";
+import { nameThisMachine } from "../support/name-this-machine";
 import { SettingsLive, SettingsService } from "../../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../../src/main/junto/install-ops/engine";
@@ -35,8 +35,7 @@ export const makeProtoRuntime = (root: string) => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
-      StationRepositoryLive,
-      StationFleetTargetRepositoryLive,
+      MachineRepositoryLive,
       SettingsLive,
       FactoryPauseRepositoryLive,
       makeContentServiceLive({
@@ -92,14 +91,9 @@ export class ProtoHarness {
     await this.runtime.runPromise(this.pause.start);
   }
 
-  async setStationCommandCenter(): Promise<void> {
-    await this.runtime.runPromise(
-      this.settings.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-        supervisedPreferred: true,
-      }),
-    );
+  /** Name the database's machine, so the seats a scenario seeds resolve. */
+  async nameThisMachine(): Promise<void> {
+    await this.runtime.runPromise(nameThisMachine);
   }
 
   /** Put a canvas in the model as the operator would. */

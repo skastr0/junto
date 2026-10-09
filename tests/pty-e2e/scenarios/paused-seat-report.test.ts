@@ -63,7 +63,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     process.env.JUNTO_WORK_HOME = workHome;
     harness = new ProtoHarness({ root });
     await harness.start();
-    await harness.setStationCommandCenter();
+    await harness.nameThisMachine();
     await harness.seed("work-cli", [seat("agent"), seat("peer")], [wire("e1", "agent", "peer", "messages")]);
     const processMap = makeProcessIdentityMap();
     processMap.bind(process.pid, { agentKey: "local:agent" });
