@@ -14,8 +14,7 @@ import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import { SchedulerRepository } from "../src/main/junto/scheduler/repository";
 import { SnapshotsService } from "../src/main/junto/snapshots";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StationFleetTargetRepository } from "../src/main/junto/station/fleet-target-repository";
-import { StationRepository } from "../src/main/junto/station/repository";
+import { MachineRepository } from "../src/main/junto/machines/repository";
 import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
 import {
   createCanvasTaskDependencyScopeCapability,
@@ -64,14 +63,9 @@ it("holds the model's canvases and follows their work", async () => {
       claimExpression: () => Effect.succeed({ _tag: "Duplicate" }),
       reconcileHome: () => Effect.succeed(0),
     } as never),
-    Layer.succeed(StationFleetTargetRepository, {
-      get: () => Effect.succeed(undefined),
-    } as never),
-    Layer.succeed(StationRepository, {
+    Layer.succeed(MachineRepository, {
       installationId: Effect.succeed("board-home"),
-      configuration: Effect.succeed({
-        configuration: { hostId: "local", role: "command-center" },
-      }),
+      machineName: Effect.succeed(THIS_MACHINE),
     } as never),
     Layer.succeed(ActorSeatOccupy, {} as never),
   );

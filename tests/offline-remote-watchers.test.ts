@@ -4,7 +4,7 @@ import {
   __resetKernelMemoryForTest,
   __setWorldsForTest,
   __setSnapshotsForTest,
-  __setStationScopeForTest,
+  __setMachineNameForTest,
   getWatchers,
   runEvaluationCycle,
 } from "../src/main/junto/kernel/cycle";
@@ -89,12 +89,12 @@ const freshFleetSnapshot = (remoteRunning: number, at: string): SnapshotState =>
 describe("offline Remote watcher island", () => {
   beforeEach(() => {
     __resetKernelMemoryForTest();
-    __setStationScopeForTest({ role: "remote", hostId: stationHostId });
+    __setMachineNameForTest(stationHostId);
   });
 
   afterEach(() => {
     __resetKernelMemoryForTest();
-    __setStationScopeForTest({ role: "command-center", hostId: "local" });
+    __setMachineNameForTest(undefined);
     vi.restoreAllMocks();
   });
 
