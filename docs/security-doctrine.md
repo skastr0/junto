@@ -294,6 +294,44 @@ file inventory is not a publisher signature. Downloaded desktop releases must
 still pass their release authentication and artifact-admission path; the
 machine-copy rule does not weaken that boundary.
 
+A release app carries no machine bundle. Its authenticated compiled catalog
+pins, for each supported target of its own build, the archive path, exact byte
+count, SHA-256 and manifest SHA-256. Only the compiled HTTPS release origin
+and immutable `/machines/<build>/<target>.tar.gz` objects are admitted. A
+downloaded manifest, response header or separate publication file cannot
+replace those pins. Release commands refuse local bundle overrides. Source
+and Preview builds use local bundles only and never fall back to a download.
+
+The archive must be smaller than 300,000,000 bytes. Bound actual streamed
+bytes independently of response headers, refuse redirects, and verify the
+complete archive size and digest before unpacking. Extraction admits only
+the specified regular-file archive format, with bounded expanded bytes,
+members and paths, and refuses traversal, links, special files and duplicate
+paths. Match the manifest's bytes to its compiled digest, then verify the
+complete inventory, build and target. These checks finish before disconnecting
+the current link, copying to the destination or changing its installation.
+Offline, incomplete or invalid downloads leave the destination as it was.
+Download progress counts bytes separately from the SSH copy; neither means
+that installation succeeded.
+
+Cache archives per build under the Junto home, rechecking their actual bytes
+on every use and extracting into a fresh private attempt. Only fully verified
+archives enter the cache atomically. Cleanup and pruning use authority for
+owned cache entries, never a caller's path or a symlink redirect, and cannot
+remove a concurrent operation's inputs. Failed or interrupted acquisition
+cannot become a reusable success or permanently block a later explicit retry.
+
+Removing bundles from the app does not remove their signing audit. Strip
+before signing, sign Darwin binaries with the existing identity, hardened
+runtime and entitlement policy, then seal the manifest and run the relocated
+boot check. Audit the exact archive payload against that same policy before
+sealing the catalog; it no longer inherits the enclosing app's resource seal.
+No signing or repacking may change bytes after the catalog pins them. The
+publisher proves its archive metadata equals the catalog compiled into the
+qualified app, uploads the archives before advancing `latest-mac.yml`, and
+refuses different bytes at an existing immutable key. Rebuilding the same
+source does not authorize replacing a previously published signed archive.
+
 An install or update must:
 
 1. Verify the exact admitted package and target platform before activation.
