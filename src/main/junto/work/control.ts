@@ -800,7 +800,7 @@ const requireTarget = (
   targetId: string,
   op: WorkOp,
 ): WorkErrorBody | { readonly node: ReturnType<typeof findNode> } => {
-  // Target-scoped ops: factory physics admit (edge + role law + port facet).
+  // Target-scoped ops: canvas physics admit (edge + role law + port facet).
   const admitted = admitWorkTarget(doc, callerId, targetId, op);
   if (Result.isFailure(admitted)) return admitted.failure;
   return { node: admitted.success.node };

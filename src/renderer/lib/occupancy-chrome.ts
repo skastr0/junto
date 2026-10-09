@@ -1,6 +1,5 @@
 /**
- * Occupancy card chrome — the visual alphabet for the eight-state spectrum
- * (S5 cut 2, factory-physics-engineering-plan.md).
+ * Occupancy card chrome — the visual alphabet for the eight-state spectrum.
  *
  * Pure: OccupancySpectrum -> { CSS hook, accessible label }. Rendered via a
  * `data-occupancy` attribute (see NodeShell.tsx), the same pattern already

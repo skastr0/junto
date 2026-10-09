@@ -1,4 +1,4 @@
-// Factory physics — pure capability kernel (edges as ocaps, roles derived from kind).
+// Canvas physics — pure capability kernel (edges as ocaps, roles derived from kind).
 // An edge authors one verb; every grant is compiled (verbs.ts). Phase stays in
 // execution-graph.ts. Occupancy / process-bind are live planes.
 

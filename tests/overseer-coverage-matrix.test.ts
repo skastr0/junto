@@ -236,7 +236,7 @@ describe("overseer coverage matrix", () => {
 describe("overseer doctrine alignment", () => {
   it("narrows canvas authorship to overseers and keeps ordinary edge scope", () => {
     const agents = collapsed(read("AGENTS.md"));
-    const physics = collapsed(read("docs/architecture-factory-physics.md"));
+    const physics = collapsed(read("docs/architecture-canvas-physics.md"));
 
     expect(agents).toContain("Ordinary agents never write the canvas.");
     expect(agents).not.toContain("**Agents never write the canvas.**");

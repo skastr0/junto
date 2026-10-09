@@ -1,6 +1,6 @@
 import { HashSet, Schema } from "effect";
 
-// Factory physics schema surface — pure domain brands, ports, and grants.
+// Canvas physics schema surface — pure domain brands, ports, and grants.
 // No Node / Electron. Roles are derived from kind (see kinds.ts); never authorial.
 
 // ---------------------------------------------------------------------------

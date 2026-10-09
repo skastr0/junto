@@ -6,7 +6,7 @@ import { Schema } from "effect";
 // heartbeat. Missing optional inputs invent NOTHING: no
 // phantom work, no phantom stall, no phantom "gone".
 //
-// Architecture: docs/architecture-factory-physics.md §4 (seats vs occupants).
+// Architecture: docs/architecture-canvas-physics.md §4 (seats vs occupants).
 // Related but separate: region-rollup MemberSeverity (operational tier).
 //
 // ---------------------------------------------------------------------------

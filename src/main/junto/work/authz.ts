@@ -25,7 +25,7 @@ import {
   TASKS_ENABLED,
 } from "@shared/features";
 
-// Edges are the capability system. Kernel-enforced per call via factory physics
+// Edges are the capability system. Kernel-enforced per call via canvas physics
 // (admitPure + ports). Region co-members: {id, kind, title} visibility only.
 // Everything else: invisible — ops fail as ScopeError naming the missing edge.
 
@@ -492,7 +492,7 @@ export const scopeDenialToWorkError = (
 };
 
 /**
- * Admit a target-scoped work op via factory physics (edge + role law + port).
+ * Admit a target-scoped work op via canvas physics (edge + role law + port).
  * Missing target still uses visibility-aware UnknownTarget / invisible.
  */
 export const admitWorkTarget = (

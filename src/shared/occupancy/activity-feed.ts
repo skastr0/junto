@@ -1,8 +1,7 @@
 import { Context, Layer } from "effect";
 import type { OccupancyActivity } from "./derive";
 
-// Cut 1 seam (S5 — factory physics engineering plan): a typed producer
-// contract for live occupancy inputs. Consumers (card chrome, RTS, digest)
+// A typed producer contract for live occupancy inputs. Consumers (card chrome, RTS, digest)
 // derive occupancy through `deriveOccupancy` (../derive) fed by whatever
 // `ActivityFeed` is bound in scope — never by reaching into a specific
 // runtime plane themselves. Producers plug in without touching consumers:

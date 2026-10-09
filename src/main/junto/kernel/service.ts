@@ -604,7 +604,7 @@ export const managedTaskDeliveryId = (
 
 // Claim delivery never gates on a prior `/compact` harness turn. Optional
 // post-complete compaction is a separate product surface if reintroduced —
-// not a claim-path receipt (see buildFactoryClaimPrompt + factory physics test).
+// not a claim-path receipt (see buildFactoryClaimPrompt + canvas physics test).
 
 const makeKernelService = (
   model: ModelShape,

@@ -39,7 +39,7 @@ import { RegionRules } from "./rules";
 import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
 
 // ---------------------------------------------------------------------------
-// Factory physics — capability inventory (read-only) + "limit this key" editor
+// Canvas physics — capability inventory (read-only) + "limit this key" editor
 
 type CapabilityNeighbor = {
   readonly id: string;

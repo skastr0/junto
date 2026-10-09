@@ -13,7 +13,7 @@ const derive = (partial: Partial<DeriveOccupancyInput> & Pick<DeriveOccupancyInp
   deriveOccupancy({ nowMs: NOW, ...partial });
 
 describe("OccupancySpectrum", () => {
-  it("is the closed seat spectrum from factory physics", () => {
+  it("is the closed seat spectrum from canvas physics", () => {
     expect(OccupancySpectrum.literals).toEqual([
       "empty",
       "idle",

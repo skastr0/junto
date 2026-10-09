@@ -1,5 +1,5 @@
 /**
- * Edge-delete session teardown (factory physics I10 / I20).
+ * Edge-delete session teardown (canvas physics I10 / I20).
  *
  * Pure helpers + receipt types. Live teardown is driven from edge-grant
  * invalidateCanvas on the same model-change event.

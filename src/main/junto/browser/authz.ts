@@ -13,7 +13,7 @@ import {
 import { Result } from "effect";
 
 // Edges are the browser capability system for process-bound callers.
-// Kernel-enforced per call via factory physics:
+// Kernel-enforced per call via canvas physics:
 //   CONNECTED actor → page port browser.automate
 //   Region co-membership alone never grants browser access
 //   Everything else: invisible / ScopeError naming the missing edge
@@ -117,7 +117,7 @@ export const resolveBrowserCaller = (
 };
 
 /**
- * Admit caller → page for browser.automate via factory physics.
+ * Admit caller → page for browser.automate via canvas physics.
  * Requires undirected edge + actor role + page offers the port.
  * Region co-membership alone returns false (not_connected / invisible).
  * Optional view options carry placement topology (I18) when the caller

@@ -267,7 +267,7 @@ of seats must not cost it a frame, and one command must change one row.
 
 `clock` is the shared row for the non-relay schedulers (`cron`, `timer`, `watcher`) — they push identically; only `relay` also takes `announces` inbound (the only scheduler that evaluates a watch predicate). Plain connect (no picker) defaults to the fuller relationship on a two-verb pair: `contributes`, `participates`, `edits`, `fires`, `enqueues`, `wakes`.
 
-**Stoppage is still derived, not authored** — an actor holding a claimed item in `input-required` / `auth-required` on a connected task/requests sink generates **blocks** on that actor seat only. Open queue (`submitted`/`working`) never blocks. No automatic multi-hop fan-out — multi-hop stoppage is an explicit **relay** node (`announces` in, an effect verb out). (Blockability is `role === "actor"` only — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.) Lexicon word **stops** may appear in wire sentences when derived stoppage applies — speech, never a document field.
+**Stoppage is still derived, not authored** — an actor holding a claimed item in `input-required` / `auth-required` on a connected task/requests sink generates **blocks** on that actor seat only. Open queue (`submitted`/`working`) never blocks. No automatic multi-hop fan-out — multi-hop stoppage is an explicit **relay** node (`announces` in, an effect verb out). (Blockability is `role === "actor"` only — see [`architecture-canvas-physics.md`](docs/architecture-canvas-physics.md) §2a.) Lexicon word **stops** may appear in wire sentences when derived stoppage applies — speech, never a document field.
 
 There is **no edge dialog**. Edges are authored and read from the RTS bottom bar (`EdgeCommandCard`, `src/renderer/components/rts/RtsControls.tsx`) as a plain sentence ("Planner manages Backlog"), painted in a fixed per-verb hue (`--wire-verb-*` custom properties, [`factory-grammar.css`](src/renderer/styles/factory-grammar.css)) — solid strokes only; no dash, width, or arrowhead carries meaning.
 
@@ -408,7 +408,7 @@ Junto mints when it owns the resource.
 PR test: *Can a confused agent or bad test pass a bare pid/path into a
 host-destructive call? If yes, the change is not done.*
 
-## Factory physics (architecture north star)
+## Canvas physics (architecture north star)
 
 **The canvas is a workspace, not an ACL spreadsheet.** Edges are ocaps
 (mint by draw, attenuate via ports, revoke by delete); process-bind wields the
@@ -422,7 +422,7 @@ phase, and attention/occupancy are separate planes.
   work claim — but it *may* display agent state, because display is not a canvas
   power. A seat's machine is data: it never gates a port.
 - **PR test:** no ordinary work capability without a connected edge, a matching port, and a live generation credential. Browser-protected ops still also require peer process-bind.
-- **Full doctrine:** [`docs/architecture-factory-physics.md`](docs/architecture-factory-physics.md).
+- **Full doctrine:** [`docs/architecture-canvas-physics.md`](docs/architecture-canvas-physics.md).
 
 ## Discipline
 
@@ -441,7 +441,7 @@ phase, and attention/occupancy are separate planes.
 - Board/source IDs and tokens never leak into committed source.
 - `bun run typecheck && bun run test` gate every change.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
-- Agent reach follows Factory physics (above): edges, ports, and a live generation credential. No ambient region grants. Browser-protected ops still also require peer process-bind.
+- Agent reach follows Canvas physics (above): edges, ports, and a live generation credential. No ambient region grants. Browser-protected ops still also require peer process-bind.
 
 ## Testing
 
