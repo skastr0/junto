@@ -960,43 +960,11 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 
 .inspector-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 13px 14px 14px; }
 .inspector-detail { color: var(--color-dim); font-size: var(--text-label); line-height: var(--leading-open); overflow-wrap: anywhere; }
-.inspector-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 14px; }
-.inspector-grid span { display: grid; gap: 4px; border-top: 1px solid var(--color-overlay-4); padding-top: 6px; color: var(--color-faint); font-size: var(--text-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; }
-.inspector-grid strong { color: var(--color-ink); font-size: var(--text-caption); font-weight: 500; letter-spacing: 0; text-transform: none; }
+
 .inspector-editor { display: grid; gap: 5px; margin-top: 15px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .inspector-editor input:not([type="checkbox"]):not([type="radio"]),
 .inspector-editor textarea { width: 100%; min-height: 32px; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); line-height: var(--leading-body); outline: none; }
 .inspector-editor textarea { min-height: 76px; resize: vertical; }
-/* Boolean row — never stretch a native checkbox into a field shell. */
-.inspector-check {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  margin-top: 15px;
-  min-height: 22px;
-  cursor: pointer;
-  color: var(--color-ink);
-  font-size: var(--text-body);
-  font-weight: 500;
-  letter-spacing: var(--tracking-soft);
-  text-transform: none;
-}
-.inspector-check input[type="checkbox"] {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: var(--color-amber);
-  cursor: pointer;
-}
-.inspector-check__label {
-  color: var(--color-ink);
-  font-size: var(--text-body);
-  font-weight: 500;
-  line-height: var(--leading-dense);
-}
-
 /* First-class CLI command chip — agents and operators share this vocabulary. */
 .cli-cmd {
   display: inline;
@@ -1046,16 +1014,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .inspector-editor input:focus, .inspector-editor textarea:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
 .inspector-section { margin-top: 16px; }
 .inspector-section__label { display: flex; align-items: center; gap: 6px; color: var(--color-amber-fg); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-background { display: grid; gap: 7px; margin-top: 8px; }
-.inspector-background input, .inspector-background select { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
-.inspector-background input::placeholder { color: var(--color-faint); }
-.inspector-background input:focus, .inspector-background select:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.inspector-background label { display: grid; grid-template-columns: 42px 1fr; align-items: center; gap: 7px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-file-fields { display: grid; gap: 7px; margin-top: 8px; }
-.inspector-file-fields label { display: grid; gap: 5px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-file-fields input { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
-.inspector-file-fields input::placeholder { color: var(--color-faint); }
-.inspector-file-fields input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
+
 .inspector-bindings { display: grid; gap: 5px; margin-top: 8px; }
 .inspector-binding { display: flex; min-width: 0; align-items: baseline; gap: 8px; color: var(--color-dim); font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-caption); }
 .inspector-binding > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1063,21 +1022,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .inspector-flags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .inspector-flag-toggle { border: 1px solid; border-radius: var(--radius-sm); cursor: pointer; padding: 4px 6px; font-size: var(--text-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; transition: background .18s ease, border-color .18s ease, color .18s ease; }
 .inspector-flag-toggle:hover { border-color: color-mix(in oklab, var(--color-ink) 38%, transparent) !important; color: var(--color-ink) !important; }
-.inspector-actions { display: grid; gap: 6px; margin-top: 18px; }
-.inspector-actions button { display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--color-overlay-4); border-radius: var(--radius-md); background: var(--color-overlay-1); color: var(--color-steel); padding: 8px; font-size: var(--text-caption); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
-.inspector-actions button:hover { border-color: color-mix(in oklab, var(--color-second) 40%, transparent); background: color-mix(in oklab, var(--color-second) 6%, transparent); color: var(--color-ink); }
-.inspector-actions .inspector-action--danger { color: var(--color-crimson-fg); }
-.inspector-actions .inspector-action--danger:hover { border-color: color-mix(in oklab, var(--color-accent) 50%, transparent); background: color-mix(in oklab, var(--color-accent) 8%, transparent); }
-.inspector-edge { display: flex; align-items: center; gap: 8px; color: var(--color-ink); font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); }
-.inspector-edge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inspector-edge-label { display: grid; gap: 5px; margin-top: 15px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-edge-label input { width: 100%; border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); background: var(--color-inset); color: var(--color-ink); padding: 7px 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-label); outline: none; }
-.inspector-edge-label input::placeholder { color: var(--color-faint); }
-.inspector-edge-label input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.inspector-edge-ends { display: grid; gap: 6px; margin-top: 14px; color: var(--color-dim); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-.inspector-edge-ends > div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.inspector-edge-ends button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--color-overlay-4); border-radius: var(--radius-sm); background: var(--color-overlay-1); color: var(--color-faint); padding: 7px 6px; font-size: var(--text-micro); letter-spacing: var(--tracking-label); text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
-.inspector-edge-ends button:hover, .inspector-edge-ends button.is-active { border-color: color-mix(in oklab, var(--color-main) 48%, transparent); background: color-mix(in oklab, var(--color-main) 10%, transparent); color: var(--color-amber); }
 
 .field-empty { width: 290px; text-align: center; }
 .field-empty__reticle { position: relative; width: 68px; height: 68px; margin: 0 auto 18px; border: 1px solid color-mix(in oklab, var(--color-main) 34%, transparent); border-radius: 50%; box-shadow: 0 0 35px color-mix(in oklab, var(--color-main) 6%, transparent); }
