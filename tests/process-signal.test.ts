@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { once } from "node:events";
 import {
@@ -11,6 +11,7 @@ import {
   spawnDetachedProcessGroup,
   KillablePid,
   type OwnedProcess,
+  type DetachedProcessGroup,
 } from "../src/main/junto/process-signal";
 import {
   captureChildProcessEpoch,
@@ -19,6 +20,7 @@ import {
   processGroupEpochIsCurrent,
   setProcessEpochReaderForTests,
   type ProcessEpochRow,
+  type ProcessGroupEpoch,
 } from "../src/main/junto/process-epoch";
 import { Schema } from "effect";
 
@@ -36,6 +38,16 @@ afterEach(() => {
 });
 
 describe("process-signal authority", () => {
+  it("rejects spawn result types with a missing or misplaced group epoch", () => {
+    type SpawnHandles = Pick<DetachedProcessGroup, "child" | "process">;
+    expectTypeOf<SpawnHandles & { mode: "group" }>().not.toExtend<DetachedProcessGroup>();
+    expectTypeOf<SpawnHandles & { mode: "child"; groupEpoch: ProcessGroupEpoch }>()
+      .not.toExtend<DetachedProcessGroup>();
+    expectTypeOf<SpawnHandles & { mode: "group"; groupEpoch: ProcessGroupEpoch }>()
+      .toExtend<DetachedProcessGroup>();
+    expectTypeOf<SpawnHandles & { mode: "child" }>().toExtend<DetachedProcessGroup>();
+  });
+
   it("retains self and parent pid rejection as a group-mint defense", () => {
     expect(Schema.decodeUnknownResult(KillablePid)(process.pid)._tag).toBe("Failure");
     expect(Schema.decodeUnknownResult(KillablePid)(process.ppid)._tag).toBe("Failure");

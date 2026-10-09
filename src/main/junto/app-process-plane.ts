@@ -1005,7 +1005,7 @@ export const createAppProcessPlane = (
       mode: spawned.mode,
       gracefulSignalScope,
     });
-    if (spawned.mode === "group" && spawned.groupEpoch !== undefined && spawned.child.pid !== undefined) {
+    if (spawned.mode === "group" && spawned.child.pid !== undefined) {
       // Exact signal authority and lifecycle registration remain synchronous.
       // Only member enumeration yields. Its result cannot adopt a reused pid,
       // and failure leaves the retained group explicitly ownership-unverified.
