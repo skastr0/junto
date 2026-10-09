@@ -12,6 +12,7 @@ import { executeJsonCommand } from "../src/cli/core/output";
 import { featureBunDefineArgs, featureViteDefines, resolveBuildFeatures } from "./build-features";
 import { buildIdentity } from "./build-identity";
 import { machineBundleFiles } from "../src/main/junto/hosts/bundle";
+import { bootRelocatedMachineBundle } from "./machine-bundle-boot";
 
 const NODE_VERSION = "26.10.0";
 const NODE_DIGESTS = {
@@ -103,7 +104,9 @@ export const buildMachine = async (input: BuildMachineInput) => {
     const result = await Bun.build({
       entrypoints: [join(repoRoot, "src/main/headless.ts")], outdir: join(stage, "core"), naming: "junto.cjs", target: "node", format: "cjs",
       external: ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "electron"],
-      define: { __JUNTO_BUILD_ID__: JSON.stringify(build), __JUNTO_APP_VERSION__: JSON.stringify(pkg.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), ...featureViteDefines(features) },
+      // Bun otherwise replaces __filename with each source module's build path.
+      banner: "const __JUNTO_CORE_FILENAME__ = __filename;",
+      define: { __filename: "__JUNTO_CORE_FILENAME__", __JUNTO_BUILD_ID__: JSON.stringify(build), __JUNTO_APP_VERSION__: JSON.stringify(pkg.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), ...featureViteDefines(features) },
       plugins: [{name: "native-fs", setup(builder) {
         builder.onResolve({filter: /^original-fs$/}, () => ({path: "native", namespace: "native-fs"}));
         builder.onLoad({filter: /.*/, namespace: "native-fs"}, () => ({contents: 'module.exports = require("node:fs");', loader: "js"}));
@@ -126,6 +129,7 @@ export const buildMachine = async (input: BuildMachineInput) => {
     if (buildIdentity(repoRoot) !== build) throw new Error("source changed during build; rebuild this bundle");
     const manifest = {build, target:input.target, node:NODE_VERSION, appVersion:pkg.version, files:await machineBundleFiles(stage)};
     await writeFile(join(stage, "manifest.json"), JSON.stringify(manifest)+"\n");
+    await bootRelocatedMachineBundle(stage, build);
     await rename(stage, output);
     return {output, build, target:input.target, node:NODE_VERSION, appVersion:pkg.version, files:manifest.files.length};
   } finally { await rm(stage, {recursive:true, force:true}); }
