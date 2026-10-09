@@ -128,12 +128,62 @@ it("lets nothing on a copy be changed here", () =>
     }),
   ));
 
-it("refuses a copy of a canvas this machine edits, and a copy that names another editing machine", () =>
+it("replaces this machine's own canvas of that name when it never changed, id and editing machine included", () =>
+  run((model, db) =>
+    Effect.gen(function* () {
+      // Every machine that ever opened a window has an empty canvas under the default name.
+      yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas }), "operator");
+      const own = db.prepare("SELECT canvas_id, seq FROM canvases").get()!;
+      expect(own.seq).toBe(0);
+      expect(own.canvas_id).not.toBe("canvas-factory");
+
+      expect(yield* model.installCopy(copy(7))).toEqual({ installed: true, seq: 7 });
+      expect(db.prepare("SELECT canvas_id, seq, editor_installation_id FROM canvases").all()).toEqual([
+        { canvas_id: "canvas-factory", seq: 7, editor_installation_id: EDITOR },
+      ]);
+      expect((yield* model.open(canvas)).nodes.map((held) => held.id).sort()).toEqual(["lead", "peer", "remote"]);
+      // It is a copy now: nothing on it changes here.
+      const refused = yield* Effect.flip(
+        model.command(Schema.decodeUnknownSync(Command)({ _tag: "Remove", canvas, nodes: ["peer"], wires: [] }), "operator"),
+      );
+      expect(String((refused as { rule?: string }).rule ?? refused)).toContain("edited on another machine");
+    }),
+  ));
+
+it("keeps this machine's own canvas of that name once it changed, and says so", () =>
+  run((model, db) =>
+    Effect.gen(function* () {
+      yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas }), "operator");
+      yield* model.command(
+        Schema.decodeUnknownSync(Command)({ _tag: "Add", canvas, nodes: [{ kind: "note", id: "mine", x: 0, y: 0, width: 100, height: 60, z: 0, text: "kept" }], wires: [] }),
+        "operator",
+      );
+      const before = db.prepare("SELECT canvas_id, seq, editor_installation_id FROM canvases").all();
+      const told: CanvasesChanged[] = [];
+      const off = model.subscribeCanvasesChanges((event) => told.push(event));
+
+      expect(yield* model.installCopy(copy(7))).toEqual({ installed: false, refused: "a-canvas-of-that-name" });
+      off();
+      expect(db.prepare("SELECT canvas_id, seq, editor_installation_id FROM canvases").all()).toEqual(before);
+      expect((yield* model.open(canvas)).nodes.map((held) => held.id)).toEqual(["mine"]);
+      expect(told).toEqual([]);
+    }),
+  ));
+
+it("keeps the copy it holds when another machine sends a different canvas of that name, and says so", () =>
   run((model) =>
     Effect.gen(function* () {
-      yield* model.command(Schema.decodeUnknownSync(Command)({ _tag: "CreateCanvas", canvas: "mine" }), "operator");
-      const mine = yield* Effect.flip(model.installCopy(copy(3, { canvas: asCanvasName("mine") })));
-      expect(JSON.stringify(mine)).toContain("does not change which machine edits");
+      yield* model.installCopy(copy(7));
+      expect(
+        yield* model.installCopy(copy(9, { canvasId: "another-canvas-factory", editor: "another-installation" })),
+      ).toEqual({ installed: false, refused: "a-canvas-of-that-name" });
+      expect((yield* model.open(canvas)).seq).toBe(7);
+    }),
+  ));
+
+it("refuses a copy this machine would edit, and a copy that names another editing machine for the canvas it holds", () =>
+  run((model) =>
+    Effect.gen(function* () {
       const own = yield* Effect.flip(model.installCopy(copy(3, { editor: SELF })));
       expect(JSON.stringify(own)).toContain("holds no copy of a canvas it edits");
 

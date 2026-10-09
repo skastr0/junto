@@ -355,7 +355,8 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           yield* sql.unsafe(`DELETE FROM ${table} WHERE canvas_name=?`, [input.canvas]);
         yield* sql`INSERT INTO canvases(canvas_name,canvas_id,created_at,updated_at,seq,editor_installation_id)
           VALUES (${input.canvas},${input.canvasId},${at},${at},${input.seq},${input.editor})
-          ON CONFLICT(canvas_name) DO UPDATE SET seq=excluded.seq, updated_at=excluded.updated_at`;
+          ON CONFLICT(canvas_name) DO UPDATE SET seq=excluded.seq, updated_at=excluded.updated_at,
+            canvas_id=excluded.canvas_id, editor_installation_id=excluded.editor_installation_id`;
         for (const node of input.nodes)
           yield* insert(KIND_TABLES[node.kind], { ...nodeToRow(input.canvas, node), created_at: at, updated_at: at });
         for (const wire of input.wires)

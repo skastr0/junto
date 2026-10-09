@@ -132,8 +132,16 @@ export class ModelService extends Context.Service<ModelService>()(
       /**
        * Take a copy of a canvas another machine edits. A copy replaces what
        * this machine holds of that canvas when it is newer; the same or an
-       * older copy changes nothing. Refused for a canvas this machine edits,
-       * and for a copy whose editing machine is not the one already recorded.
+       * older copy changes nothing.
+       *
+       * A name is one canvas on a machine. When this machine already has
+       * another canvas of that name, the copy is not installed and the answer
+       * says so, with one exception: this machine's own canvas that never
+       * changed holds nothing, so the copy takes its place, id and editing
+       * machine included.
+       *
+       * Refused for a copy this machine would edit, and for a copy that names
+       * another editing machine for a canvas this machine already holds.
        */
       const installCopy = Effect.fn("ModelService.installCopy")(function* (input: {
         readonly canvas: CanvasName;
@@ -146,15 +154,24 @@ export class ModelService extends Context.Service<ModelService>()(
         return yield* sql
           .withTransaction(
             Effect.gen(function* () {
-              if (input.editor === (yield* records.thisInstallation())) {
+              const self = yield* records.thisInstallation();
+              if (input.editor === self) {
                 return yield* refused("A machine holds no copy of a canvas it edits.");
               }
               const header = yield* records.getCanvas(input.canvas);
               if (header !== undefined) {
-                if ((yield* records.canvasEditor(input.canvas)) !== input.editor) {
-                  return yield* refused("A copy does not change which machine edits a canvas.");
+                const editor = yield* records.canvasEditor(input.canvas);
+                if (header.canvas_id !== input.canvasId) {
+                  const ownAndNeverChanged = (editor === undefined || editor === self) && header.seq === 0;
+                  if (!ownAndNeverChanged) {
+                    return { installed: false as const, refused: "a-canvas-of-that-name" as const };
+                  }
+                } else {
+                  if (editor !== input.editor) {
+                    return yield* refused("A copy does not change which machine edits a canvas.");
+                  }
+                  if (header.seq >= input.seq) return { installed: false as const, seq: header.seq };
                 }
-                if (header.seq >= input.seq) return { installed: false as const, seq: header.seq };
               }
               yield* records.replaceCanvas(input);
               const replaced = canvasFromOpened({ canvas: input.canvas, seq: input.seq, nodes: input.nodes, wires: input.wires });
