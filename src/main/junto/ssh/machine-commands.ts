@@ -2,6 +2,17 @@ import { Effect } from "effect";
 import { makeRemoteCommand, type SshTarget } from "./domain";
 import { dedicatedStream } from "./program";
 
+export const openMachineLink = (
+  target: SshTarget,
+  location: { readonly juntoHome: string; readonly installRoot: string },
+) => Effect.gen(function* () {
+  if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* Effect.fail(new Error("machine link requires absolute install paths"));
+  const command = yield* makeRemoteCommand("/usr/bin/env", [
+    `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "link",
+  ]);
+  return dedicatedStream(target, command);
+});
+
 const RECEIVE = `set -eu
 umask 077
 stage=$(mktemp -d "$HOME/.junto-send.XXXXXX")

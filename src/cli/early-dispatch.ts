@@ -13,6 +13,7 @@ export type EarlyDispatch =
   | { readonly kind: "browser"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "content-transfer"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "companion-stdio"; readonly args: ReadonlyArray<string> }
+  | { readonly kind: "link"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "cli"; readonly args: ReadonlyArray<string> };
 
 /**
@@ -24,6 +25,7 @@ export const earlyDispatchFromArgv = (
   argv: ReadonlyArray<string>,
 ): EarlyDispatch => {
   const user = argv.slice(2);
+  if (user[0] === "link") return { kind: "link", args: user.slice(1) };
   if (user[0] === "overseer-host") return { kind: "overseer-host", args: user.slice(1) };
   if (user[0] === "browser") {
     return { kind: "browser", args: user.slice(1) };

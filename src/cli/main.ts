@@ -32,7 +32,9 @@ if (import.meta.main) {
   // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/junto",
   // ...args]. V4 runWith takes user args only — never the full argv.
   const dispatch = earlyDispatchFromArgv(Bun.argv);
-  if (dispatch.kind === "overseer-host") {
+  if (dispatch.kind === "link") {
+    await (await import("./link")).runMachineLink(dispatch.args);
+  } else if (dispatch.kind === "overseer-host") {
     if (LIVE_OVERSEER_ENABLED) {
       await (await import("../overseer-host/main")).runOverseerHost(dispatch.args);
     } else {
