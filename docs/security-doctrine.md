@@ -56,6 +56,9 @@ a filesystem sandbox against the account that owns the files.
 | Another machine | The bound link peer plus authorization for the particular canvas, channel, operation and resource. A successful hello grants no general execution authority. |
 | Paired phone | Its restricted companion transport and live device registry, limited to the companion operations. It is not a machine link or a general operator-command relay. |
 
+The window calls the same closed owner commands for machine operations. It
+adds no authority of its own and cannot bypass their validation or admission.
+
 Ordinary agents never write the canonical canvas through their work API.
 Own-seat onboarding, references, session notes and signals are narrow local
 facilities; they grant no reach to another seat. Signals may be raised without
@@ -113,6 +116,25 @@ machine opens links. At that end, the connection is bound to the selected route
 and its pinned installation id. At the receiving end, the first peer id is accepted
 only during explicit machine setup. A hello cannot enroll itself or select an
 existing peer. Changed ids or names are refused.
+
+Each identity fact has one source: this machine's name in
+`machine_configuration`, and peer name-to-installation bindings in
+`machine_peers`. The machine list holds routes and presentation only; changing
+or recreating a route cannot create or replace a peer binding.
+
+A machine may change its own name only before any peer has ever been pinned,
+including a retired peer, and while no seat or other durable reference names
+it. A pinned peer's name and installation id never change at either end.
+Retirement retains that binding: a different installation under the retired
+name is refused. Rename and replacement under a used name require a later
+explicit design.
+
+Bindings from the retired Station protocol are discarded, not imported as
+pins for this protocol. Existing installation identities needed by durable
+rows are preserved; membership in `known_installations` grants no link
+authority. Every first pin comes from an explicit owner setup and a validated
+hello of this protocol. Migration, discovery and ordinary reconnect cannot
+authorize that setup.
 
 SSH authenticates a host and an account. The incoming installation id is an
 assertion authorized by that account, not cryptographic proof of a particular
