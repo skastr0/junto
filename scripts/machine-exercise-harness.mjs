@@ -9,8 +9,11 @@ if (process.argv.includes('--version')) {
   process.exit(0);
 }
 const home = fs.realpathSync(process.env.JUNTO_HOME);
-const root = path.dirname(home);
-assert.equal(path.basename(home), 'home');
+const root = fs.realpathSync(process.env.JUNTO_EXERCISE_ROOT ?? path.dirname(home));
+// A named Preview home is separate from its disposable harness folder.
+if (home !== path.join(root, 'home')) {
+  assert.equal(fs.readFileSync(path.join(root, 'exercise-home'), 'utf8'), home);
+}
 assert.ok(fs.lstatSync(path.join(root, 'exercise-owner')).isFile());
 function inside(file) {
   const real = fs.realpathSync(file);
